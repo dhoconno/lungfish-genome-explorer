@@ -77,7 +77,7 @@ public final class BAMImportService: @unchecked Sendable {
         materialization: SourceMaterialization = .sortAndIndex,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> ImportResult {
-        let startTime = Date()
+        let runClock = ProvenanceRunClock()
         let fileName = bamURL.lastPathComponent
 
         importLogger.info("Starting BAM import: \(fileName) into \(bundleURL.lastPathComponent)")
@@ -220,7 +220,7 @@ public final class BAMImportService: @unchecked Sendable {
         metadataDB.setFileInfo("unmapped_reads", value: "\(unmappedReads)")
 
         // Record import in provenance
-        let duration = Date().timeIntervalSince(startTime)
+        let duration = runClock.elapsed
         metadataDB.addProvenanceRecord(
             tool: "lungfish",
             subcommand: "import-bam",
@@ -254,8 +254,8 @@ public final class BAMImportService: @unchecked Sendable {
             indexInvocation: materialized.indexInvocation,
             cloneStartedAt: materialized.cloneStartedAt,
             cloneCompletedAt: materialized.cloneCompletedAt,
-            startedAt: startTime,
-            completedAt: Date(),
+            startedAt: runClock.startedAt,
+            completedAt: runClock.now,
             explicitTrackName: name
         )
 
@@ -415,7 +415,7 @@ public final class BAMImportService: @unchecked Sendable {
             progressHandler?(0.05, "Cloning sorted alignment into bundle...")
             let outputURL = alignmentsDir.appendingPathComponent("\(trackId).sorted.bam")
             let indexURL = URL(fileURLWithPath: outputURL.path + ".bai")
-            let startedAt = Date()
+            let cloneClock = ProvenanceRunClock()
             try cloneFile(from: sourceURL, to: outputURL)
             try cloneFile(from: sourceIndexURL, to: indexURL)
             return MaterializedAlignmentResult(
@@ -426,8 +426,8 @@ public final class BAMImportService: @unchecked Sendable {
                 wasSorted: false,
                 sortInvocation: nil,
                 indexInvocation: nil,
-                cloneStartedAt: startedAt,
-                cloneCompletedAt: Date()
+                cloneStartedAt: cloneClock.startedAt,
+                cloneCompletedAt: cloneClock.now
             )
         }
 
@@ -467,9 +467,9 @@ public final class BAMImportService: @unchecked Sendable {
         }
         sortArgs.append(sourceURL.path)
 
-        let sortStartedAt = Date()
+        let sortClock = ProvenanceRunClock()
         let sortResult = try await runner.run(.samtools, arguments: sortArgs, timeout: sortTimeout)
-        let sortCompletedAt = Date()
+        let sortCompletedAt = sortClock.now
         guard sortResult.isSuccess else {
             throw BAMImportError.indexCreationFailed("Failed to sort alignment: \(sortResult.stderr)")
         }
@@ -482,9 +482,9 @@ public final class BAMImportService: @unchecked Sendable {
         if outputFormat == .cram, let referenceFasta {
             indexArgs = ["index", "--reference", referenceFasta, outputURL.path]
         }
-        let indexStartedAt = Date()
+        let indexClock = ProvenanceRunClock()
         let indexResult = try await runner.run(.samtools, arguments: indexArgs, timeout: 3600)
-        let indexCompletedAt = Date()
+        let indexCompletedAt = indexClock.now
         guard indexResult.isSuccess else {
             throw BAMImportError.indexCreationFailed("Failed to index sorted alignment: \(indexResult.stderr)")
         }
@@ -498,12 +498,12 @@ public final class BAMImportService: @unchecked Sendable {
             wasSorted: true,
             sortInvocation: TimedNativeToolResult(
                 result: sortResult,
-                startedAt: sortStartedAt,
+                startedAt: sortClock.startedAt,
                 completedAt: sortCompletedAt
             ),
             indexInvocation: TimedNativeToolResult(
                 result: indexResult,
-                startedAt: indexStartedAt,
+                startedAt: indexClock.startedAt,
                 completedAt: indexCompletedAt
             ),
             cloneStartedAt: nil,

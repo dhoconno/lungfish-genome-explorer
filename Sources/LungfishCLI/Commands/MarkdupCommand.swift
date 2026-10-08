@@ -307,7 +307,7 @@ struct MarkdupCommand: AsyncParsableCommand {
         samtoolsPath: String,
         provenanceDirectory: URL
     ) async throws -> [MarkdupResult] {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         var results: [MarkdupResult] = []
         var provenanceRecords: [MarkdupPipelineRunRecord] = []
         results.reserveCapacity(bamURLs.count)
@@ -327,8 +327,8 @@ struct MarkdupCommand: AsyncParsableCommand {
                     commandInput: commandInput,
                     samtoolsPath: samtoolsPath,
                     outputDirectory: provenanceDirectory,
-                    startedAt: startedAt,
-                    endedAt: Date()
+                    startedAt: runClock.startedAt,
+                    endedAt: runClock.now
                 )
             }
         }
@@ -341,7 +341,7 @@ struct MarkdupCommand: AsyncParsableCommand {
         commandInput: ExecutionInput,
         samtoolsPath: String
     ) async throws -> (result: MarkdupResult, provenanceRecord: MarkdupPipelineRunRecord?) {
-        let startedAt = Date()
+        let markdupClock = ProvenanceRunClock()
         let fm = FileManager.default
 
         guard fm.fileExists(atPath: bamURL.path) else {
@@ -390,7 +390,7 @@ struct MarkdupCommand: AsyncParsableCommand {
                     wasAlreadyMarkduped: true,
                     totalReads: total,
                     duplicateReads: max(0, total - nonDup),
-                    durationSeconds: Date().timeIntervalSince(startedAt)
+                    durationSeconds: markdupClock.elapsed
                 ),
                 try indexInvocation.map { invocation in
                     let baiURL = URL(fileURLWithPath: markedURL.path + ".bai")
@@ -478,7 +478,7 @@ struct MarkdupCommand: AsyncParsableCommand {
                 wasAlreadyMarkduped: false,
                 totalReads: total,
                 duplicateReads: max(0, total - nonDup),
-                durationSeconds: Date().timeIntervalSince(startedAt)
+                durationSeconds: markdupClock.elapsed
             )
             let provenanceRecord = MarkdupPipelineRunRecord(
                 input: inputDescriptor,
@@ -507,8 +507,8 @@ struct MarkdupCommand: AsyncParsableCommand {
                     invocations: invocations,
                     commandInput: commandInput,
                     samtoolsPath: samtoolsPath,
-                    startedAt: startedAt,
-                    endedAt: Date(),
+                    startedAt: markdupClock.startedAt,
+                    endedAt: markdupClock.now,
                     error: reportedError
                 )
             }
@@ -542,7 +542,7 @@ struct MarkdupCommand: AsyncParsableCommand {
     }
 
     private static func runIndex(bamPath: String, samtoolsPath: String) throws -> MarkdupSamtoolsInvocation {
-        let startedAt = Date()
+        let indexClock = ProvenanceRunClock()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: samtoolsPath)
         process.arguments = ["index", bamPath]
@@ -557,7 +557,7 @@ struct MarkdupCommand: AsyncParsableCommand {
         }
         let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        let completedAt = Date()
+        let completedAt = indexClock.now
         let stderr = String(data: errData, encoding: .utf8) ?? ""
         let result = NativeToolResult(
             exitCode: process.terminationStatus,
@@ -570,7 +570,7 @@ struct MarkdupCommand: AsyncParsableCommand {
             throw MarkdupError.indexFailed(stderr: stderr)
         }
         return MarkdupSamtoolsInvocation(
-            startedAt: startedAt,
+            startedAt: indexClock.startedAt,
             completedAt: completedAt,
             result: result
         )
@@ -1108,17 +1108,17 @@ private actor MarkdupPipelineSamtoolsRunner: AlignmentSamtoolsRunning {
     }
 
     func runSamtools(arguments: [String], timeout: TimeInterval) async throws -> NativeToolResult {
-        let startedAt = Date()
+        let samtoolsClock = ProvenanceRunClock()
         let result = try await NativeToolRunner.shared.runProcess(
             executableURL: samtoolsURL,
             arguments: arguments,
             timeout: timeout,
             toolName: "samtools"
         )
-        let completedAt = Date()
+        let completedAt = samtoolsClock.now
         invocations.append(
             MarkdupSamtoolsInvocation(
-                startedAt: startedAt,
+                startedAt: samtoolsClock.startedAt,
                 completedAt: completedAt,
                 result: result
             )

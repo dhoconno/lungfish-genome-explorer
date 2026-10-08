@@ -53,7 +53,7 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
         request: MappedReadsAnnotationRequest,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> MappedReadsAnnotationResult {
-        let workflowStartedAt = Date()
+        let workflowClock = ProvenanceRunClock()
         let bundleURL = request.bundleURL.standardizedFileURL
         progressHandler?(0.02, "Opening bundle...")
         let bundle = try await ReferenceBundle(url: bundleURL)
@@ -89,9 +89,9 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
 
         progressHandler?(0.1, "Reading mapped alignments...")
         let viewArguments = ["view", "-h", sourceAlignmentPath]
-        let samtoolsStartedAt = Date()
+        let samtoolsClock = ProvenanceRunClock()
         let samtoolsResult = try await samtoolsRunner.runSamtools(arguments: viewArguments, timeout: samtoolsTimeout(for: sourceAlignmentPath))
-        let samtoolsCompletedAt = Date()
+        let samtoolsCompletedAt = samtoolsClock.now
         guard samtoolsResult.isSuccess else {
             throw MappedReadsAnnotationServiceError.samtoolsFailed(
                 samtoolsResult.stderr.isEmpty ? "samtools exited with \(samtoolsResult.exitCode)" : samtoolsResult.stderr
@@ -210,11 +210,11 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
                 samtoolsExecution: MappedReadsAnnotationProvenanceWriter.SamtoolsExecution(
                     version: samtoolsVersion,
                     result: samtoolsResult,
-                    startedAt: samtoolsStartedAt,
+                    startedAt: samtoolsClock.startedAt,
                     completedAt: samtoolsCompletedAt
                 ),
-                startedAt: workflowStartedAt,
-                completedAt: Date()
+                startedAt: workflowClock.startedAt,
+                completedAt: workflowClock.now
             ))
 
             progressHandler?(1.0, "Mapped reads annotation track created.")

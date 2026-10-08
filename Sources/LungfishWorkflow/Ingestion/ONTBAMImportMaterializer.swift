@@ -97,13 +97,13 @@ public enum ONTBAMImportMaterializer {
         let bamToFASTQArguments = [
             "fastq", "-F", String(primaryReadFlagFilter), conversionInput.path,
         ]
-        let conversionStartedAt = Date()
+        let conversionClock = ProvenanceRunClock()
         let conversion = try await runner.runWithFileOutput(
             .samtools,
             arguments: bamToFASTQArguments,
             outputFile: fastqURL
         )
-        let conversionEndedAt = Date()
+        let conversionEndedAt = conversionClock.now
         guard conversion.isSuccess else {
             throw ONTBAMImportError.conversionFailed(conversion.stderr)
         }
@@ -123,10 +123,10 @@ public enum ONTBAMImportMaterializer {
             inputs: [ProvenanceRecorder.fileRecord(url: conversionInput, format: .bam, role: .input)],
             outputs: [ProvenanceRecorder.fileRecord(url: fastqURL, format: .fastq, role: .output)],
             exitCode: conversion.exitCode,
-            wallTime: conversionEndedAt.timeIntervalSince(conversionStartedAt),
+            wallTime: conversionEndedAt.timeIntervalSince(conversionClock.startedAt),
             stderr: conversion.stderr.nilIfEmpty,
             dependsOn: collation.map { [$0.step.id] } ?? [],
-            startTime: conversionStartedAt,
+            startTime: conversionClock.startedAt,
             endTime: conversionEndedAt
         )
         // The collated copy is scratch. A failed run leaves it to the
@@ -136,13 +136,13 @@ public enum ONTBAMImportMaterializer {
         }
 
         let compressionArguments = ["-p", String(max(1, threads)), "-c", fastqURL.path]
-        let compressionStartedAt = Date()
+        let compressionClock = ProvenanceRunClock()
         let compression = try await runner.runWithFileOutput(
             .pigz,
             arguments: compressionArguments,
             outputFile: compressedURL
         )
-        let compressionEndedAt = Date()
+        let compressionEndedAt = compressionClock.now
         guard compression.isSuccess else {
             throw ONTBAMImportError.compressionFailed(compression.stderr)
         }
@@ -162,10 +162,10 @@ public enum ONTBAMImportMaterializer {
             inputs: [ProvenanceRecorder.fileRecord(url: fastqURL, format: .fastq, role: .input)],
             outputs: [ProvenanceRecorder.fileRecord(url: compressedURL, format: .fastq, role: .output)],
             exitCode: compression.exitCode,
-            wallTime: compressionEndedAt.timeIntervalSince(compressionStartedAt),
+            wallTime: compressionEndedAt.timeIntervalSince(compressionClock.startedAt),
             stderr: compression.stderr.nilIfEmpty,
             dependsOn: [conversionStep.id],
-            startTime: compressionStartedAt,
+            startTime: compressionClock.startedAt,
             endTime: compressionEndedAt
         )
 
@@ -274,9 +274,9 @@ public enum ONTBAMImportMaterializer {
         // Collation reads and writes the whole BAM twice, so a large file
         // needs longer than the runner's default.
         let timeout = max(900, Double(fileSize(of: pair.r1)) / 2_500_000)
-        let startedAt = Date()
+        let collationClock = ProvenanceRunClock()
         let result = try await runner.run(.samtools, arguments: arguments, timeout: timeout)
-        let endedAt = Date()
+        let endedAt = collationClock.now
         guard result.isSuccess else {
             throw ONTBAMImportError.collationFailed(result.stderr)
         }
@@ -288,9 +288,9 @@ public enum ONTBAMImportMaterializer {
             inputs: [ProvenanceRecorder.fileRecord(url: pair.r1, format: .bam, role: .input)],
             outputs: [ProvenanceRecorder.fileRecord(url: collatedURL, format: .bam, role: .output)],
             exitCode: result.exitCode,
-            wallTime: endedAt.timeIntervalSince(startedAt),
+            wallTime: endedAt.timeIntervalSince(collationClock.startedAt),
             stderr: result.stderr.nilIfEmpty,
-            startTime: startedAt,
+            startTime: collationClock.startedAt,
             endTime: endedAt
         )
         return (collatedURL, step)

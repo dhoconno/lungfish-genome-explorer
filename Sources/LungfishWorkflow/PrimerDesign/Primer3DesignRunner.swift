@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 
 struct Primer3RunInvocation: Sendable {
     let executableURL: URL?
@@ -35,9 +36,9 @@ enum Primer3NativeRunner {
         guard about.exitCode == 0, let version = parseVersion(about.combinedOutput) else { throw Primer3DesignError.versionUnavailable }
         try Task.checkCancellation()
         let arguments = arguments(inputURL: invocation.inputURL, outputURL: invocation.outputURL)
-        let started = Date()
+        let runClock = ProvenanceRunClock()
         let result = try await nativeRunner.runProcess(executableURL: executable, arguments: arguments, workingDirectory: invocation.workingDirectory, toolName: "Primer3")
-        return Primer3RunReceipt(argv: result.arguments, stdout: result.stdout, stderr: result.stderr, exitStatus: result.exitCode, version: version, runtimeIdentity: runtime, startedAt: started, endedAt: Date())
+        return Primer3RunReceipt(argv: result.arguments, stdout: result.stdout, stderr: result.stderr, exitStatus: result.exitCode, version: version, runtimeIdentity: runtime, startedAt: runClock.startedAt, endedAt: runClock.now)
     }
 
     static func parseVersion(_ output: String) -> String? {

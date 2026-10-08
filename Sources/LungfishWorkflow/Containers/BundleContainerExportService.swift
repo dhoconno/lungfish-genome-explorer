@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 
 public struct BundleContainerExportResult: Sendable, Hashable {
     public let outputURL: URL
@@ -20,7 +21,7 @@ public struct BundleContainerExportService {
         pluginPacks: [PluginPack],
         commandLine: [String]
     ) async throws -> BundleContainerExportResult {
-        let start = Date()
+        let runClock = ProvenanceRunClock()
         let bundleURL = bundle.standardizedFileURL
         let outputURL = output.standardizedFileURL
         let payloadFiles = regularFiles(under: bundleURL)
@@ -53,7 +54,7 @@ public struct BundleContainerExportService {
         let manifestDigest = "sha256:\(DeterministicTarWriter.sha256(manifestData))"
         let index = ociIndex(manifestDigest: manifestDigest, manifestSize: manifestData.count)
 
-        let end = Date()
+        let end = runClock.now
         let provenanceData = try jsonData(provenance(
             bundle: bundleURL,
             payloadFiles: payloadFiles,
@@ -67,7 +68,7 @@ public struct BundleContainerExportService {
             manifestSize: manifestData.count,
             layerDigest: layerDigest,
             layerSize: layerTar.count,
-            start: start,
+            start: runClock.startedAt,
             end: end
         ))
 
@@ -95,8 +96,8 @@ public struct BundleContainerExportService {
             layerDigest: layerDigest,
             layerSize: layerTar.count,
             archiveOutputRecord: finalArchiveRecord,
-            start: start,
-            end: Date()
+            start: runClock.startedAt,
+            end: runClock.now
         )
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
         do {

@@ -20,7 +20,7 @@ extension FASTQDerivativeService {
         timeout: TimeInterval? = nil,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector?
     ) async throws -> NativeToolResult {
-        let startedAt = Date()
+        let toolClock = ProvenanceRunClock()
         let result = try await runner.run(
             tool,
             arguments: arguments,
@@ -28,7 +28,7 @@ extension FASTQDerivativeService {
             environment: environment,
             timeout: timeout
         )
-        let completedAt = Date()
+        let completedAt = toolClock.now
         if let provenanceCollector {
             let toolVersion = await runner.getToolVersion(tool)
             provenanceCollector.append(
@@ -36,7 +36,7 @@ extension FASTQDerivativeService {
                     tool: tool,
                     toolVersion: toolVersion,
                     result: result,
-                    startedAt: startedAt,
+                    startedAt: toolClock.startedAt,
                     completedAt: completedAt
                 )
             )

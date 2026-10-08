@@ -729,6 +729,7 @@ public enum GUIImportedProvenanceRehydrator {
         if let suppliedImportStep {
             importStep = suppliedImportStep
         } else {
+            let importedAt = Date()
             importStep = ProvenanceStep(
                 toolName: "lungfish-app",
                 toolVersion: WorkflowRun.currentAppVersion,
@@ -736,10 +737,9 @@ public enum GUIImportedProvenanceRehydrator {
                 durableReplayArgv: ["lungfish-app", "gui-import", destinationURL.path],
                 inputs: [try importStepInput(for: sourceURL)],
                 outputs: outputs,
-                exitStatus: 0,
-                wallTimeSeconds: 0,
-                startedAt: Date(),
-                completedAt: Date()
+                exitStatus: 0, wallTimeSeconds: 0,
+                startedAt: importedAt,
+                completedAt: importedAt
             )
         }
 

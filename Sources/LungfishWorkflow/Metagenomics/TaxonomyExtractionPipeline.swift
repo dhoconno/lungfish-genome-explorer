@@ -88,14 +88,14 @@ public actor TaxonomyExtractionPipeline {
         tree: TaxonTree,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> [URL] {
-        let startTime = Date()
+        let runClock = ProvenanceRunClock()
         let extraction = try await extractEachSource(config: config, tree: tree, progress: progress)
         let outputURLs = extraction.outputs.compactMap { $0 }
 
         // Phase 4: Provenance recording (0.95 -- 1.00)
         progress?(0.95, "Recording provenance...")
 
-        let runtime = Date().timeIntervalSince(startTime)
+        let runtime = runClock.elapsed
         try await recordProvenance(
             config: config,
             resolvedTaxIds: extraction.taxIds,

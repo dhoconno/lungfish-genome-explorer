@@ -65,7 +65,7 @@ struct UniversalSearchCommand: AsyncParsableCommand {
                     : "Building universal search index..."
                 print(formatter.info(message))
             }
-            let rebuildStartedAt = Date()
+            let rebuildClock = ProvenanceRunClock()
             rebuildStats = try index.rebuild()
             try UniversalSearchIndexProvenanceWriter.write(
                 UniversalSearchIndexProvenanceRequest(
@@ -80,8 +80,8 @@ struct UniversalSearchCommand: AsyncParsableCommand {
                     defaults: defaultProvenanceOptions(),
                     resolvedDefaults: resolvedProvenanceOptions(boundedLimit: boundedLimit),
                     buildStats: rebuildStats,
-                    startedAt: rebuildStartedAt,
-                    completedAt: Date()
+                    startedAt: rebuildClock.startedAt,
+                    completedAt: rebuildClock.now
                 )
             )
         }

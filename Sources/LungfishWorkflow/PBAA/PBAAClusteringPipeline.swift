@@ -83,9 +83,10 @@ public struct PBAAClusteringPipeline: Sendable {
         let rawOutputDirectory = request.rawPBAAOutputDirectory
         try FileManager.default.createDirectory(at: rawOutputDirectory, withIntermediateDirectories: true)
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
+        let startedAt = runClock.startedAt
         let runResult = try await nextflowRunner.run(request: request, workflowDirectory: workflowDirectory)
-        let completedAt = Date()
+        let completedAt = runClock.now
 
         guard runResult.exitCode == 0 else {
             try writePBAAProvenance(

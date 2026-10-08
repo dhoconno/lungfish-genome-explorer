@@ -160,7 +160,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             "--output", outputURL.path,
         ]
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         do {
             let records = try mhcReferenceRecords(
                 sourceURL: sourceURL,
@@ -181,7 +181,7 @@ extension FullLengthONTMHCGenotypingPipeline {
                 FullLengthONTMHCReferenceCatalogProjection.self,
                 from: Data(contentsOf: outputURL)
             )
-            let completedAt = Date()
+            let completedAt = runClock.now
             let completenessCounts = Dictionary(grouping: projection.records, by: \.completeness.status)
             return (
                 projection.records,
@@ -204,13 +204,13 @@ extension FullLengthONTMHCGenotypingPipeline {
                     outputs: [outputURL],
                     exitStatus: 0,
                     stderr: nil,
-                    startedAt: startedAt,
+                    startedAt: runClock.startedAt,
                     completedAt: completedAt
                 )
             )
         } catch {
             throw FullLengthONTMHCGenotypingError.reportFailed(
-                "MHC reference catalog import failed after \(Date().timeIntervalSince(startedAt)) seconds: \(error.localizedDescription)"
+                "MHC reference catalog import failed after \(runClock.elapsed) seconds: \(error.localizedDescription)"
             )
         }
     }
@@ -261,7 +261,8 @@ extension FullLengthONTMHCGenotypingPipeline {
             finalReferenceDirectoryURL.appendingPathComponent("mhc-reference-records.gb"),
             finalReferenceDirectoryURL.appendingPathComponent("mhc-reference-records.fasta"),
         ]
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
+        let startedAt = runClock.startedAt
         let sourceReferenceURLs = try mhcReferenceVisualizationInputURLs(
             sourceURL: referenceBundleURL,
             fastaURL: referenceFASTAURL
@@ -392,11 +393,11 @@ extension FullLengthONTMHCGenotypingPipeline {
                 outputs: publication.outputURLs,
                 exitStatus: 0,
                 stderr: nil,
-                completedAt: Date()
+                completedAt: runClock.now
             ))
             return publication
         } catch {
-            let completedAt = Date()
+            let completedAt = runClock.now
             let visualizationFailure = error
             let failureInputDirectoryURL = URL(
                 fileURLWithPath: finalOutputDirectoryURL.standardizedFileURL.path

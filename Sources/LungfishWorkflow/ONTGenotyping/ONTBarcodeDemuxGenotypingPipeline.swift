@@ -237,7 +237,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         _ request: ONTBarcodeDemuxGenotypingRunRequest,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> ONTBarcodeDemuxGenotypingResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let runID = UUID()
         let processIdentity = try OwnedProcessIdentity.current()
         let outputParent = request.outputDirectory.deletingLastPathComponent().standardizedFileURL
@@ -313,7 +313,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             record: AnalysisRunRecord(
                 analysisName: Self.workflowName(for: resolvedMode),
                 command: request.argv.map(shellEscape).joined(separator: " "),
-                startedAt: startedAt
+                startedAt: runClock.startedAt
             )
         )
         try FileManager.default.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
@@ -501,7 +501,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             let report = try await runReport(request: request, manifest: reportManifest,
                 analysis: haplotypeAnalysis, catalog: reviewableRowCatalogPublication?.document, pythonURL: reportPythonURL, reportArtifacts: &reportArtifacts)
             let reportScriptURL = report.export.snapshotURL.deletingLastPathComponent().appendingPathComponent("renderer.py")
-            let completedAt = Date()
+            let completedAt = runClock.now
             progressHandler?(0.93, "Writing reproducibility provenance and bundle manifest.")
             let provenanceURL = try writeProvenance(
                 request: request,
@@ -527,7 +527,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 referenceRecordStoreSnapshot: referenceRecordStoreSnapshot,
                 scientificArtifactPublication: scientificArtifactPublication,
                 reviewableRowCatalogPublication: reviewableRowCatalogPublication,
-                startedAt: startedAt,
+                startedAt: runClock.startedAt,
                 completedAt: completedAt
             )
             try writeBundleManifest(
@@ -696,7 +696,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 runID: runID,
                 projectRoot: projectRoot,
                 supportDirectory: supportDirectory,
-                startedAt: startedAt,
+                runClock: runClock,
                 resolvedMode: resolvedMode,
                 resolvedReadType: resolvedReadType,
                 failureScientificFASTQURLs: failureScientificFASTQURLs,
@@ -747,7 +747,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         runID: UUID,
         projectRoot: URL,
         supportDirectory: URL,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         resolvedMode: AmpliconGenotypingMode,
         resolvedReadType: AmpliconGenotypingReadType,
         failureScientificFASTQURLs: [URL],
@@ -764,7 +764,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 request: request,
                 runID: runID,
                 projectRoot: projectRoot,
-                startedAt: startedAt,
+                runClock: runClock,
                 resolvedMode: resolvedMode,
                 resolvedReadType: resolvedReadType,
                 failureScientificFASTQURLs: failureScientificFASTQURLs,
@@ -782,7 +782,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 let receipt = try failureProvenancePreparationReceiptData(
                     request: request,
                     runID: runID,
-                    startedAt: startedAt,
+                    runClock: runClock,
                     resolvedMode: resolvedMode,
                     resolvedReadType: resolvedReadType,
                     originalError: originalError,
@@ -945,13 +945,13 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     private func failureProvenancePreparationReceiptData(
         request: ONTBarcodeDemuxGenotypingRunRequest,
         runID: UUID,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         resolvedMode: AmpliconGenotypingMode,
         resolvedReadType: AmpliconGenotypingReadType,
         originalError: Error,
         preparationError: AmpliconFailureProvenancePreparationError
     ) throws -> Data {
-        let completedAt = Date()
+        let completedAt = runClock.now
         let payload: [String: Any] = [
             "schemaVersion": 1,
             "kind": "incomplete-failure-provenance-preparation",
@@ -986,9 +986,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "output": request.outputDirectory.path,
             "preparationError": preparationError.localizedDescription,
             "originalError": originalError.localizedDescription,
-            "startedAt": ISO8601DateFormatter().string(from: startedAt),
+            "startedAt": ISO8601DateFormatter().string(from: runClock.startedAt),
             "completedAt": ISO8601DateFormatter().string(from: completedAt),
-            "wallTimeSeconds": completedAt.timeIntervalSince(startedAt),
+            "wallTimeSeconds": completedAt.timeIntervalSince(runClock.startedAt),
             "exitStatus": 1,
             "stderr": [
                 originalError.localizedDescription,
@@ -1267,14 +1267,14 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         request: ONTBarcodeDemuxGenotypingRunRequest,
         runID: UUID,
         projectRoot: URL,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         resolvedMode: AmpliconGenotypingMode,
         resolvedReadType: AmpliconGenotypingReadType,
         failureScientificFASTQURLs: [URL],
         error: Error,
         reportArtifacts: GenotypePipelineReportArtifactOwnership
     ) throws {
-        let completedAt = Date()
+        let completedAt = runClock.now
         let inputs = try failureScientificInputDescriptors(
             for: request,
             failureScientificFASTQURLs: failureScientificFASTQURLs
@@ -1317,9 +1317,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "outputs": outputs,
             "reportArtifactDiagnostics": reportInventory.diagnostics,
             "output": request.outputDirectory.path,
-            "startedAt": ISO8601DateFormatter().string(from: startedAt),
+            "startedAt": ISO8601DateFormatter().string(from: runClock.startedAt),
             "completedAt": ISO8601DateFormatter().string(from: completedAt),
-            "wallTimeSeconds": completedAt.timeIntervalSince(startedAt),
+            "wallTimeSeconds": completedAt.timeIntervalSince(runClock.startedAt),
             "exitStatus": 1,
             "stderr": error.localizedDescription,
         ]
@@ -2461,7 +2461,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             )
         }
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let invocation = try await runMappingInvocation(
             request: request,
             resolvedMode: resolvedMode,
@@ -2490,7 +2490,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             samtoolsSortStderr: invocation.samtoolsSortStderr,
             samtoolsMergeStderr: "",
             samtoolsIndexStderr: indexStderr,
-            wallClockSeconds: Date().timeIntervalSince(startedAt),
+            wallClockSeconds: runClock.elapsed,
             invocations: [invocation],
             transientBAMURLs: []
         )
@@ -2504,7 +2504,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         minimap2URL: URL,
         samtoolsURL: URL
     ) async throws -> MappingStepResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         var invocations: [MappingInvocationResult] = []
 
         if resolvedMode == .illuminaPaired, preparation.samples.count > 1 {
@@ -2582,7 +2582,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             samtoolsSortStderr: invocations.map(\.samtoolsSortStderr).joined(separator: "\n"),
             samtoolsMergeStderr: mergeStderr,
             samtoolsIndexStderr: indexStderr,
-            wallClockSeconds: Date().timeIntervalSince(startedAt),
+            wallClockSeconds: runClock.elapsed,
             invocations: invocations,
             transientBAMURLs: transientBAMURLs
         )
@@ -2619,7 +2619,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "-o", outputBAMURL.path,
             "-",
         ]
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
 
         try FileManager.default.createDirectory(at: outputBAMURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let stdoutPipe = Pipe()
@@ -2813,7 +2813,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             samtoolsSortArguments: sortArguments,
             minimap2Stderr: minimap2Stderr,
             samtoolsSortStderr: sortStderr,
-            wallClockSeconds: Date().timeIntervalSince(startedAt)
+            wallClockSeconds: runClock.elapsed
         )
     }
 
@@ -2963,7 +2963,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         if requireBothEndSoftclips {
             arguments.append("--require-both-end-softclips")
         }
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let result = try await condaManager.runTool(
             name: pythonURL.lastPathComponent,
             arguments: arguments,
@@ -2981,7 +2981,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             arguments: arguments,
             stdout: result.stdout,
             stderr: result.stderr,
-            wallClockSeconds: Date().timeIntervalSince(startedAt),
+            wallClockSeconds: runClock.elapsed,
             stats: stats
         )
     }
@@ -2991,7 +2991,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         analysis: GenotypeHaplotypeAnalysis?, catalog: GenotypeReviewableRowCatalog?, pythonURL: URL,
         reportArtifacts: inout GenotypePipelineReportArtifactOwnership
     ) async throws -> ReportStepResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let exported = try await GenotypePipelineExcelReport.write(physicalDirectory: request.outputDirectory,
             finalDirectory: request.outputDirectory, manifest: manifest, analysis: analysis,
             definition: try analysis.map { _ in try JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self,
@@ -2999,7 +2999,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             python: pythonURL, argv: request.argv, condaRoot: condaManager.rootPrefix)
         try reportArtifacts.captureExport(exported)
         return ReportStepResult(arguments: Array(exported.execution.executedArgv.dropFirst()),
-            stdout: "", stderr: exported.execution.stderr, wallClockSeconds: Date().timeIntervalSince(startedAt),
+            stdout: "", stderr: exported.execution.stderr, wallClockSeconds: runClock.elapsed,
             summary: ReportSummary(outputXLSX: exported.outputURL.path, provenanceJSON: exported.receiptURL.path,
                 openpyxlVersion: exported.execution.openpyxlVersion,
                 sheetNames: exported.execution.sheetNames),

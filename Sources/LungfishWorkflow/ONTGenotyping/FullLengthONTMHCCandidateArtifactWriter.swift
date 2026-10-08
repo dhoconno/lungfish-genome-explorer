@@ -427,12 +427,12 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             try FullLengthONTMHCArtifactDescriptor(url: $0, role: .commandInput, phase: .input)
         }
         let stagedStableFASTAURL = stagedRootURL.appendingPathComponent("deduplicated_unmatched_clusters.fasta")
-        let stableFASTAStartedAt = Date()
+        let stableFASTAClock = ProvenanceRunClock()
         try writeFASTA(grouped.map { ($0.id, $0.sequence) }, to: stagedStableFASTAURL)
         let stagedStableDescriptor = try FullLengthONTMHCArtifactDescriptor(
             url: stagedStableFASTAURL, role: .sourceClusterFASTA, phase: .temporary
         )
-        let stableFASTACompletedAt = Date()
+        let stableFASTACompletedAt = stableFASTAClock.now
         transformations.append(.init(
             workflowName: "lungfish-in-process:construct-stable-unmatched-cluster-fasta",
             workflowVersion: WorkflowRun.currentAppVersion,
@@ -454,9 +454,9 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             inputs: [canonicalDescriptor],
             outputs: [stagedStableDescriptor],
             exitStatus: 0,
-            startedAt: stableFASTAStartedAt,
+            startedAt: stableFASTAClock.startedAt,
             completedAt: stableFASTACompletedAt,
-            wallTime: stableFASTACompletedAt.timeIntervalSince(stableFASTAStartedAt)
+            wallTime: stableFASTACompletedAt.timeIntervalSince(stableFASTAClock.startedAt)
         ))
 
         let minimap2URL = try executable(named: "minimap2")
@@ -541,7 +541,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let reciprocalBAMRelativePath = "artifacts/alignments/unmatched-to-reference.bam"
         let finalBAMURL = request.outputDirectoryURL.appendingPathComponent(reciprocalBAMRelativePath)
         let finalBAIURL = request.outputDirectoryURL.appendingPathComponent("artifacts/alignments/unmatched-to-reference.bam.bai")
-        let classificationStartedAt = Date()
+        let classificationClock = ProvenanceRunClock()
         let alignments = try FullLengthONTMHCReciprocalSAMParser().parse(
             reciprocalViewURL,
             clusterIDs: Set(grouped.map(\.id)),
@@ -601,7 +601,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             role: .evidenceBAI,
             phase: .staging
         )
-        let classificationCompletedAt = Date()
+        let classificationCompletedAt = classificationClock.now
         var classificationArgv = [
             "lungfish-in-process", "parse-and-classify-reciprocal-mhc-alignments",
             "--minimum-aligned-bases", String(request.thresholds.minimumAlignedBases),
@@ -639,9 +639,9 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             ] + [referenceCatalogDescriptor].compactMap { $0 },
             outputs: [],
             exitStatus: 0,
-            startedAt: classificationStartedAt,
+            startedAt: classificationClock.startedAt,
             completedAt: classificationCompletedAt,
-            wallTime: classificationCompletedAt.timeIntervalSince(classificationStartedAt)
+            wallTime: classificationCompletedAt.timeIntervalSince(classificationClock.startedAt)
         ))
         let rawCandidates = classifications.compactMap { result -> ONTMHCCandidateRecord? in
             guard case .candidate(let record) = result else { return nil }
@@ -694,7 +694,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         )
         let rawObservationPayload = grouped.flatMap(\.observations)
             .sorted(by: Self.observationLessThan)
-        let canonicalizationPayloadStartedAt = Date()
+        let canonicalizationPayloadClock = ProvenanceRunClock()
         try writeCanonicalJSON(
             FullLengthONTMHCCanonicalizationInputDocument(
                 schemaVersion: 2,
@@ -735,7 +735,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             canonicalDescriptor, referenceDescriptor, reciprocalViewDescriptor,
             reciprocalBAMDescriptor, reciprocalBAIDescriptor,
         ] + annotationInputDescriptors + genotypingEvidenceInputDescriptors
-        let canonicalizationPayloadCompletedAt = Date()
+        let canonicalizationPayloadCompletedAt = canonicalizationPayloadClock.now
         transformations.append(.init(
             workflowName: "lungfish-in-process:serialize-mhc-canonicalization-input",
             workflowVersion: WorkflowRun.currentAppVersion,
@@ -757,10 +757,10 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             inputs: canonicalizationPayloadSourceDescriptors,
             outputs: [stagedCanonicalizationPayloadDescriptor],
             exitStatus: 0,
-            startedAt: canonicalizationPayloadStartedAt,
+            startedAt: canonicalizationPayloadClock.startedAt,
             completedAt: canonicalizationPayloadCompletedAt,
             wallTime: canonicalizationPayloadCompletedAt.timeIntervalSince(
-                canonicalizationPayloadStartedAt
+                canonicalizationPayloadClock.startedAt
             )
         ))
         let referenceVisualization: ONTMHCReferenceVisualizationArtifact?
@@ -779,7 +779,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             referenceCatalog = nil
             referenceVisualization = nil
         }
-        let canonicalizationStartedAt = Date()
+        let canonicalizationClock = ProvenanceRunClock()
         let preparedCandidates = try rawCandidates.map { candidate in
             let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
                 subject: .candidate(candidate),
@@ -1090,7 +1090,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             referenceDescriptor, reciprocalViewDescriptor,
             reciprocalBAMDescriptor, reciprocalBAIDescriptor,
         ] + annotationInputDescriptors + genotypingEvidenceInputDescriptors
-        let canonicalizationCompletedAt = Date()
+        let canonicalizationCompletedAt = canonicalizationClock.now
         let canonicalizationResolvedOptions = Self.canonicalizationResolvedOptions(
             thresholds: request.thresholds,
             rawCandidateCount: rawCandidates.count,
@@ -1126,30 +1126,30 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             inputs: canonicalizationInputDescriptors,
             outputs: [],
             exitStatus: 0,
-            startedAt: canonicalizationStartedAt,
+            startedAt: canonicalizationClock.startedAt,
             completedAt: canonicalizationCompletedAt,
-            wallTime: canonicalizationCompletedAt.timeIntervalSince(canonicalizationStartedAt)
+            wallTime: canonicalizationCompletedAt.timeIntervalSince(canonicalizationClock.startedAt)
         ))
         let candidateFASTAURL = stagedRootURL.appendingPathComponent("candidate_alleles.fasta")
         let unnameableFASTAURL = stagedRootURL.appendingPathComponent("unnameable_unmatched_clusters.fasta")
-        let candidateFASTAStartedAt = Date()
+        let candidateFASTAClock = ProvenanceRunClock()
         try writeFASTA(candidates.map {
             ($0.stableClusterID, canonicalSequenceByID[$0.stableClusterID]!)
         }, to: candidateFASTAURL)
         let candidateFASTADescriptor = try FullLengthONTMHCArtifactDescriptor(
             url: candidateFASTAURL, role: .sourceClusterFASTA, phase: .staging
         )
-        let candidateFASTACompletedAt = Date()
+        let candidateFASTACompletedAt = candidateFASTAClock.now
         transformations.append(Self.renderTransformation(
             name: "render-mhc-candidate-fasta",
             inputs: canonicalizationInputDescriptors,
             output: candidateFASTADescriptor,
             recordCount: candidates.count,
             additionalResolvedOptions: canonicalizationResolvedOptions,
-            startedAt: candidateFASTAStartedAt,
+            startedAt: candidateFASTAClock.startedAt,
             completedAt: candidateFASTACompletedAt
         ))
-        let unnameableFASTAStartedAt = Date()
+        let unnameableFASTAClock = ProvenanceRunClock()
         let unnameableFASTARecords = unnameable.compactMap { record -> (String, String)? in
             guard let id = record.fastaRecordID,
                   let sequence = unnameableExternalSequences[id] else { return nil }
@@ -1162,21 +1162,21 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let unnameableFASTADescriptor = try FullLengthONTMHCArtifactDescriptor(
             url: unnameableFASTAURL, role: .sourceClusterFASTA, phase: .staging
         )
-        let unnameableFASTACompletedAt = Date()
+        let unnameableFASTACompletedAt = unnameableFASTAClock.now
         transformations.append(Self.renderTransformation(
             name: "render-mhc-unnameable-fasta",
             inputs: canonicalizationInputDescriptors,
             output: unnameableFASTADescriptor,
             recordCount: unnameableFASTARecords.count,
             additionalResolvedOptions: canonicalizationResolvedOptions,
-            startedAt: unnameableFASTAStartedAt,
+            startedAt: unnameableFASTAClock.startedAt,
             completedAt: unnameableFASTACompletedAt
         ))
 
         let sourceMapURL = internalDirectoryURL.appendingPathComponent(
             "mhc-candidate-source-map.json"
         )
-        let sourceIdentityStartedAt = Date()
+        let sourceIdentityClock = ProvenanceRunClock()
         let rawInternalFASTAReference = try artifactReference(
             request.rawUnmatchedConsensusesFASTAURL,
             finalRelativePath: "artifacts/internal/raw-unmatched-consensuses.fasta"
@@ -1261,7 +1261,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             role: .commandOutput,
             phase: .staging
         )
-        let sourceIdentityCompletedAt = Date()
+        let sourceIdentityCompletedAt = sourceIdentityClock.now
         transformations.append(.init(
             workflowName: "lungfish-in-process:render-mhc-candidate-source-identity",
             workflowVersion: WorkflowRun.currentAppVersion,
@@ -1276,9 +1276,9 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             inputs: canonicalizationInputDescriptors,
             outputs: [sourceMapDescriptor],
             exitStatus: 0,
-            startedAt: sourceIdentityStartedAt,
+            startedAt: sourceIdentityClock.startedAt,
             completedAt: sourceIdentityCompletedAt,
-            wallTime: sourceIdentityCompletedAt.timeIntervalSince(sourceIdentityStartedAt)
+            wallTime: sourceIdentityCompletedAt.timeIntervalSince(sourceIdentityClock.startedAt)
         ))
 
         let reciprocalBAMReference = try artifactReference(stagedBAMURL, finalRelativePath: "artifacts/alignments/unmatched-to-reference.bam")
@@ -1330,12 +1330,12 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         )
         let candidateJSONURL = stagedRootURL.appendingPathComponent("candidate-alleles.json")
         let unnameableJSONURL = stagedRootURL.appendingPathComponent("unnameable-unmatched-clusters.json")
-        let candidateJSONStartedAt = Date()
+        let candidateJSONClock = ProvenanceRunClock()
         try writeCanonicalJSON(candidateDocument, to: candidateJSONURL)
         let candidateJSONDescriptor = try FullLengthONTMHCArtifactDescriptor(
             url: candidateJSONURL, role: .commandOutput, phase: .staging
         )
-        let candidateJSONCompletedAt = Date()
+        let candidateJSONCompletedAt = candidateJSONClock.now
         transformations.append(Self.renderTransformation(
             name: "render-mhc-candidate-json",
             inputs: canonicalizationInputDescriptors + [candidateFASTADescriptor],
@@ -1347,15 +1347,15 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 reciprocalBAMPath: reciprocalBAMRelativePath
                 )
             ) { _, value in value },
-            startedAt: candidateJSONStartedAt,
+            startedAt: candidateJSONClock.startedAt,
             completedAt: candidateJSONCompletedAt
         ))
-        let unnameableJSONStartedAt = Date()
+        let unnameableJSONClock = ProvenanceRunClock()
         try writeCanonicalJSON(unnameableDocument, to: unnameableJSONURL)
         let unnameableJSONDescriptor = try FullLengthONTMHCArtifactDescriptor(
             url: unnameableJSONURL, role: .commandOutput, phase: .staging
         )
-        let unnameableJSONCompletedAt = Date()
+        let unnameableJSONCompletedAt = unnameableJSONClock.now
         transformations.append(Self.renderTransformation(
             name: "render-mhc-unnameable-json",
             inputs: canonicalizationInputDescriptors + [unnameableFASTADescriptor],
@@ -1367,14 +1367,14 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 reciprocalBAMPath: reciprocalBAMRelativePath
                 )
             ) { _, value in value },
-            startedAt: unnameableJSONStartedAt,
+            startedAt: unnameableJSONClock.startedAt,
             completedAt: unnameableJSONCompletedAt
         ))
         let candidateJSONReference = try artifactReference(candidateJSONURL, finalRelativePath: "candidate-alleles.json")
         let unnameableJSONReference = try artifactReference(unnameableJSONURL, finalRelativePath: "unnameable-unmatched-clusters.json")
 
         let candidateGenBankURL = stagedRootURL.appendingPathComponent("candidate_alleles.gb")
-        let candidateGenBankStartedAt = Date()
+        let candidateGenBankClock = ProvenanceRunClock()
         let candidateGenBankRecords = try canonicalCandidates.map {
             try canonicalGenBankRecord(
                 $0.representativeCanonicalization.record,
@@ -1388,10 +1388,10 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let candidateGenBankDescriptor = try FullLengthONTMHCArtifactDescriptor(
             url: candidateGenBankURL, role: .commandOutput, phase: .staging
         )
-        let candidateGenBankCompletedAt = Date()
+        let candidateGenBankCompletedAt = candidateGenBankClock.now
 
         let unnameableGenBankURL = stagedRootURL.appendingPathComponent("unnameable_unmatched_clusters.gb")
-        let unnameableGenBankStartedAt = Date()
+        let unnameableGenBankClock = ProvenanceRunClock()
         let unnameableGenBankRecords = try zip(unnameable, preparedUnnameable).compactMap {
             record, prepared -> GenBankRecord? in
             guard let externalID = record.fastaRecordID,
@@ -1410,7 +1410,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let unnameableGenBankDescriptor = try FullLengthONTMHCArtifactDescriptor(
             url: unnameableGenBankURL, role: .commandOutput, phase: .staging
         )
-        let unnameableGenBankCompletedAt = Date()
+        let unnameableGenBankCompletedAt = unnameableGenBankClock.now
         let commonGenBankResolvedOptions: [String: String] = [
             "analysisName": request.analysisName,
             "projectBundleName": request.projectBundleName ?? "unavailable",
@@ -1445,7 +1445,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             output: candidateGenBankDescriptor,
             recordCount: candidateGenBankRecords.count,
             additionalResolvedOptions: candidateGenBankResolvedOptions,
-            startedAt: candidateGenBankStartedAt,
+            startedAt: candidateGenBankClock.startedAt,
             completedAt: candidateGenBankCompletedAt
         ))
         transformations.append(Self.renderTransformation(
@@ -1455,7 +1455,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             output: unnameableGenBankDescriptor,
             recordCount: unnameableGenBankRecords.count,
             additionalResolvedOptions: unnameableGenBankResolvedOptions,
-            startedAt: unnameableGenBankStartedAt,
+            startedAt: unnameableGenBankClock.startedAt,
             completedAt: unnameableGenBankCompletedAt
         ))
         let candidateGenBankReference = try artifactReference(
@@ -1468,12 +1468,12 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         )
 
         let candidateEMBLURL = stagedRootURL.appendingPathComponent("candidate_alleles.embl")
-        let candidateEMBLStartedAt = Date()
+        let candidateEMBLClock = ProvenanceRunClock()
         try FullLengthONTMHCEMBLWriter().write(candidateGenBankRecords, to: candidateEMBLURL)
         let candidateEMBLDescriptor = try FullLengthONTMHCArtifactDescriptor(
             url: candidateEMBLURL, role: .commandOutput, phase: .staging
         )
-        let candidateEMBLCompletedAt = Date()
+        let candidateEMBLCompletedAt = candidateEMBLClock.now
         transformations.append(Self.renderTransformation(
             name: "render-mhc-candidate-embl",
             inputs: canonicalizationInputDescriptors
@@ -1484,14 +1484,14 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 "flatFileFormat": "EMBL",
                 "validationCommentRule": "preserve-GenBank-validation-comments",
             ]) { _, candidate in candidate },
-            startedAt: candidateEMBLStartedAt,
+            startedAt: candidateEMBLClock.startedAt,
             completedAt: candidateEMBLCompletedAt
         ))
 
         let unnameableEMBLURL = stagedRootURL.appendingPathComponent(
             "unnameable_unmatched_clusters.embl"
         )
-        let unnameableEMBLStartedAt = Date()
+        let unnameableEMBLClock = ProvenanceRunClock()
         try FullLengthONTMHCEMBLWriter().write(
             unnameableGenBankRecords,
             to: unnameableEMBLURL
@@ -1499,7 +1499,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let unnameableEMBLDescriptor = try FullLengthONTMHCArtifactDescriptor(
             url: unnameableEMBLURL, role: .commandOutput, phase: .staging
         )
-        let unnameableEMBLCompletedAt = Date()
+        let unnameableEMBLCompletedAt = unnameableEMBLClock.now
         transformations.append(Self.renderTransformation(
             name: "render-mhc-unnameable-embl",
             inputs: canonicalizationInputDescriptors
@@ -1510,7 +1510,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 "flatFileFormat": "EMBL",
                 "validationCommentRule": "partial-observation-warning-required",
             ]) { _, candidate in candidate },
-            startedAt: unnameableEMBLStartedAt,
+            startedAt: unnameableEMBLClock.startedAt,
             completedAt: unnameableEMBLCompletedAt
         ))
         let candidateEMBLReference = try artifactReference(
@@ -1539,7 +1539,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             stagedCanonicalizationPayloadDescriptor,
             sourceMapDescriptor,
         ]
-        let canonicalDedupStartedAt = Date()
+        let canonicalDedupClock = ProvenanceRunClock()
         try Data(contentsOf: candidateFASTAURL).write(
             to: stagedStableFASTAURL,
             options: .atomic
@@ -1549,7 +1549,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             role: .sourceClusterFASTA,
             phase: .staging
         )
-        let canonicalDedupCompletedAt = Date()
+        let canonicalDedupCompletedAt = canonicalDedupClock.now
         transformations.append(.init(
             workflowName: "lungfish-in-process:publish-canonical-deduplicated-unmatched-fasta",
             workflowVersion: WorkflowRun.currentAppVersion,
@@ -1566,12 +1566,12 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             inputs: [candidateFASTADescriptor],
             outputs: [canonicalDedupDescriptor],
             exitStatus: 0,
-            startedAt: canonicalDedupStartedAt,
+            startedAt: canonicalDedupClock.startedAt,
             completedAt: canonicalDedupCompletedAt,
-            wallTime: canonicalDedupCompletedAt.timeIntervalSince(canonicalDedupStartedAt)
+            wallTime: canonicalDedupCompletedAt.timeIntervalSince(canonicalDedupClock.startedAt)
         ))
         stagedPublicationDescriptors.append(canonicalDedupDescriptor)
-        let materializationStartedAt = Date()
+        let materializationClock = ProvenanceRunClock()
         try materializeStagingGeneration(
             stagedRootURL: stagedRootURL,
             outputDirectoryURL: request.outputDirectoryURL,
@@ -1591,7 +1591,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 "artifacts/internal/mhc-candidate-source-map.json",
             ]
         )
-        let materializationCompletedAt = Date()
+        let materializationCompletedAt = materializationClock.now
         let finalPublicationURLs: [(URL, FullLengthONTMHCArtifactRole)] = [
             (finalBAMURL, .evidenceBAM),
             (finalBAIURL, .evidenceBAI),
@@ -1607,11 +1607,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             (request.outputDirectoryURL.appendingPathComponent("artifacts/internal/mhc-candidate-canonicalization-input.json"), .commandInput),
             (request.outputDirectoryURL.appendingPathComponent("artifacts/internal/mhc-candidate-source-map.json"), .commandOutput),
         ]
-        let checksumStartedAt = Date()
+        let checksumClock = ProvenanceRunClock()
         let finalPublicationDescriptors = try finalPublicationURLs.map {
             try artifactDescriptorProvider.descriptor(for: $0.0, role: $0.1, phase: .staging)
         }
-        let checksumCompletedAt = Date()
+        let checksumCompletedAt = checksumClock.now
         transformations.append(.init(
             workflowName: "lungfish-in-process:materialize-mhc-candidate-staging-generation",
             workflowVersion: WorkflowRun.currentAppVersion,
@@ -1628,9 +1628,9 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             inputs: stagedPublicationDescriptors,
             outputs: finalPublicationDescriptors,
             exitStatus: 0,
-            startedAt: materializationStartedAt,
+            startedAt: materializationClock.startedAt,
             completedAt: materializationCompletedAt,
-            wallTime: materializationCompletedAt.timeIntervalSince(materializationStartedAt)
+            wallTime: materializationCompletedAt.timeIntervalSince(materializationClock.startedAt)
         ))
         transformations.append(.init(
             workflowName: "lungfish-in-process:capture-mhc-candidate-artifact-checksums",
@@ -1644,9 +1644,9 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             inputs: finalPublicationDescriptors,
             outputs: [],
             exitStatus: 0,
-            startedAt: checksumStartedAt,
+            startedAt: checksumClock.startedAt,
             completedAt: checksumCompletedAt,
-            wallTime: checksumCompletedAt.timeIntervalSince(checksumStartedAt)
+            wallTime: checksumCompletedAt.timeIntervalSince(checksumClock.startedAt)
         ))
         let manifest = ONTMHCCandidateArtifactManifest(
             schemaVersion: 2,

@@ -245,24 +245,24 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         postPublicationAuthorityCheck:
             @escaping @Sendable () throws -> Void = {}
     ) throws -> GenotypeReviewableRowCatalogPublication {
-        let startedAt = dateProvider()
+        let runClock = ProvenanceRunClock(startedAt: dateProvider())
         do {
             return try publish(
                 inputs,
                 to: bundleDirectoryURL,
-                startedAt: startedAt,
+                runClock: runClock,
                 postPublicationAuthorityCheck: postPublicationAuthorityCheck
             )
         } catch let failure as GenotypeReviewableRowCatalogPublicationFailure {
             throw failure
         } catch {
-            let completedAt = dateProvider()
+            let completedAt = runClock.now
             throw GenotypeReviewableRowCatalogPublicationFailure(
                 message: error.localizedDescription,
                 provenance: failureProvenance(
                     inputs: inputs,
                     bundleDirectoryURL: bundleDirectoryURL,
-                    startedAt: startedAt,
+                    startedAt: runClock.startedAt,
                     completedAt: completedAt,
                     error: error
                 ),
@@ -274,7 +274,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
     private func publish(
         _ inputs: GenotypeReviewableRowCatalogInputs,
         to bundleDirectoryURL: URL,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         postPublicationAuthorityCheck:
             @escaping @Sendable () throws -> Void
     ) throws -> GenotypeReviewableRowCatalogPublication {
@@ -353,7 +353,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
             format: .json,
             role: .report
         )
-        let completedAt = dateProvider()
+        let completedAt = runClock.now
         let options = ProvenanceOptions(
             explicit: inputs.userVisibleOptions,
             resolvedDefaults: inputs.resolvedDefaults
@@ -371,9 +371,9 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
             inputs: inputs.inputDescriptors,
             outputs: [outputDescriptor],
             exitStatus: 0,
-            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            wallTimeSeconds: completedAt.timeIntervalSince(runClock.startedAt),
             stderr: nil,
-            startedAt: startedAt,
+            startedAt: runClock.startedAt,
             completedAt: completedAt
         )
         let provenance = ProvenanceEnvelope(
@@ -396,7 +396,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
             output: outputDescriptor,
             outputs: [outputDescriptor],
             steps: [step],
-            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            wallTimeSeconds: completedAt.timeIntervalSince(runClock.startedAt),
             exitStatus: 0,
             stderr: nil
         )

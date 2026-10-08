@@ -32,7 +32,7 @@ enum CLIDeduplicatedBundleSupport {
             throw CLIError.outputWriteFailed(path: outputBundleURL.path, reason: "Path already exists")
         }
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let result = try await AlignmentDuplicateService.createDeduplicatedBundle(
             from: sourceBundleURL,
             outputBundleURL: outputBundleURL
@@ -61,7 +61,7 @@ enum CLIDeduplicatedBundleSupport {
             inputs: provenanceRecords(for: sourceBundleURL, role: .input),
             outputs: provenanceRecords(for: result.bundleURL, role: .output),
             exitCode: 0,
-            wallTime: Date().timeIntervalSince(startedAt),
+            wallTime: runClock.elapsed,
             stderr: nil,
             status: .completed,
             outputDirectory: result.bundleURL,

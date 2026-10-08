@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 
 public protocol CondaLockInstalling: Sendable {
     func install(environment: String, packageSpecs: [String], condaRoot: URL) async throws
@@ -125,7 +126,7 @@ public struct CondaLockfileService {
         to output: URL,
         commandLine: [String]
     ) throws -> CondaLockfileResult {
-        let start = Date()
+        let runClock = ProvenanceRunClock()
         let specification = CondaRequestedEnvironmentSpecification(pack: pack, platforms: platforms, channels: channels)
         try specification.validate()
         let encoder = JSONEncoder()
@@ -160,7 +161,7 @@ public struct CondaLockfileService {
                     "runtimeHostName": .string(ProcessInfo.processInfo.hostName),
                 ],
                 provenanceURL: stagedReceipt,
-                start: start, exitCode: 0, stderr: nil
+                runClock: runClock, exitCode: 0, stderr: nil
             )
             try publication.publish(stagedURL: stagedOutput, to: output)
             try publicationDidOccur?(output)
@@ -201,12 +202,13 @@ public struct CondaLockfileService {
         outputs: [FileRecord],
         parameters: [String: ParameterValue],
         provenanceURL: URL,
-        start: Date,
+        runClock: ProvenanceRunClock,
         exitCode: Int32,
         stderr: String?
     ) throws -> URL {
         try fileManager.createDirectory(at: provenanceURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let end = Date()
+        let start = runClock.startedAt
+        let end = runClock.now
         let step = StepExecution(
             toolName: toolName,
             toolVersion: WorkflowRun.currentAppVersion,

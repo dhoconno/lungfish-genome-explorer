@@ -92,7 +92,7 @@ extension ImportCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             let fileManager = FileManager.default
             let inputURL = URL(fileURLWithPath: inputPath)
@@ -175,7 +175,7 @@ extension ImportCommand {
                     inputs: inputRecords,
                     outputs: outputRecords,
                     exitCode: 0,
-                    wallTime: Date().timeIntervalSince(startedAt),
+                    wallTime: runClock.elapsed,
                     stderr: nil,
                     status: .completed,
                     outputDirectory: bundleURL
@@ -508,7 +508,7 @@ extension ImportCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             let inputURL = URL(fileURLWithPath: inputFile)
 
@@ -554,7 +554,7 @@ extension ImportCommand {
                     ext: ext,
                     bundleURL: outputDirectory,
                     formatter: formatter,
-                    startedAt: startedAt
+                    runClock: runClock
                 )
                 return
             }
@@ -606,13 +606,13 @@ extension ImportCommand {
 
                 do {
                     let runner = NativeToolRunner.shared
-                    let idxstatsStartedAt = Date()
+                    let idxstatsClock = ProvenanceRunClock()
                     let idxstatsResult = try await runner.run(
                         .samtools,
                         arguments: ["idxstats", destURL.path],
                         timeout: 120
                     )
-                    let idxstatsCompletedAt = Date()
+                    let idxstatsCompletedAt = idxstatsClock.now
                     provenanceSteps.append(try nativeToolProvenanceStep(
                         toolName: "samtools",
                         toolVersion: samtoolsVersion,
@@ -622,7 +622,7 @@ extension ImportCommand {
                             ProvenanceFileDescriptor.file(url: destURL, format: alignmentFormat, role: .input)
                         ],
                         outputs: [],
-                        startedAt: idxstatsStartedAt,
+                        startedAt: idxstatsClock.startedAt,
                         completedAt: idxstatsCompletedAt
                     ))
                     if idxstatsResult.isSuccess {
@@ -670,13 +670,13 @@ extension ImportCommand {
                         if !globalOptions.quiet {
                             print(formatter.info("Creating index..."))
                         }
-                        let indexStartedAt = Date()
+                        let indexClock = ProvenanceRunClock()
                         let indexResult = try await runner.run(
                             .samtools,
                             arguments: ["index", destURL.path],
                             timeout: 3600
                         )
-                        let indexCompletedAt = Date()
+                        let indexCompletedAt = indexClock.now
                         var indexStepOutputs: [ProvenanceFileDescriptor] = []
                         if indexResult.isSuccess {
                             if let generatedIndexURL = existingAlignmentIndex(for: destURL) {
@@ -710,7 +710,7 @@ extension ImportCommand {
                                 ProvenanceFileDescriptor.file(url: destURL, format: alignmentFormat, role: .input)
                             ],
                             outputs: indexStepOutputs,
-                            startedAt: indexStartedAt,
+                            startedAt: indexClock.startedAt,
                             completedAt: indexCompletedAt
                         ))
                         if !indexResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -745,7 +745,7 @@ extension ImportCommand {
                     inputs: inputRecords,
                     outputs: outputRecords,
                     exitCode: 0,
-                    wallTime: Date().timeIntervalSince(startedAt),
+                    wallTime: runClock.elapsed,
                     stderr: provenanceMessages.isEmpty ? nil : provenanceMessages.joined(separator: "\n"),
                     status: .completed,
                     outputDirectory: outputDirectory
@@ -792,7 +792,7 @@ extension ImportCommand {
             ext: String,
             bundleURL: URL,
             formatter: TerminalFormatter,
-            startedAt: Date
+            runClock: ProvenanceRunClock
         ) async throws {
             guard ext != "sam" else {
                 print(formatter.error("Cannot attach a .sam alignment to a bundle. Convert to sorted, indexed BAM first (see project convention: never store SAM)."))
@@ -876,7 +876,7 @@ extension ImportCommand {
                     ProvenanceRecorder.fileRecord(url: attachment.indexURL, format: .unknown, role: .index)
                 ],
                 exitCode: 0,
-                wallTime: Date().timeIntervalSince(startedAt),
+                wallTime: runClock.elapsed,
                 stderr: nil,
                 status: .completed,
                 outputDirectory: bundleURL
@@ -1094,7 +1094,7 @@ extension ImportCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             let inputURL = URL(fileURLWithPath: inputFile)
 
@@ -1137,7 +1137,7 @@ extension ImportCommand {
                     inputURL: inputURL,
                     bundleURL: outputDirectory,
                     formatter: formatter,
-                    startedAt: startedAt
+                    runClock: runClock
                 )
                 return
             }
@@ -1200,7 +1200,7 @@ extension ImportCommand {
                     inputs: vcfInputRecords(inputURL: inputURL, format: variantFormat, indexArtifact: indexArtifact),
                     outputs: vcfOutputRecords(destURL: destURL, format: variantFormat, indexArtifact: indexArtifact),
                     exitCode: 0,
-                    wallTime: Date().timeIntervalSince(startedAt),
+                    wallTime: runClock.elapsed,
                     stderr: nil,
                     status: .completed,
                     outputDirectory: outputDirectory
@@ -1248,7 +1248,7 @@ extension ImportCommand {
             inputURL: URL,
             bundleURL: URL,
             formatter: TerminalFormatter,
-            startedAt: Date
+            runClock: ProvenanceRunClock
         ) throws {
             let profile = importProfile ?? .auto
             print(formatter.header("VCF Import"))
@@ -1278,7 +1278,7 @@ extension ImportCommand {
                         print(formatter.info(message))
                     },
                     makeProvenance: { context in
-                        try Self.vcfAttachProvenance(context: context, command: command, startedAt: startedAt)
+                        try Self.vcfAttachProvenance(context: context, command: command, runClock: runClock)
                     }
                 )
             } catch let error as VCFBundleVariantImport.Error {
@@ -1331,13 +1331,13 @@ extension ImportCommand {
         static func vcfAttachProvenance(
             context: VCFBundleVariantImport.ProvenanceContext,
             command: [String],
-            startedAt: Date
+            runClock: ProvenanceRunClock
         ) throws -> ProvenanceEnvelope {
             let request = context.request
             let toolVersion = "lungfish-cli \(LungfishCLI.configuration.version)"
             let input = try ProvenanceFileDescriptor.file(url: request.vcfURL, format: .vcf, role: .input)
             let output = try ProvenanceFileDescriptor.file(url: context.databaseURL, format: .unknown, role: .output)
-            let completedAt = Date()
+            let startedAt = runClock.startedAt, completedAt = runClock.now
             let step = ProvenanceStep(
                 toolName: "lungfish import vcf",
                 toolVersion: toolVersion,

@@ -372,7 +372,7 @@ public actor EsVirituPipeline {
         config: EsVirituConfig,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> EsVirituResult {
-        let startTime = Date()
+        let runClock = ProvenanceRunClock()
 
         // Phase 1: Validation (0.00 -- 0.05)
         progress?(0.0, "Validating configuration...")
@@ -491,7 +491,7 @@ public actor EsVirituPipeline {
 
         logger.info("Running: EsViritu \(esVirituArgs.joined(separator: " "))")
 
-        let esVirituStart = Date()
+        let esVirituClock = ProvenanceRunClock()
 
         // Build stderr handler for progress parsing.
         let esVirituStderrHandler: (@Sendable (String) -> Void)?
@@ -528,7 +528,7 @@ public actor EsVirituPipeline {
             throw error
         }
 
-        let esVirituWallTime = Date().timeIntervalSince(esVirituStart)
+        let esVirituWallTime = esVirituClock.elapsed
 
         if esVirituResult.exitCode != 0 {
             let inputRecords = Self.inputLineageRecords(for: config) ?? config.inputFiles.map { url in
@@ -608,7 +608,7 @@ public actor EsVirituPipeline {
         let coverageURL: URL? = fm.fileExists(atPath: config.coverageURL.path)
             ? config.coverageURL : nil
 
-        let totalRuntime = Date().timeIntervalSince(startTime)
+        let totalRuntime = runClock.elapsed
 
         let result = EsVirituResult(
             config: config,
@@ -651,7 +651,7 @@ public actor EsVirituPipeline {
 
         let sidecarURL = config.outputDirectory.appendingPathComponent(esVirituResultFilename)
         try? fm.removeItem(at: sidecarURL)
-        let sidecarSaveStart = Date()
+        let sidecarSaveClock = ProvenanceRunClock()
         do {
             try result.save(to: config.outputDirectory)
         } catch let sidecarError {
@@ -665,7 +665,7 @@ public actor EsVirituPipeline {
                     ProvenanceRecorder.fileRecord(url: sidecarURL, format: .json, role: .output),
                 ],
                 exitCode: 1,
-                wallTime: Date().timeIntervalSince(sidecarSaveStart),
+                wallTime: sidecarSaveClock.elapsed,
                 stderr: sidecarError.localizedDescription,
                 dependsOn: esVirituStepID.map { [$0] } ?? []
             )
@@ -683,7 +683,7 @@ public actor EsVirituPipeline {
                 sidecarError.localizedDescription
             )
         }
-        let sidecarWallTime = Date().timeIntervalSince(sidecarSaveStart)
+        let sidecarWallTime = sidecarSaveClock.elapsed
 
         await provenanceRecorder.recordStep(
             runID: runID,

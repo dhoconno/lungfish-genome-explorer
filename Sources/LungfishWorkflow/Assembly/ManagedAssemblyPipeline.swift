@@ -120,7 +120,7 @@ public struct ManagedAssemblyPipeline: Sendable {
         }
 
         let command = try Self.buildCommand(for: preparedExecution.request)
-        let start = Date()
+        let runClock = ProvenanceRunClock()
 
         let finalLogURL = request.outputDirectory.appendingPathComponent("assembly.log")
         let logURL: URL
@@ -207,7 +207,7 @@ public struct ManagedAssemblyPipeline: Sendable {
             request: request,
             primaryOutputDirectory: request.outputDirectory,
             commandLine: durableCommandLine,
-            wallTimeSeconds: Date().timeIntervalSince(start),
+            wallTimeSeconds: runClock.elapsed,
             assemblerVersion: version == "unknown" ? nil : version
         )
         try normalizedResult.save(to: request.outputDirectory)

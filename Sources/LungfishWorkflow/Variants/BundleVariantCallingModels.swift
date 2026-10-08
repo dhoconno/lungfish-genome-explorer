@@ -229,6 +229,10 @@ public struct BundleVariantTrackAttachmentRequest: Sendable {
     public let variantCallerCommandLine: String
     public let referenceStagedFASTASHA256: String
     public let workflowProvenance: VariantCallingWorkflowProvenance?
+    /// Times the variant-calling run that `workflowProvenance` started. The
+    /// attachment ends the run on this clock, so it cannot end before it
+    /// began. `nil` takes the end from the service's date provider.
+    public let workflowClock: ProvenanceRunClock?
 
     public init(
         bundleURL: URL,
@@ -244,7 +248,8 @@ public struct BundleVariantTrackAttachmentRequest: Sendable {
         variantCallerParametersJSON: String,
         variantCallerCommandLine: String = "",
         referenceStagedFASTASHA256: String,
-        workflowProvenance: VariantCallingWorkflowProvenance? = nil
+        workflowProvenance: VariantCallingWorkflowProvenance? = nil,
+        workflowClock: ProvenanceRunClock? = nil
     ) {
         self.bundleURL = bundleURL
         self.alignmentTrackID = alignmentTrackID
@@ -260,6 +265,7 @@ public struct BundleVariantTrackAttachmentRequest: Sendable {
         self.variantCallerCommandLine = variantCallerCommandLine
         self.referenceStagedFASTASHA256 = referenceStagedFASTASHA256
         self.workflowProvenance = workflowProvenance
+        self.workflowClock = workflowClock
     }
 }
 

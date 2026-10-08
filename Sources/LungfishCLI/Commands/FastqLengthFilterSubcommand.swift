@@ -81,7 +81,7 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
 
         let minLength = self.minLength
         let maxLength = self.maxLength
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let nativeTool: NativeTool
         let nativeArguments: [String]
         let result: NativeToolResult
@@ -176,7 +176,7 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
             stepInputs: splitOutcome?.stepInputs,
             stepOutputs: splitOutcome?.stepOutputs,
             extraSteps: (splitOutcome?.extraSteps ?? []) + (try resolvedInput.materializationSteps()),
-            startedAt: startedAt
+            runClock: runClock
         )
         FileHandle.standardError.write(Data("Filtered reads written to \(output.output)\n".utf8))
     }

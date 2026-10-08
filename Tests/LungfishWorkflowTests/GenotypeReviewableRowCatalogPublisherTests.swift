@@ -1485,10 +1485,18 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
     func testPublicationCarriesCompleteCanonicalProvenance() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let publication = try fixture.publisher.publish(
-            fixture.inputs(),
-            to: fixture.outputDirectory
+        // The publisher times the run on the monotonic clock, which only this
+        // test moves: two seconds pass while the catalog is staged.
+        let time = SteppedTimeSource(startingAt: fixture.startedAt)
+        let publisher = GenotypeReviewableRowCatalogPublisher(
+            dateProvider: { fixture.startedAt },
+            publicationObserver: { phase in
+                if phase == .staged { time.advance(by: 2) }
+            }
         )
+        let publication = try time.override {
+            try publisher.publish(fixture.inputs(), to: fixture.outputDirectory)
+        }
         let provenance = publication.provenance
 
         XCTAssertEqual(provenance.toolName, "lungfish genotype reviewable row catalog publisher")
@@ -1547,13 +1555,8 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
         let inputDescriptors: [ProvenanceFileDescriptor]
 
         var publisher: GenotypeReviewableRowCatalogPublisher {
-            let dates = LockedDateSequence([
-                startedAt,
-                startedAt.addingTimeInterval(2),
-            ])
-            return GenotypeReviewableRowCatalogPublisher(
-                dateProvider: { dates.next() }
-            )
+            let startedAt = startedAt
+            return GenotypeReviewableRowCatalogPublisher(dateProvider: { startedAt })
         }
 
         init() throws {
@@ -1617,23 +1620,6 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
     }
 }
 
-private final class LockedDateSequence: @unchecked Sendable {
-    private let lock = NSLock()
-    private var dates: [Date]
-    private var index = 0
-
-    init(_ dates: [Date]) {
-        self.dates = dates
-    }
-
-    func next() -> Date {
-        lock.lock()
-        defer { lock.unlock() }
-        let date = dates[min(index, dates.count - 1)]
-        index += 1
-        return date
-    }
-}
 
 private final class LockedByteCounter: @unchecked Sendable {
     private let lock = NSLock()

@@ -140,7 +140,7 @@ extension AnnotationTableDrawerView {
                 let snapshot = try captured.collect { token.isCancelled }
                 try AnnotationTableExportService.export(
                     snapshot: snapshot, format: format, outputURL: outputURL,
-                    startedAt: captured.startedAt, shouldCancel: { token.isCancelled }
+                    runClock: captured.runClock, shouldCancel: { token.isCancelled }
                 )
                 result = .success((snapshot.table.rows.count, outputURL.lastPathComponent))
             } catch {

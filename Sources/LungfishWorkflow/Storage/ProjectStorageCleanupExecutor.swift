@@ -1865,7 +1865,7 @@ public struct ProjectStorageCleanupExecutor: Sendable {
         exitStatus: Int,
         stderr: String
     ) throws -> ProjectStorageCleanupExecutionResult {
-        let completedAt = operations.now()
+        let completedAt = max(operations.now(), request.startedAt)
         let summaryItems = authority.journal.items.compactMap { item -> ProjectStorageCleanupExecutionSummary.Item? in
             guard let terminal = terminalRecord(for: item.id, in: records) else {
                 return nil

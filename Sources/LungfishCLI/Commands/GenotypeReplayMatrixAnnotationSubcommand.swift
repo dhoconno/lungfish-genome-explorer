@@ -85,7 +85,8 @@ struct GenotypeReplayMatrixAnnotationSubcommand: AsyncParsableCommand {
 
     func run() async throws {
         try validate()
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
+        let startedAt = runClock.startedAt
         let provenanceURL = URL(fileURLWithPath: provenance).standardizedFileURL
         let outputURL = URL(fileURLWithPath: output).standardizedFileURL
         let defaultOutputProvenanceURL =
@@ -140,7 +141,7 @@ struct GenotypeReplayMatrixAnnotationSubcommand: AsyncParsableCommand {
                 format: .json,
                 role: .output
             )
-            let completedAt = Date()
+            let completedAt = runClock.now
             let wallTime = max(0, completedAt.timeIntervalSince(startedAt))
             let reproducibleCommand = command.map(shellEscape).joined(separator: " ")
             let explicitOptions: [String: ParameterValue] = [

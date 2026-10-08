@@ -46,7 +46,7 @@ extension ClassifierReadResolver {
         resultPath: URL,
         options: ExtractionOptions,
         destination: ExtractionDestination,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> (outcome: ExtractionOutcome, layout: ClassifierExtractionLayout) {
         let hasSingleSampleSelectors = selections.contains { $0.sampleId == nil }
@@ -237,7 +237,7 @@ extension ClassifierReadResolver {
             destination: destination,
             options: options,
             provenanceSourceURLs: existingUniqueURLs(provenanceSourceURLs),
-            extractionStartedAt: startedAt,
+            extractionClock: runClock,
             outputPairingMode: layout.mode,
             outputRoles: layout.roles,
             progress: progress

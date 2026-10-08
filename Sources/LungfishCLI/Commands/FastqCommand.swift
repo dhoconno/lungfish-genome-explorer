@@ -414,14 +414,14 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         // and comes back when the run fails (review A N4).
         let earlierOutput = replacesEarlierOutput ? try SetAsideOutput.setAside(outputURL) : nil
         let preparedFASTA: FastqDemultiplexSequenceFormat.PreparedInput?
-        let startedAt: Date
+        let runClock: ProvenanceRunClock
         let result: DemultiplexResult
         do {
             preparedFASTA = fastaInput
                 ? try await FastqDemultiplexSequenceFormat.prepareFASTA(inputURL: inputURL, outputDirectory: outputURL)
                 : nil
             let config = configuration(input: preparedFASTA?.url ?? inputURL)
-            startedAt = Date()
+            runClock = ProvenanceRunClock()
             result = try await pipeline.run(config: config) { fraction, message in
                 FileHandle.standardError.write(Data("[\(String(format: "%3.0f%%", fraction * 100))] \(message)\n".utf8))
             }
@@ -557,7 +557,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             inputs: inputRecords,
             outputs: outputRecords,
             exitCode: 0,
-            wallTime: Date().timeIntervalSince(startedAt),
+            wallTime: runClock.elapsed,
             stderr: nil,
             status: .completed,
             outputDirectory: outputURL
@@ -684,7 +684,7 @@ struct FastqScoutSubcommand: AsyncParsableCommand {
         }
 
         let pipeline = DemultiplexingPipeline()
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let result = try await pipeline.scout(
             inputURL: inputURL,
             kit: resolvedKit.definition,
@@ -779,7 +779,7 @@ struct FastqScoutSubcommand: AsyncParsableCommand {
             inputs: inputRecords,
             outputs: outputRecords,
             exitCode: 0,
-            wallTime: Date().timeIntervalSince(startedAt),
+            wallTime: runClock.elapsed,
             stderr: nil,
             status: .completed,
             outputDirectory: outputDirectory

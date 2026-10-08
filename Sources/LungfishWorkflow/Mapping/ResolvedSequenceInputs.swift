@@ -160,6 +160,8 @@ public struct ResolvedSequenceInputs: Sendable, Equatable {
         var inputs: [Input] = []
         var materializationStartedAt: Date?
         var materializationEndedAt: Date?
+        // One clock for every materialization, so the first start is never after the last end.
+        let materializationClock = ProvenanceRunClock()
         func noteMaterialization(began: Date, ended: Date) {
             materializationStartedAt = materializationStartedAt ?? began
             materializationEndedAt = ended
@@ -178,13 +180,13 @@ public struct ResolvedSequenceInputs: Sendable, Equatable {
                         inputs.append(Input(originalURL: originalURL, executionURLs: [fastaURL], wasMaterialized: false))
                         continue
                     }
-                    let began = Date()
+                    let began = materializationClock.now
                     let urls = try await resolver.resolve(
                         bundleURL: bundleURL,
                         tempDirectory: directory,
                         progress: { _, message in progress?(message) }
                     )
-                    let ended = Date()
+                    let ended = materializationClock.now
                     if urls.contains(where: { isInside(directory, $0) }) {
                         noteMaterialization(began: began, ended: ended)
                         inputs.append(Input(originalURL: originalURL, executionURLs: urls, wasMaterialized: true))
@@ -201,9 +203,9 @@ public struct ResolvedSequenceInputs: Sendable, Equatable {
                     }
                     if urls.count > 1, concatenateUnpairedFiles {
                         progress?("Concatenating \(urls.count) files of \(bundleURL.lastPathComponent)...")
-                        let began = Date()
+                        let began = materializationClock.now
                         let concatenation = try concatenate(urls, of: bundleURL, into: directory)
-                        noteMaterialization(began: began, ended: Date())
+                        noteMaterialization(began: began, ended: materializationClock.now)
                         inputs.append(Input(
                             originalURL: originalURL,
                             executionURLs: [concatenation.outputURL],

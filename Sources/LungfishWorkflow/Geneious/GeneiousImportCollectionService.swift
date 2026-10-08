@@ -41,7 +41,7 @@ public struct GeneiousImportCollectionService: Sendable {
         options: GeneiousImportOptions = .default,
         progress: GeneiousImportProgress? = nil
     ) async throws -> GeneiousImportResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let tempRunURL = try createProjectTempRunDirectory(projectURL: projectURL)
         defer { try? FileManager.default.removeItem(at: tempRunURL) }
 
@@ -248,7 +248,7 @@ public struct GeneiousImportCollectionService: Sendable {
             options: options,
             sourceKind: scannedInventory.sourceKind,
             tempRunURL: tempRunURL,
-            startedAt: startedAt
+            runClock: runClock
         )
         try writeProvenance(provenance, to: provenanceURL)
 
@@ -598,12 +598,12 @@ public struct GeneiousImportCollectionService: Sendable {
         options: GeneiousImportOptions,
         sourceKind: GeneiousImportSourceKind,
         tempRunURL: URL,
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) -> WorkflowRun {
-        let scanStarted = startedAt
-        let preserveStarted = Date()
-        let referenceStarted = Date()
-        let completedAt = Date()
+        let scanStarted = runClock.startedAt
+        let preserveStarted = runClock.now
+        let referenceStarted = runClock.now
+        let completedAt = runClock.now
         let sourceRecord = ProvenanceRecorder.fileOrDirectoryRecord(url: sourceURL, format: .unknown, role: .input)
         let inventoryRecord = ProvenanceRecorder.fileOrDirectoryRecord(url: inventoryURL, format: .json, role: .output)
         let reportRecord = ProvenanceRecorder.fileOrDirectoryRecord(url: reportURL, format: .text, role: .report)
@@ -677,7 +677,7 @@ public struct GeneiousImportCollectionService: Sendable {
 
         return WorkflowRun(
             name: "Geneious Import",
-            startTime: startedAt,
+            startTime: runClock.startedAt,
             endTime: completedAt,
             status: .completed,
             steps: [scanStep, preserveStep, referenceStep],

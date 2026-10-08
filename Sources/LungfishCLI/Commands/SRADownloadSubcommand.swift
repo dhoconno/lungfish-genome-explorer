@@ -47,7 +47,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
     @TaskLocal static var makeService: @Sendable () -> SRAService = { SRAService() }
 
     func run() async throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         let trace = SRADownloadTraceCapture(
             downloadSource: initialStrategy == "sra-toolkit" ? .sraToolkit : .ena
@@ -134,8 +134,8 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
                 outputURL: outputURL,
                 trace: trace,
                 layoutWarning: layoutWarning,
-                startedAt: startedAt,
-                completedAt: Date()
+                startedAt: runClock.startedAt,
+                completedAt: runClock.now
             )
 
             if globalOptions.outputFormat == .json {

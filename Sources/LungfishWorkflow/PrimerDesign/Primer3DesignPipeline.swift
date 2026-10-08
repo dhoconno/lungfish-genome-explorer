@@ -110,6 +110,7 @@ public struct Primer3DesignPipeline: Sendable {
         try Data(boulder.utf8).write(to: boulderURL, options: .atomic)
         progress?(0.25, "Running Primer3")
         let receipt = try await runner(.init(executableURL: request.executableURL, inputURL: boulderURL, outputURL: outputURL, workingDirectory: scratch, managedEnvironmentURL: runtimeLease?.environmentURL))
+        let normalizationClock = ProvenanceRunClock(startedAt: receipt.endedAt)
         try Data(receipt.stdout.utf8).write(to: stdoutURL, options: .atomic)
         try Data(receipt.stderr.utf8).write(to: stderrURL, options: .atomic)
         guard receipt.exitStatus == 0 else { throw Primer3DesignError.executionFailed(receipt.exitStatus, receipt.stderr) }
@@ -194,7 +195,7 @@ public struct Primer3DesignPipeline: Sendable {
                 fileSize: try ProvenanceFileHasher.fileSize(of: origin), format: format, role: .output,
                 originPath: origin.path))
         }
-        let normalizationEnvelope = try normalization.complete(exitStatus: 0, startedAt: receipt.endedAt, endedAt: Date())
+        let normalizationEnvelope = try normalization.complete(exitStatus: 0, startedAt: normalizationClock.startedAt, endedAt: normalizationClock.now)
         let normalizationProvenanceURL = provenanceDirectory.appendingPathComponent("normalization.json")
         _ = try ProvenanceWriter(signingProvider: nil).write(normalizationEnvelope, toSidecar: normalizationProvenanceURL)
 

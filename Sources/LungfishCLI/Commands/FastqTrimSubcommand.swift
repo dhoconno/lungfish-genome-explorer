@@ -53,7 +53,7 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
         let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "trim", output: output)
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
-        let started = Date()
+        let runClock = ProvenanceRunClock()
         let options = try fastpOptions()
         // Paired input runs fastp in its paired mode so both mates are kept
         // or dropped together (FastqFastpPairedRun.swift).
@@ -70,7 +70,7 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
             failureLabel: "fastp combined trim",
             stepNamePrefix: "lungfish fastq trim"
         )
-        try await writeProvenance(input: resolvedInput, outcome: outcome, pairingDecision: pairingDecision, started: started)
+        try await writeProvenance(input: resolvedInput, outcome: outcome, pairingDecision: pairingDecision, runClock: runClock)
         FileHandle.standardError.write(Data("Adapter and quality trimmed reads written to \(output.output)\n".utf8))
     }
 
@@ -109,7 +109,7 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
         input: FASTQSubcommandInput,
         outcome: FastpPairedRunOutcome,
         pairingDecision: FASTQPairingDecision,
-        started: Date
+        runClock: ProvenanceRunClock
     ) async throws {
         let inputURL = input.originalURL
         let outputURL = URL(fileURLWithPath: output.output)
@@ -182,7 +182,7 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
             stepInputs: outcome.stepInputs,
             stepOutputs: outcome.stepOutputs,
             extraSteps: outcome.extraSteps + (try input.materializationSteps()),
-            startedAt: started
+            runClock: runClock
         )
     }
 

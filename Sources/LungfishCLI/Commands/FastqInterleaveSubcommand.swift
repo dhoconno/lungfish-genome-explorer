@@ -41,7 +41,7 @@ struct FastqInterleaveSubcommand: AsyncParsableCommand {
         ]
 
         let env = await bbToolsEnvironment(runner: runner)
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let result = try await runner.run(.reformat, arguments: args, environment: env, timeout: 1800)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "reformat.sh interleave failed: \(result.stderr)")
@@ -75,7 +75,7 @@ struct FastqInterleaveSubcommand: AsyncParsableCommand {
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
-            startedAt: startedAt
+            runClock: runClock
         )
         FileHandle.standardError.write(Data("Interleaved reads written to \(output.output)\n".utf8))
     }

@@ -64,7 +64,7 @@ final class FetchNCBIProvenanceTests: XCTestCase {
                 downloadedFastaURL: downloadedFastaURL,
                 gffSourceURL: gffSourceURL,
                 downloadedGFFURL: downloadedGFFURL,
-                startedAt: Date(timeIntervalSinceNow: -1)
+                runClock: ProvenanceRunClock()
             )
         )
         let storedEnvelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundleURL))
@@ -136,7 +136,7 @@ final class FetchNCBIProvenanceTests: XCTestCase {
                 downloadedGFFURL: downloadedGFFURL,
                 finalFastaURL: finalFastaURL,
                 finalGFFURL: finalGFFURL,
-                startedAt: Date(timeIntervalSinceNow: -1)
+                runClock: ProvenanceRunClock()
             )
         )
 

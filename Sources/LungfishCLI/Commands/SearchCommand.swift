@@ -75,7 +75,7 @@ struct SearchCommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
         // Validate input file exists
@@ -175,7 +175,7 @@ struct SearchCommand: AsyncParsableCommand {
                 atomically: true,
                 encoding: .utf8
             )
-            let completedAt = Date()
+            let completedAt = runClock.now
             try await CLIProvenanceSupport.recordSingleStepRun(
                 name: "lungfish search",
                 parameters: [
@@ -221,7 +221,7 @@ struct SearchCommand: AsyncParsableCommand {
                     ProvenanceRecorder.fileRecord(url: outputURL, format: .bed, role: .output)
                 ],
                 exitCode: 0,
-                wallTime: completedAt.timeIntervalSince(startedAt),
+                wallTime: completedAt.timeIntervalSince(runClock.startedAt),
                 stderr: nil,
                 status: .completed,
                 outputDirectory: outputURL.deletingLastPathComponent()

@@ -239,14 +239,14 @@ public struct CountedFASTQMaterializer: Sendable {
         let process = Process()
         let stderrPipe = Pipe()
         let command = ["/usr/bin/gzip", "-1", "-c", rawURL.path]
-        let startedAt = Date()
+        let gzipClock = ProvenanceRunClock()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
         process.arguments = ["-1", "-c", rawURL.path]
         process.standardOutput = outputHandle
         process.standardError = stderrPipe
         try process.run()
         process.waitUntilExit()
-        let wallTime = Date().timeIntervalSince(startedAt)
+        let wallTime = gzipClock.elapsed
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
         try outputHandle.close()
         shouldCloseOutputHandle = false

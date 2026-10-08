@@ -94,10 +94,11 @@ enum BatchRunHistory {
     ///   - result: The completed pipeline result.
     ///   - config: The pipeline configuration.
     static func recordRun(result: TaxTriageResult, config: TaxTriageConfig) {
+        let completedAt = Date()
         let record = BatchRunRecord(
             runId: result.outputDirectory.lastPathComponent,
-            startedAt: Date(timeIntervalSinceNow: -result.runtime),
-            completedAt: Date(),
+            startedAt: completedAt.addingTimeInterval(-result.runtime),
+            completedAt: completedAt,
             sampleIds: config.samples.map(\.sampleId),
             negativeControlSampleIds: config.samples.filter(\.isNegativeControl).map(\.sampleId),
             platform: config.platform.rawValue,

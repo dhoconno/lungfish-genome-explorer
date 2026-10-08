@@ -65,7 +65,7 @@ public struct HaplotypeDefinitionStore: Sendable {
         changeNote: String? = nil,
         provenanceContext: HaplotypeDefinitionProvenanceContext? = nil
     ) throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         try ensureFolderExists()
         guard let url = fileURL(for: set.id) else {
             throw HaplotypeDefinitionStoreError.noProjectRoot
@@ -97,8 +97,8 @@ public struct HaplotypeDefinitionStore: Sendable {
                 outputURL: url,
                 priorRecord: priorRecord,
                 context: provenanceContext,
-                startedAt: startedAt,
-                endedAt: Date()
+                startedAt: runClock.startedAt,
+                endedAt: runClock.now
             )
         } catch {
             if let priorData {
@@ -115,7 +115,7 @@ public struct HaplotypeDefinitionStore: Sendable {
         id: String,
         provenanceContext: HaplotypeDefinitionProvenanceContext? = nil
     ) throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         guard let url = fileURL(for: id),
               FileManager.default.fileExists(atPath: url.path) else { return }
         let removedRecord = try fileRecord(url: url, role: "input")
@@ -126,8 +126,8 @@ public struct HaplotypeDefinitionStore: Sendable {
                 definitionID: id,
                 removedRecord: removedRecord,
                 context: provenanceContext,
-                startedAt: startedAt,
-                endedAt: Date()
+                startedAt: runClock.startedAt,
+                endedAt: runClock.now
             )
         } catch {
             if !FileManager.default.fileExists(atPath: url.path) {

@@ -325,7 +325,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
     // MARK: - Execution
 
     func run() async throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         let fm = FileManager.default
         let service = ReadExtractionService()
@@ -391,7 +391,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
                 sourceName: bundleName ?? outputBase,
                 selectionDescription: "extract",
                 metadata: metadata,
-                in: outputDir
+                in: outputDir, runClock: runClock
             )
             bundleURL = createdBundleURL
             if let outputRoles, let payload = result.fastqURLs.first {
@@ -406,7 +406,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             result: result,
             outputURL: outputURL,
             bundleURL: bundleURL,
-            startedAt: startedAt,
+            runClock: runClock,
             alignmentIndexURL: alignmentIndexURL
         )
 
@@ -431,7 +431,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         result: ReadExtractionResult,
         outputURL: URL,
         bundleURL: URL?,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         alignmentIndexURL: URL?
     ) async throws {
         var parameters = strategyParameterValues(alignmentIndexURL: alignmentIndexURL)
@@ -468,7 +468,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             inputs: provenanceInputRecords(alignmentIndexURL: alignmentIndexURL),
             outputs: outputRecords,
             exitCode: 0,
-            wallTime: Date().timeIntervalSince(startedAt),
+            wallTime: runClock.elapsed,
             stderr: nil,
             status: .completed,
             outputDirectory: bundleURL ?? outputURL.deletingLastPathComponent()

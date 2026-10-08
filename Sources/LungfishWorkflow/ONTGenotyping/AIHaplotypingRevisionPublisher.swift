@@ -142,7 +142,7 @@ public struct AIHaplotypingRevisionPublisher {
                 sidecarSnapshot: sidecarSnapshot,
                 sidecarURL: request.sidecarURL,
                 startedAt: request.context.startedAt,
-                completedAt: dateProvider()
+                completedAt: request.context.runClock.now
             )
             try provenanceWriter(envelope, paths.provenanceURL)
             try assertFinalProvenancePaths(

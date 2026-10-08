@@ -254,7 +254,7 @@ public actor TaxTriagePipeline {
         config: TaxTriageConfig,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> TaxTriageResult {
-        let startTime = Date()
+        let runClock = ProvenanceRunClock()
         var profileAdjustedConfig = config
         profileAdjustedConfig.profile = profileAdjustedConfig.profile
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -471,7 +471,7 @@ public actor TaxTriagePipeline {
                 command: provenanceCommand,
                 outputFiles: [logFile],
                 exitCode: -1,
-                wallTime: Date().timeIntervalSince(startTime),
+                wallTime: runClock.elapsed,
                 stderr: spawnMessage
             )
             await ProvenanceRecorder.shared.completeRun(runID, status: .failed)
@@ -553,7 +553,7 @@ public actor TaxTriagePipeline {
                     profileAdjustedConfig.outputDirectory.appendingPathComponent("trace.txt"),
                 ],
                 exitCode: exitCode,
-                wallTime: Date().timeIntervalSince(startTime),
+                wallTime: runClock.elapsed,
                 stderr: stderrText
             )
             await ProvenanceRecorder.shared.completeRun(runID, status: .failed)
@@ -602,7 +602,7 @@ public actor TaxTriagePipeline {
             config: profileAdjustedConfig,
             exitCode: exitCode,
             logFile: logFile,
-            startTime: startTime
+            runClock: runClock
         )
 
         // Save the result for later reference
@@ -1351,7 +1351,7 @@ public actor TaxTriagePipeline {
         config: TaxTriageConfig,
         exitCode: Int32,
         logFile: URL,
-        startTime: Date
+        runClock: ProvenanceRunClock
     ) -> TaxTriageResult {
         let fm = FileManager.default
         let outputDir = config.outputDirectory
@@ -1382,7 +1382,7 @@ public actor TaxTriagePipeline {
             outputDirectory: outputDir
         )
 
-        let runtime = Date().timeIntervalSince(startTime)
+        let runtime = runClock.elapsed
 
         return TaxTriageResult(
             config: config,

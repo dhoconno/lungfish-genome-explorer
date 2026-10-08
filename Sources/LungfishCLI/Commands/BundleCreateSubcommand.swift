@@ -60,7 +60,7 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
-        let runStartedAt = Date()
+        let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
         // Validate inputs
@@ -182,7 +182,7 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
                 configuration: config,
                 bundleURL: bundleURL,
                 bundleIdentifier: bundleIdentifier,
-                startedAt: runStartedAt,
+                runClock: runClock,
                 compress: compress
             )
         } catch {
@@ -203,7 +203,7 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
         configuration: BuildConfiguration,
         bundleURL: URL,
         bundleIdentifier: String,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         compress: Bool
     ) async throws {
         let inputs = Self.inputFileRecords(for: configuration)
@@ -229,7 +229,7 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
             inputs: inputs,
             outputs: outputs,
             exitCode: 0,
-            wallTime: Date().timeIntervalSince(startedAt),
+            wallTime: runClock.elapsed,
             stderr: nil,
             status: .completed,
             outputDirectory: bundleURL

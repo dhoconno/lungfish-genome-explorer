@@ -46,7 +46,7 @@ public enum MSAReferenceBundleBuilder {
             workflowName: request.workflowName,
             actionID: request.actionID,
             toolName: request.toolName,
-            startedAt: request.startedAt,
+            runClock: request.runClock,
             force: request.force
         )
         defer {
@@ -223,7 +223,7 @@ public enum MSAReferenceBundleBuilder {
                 gapPolicy: "omit"
             ),
             exitStatus: 0,
-            wallTimeSeconds: max(0, Date().timeIntervalSince(request.startedAt)),
+            wallTimeSeconds: request.runClock.elapsed,
             warnings: []
         )
         try writeJSON(provenance, to: request.outputBundleURL.appendingPathComponent(".lungfish-provenance.json"))
@@ -365,7 +365,7 @@ public enum MSAReferenceBundleBuilder {
                 gapPolicy: request.gapPolicy
             ),
             exitStatus: 0,
-            wallTimeSeconds: max(0, Date().timeIntervalSince(request.startedAt)),
+            wallTimeSeconds: request.runClock.elapsed,
             warnings: []
         )
         try writeJSON(provenance, to: request.outputBundleURL.appendingPathComponent(".lungfish-provenance.json"))

@@ -165,7 +165,7 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
         inference: PhylogeneticTreeInferenceSummary?,
         metadataURL: URL? = nil
     ) throws -> PhylogeneticTreeBundle {
-        let started = Date()
+        let runClock = ProvenanceRunClock()
         let fm = FileManager.default
         let destinationURL = destinationURL.standardizedFileURL
         guard !fm.fileExists(atPath: destinationURL.path) else {
@@ -243,7 +243,7 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
                 outputBundleURL: destinationURL,
                 payloadPaths: allPaths,
                 warnings: warnings,
-                wallTimeSeconds: Date().timeIntervalSince(started),
+                wallTimeSeconds: runClock.elapsed,
                 metadataURL: metadataURL
             )
             try writeTreeJSONObject(provenanceJSON, to: destinationURL.appendingPathComponent(".lungfish-provenance.json"))
@@ -299,7 +299,7 @@ public enum PhylogeneticTreeBundleImporter {
         to destinationURL: URL,
         options: PhylogeneticTreeImportOptions = .init()
     ) throws -> PhylogeneticTreeBundle {
-        let started = Date()
+        let runClock = ProvenanceRunClock()
         let fm = FileManager.default
         let sourceURL = sourceURL.standardizedFileURL
         let destinationURL = destinationURL.standardizedFileURL
@@ -400,7 +400,7 @@ public enum PhylogeneticTreeBundleImporter {
             let provenance = PhylogeneticTreeProvenance(
                 toolName: options.toolName,
                 toolVersion: options.toolVersion,
-                createdAt: started,
+                createdAt: runClock.startedAt,
                 argv: options.argv ?? defaultArgv(sourceURL: sourceURL, destinationURL: destinationURL),
                 durableReplayArgv: options.argv ?? defaultArgv(sourceURL: sourceURL, destinationURL: destinationURL),
                 command: options.command ?? shellCommand(defaultArgv(sourceURL: sourceURL, destinationURL: destinationURL)),
@@ -415,7 +415,7 @@ public enum PhylogeneticTreeBundleImporter {
                 checksums: try checksumMap(paths: allPaths, bundleURL: destinationURL),
                 fileSizes: try fileSizeMap(paths: allPaths, bundleURL: destinationURL),
                 exitStatus: 0,
-                wallTimeSeconds: Date().timeIntervalSince(started),
+                wallTimeSeconds: runClock.elapsed,
                 warnings: warnings,
                 stderr: nil
             )

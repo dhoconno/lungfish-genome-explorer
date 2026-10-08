@@ -1127,7 +1127,7 @@ extension AppDelegate {
         routeContext explicitRouteContext: OperationRouteContext? = nil
     ) {
         guard !configs.isEmpty else { return }
-        let batchStartedAt = Date()
+        let batchClock = ProvenanceRunClock()
 
         // Redirect output to project-level Analyses/ folder when a project is open.
         var configs = configs
@@ -1199,8 +1199,8 @@ extension AppDelegate {
                             configurations: configs,
                             sampleIDs: sampleIDs,
                             command: batchProvenanceCommand,
-                            startedAt: batchStartedAt,
-                            completedAt: Date(),
+                            startedAt: batchClock.startedAt,
+                            completedAt: batchClock.now,
                             errorDescription: error.localizedDescription
                         )
                     } catch let provenanceError {
@@ -1344,8 +1344,8 @@ extension AppDelegate {
                             batchRoot: batchRoot,
                             configurations: configs,
                             command: batchProvenanceCommand,
-                            startedAt: batchStartedAt,
-                            completedAt: Date(),
+                            startedAt: batchClock.startedAt,
+                            completedAt: batchClock.now,
                             failureStage: "batch-artifact-publication",
                             errorDescription: (
                                 failedResults.map { "Sample \($0.sampleId) failed: \($0.error)" }
@@ -1424,8 +1424,8 @@ extension AppDelegate {
                         additionalSampleDirectories: failedProvenanceDirectories,
                         context: ClassificationBatchProvenanceContext(
                             configurations: configs,
-                            startedAt: batchStartedAt,
-                            completedAt: Date()
+                            startedAt: batchClock.startedAt,
+                            completedAt: batchClock.now
                         )
                     )
                 } catch {
@@ -1447,8 +1447,8 @@ extension AppDelegate {
                             batchRoot: batchRoot,
                             configurations: configs,
                             command: batchProvenanceCommand,
-                            startedAt: batchStartedAt,
-                            completedAt: Date(),
+                            startedAt: batchClock.startedAt,
+                            completedAt: batchClock.now,
                             failureStage: "batch-provenance-publication",
                             errorDescription: failureMessages.joined(separator: "\n"),
                             additionalOutputURLs: [

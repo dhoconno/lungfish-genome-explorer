@@ -44,7 +44,7 @@ public struct ManagedSavontProcessRunner: SavontProcessRunning {
     }
 
     public func run(arguments: [String], workingDirectory: URL) async throws -> SavontProcessResult {
-        let startedAt = Date()
+        let processClock = ProvenanceRunClock()
         let result = try await condaManager.runTool(
             name: "savont",
             arguments: arguments,
@@ -52,7 +52,7 @@ public struct ManagedSavontProcessRunner: SavontProcessRunning {
             workingDirectory: workingDirectory,
             timeout: Self.timeoutSeconds
         )
-        let completedAt = Date()
+        let completedAt = processClock.now
         let rootPrefix = condaManager.rootPrefix
         let micromambaURL = rootPrefix.appendingPathComponent("bin/micromamba")
         let environmentURL = rootPrefix.appendingPathComponent(
@@ -74,7 +74,7 @@ public struct ManagedSavontProcessRunner: SavontProcessRunning {
                 condaEnvironment: SavontClusteringRunRequest.condaEnvironment,
                 condaPrefix: environmentURL.path
             ),
-            startedAt: startedAt,
+            startedAt: processClock.startedAt,
             completedAt: completedAt
         )
     }
@@ -239,7 +239,7 @@ public struct SavontClusteringPipeline: Sendable {
         let ownedCleanupURLs = [stagedOutputURL, stagedSidecarURL, runScratchURL]
 
         do {
-            let workflowStartedAt = Date()
+            let workflowClock = ProvenanceRunClock()
             let isBundleInput = FASTQBundle.isBundleURL(originalInputURL)
             let originalBundleDescriptor = isBundleInput
                 ? ProvenanceFileDescriptor(
@@ -424,7 +424,7 @@ public struct SavontClusteringPipeline: Sendable {
                 originPath: stagedOutputURL.path
             )
             let topLevelArgv = replayArgv(for: request)
-            let workflowCompletedAt = Date()
+            let workflowCompletedAt = workflowClock.now
             let finalSidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
             let publicationBackupCleanupCandidateCount = [outputURL, finalSidecarURL].reduce(into: 0) {
                 if fileManager.fileExists(atPath: $1.path) {
@@ -471,7 +471,7 @@ public struct SavontClusteringPipeline: Sendable {
             let envelope = try builder.complete(
                 exitStatus: 0,
                 stderr: combinedStderr.isEmpty ? nil : combinedStderr,
-                startedAt: workflowStartedAt,
+                startedAt: workflowClock.startedAt,
                 endedAt: workflowCompletedAt
             )
             try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: stagedSidecarURL)

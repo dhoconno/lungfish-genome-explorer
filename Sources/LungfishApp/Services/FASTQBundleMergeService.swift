@@ -76,7 +76,7 @@ enum FASTQBundleMergeService {
             throw FASTQBundleMergeServiceError.requiresAtLeastTwoBundles
         }
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let bundleURL = try makeOutputBundleURL(
             outputDirectory: outputDirectory,
             bundleName: bundleName
@@ -118,8 +118,8 @@ enum FASTQBundleMergeService {
                 bundleURL: stagingBundleURL,
                 bundleName: bundleName,
                 mergeMode: mergeMode,
-                startedAt: startedAt,
-                completedAt: Date(),
+                startedAt: runClock.startedAt,
+                completedAt: runClock.now,
                 nestedSteps: nestedSteps,
                 provenanceWriter: provenanceWriter
             )
@@ -132,8 +132,8 @@ enum FASTQBundleMergeService {
                     bundleURL: bundleURL,
                     bundleName: bundleName,
                     mergeMode: mergeMode,
-                    startedAt: startedAt,
-                    completedAt: Date(),
+                    startedAt: runClock.startedAt,
+                    completedAt: runClock.now,
                     nestedSteps: nestedSteps,
                     provenanceWriter: provenanceWriter
                 )

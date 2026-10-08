@@ -25,6 +25,7 @@ Foundation and system frameworks, plus Collections and Algorithms from Package.s
 | Managed storage and project locks | Sources/LungfishCore/Storage/ManagedStorageConfigStore.swift, ProjectLock.swift |
 | BLAST submission | Sources/LungfishCore/Services/Blast/BlastService.swift |
 | SRA download checks shared by the window and `fetch sra download` | Sources/LungfishCore/Services/SRA/SRARunReads.swift, SRADownloadMessages.swift, SRAFASTQDownloadRoute.swift, Sources/LungfishCore/Services/ENA/ENAFASTQDownloadValidator.swift |
+| `ProvenanceRunClock`, which times provenance runs so a wall-clock step cannot end one before it starts | Sources/LungfishCore/ProvenanceRunClock.swift |
 
 ## Contracts this module owns
 

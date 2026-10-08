@@ -208,7 +208,7 @@ public struct GenotypeExcelExportService: Sendable {
         }
         let stdoutFile = try writeArtifact(Data(), to: stdoutURL)
         let stderrFile = try writeArtifact(Data(), to: stderrURL)
-        let started = Date()
+        let runClock = ProvenanceRunClock()
         let executedArgv = [pythonExecutableURL.path, scriptURL.path, snapshotURL.path, stagedOutput.path]
         let execution = try runPython(argv: Array(executedArgv.dropFirst()), stdoutFile: stdoutFile, stderrFile: stderrFile, directory: directory)
         artifactIdentities[stderrURL.lastPathComponent] = execution.stderrIdentity
@@ -235,8 +235,8 @@ public struct GenotypeExcelExportService: Sendable {
             "durableReplayArgv": replayArgv, "replayCommand": replayArgv.map(Self.shellQuote).joined(separator: " "),
             "options": provenance.options, "resolvedDefaults": provenance.defaults,
             "runtimeContext": provenance.runtimeContext, "runtime": runtime,
-            "generatedAt": snapshot.generatedAt, "startedAt": ISO8601DateFormatter().string(from: started),
-            "completedAt": ISO8601DateFormatter().string(from: Date()), "wallTimeSeconds": Date().timeIntervalSince(started),
+            "generatedAt": snapshot.generatedAt, "startedAt": ISO8601DateFormatter().string(from: runClock.startedAt),
+            "completedAt": ISO8601DateFormatter().string(from: runClock.now), "wallTimeSeconds": runClock.elapsed,
             "exitStatus": execution.status, "stderr": execution.stderr,
             "inputs": witnessedInputs, "scientificInputWitnesses": snapshot.sourceRevision,
             "snapshot": descriptor(snapshotURL, bytes: snapshotBytes),

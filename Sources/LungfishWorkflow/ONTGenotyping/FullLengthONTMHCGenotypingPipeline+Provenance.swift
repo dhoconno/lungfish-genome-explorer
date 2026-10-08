@@ -362,7 +362,7 @@ extension FullLengthONTMHCGenotypingPipeline {
     internal func writeFailureProvenance(
         request: FullLengthONTMHCGenotypingRunRequest,
         stagedOutputURL: URL,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         error: Error,
         partialEnvelope: ProvenanceEnvelope?,
         failedPublicationRecord: FullLengthONTMHCResultBundlePublicationRecord?,
@@ -371,7 +371,7 @@ extension FullLengthONTMHCGenotypingPipeline {
         rollbackFailureRecovery: FullLengthONTMHCRollbackFailureRecovery?,
         additionalDiagnosticRoots: [URL] = []
     ) throws {
-        let completedAt = Date()
+        let completedAt = runClock.now
         let cancelled = isCancellation(error)
         let exitStatus = cancelled ? 130 : 1
         let stderrText = cancelled
@@ -446,9 +446,9 @@ extension FullLengthONTMHCGenotypingPipeline {
             inputs: inputs,
             outputs: outputs,
             exitStatus: exitStatus,
-            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            wallTimeSeconds: completedAt.timeIntervalSince(runClock.startedAt),
             stderr: stderrText,
-            startedAt: startedAt,
+            startedAt: runClock.startedAt,
             completedAt: completedAt
         ))
         steps.sort { ($0.startedAt ?? .distantPast) < ($1.startedAt ?? .distantPast) }
@@ -457,7 +457,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             seenFiles.insert("\($0.role.rawValue)\u{0}\($0.path)").inserted
         }
         let envelope = ProvenanceEnvelope(
-            createdAt: startedAt,
+            createdAt: runClock.startedAt,
             workflowName: "lungfish fastq full-length-ont-mhc-genotype",
             workflowVersion: WorkflowRun.currentAppVersion,
             toolName: CLICommandIdentity.executableName,
@@ -476,7 +476,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             output: outputs.first,
             outputs: outputs,
             steps: steps,
-            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            wallTimeSeconds: completedAt.timeIntervalSince(runClock.startedAt),
             exitStatus: exitStatus,
             stderr: stderrText
         )
@@ -564,12 +564,12 @@ extension FullLengthONTMHCGenotypingPipeline {
     internal func failureProvenancePreparationReceiptData(
         request: FullLengthONTMHCGenotypingRunRequest,
         runID: UUID,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         originalError: Error,
         preparationError: FullLengthFailureProvenancePreparationError,
         rollbackFailureRecovery: FullLengthONTMHCRollbackFailureRecovery?
     ) throws -> Data {
-        let completedAt = Date()
+        let completedAt = runClock.now
         let exitStatus = isCancellation(originalError) ? 130 : 1
         let stderr = [
             originalError.localizedDescription,
@@ -598,9 +598,9 @@ extension FullLengthONTMHCGenotypingPipeline {
             inputPath: preparationError.inputPath,
             preparationError: preparationError.localizedDescription,
             originalError: originalError.localizedDescription,
-            startedAt: startedAt,
+            startedAt: runClock.startedAt,
             completedAt: completedAt,
-            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            wallTimeSeconds: completedAt.timeIntervalSince(runClock.startedAt),
             exitStatus: exitStatus,
             stderr: stderr
         )

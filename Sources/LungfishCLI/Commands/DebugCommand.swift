@@ -467,7 +467,7 @@ struct FASTQIngestSubcommand: AsyncParsableCommand {
         }
 
         let pipeline = FASTQIngestionPipeline()
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let result = try await pipeline.run(config: config) { fraction, message in
             if !globalOptions.quiet {
                 let pct = Int((fraction * 100).rounded())
@@ -479,7 +479,7 @@ struct FASTQIngestSubcommand: AsyncParsableCommand {
             output: result.outputFile,
             config: config,
             result: result,
-            startedAt: startedAt
+            runClock: runClock
         )
 
         if globalOptions.outputFormat == .json {
@@ -542,7 +542,7 @@ struct FASTQIngestSubcommand: AsyncParsableCommand {
         output: URL,
         config: FASTQIngestionConfig,
         result: FASTQIngestionResult,
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) async throws {
         let argv = replayArgv()
         let parameters: [String: ParameterValue] = [
@@ -571,7 +571,7 @@ struct FASTQIngestSubcommand: AsyncParsableCommand {
             "threads": .integer(max(1, ProcessInfo.processInfo.activeProcessorCount)),
             "quiet": .boolean(false),
         ]
-        let completedAt = Date()
+        let completedAt = runClock.now
         try await CLIProvenanceSupport.recordSingleStepRun(
             name: "lungfish debug fastq-ingest",
             parameters: parameters,
@@ -584,7 +584,7 @@ struct FASTQIngestSubcommand: AsyncParsableCommand {
             inputs: inputs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) },
             outputs: [ProvenanceRecorder.fileRecord(url: output, format: .fastq, role: .output)],
             exitCode: 0,
-            wallTime: completedAt.timeIntervalSince(startedAt),
+            wallTime: completedAt.timeIntervalSince(runClock.startedAt),
             stderr: nil,
             status: .completed,
             outputDirectory: output.deletingLastPathComponent()

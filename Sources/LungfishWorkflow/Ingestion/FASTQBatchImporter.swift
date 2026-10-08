@@ -682,7 +682,7 @@ public enum FASTQBatchImporter {
         log: (@Sendable (ImportLogEvent) -> Void)?,
         databaseRegistry: DatabaseRegistry
     ) async -> Result<URL, Error> {
-        let sampleStart = Date()
+        let sampleClock = ProvenanceRunClock()
         log?(.sampleStart(
             sample: pair.sampleName, index: sampleIndex, total: totalSamples, r1: pair.r1.lastPathComponent,
             r2: pair.r2?.lastPathComponent, unpaired: pair.unpaired?.lastPathComponent
@@ -887,7 +887,7 @@ public enum FASTQBatchImporter {
             let clumpifyLabel = config.optimizeStorage ? "Optimize storage + Compress" : "Compress"
             log?(.stepStart(sample: pair.sampleName, step: clumpifyLabel, stepIndex: clumpifyStepIndex, totalSteps: totalSteps))
             printProgress("  \u{2192} \(clumpifyLabel)...")
-            let clumpifyStart = Date()
+            let clumpifyClock = ProvenanceRunClock()
 
             let pipeline = FASTQIngestionPipeline()
             let ingestionResult = try await runIngestionPipeline(
@@ -908,7 +908,7 @@ public enum FASTQBatchImporter {
             log?(.stepComplete(
                 sample: pair.sampleName,
                 step: clumpifyLabel,
-                durationSeconds: Date().timeIntervalSince(clumpifyStart)
+                durationSeconds: Date().timeIntervalSince(clumpifyClock.startedAt)
             ))
             recipeStepResults.append(RecipeStepResult(
                 stepName: clumpifyLabel,
@@ -917,9 +917,9 @@ public enum FASTQBatchImporter {
                 commandLine: ingestionResult.processingCommandLine,
                 inputReadCount: nil,
                 outputReadCount: nil,
-                durationSeconds: Date().timeIntervalSince(clumpifyStart)
+                durationSeconds: clumpifyClock.elapsed
             ))
-            printProgress("  \u{2192} \(clumpifyLabel)... done (\(Int(Date().timeIntervalSince(clumpifyStart)))s)")
+            printProgress("  \u{2192} \(clumpifyLabel)... done (\(Int(Date().timeIntervalSince(clumpifyClock.startedAt)))s)")
 
             let ingestionOutputURL = ingestionResult.outputFile
 
@@ -1004,7 +1004,7 @@ public enum FASTQBatchImporter {
             // Step: Compute FASTQ statistics
             let statsLabel = "Compute statistics"
             log?(.stepStart(sample: pair.sampleName, step: statsLabel, stepIndex: statsStepIndex, totalSteps: totalSteps))
-            let statsStart = Date()
+            let statsClock = ProvenanceRunClock()
             var statsError: String?
             do {
                 try await computeAndCacheStatistics(for: stagingBundleFASTQURL)
@@ -1013,9 +1013,9 @@ public enum FASTQBatchImporter {
                 logger.warning("Stats computation failed for \(pair.sampleName): \(error)")
                 throw error
             }
-            let statsCompletedAt = Date()
+            let statsCompletedAt = statsClock.now
             log?(.stepComplete(sample: pair.sampleName, step: statsLabel,
-                               durationSeconds: statsCompletedAt.timeIntervalSince(statsStart)))
+                               durationSeconds: statsCompletedAt.timeIntervalSince(statsClock.startedAt)))
             recipeStepResults.append(RecipeStepResult(
                 stepName: statsLabel,
                 tool: "seqkit",
@@ -1023,7 +1023,7 @@ public enum FASTQBatchImporter {
                 commandLine: nil,
                 inputReadCount: nil,
                 outputReadCount: nil,
-                durationSeconds: statsCompletedAt.timeIntervalSince(statsStart)
+                durationSeconds: statsCompletedAt.timeIntervalSince(statsClock.startedAt)
             ))
 
             try await writeImportProvenance(
@@ -1039,7 +1039,7 @@ public enum FASTQBatchImporter {
                 sourceIngestionOutputURL: ingestionResult.outputFile,
                 ingestionResult: ingestionResult,
                 recipeStepResults: recipeStepResults,
-                statsStartedAt: statsStart,
+                runClock: sampleClock, statsStartedAt: statsClock.startedAt,
                 statsCompletedAt: statsCompletedAt,
                 statsError: statsError
             )
@@ -1052,7 +1052,7 @@ public enum FASTQBatchImporter {
             didPublishBundle = true
 
             let finalBytes = bundleFileSize(bundleURL)
-            let duration = Date().timeIntervalSince(sampleStart)
+            let duration = sampleClock.elapsed
 
             log?(.sampleComplete(
                 sample: pair.sampleName,
@@ -1252,7 +1252,7 @@ public enum FASTQBatchImporter {
         sourceIngestionOutputURL: URL,
         ingestionResult: FASTQIngestionResult,
         recipeStepResults: [RecipeStepResult],
-        statsStartedAt: Date,
+        runClock: ProvenanceRunClock, statsStartedAt: Date,
         statsCompletedAt: Date,
         statsError: String?
     ) async throws {
@@ -1315,7 +1315,7 @@ public enum FASTQBatchImporter {
             endTime: statsCompletedAt
         ))
 
-        let completedAt = Date()
+        let completedAt = runClock.now
         let command = reproducibleImportCommand(pair: pair, config: config)
         let durableCommand = reproducibleImportCommand(pair: pair, config: config, durable: true)
         var builder = ProvenanceRunBuilder(
@@ -1360,7 +1360,7 @@ public enum FASTQBatchImporter {
         let envelope = try builder.complete(
             exitStatus: 0,
             stderr: statsError,
-            startedAt: steps.map(\.startTime).min() ?? completedAt,
+            startedAt: runClock.startedAt,
             endedAt: completedAt
         )
         let finalEnvelope = rewriteStagedBundlePaths(

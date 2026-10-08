@@ -49,7 +49,7 @@ extension FASTQBundleMergeService {
         outputURL: URL
     ) async throws -> ProvenanceStep {
         try checkMates(r1: r1, r2: r2)
-        let startedAt = Date()
+        let interleaveClock = ProvenanceRunClock()
         let runner = NativeToolRunner.shared
         let result = try await runner.run(
             .reformat,
@@ -80,10 +80,10 @@ extension FASTQBundleMergeService {
                 try ProvenanceFileDescriptor.file(url: outputURL, format: .fastq, role: .output),
             ],
             exitStatus: Int(result.exitCode),
-            wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt)),
+            wallTimeSeconds: interleaveClock.elapsed,
             stderr: result.stderr,
-            startedAt: startedAt,
-            completedAt: Date()
+            startedAt: interleaveClock.startedAt,
+            completedAt: interleaveClock.now
         )
     }
 

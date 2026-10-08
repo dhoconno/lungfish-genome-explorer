@@ -1645,8 +1645,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
                     "totalReads": .integer(result.totalReads),
                     "outputByteCount": .integer(content.utf8.count),
                 ],
-                startedAt: Date(),
-                completedAt: Date()
+                runClock: ProvenanceRunClock()
             )) { staged in
                 try content.write(to: staged, atomically: true, encoding: .utf8)
             }

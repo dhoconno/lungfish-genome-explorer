@@ -290,7 +290,7 @@ public enum SequenceAnnotationTrackWorkflow {
     }
 
     public static func run(_ request: Request) async throws -> Result {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let bundle = try await ReferenceBundle(url: request.bundleURL)
         let manifest = bundle.manifest
         guard let genome = manifest.genome else {
@@ -385,14 +385,14 @@ public enum SequenceAnnotationTrackWorkflow {
 
             try manifest.addingAnnotationTrack(track).save(to: request.bundleURL)
 
-            let completedAt = Date()
+            let completedAt = runClock.now
 
             let provenanceURL = try writeProvenance(
                 request: request,
                 table: table,
                 inputs: inputDescriptors,
                 outputs: [bedURL, databaseURL, manifestURL],
-                startedAt: startedAt,
+                startedAt: runClock.startedAt,
                 completedAt: completedAt
             )
 
@@ -421,7 +421,7 @@ public enum SequenceAnnotationTrackWorkflow {
     }
 
     public static func deleteTrack(_ request: DeleteTrackRequest) async throws -> DeleteTrackResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let trackID = try validatedTrackID(request.trackID)
         let manifest = try BundleManifest.load(from: request.bundleURL)
         guard let track = manifest.annotations.first(where: { $0.id == trackID }) else {
@@ -463,14 +463,14 @@ public enum SequenceAnnotationTrackWorkflow {
             for url in removedURLs where FileManager.default.fileExists(atPath: url.path) {
                 try FileManager.default.removeItem(at: url)
             }
-            let completedAt = Date()
+            let completedAt = runClock.now
             let provenanceURL = try writeDeletionProvenance(
                 request: request,
                 track: track,
                 inputs: inputDescriptors,
                 outputs: [manifestURL],
                 removedURLs: removedPayloadURLs,
-                startedAt: startedAt,
+                startedAt: runClock.startedAt,
                 completedAt: completedAt
             )
             return DeleteTrackResult(
@@ -492,7 +492,7 @@ public enum SequenceAnnotationTrackWorkflow {
     }
 
     public static func deleteAnnotations(_ request: DeleteAnnotationsRequest) async throws -> DeleteAnnotationsResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let trackID = try validatedTrackID(request.trackID)
         let rowIDs = Array(Set(request.rowIDs)).sorted()
         guard !rowIDs.isEmpty else {
@@ -556,7 +556,7 @@ public enum SequenceAnnotationTrackWorkflow {
                 for url in payloadsToBackup where FileManager.default.fileExists(atPath: url.path) {
                     try FileManager.default.removeItem(at: url)
                 }
-                completedAt = Date()
+                completedAt = runClock.now
                 outputURLs = [manifestURL]
             } else {
                 let rewriteBEDURL = hasDistinctBEDPayload
@@ -576,7 +576,7 @@ public enum SequenceAnnotationTrackWorkflow {
                     version: track.version
                 )
                 try manifest.replacingAnnotationTrack(updatedTrack).save(to: request.bundleURL)
-                completedAt = Date()
+                completedAt = runClock.now
                 outputURLs = hasDistinctBEDPayload
                     ? [payloadURLs.bedURL, databaseURL, manifestURL]
                     : [databaseURL, manifestURL]
@@ -590,7 +590,7 @@ public enum SequenceAnnotationTrackWorkflow {
                 inputs: inputDescriptors,
                 outputs: outputURLs,
                 removedURLs: removedTrack ? trackPayloadURLs : [],
-                startedAt: startedAt,
+                startedAt: runClock.startedAt,
                 completedAt: completedAt
             )
             return DeleteAnnotationsResult(
@@ -613,7 +613,7 @@ public enum SequenceAnnotationTrackWorkflow {
     }
 
     public static func updateAnnotation(_ request: UpdateAnnotationRequest) async throws -> UpdateAnnotationResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let trackID = try validatedTrackID(request.trackID)
 
         let manifest = try BundleManifest.load(from: request.bundleURL)
@@ -666,13 +666,13 @@ public enum SequenceAnnotationTrackWorkflow {
             guard updated else {
                 throw SequenceAnnotationWorkflowError.annotationRowNotFound(request.rowID)
             }
-            let completedAt = Date()
+            let completedAt = runClock.now
             let provenanceURL = try writeUpdateAnnotationProvenance(
                 request: request,
                 track: track,
                 inputs: inputDescriptors,
                 outputs: [databaseURL],
-                startedAt: startedAt,
+                startedAt: runClock.startedAt,
                 completedAt: completedAt
             )
             return UpdateAnnotationResult(

@@ -277,9 +277,9 @@ public enum FastpPairedRunner {
                 options: options,
                 detectPairedAdapters: false
             )
-            let singleStarted = Date()
+            let singleClock = ProvenanceRunClock()
             let singleResult = try await execute(.fastp, singleArgs)
-            let singleCompleted = Date()
+            let singleCompleted = singleClock.now
             guard singleResult.isSuccess else {
                 throw FastpPairedRunError("\(failureLabel) failed on the unpaired reads: \(singleResult.stderr)")
             }
@@ -290,9 +290,9 @@ public enum FastpPairedRunner {
                 inputs: [ProvenanceFileDescriptor(fileRecord: ProvenanceRecorder.fileRecord(url: unpaired, format: .fastq, role: .input))],
                 outputs: [ProvenanceFileDescriptor(fileRecord: ProvenanceRecorder.fileRecord(url: trimmed, format: .fastq, role: .output))],
                 exitStatus: Int(singleResult.exitCode),
-                wallTimeSeconds: singleCompleted.timeIntervalSince(singleStarted),
+                wallTimeSeconds: singleCompleted.timeIntervalSince(singleClock.startedAt),
                 stderr: singleResult.stderr.isEmpty ? nil : singleResult.stderr,
-                startedAt: singleStarted,
+                startedAt: singleClock.startedAt,
                 completedAt: singleCompleted
             )
             extraSteps.append(singleStep)
@@ -304,12 +304,12 @@ public enum FastpPairedRunner {
         // the plain output, or into a scratch file that gzip then writes.
         let compress = outputPath.lowercased().hasSuffix(".gz")
         let plainTarget = compress ? scratch.appendingPathComponent("interleaved.fastq") : outputURL
-        let interleaveStarted = Date()
+        let interleaveClock = ProvenanceRunClock()
         let appended = unpairedTrimmed
         let expectedRecords = try await Task.detached(priority: .utility) {
             try Self.writeInterleaved(r1: out1, r2: out2, appending: appended, to: plainTarget)
         }.value
-        let interleaveCompleted = Date()
+        let interleaveCompleted = interleaveClock.now
         let written = try await Task.detached(priority: .utility) {
             try FASTQPairInterleaver.countRecords(in: plainTarget)
         }.value
@@ -331,9 +331,9 @@ public enum FastpPairedRunner {
             },
             outputs: [ProvenanceFileDescriptor(fileRecord: ProvenanceRecorder.fileRecord(url: plainTarget, format: .fastq, role: .output))],
             exitStatus: 0,
-            wallTimeSeconds: interleaveCompleted.timeIntervalSince(interleaveStarted),
+            wallTimeSeconds: interleaveCompleted.timeIntervalSince(interleaveClock.startedAt),
             dependsOn: dependencies,
-            startedAt: interleaveStarted,
+            startedAt: interleaveClock.startedAt,
             completedAt: interleaveCompleted
         )
         extraSteps.append(interleaveStep)
@@ -424,7 +424,7 @@ public func gzipCompressFASTQ(
     let process = Process()
     let command = ["/usr/bin/gzip", "-c", sourceURL.path]
     let stderrPipe = Pipe()
-    let startedAt = Date()
+    let gzipClock = ProvenanceRunClock()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
     process.arguments = Array(command.dropFirst())
     process.standardOutput = outputHandle
@@ -435,7 +435,7 @@ public func gzipCompressFASTQ(
         decoding: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
         as: UTF8.self
     )
-    let wallTime = Date().timeIntervalSince(startedAt)
+    let wallTime = gzipClock.elapsed
     guard process.terminationReason == .exit, process.terminationStatus == 0 else {
         let detail = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
         let suffix = detail.isEmpty ? "" : ": \(detail)"

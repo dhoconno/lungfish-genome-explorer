@@ -1865,13 +1865,13 @@ extension ReferenceBundleViewportController {
 
         switch format {
         case .csv:
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let content = MappingResultExportBuilder.delimitedContent(for: result, separator: ",")
-            try writeMappingResultExportProvenance(result: result, outputURL: url, format: format, startedAt: startedAt, content: content)
+            try writeMappingResultExportProvenance(result: result, outputURL: url, format: format, runClock: runClock, content: content)
         case .tsv:
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let content = MappingResultExportBuilder.delimitedContent(for: result, separator: "\t")
-            try writeMappingResultExportProvenance(result: result, outputURL: url, format: format, startedAt: startedAt, content: content)
+            try writeMappingResultExportProvenance(result: result, outputURL: url, format: format, runClock: runClock, content: content)
         case .json, .fasta:
             throw MappingResultExportError.unsupportedFormat(format)
         }
@@ -1881,7 +1881,7 @@ extension ReferenceBundleViewportController {
         result: MappingResult,
         outputURL: URL,
         format: ResultExportFormat,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         content: String
     ) throws {
         let sourceURLs = mappingResultExportSourceURLs(for: result)
@@ -1908,7 +1908,7 @@ extension ReferenceBundleViewportController {
                 "sourceCount": .integer(sourceURLs.count),
                 "totalReads": .integer(result.totalReads),
             ],
-            startedAt: startedAt
+            runClock: runClock
         )) { staged in
             try content.write(to: staged, atomically: true, encoding: .utf8)
         }

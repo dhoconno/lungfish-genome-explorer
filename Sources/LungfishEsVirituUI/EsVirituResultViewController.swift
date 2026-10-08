@@ -1858,7 +1858,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         fileExtension: String,
         to url: URL
     ) throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let content = buildDelimitedExport(result: result, separator: separator)
         try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app esviritu detections export",
@@ -1890,7 +1890,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                 "columnFilters": .array(detectionTableView.exportColumnFilters.map(exportColumnFilterParameter)),
                 "metadataColumns": .array(detectionTableView.metadataColumns.exportHeaders.map { .string($0) }),
             ],
-            startedAt: startedAt
+            runClock: runClock
         )) { outputURL in
             try content.write(to: outputURL, atomically: true, encoding: .utf8)
         }

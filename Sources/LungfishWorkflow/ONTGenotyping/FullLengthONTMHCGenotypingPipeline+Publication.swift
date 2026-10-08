@@ -9,13 +9,14 @@ extension FullLengthONTMHCGenotypingPipeline {
         stagedOutputURL: URL,
         finalOutputURL: URL,
         replacingExisting: Bool,
-        payloadMappings: [(staged: ProvenanceFileDescriptor, final: ProvenanceFileDescriptor)]
+        payloadMappings: [(staged: ProvenanceFileDescriptor, final: ProvenanceFileDescriptor)],
+        runClock: ProvenanceRunClock = ProvenanceRunClock()
     ) throws -> FullLengthONTMHCResultBundlePublicationRecord {
         try FullLengthONTMHCAlignmentSafety().requireDirectoryNoFollow(
             stagedOutputURL,
             role: "staged full-length MHC result bundle"
         )
-        let startedAt = Date()
+        let startedAt = runClock.now
         let flags = UInt32(replacingExisting ? RENAME_SWAP : RENAME_EXCL)
         let initialErrorNumber: Int32?
         if !replacingExisting,
@@ -39,7 +40,7 @@ extension FullLengthONTMHCGenotypingPipeline {
                 successManifestMechanism: "renameatx_np",
                 fallbackReason: nil,
                 startedAt: startedAt,
-                completedAt: Date(),
+                completedAt: runClock.now,
                 exitStatus: 0,
                 errorMessage: nil
             )
@@ -55,7 +56,7 @@ extension FullLengthONTMHCGenotypingPipeline {
                 successManifestMechanism: "renameatx_np",
                 fallbackReason: nil,
                 startedAt: startedAt,
-                completedAt: Date(),
+                completedAt: runClock.now,
                 exitStatus: -1,
                 errorMessage: POSIXError(initialCode).localizedDescription
             )
@@ -87,7 +88,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             successManifestMechanism: "exclusive-file-reservation-then-rename",
             fallbackReason: fallbackReason,
             startedAt: startedAt,
-            completedAt: Date(),
+            completedAt: runClock.now,
             exitStatus: fallbackError == nil ? 0 : -1,
             errorMessage: fallbackError?.localizedDescription
         )

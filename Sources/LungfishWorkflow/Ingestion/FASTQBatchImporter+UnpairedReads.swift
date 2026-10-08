@@ -366,7 +366,7 @@ extension FASTQBatchImporter {
         guard let r2 = pair.r2, let unpaired = pair.unpaired else { return nil }
         let r1 = pair.r1
         let output = workspace.appendingPathComponent("\(pair.sampleName)_pairs_then_unpaired.fastq")
-        let startedAt = Date()
+        let interleaveClock = ProvenanceRunClock()
         // Cancellation reaches the join, which polls it as it copies
         // (F9 re-review N5).
         let counts = try await FASTQIngestionPipeline.detachedWork {
@@ -394,8 +394,8 @@ extension FASTQBatchImporter {
             outputURLs: [output],
             pairCount: counts.pairs,
             singleReadCount: counts.unpairedReads,
-            startedAt: startedAt,
-            endedAt: Date()
+            startedAt: interleaveClock.startedAt,
+            endedAt: interleaveClock.now
         ).stepExecution(toolVersion: WorkflowRun.currentAppVersion)
         log?(.notice(
             sample: pair.sampleName,

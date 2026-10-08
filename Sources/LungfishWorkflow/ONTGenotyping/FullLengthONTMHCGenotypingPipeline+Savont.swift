@@ -440,7 +440,7 @@ extension FullLengthONTMHCGenotypingPipeline {
         if singleStrand {
             arguments.append("--single-strand")
         }
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let result = try await condaManager.runTool(
             name: "savont",
             arguments: arguments,
@@ -461,8 +461,8 @@ extension FullLengthONTMHCGenotypingPipeline {
             arguments: arguments,
             stderr: result.stderr,
             exitCode: result.exitCode,
-            startedAt: startedAt,
-            completedAt: Date()
+            startedAt: runClock.startedAt,
+            completedAt: runClock.now
         )
     }
 

@@ -91,7 +91,7 @@ struct AlignmentConsensusPublicationService {
     }
 
     func publish(_ request: AlignmentConsensusPublicationRequest) throws -> AlignmentConsensusPublicationResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         var stage = AlignmentConsensusPublicationAttempt.Stage.validation
         do {
             try failureInjector(stage)
@@ -156,9 +156,9 @@ struct AlignmentConsensusPublicationService {
         } catch let failure as AlignmentConsensusPublicationFailure {
             throw failure
         } catch {
-            let endedAt = Date()
+            let endedAt = runClock.now
             throw AlignmentConsensusPublicationFailure(
-                attempt: publicationAttempt(request, stage: stage, startedAt: startedAt, endedAt: endedAt, error: error),
+                attempt: publicationAttempt(request, stage: stage, startedAt: runClock.startedAt, endedAt: endedAt, error: error),
                 underlyingDescription: error.localizedDescription
             )
         }

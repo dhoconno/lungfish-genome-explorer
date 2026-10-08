@@ -90,15 +90,15 @@ struct PrimerRemovalPasses: Sendable {
             firstOutput = output
         }
         let firstArguments = toolArguments.arguments(input: input.path, output: firstOutput.path, paired: paired)
-        let firstStarted = Date()
+        let firstClock = ProvenanceRunClock()
         let first = try await runner.run(tool, arguments: firstArguments, environment: environment, timeout: 1800)
         var runs = [FASTQSplitByNameRunner.PartRun(
             result: first,
             arguments: firstArguments,
             inputURL: input,
             outputURL: firstOutput,
-            startedAt: firstStarted,
-            completedAt: Date()
+            startedAt: firstClock.startedAt,
+            completedAt: firstClock.now
         )]
         guard first.isSuccess,
               let secondArguments = toolArguments.readThroughArguments(
@@ -108,15 +108,15 @@ struct PrimerRemovalPasses: Sendable {
               ) else {
             return runs
         }
-        let secondStarted = Date()
+        let secondClock = ProvenanceRunClock()
         let second = try await runner.run(tool, arguments: secondArguments, environment: environment, timeout: 1800)
         runs.append(FASTQSplitByNameRunner.PartRun(
             result: second,
             arguments: secondArguments,
             inputURL: firstOutput,
             outputURL: output,
-            startedAt: secondStarted,
-            completedAt: Date()
+            startedAt: secondClock.startedAt,
+            completedAt: secondClock.now
         ))
         return runs
     }

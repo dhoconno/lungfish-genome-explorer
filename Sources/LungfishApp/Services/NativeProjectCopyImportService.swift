@@ -33,7 +33,8 @@ enum NativeProjectCopyImportService {
             fileDestinations: isDirectory ? [] : artifacts)
         let staged = destination.deletingLastPathComponent().appendingPathComponent(".native-copy-\(UUID())")
         defer { try? fm.removeItem(at: staged) }
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
+        let startedAt = runClock.startedAt
         do {
             let sourceFiles = try payloadFiles(in: source, isDirectory: isDirectory)
             let inputs = try sourceFiles.map { try ProvenanceFileDescriptor.file(url: $0, role: .input) }
@@ -51,7 +52,7 @@ enum NativeProjectCopyImportService {
             }
             try publication.publish(stagedURL: staged, to: destination, replacingExisting: replaceExisting)
             if writesReceipt {
-                let completedAt = Date()
+                let completedAt = runClock.now
                 var argv = ["Lungfish.app", "import-native", source.path, "--output", destination.path]
                 var resolved: [String: ParameterValue] = ["source": .file(source), "destination": .file(destination),
                     "replaceExisting": .boolean(replaceExisting), "copyMode": .string(isDirectory ? "directory-copy" : "opaque-file-copy")]

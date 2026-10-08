@@ -69,7 +69,8 @@ final class LocalWorkflowExecutionService {
     ) async throws -> RunResult {
         try FileManager.default.createDirectory(at: bundleRoot, withIntermediateDirectories: true)
         let bundleURL = try availableBundleURL(for: request, in: bundleRoot)
-        let createdAt = Date()
+        let runClock = ProvenanceRunClock()
+        let createdAt = runClock.startedAt
         let preparedEvent = LocalWorkflowRunStatusEvent(status: .prepared, timestamp: createdAt)
         try LocalWorkflowRunBundleStore.write(
             request.manifest(
@@ -82,7 +83,7 @@ final class LocalWorkflowExecutionService {
         try writePrepareOnlyProvenance(
             request: request,
             bundleURL: bundleURL,
-            wallTime: Date().timeIntervalSince(createdAt)
+            wallTime: runClock.elapsed
         )
 
         let commandPreview = Self.cliCommandPreview(for: request, bundleURL: bundleURL, prepareOnly: true)
@@ -335,6 +336,7 @@ final class LocalWorkflowExecutionService {
             parameters["memory"] = .string(memory)
         }
 
+        let recordedAt = Date()
         let step = StepExecution(
             toolName: "lungfish-cli workflow run",
             toolVersion: WorkflowRun.currentAppVersion,
@@ -343,11 +345,13 @@ final class LocalWorkflowExecutionService {
             outputs: outputs,
             exitCode: 0,
             wallTime: wallTime,
-            endTime: Date()
+            startTime: recordedAt,
+            endTime: recordedAt
         )
         let run = WorkflowRun(
             name: "Prepare \(request.workflowDisplayName)",
-            endTime: Date(),
+            startTime: recordedAt,
+            endTime: recordedAt,
             status: .completed,
             steps: [step],
             parameters: parameters

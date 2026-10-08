@@ -23,7 +23,7 @@ struct FastqQCSummarySubcommand: AsyncParsableCommand {
         try output.validateOutput()
 
         let reader = FASTQReader(validateSequence: false)
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let inputURLs = try inputs.map(validateInput)
         var summaries: [FastqQCSummaryEntry] = []
         summaries.reserveCapacity(inputs.count)
@@ -79,7 +79,7 @@ struct FastqQCSummarySubcommand: AsyncParsableCommand {
                 inputs: inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) },
                 outputs: [ProvenanceRecorder.fileRecord(url: outputURL, format: .json, role: .output)],
                 exitCode: 0,
-                wallTime: Date().timeIntervalSince(startedAt),
+                wallTime: runClock.elapsed,
                 stderr: nil,
                 status: .completed,
                 outputDirectory: outputDirectory

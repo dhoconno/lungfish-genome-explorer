@@ -40,7 +40,7 @@ extension DemultiplexingPipeline {
         rejectThreshold: Int = 3,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> BarcodeScoutResult {
-        let startTime = Date()
+        let runClock = ProvenanceRunClock()
 
         let inputFASTQ = resolveInputFASTQ(inputURL)
         guard FileManager.default.fileExists(atPath: inputFASTQ.path) else {
@@ -98,7 +98,7 @@ extension DemultiplexingPipeline {
                 useRevcomp: useRevcomp,
                 acceptThreshold: acceptThreshold,
                 rejectThreshold: rejectThreshold,
-                startTime: startTime,
+                runClock: runClock,
                 progress: progress
             )
         }
@@ -278,7 +278,7 @@ extension DemultiplexingPipeline {
             detections.sort { $0.hitCount > $1.hitCount }
         }
 
-        let elapsed = Date().timeIntervalSince(startTime)
+        let elapsed = runClock.elapsed
         progress(1.0, "Scout complete: \(detections.count) barcodes detected")
 
         return BarcodeScoutResult(
@@ -304,7 +304,7 @@ extension DemultiplexingPipeline {
         useRevcomp: Bool,
         acceptThreshold: Int,
         rejectThreshold: Int,
-        startTime: Date,
+        runClock: ProvenanceRunClock,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> BarcodeScoutResult {
         // Phase 1: Scout individual barcodes with --revcomp (5'-only specs, N entries)
@@ -344,7 +344,7 @@ extension DemultiplexingPipeline {
 
         guard !detectedBarcodes.isEmpty else {
             let scanned = countReadsInFASTQ(url: subsetFile)
-            let elapsed = Date().timeIntervalSince(startTime)
+            let elapsed = runClock.elapsed
             progress(1.0, "Scout complete: no barcodes detected")
             return BarcodeScoutResult(
                 readsScanned: scanned,
@@ -406,7 +406,7 @@ extension DemultiplexingPipeline {
             rejectThreshold: rejectThreshold
         )
 
-        let elapsed = Date().timeIntervalSince(startTime)
+        let elapsed = runClock.elapsed
         progress(1.0, "Scout complete: \(detections.count) barcode pairs detected")
 
         return BarcodeScoutResult(

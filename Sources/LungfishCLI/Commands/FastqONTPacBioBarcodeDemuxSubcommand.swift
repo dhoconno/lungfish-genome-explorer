@@ -68,7 +68,7 @@ struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
         let inputURL = URL(fileURLWithPath: input)
         let barcodeURL = URL(fileURLWithPath: barcodes)
         let outputURL = URL(fileURLWithPath: output, isDirectory: true)
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let request = ONTPacBioBarcodeDemuxMaterializationRequest(
             inputURL: inputURL,
             barcodeDefinitionsURL: barcodeURL,
@@ -150,7 +150,7 @@ struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
             inputs: inputs,
             outputs: outputs,
             exitCode: 0,
-            wallTime: Date().timeIntervalSince(startedAt),
+            wallTime: runClock.elapsed,
             stderr: nil,
             status: .completed,
             outputDirectory: result.outputDirectory

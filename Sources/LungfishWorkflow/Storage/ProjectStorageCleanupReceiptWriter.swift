@@ -330,7 +330,7 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
         }
         try operations.cancellationCheck()
 
-        let completedAt = operations.now()
+        let completedAt = max(operations.now(), request.startedAt)
         let wallTime = max(
             0,
             completedAt.timeIntervalSince(request.startedAt)

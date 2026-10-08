@@ -29,18 +29,18 @@ final class GenBankBundleDownloadViewModelTests: XCTestCase {
         let output = genome.appendingPathComponent("sequence.fa.gz")
         try Data("VERSION NM_000546.6".utf8).write(to: source)
         try Data("compressed sequence".utf8).write(to: output)
-        let start = Date(timeIntervalSinceNow: -1)
+        let runClock = ProvenanceRunClock()
         let fetch = try GenBankBundleDownloadViewModel.fetchProvenanceStep(
-            accession: "NM_000546.6", format: "gb", output: source, startedAt: start)
+            accession: "NM_000546.6", format: "gb", output: source, runClock: runClock)
         let conversion = try GenBankBundleDownloadViewModel.conversionProvenanceStep(
             entryPoint: "test-conversion", inputs: [source], outputs: [output],
-            options: ["preserveQualifiers": .boolean(true)], startedAt: start)
+            options: ["preserveQualifiers": .boolean(true)], runClock: runClock)
         XCTAssertEqual(conversion.inputs.first?.checksumSHA256, try ProvenanceFileHasher.sha256(of: source))
         XCTAssertEqual(conversion.outputs.first?.checksumSHA256, try ProvenanceFileHasher.sha256(of: output))
         XCTAssertEqual(conversion.exitStatus, 0)
         try GenBankBundleDownloadViewModel.writeDownloadProvenance(
             bundleURL: bundle, requestedAccession: "NM_000546.6", resolvedAccession: "NM_000546.6",
-            includeGFF3Annotations: false, steps: [fetch, conversion], startedAt: start, stderr: "fallback detail")
+            includeGFF3Annotations: false, steps: [fetch, conversion], runClock: runClock, stderr: "fallback detail")
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundle))
         XCTAssertEqual(envelope.workflowName, "gui-genbank-download")
         XCTAssertEqual(envelope.options.resolvedDefaults["resolvedAccession"], .string("NM_000546.6"))

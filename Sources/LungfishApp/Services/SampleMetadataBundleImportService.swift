@@ -55,7 +55,7 @@ struct SampleMetadataBundleImportService {
             )
         }
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let metadataURL = bundleURL.appendingPathComponent("metadata/sample_metadata.tsv")
         let editJournalURL = bundleURL.appendingPathComponent("metadata/sample_metadata_edits.json")
         let sampleColumnName = scanResult.candidates
@@ -147,8 +147,8 @@ struct SampleMetadataBundleImportService {
 
             let envelope = try builder.complete(
                 exitStatus: 0,
-                startedAt: startedAt,
-                endedAt: Date()
+                startedAt: runClock.startedAt,
+                endedAt: runClock.now
             )
             let provenanceURL = try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
             SampleMetadataEditPersistenceService().wire(store: store, bundleURL: bundleURL)
@@ -265,7 +265,7 @@ struct SampleMetadataEditPersistenceService {
         journalURL: URL,
         bundleURL: URL
     ) throws {
-        let startedAt = Date()
+        let editClock = ProvenanceRunClock()
         guard let existingEnvelope = try ProvenanceEnvelopeReader.load(from: bundleURL) else {
             throw SampleMetadataEditPersistenceError.missingCanonicalProvenance(bundleURL.path)
         }
@@ -320,7 +320,7 @@ struct SampleMetadataEditPersistenceService {
                 format: .json,
                 role: .output
             )
-            let completedAt = Date()
+            let completedAt = editClock.now
             let argv = [
                 "lungfish-gui", "edit-sample-metadata",
                 "--bundle", bundleURL.path,
@@ -346,9 +346,9 @@ struct SampleMetadataEditPersistenceService {
                 inputs: inputs,
                 outputs: [output],
                 exitStatus: 0,
-                wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+                wallTimeSeconds: completedAt.timeIntervalSince(editClock.startedAt),
                 dependsOn: existingEnvelope.steps.last.map { [$0.id] } ?? [],
-                startedAt: startedAt,
+                startedAt: editClock.startedAt,
                 completedAt: completedAt
             )
             let updatedOptions = ProvenanceOptions(

@@ -387,7 +387,7 @@ public actor BlastService {
             throw BlastServiceError.noSequences
         }
 
-        let submittedAt = now()
+        let runClock = ProvenanceRunClock(startedAt: now())
         let fasta = request.toMultiFASTA()
         let extraParameters = try BlastVerificationRequest.parseBlastURLAPIExtraParameters(request.extraArgs)
 
@@ -427,8 +427,8 @@ public actor BlastService {
             request: request,
             searchResults: searchResults,
             rid: submission.rid,
-            submittedAt: submittedAt,
-            completedAt: now()
+            submittedAt: runClock.startedAt,
+            completedAt: runClock.now
         )
         progress?(1.0, "BLAST verification complete")
 

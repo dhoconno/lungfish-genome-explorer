@@ -58,7 +58,7 @@ enum FASTAOperationCatalog {
                 withIntermediateDirectories: true
             )
 
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let fastaFilename = "selection.fasta"
             let fastaURL = bundleURL.appendingPathComponent(fastaFilename)
             let normalizedFASTA = fastaRecords
@@ -92,7 +92,7 @@ enum FASTAOperationCatalog {
                 normalizedFASTA: normalizedFASTA,
                 durableSourceURLs: durableSourceURLs,
                 originalSequenceIdentifiers: originalSequenceIdentifiers,
-                startedAt: startedAt
+                runClock: runClock
             )
             return bundleURL
         } catch {
@@ -138,9 +138,10 @@ enum FASTAOperationCatalog {
         normalizedFASTA: String,
         durableSourceURLs: [URL],
         originalSequenceIdentifiers: [String]?,
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) throws {
-        let completedAt = Date()
+        let startedAt = runClock.startedAt
+        let completedAt = runClock.now
         let exportedIdentifiers = selectedIdentifiers(in: normalizedFASTA)
         let originalIdentifiers = originalSequenceIdentifiers?.count == exportedIdentifiers.count
             ? originalSequenceIdentifiers!

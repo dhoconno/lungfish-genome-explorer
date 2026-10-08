@@ -26,7 +26,7 @@ struct FastqReverseComplementSubcommand: AsyncParsableCommand {
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
         let outputURL = URL(fileURLWithPath: output.output)
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
 
         let reader = FASTQReader(validateSequence: false)
         let writer = FASTQWriter(url: outputURL)
@@ -65,7 +65,7 @@ struct FastqReverseComplementSubcommand: AsyncParsableCommand {
             ],
             inputRecords: try resolvedInput.inputRecords(),
             extraSteps: try resolvedInput.materializationSteps(),
-            startedAt: startedAt
+            runClock: runClock
         )
         FileHandle.standardError.write(Data("Reverse-complemented reads written to \(output.output)\n".utf8))
     }

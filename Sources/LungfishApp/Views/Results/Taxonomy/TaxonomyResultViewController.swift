@@ -58,7 +58,7 @@ extension TaxonomyViewController {
             throw TaxonomyExportError.noData
         }
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let sourceURLs = try taxonomyExportSourceURLs()
         let content: String
         switch format {
@@ -85,7 +85,7 @@ extension TaxonomyViewController {
                 "rowCount": .integer(tree.allNodes().count),
                 "totalReads": .integer(tree.totalReads),
             ],
-            startedAt: startedAt
+            runClock: runClock
         )) { tempURL in
             try content.write(to: tempURL, atomically: true, encoding: .utf8)
         }

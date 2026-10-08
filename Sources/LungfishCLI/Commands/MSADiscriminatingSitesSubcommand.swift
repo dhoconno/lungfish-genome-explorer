@@ -106,7 +106,7 @@ extension MSACommand {
         }
 
         private func execute(emit: @escaping (String) -> Void) throws {
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let emitter = MSAActionCLIEventEmitter(enabled: globalOptions.outputFormat == .json, emit: emit)
             let bundleURL = URL(fileURLWithPath: bundlePath).standardizedFileURL
             let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
@@ -207,7 +207,7 @@ extension MSACommand {
                             discriminatingColumnCount: report.siteCount,
                             candidateWindowCount: report.windows.count,
                             exitStatus: 0,
-                            wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt))),
+                            wallTimeSeconds: runClock.elapsed),
                         to: outputURL.appendingPathExtension("lungfish-provenance.json"))
                 } catch {
                     try snapshots.reversed().forEach { try $0.restore() }

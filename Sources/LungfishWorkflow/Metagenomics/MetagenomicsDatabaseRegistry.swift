@@ -730,7 +730,7 @@ public actor MetagenomicsDatabaseRegistry {
         let prior = db
         let source = db.path?.standardizedFileURL
         let final = destination.standardizedFileURL
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let boundIdentity = db.canonicalReceiptSHA256 != nil && db.payloadDigest != nil
         if boundIdentity {
             _ = try MetagenomicsDatabaseConformanceIdentity.verify(db, readingPayloadAt: final)
@@ -764,7 +764,7 @@ public actor MetagenomicsDatabaseRegistry {
                 let relocated = try ProvenanceRehydrator.rehydrate(sourceDirectory: final, finalDirectory: stage, pathMap: pathMap)
                 let withRelocation = CanonicalMetagenomicsDatabaseInstallProvenanceWriter.appendingRelocation(
                     to: relocated, databaseName: name, from: source, to: final,
-                    previousReceipt: previousReceipt, startedAt: startedAt)
+                    previousReceipt: previousReceipt, runClock: runClock)
                 try ProvenanceWriter(signingProvider: nil).write(withRelocation, to: stage)
                 try publication?.publish(stagedURL: stage.appendingPathComponent(ProvenanceWriter.provenanceFilename), to: sidecar)
                 db.canonicalReceiptSHA256 = try ProvenanceFileHasher.sha256(of: sidecar)
@@ -1276,7 +1276,7 @@ public actor MetagenomicsDatabaseRegistry {
             )
         }
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let parent = installedPath.deletingLastPathComponent()
         let staging = Self.stagingURL(for: installedPath, version: targetVersion)
 
@@ -1336,7 +1336,7 @@ public actor MetagenomicsDatabaseRegistry {
             snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: staging)
             try writeUpdateProvenance(
                 database: installed, finalURL: installedPath, catalogEntry: catalogEntry,
-                source: source, archiveURL: archiveURL, snapshot: snapshot, startedAt: startedAt
+                source: source, archiveURL: archiveURL, snapshot: snapshot, runClock: runClock
             )
             canonicalReceiptSHA256 = try ProvenanceFileHasher.sha256(of:
                 staging.appendingPathComponent(ProvenanceWriter.provenanceFilename))
@@ -1478,7 +1478,7 @@ public actor MetagenomicsDatabaseRegistry {
         source: URL,
         archiveURL: URL?,
         snapshot: MetagenomicsDatabasePayloadSnapshot,
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) throws {
         let resolved: [String: ParameterValue] = [
             "databaseRoot": .file(finalURL),
@@ -1488,7 +1488,7 @@ public actor MetagenomicsDatabaseRegistry {
             "invocationKind": .string("swift-api"),
         ]
         let inputs = try archiveURL.map { [try ProvenanceFileDescriptor.file(url: $0, role: .input)] } ?? []
-        let completedAt = Date()
+        let completedAt = runClock.now
         // The transfer seam exposes no child-process result. Record the actual
         // workflow and its options, never invent an executed tar command/version.
         let step = MetagenomicsDatabaseInstallStepEvidence(
@@ -1496,13 +1496,13 @@ public actor MetagenomicsDatabaseRegistry {
             argv: ["MetagenomicsDatabaseRegistry.updateDatabase(catalogID:progress:)", catalogEntry.catalogID ?? database.name],
             durableReplayArgv: [], resolvedOptions: resolved,
             runtimeIdentity: ProvenanceRuntimeIdentity(), inputs: inputs, outputs: snapshot.files,
-            exitStatus: 0, startedAt: startedAt, completedAt: completedAt, stderr: ""
+            exitStatus: 0, startedAt: runClock.startedAt, completedAt: completedAt, stderr: ""
         )
         let attempt = MetagenomicsDatabaseInstallAttempt(
             database: catalogEntry, finalURL: finalURL, recipeSource: source.absoluteString,
             explicitOptions: ["catalogID": .string(catalogEntry.catalogID ?? "unknown")],
             defaultOptions: [:], resolvedOptions: resolved, steps: [step],
-            startedAt: startedAt, completedAt: completedAt
+            startedAt: runClock.startedAt, completedAt: completedAt
         )
         try provenanceWriter.writeSuccess(attempt, snapshot: snapshot, to: snapshot.rootURL)
     }

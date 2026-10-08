@@ -161,7 +161,7 @@ public actor ClassifierReadResolver {
         destination: ExtractionDestination,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> (outcome: ExtractionOutcome, layout: ClassifierExtractionLayout) {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let nonEmpty = selections.filter { !$0.isEmpty }
         guard !nonEmpty.isEmpty else {
             throw ClassifierExtractionError.zeroReadsExtracted
@@ -176,7 +176,7 @@ public actor ClassifierReadResolver {
                 resultPath: resultPath,
                 options: options,
                 destination: destination,
-                startedAt: startedAt,
+                runClock: runClock,
                 progress: progress
             )
             return (outcome, .singleEnd)
@@ -186,7 +186,7 @@ public actor ClassifierReadResolver {
                 resultPath: resultPath,
                 options: options,
                 destination: destination,
-                startedAt: startedAt,
+                runClock: runClock,
                 progress: progress
             )
         }
@@ -466,7 +466,7 @@ public actor ClassifierReadResolver {
         resultPath: URL,
         options: ExtractionOptions,
         destination: ExtractionDestination,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> ExtractionOutcome {
         let fm = FileManager.default
@@ -598,7 +598,7 @@ public actor ClassifierReadResolver {
             destination: destination,
             options: options,
             provenanceSourceURLs: existingUniqueURLs(provenanceSourceURLs),
-            extractionStartedAt: startedAt,
+            extractionClock: runClock,
             progress: progress
         )
     }
@@ -713,7 +713,7 @@ public actor ClassifierReadResolver {
         destination: ExtractionDestination,
         options: ExtractionOptions,
         provenanceSourceURLs: [URL],
-        extractionStartedAt: Date,
+        extractionClock: ProvenanceRunClock,
         outputPairingMode: IngestionMetadata.PairingMode = .singleEnd,
         outputRoles: ReadClassification? = nil,
         progress: (@Sendable (Double, String) -> Void)?
@@ -730,7 +730,7 @@ public actor ClassifierReadResolver {
                     readCount: readCount,
                     options: options,
                     sourceURLs: provenanceSourceURLs,
-                    extractionStartedAt: extractionStartedAt
+                    extractionClock: extractionClock
                 )
                 progress?(1.0, "Wrote \(readCount) reads to \(destinationURL.lastPathComponent)")
                 return .file(destinationURL, readCount: readCount)
@@ -742,7 +742,7 @@ public actor ClassifierReadResolver {
                 readCount: readCount,
                 options: options,
                 sourceURLs: provenanceSourceURLs,
-                extractionStartedAt: extractionStartedAt,
+                extractionClock: extractionClock,
                 preparedSourceURL: sourceURL
             )
             progress?(1.0, "Wrote \(readCount) reads to \(destinationURL.lastPathComponent)")
@@ -778,7 +778,7 @@ public actor ClassifierReadResolver {
                 sourceName: displayName,
                 selectionDescription: "extract",
                 metadata: bundleMetadata,
-                in: try Self.bundleDestinationDirectory(projectRoot: projectRoot)
+                in: try Self.bundleDestinationDirectory(projectRoot: projectRoot), runClock: extractionClock
             )
             if let outputRoles {
                 FASTQMixedLayoutHint.write(outputRoles, beside: bundleURL.appendingPathComponent(finalFile.lastPathComponent))
@@ -812,7 +812,7 @@ public actor ClassifierReadResolver {
                 readCount: readCount,
                 options: options,
                 sourceURLs: provenanceSourceURLs,
-                extractionStartedAt: extractionStartedAt
+                extractionClock: extractionClock
             )
             progress?(1.0, "Prepared file for sharing")
             return .share(stableURL, readCount: readCount)
@@ -825,7 +825,7 @@ public actor ClassifierReadResolver {
         readCount: Int,
         options: ExtractionOptions,
         sourceURLs: [URL],
-        extractionStartedAt: Date,
+        extractionClock: ProvenanceRunClock,
         preparedSourceURL: URL? = nil
     ) throws {
         guard let fileProvenance = options.fileProvenance else {
@@ -857,7 +857,7 @@ public actor ClassifierReadResolver {
             explicitOptions: explicitOptions,
             defaults: provenance.defaults,
             resolved: provenance.resolved,
-            startedAt: extractionStartedAt
+            runClock: extractionClock
         )
         if let preparedSourceURL {
             try Self.publishStandaloneFile(from: preparedSourceURL, to: outputURL, provenance: request)

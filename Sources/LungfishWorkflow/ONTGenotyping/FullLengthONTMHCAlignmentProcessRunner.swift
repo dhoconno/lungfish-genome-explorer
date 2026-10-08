@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import LungfishCore
 
 struct FullLengthONTMHCAlignmentProcessRequest: Sendable {
     let executableURL: URL
@@ -44,7 +45,7 @@ struct FullLengthONTMHCAlignmentProcessRunner: @unchecked Sendable {
         }
         let stdoutHandle = try Self.truncatingWriteHandle(at: stdoutLogURL, fileManager: fileManager)
         let stderrHandle = try Self.truncatingWriteHandle(at: stderrLogURL, fileManager: fileManager)
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let state = CancellableProcessState()
 
         return try await withTaskCancellationHandler {
@@ -62,7 +63,7 @@ struct FullLengthONTMHCAlignmentProcessRunner: @unchecked Sendable {
                     state.finishOnce {
                         try? stdoutHandle.close()
                         try? stderrHandle.close()
-                        let completedAt = Date()
+                        let completedAt = runClock.now
                         do {
                             let stdoutDescriptor = try FullLengthONTMHCArtifactDescriptor(
                                 url: stdoutLogURL,
@@ -127,9 +128,9 @@ struct FullLengthONTMHCAlignmentProcessRunner: @unchecked Sendable {
                                 stdout: stdoutText,
                                 stderr: stderrText,
                                 wasCancelled: state.isCancelled,
-                                startedAt: startedAt,
+                                startedAt: runClock.startedAt,
                                 completedAt: completedAt,
-                                wallTime: completedAt.timeIntervalSince(startedAt)
+                                wallTime: completedAt.timeIntervalSince(runClock.startedAt)
                             ))
                         } catch {
                             continuation.resume(throwing: error)

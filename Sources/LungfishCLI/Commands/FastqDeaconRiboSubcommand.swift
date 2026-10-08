@@ -293,7 +293,7 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
             deplete: deplete,
             effectiveThreads: effectiveThreads
         )
-        let startedAt = Date()
+        let deaconClock = ProvenanceRunClock()
         let result = try await CondaManager.shared.runTool(
             name: "deacon",
             arguments: arguments,
@@ -301,7 +301,7 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
             workingDirectory: URL(fileURLWithPath: outputDirectory, isDirectory: true),
             timeout: 7200
         )
-        let wallTime = Date().timeIntervalSince(startedAt)
+        let wallTime = deaconClock.elapsed
         return DeaconRiboInvocationRecord(
             toolName: "deacon",
             arguments: arguments,
@@ -320,14 +320,14 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
     ) async throws -> DeaconRiboInvocationRecord {
         let runner = NativeToolRunner.shared
         let env = await bbToolsEnvironment(runner: runner)
-        let startedAt = Date()
+        let reformatClock = ProvenanceRunClock()
         let result = try await runner.run(.reformat, arguments: arguments, environment: env, timeout: 1800)
         return DeaconRiboInvocationRecord(
             toolName: "reformat",
             arguments: arguments,
             outputs: outputs,
             exitCode: result.exitCode,
-            wallTime: Date().timeIntervalSince(startedAt),
+            wallTime: reformatClock.elapsed,
             stderr: result.stderr
         )
     }

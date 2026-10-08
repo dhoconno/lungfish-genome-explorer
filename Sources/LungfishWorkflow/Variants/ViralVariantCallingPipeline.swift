@@ -208,7 +208,7 @@ public struct ViralVariantCallingPipeline: Sendable {
 
         if request.caller == .medaka, let fastqURL = plan.medakaFASTQURL {
             progress?(0.20, "Reconstructing FASTQ input for Medaka")
-            let startedAt = Date()
+            let fastqClock = ProvenanceRunClock()
             do {
                 try await bamToFASTQConverter(
                     plan.alignmentURL,
@@ -220,7 +220,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                     toolRunner,
                     false
                 )
-                let completedAt = Date()
+                let completedAt = fastqClock.now
                 provenanceSteps.append(
                     VariantCallingProvenanceStep(
                         toolName: "samtools",
@@ -240,9 +240,9 @@ public struct ViralVariantCallingPipeline: Sendable {
                         inputs: [ProvenanceRecorder.fileRecord(url: plan.alignmentURL, format: .bam, role: .input)],
                         outputs: [ProvenanceRecorder.fileRecord(url: fastqURL, format: .fastq, role: .output)],
                         exitCode: 0,
-                        wallTime: completedAt.timeIntervalSince(startedAt),
+                        wallTime: completedAt.timeIntervalSince(fastqClock.startedAt),
                         stderr: nil,
-                        startedAt: startedAt,
+                        startedAt: fastqClock.startedAt,
                         completedAt: completedAt
                     )
                 )
@@ -297,14 +297,14 @@ public struct ViralVariantCallingPipeline: Sendable {
             "-o", callerVCFWithReferenceContigsURL.path,
             plan.rawVCFURL.path,
         ]
-        let reheaderStartedAt = Date()
+        let reheaderClock = ProvenanceRunClock()
         let reheaderResult = try await toolRunner.run(
             .bcftools,
             arguments: reheaderArguments,
             workingDirectory: plan.workingDirectory,
             timeout: 600
         )
-        let reheaderCompletedAt = Date()
+        let reheaderCompletedAt = reheaderClock.now
         provenanceSteps.append(
             VariantCallingProvenanceStep(
                 toolName: "bcftools",
@@ -318,9 +318,9 @@ public struct ViralVariantCallingPipeline: Sendable {
                     ProvenanceRecorder.fileRecord(url: callerVCFWithReferenceContigsURL, format: .vcf, role: .output),
                 ],
                 exitCode: reheaderResult.exitCode,
-                wallTime: reheaderCompletedAt.timeIntervalSince(reheaderStartedAt),
+                wallTime: reheaderCompletedAt.timeIntervalSince(reheaderClock.startedAt),
                 stderr: reheaderResult.stderr,
-                startedAt: reheaderStartedAt,
+                startedAt: reheaderClock.startedAt,
                 completedAt: reheaderCompletedAt
             )
         )
@@ -335,14 +335,14 @@ public struct ViralVariantCallingPipeline: Sendable {
             "-o", plan.normalizedVCFURL.path,
             callerVCFWithReferenceContigsURL.path,
         ]
-        let sortStartedAt = Date()
+        let sortClock = ProvenanceRunClock()
         let sortResult = try await toolRunner.run(
             .bcftools,
             arguments: sortArguments,
             workingDirectory: plan.workingDirectory,
             timeout: 600
         )
-        let sortCompletedAt = Date()
+        let sortCompletedAt = sortClock.now
         provenanceSteps.append(
                 VariantCallingProvenanceStep(
                     toolName: "bcftools",
@@ -351,9 +351,9 @@ public struct ViralVariantCallingPipeline: Sendable {
                 inputs: [ProvenanceRecorder.fileRecord(url: callerVCFWithReferenceContigsURL, format: .vcf, role: .input)],
                 outputs: [ProvenanceRecorder.fileRecord(url: plan.normalizedVCFURL, format: .vcf, role: .output)],
                 exitCode: sortResult.exitCode,
-                wallTime: sortCompletedAt.timeIntervalSince(sortStartedAt),
+                wallTime: sortCompletedAt.timeIntervalSince(sortClock.startedAt),
                 stderr: sortResult.stderr,
-                startedAt: sortStartedAt,
+                startedAt: sortClock.startedAt,
                 completedAt: sortCompletedAt
             )
         )
@@ -396,13 +396,13 @@ public struct ViralVariantCallingPipeline: Sendable {
         }
 
         progress?(0.82, "Compressing normalized VCF")
-        let bgzipStartedAt = Date()
+        let bgzipClock = ProvenanceRunClock()
         let bgzipResult = try await toolRunner.bgzipCompress(
             inputPath: plan.normalizedVCFURL,
             keepOriginal: true,
             threads: request.threads
         )
-        let bgzipCompletedAt = Date()
+        let bgzipCompletedAt = bgzipClock.now
         let compressedNormalizedURL = plan.normalizedVCFURL.appendingPathExtension("gz")
         provenanceSteps.append(
             VariantCallingProvenanceStep(
@@ -415,9 +415,9 @@ public struct ViralVariantCallingPipeline: Sendable {
                 inputs: [ProvenanceRecorder.fileRecord(url: plan.normalizedVCFURL, format: .vcf, role: .input)],
                 outputs: [ProvenanceRecorder.fileRecord(url: compressedNormalizedURL, format: .vcf, role: .output)],
                 exitCode: bgzipResult.exitCode,
-                wallTime: bgzipCompletedAt.timeIntervalSince(bgzipStartedAt),
+                wallTime: bgzipCompletedAt.timeIntervalSince(bgzipClock.startedAt),
                 stderr: bgzipResult.stderr,
-                startedAt: bgzipStartedAt,
+                startedAt: bgzipClock.startedAt,
                 completedAt: bgzipCompletedAt
             )
         )
@@ -436,14 +436,14 @@ public struct ViralVariantCallingPipeline: Sendable {
 
         progress?(0.92, "Indexing compressed VCF")
         let tabixArguments = ["-f", "-p", "vcf", plan.stagedVCFGZURL.path]
-        let tabixStartedAt = Date()
+        let tabixClock = ProvenanceRunClock()
         let tabixResult = try await toolRunner.run(
             .tabix,
             arguments: tabixArguments,
             workingDirectory: plan.workingDirectory,
             timeout: 600
         )
-        let tabixCompletedAt = Date()
+        let tabixCompletedAt = tabixClock.now
         provenanceSteps.append(
                 VariantCallingProvenanceStep(
                     toolName: "tabix",
@@ -452,9 +452,9 @@ public struct ViralVariantCallingPipeline: Sendable {
                 inputs: [ProvenanceRecorder.fileRecord(url: plan.stagedVCFGZURL, format: .vcf, role: .input)],
                 outputs: [ProvenanceRecorder.fileRecord(url: plan.stagedTabixURL, role: .index)],
                 exitCode: tabixResult.exitCode,
-                wallTime: tabixCompletedAt.timeIntervalSince(tabixStartedAt),
+                wallTime: tabixCompletedAt.timeIntervalSince(tabixClock.startedAt),
                 stderr: tabixResult.stderr,
-                startedAt: tabixStartedAt,
+                startedAt: tabixClock.startedAt,
                 completedAt: tabixCompletedAt
             )
         )
@@ -613,14 +613,14 @@ public struct ViralVariantCallingPipeline: Sendable {
         ]
 
         progress?(0.60, "Applying minimum AF and depth thresholds")
-        let startedAt = Date()
+        let filterClock = ProvenanceRunClock()
         let result = try await toolRunner.run(
             .bcftools,
             arguments: arguments,
             workingDirectory: plan.workingDirectory,
             timeout: 600
         )
-        let completedAt = Date()
+        let completedAt = filterClock.now
         guard result.isSuccess else {
             throw ViralVariantCallingPipelineError.callerExecutionFailed(result.combinedOutput)
         }
@@ -641,9 +641,9 @@ public struct ViralVariantCallingPipeline: Sendable {
             inputs: [inputRecord],
             outputs: [outputRecord],
             exitCode: result.exitCode,
-            wallTime: completedAt.timeIntervalSince(startedAt),
+            wallTime: completedAt.timeIntervalSince(filterClock.startedAt),
             stderr: result.stderr,
-            startedAt: startedAt,
+            startedAt: filterClock.startedAt,
             completedAt: completedAt
         )
         return ThresholdFilterOutcome(
@@ -654,14 +654,14 @@ public struct ViralVariantCallingPipeline: Sendable {
     }
 
     private func stageAlignmentArtifacts(plan: ViralVariantCallingExecutionPlan) async throws -> [VariantCallingProvenanceStep] {
-        let startedAt = Date()
+        let stagingClock = ProvenanceRunClock()
         do {
             if preflight.contigValidation == .matchedByAlias {
                 return try await rewriteAlignmentHeader(plan: plan)
             } else {
                 try stageInputArtifact(from: preflight.alignmentURL, to: plan.alignmentURL)
                 try stageInputArtifact(from: preflight.alignmentIndexURL, to: plan.alignmentIndexURL)
-                let completedAt = Date()
+                let completedAt = stagingClock.now
                 return [
                     VariantCallingProvenanceStep(
                         toolName: "lungfish alignment-staging",
@@ -683,9 +683,9 @@ public struct ViralVariantCallingPipeline: Sendable {
                             ProvenanceRecorder.fileRecord(url: plan.alignmentIndexURL, role: .index),
                         ],
                         exitCode: 0,
-                        wallTime: completedAt.timeIntervalSince(startedAt),
+                        wallTime: completedAt.timeIntervalSince(stagingClock.startedAt),
                         stderr: nil,
-                        startedAt: startedAt,
+                        startedAt: stagingClock.startedAt,
                         completedAt: completedAt
                     )
                 ]
@@ -696,7 +696,7 @@ public struct ViralVariantCallingPipeline: Sendable {
     }
 
     private func stageReference(plan: ViralVariantCallingExecutionPlan) async throws -> [VariantCallingProvenanceStep] {
-        let startedAt = Date()
+        let stagingClock = ProvenanceRunClock()
         do {
             if FileManager.default.fileExists(atPath: plan.referenceURL.path) {
                 try FileManager.default.removeItem(at: plan.referenceURL)
@@ -708,10 +708,10 @@ public struct ViralVariantCallingPipeline: Sendable {
             } else {
                 try FileManager.default.copyItem(at: preflight.referenceFASTAURL, to: plan.referenceURL)
             }
-            let stagedAt = Date()
+            let stagedAt = stagingClock.now
 
             let faiResult = try await toolRunner.indexFASTA(fastaPath: plan.referenceURL)
-            let indexedAt = Date()
+            let indexedAt = stagingClock.now
             guard faiResult.isSuccess else {
                 throw ViralVariantCallingPipelineError.referenceStagingFailed(faiResult.combinedOutput)
             }
@@ -732,9 +732,9 @@ public struct ViralVariantCallingPipeline: Sendable {
                         ProvenanceRecorder.fileRecord(url: plan.referenceURL, format: .fasta, role: .output)
                     ],
                     exitCode: 0,
-                    wallTime: stagedAt.timeIntervalSince(startedAt),
+                    wallTime: stagedAt.timeIntervalSince(stagingClock.startedAt),
                     stderr: nil,
-                    startedAt: startedAt,
+                    startedAt: stagingClock.startedAt,
                     completedAt: stagedAt
                 ),
                 VariantCallingProvenanceStep(
@@ -769,14 +769,14 @@ public struct ViralVariantCallingPipeline: Sendable {
                 let indelqualBAMURL = lofreqIndelqualBAMURL(plan: plan)
                 let indelqualIndexURL = lofreqIndelqualIndexURL(indelqualBAMURL: indelqualBAMURL)
                 let indelqualArguments = lofreqIndelqualArguments(plan: plan, outputBAMURL: indelqualBAMURL)
-                let indelqualStartedAt = Date()
+                let indelqualClock = ProvenanceRunClock()
                 let indelqualResult = try await toolRunner.run(
                     .lofreq,
                     arguments: indelqualArguments,
                     workingDirectory: plan.workingDirectory,
                     timeout: 3600
                 )
-                let indelqualCompletedAt = Date()
+                let indelqualCompletedAt = indelqualClock.now
                 guard indelqualResult.isSuccess else {
                     throw ViralVariantCallingPipelineError.callerExecutionFailed(indelqualResult.combinedOutput)
                 }
@@ -792,21 +792,21 @@ public struct ViralVariantCallingPipeline: Sendable {
                     ],
                     outputs: [ProvenanceRecorder.fileRecord(url: indelqualBAMURL, format: .bam, role: .output)],
                     exitCode: indelqualResult.exitCode,
-                    wallTime: indelqualCompletedAt.timeIntervalSince(indelqualStartedAt),
+                    wallTime: indelqualCompletedAt.timeIntervalSince(indelqualClock.startedAt),
                     stderr: indelqualResult.stderr,
-                    startedAt: indelqualStartedAt,
+                    startedAt: indelqualClock.startedAt,
                     completedAt: indelqualCompletedAt
                 )
 
                 let indexArguments = lofreqIndexArguments(indelqualBAMURL: indelqualBAMURL)
-                let indexStartedAt = Date()
+                let indexClock = ProvenanceRunClock()
                 let indexResult = try await toolRunner.run(
                     .lofreq,
                     arguments: indexArguments,
                     workingDirectory: plan.workingDirectory,
                     timeout: 600
                 )
-                let indexCompletedAt = Date()
+                let indexCompletedAt = indexClock.now
                 guard indexResult.isSuccess else {
                     throw ViralVariantCallingPipelineError.callerExecutionFailed(indexResult.combinedOutput)
                 }
@@ -818,21 +818,21 @@ public struct ViralVariantCallingPipeline: Sendable {
                     inputs: [ProvenanceRecorder.fileRecord(url: indelqualBAMURL, format: .bam, role: .input)],
                     outputs: [ProvenanceRecorder.fileRecord(url: indelqualIndexURL, role: .index)],
                     exitCode: indexResult.exitCode,
-                    wallTime: indexCompletedAt.timeIntervalSince(indexStartedAt),
+                    wallTime: indexCompletedAt.timeIntervalSince(indexClock.startedAt),
                     stderr: indexResult.stderr,
-                    startedAt: indexStartedAt,
+                    startedAt: indexClock.startedAt,
                     completedAt: indexCompletedAt
                 )
 
                 let callArguments = lofreqCallArguments(plan: plan, alignmentURL: indelqualBAMURL)
-                let callStartedAt = Date()
+                let callClock = ProvenanceRunClock()
                 let callResult = try await toolRunner.run(
                     .lofreq,
                     arguments: callArguments,
                     workingDirectory: plan.workingDirectory,
                     timeout: 3600
                 )
-                let callCompletedAt = Date()
+                let callCompletedAt = callClock.now
                 guard callResult.isSuccess else {
                     throw ViralVariantCallingPipelineError.callerExecutionFailed(callResult.combinedOutput)
                 }
@@ -848,9 +848,9 @@ public struct ViralVariantCallingPipeline: Sendable {
                     ],
                     outputs: [ProvenanceRecorder.fileRecord(url: plan.rawVCFURL, format: .vcf, role: .output)],
                     exitCode: callResult.exitCode,
-                    wallTime: callCompletedAt.timeIntervalSince(callStartedAt),
+                    wallTime: callCompletedAt.timeIntervalSince(callClock.startedAt),
                     stderr: callResult.stderr,
-                    startedAt: callStartedAt,
+                    startedAt: callClock.startedAt,
                     completedAt: callCompletedAt
                 )
                 return (
@@ -864,14 +864,14 @@ public struct ViralVariantCallingPipeline: Sendable {
             }
 
             let arguments = lofreqCallArguments(plan: plan, alignmentURL: plan.alignmentURL)
-            let startedAt = Date()
+            let lofreqClock = ProvenanceRunClock()
             let result = try await toolRunner.run(
                 .lofreq,
                 arguments: arguments,
                 workingDirectory: plan.workingDirectory,
                 timeout: 3600
             )
-            let completedAt = Date()
+            let completedAt = lofreqClock.now
             guard result.isSuccess else {
                 throw ViralVariantCallingPipelineError.callerExecutionFailed(result.combinedOutput)
             }
@@ -886,9 +886,9 @@ public struct ViralVariantCallingPipeline: Sendable {
                 ],
                 outputs: [ProvenanceRecorder.fileRecord(url: plan.rawVCFURL, format: .vcf, role: .output)],
                 exitCode: result.exitCode,
-                wallTime: completedAt.timeIntervalSince(startedAt),
+                wallTime: completedAt.timeIntervalSince(lofreqClock.startedAt),
                 stderr: result.stderr,
-                startedAt: startedAt,
+                startedAt: lofreqClock.startedAt,
                 completedAt: completedAt
             )
             return (([tool.executableName] + arguments).map(shellEscape).joined(separator: " "), [step])
@@ -903,7 +903,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                 format: .text,
                 role: .output
             )
-            let startedAt = Date()
+            let ivarClock = ProvenanceRunClock()
             let result = try await toolRunner.runPipeline(
                 [
                     NativePipelineStage(.samtools, arguments: mpileupArguments),
@@ -912,7 +912,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                 workingDirectory: plan.workingDirectory,
                 timeout: 3600
             )
-            let completedAt = Date()
+            let completedAt = ivarClock.now
             guard result.isSuccess else {
                 throw ViralVariantCallingPipelineError.callerExecutionFailed(result.combinedStderr)
             }
@@ -942,7 +942,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                 allHaplotypesVCFURL: allHapURL,
                 options: options
             )
-            let conversionCompletedAt = Date()
+            let conversionCompletedAt = ivarClock.now
             let samtoolsStep = VariantCallingProvenanceStep(
                 toolName: "samtools",
                 toolVersion: await nativeToolVersion(for: .samtools),
@@ -954,9 +954,9 @@ public struct ViralVariantCallingPipeline: Sendable {
                 ],
                 outputs: [pipeRecord],
                 exitCode: result.exitCodes.indices.contains(0) ? result.exitCodes[0] : nil,
-                wallTime: completedAt.timeIntervalSince(startedAt),
+                wallTime: completedAt.timeIntervalSince(ivarClock.startedAt),
                 stderr: result.stderrByStage.indices.contains(0) ? result.stderrByStage[0] : nil,
-                startedAt: startedAt,
+                startedAt: ivarClock.startedAt,
                 completedAt: completedAt
             )
             let ivarInputs = gffURL
@@ -972,9 +972,9 @@ public struct ViralVariantCallingPipeline: Sendable {
                 ] + ivarInputs,
                 outputs: [ProvenanceRecorder.fileRecord(url: tsvURL, format: .text, role: .output)],
                 exitCode: result.exitCodes.indices.contains(1) ? result.exitCodes[1] : nil,
-                wallTime: completedAt.timeIntervalSince(startedAt),
+                wallTime: completedAt.timeIntervalSince(ivarClock.startedAt),
                 stderr: result.stderrByStage.indices.contains(1) ? result.stderrByStage[1] : nil,
-                startedAt: startedAt,
+                startedAt: ivarClock.startedAt,
                 completedAt: completedAt
             )
             let converterStep = VariantCallingProvenanceStep(
@@ -1015,7 +1015,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                 format: .bcf,
                 role: .output
             )
-            let startedAt = Date()
+            let bcftoolsClock = ProvenanceRunClock()
             let result = try await toolRunner.runPipeline(
                 [
                     NativePipelineStage(.bcftools, arguments: mpileupArguments),
@@ -1024,7 +1024,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                 workingDirectory: plan.workingDirectory,
                 timeout: 3600
             )
-            let completedAt = Date()
+            let completedAt = bcftoolsClock.now
             let mpileupStep = VariantCallingProvenanceStep(
                 toolName: "bcftools",
                 toolVersion: await nativeToolVersion(for: .bcftools),
@@ -1036,9 +1036,9 @@ public struct ViralVariantCallingPipeline: Sendable {
                 ],
                 outputs: [pipeRecord],
                 exitCode: result.exitCodes.indices.contains(0) ? result.exitCodes[0] : nil,
-                wallTime: completedAt.timeIntervalSince(startedAt),
+                wallTime: completedAt.timeIntervalSince(bcftoolsClock.startedAt),
                 stderr: result.stderrByStage.indices.contains(0) ? result.stderrByStage[0] : nil,
-                startedAt: startedAt,
+                startedAt: bcftoolsClock.startedAt,
                 completedAt: completedAt
             )
             let callStep = VariantCallingProvenanceStep(
@@ -1051,9 +1051,9 @@ public struct ViralVariantCallingPipeline: Sendable {
                 ],
                 outputs: [ProvenanceRecorder.fileRecord(url: plan.rawVCFURL, format: .vcf, role: .output)],
                 exitCode: result.exitCodes.indices.contains(1) ? result.exitCodes[1] : nil,
-                wallTime: completedAt.timeIntervalSince(startedAt),
+                wallTime: completedAt.timeIntervalSince(bcftoolsClock.startedAt),
                 stderr: result.stderrByStage.indices.contains(1) ? result.stderrByStage[1] : nil,
-                startedAt: startedAt,
+                startedAt: bcftoolsClock.startedAt,
                 completedAt: completedAt
             )
             guard result.isSuccess else {
@@ -1070,14 +1070,14 @@ public struct ViralVariantCallingPipeline: Sendable {
             let tool = NativeTool.medakaVariant
             let arguments = medakaArguments(plan: plan)
             let annotatedVCF = plan.medakaOutputDirectory.appendingPathComponent("medaka.annotated.vcf")
-            let startedAt = Date()
+            let medakaClock = ProvenanceRunClock()
             let result = try await toolRunner.run(
                 tool,
                 arguments: arguments,
                 workingDirectory: plan.workingDirectory,
                 timeout: 3600
             )
-            let completedAt = Date()
+            let completedAt = medakaClock.now
             let step = VariantCallingProvenanceStep(
                 toolName: tool.executableName,
                 toolVersion: await nativeToolVersion(for: .medaka),
@@ -1088,9 +1088,9 @@ public struct ViralVariantCallingPipeline: Sendable {
                 ].compactMap { $0 },
                 outputs: [ProvenanceRecorder.fileRecord(url: annotatedVCF, format: .vcf, role: .output)],
                 exitCode: result.exitCode,
-                wallTime: completedAt.timeIntervalSince(startedAt),
+                wallTime: completedAt.timeIntervalSince(medakaClock.startedAt),
                 stderr: result.stderr,
-                startedAt: startedAt,
+                startedAt: medakaClock.startedAt,
                 completedAt: completedAt
             )
             guard result.isSuccess else {
@@ -1102,14 +1102,14 @@ public struct ViralVariantCallingPipeline: Sendable {
             let tool = NativeTool.clair3
             let arguments = clair3Arguments(plan: plan)
             let mergedVCFGZ = plan.clair3OutputDirectory.appendingPathComponent("merge_output.vcf.gz")
-            let startedAt = Date()
+            let clair3Clock = ProvenanceRunClock()
             let result = try await toolRunner.run(
                 tool,
                 arguments: arguments,
                 workingDirectory: plan.workingDirectory,
                 timeout: 3600
             )
-            let completedAt = Date()
+            let completedAt = clair3Clock.now
             let step = VariantCallingProvenanceStep(
                 toolName: tool.executableName,
                 toolVersion: await nativeToolVersion(for: tool),
@@ -1121,9 +1121,9 @@ public struct ViralVariantCallingPipeline: Sendable {
                 ] + (plan.clair3ModelPath.map { [ProvenanceRecorder.fileRecord(url: $0, role: .reference)] } ?? []),
                 outputs: [ProvenanceRecorder.fileRecord(url: mergedVCFGZ, format: .vcf, role: .output)],
                 exitCode: result.exitCode,
-                wallTime: completedAt.timeIntervalSince(startedAt),
+                wallTime: completedAt.timeIntervalSince(clair3Clock.startedAt),
                 stderr: result.stderr,
-                startedAt: startedAt,
+                startedAt: clair3Clock.startedAt,
                 completedAt: completedAt
             )
             guard result.isSuccess else {
@@ -1168,13 +1168,13 @@ public struct ViralVariantCallingPipeline: Sendable {
     }
 
     private func rewriteAlignmentHeader(plan: ViralVariantCallingExecutionPlan) async throws -> [VariantCallingProvenanceStep] {
-        let headerStartedAt = Date()
+        let headerRewriteClock = ProvenanceRunClock()
         let headerResult = try await toolRunner.run(
             .samtools,
             arguments: ["view", "-H", preflight.alignmentURL.path],
             timeout: 120
         )
-        let headerCompletedAt = Date()
+        let headerCompletedAt = headerRewriteClock.now
         guard headerResult.isSuccess else {
             throw ViralVariantCallingPipelineError.alignmentStagingFailed(headerResult.combinedOutput)
         }
@@ -1185,7 +1185,7 @@ public struct ViralVariantCallingPipeline: Sendable {
         try headerResult.stdout.write(to: rawHeaderURL, atomically: true, encoding: .utf8)
         try rewrittenHeader.write(to: rewrittenHeaderURL, atomically: true, encoding: .utf8)
 
-        let reheaderStartedAt = Date()
+        let reheaderStartedAt = headerRewriteClock.now
         let reheaderResult = try await toolRunner.runWithFileOutput(
             .samtools,
             arguments: ["reheader", rewrittenHeaderURL.path, preflight.alignmentURL.path],
@@ -1193,19 +1193,19 @@ public struct ViralVariantCallingPipeline: Sendable {
             workingDirectory: plan.workingDirectory,
             timeout: 600
         )
-        let reheaderCompletedAt = Date()
+        let reheaderCompletedAt = headerRewriteClock.now
         guard reheaderResult.isSuccess else {
             throw ViralVariantCallingPipelineError.alignmentStagingFailed(reheaderResult.combinedOutput)
         }
 
-        let indexStartedAt = Date()
+        let indexStartedAt = headerRewriteClock.now
         let indexResult = try await toolRunner.run(
             .samtools,
             arguments: ["index", plan.alignmentURL.path],
             workingDirectory: plan.workingDirectory,
             timeout: 600
         )
-        let indexCompletedAt = Date()
+        let indexCompletedAt = headerRewriteClock.now
         guard indexResult.isSuccess else {
             throw ViralVariantCallingPipelineError.alignmentStagingFailed(indexResult.combinedOutput)
         }
@@ -1217,9 +1217,9 @@ public struct ViralVariantCallingPipeline: Sendable {
                 inputs: [ProvenanceRecorder.fileRecord(url: preflight.alignmentURL, format: .bam, role: .input)],
                 outputs: [ProvenanceRecorder.fileRecord(url: rawHeaderURL, format: .sam, role: .output)],
                 exitCode: headerResult.exitCode,
-                wallTime: headerCompletedAt.timeIntervalSince(headerStartedAt),
+                wallTime: headerCompletedAt.timeIntervalSince(headerRewriteClock.startedAt),
                 stderr: headerResult.stderr,
-                startedAt: headerStartedAt,
+                startedAt: headerRewriteClock.startedAt,
                 completedAt: headerCompletedAt
             ),
             VariantCallingProvenanceStep(

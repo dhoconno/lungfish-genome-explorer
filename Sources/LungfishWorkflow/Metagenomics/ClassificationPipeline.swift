@@ -259,7 +259,7 @@ public actor ClassificationPipeline {
         profileRequest: BrackenProfileRequest?,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> ClassificationResult {
-        let startTime = Date()
+        let runClock = ProvenanceRunClock()
         let fm = FileManager.default
         let provenanceRecorder = ProvenanceRecorder.shared
         let profileResolution = profileRequest.map {
@@ -305,7 +305,7 @@ public actor ClassificationPipeline {
                     inputs: [],
                     outputs: [],
                     exitCode: 1,
-                    wallTime: Date().timeIntervalSince(startTime),
+                    wallTime: runClock.elapsed,
                     stderr: error.localizedDescription
                 )
                 await provenanceRecorder.completeRun(runID, status: .failed)
@@ -349,7 +349,7 @@ public actor ClassificationPipeline {
                 inputs: existingClassificationInputRecords(config: config),
                 outputs: [],
                 exitCode: 2,
-                wallTime: Date().timeIntervalSince(startTime),
+                wallTime: runClock.elapsed,
                 stderr: error.localizedDescription
             )
             // Saved unless the folder already holds a record (review B-S4).
@@ -389,7 +389,7 @@ public actor ClassificationPipeline {
                 inputs: [],
                 outputs: [],
                 exitCode: 1,
-                wallTime: Date().timeIntervalSince(startTime),
+                wallTime: runClock.elapsed,
                 stderr: error.localizedDescription
             )
             // A refusal saves no run, as nothing ran or was removed (review B-S4).
@@ -400,7 +400,7 @@ public actor ClassificationPipeline {
             throw error
         }
 
-        let replayMaterializationStart = Date()
+        let replayMaterializationClock = ProvenanceRunClock()
         let replayInputs: DurableReplayInputMaterialization
         let replayMaterializationStepID: UUID?
         do {
@@ -436,7 +436,7 @@ public actor ClassificationPipeline {
                         )
                     },
                     exitCode: 0,
-                    wallTime: Date().timeIntervalSince(replayMaterializationStart)
+                    wallTime: replayMaterializationClock.elapsed
                 )
             }
         } catch {
@@ -453,7 +453,7 @@ public actor ClassificationPipeline {
                 inputs: existingReplayInputMaterializationRecords(config: effectiveConfig),
                 outputs: existingReplayInputMaterializationOutputs(config: effectiveConfig),
                 exitCode: 1,
-                wallTime: Date().timeIntervalSince(replayMaterializationStart),
+                wallTime: replayMaterializationClock.elapsed,
                 stderr: error.localizedDescription
             )
             try await persistInterruptedClassificationRun(
@@ -488,7 +488,7 @@ public actor ClassificationPipeline {
         var interleavedSplitStepID: UUID?
         if effectiveConfig.interleavedInput {
             progress?(0.05, "Splitting interleaved pairs for kraken2...")
-            let splitStart = Date()
+            let splitClock = ProvenanceRunClock()
             let source = effectiveConfig.inputFiles[0]
             let splitCommand = ["LungfishWorkflow", "deinterleave-fastq", source.path, interleavedSplitDirectory.path]
             let splitInputs = [
@@ -514,7 +514,7 @@ public actor ClassificationPipeline {
                         ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output)
                     },
                     exitCode: 0,
-                    wallTime: Date().timeIntervalSince(splitStart),
+                    wallTime: splitClock.elapsed,
                     dependsOn: replayMaterializationStepID.map { [$0] } ?? []
                 )
             } catch {
@@ -528,7 +528,7 @@ public actor ClassificationPipeline {
                     inputs: splitInputs,
                     outputs: [],
                     exitCode: 1,
-                    wallTime: Date().timeIntervalSince(splitStart),
+                    wallTime: splitClock.elapsed,
                     stderr: error.localizedDescription,
                     dependsOn: replayMaterializationStepID.map { [$0] } ?? []
                 )
@@ -610,7 +610,7 @@ public actor ClassificationPipeline {
         }
         logger.info("Running: kraken2 \(kraken2Args.joined(separator: " "), privacy: .public)")
 
-        let kraken2Start = Date()
+        let kraken2Clock = ProvenanceRunClock()
         // Build an optional stderr handler that forwards kraken2 progress
         // lines to the caller's progress callback. Explicit if/else avoids
         // type ambiguity with Optional.map and nested @Sendable closures.
@@ -645,7 +645,7 @@ public actor ClassificationPipeline {
                 dependsOn: kraken2Dependencies,
                 exitCode: 130,
                 stderr: "Kraken2 classification cancelled.",
-                startedAt: kraken2Start
+                kraken2Clock: kraken2Clock
             )
             try await persistInterruptedClassificationRun(
                 provenanceRecorder: provenanceRecorder,
@@ -676,7 +676,7 @@ public actor ClassificationPipeline {
                 dependsOn: kraken2Dependencies,
                 exitCode: unavailable ? 127 : 1,
                 stderr: error.localizedDescription,
-                startedAt: kraken2Start
+                kraken2Clock: kraken2Clock
             )
             try await persistInterruptedClassificationRun(
                 provenanceRecorder: provenanceRecorder,
@@ -702,7 +702,7 @@ public actor ClassificationPipeline {
                 dependsOn: kraken2Dependencies,
                 exitCode: 1,
                 stderr: error.localizedDescription,
-                startedAt: kraken2Start
+                kraken2Clock: kraken2Clock
             )
             try await persistInterruptedClassificationRun(
                 provenanceRecorder: provenanceRecorder,
@@ -716,7 +716,7 @@ public actor ClassificationPipeline {
             throw error
         }
 
-        let kraken2WallTime = Date().timeIntervalSince(kraken2Start)
+        let kraken2WallTime = kraken2Clock.elapsed
 
         // Record kraken2 provenance step.
         let kraken2Outputs = existingKraken2OutputRecords()
@@ -799,7 +799,7 @@ public actor ClassificationPipeline {
             throw error
         }
 
-        let parseStartedAt = Date()
+        let parseClock = ProvenanceRunClock()
         var tree: TaxonTree
         do {
             tree = try KreportParser.parse(url: effectiveConfig.reportURL)
@@ -818,7 +818,7 @@ public actor ClassificationPipeline {
                 ],
                 outputs: [],
                 exitCode: 1,
-                wallTime: Date().timeIntervalSince(parseStartedAt),
+                wallTime: parseClock.elapsed,
                 stderr: error.localizedDescription,
                 dependsOn: kraken2StepID.map { [$0] } ?? []
             )
@@ -930,7 +930,7 @@ public actor ClassificationPipeline {
             dependsOn: kraken2StepID.map { [$0] } ?? []
         ) ?? effectiveConfig.outputURL
 
-        let totalRuntime = Date().timeIntervalSince(startTime)
+        let totalRuntime = runClock.elapsed
 
         let result = ClassificationResult(
             config: effectiveConfig,
@@ -965,7 +965,7 @@ public actor ClassificationPipeline {
             brackenURL: brackenOutputURL,
             brackenReportURL: resolvedBrackenReport
         )
-        let sidecarSaveStart = Date()
+        let sidecarSaveClock = ProvenanceRunClock()
         do {
             try result.save(to: effectiveConfig.outputDirectory)
         } catch let sidecarError {
@@ -979,7 +979,7 @@ public actor ClassificationPipeline {
                     ProvenanceRecorder.fileRecord(url: sidecarURL, format: .json, role: .output),
                 ],
                 exitCode: 1,
-                wallTime: Date().timeIntervalSince(sidecarSaveStart),
+                wallTime: sidecarSaveClock.elapsed,
                 stderr: sidecarError.localizedDescription,
                 dependsOn: resultDependencyIDs
             )
@@ -1001,7 +1001,7 @@ public actor ClassificationPipeline {
                 sidecarError.localizedDescription
             )
         }
-        let sidecarWallTime = Date().timeIntervalSince(sidecarSaveStart)
+        let sidecarWallTime = sidecarSaveClock.elapsed
 
         await provenanceRecorder.recordStep(
             runID: runID,
@@ -1376,7 +1376,7 @@ public actor ClassificationPipeline {
         dependsOn: [UUID],
         exitCode: Int32,
         stderr: String,
-        startedAt: Date
+        kraken2Clock: ProvenanceRunClock
     ) async {
         let fileManager = FileManager.default
         let outputs: [FileRecord] = [
@@ -1401,7 +1401,7 @@ public actor ClassificationPipeline {
             inputs: inputs,
             outputs: outputs,
             exitCode: exitCode,
-            wallTime: Date().timeIntervalSince(startedAt),
+            wallTime: kraken2Clock.elapsed,
             stderr: stderr,
             dependsOn: dependsOn
         )
@@ -1462,7 +1462,7 @@ public actor ClassificationPipeline {
         runID: UUID,
         dependsOn: [UUID]
     ) async -> BrackenPreflightResult {
-        let startedAt = Date()
+        let preflightClock = ProvenanceRunClock()
         // Resolve the kmer distribution the same way execution will: prefer the
         // exact read length, else the nearest available N. Preflighting the file
         // that will actually be used keeps the preflight honest for databases
@@ -1573,7 +1573,7 @@ public actor ClassificationPipeline {
             inputs: inputs,
             outputs: [],
             exitCode: failure == nil ? 0 : 2,
-            wallTime: Date().timeIntervalSince(startedAt),
+            wallTime: preflightClock.elapsed,
             stderr: failure?.1,
             dependsOn: dependsOn
         )
@@ -1789,7 +1789,7 @@ public actor ClassificationPipeline {
 
         logger.info("Running: bracken \(brackenArgs.joined(separator: " "), privacy: .public)")
         try Task.checkCancellation()
-        let startedAt = Date()
+        let brackenClock = ProvenanceRunClock()
         let processResult: (stdout: String, stderr: String, exitCode: Int32)
         do {
             processResult = try await condaManager.runTool(
@@ -1811,7 +1811,7 @@ public actor ClassificationPipeline {
                 inputs: brackenInputs,
                 outputs: [],
                 exitCode: 130,
-                wallTime: Date().timeIntervalSince(startedAt),
+                wallTime: brackenClock.elapsed,
                 stderr: "Bracken profiling cancelled.",
                 dependsOn: dependsOn
             )
@@ -1835,7 +1835,7 @@ public actor ClassificationPipeline {
                 inputs: brackenInputs,
                 outputs: [],
                 exitCode: unavailable ? 127 : 1,
-                wallTime: Date().timeIntervalSince(startedAt),
+                wallTime: brackenClock.elapsed,
                 stderr: message,
                 dependsOn: dependsOn
             )
@@ -1863,7 +1863,7 @@ public actor ClassificationPipeline {
                 inputs: brackenInputs,
                 outputs: [],
                 exitCode: 1,
-                wallTime: Date().timeIntervalSince(startedAt),
+                wallTime: brackenClock.elapsed,
                 stderr: message,
                 dependsOn: dependsOn
             )
@@ -1880,7 +1880,7 @@ public actor ClassificationPipeline {
             )
         }
 
-        let processWallTime = Date().timeIntervalSince(startedAt)
+        let processWallTime = brackenClock.elapsed
         // Whatever Bracken wrote moves to the modelled paths now, so every
         // check below sees the real output location. A failed move leaves
         // the outputs missing, which the validation below reports.
@@ -2452,7 +2452,7 @@ public actor ClassificationPipeline {
 
         let compressedURL = rawURL.appendingPathExtension("gz")
         let indexURL = KrakenIndexDatabase.indexURL(for: compressedURL)
-        let indexStartedAt = Date()
+        let indexClock = ProvenanceRunClock()
 
         do {
             try? fm.removeItem(at: indexURL)
@@ -2461,7 +2461,7 @@ public actor ClassificationPipeline {
                 to: indexURL,
                 includeUnclassified: false
             )
-            let indexCompletedAt = Date()
+            let indexCompletedAt = indexClock.now
             _ = await provenanceRecorder.recordStep(
                 runID: runID,
                 toolName: "lungfish-kraken2-index",
@@ -2481,13 +2481,13 @@ public actor ClassificationPipeline {
                     ProvenanceRecorder.fileRecord(url: indexURL, format: .unknown, role: .index),
                 ],
                 exitCode: 0,
-                wallTime: indexCompletedAt.timeIntervalSince(indexStartedAt),
+                wallTime: indexCompletedAt.timeIntervalSince(indexClock.startedAt),
                 dependsOn: dependsOn
             )
 
-            let gzipStartedAt = Date()
+            let gzipClock = ProvenanceRunClock()
             try gzipCopy(source: rawURL, destination: compressedURL)
-            let gzipCompletedAt = Date()
+            let gzipCompletedAt = gzipClock.now
             _ = await provenanceRecorder.recordStep(
                 runID: runID,
                 toolName: "gzip",
@@ -2500,7 +2500,7 @@ public actor ClassificationPipeline {
                     ProvenanceRecorder.fileRecord(url: compressedURL, format: .text, role: .output),
                 ],
                 exitCode: 0,
-                wallTime: gzipCompletedAt.timeIntervalSince(gzipStartedAt),
+                wallTime: gzipCompletedAt.timeIntervalSince(gzipClock.startedAt),
                 dependsOn: dependsOn
             )
 

@@ -89,7 +89,7 @@ public struct PrimerAnalysisBundleWriter: Sendable {
 
   public func write(_ request: PrimerAnalysisBundleWriteRequest) throws -> PrimerAnalysisBundle {
     try validate(request)
-    let startedAt = Date()
+    let runClock = ProvenanceRunClock()
     let parent = request.destinationURL.deletingLastPathComponent()
     guard request.destinationURL.isFileURL, request.destinationURL.path.hasPrefix("/"),
       !request.destinationURL.pathComponents.contains("..")
@@ -149,7 +149,7 @@ public struct PrimerAnalysisBundleWriter: Sendable {
       .runtime(request.invocation.runtimeIdentity)
       for descriptor in inputs { builder = try builder.consumedInputSnapshot(descriptor) }
       for descriptor in outputs { builder = try builder.relocatedOutput(descriptor) }
-      let envelope = try builder.complete(exitStatus: 0, startedAt: startedAt, endedAt: Date())
+      let envelope = try builder.complete(exitStatus: 0, startedAt: runClock.startedAt, endedAt: runClock.now)
       let provenanceDirectory = staging.appendingPathComponent("provenance", isDirectory: true)
       let provenanceURL = provenanceDirectory.appendingPathComponent("wrapper.json")
       _ = try provenanceWriter.write(envelope, toSidecar: provenanceURL)

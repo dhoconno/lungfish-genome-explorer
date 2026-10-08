@@ -180,7 +180,7 @@ public struct ONTImportWorkflow: Sendable {
             throw ImportError.optimizationRequiresFlattenedStorage
         }
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let layout = try importer.detectLayout(at: config.sourceDirectory)
         let importedBarcodeDirectories = layout.barcodeDirectories.filter {
             config.includeUnclassified || !$0.isUnclassified
@@ -214,7 +214,7 @@ public struct ONTImportWorkflow: Sendable {
             rollback(rollbackPlan)
             throw error
         }
-        let completedAt = Date()
+        let completedAt = runClock.now
 
         do {
             _ = try writeImportProvenance(
@@ -226,7 +226,7 @@ public struct ONTImportWorkflow: Sendable {
                 inputChunkURLs: inputChunkURLs,
                 importResult: stagedImportResult,
                 optimizationStepsByBundle: stagedOptimizationStepsByBundle,
-                startedAt: startedAt,
+                startedAt: runClock.startedAt,
                 completedAt: completedAt
             )
 
@@ -250,7 +250,7 @@ public struct ONTImportWorkflow: Sendable {
                 inputChunkURLs: inputChunkURLs,
                 importResult: finalImportResult,
                 optimizationStepsByBundle: finalOptimizationStepsByBundle,
-                startedAt: startedAt,
+                startedAt: runClock.startedAt,
                 completedAt: completedAt
             )
 

@@ -286,14 +286,14 @@ extension FullLengthONTMHCGenotypingPipeline {
         provenanceOutputs: [URL]? = nil,
         steps: inout [FullLengthONTMHCProvenanceStep]
     ) async throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let result = try await nativeToolRunner.run(
             tool,
             arguments: arguments,
             workingDirectory: workingDirectory,
             timeout: 3_600
         )
-        let completedAt = Date()
+        let completedAt = runClock.now
         steps.append(FullLengthONTMHCProvenanceStep(
             toolName: tool.executableName,
             toolVersion: await nativeToolRunner.getToolVersion(tool) ?? "unknown",
@@ -302,7 +302,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             outputs: provenanceOutputs ?? outputs,
             exitStatus: result.exitCode,
             stderr: result.stderr,
-            startedAt: startedAt,
+            startedAt: runClock.startedAt,
             completedAt: completedAt
         ))
         guard result.isSuccess else {
@@ -350,7 +350,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             "-evalue", String(FullLengthONTMHCBlastRescueMatch.maximumEValue),
             "-outfmt", outfmt,
         ]
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let result = try await nativeToolRunner.run(
             .blastn,
             arguments: arguments,
@@ -358,7 +358,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             timeout: 3_600
         )
         try result.stdout.write(to: tsvURL, atomically: true, encoding: .utf8)
-        let completedAt = Date()
+        let completedAt = runClock.now
         steps.append(FullLengthONTMHCProvenanceStep(
             toolName: "blastn",
             toolVersion: await nativeToolRunner.getToolVersion(.blastn) ?? "unknown",
@@ -367,7 +367,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             outputs: [tsvURL],
             exitStatus: result.exitCode,
             stderr: result.stderr,
-            startedAt: startedAt,
+            startedAt: runClock.startedAt,
             completedAt: completedAt
         ))
         guard result.exitCode == 0 else {

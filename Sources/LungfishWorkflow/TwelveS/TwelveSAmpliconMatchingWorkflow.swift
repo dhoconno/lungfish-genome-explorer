@@ -114,7 +114,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         _ config: TwelveSAmpliconMatchingConfiguration,
         progressHandler: ProgressHandler? = nil
     ) async throws -> TwelveSAmpliconMatchingResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         progressHandler?(0.02, "Validating 12S amplicon matching inputs.")
         try validate(config)
 
@@ -232,8 +232,8 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
                 classified: classified,
                 chimeraResult: relocatedChimeraResult,
                 scratchDirectory: scratchDirectory,
-                startedAt: startedAt,
-                completedAt: Date()
+                startedAt: runClock.startedAt,
+                completedAt: runClock.now
             )
             AnalysisRunRecord.markComplete(bundleURL)
         } catch {

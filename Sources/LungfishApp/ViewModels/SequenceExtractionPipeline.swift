@@ -75,7 +75,7 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
         let fileManager = FileManager.default
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
 
         if sourceAnnotationTracks.isEmpty,
            sourceVariantTracks.isEmpty,
@@ -407,7 +407,7 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
         provenanceOutputURLs.append(manifestURL)
 
         progressHandler?(0.96, "Writing provenance...")
-        let completedAt = Date()
+        let completedAt = runClock.now
         do {
             try Self.writeProvenance(
                 result: result,
@@ -420,7 +420,7 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
                 sampleFilter: sampleFilter,
                 isConcatenated: isConcatenated,
                 outputURLs: provenanceOutputURLs,
-                startedAt: startedAt,
+                startedAt: runClock.startedAt,
                 completedAt: completedAt
             )
         } catch {

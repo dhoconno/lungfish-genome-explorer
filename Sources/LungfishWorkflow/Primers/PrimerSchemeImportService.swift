@@ -116,7 +116,7 @@ public enum PrimerSchemeImportError: Error, LocalizedError, Sendable {
 public enum PrimerSchemeImportService {
     @discardableResult
     public static func importBundle(request: PrimerSchemeImportRequest) throws -> PrimerSchemeImportResult {
-        let started = Date()
+        let runClock = ProvenanceRunClock()
         let fm = FileManager.default
         guard fm.fileExists(atPath: request.bedURL.path) else {
             throw PrimerSchemeImportError.missingBED(request.bedURL)
@@ -182,7 +182,7 @@ public enum PrimerSchemeImportService {
                 source: request.source?.nilIfEmpty ?? "imported",
                 sourceURL: nil,
                 version: nil,
-                created: started,
+                created: runClock.startedAt,
                 imported: Date(),
                 attachments: request.attachments.isEmpty
                     ? nil
@@ -196,13 +196,13 @@ public enum PrimerSchemeImportService {
                 request: request,
                 bundleURL: bundleURL,
                 canonicalAccession: canonical,
-                started: started
+                started: runClock.startedAt
             )
             try writeWorkflowProvenance(
                 request: request,
                 bundleURL: bundleURL,
                 canonicalAccession: canonical,
-                started: started
+                runClock: runClock
             )
         } catch let error as PrimerSchemeImportError {
             throw error
@@ -365,9 +365,10 @@ public enum PrimerSchemeImportService {
         request: PrimerSchemeImportRequest,
         bundleURL: URL,
         canonicalAccession: String,
-        started: Date
+        runClock: ProvenanceRunClock
     ) throws {
-        let now = Date()
+        let started = runClock.startedAt
+        let now = runClock.now
         let copiedAttachmentURLs = request.attachments.map {
             bundleURL.appendingPathComponent("attachments/\($0.lastPathComponent)")
         }

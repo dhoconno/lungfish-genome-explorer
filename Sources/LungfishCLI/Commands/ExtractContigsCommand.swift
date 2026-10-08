@@ -73,7 +73,7 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let source = try await loadSource()
         defer {
             if let temporaryDirectory = source.temporaryDirectory {
@@ -96,7 +96,7 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
                     selectedContigs: selectedContigs,
                     outputURL: nil,
                     bundleURL: bundleURL,
-                    startedAt: startedAt
+                    runClock: runClock
                 )
             } catch {
                 try? FileManager.default.removeItem(at: bundleURL)
@@ -121,7 +121,7 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
                 selectedContigs: selectedContigs,
                 outputURL: outputURL,
                 bundleURL: nil,
-                startedAt: startedAt
+                runClock: runClock
             )
         } else {
             FileHandle.standardOutput.write(Data(fasta.utf8))
@@ -133,7 +133,7 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
         selectedContigs: [String],
         outputURL: URL?,
         bundleURL: URL?,
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) async throws {
         let outputRecords = outputFileRecords(outputURL: outputURL, bundleURL: bundleURL)
         guard !outputRecords.isEmpty else { return }
@@ -167,7 +167,7 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
             inputs: provenanceInputRecords(for: source),
             outputs: outputRecords,
             exitCode: 0,
-            wallTime: Date().timeIntervalSince(startedAt),
+            wallTime: runClock.elapsed,
             stderr: nil,
             status: .completed,
             outputDirectory: bundleURL ?? outputURL?.deletingLastPathComponent() ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)

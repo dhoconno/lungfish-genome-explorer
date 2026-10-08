@@ -462,10 +462,10 @@ private struct ProjectBundleMigrator {
         hasCreationProvenance: Bool,
         creationProvenanceURL: URL
     ) throws -> ProjectMigrationBundleReport {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
         let inputRecords = migrationInputRecords(manifestURL: manifestURL, creationProvenanceURL: creationProvenanceURL)
-        let timestamp = Self.provenanceTimestampString(from: startedAt)
+        let timestamp = Self.provenanceTimestampString(from: runClock.startedAt)
             .replacingOccurrences(of: ":", with: "")
             .replacingOccurrences(of: ".", with: "")
         let migrationDirectory = bundleURL
@@ -492,7 +492,7 @@ private struct ProjectBundleMigrator {
                 manifestURL: manifestURL,
                 backupURL: backupURL,
                 provenanceURL: provenanceURL,
-                startedAt: startedAt,
+                runClock: runClock,
                 inputs: inputRecords,
                 outputs: outputRecords
             )
@@ -563,11 +563,12 @@ private struct ProjectBundleMigrator {
         manifestURL: URL,
         backupURL: URL,
         provenanceURL: URL,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         inputs: [FileRecord],
         outputs: [FileRecord]
     ) throws {
-        let endedAt = Date()
+        let startedAt = runClock.startedAt
+        let endedAt = runClock.now
         let wallTime = max(endedAt.timeIntervalSince(startedAt), 0.000001)
         let command = Self.reproducibleCommand(projectURL: projectURL, dryRun: false)
         let step = StepExecution(

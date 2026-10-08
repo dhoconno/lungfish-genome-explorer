@@ -79,7 +79,7 @@ struct NCBISubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
         if !globalOptions.quiet {
@@ -143,8 +143,8 @@ struct NCBISubcommand: AsyncParsableCommand {
                 try writeNCBIFetchOutputWithProvenance(
                     content: allContent,
                     outputURL: URL(fileURLWithPath: outputPath),
-                    startedAt: startedAt,
-                    completedAt: Date(),
+                    startedAt: runClock.startedAt,
+                    completedAt: runClock.now,
                     fetchedRecords: fetchedRecords,
                     retryEvents: retryEvents
                 )
@@ -607,7 +607,7 @@ struct ENAFastaSubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
         if !globalOptions.quiet {
@@ -624,8 +624,8 @@ struct ENAFastaSubcommand: AsyncParsableCommand {
                     try writeENAFastaOutputWithProvenance(
                         content: fasta,
                         outputURL: URL(fileURLWithPath: outputPath),
-                        startedAt: startedAt,
-                        completedAt: Date()
+                        startedAt: runClock.startedAt,
+                        completedAt: runClock.now
                     )
                 } catch {
                     throw CLIError.outputWriteFailed(path: outputPath, reason: error.localizedDescription)

@@ -130,7 +130,7 @@ final class ClassifyCommandFailureRecordTests: XCTestCase {
             context: context,
             argv: argv,
             profileState: "failed",
-            startedAt: Date(),
+            runClock: ProvenanceRunClock(),
             provenanceRecordAtStart: recordAtStart
         )
     }

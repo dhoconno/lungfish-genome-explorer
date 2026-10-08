@@ -75,7 +75,7 @@ struct GenomeSubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         let fileManager = FileManager.default
 
@@ -99,7 +99,7 @@ struct GenomeSubcommand: AsyncParsableCommand {
                 outputURL: outputURL,
                 formatter: formatter,
                 fileManager: fileManager,
-                startedAt: startedAt
+                runClock: runClock
             )
             return
         }
@@ -266,7 +266,7 @@ struct GenomeSubcommand: AsyncParsableCommand {
                         downloadedGFFURL: gffPath,
                         finalFastaURL: finalFastaPath,
                         finalGFFURL: finalGffPath,
-                        startedAt: startedAt
+                        runClock: runClock
                     )
                 )
             } catch {
@@ -396,7 +396,7 @@ struct GenomeSubcommand: AsyncParsableCommand {
                     downloadedFastaURL: fastaGzPath,
                     gffSourceURL: gffSourceURL,
                     downloadedGFFURL: gffPath,
-                    startedAt: startedAt
+                    runClock: runClock
                 )
             )
         } catch {
@@ -443,7 +443,7 @@ struct GenomeSubcommand: AsyncParsableCommand {
         outputURL: URL,
         formatter: TerminalFormatter,
         fileManager: FileManager,
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) async throws {
         if !globalOptions.quiet {
             print(formatter.info("Fetching nucleotide record \(accession)..."))

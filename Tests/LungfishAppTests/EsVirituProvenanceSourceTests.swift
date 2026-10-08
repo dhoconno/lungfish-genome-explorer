@@ -49,6 +49,6 @@ final class EsVirituProvenanceSourceTests: XCTestCase {
 
         XCTAssertTrue(source.contains("} catch let sidecarError {\n            await provenanceRecorder.recordStep("))
         XCTAssertTrue(source.contains(#"toolName: "Lungfish EsViritu Result Sidecar""#))
-        XCTAssertTrue(source.contains("exitCode: 1,\n                wallTime: Date().timeIntervalSince(sidecarSaveStart),\n                stderr: sidecarError.localizedDescription"))
+        XCTAssertTrue(source.contains("exitCode: 1,\n                wallTime: sidecarSaveClock.elapsed,\n                stderr: sidecarError.localizedDescription"))
     }
 }

@@ -38,7 +38,7 @@ public enum MetagenomicsImportService {
         provenanceCommand: [String]? = nil,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) throws -> Kraken2ImportResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let fm = FileManager.default
 
         guard fm.fileExists(atPath: kreportURL.path) else {
@@ -143,7 +143,7 @@ public enum MetagenomicsImportService {
                     "totalReads": .integer(tree.totalReads),
                     "speciesCount": .integer(tree.speciesCount),
                 ],
-                startedAt: startedAt
+                runClock: runClock
             )
         } catch {
             try? fm.removeItem(at: resultDirectory)
@@ -180,7 +180,7 @@ public enum MetagenomicsImportService {
         provenanceCommand: [String]? = nil,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) throws -> EsVirituImportResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let fm = FileManager.default
         guard fm.fileExists(atPath: inputURL.path) else {
             throw MetagenomicsImportError.inputNotFound(inputURL)
@@ -279,7 +279,7 @@ public enum MetagenomicsImportService {
                     "virusCount": .integer(virusCount),
                     "sampleName": .string(sampleName),
                 ],
-                startedAt: startedAt
+                runClock: runClock
             )
         } catch {
             try? fm.removeItem(at: resultDirectory)
@@ -303,7 +303,7 @@ public enum MetagenomicsImportService {
         provenanceCommand: [String]? = nil,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) throws -> TaxTriageImportResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let fm = FileManager.default
         guard fm.fileExists(atPath: inputURL.path) else {
             throw MetagenomicsImportError.inputNotFound(inputURL)
@@ -404,7 +404,7 @@ public enum MetagenomicsImportService {
                     "reportEntryCount": .integer(reportEntries),
                     "ignoredFailureCount": .integer(ignoredFailures.count),
                 ],
-                startedAt: startedAt
+                runClock: runClock
             )
         } catch {
             try? fm.removeItem(at: resultDirectory)
@@ -438,7 +438,7 @@ public enum MetagenomicsImportService {
         provenanceCollisionTestHook: Bool = false,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> NvdImportResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let fm = FileManager.default
         guard fm.fileExists(atPath: inputURL.path) else {
             throw MetagenomicsImportError.inputNotFound(inputURL)
@@ -604,7 +604,7 @@ public enum MetagenomicsImportService {
                     "markdupBAMCount": .integer(markdupBAMCount),
                     "uniqueReadRowsUpdated": .integer(uniqueReadRowsUpdated),
                 ],
-                startedAt: startedAt,
+                runClock: runClock,
                 workflowName: provenanceWorkflowName,
                 toolName: provenanceToolName,
                 additionalSteps: try nvdAuxiliaryProvenanceSteps(
@@ -655,7 +655,7 @@ public enum MetagenomicsImportService {
         provenanceCommand: [String]? = nil,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> NaoMgsImportResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let fm = FileManager.default
         guard fm.fileExists(atPath: inputURL.path) else {
             throw MetagenomicsImportError.inputNotFound(inputURL)
@@ -932,7 +932,7 @@ public enum MetagenomicsImportService {
                     "createdBAM": .boolean(copiedBAMCount > 0),
                     "copiedBAMCount": .integer(copiedBAMCount),
                 ],
-                startedAt: startedAt,
+                runClock: runClock,
                 additionalSteps: try naoMgsMaterializationProvenanceSteps(
                     from: materializationSteps,
                     sourceURLs: [inputURL] + virusHitsFiles,
@@ -1313,12 +1313,12 @@ private func writeMetagenomicsImportProvenance(
     command: [String]?,
     explicitOptions: [String: ParameterValue],
     resolvedDefaults: [String: ParameterValue],
-    startedAt: Date,
+    runClock: ProvenanceRunClock,
     workflowName: String? = nil,
     toolName: String = "lungfish import",
     additionalSteps: [ProvenanceStep] = []
 ) throws {
-    let completedAt = Date()
+    let completedAt = runClock.now
     let reportedResultDirectory = publishedResultDirectory ?? resultDirectory
     let argv = command ?? defaultMetagenomicsImportCommand(
         kind: kind,
@@ -1337,7 +1337,7 @@ private func writeMetagenomicsImportProvenance(
         publishedRoot: reportedResultDirectory
     )
     let outputs = [resultDirectoryDescriptor] + outputDescriptors
-    let wallTime = completedAt.timeIntervalSince(startedAt)
+    let wallTime = completedAt.timeIntervalSince(runClock.startedAt)
     let toolVersion = WorkflowRun.currentAppVersion
     let step = ProvenanceStep(
         toolName: toolName,
@@ -1348,11 +1348,11 @@ private func writeMetagenomicsImportProvenance(
         outputs: outputs,
         exitStatus: 0,
         wallTimeSeconds: wallTime,
-        startedAt: startedAt,
+        startedAt: runClock.startedAt,
         completedAt: completedAt
     )
     let envelope = ProvenanceEnvelope(
-        createdAt: startedAt,
+        createdAt: runClock.startedAt,
         workflowName: workflowName ?? "lungfish import \(kind.importCommandToken)",
         workflowVersion: toolVersion,
         toolName: toolName,
@@ -2210,7 +2210,7 @@ private func nvdCountReadsWithTelemetry(
     samtoolsVersion: String,
     databaseURL: URL
 ) -> (count: Int?, step: NvdAuxiliaryStep) {
-    let startedAt = Date()
+    let samtoolsClock = ProvenanceRunClock()
     let process = Process()
     process.executableURL = URL(fileURLWithPath: samtoolsPath)
     let argv = [samtoolsPath, "view", "-c", "-F", String(flagFilter), bamURL.path, accession]
@@ -2223,7 +2223,7 @@ private func nvdCountReadsWithTelemetry(
     do {
         try process.run()
     } catch {
-        let completedAt = Date()
+        let completedAt = samtoolsClock.now
         return (
             nil,
             NvdAuxiliaryStep(
@@ -2234,9 +2234,9 @@ private func nvdCountReadsWithTelemetry(
                 inputURLs: [bamURL],
                 outputURLs: [],
                 exitStatus: 1,
-                wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+                wallTimeSeconds: completedAt.timeIntervalSince(samtoolsClock.startedAt),
                 stderr: error.localizedDescription,
-                startedAt: startedAt,
+                startedAt: samtoolsClock.startedAt,
                 completedAt: completedAt
             )
         )
@@ -2245,7 +2245,7 @@ private func nvdCountReadsWithTelemetry(
     let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
     let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
     process.waitUntilExit()
-    let completedAt = Date()
+    let completedAt = samtoolsClock.now
     let stderrText = String(data: stderrData, encoding: .utf8)?
         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     let output = String(data: outputData, encoding: .utf8)?
@@ -2261,9 +2261,9 @@ private func nvdCountReadsWithTelemetry(
             inputURLs: [bamURL],
             outputURLs: count == nil ? [] : [databaseURL],
             exitStatus: Int(process.terminationStatus),
-            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            wallTimeSeconds: completedAt.timeIntervalSince(samtoolsClock.startedAt),
             stderr: stderrText.isEmpty ? nil : stderrText,
-            startedAt: startedAt,
+            startedAt: samtoolsClock.startedAt,
             completedAt: completedAt
         )
     )

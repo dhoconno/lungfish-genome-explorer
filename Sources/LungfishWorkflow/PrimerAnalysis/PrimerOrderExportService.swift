@@ -348,7 +348,8 @@ public struct PrimerOrderExportService: Sendable {
   private static func perform(selection: PrimerOrderSelection, metadata: PrimerOrderMetadata, destination: URL,
     argv: [String], progress: (@Sendable (Double, String) -> Void)?,
     publish: (@Sendable (URL, URL) async throws -> Void)?) async throws -> URL {
-    let started = Date(), fm = FileManager.default
+    let runClock = ProvenanceRunClock()
+    let started = runClock.startedAt, fm = FileManager.default
     guard destination.isFileURL, !argv.isEmpty, argv.allSatisfy({ !$0.contains("\0") }),
       !metadata.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
       [metadata.name, metadata.requestedBy, metadata.project, metadata.orderReference, metadata.notes]
@@ -447,7 +448,7 @@ public struct PrimerOrderExportService: Sendable {
         wallTimeSeconds: command.completedAt.timeIntervalSince(command.startedAt), stderr: command.stderr,
         startedAt: command.startedAt, completedAt: command.completedAt))
     }
-    let completed = Date()
+    let completed = runClock.now
     builder = builder.step(.init(toolName: "LGE primer ordering", toolVersion: WorkflowRun.currentAppVersion,
       argv: argv, resolvedOptions: options, runtimeIdentity: runtime, inputs: inputs, outputs: outputs,
       exitStatus: 0, wallTimeSeconds: completed.timeIntervalSince(started), startedAt: started, completedAt: completed))

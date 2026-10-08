@@ -365,7 +365,7 @@ public struct ManagedPythonRuntimeInstaller: Sendable {
         if FileManager.default.fileExists(atPath: receiptURL.path) {
             try FileManager.default.removeItem(at: receiptURL)
         }
-        let started = now()
+        let runClock = ProvenanceRunClock(startedAt: now())
         let managed = root.appendingPathComponent("share/lungfish/managed-tools", isDirectory: true)
         let wheelhouse = managed.appendingPathComponent("wheels-\(spec.distributionName)", isDirectory: true)
         if FileManager.default.fileExists(atPath: wheelhouse.path) {
@@ -449,7 +449,7 @@ public struct ManagedPythonRuntimeInstaller: Sendable {
                     && $0.sha256 == source.sha256
             }) else { throw ManagedPythonRuntimeInstallerError.invalidInventory }
         }
-        let completed = now()
+        let completed = runClock.now
         try Task.checkCancellation()
         let portableArtifacts = try PrimerToolPortableLauncher.supports(toolID: executableName)
             ? PrimerToolPortableLauncher.artifacts(toolID: executableName, environmentURL: root).map {
@@ -469,8 +469,8 @@ public struct ManagedPythonRuntimeInstaller: Sendable {
             commands: records,
             versionProbe: .init(argv: versionArgv, exitStatus: version.exitStatus, output: version.stdout + version.stderr),
             helpProbe: .init(argv: helpArgv, exitStatus: help.exitStatus, output: help.stdout + help.stderr),
-            startedAt: started, completedAt: completed,
-            wallTimeSeconds: max(0, completed.timeIntervalSince(started)), stderr: stderr)
+            startedAt: runClock.startedAt, completedAt: completed,
+            wallTimeSeconds: completed.timeIntervalSince(runClock.startedAt), stderr: stderr)
         guard receipt.validates(spec: spec, environmentURL: root) else {
             throw ManagedPythonRuntimeInstallerError.invalidInventory
         }
@@ -516,7 +516,7 @@ public struct ManagedPythonRuntimeInstaller: Sendable {
     }
 
     static func run(_ argv: [String], workingDirectory: URL) async throws -> ManagedPythonRuntimeCommandResult {
-        let started = Date()
+        let runClock = ProvenanceRunClock()
         // Inventories can exceed 7 MB. Wait for both output streams to reach EOF;
         // a fixed post-exit delay can discard the JSON tail under load.
         let result = try await NativeToolRunner().runProcess(
@@ -529,6 +529,6 @@ public struct ManagedPythonRuntimeInstaller: Sendable {
             exitStatus: result.exitCode,
             stdout: result.stdout,
             stderr: result.stderr,
-            wallTimeSeconds: Date().timeIntervalSince(started))
+            wallTimeSeconds: runClock.elapsed)
     }
 }

@@ -88,7 +88,7 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
         let substitutions = self.substitutions
         let optical = self.optical
         let opticalDistance = self.opticalDistance
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let args: [String]
         let result: NativeToolResult
         var splitOutcome: FASTQSplitByNameRunner.Outcome?
@@ -192,7 +192,7 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
             stepInputs: splitOutcome?.stepInputs,
             stepOutputs: splitOutcome?.stepOutputs,
             extraSteps: (splitOutcome?.extraSteps ?? []) + (try resolvedInput.materializationSteps()),
-            startedAt: startedAt
+            runClock: runClock
         )
         FileHandle.standardError.write(Data("Deduplicated reads written to \(output.output)\n".utf8))
     }

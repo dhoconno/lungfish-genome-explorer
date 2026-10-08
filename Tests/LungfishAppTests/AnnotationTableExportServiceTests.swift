@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 @testable import LungfishApp
+import LungfishCore
 @testable import LungfishWorkflow
 
 final class AnnotationTableExportServiceTests: XCTestCase {
@@ -30,7 +31,7 @@ final class AnnotationTableExportServiceTests: XCTestCase {
             snapshot: snapshot,
             format: .csv,
             outputURL: output,
-            startedAt: Date(),
+            runClock: ProvenanceRunClock(),
             shouldCancel: { false }
         )
 

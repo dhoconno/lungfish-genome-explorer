@@ -741,7 +741,7 @@ private extension AIHaplotypingRevisionPublisherTests {
                 "promptTemplateVersion": .string("2026-06-14.1"),
             ],
             runtimeIdentity: ProvenanceRuntimeIdentity(user: "tests"),
-            startedAt: Self.fixedDate
+            runClock: ProvenanceRunClock(startedAt: Self.fixedDate)
         )
     }
 

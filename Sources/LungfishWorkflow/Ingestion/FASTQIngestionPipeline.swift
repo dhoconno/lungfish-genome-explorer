@@ -714,7 +714,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         timeout: Double
     ) async throws -> StepExecution {
         let clumpifyScript = try await runner.toolPath(for: .clumpify)
-        let stepStartedAt = Date()
+        let stepClock = ProvenanceRunClock()
         let result = try await runner.run(
             .clumpify,
             arguments: args,
@@ -722,7 +722,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             environment: env,
             timeout: timeout
         )
-        let stepCompletedAt = Date()
+        let stepCompletedAt = stepClock.now
 
         guard result.isSuccess else {
             let stderr = result.stderr.isEmpty ? result.stdout : result.stderr
@@ -744,9 +744,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             },
             outputs: [ProvenanceRecorder.fileRecord(url: output, format: .fastq, role: .output)],
             exitCode: result.exitCode,
-            wallTime: stepCompletedAt.timeIntervalSince(stepStartedAt),
+            wallTime: stepCompletedAt.timeIntervalSince(stepClock.startedAt),
             stderr: result.stderr.isEmpty ? nil : result.stderr,
-            startTime: stepStartedAt,
+            startTime: stepClock.startedAt,
             endTime: stepCompletedAt
         )
     }
@@ -844,7 +844,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         )
 
         progress(0.05, "Launching Trim Galore --clumpify...")
-        let stepStartedAt = Date()
+        let stepClock = ProvenanceRunClock()
         let result = try await runner.runProcess(
             executableURL: trimGalore,
             arguments: args,
@@ -852,7 +852,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             timeout: timeoutSeconds,
             toolName: "trim_galore"
         )
-        let stepCompletedAt = Date()
+        let stepCompletedAt = stepClock.now
 
         guard result.isSuccess else {
             let stderr = result.stderr.isEmpty ? result.stdout : result.stderr
@@ -871,9 +871,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             },
             outputs: [ProvenanceRecorder.fileOrDirectoryRecord(url: trimOutputDirectory, format: .unknown, role: .output)],
             exitCode: result.exitCode,
-            wallTime: stepCompletedAt.timeIntervalSince(stepStartedAt),
+            wallTime: stepCompletedAt.timeIntervalSince(stepClock.startedAt),
             stderr: result.stderr.isEmpty ? nil : result.stderr,
-            startTime: stepStartedAt,
+            startTime: stepClock.startedAt,
             endTime: stepCompletedAt
         )
 
@@ -949,14 +949,14 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         let timeoutSeconds = max(600, Double(Self.estimatedUncompressedInputBytes(for: [r1, r2])) / 5_000_000)
         progress(0.1, "Interleaving paired Trim Galore outputs...")
 
-        let stepStartedAt = Date()
+        let stepClock = ProvenanceRunClock()
         let result = try await runner.run(
             .reformat,
             arguments: args,
             workingDirectory: config.outputDirectory,
             timeout: timeoutSeconds
         )
-        let stepCompletedAt = Date()
+        let stepCompletedAt = stepClock.now
 
         guard result.isSuccess else {
             throw FASTQIngestionError.clumpifyFailed(
@@ -979,9 +979,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             ],
             outputs: [ProvenanceRecorder.fileRecord(url: outputFile, format: .fastq, role: .output)],
             exitCode: result.exitCode,
-            wallTime: stepCompletedAt.timeIntervalSince(stepStartedAt),
+            wallTime: stepCompletedAt.timeIntervalSince(stepClock.startedAt),
             stderr: result.stderr.isEmpty ? nil : result.stderr,
-            startTime: stepStartedAt,
+            startTime: stepClock.startedAt,
             endTime: stepCompletedAt
         )
 
@@ -1030,7 +1030,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         let stderrFile = temporaryOutput.appendingPathExtension("stderr")
 
         progress(0.05, "Interleaving paired reads into \(tool.executableName)...")
-        let stepStartedAt = Date()
+        let stepClock = ProvenanceRunClock()
 
         // The interleaver is synchronous and blocks on pipe writes, so it runs
         // on a detached task; cancellation reaches it through the worker task,
@@ -1095,7 +1095,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         }
         try? fm.removeItem(at: outputFile)
         try fm.moveItem(at: temporaryOutput, to: outputFile)
-        let stepCompletedAt = Date()
+        let stepCompletedAt = stepClock.now
 
         progress(1.0, "Interleaved \(outcome.counts.writtenRecords) reads")
         logger.info(
@@ -1114,9 +1114,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             ],
             outputs: [ProvenanceRecorder.fileRecord(url: outputFile, format: .fastq, role: .output)],
             exitCode: outcome.exitCode,
-            wallTime: stepCompletedAt.timeIntervalSince(stepStartedAt),
+            wallTime: stepCompletedAt.timeIntervalSince(stepClock.startedAt),
             stderr: stderr.isEmpty ? nil : stderr,
-            startTime: stepStartedAt,
+            startTime: stepClock.startedAt,
             endTime: stepCompletedAt
         )
         return FASTQProcessingRecord(
@@ -1197,14 +1197,14 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         let timeoutSeconds = max(900, Double(Self.estimatedUncompressedInputBytes(for: config.inputFiles)) / 2_500_000)
         progress(0.05, "Launching bbtools reformat.sh...")
 
-        let stepStartedAt = Date()
+        let stepClock = ProvenanceRunClock()
         let result = try await runner.run(
             .reformat,
             arguments: args,
             workingDirectory: config.outputDirectory,
             timeout: timeoutSeconds
         )
-        let stepCompletedAt = Date()
+        let stepCompletedAt = stepClock.now
 
         guard result.isSuccess else {
             try? FileManager.default.removeItem(at: outputFile)
@@ -1230,9 +1230,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             },
             outputs: [ProvenanceRecorder.fileRecord(url: outputFile, format: .fastq, role: .output)],
             exitCode: result.exitCode,
-            wallTime: stepCompletedAt.timeIntervalSince(stepStartedAt),
+            wallTime: stepCompletedAt.timeIntervalSince(stepClock.startedAt),
             stderr: result.stderr.isEmpty ? nil : result.stderr,
-            startTime: stepStartedAt,
+            startTime: stepClock.startedAt,
             endTime: stepCompletedAt
         )
         return FASTQProcessingRecord(
@@ -1309,14 +1309,14 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         progress(0.1, "Compressing with \(tool.executableName)...")
 
         let executableURL = try await runner.findTool(tool)
-        let stepStartedAt = Date()
+        let stepClock = ProvenanceRunClock()
         let result = try await runner.runWithFileOutput(
             tool,
             arguments: args,
             outputFile: outputFile,
             timeout: timeoutSeconds
         )
-        let stepCompletedAt = Date()
+        let stepCompletedAt = stepClock.now
 
         guard result.isSuccess else {
             throw FASTQIngestionError.compressionFailed(
@@ -1333,9 +1333,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             inputs: [ProvenanceRecorder.fileRecord(url: inputFile, format: .fastq, role: .input)],
             outputs: [ProvenanceRecorder.fileRecord(url: outputFile, format: .fastq, role: .output)],
             exitCode: result.exitCode,
-            wallTime: stepCompletedAt.timeIntervalSince(stepStartedAt),
+            wallTime: stepCompletedAt.timeIntervalSince(stepClock.startedAt),
             stderr: result.stderr.isEmpty ? nil : result.stderr,
-            startTime: stepStartedAt,
+            startTime: stepClock.startedAt,
             endTime: stepCompletedAt
         )
         return FASTQProcessingRecord(

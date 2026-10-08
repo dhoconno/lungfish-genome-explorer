@@ -534,7 +534,7 @@ extension MSACommand {
         }
 
         private func execute(emit: @escaping (String) -> Void) throws {
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let emitter = MSAActionCLIEventEmitter(
                 enabled: globalOptions.outputFormat == .json,
                 emit: emit
@@ -621,7 +621,7 @@ extension MSACommand {
                             sequenceLayout: sequenceLayout
                         ),
                         exitStatus: 0,
-                        wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt)),
+                        wallTimeSeconds: runClock.elapsed,
                         warnings: warnings
                     )
                     try writeJSON(provenance, to: provenanceURL)
@@ -725,7 +725,7 @@ extension MSACommand {
         }
 
         private func execute(emit: @escaping (String) -> Void) throws {
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let actionID = "msa.transform.consensus"
             let emitter = MSAActionCLIEventEmitter(enabled: globalOptions.outputFormat == .json, emit: emit)
             let bundleURL = URL(fileURLWithPath: bundlePath).standardizedFileURL
@@ -805,7 +805,7 @@ extension MSACommand {
                                     distanceModel: nil
                                 ),
                                 exitStatus: 0,
-                                wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt))
+                                wallTimeSeconds: runClock.elapsed
                             ),
                             to: outputURL.appendingPathExtension("lungfish-provenance.json")
                         )
@@ -834,7 +834,7 @@ extension MSACommand {
                             workflowName: "multiple-sequence-alignment-consensus-reference",
                             actionID: actionID,
                             toolName: "lungfish msa consensus",
-                            startedAt: startedAt,
+                            runClock: runClock,
                             force: force
                         )
                     )
@@ -921,7 +921,7 @@ extension MSACommand {
         }
 
         private func execute(emit: @escaping (String) -> Void) throws {
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let actionID = "msa.transform.extract-selection"
             let emitter = MSAActionCLIEventEmitter(enabled: globalOptions.outputFormat == .json, emit: emit)
             let bundleURL = URL(fileURLWithPath: bundlePath).standardizedFileURL
@@ -994,7 +994,7 @@ extension MSACommand {
                                     sequenceLayout: "ungapped"
                                 ),
                                 exitStatus: 0,
-                                wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt))
+                                wallTimeSeconds: runClock.elapsed
                             ),
                             to: outputURL.appendingPathExtension("lungfish-provenance.json")
                         )
@@ -1103,7 +1103,7 @@ extension MSACommand {
                             workflowName: "multiple-sequence-alignment-extract-reference",
                             actionID: actionID,
                             toolName: "lungfish msa extract",
-                            startedAt: startedAt,
+                            runClock: runClock,
                             force: force
                         )
                     )

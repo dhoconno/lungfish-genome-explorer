@@ -170,7 +170,7 @@ public enum PrimerSchemeAdapterResources {
 
 extension PrimerSchemeAdapterExecution {
     static func execute(_ command: PrimerSchemeAdapterCommand) async throws -> Self {
-        let startedAt = Date()
+        let executionClock = ProvenanceRunClock()
         let result = try await NativeToolRunner.shared.runProcess(
             executableURL: command.executableURL, arguments: command.arguments,
             workingDirectory: command.workingDirectoryURL, environment: command.environment,
@@ -184,7 +184,7 @@ extension PrimerSchemeAdapterExecution {
                            condaPrefix: command.executableURL.deletingLastPathComponent()
                             .deletingLastPathComponent().path,
                            pluginPack: "pcr-primer-design"),
-            startedAt: startedAt, endedAt: Date())
+            startedAt: executionClock.startedAt, endedAt: executionClock.now)
     }
 }
 

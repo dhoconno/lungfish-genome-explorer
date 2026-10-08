@@ -25,10 +25,10 @@ func recordFASTQNativeToolProvenance(
     stepInputs: [FileRecord]? = nil,
     stepOutputs: [FileRecord]? = nil,
     extraSteps: [ProvenanceStep] = [],
-    startedAt: Date
+    runClock: ProvenanceRunClock
 ) async throws {
     guard let firstOutputURL = outputURLs.first else { return }
-    let completedAt = Date()
+    let completedAt = runClock.now
     let toolVersion = await NativeToolRunner.shared.getToolVersion(nativeTool) ?? "unknown"
     let stepCommand = result.arguments.isEmpty
         ? [nativeTool.executableName] + nativeArguments
@@ -57,7 +57,7 @@ func recordFASTQNativeToolProvenance(
             .filter { FileManager.default.fileExists(atPath: $0.path) }
             .map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) },
         exitCode: result.exitCode,
-        wallTime: completedAt.timeIntervalSince(startedAt),
+        wallTime: completedAt.timeIntervalSince(runClock.startedAt),
         stderr: result.stderr,
         status: result.isSuccess ? .completed : .failed,
         outputDirectory: firstOutputURL.deletingLastPathComponent()
@@ -78,9 +78,9 @@ func recordFASTQMergeProvenance(
     inputRecords: [FileRecord]? = nil,
     materializationSteps: [ProvenanceStep] = [],
     concatenateWallTime: TimeInterval = 0,
-    startedAt: Date
+    runClock: ProvenanceRunClock
 ) async throws -> ProvenanceEnvelope {
-    let completedAt = Date()
+    let completedAt = runClock.now
     let toolVersion = await NativeToolRunner.shared.getToolVersion(.bbmerge) ?? "unknown"
     let bbmergeCommand = bbmergeResult.arguments.isEmpty
         ? [NativeTool.bbmerge.executableName] + nativeArguments
@@ -164,7 +164,7 @@ func recordFASTQMergeProvenance(
         inputs: inputRecords,
         outputs: [finalOutputRecord],
         exitCode: bbmergeResult.exitCode,
-        wallTime: completedAt.timeIntervalSince(startedAt),
+        wallTime: completedAt.timeIntervalSince(runClock.startedAt),
         stderr: bbmergeResult.stderr,
         status: bbmergeResult.isSuccess && (gzipResult?.exitCode ?? 0) == 0 ? .completed : .failed,
         outputDirectory: finalOutputURL.deletingLastPathComponent()
@@ -184,9 +184,9 @@ func recordFASTQCountedMergeProvenance(
     defaults: [String: ParameterValue] = [:],
     inputRecords: [FileRecord]? = nil,
     materializationSteps: [ProvenanceStep] = [],
-    startedAt: Date
+    runClock: ProvenanceRunClock
 ) async throws -> ProvenanceEnvelope {
-    let completedAt = Date()
+    let completedAt = runClock.now
     let toolVersion = await NativeToolRunner.shared.getToolVersion(.bbmerge) ?? "unknown"
     let bbmergeCommand = bbmergeResult.arguments.isEmpty
         ? [NativeTool.bbmerge.executableName] + nativeArguments
@@ -252,7 +252,7 @@ func recordFASTQCountedMergeProvenance(
         inputs: inputRecords,
         outputs: [finalOutputRecord],
         exitCode: bbmergeResult.exitCode,
-        wallTime: completedAt.timeIntervalSince(startedAt),
+        wallTime: completedAt.timeIntervalSince(runClock.startedAt),
         stderr: bbmergeResult.stderr,
         status: bbmergeResult.isSuccess && (countedResult.compression?.exitCode ?? 0) == 0 ? .completed : .failed,
         outputDirectory: finalOutputURL.deletingLastPathComponent()
@@ -269,10 +269,10 @@ func recordFASTQSwiftToolProvenance(
     inputRecords: [FileRecord]? = nil,
     extraSteps: [ProvenanceStep] = [],
     outputFormat: FileFormat = .fastq,
-    startedAt: Date
+    runClock: ProvenanceRunClock
 ) async throws {
     guard let firstOutputURL = outputURLs.first else { return }
-    let completedAt = Date()
+    let completedAt = runClock.now
     let command = [CLICommandIdentity.executableName, "fastq"] + cliArguments
     var resolved = parameters
     for (key, value) in defaults where resolved[key] == nil {
@@ -294,7 +294,7 @@ func recordFASTQSwiftToolProvenance(
             .filter { FileManager.default.fileExists(atPath: $0.path) }
             .map { ProvenanceRecorder.fileRecord(url: $0, format: outputFormat, role: .output) },
         exitCode: 0,
-        wallTime: completedAt.timeIntervalSince(startedAt),
+        wallTime: completedAt.timeIntervalSince(runClock.startedAt),
         stderr: nil,
         status: .completed,
         outputDirectory: firstOutputURL.deletingLastPathComponent()

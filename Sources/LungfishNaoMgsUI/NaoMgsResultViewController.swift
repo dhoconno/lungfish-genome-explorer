@@ -2813,7 +2813,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         guard !displayedRows.isEmpty else {
             throw SummaryExportError.noData
         }
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let content = summaryTSVContent()
         try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app naomgs summary export",
@@ -2838,7 +2838,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                 "metadataColumns": .array(metadataColumnController.exportHeaders.map { .string($0) }),
                 "sampleName": .string(manifest?.sampleName ?? "naomgs"),
             ],
-            startedAt: startedAt
+            runClock: runClock
         )) { outputURL in
             try content.write(to: outputURL, atomically: true, encoding: .utf8)
         }

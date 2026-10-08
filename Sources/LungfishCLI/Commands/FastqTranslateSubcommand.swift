@@ -39,7 +39,7 @@ struct FastqTranslateSubcommand: AsyncParsableCommand {
         }
         let outputURL = URL(fileURLWithPath: output.output)
         let readingFrame = Self.readingFrame(for: frame)
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
 
         FileManager.default.createFile(atPath: outputURL.path, contents: nil)
         let handle = try FileHandle(forWritingTo: outputURL)
@@ -97,7 +97,7 @@ struct FastqTranslateSubcommand: AsyncParsableCommand {
             inputRecords: try resolvedInput.inputRecords(),
             extraSteps: try resolvedInput.materializationSteps(),
             outputFormat: .fasta,
-            startedAt: startedAt
+            runClock: runClock
         )
         FileHandle.standardError.write(Data("Translated reads written to \(output.output)\n".utf8))
     }

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 private final class GATKDataBox: @unchecked Sendable {
     private let lock = NSLock()
@@ -51,7 +52,7 @@ private func runGATKProcess(
 ) async throws -> GATKCommandExecutionResult {
     let cancellationHandle = NativeProcessCancellationHandle()
     let runState = NativeProcessRunState()
-    let start = Date()
+    let commandClock = ProvenanceRunClock()
 
     return try await withTaskCancellationHandler {
         try await withCheckedThrowingContinuation { continuation in
@@ -111,7 +112,7 @@ private func runGATKProcess(
                         case .cancelled, .timedOut:
                             continuation.resume(throwing: CancellationError())
                         case .completed:
-                            let wallTime = Date().timeIntervalSince(start)
+                            let wallTime = commandClock.elapsed
                             let stdout = String(data: stdoutBox.data, encoding: .utf8) ?? ""
                             let stderr = String(data: stderrBox.data, encoding: .utf8) ?? ""
                             continuation.resume(returning: GATKCommandExecutionResult(

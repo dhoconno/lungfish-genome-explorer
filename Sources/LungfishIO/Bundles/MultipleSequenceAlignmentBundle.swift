@@ -676,7 +676,7 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
         workflowName: String = "multiple-sequence-alignment-annotation-edit",
         toolName: String = "lungfish-gui msa annotation edit"
     ) throws -> MultipleSequenceAlignmentBundle {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let annotationsURL = url.appendingPathComponent("metadata/annotations.json")
         let annotationsSQLiteURL = url.appendingPathComponent(Self.annotationSQLiteRelativePath)
         let editProvenanceURL = url.appendingPathComponent("metadata/annotation-edit-provenance.json")
@@ -718,7 +718,7 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
                     Self.annotationSQLiteRelativePath: try Self.fileRecord(for: annotationsSQLiteURL),
                 ],
                 exitStatus: 0,
-                wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt)),
+                wallTimeSeconds: runClock.elapsed,
                 createdAt: Date()
             )
             try Self.encode(provenance, to: editProvenanceURL)
@@ -895,7 +895,7 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
         to bundleURL: URL,
         options: ImportOptions = ImportOptions()
     ) throws -> MultipleSequenceAlignmentBundle {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let fm = FileManager.default
         if fm.fileExists(atPath: bundleURL.path) {
             throw ImportError.malformedInput("Output bundle already exists: \(bundleURL.path)")
@@ -919,7 +919,7 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
                 bundleURL: bundleURL,
                 sourceFormat: sourceFormat,
                 options: options,
-                startedAt: startedAt
+                runClock: runClock
             )
             return try load(from: bundleURL)
         } catch {
@@ -944,7 +944,7 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
         bundleURL: URL,
         sourceFormat: SourceFormat,
         options: ImportOptions,
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) throws {
         let fm = FileManager.default
         let alignmentDir = bundleURL.appendingPathComponent("alignment", isDirectory: true)
@@ -1024,7 +1024,7 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
         try writeViewState(to: viewStateURL, referenceRowID: rows.first?.id)
         if let analysisToolName = options.analysisToolName {
             try AnalysesFolder.writeAnalysisMetadata(
-                .init(tool: analysisToolName, isBatch: false, created: startedAt),
+                .init(tool: analysisToolName, isBatch: false, created: runClock.startedAt),
                 to: bundleURL
             )
         }
@@ -1077,7 +1077,7 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
             bundleKind: "multiple-sequence-alignment",
             identifier: UUID().uuidString,
             name: options.name ?? inputURL.deletingPathExtension().lastPathComponent,
-            createdAt: startedAt,
+            createdAt: runClock.startedAt,
             sourceFormat: sourceFormat,
             sourceFileName: inputURL.lastPathComponent,
             rowCount: rows.count,
@@ -1134,7 +1134,7 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
             ),
             files: allFileRecords,
             exitStatus: 0,
-            wallTimeSeconds: options.wallTimeSeconds ?? max(0, Date().timeIntervalSince(startedAt)),
+            wallTimeSeconds: options.wallTimeSeconds ?? runClock.elapsed,
             warnings: warnings,
             stderr: options.stderr ?? (warnings.isEmpty ? nil : warnings.joined(separator: "\n")),
             createdAt: Date(),

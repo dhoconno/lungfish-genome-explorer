@@ -166,7 +166,7 @@ public final class MAFFTAlignmentPipeline: @unchecked Sendable {
         request: MSAAlignmentRunRequest,
         progress: ProgressHandler? = nil
     ) async throws -> MSAAlignmentRunResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let fm = FileManager.default
         let outputBundleURL = request.resolvedOutputBundleURL
         if fm.fileExists(atPath: outputBundleURL.path) {
@@ -198,7 +198,7 @@ public final class MAFFTAlignmentPipeline: @unchecked Sendable {
         )
 
         progress?(0.12, "Running MAFFT...")
-        let runStartedAt = Date()
+        let mafftClock = ProvenanceRunClock()
         let toolResult = try await toolRunner.runTool(
             name: command.executable,
             arguments: command.arguments,
@@ -249,7 +249,7 @@ public final class MAFFTAlignmentPipeline: @unchecked Sendable {
             condaEnvironment: command.environment,
             executablePath: toolResult.executablePath,
             exitStatus: Int(toolResult.exitCode),
-            wallTimeSeconds: max(0, Date().timeIntervalSince(runStartedAt)),
+            wallTimeSeconds: mafftClock.elapsed,
             stdout: nil,
             stderr: toolResult.stderr.isEmpty ? nil : toolResult.stderr
         )
@@ -277,7 +277,7 @@ public final class MAFFTAlignmentPipeline: @unchecked Sendable {
                 ],
                 analysisToolName: "mafft",
                 stderr: toolResult.stderr.isEmpty ? nil : toolResult.stderr,
-                wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt)),
+                wallTimeSeconds: runClock.elapsed,
                 extraWarnings: stageResult.warnings,
                 sourceRowMetadata: stageResult.sourceRowMetadata,
                 sourceAnnotations: stageResult.sourceAnnotations,
@@ -291,7 +291,7 @@ public final class MAFFTAlignmentPipeline: @unchecked Sendable {
             rowCount: bundle.manifest.rowCount,
             alignedLength: bundle.manifest.alignedLength,
             warnings: bundle.manifest.warnings,
-            wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt))
+            wallTimeSeconds: runClock.elapsed
         )
     }
 

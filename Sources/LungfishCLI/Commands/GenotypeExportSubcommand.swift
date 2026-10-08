@@ -313,7 +313,7 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
                 managedPythonResolver: managedPythonResolver
             )
         }
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true)
         let outputURL = URL(fileURLWithPath: output)
         let stagedOutputURL = outputURL.deletingLastPathComponent()
@@ -399,7 +399,7 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
                 sidecar: sidecar,
                 loadedAnnotation: loadedAnnotation,
                 loadedProjection: loadedProjection,
-                startedAt: startedAt,
+                runClock: runClock,
                 publicationArtifactDidWrite: publicationArtifactDidWrite
             )
         }
@@ -784,7 +784,7 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
         sidecar: GenotypeAnnotationSidecar,
         loadedAnnotation: LoadedAnnotationSidecar,
         loadedProjection: LoadedViewProjection?,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         publicationArtifactDidWrite:
             (@Sendable (ProvenanceWriterMutation) throws -> Void)? = nil
     ) async throws {
@@ -947,7 +947,7 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
                     forBundleAt: bundleURL
                 ),
             ],
-            startedAt: startedAt,
+            runClock: runClock,
             publicationArtifactDidWrite: publicationArtifactDidWrite
         )
     }

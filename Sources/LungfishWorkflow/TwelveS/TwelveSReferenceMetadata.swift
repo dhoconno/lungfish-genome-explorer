@@ -133,7 +133,7 @@ public struct TwelveSReferenceMetadataBuilder: Sendable {
     public func build(
         _ config: TwelveSReferenceMetadataBuildConfiguration
     ) async throws -> TwelveSReferenceMetadataBuildResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         try validate(config)
         try FileManager.default.createDirectory(
             at: config.outputURL.deletingLastPathComponent(),
@@ -147,7 +147,7 @@ public struct TwelveSReferenceMetadataBuilder: Sendable {
         }
         do {
             try write(entries, to: config.outputURL)
-            let provenanceURL = try writeProvenance(config: config, startedAt: startedAt, completedAt: Date())
+            let provenanceURL = try writeProvenance(config: config, startedAt: runClock.startedAt, completedAt: runClock.now)
             return TwelveSReferenceMetadataBuildResult(
                 metadataURL: config.outputURL.standardizedFileURL,
                 provenanceURL: provenanceURL.standardizedFileURL

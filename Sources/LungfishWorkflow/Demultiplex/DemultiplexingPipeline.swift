@@ -90,7 +90,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         config: DemultiplexConfig,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> DemultiplexResult {
-        let startTime = Date()
+        let runClock = ProvenanceRunClock()
         let inputFASTQ = resolveInputFASTQ(config.inputURL)
 
         let fm = FileManager.default
@@ -102,7 +102,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             return try await runExactBarcodeDemux(
                 config: config,
                 inputFASTQ: inputFASTQ,
-                startTime: startTime,
+                runClock: runClock,
                 progress: progress
             )
         }
@@ -111,7 +111,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             return try await runExactBareBarcodeDemux(
                 config: config,
                 inputFASTQ: inputFASTQ,
-                startTime: startTime,
+                runClock: runClock,
                 progress: progress
             )
         }
@@ -864,7 +864,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         // Sort barcode results by ID
         barcodeResults.sort { $0.barcodeID.localizedStandardCompare($1.barcodeID) == .orderedAscending }
 
-        let elapsed = Date().timeIntervalSince(startTime)
+        let elapsed = runClock.elapsed
 
         // Build BarcodeKit for manifest
         let usesExplicitAssignments = !config.sampleAssignments.isEmpty
@@ -943,7 +943,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     private func runExactBarcodeDemux(
         config: DemultiplexConfig,
         inputFASTQ: URL,
-        startTime: Date,
+        runClock: ProvenanceRunClock,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> DemultiplexResult {
         let fm = FileManager.default
@@ -1159,7 +1159,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         // Sort barcode results by ID
         barcodeResults.sort { $0.barcodeID.localizedStandardCompare($1.barcodeID) == .orderedAscending }
 
-        let elapsed = Date().timeIntervalSince(startTime)
+        let elapsed = runClock.elapsed
 
         // Build manifest
         let kitForManifest = BarcodeKit(

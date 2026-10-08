@@ -55,7 +55,7 @@ enum FullLengthONTMHCFASTQMaterializer {
         derivedSourceBundleURL: URL? = nil,
         derivedSourceDescriptors: [ProvenanceFileDescriptor] = []
     ) throws -> FullLengthONTMHCFASTQMaterializationResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         try Task.checkCancellation()
         // A virtual derived bundle's own FASTQ is a short preview and its
         // resolver file is the root's original reads. Only the async entry,
@@ -157,7 +157,7 @@ enum FullLengthONTMHCFASTQMaterializer {
                     ? nil
                     : outputURL.standardizedFileURL.path
             )
-            let completedAt = Date()
+            let completedAt = runClock.now
             return FullLengthONTMHCFASTQMaterializationResult(
                 outputURL: outputURL.standardizedFileURL,
                 step: ProvenanceStep(
@@ -177,8 +177,8 @@ enum FullLengthONTMHCFASTQMaterializer {
                     inputs: derivedSourceDescriptors + input.metadataDescriptors + payloadDescriptors,
                     outputs: [outputDescriptor],
                     exitStatus: 0,
-                    wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
-                    startedAt: startedAt,
+                    wallTimeSeconds: completedAt.timeIntervalSince(runClock.startedAt),
+                    startedAt: runClock.startedAt,
                     completedAt: completedAt
                 )
             )

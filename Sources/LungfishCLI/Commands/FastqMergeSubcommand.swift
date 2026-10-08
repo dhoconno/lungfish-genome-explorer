@@ -82,7 +82,7 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
         let outputSources = [mergedURL, unmergedURL] + (passthroughURL.map { [$0] } ?? [])
 
         let env = await bbToolsEnvironment(runner: runner)
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let result = try await runner.run(.bbmerge, arguments: args, environment: env, timeout: 1800)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "bbmerge failed: \(result.stderr)")
@@ -114,7 +114,7 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
             }
         } else {
             // Concatenate merged + unmerged.
-            let concatenateStartedAt = Date()
+            let concatenateClock = ProvenanceRunClock()
             let concatenatedURL = output.compress
                 ? tempDir.appendingPathComponent("merged-and-unmerged.fastq")
                 : outputURL
@@ -131,7 +131,7 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
                 }
             }
             try outputHandle.close()
-            concatenateWallTime = Date().timeIntervalSince(concatenateStartedAt)
+            concatenateWallTime = concatenateClock.elapsed
             if output.compress {
                 gzipResult = try gzipCompress(
                     sourceURL: concatenatedURL,
@@ -201,7 +201,7 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
                 defaults: provenanceDefaults,
                 inputRecords: try resolvedInput.inputRecords(),
                 materializationSteps: try resolvedInput.materializationSteps(),
-                startedAt: startedAt
+                runClock: runClock
             )
         } else {
             try await recordFASTQMergeProvenance(
@@ -217,7 +217,7 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
                 inputRecords: try resolvedInput.inputRecords(),
                 materializationSteps: try resolvedInput.materializationSteps(),
                 concatenateWallTime: concatenateWallTime,
-                startedAt: startedAt
+                runClock: runClock
             )
         }
 

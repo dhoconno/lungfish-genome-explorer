@@ -20,7 +20,8 @@ public struct MSAConsensusReferenceBundleBuildRequest: Sendable, Equatable {
     public let workflowName: String
     public let actionID: String
     public let toolName: String
-    public let startedAt: Date
+    /// Started when the build started. The bundle's wall time is read from it.
+    public let runClock: ProvenanceRunClock
     public let force: Bool
 
     public init(
@@ -41,7 +42,7 @@ public struct MSAConsensusReferenceBundleBuildRequest: Sendable, Equatable {
         workflowName: String,
         actionID: String,
         toolName: String,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         force: Bool
     ) {
         self.sourceBundleURL = sourceBundleURL
@@ -61,7 +62,7 @@ public struct MSAConsensusReferenceBundleBuildRequest: Sendable, Equatable {
         self.workflowName = workflowName
         self.actionID = actionID
         self.toolName = toolName
-        self.startedAt = startedAt
+        self.runClock = runClock
         self.force = force
     }
 }

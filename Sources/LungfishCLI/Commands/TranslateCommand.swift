@@ -70,7 +70,7 @@ struct TranslateCommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
         // Validate input file exists
@@ -168,7 +168,7 @@ struct TranslateCommand: AsyncParsableCommand {
                 atomically: true,
                 encoding: .utf8
             )
-            let completedAt = Date()
+            let completedAt = runClock.now
             try await CLIProvenanceSupport.recordSingleStepRun(
                 name: "lungfish translate",
                 parameters: [
@@ -210,7 +210,7 @@ struct TranslateCommand: AsyncParsableCommand {
                     ProvenanceRecorder.fileRecord(url: outputURL, format: .fasta, role: .output)
                 ],
                 exitCode: 0,
-                wallTime: completedAt.timeIntervalSince(startedAt),
+                wallTime: completedAt.timeIntervalSince(runClock.startedAt),
                 stderr: nil,
                 status: .completed,
                 outputDirectory: outputURL.deletingLastPathComponent()

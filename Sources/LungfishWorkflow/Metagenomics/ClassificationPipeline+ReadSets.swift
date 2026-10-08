@@ -204,7 +204,7 @@ extension ClassificationPipeline {
         }
         guard !config.singleReadFiles.isEmpty else { return stepIDs }
 
-        let startedAt = Date()
+        let stagingClock = ProvenanceRunClock()
         let staged = try Self.stageEmptyMates(for: config)
         let command = ["LungfishWorkflow", "stage-empty-mates"] + staged.flatMap { item in
             ["--in", item.single.path] + (item.copy.map { ["--copy", $0.path] } ?? []) + ["--out", item.mate.path]
@@ -224,7 +224,7 @@ extension ClassificationPipeline {
             outputs: staged.flatMap { [$0.copy, $0.mate].compactMap { $0 } }
                 .map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) },
             exitCode: 0,
-            wallTime: Date().timeIntervalSince(startedAt),
+            wallTime: stagingClock.elapsed,
             dependsOn: dependsOn + stepIDs
         )
         if let stepID { stepIDs.append(stepID) }

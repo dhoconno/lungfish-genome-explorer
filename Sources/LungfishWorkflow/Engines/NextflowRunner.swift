@@ -232,7 +232,7 @@ public actor NextflowRunner: WorkflowRunner {
 
         Self.logger.info("Executing: nextflow \(arguments.joined(separator: " "))")
 
-        let startTime = Date()
+        let runClock = ProvenanceRunClock()
 
         // Spawn the process
         let handle: ProcessHandle
@@ -283,7 +283,7 @@ public actor NextflowRunner: WorkflowRunner {
             break
         }
 
-        let endTime = Date()
+        let endTime = runClock.now
 
         // Collect output
         let stdout = await baseRunner.getStdout(executionId: executionId)
@@ -322,7 +322,7 @@ public actor NextflowRunner: WorkflowRunner {
             exitCode: exitCode,
             outputFiles: outputFiles,
             outputDirectory: outputDirectory,
-            duration: endTime.timeIntervalSince(startTime),
+            duration: endTime.timeIntervalSince(runClock.startedAt),
             logFile: logFile,
             stdout: String(stdout.suffix(10000)),  // Last ~10KB
             stderr: String(stderr.suffix(10000)),

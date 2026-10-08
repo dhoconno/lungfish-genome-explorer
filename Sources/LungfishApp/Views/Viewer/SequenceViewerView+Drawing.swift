@@ -343,10 +343,10 @@ extension SequenceViewerView {
         savePanel.begin { response in
             guard response == .OK, let url = savePanel.url else { return }
 
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let sourceURLs = self.sequenceFASTAExportSourceURLs(for: seqInfo)
             do {
-                try Self.writeSequenceFASTAExport(seq, sourceURLs: sourceURLs, to: url, startedAt: startedAt)
+                try Self.writeSequenceFASTAExport(seq, sourceURLs: sourceURLs, to: url, runClock: runClock)
                 drawLogger.info("exportSequenceAsFASTA: Exported '\(seq.name, privacy: .public)' to \(url.path, privacy: .public)")
             } catch {
                 drawLogger.error("exportSequenceAsFASTA: Failed to export: \(error.localizedDescription, privacy: .public)")
@@ -359,7 +359,7 @@ extension SequenceViewerView {
         _ sequence: Sequence,
         sourceURLs: [URL],
         to outputURL: URL,
-        startedAt: Date = Date()
+        runClock: ProvenanceRunClock = ProvenanceRunClock()
     ) throws -> URL {
         let fasta = sequenceFASTAText(sequence)
         var explicitOptions: [String: ParameterValue] = [
@@ -388,8 +388,7 @@ extension SequenceViewerView {
                     "outputByteCount": .integer(fasta.utf8.count),
                     "sourceCount": .integer(sourceURLs.count),
                 ],
-                startedAt: startedAt,
-                completedAt: Date()
+                runClock: runClock
             )) { staged in
                 try fasta.write(to: staged, atomically: true, encoding: .utf8)
             }

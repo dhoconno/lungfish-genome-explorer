@@ -663,7 +663,7 @@ public enum FASTQIngestionService {
             throw FASTQSampleSheetMetadataProvenanceError.missingBundleProvenance(bundleURL.path)
         }
 
-        let startedAt = Date()
+        let metadataClock = ProvenanceRunClock()
         let metadataDescriptor = try ProvenanceFileDescriptor.file(url: metadataURL, format: .text, role: .output)
         var inputs: [ProvenanceFileDescriptor] = []
         if let sampleSheetURL = pair.sampleSheetURL {
@@ -675,7 +675,7 @@ public enum FASTQIngestionService {
             bundleURL: bundleURL,
             metadataURL: metadataURL
         )
-        let completedAt = Date()
+        let completedAt = metadataClock.now
         let metadataStep = ProvenanceStep(
             toolName: "lungfish-app fastq sample-sheet-metadata",
             toolVersion: WorkflowRun.currentAppVersion,
@@ -684,8 +684,8 @@ public enum FASTQIngestionService {
             inputs: inputs,
             outputs: [metadataDescriptor],
             exitStatus: 0,
-            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
-            startedAt: startedAt,
+            wallTimeSeconds: completedAt.timeIntervalSince(metadataClock.startedAt),
+            startedAt: metadataClock.startedAt,
             completedAt: completedAt
         )
 
@@ -832,13 +832,13 @@ public enum FASTQIngestionService {
         )
         steps.append(metadataStep)
 
-        let run = WorkflowRun(
+        var run = WorkflowRun(
             name: "FASTQ Ingestion",
-            endTime: Date(),
             status: .completed,
             steps: steps,
             parameters: parameters
         )
+        run.endTime = run.startTime
         let ingestionEnvelope = run.canonicalEnvelope()
         let existingProvenance = try existingInPlaceIngestionProvenance(
             outputDirectory: outputDirectory,
@@ -1143,7 +1143,7 @@ public enum FASTQIngestionService {
                 break
             }
 
-            let start = Date()
+            let stepClock = ProvenanceRunClock()
             let recipeCount = max(1, recipe.steps.count)
             progress(Double(consumedSteps) / Double(recipeCount), "\(step.displaySummary)…")
             var commandLine: String?
@@ -1243,7 +1243,7 @@ public enum FASTQIngestionService {
                 break
             }
 
-            let duration = Date().timeIntervalSince(start)
+            let duration = stepClock.elapsed
             prefixStepResults.append(
                 RecipeStepResult(
                     stepName: step.displaySummary,

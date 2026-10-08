@@ -168,7 +168,7 @@ struct ClassifyCommand: AsyncParsableCommand {
     }
 
     func run() async throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
         // Resolve the final provenance location before any validation so even
@@ -195,7 +195,7 @@ struct ClassifyCommand: AsyncParsableCommand {
             record: AnalysisRunRecord(
                 analysisName: "Kraken2 classification",
                 command: CommandLine.arguments.map(shellEscape).joined(separator: " "),
-                startedAt: startedAt
+                startedAt: runClock.startedAt
             )
         )
         var runRecordCompleted = false
@@ -319,7 +319,7 @@ struct ClassifyCommand: AsyncParsableCommand {
         failureContext.materializationStartedAt = resolvedInputs.materializationStartedAt
         failureContext.materializationEndedAt = resolvedInputs.materializationEndedAt
         if resolvedInputs.didMaterialize {
-            let materializationStartedAt = resolvedInputs.materializationStartedAt ?? startedAt
+            let materializationStartedAt = resolvedInputs.materializationStartedAt ?? runClock.startedAt
             let materializationEndedAt = resolvedInputs.materializationEndedAt ?? materializationStartedAt
             do {
                 _ = try CLISequenceInputMaterialization.writeMaterializationProvenanceOrCleanup(
@@ -425,8 +425,8 @@ struct ClassifyCommand: AsyncParsableCommand {
                 argv: CommandLine.arguments,
                 durableReplayArgv: readSet == nil ? durableReplayArguments : nil,
                 preset: preset.rawValue,
-                startedAt: startedAt,
-                endedAt: Date(),
+                startedAt: runClock.startedAt,
+                endedAt: runClock.now,
                 materializationStartedAt: resolvedInputs.materializationStartedAt,
                 materializationEndedAt: resolvedInputs.materializationEndedAt,
                 recursive: recursive
@@ -505,7 +505,7 @@ struct ClassifyCommand: AsyncParsableCommand {
                 context: failureContext,
                 argv: CommandLine.arguments,
                 profileState: Self.failureProfileState(for: error),
-                startedAt: startedAt,
+                runClock: runClock,
                 provenanceRecordAtStart: provenanceRecordAtStart
             )
 

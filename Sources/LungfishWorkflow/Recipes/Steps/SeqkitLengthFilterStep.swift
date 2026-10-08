@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 /// Recipe step that filters reads by length.
 ///
@@ -149,13 +150,13 @@ public struct SeqkitLengthFilterStep: RecipeStepExecutor {
 
         args += [source.path, "-o", output.path]
 
-        let startedAt = Date()
+        let seqkitClock = ProvenanceRunClock()
         let result = try await context.runner.run(
             .seqkit,
             arguments: args,
             timeout: context.recipeToolTimeout(for: .seqkit, inputURLs: [source])
         )
-        let completedAt = Date()
+        let completedAt = seqkitClock.now
         if result.exitCode != 0 {
             throw RecipeEngineError.toolFailed(
                 tool: "seqkit", step: Self.typeID, stderr: result.stderr)
@@ -168,7 +169,7 @@ public struct SeqkitLengthFilterStep: RecipeStepExecutor {
             arguments: result.arguments,
             exitStatus: Int(result.exitCode),
             stderr: result.stderr,
-            startedAt: startedAt,
+            startedAt: seqkitClock.startedAt,
             completedAt: completedAt
         )
     }
@@ -217,13 +218,13 @@ public struct SeqkitLengthFilterStep: RecipeStepExecutor {
             minLength: minLength, maxLength: maxLength, threads: context.threads
         )
 
-        let startedAt = Date()
+        let fastpClock = ProvenanceRunClock()
         let result = try await context.runner.run(
             .fastp,
             arguments: args,
             timeout: context.recipeToolTimeout(for: .fastp, inputURLs: [r1, r2])
         )
-        let completedAt = Date()
+        let completedAt = fastpClock.now
         if result.exitCode != 0 {
             throw RecipeEngineError.toolFailed(
                 tool: "fastp", step: Self.typeID, stderr: result.stderr)
@@ -235,7 +236,7 @@ public struct SeqkitLengthFilterStep: RecipeStepExecutor {
             arguments: result.arguments,
             exitStatus: Int(result.exitCode),
             stderr: result.stderr,
-            startedAt: startedAt,
+            startedAt: fastpClock.startedAt,
             completedAt: completedAt,
             outputFiles: [outR1, outR2]
         )

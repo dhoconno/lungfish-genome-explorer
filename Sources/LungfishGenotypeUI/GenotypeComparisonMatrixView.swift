@@ -8943,10 +8943,10 @@ extension GenotypeComparisonMatrixView {
             targetCount: Int,
             action: () -> Void
         ) -> GenotypeMatrixBenchmarkSample {
-            let start = Date()
+            let actionClock = ProvenanceRunClock()
             action()
             return GenotypeMatrixBenchmarkSample(
-                wallTime: Date().timeIntervalSince(start),
+                wallTime: actionClock.elapsed,
                 targetCount: targetCount
             )
         }

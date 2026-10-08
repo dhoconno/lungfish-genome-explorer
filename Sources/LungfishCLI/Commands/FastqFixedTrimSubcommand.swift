@@ -53,7 +53,7 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
             throw ValidationError("At least one of --front or --tail must be > 0")
         }
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true, metadataFrom: resolvedInput.pairingMetadataURL)
         let plan = try await Task.detached(priority: .utility) {
             try FastpReadLayoutPlan.resolve(inputURL: inputURL, decision: pairingDecision)
@@ -119,7 +119,7 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
             stepInputs: outcome.stepInputs,
             stepOutputs: outcome.stepOutputs,
             extraSteps: outcome.extraSteps + (try resolvedInput.materializationSteps()),
-            startedAt: startedAt
+            runClock: runClock
         )
         FileHandle.standardError.write(Data("Fixed-trimmed reads written to \(output.output)\n".utf8))
     }

@@ -49,7 +49,7 @@ struct FastqSearchTextSubcommand: AsyncParsableCommand {
         }
 
         let runner = NativeToolRunner.shared
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let args: [String]
         let result: NativeToolResult
         if isInterleaved, !searchesDescription {
@@ -128,7 +128,7 @@ struct FastqSearchTextSubcommand: AsyncParsableCommand {
             ],
             inputRecords: try resolvedInput.inputRecords(),
             extraSteps: try resolvedInput.materializationSteps(),
-            startedAt: startedAt
+            runClock: runClock
         )
     }
 }

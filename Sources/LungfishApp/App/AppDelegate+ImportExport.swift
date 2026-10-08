@@ -433,7 +433,7 @@ extension AppDelegate {
         isDerived: Bool,
         progress: (@Sendable (String) -> Void)? = nil
     ) async throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         try FileManager.default.createDirectory(
             at: outputURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -445,7 +445,7 @@ extension AppDelegate {
                 inputFASTQURLs: [],
                 outputURL: outputURL,
                 isDerived: true,
-                startedAt: startedAt
+                runClock: runClock
             ) { stagedOutputURL in
                 try await FASTQDerivativeService.shared.exportMaterializedFASTQ(
                     fromDerivedBundle: bundleURL,
@@ -473,7 +473,7 @@ extension AppDelegate {
                 inputFASTQURLs: fastqURLs,
                 outputURL: outputURL,
                 isDerived: false,
-                startedAt: startedAt
+                runClock: runClock
             ) { stagedOutputURL in
                 try FileManager.default.copyItem(at: fastqURLs[0], to: stagedOutputURL)
             }
@@ -487,7 +487,7 @@ extension AppDelegate {
             inputFASTQURLs: fastqURLs,
             outputURL: outputURL,
             isDerived: false,
-            startedAt: startedAt
+            runClock: runClock
         ) { stagedOutputURL in
             try await concatenateFASTQChunks(fastqURLs, to: stagedOutputURL)
         }
@@ -568,7 +568,7 @@ extension AppDelegate {
         inputFASTQURLs: [URL],
         outputURL: URL,
         isDerived: Bool,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         writeOutput: (URL) async throws -> Void
     ) async throws {
         let fileManager = FileManager.default
@@ -612,8 +612,8 @@ extension AppDelegate {
                 outputURL: outputURL,
                 outputRecord: outputRecord,
                 isDerived: isDerived,
-                startedAt: startedAt,
-                completedAt: Date()
+                startedAt: runClock.startedAt,
+                completedAt: runClock.now
             )
             try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: tempSidecarURL)
 

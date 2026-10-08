@@ -53,7 +53,7 @@ public enum GenotypeReferenceRecordStoreSnapshot {
         let referenceBundle = try await ReferenceBundle(url: nativeReferenceURL)
         guard let sourceDatabase = try referenceBundle.recordStoreDatabase() else { return nil }
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let destinationURL = try publishValidatedDatabase(
             sourceDatabase.databaseURL,
             toResultBundle: resultBundleURL,
@@ -74,8 +74,8 @@ public enum GenotypeReferenceRecordStoreSnapshot {
             sourceReferenceBundleURL: nativeReferenceURL,
             sourceURL: sourceDatabase.databaseURL,
             destinationURL: destinationURL,
-            startedAt: startedAt,
-            completedAt: Date()
+            startedAt: runClock.startedAt,
+            completedAt: runClock.now
         )
     }
 

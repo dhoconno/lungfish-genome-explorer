@@ -1,6 +1,7 @@
 @preconcurrency import Foundation
 import CryptoKit
 import Darwin
+import LungfishCore
 
 private final class ManagedToolProcessOutputBuffer: @unchecked Sendable {
     private let lock = NSLock()
@@ -120,7 +121,7 @@ public struct ManagedToolSourceInstaller: Sendable {
         guard sourceOverlay.kind == .bracken, sourceOverlay.sourceURL.scheme?.lowercased() == "https" else {
             throw ManagedToolSourceInstallerError.invalidSourceURL
         }
-        let startedAt = now()
+        let runClock = ProvenanceRunClock(startedAt: now())
         let work = environmentURL.deletingLastPathComponent().appendingPathComponent(".managed-bracken-\(uuid().uuidString)", isDirectory: true)
         defer { try? fileSystem.removeItem(work) }
         try fileSystem.createDirectory(work)
@@ -202,7 +203,7 @@ public struct ManagedToolSourceInstaller: Sendable {
         )
 
         let installedFiles = try inventory(stagedEnvironment)
-        let completedAt = now()
+        let completedAt = runClock.now
         let record = ManagedToolSourceInstallationRecord(
             source: sourceOverlay,
             sourceArchiveSizeBytes: fileSize(archive),
@@ -214,9 +215,9 @@ public struct ManagedToolSourceInstaller: Sendable {
                 condaPackages: runtimePackages(in: environmentURL)
             ),
             installedFiles: installedFiles,
-            startedAt: startedAt,
+            startedAt: runClock.startedAt,
             completedAt: completedAt,
-            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            wallTimeSeconds: completedAt.timeIntervalSince(runClock.startedAt),
             exitStatus: 0,
             stderr: stderrs.joined(separator: "\n")
         )

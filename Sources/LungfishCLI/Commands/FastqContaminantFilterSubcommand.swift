@@ -114,7 +114,7 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
 
         let env = await bbToolsEnvironment(runner: runner)
         let resolvedReferenceURL = try Self.bbdukReferenceURL(mode: mode, reference: reference)
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: 1800)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "bbduk contaminant filter failed: \(result.stderr)")
@@ -174,7 +174,7 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
             inputRecords: try resolvedInput.inputRecords()
                 + provenanceRecords(for: resolvedReferenceURL, format: .fasta, role: .reference),
             extraSteps: try resolvedInput.materializationSteps(),
-            startedAt: startedAt
+            runClock: runClock
         )
         FileHandle.standardError.write(Data("Filtered reads written to \(output.output)\n".utf8))
     }

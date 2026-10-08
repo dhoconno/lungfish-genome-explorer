@@ -52,7 +52,7 @@ struct FreyjaCommand: AsyncParsableCommand {
         }
 
         func executeForTesting(emit: @escaping (String) -> Void) async throws {
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let outputDirURL = URL(fileURLWithPath: outputDirectory)
             try FileManager.default.createDirectory(at: outputDirURL, withIntermediateDirectories: true)
             let plan = try buildPlan(outputDirURL: outputDirURL)
@@ -78,7 +78,7 @@ struct FreyjaCommand: AsyncParsableCommand {
                 emit("Command plan: \(planURL.path)")
             }
 
-            let completedAt = Date()
+            let completedAt = runClock.now
             try VariantsCommand.writeCommandPlanProvenance(
                 workflowName: plan.workflowName,
                 workflowVersion: plan.workflowVersion,
@@ -95,7 +95,7 @@ struct FreyjaCommand: AsyncParsableCommand {
                     "resolvedDefaults": .dictionary(plan.resolvedDefaults.mapValues { .string($0) }),
                 ],
                 outputDirectory: outputDirURL,
-                startedAt: startedAt,
+                startedAt: runClock.startedAt,
                 completedAt: completedAt
             )
         }

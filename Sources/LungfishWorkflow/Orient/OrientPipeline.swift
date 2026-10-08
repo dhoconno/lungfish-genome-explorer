@@ -172,7 +172,8 @@ public final class OrientPipeline: @unchecked Sendable {
         provenanceContext: OrientProvenanceContext? = nil,
         progress: @Sendable (Double, String) -> Void = { _, _ in }
     ) async throws -> OrientResult {
-        let startTime = Date()
+        let runClock = ProvenanceRunClock()
+        let startTime = runClock.startedAt
         let fm = FileManager.default
 
         // Validate inputs exist
@@ -208,7 +209,8 @@ public final class OrientPipeline: @unchecked Sendable {
 
         progress(0.10, "Running vsearch orient...")
 
-        let vsearchStart = Date()
+        let vsearchClock = ProvenanceRunClock()
+        let vsearchStart = vsearchClock.startedAt
         let result: NativeToolResult
         do {
             result = try await runner.run(
@@ -218,7 +220,7 @@ public final class OrientPipeline: @unchecked Sendable {
                 timeout: 1800
             )
         } catch {
-            let vsearchEnd = Date()
+            let vsearchEnd = vsearchClock.now
             let failureMessage = toolFailureMessage(error)
             let failureResult = OrientResult(
                 orientedFASTQ: orientedOutput,
@@ -227,7 +229,7 @@ public final class OrientPipeline: @unchecked Sendable {
                 forwardCount: 0,
                 reverseComplementedCount: 0,
                 unmatchedCount: 0,
-                wallClockSeconds: Date().timeIntervalSince(startTime)
+                wallClockSeconds: runClock.elapsed
             )
             let vsearchVersion = await runner.getToolVersion(.vsearch) ?? "unknown"
             try writeProvenance(
@@ -243,13 +245,13 @@ public final class OrientPipeline: @unchecked Sendable {
                 vsearchStartedAt: vsearchStart,
                 vsearchCompletedAt: vsearchEnd,
                 workflowStartedAt: startTime,
-                workflowCompletedAt: Date(),
+                workflowCompletedAt: runClock.now,
                 vsearchVersion: vsearchVersion,
                 context: provenanceContext
             )
             throw OrientPipelineError.vsearchFailed(failureMessage)
         }
-        let vsearchEnd = Date()
+        let vsearchEnd = vsearchClock.now
 
         guard result.isSuccess else {
             let failureResult = OrientResult(
@@ -259,7 +261,7 @@ public final class OrientPipeline: @unchecked Sendable {
                 forwardCount: 0,
                 reverseComplementedCount: 0,
                 unmatchedCount: 0,
-                wallClockSeconds: Date().timeIntervalSince(startTime)
+                wallClockSeconds: runClock.elapsed
             )
             let vsearchVersion = await runner.getToolVersion(.vsearch) ?? "unknown"
             try writeProvenance(
@@ -270,7 +272,7 @@ public final class OrientPipeline: @unchecked Sendable {
                 vsearchStartedAt: vsearchStart,
                 vsearchCompletedAt: vsearchEnd,
                 workflowStartedAt: startTime,
-                workflowCompletedAt: Date(),
+                workflowCompletedAt: runClock.now,
                 vsearchVersion: vsearchVersion,
                 context: provenanceContext
             )
@@ -297,7 +299,7 @@ public final class OrientPipeline: @unchecked Sendable {
                 forwardCount: 0,
                 reverseComplementedCount: 0,
                 unmatchedCount: 0,
-                wallClockSeconds: Date().timeIntervalSince(startTime)
+                wallClockSeconds: runClock.elapsed
             )
             let vsearchVersion = await runner.getToolVersion(.vsearch) ?? "unknown"
             try writeProvenance(
@@ -308,7 +310,7 @@ public final class OrientPipeline: @unchecked Sendable {
                 vsearchStartedAt: vsearchStart,
                 vsearchCompletedAt: vsearchEnd,
                 workflowStartedAt: startTime,
-                workflowCompletedAt: Date(),
+                workflowCompletedAt: runClock.now,
                 vsearchVersion: vsearchVersion,
                 context: provenanceContext,
                 workflowExitStatus: -1,
@@ -319,7 +321,7 @@ public final class OrientPipeline: @unchecked Sendable {
 
         progress(0.90, "Orient complete: \(forwardCount) forward, \(rcCount) RC'd, \(unmatchedCount) unmatched")
 
-        let elapsed = Date().timeIntervalSince(startTime)
+        let elapsed = runClock.elapsed
         logger.info("Orient complete in \(String(format: "%.1f", elapsed))s: \(forwardCount) fwd, \(rcCount) rc, \(unmatchedCount) unmatched")
 
         let orientResult = OrientResult(
@@ -340,7 +342,7 @@ public final class OrientPipeline: @unchecked Sendable {
             vsearchStartedAt: vsearchStart,
             vsearchCompletedAt: vsearchEnd,
             workflowStartedAt: startTime,
-            workflowCompletedAt: Date(),
+            workflowCompletedAt: runClock.now,
             vsearchVersion: vsearchVersion,
             context: provenanceContext
         )

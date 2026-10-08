@@ -38,13 +38,13 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true)
         let patchURL = URL(fileURLWithPath: patch)
         let merge = try await Self.apply(
             bundleURL: bundleURL,
             patchURL: patchURL,
-            startedAt: startedAt
+            runClock: runClock
         )
         let sidecarURL = ONTGenotypeResultBundleData.annotationSidecarURL(
             forBundleAt: bundleURL
@@ -66,7 +66,7 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
     static func apply(
         bundleURL: URL,
         patchURL: URL,
-        startedAt: Date = Date(),
+        runClock: ProvenanceRunClock = ProvenanceRunClock(),
         beforePublication: () throws -> Void = {}
     ) async throws -> MergeResult {
         let patchData = try Data(contentsOf: patchURL)
@@ -105,7 +105,7 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
             sidecarURL: sidecarURL,
             priorSidecarInput: priorSidecarInput,
             merge: merge,
-            startedAt: startedAt
+            runClock: runClock
         )
         return merge
     }
@@ -116,7 +116,7 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
         sidecarURL: URL,
         priorSidecarInput: FileRecord?,
         merge: MergeResult,
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) async throws {
         var parameters: [String: ParameterValue] = [
             "bundle": .file(bundleURL),
@@ -152,7 +152,7 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
             inputs: inputs,
             outputs: outputs,
             exitCode: 0,
-            wallTime: max(0, Date().timeIntervalSince(startedAt)),
+            wallTime: runClock.elapsed,
             stderr: nil,
             status: .completed,
             outputDirectory: bundleURL,

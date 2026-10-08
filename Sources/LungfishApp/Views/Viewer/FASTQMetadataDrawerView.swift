@@ -1944,7 +1944,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             MainActor.assumeIsolated {
                 guard let self, response == .OK, let outputURL = panel.url else { return }
                 do {
-                    let startedAt = Date()
+                    let runClock = ProvenanceRunClock()
                     self.ensureSingleDemuxStep()
                     let isAsymmetric = self.demuxSteps[0].symmetryMode == .asymmetric
                     let sourceURLs = try self.fastqMetadataExportSourceURLs()
@@ -1972,7 +1972,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
                             "assignmentCount": .integer(self.sampleAssignments.count),
                             "asymmetricDemux": .boolean(isAsymmetric),
                         ],
-                        startedAt: startedAt
+                        runClock: runClock
                     )) { tempURL in
                         try content.write(to: tempURL, atomically: true, encoding: .utf8)
                     }

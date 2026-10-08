@@ -33,7 +33,7 @@ struct GenomeFetchProvenanceWriter {
         let downloadedFastaURL: URL
         let gffSourceURL: URL?
         let downloadedGFFURL: URL?
-        let startedAt: Date
+        let runClock: ProvenanceRunClock
     }
 
     struct DirectOutputRequest {
@@ -53,7 +53,7 @@ struct GenomeFetchProvenanceWriter {
         let downloadedGFFURL: URL?
         let finalFastaURL: URL
         let finalGFFURL: URL?
-        let startedAt: Date
+        let runClock: ProvenanceRunClock
     }
 
     @discardableResult
@@ -86,7 +86,7 @@ struct GenomeFetchProvenanceWriter {
                 bundleURL: request.bundleURL
             ),
             exitCode: 0,
-            wallTime: Date().timeIntervalSince(request.startedAt),
+            wallTime: request.runClock.elapsed,
             stderr: nil,
             status: .completed,
             outputDirectory: request.bundleURL
@@ -121,7 +121,7 @@ struct GenomeFetchProvenanceWriter {
             ),
             outputs: directOutputRecords(for: request),
             exitCode: 0,
-            wallTime: Date().timeIntervalSince(request.startedAt),
+            wallTime: request.runClock.elapsed,
             stderr: nil,
             status: .completed,
             outputDirectory: request.outputDirectory

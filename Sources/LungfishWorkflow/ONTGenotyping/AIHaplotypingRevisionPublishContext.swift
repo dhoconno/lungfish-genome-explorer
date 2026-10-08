@@ -13,6 +13,9 @@ public struct AIHaplotypingRevisionPublishContext {
     public let resolvedOptions: [String: ParameterValue]
     public let runtimeIdentity: ProvenanceRuntimeIdentity
     public let startedAt: Date
+    /// Started when the run started. The publication ends the run on it, so
+    /// the revision's provenance cannot end before the run began.
+    public let runClock: ProvenanceRunClock
     public let stderr: String?
 
     public init(
@@ -24,7 +27,7 @@ public struct AIHaplotypingRevisionPublishContext {
         defaultOptions: [String: ParameterValue] = [:],
         resolvedOptions: [String: ParameterValue] = [:],
         runtimeIdentity: ProvenanceRuntimeIdentity = ProvenanceRuntimeIdentity(),
-        startedAt: Date = Date(),
+        runClock: ProvenanceRunClock = ProvenanceRunClock(),
         stderr: String? = nil
     ) {
         self.toolName = toolName
@@ -35,7 +38,8 @@ public struct AIHaplotypingRevisionPublishContext {
         self.defaultOptions = defaultOptions
         self.resolvedOptions = resolvedOptions
         self.runtimeIdentity = runtimeIdentity
-        self.startedAt = startedAt
+        self.startedAt = runClock.startedAt
+        self.runClock = runClock
         self.stderr = stderr
     }
 }

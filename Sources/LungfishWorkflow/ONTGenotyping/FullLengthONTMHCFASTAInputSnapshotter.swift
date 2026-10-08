@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import LungfishCore
 
 struct FullLengthONTMHCFASTAInputSnapshot: Sendable {
     let url: URL
@@ -12,7 +13,7 @@ struct FullLengthONTMHCFASTAInputSnapshotter {
     private static let bufferSize = 64 * 1_024
 
     func snapshot(sourceURL: URL, to snapshotURL: URL) throws -> FullLengthONTMHCFASTAInputSnapshot {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let sourceDescriptor = Darwin.open(sourceURL.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         guard sourceDescriptor >= 0 else {
             throw FullLengthONTMHCAlignmentSafetyError(
@@ -82,7 +83,7 @@ struct FullLengthONTMHCFASTAInputSnapshotter {
             role: .snapshotClusterFASTA,
             phase: .temporary
         )
-        let completedAt = Date()
+        let completedAt = runClock.now
         shouldRemoveSnapshot = false
         return .init(
             url: snapshotURL.standardizedFileURL,
@@ -107,9 +108,9 @@ struct FullLengthONTMHCFASTAInputSnapshotter {
                 inputs: [inputDescriptor],
                 outputs: [outputDescriptor],
                 exitStatus: 0,
-                startedAt: startedAt,
+                startedAt: runClock.startedAt,
                 completedAt: completedAt,
-                wallTime: completedAt.timeIntervalSince(startedAt)
+                wallTime: completedAt.timeIntervalSince(runClock.startedAt)
             )
         )
     }

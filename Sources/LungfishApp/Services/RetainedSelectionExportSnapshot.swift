@@ -34,13 +34,10 @@ struct RetainedSelectionExportSnapshot {
         let sourceURLs = preserveOriginalSources
             ? deduplicated(request.sourceURLs + replayInputs)
             : replayInputs
-        try ScientificFileExportProvenance.writeAtomically(.init(
-            workflowName: request.workflowName, toolName: request.toolName,
-            sourceURLs: sourceURLs, outputURL: request.outputURL,
-            outputFormat: request.outputFormat, argv: request.argv,
+        try ScientificFileExportProvenance.writeAtomically(request.replacing(
+            sourceURLs: sourceURLs,
             durableReplayArgv: ["/bin/cp", payloadURL.path, request.outputURL.path],
-            explicitOptions: request.explicitOptions, defaults: request.defaults,
-            resolved: resolved, startedAt: request.startedAt
+            resolved: resolved
         )) { stagedURL in
             try FileManager.default.copyItem(at: payloadURL, to: stagedURL)
         }

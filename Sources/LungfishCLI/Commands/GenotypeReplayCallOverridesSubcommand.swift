@@ -105,7 +105,8 @@ struct GenotypeReplayCallOverridesSubcommand: AsyncParsableCommand {
 
     func run() async throws {
         try validate()
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
+        let startedAt = runClock.startedAt
         let sourceProvenanceURL = URL(
             fileURLWithPath: provenance
         ).standardizedFileURL
@@ -265,7 +266,7 @@ struct GenotypeReplayCallOverridesSubcommand: AsyncParsableCommand {
                 ),
                 "replayPayloadSHA256": .string(sha256Hex(payloadData)),
             ]
-            let completedAt = Date()
+            let completedAt = runClock.now
             let wallTime = max(
                 0,
                 completedAt.timeIntervalSince(startedAt)

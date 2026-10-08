@@ -183,7 +183,7 @@ public final class ReferenceBundleAnnotationImportService {
         #if DEBUG
         threadingProbe?()
         #endif
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         guard ReferenceBundleImportService.classify(sourceURL) == .annotationTrack else {
             throw ReferenceBundleAnnotationImportError.unsupportedFormat(sourceURL)
         }
@@ -270,7 +270,7 @@ public final class ReferenceBundleAnnotationImportService {
                 format: ext,
                 importerName: importerName,
                 inputManifestSnapshot: inputManifestSnapshot,
-                startedAt: startedAt,
+                runClock: runClock,
                 invocationArgv: invocationArgv
             )
         } catch {
@@ -402,10 +402,10 @@ public final class ReferenceBundleAnnotationImportService {
         format: String,
         importerName: String,
         inputManifestSnapshot: AnnotationImportFileSnapshot?,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         invocationArgv: [String]?
     ) throws {
-        let completedAt = Date()
+        let completedAt = runClock.now
         let provenanceURL = importProvenanceURL(bundleURL: bundleURL, trackID: track.id)
         var log = try loadProvenanceLog(from: provenanceURL)
         let command = invocationArgv ?? [
@@ -455,7 +455,7 @@ public final class ReferenceBundleAnnotationImportService {
             ),
             featureCount: featureCount,
             exitStatus: 0,
-            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            wallTimeSeconds: completedAt.timeIntervalSince(runClock.startedAt),
             stderr: nil,
             recordedAt: completedAt
         )
@@ -478,7 +478,7 @@ public final class ReferenceBundleAnnotationImportService {
             format: format,
             importerName: importerName,
             inputManifestSnapshot: inputManifestSnapshot,
-            startedAt: startedAt,
+            startedAt: runClock.startedAt,
             completedAt: completedAt
         )
     }
