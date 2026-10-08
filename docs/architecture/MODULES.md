@@ -25,7 +25,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 6 | 2473 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 8 | 8359 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 14 | 3548 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 708 | 226466 | 1347 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 708 | 226559 | 1348 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 4 | 399 | 2 | LungfishKit, LungfishTestSupport |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 34 | 5961 | 28 | LungfishCore, LungfishIO, LungfishWorkflow |
 
@@ -50,7 +50,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUITests | Tests/LungfishPhylogeneticsUITests | 4 | 1114 | LungfishIO, LungfishKit, LungfishPhylogeneticsUI, LungfishTestSupport, LungfishWorkflow |
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 10 | 3200 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 12 | 2554 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
-| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 387 | 160614 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
+| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 388 | 160745 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 
 ## Lungfish
 
@@ -1775,7 +1775,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 708, lines 226466
+- Swift files. 708, lines 226559
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1791,12 +1791,12 @@ None.
 | Assembly | 21 | 5776 |
 | Bundles | 9 | 2027 |
 | CLIEvents | 2 | 296 |
-| Conda | 29 | 8716 |
+| Conda | 29 | 8780 |
 | Containers | 9 | 3557 |
 | Databases | 1 | 1708 |
 | DemoProjects | 5 | 1065 |
 | Demultiplex | 16 | 6193 |
-| Dependencies | 14 | 2529 |
+| Dependencies | 14 | 2558 |
 | Engines | 8 | 3920 |
 | Exports | 1 | 505 |
 | Extraction | 28 | 9126 |
@@ -2174,7 +2174,7 @@ None.
 - `DemultiplexStep` struct, `Sources/LungfishWorkflow/Demultiplex/DemultiplexPlan.swift:13`
 - `DependencyManifest` typealias, `Sources/LungfishWorkflow/Dependencies/DependencyManifestSections.swift:11`
 - `DependencyOperationSink` protocol, `Sources/LungfishWorkflow/Dependencies/DependencyOperationSink.swift:13`
-- `DependencyPlanner` enum, `Sources/LungfishWorkflow/Dependencies/DependencyPlanner.swift:66`
+- `DependencyPlanner` enum, `Sources/LungfishWorkflow/Dependencies/DependencyPlanner.swift:72`
 - `DependencyPlannerInputs` struct, `Sources/LungfishWorkflow/Dependencies/DependencyPlanner.swift:11`
 - `DependencyReceipt` struct, `Sources/LungfishWorkflow/Dependencies/DependencyReceipt.swift:13`
 - `DependencyReceiptError` enum, `Sources/LungfishWorkflow/Dependencies/DependencyReceiptStore.swift:154`
@@ -2423,6 +2423,7 @@ None.
 - `LocalWorkflowRunRequest` struct, `Sources/LungfishWorkflow/LocalWorkflowRunBundle.swift:156`
 - `LocalWorkflowRunStatusEvent` struct, `Sources/LungfishWorkflow/LocalWorkflowRunBundle.swift:22`
 - `LocalWorkflowRuntimeEvidence` struct, `Sources/LungfishWorkflow/LocalWorkflowRuntimeEvidence.swift:4`
+- `LockedCondaPackage` struct, `Sources/LungfishWorkflow/Conda/ManagedToolLock.swift:116`
 - `LocusEvidence` struct, `Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingTypes.swift:173`
 - `LogEntry` struct, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:320`
 - `LogLevel` enum, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:395`
@@ -2452,7 +2453,7 @@ None.
 - `ManagedSavontProcessRunner` struct, `Sources/LungfishWorkflow/Savont/SavontClusteringPipeline.swift:37`
 - `ManagedStorageAvailability` enum, `Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift:203`
 - `ManagedStorageCoordinator` actor, `Sources/LungfishWorkflow/Storage/ManagedStorageCoordinator.swift:4`
-- `ManagedToolLock` struct, `Sources/LungfishWorkflow/Conda/ManagedToolLock.swift:101`
+- `ManagedToolLock` struct, `Sources/LungfishWorkflow/Conda/ManagedToolLock.swift:147`
 - `ManagedToolSourceFileSystem` struct, `Sources/LungfishWorkflow/Conda/ManagedToolSourceFileSystem.swift:8`
 - `ManagedToolSourceInstallationRecord` struct, `Sources/LungfishWorkflow/Conda/ManagedToolSourceInstallationRecord.swift:6`
 - `ManagedToolSourceInstaller` struct, `Sources/LungfishWorkflow/Conda/ManagedToolSourceInstaller.swift:23`
