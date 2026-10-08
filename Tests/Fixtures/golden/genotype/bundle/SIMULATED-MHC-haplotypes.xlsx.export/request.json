@@ -69,7 +69,7 @@
   },
   "runtimeContext" : {
     "condaEnvironment" : "openpyxl",
-    "condaPrefix" : "/Users/dho/.lungfish-stable/conda"
+    "condaPrefix" : "/Users/Shared/lungfish-golden/storage/conda"
   },
   "toolVersion" : "Lungfish <APP_VERSION> (dev)",
   "workflowName" : "genotype.pipeline.excel"

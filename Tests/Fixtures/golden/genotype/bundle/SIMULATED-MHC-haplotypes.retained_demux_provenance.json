@@ -44,14 +44,14 @@
       "path": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/.amplicon-genotyping/inputs/illumina-sample-manifest.json",
       "role": "input",
       "sha256": "<SHA256-R10>",
-      "sizeBytes": 4898
+      "sizeBytes": 4702
     },
     {
       "exists": true,
       "path": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/.amplicon-genotyping/inputs/illumina-sample-manifest.json",
       "role": "input",
       "sha256": "<SHA256-R10>",
-      "sizeBytes": 4898
+      "sizeBytes": 4702
     }
   ],
   "options": {
@@ -127,8 +127,8 @@
     "requireFullReferenceSpan": true
   },
   "runtimeIdentity": {
-    "executable": "/Users/dho/.lungfish-stable/conda/envs/pysam/bin/python",
-    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "executable": "/Users/Shared/lungfish-golden/storage/conda/envs/pysam/bin/python",
+    "platform": "macOS-<HOST-OS-VERSION>-arm64-arm-64bit",
     "pysam": "0.24.0",
     "python": "3.10.21 | packaged by conda-forge | (main, Aug 21 2026, 22:37:53) [Clang 19.1.7 ]"
   },

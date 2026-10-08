@@ -75,12 +75,12 @@
       "sizeBytes" : "<SIZE-R10>"
     }
   ],
-  "hostOS" : "macOS 26.6.2 (arm64)",
+  "hostOS" : "macOS <HOST-OS-VERSION> (arm64)",
   "id" : "<UUID-2>",
   "legacyWorkflowRun" : {
     "appVersion" : "Lungfish <APP_VERSION> (dev)",
     "endTime" : "<TIMESTAMP>",
-    "hostOS" : "macOS 26.6.2 (arm64)",
+    "hostOS" : "macOS <HOST-OS-VERSION> (arm64)",
     "id" : "<UUID-3>",
     "name" : "lungfish map",
     "parameters" : {
@@ -142,7 +142,7 @@
     },
     "runtime" : {
       "appVersion" : "Lungfish <APP_VERSION> (dev)",
-      "hostOS" : "macOS 26.6.2 (arm64)"
+      "hostOS" : "macOS <HOST-OS-VERSION> (arm64)"
     },
     "startTime" : "<TIMESTAMP>",
     "status" : "completed",
@@ -214,7 +214,7 @@
       },
       {
         "command" : [
-          "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+          "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
           "view",
           "-b",
           "-o",
@@ -254,7 +254,7 @@
       },
       {
         "command" : [
-          "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+          "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
           "sort",
           "-@",
           "1",
@@ -293,7 +293,7 @@
       },
       {
         "command" : [
-          "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+          "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
           "index",
           "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam"
         ],
@@ -328,7 +328,7 @@
       },
       {
         "command" : [
-          "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+          "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
           "flagstat",
           "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam"
         ],
@@ -521,7 +521,7 @@
   "reproducibleCommand" : "minimap2 -a -x sr -t 2 -R '@RG\\tID:sarscov2-test\\tSM:sarscov2-test\\tLB:sarscov2-test\\tPL:ILLUMINA\\tPU:sarscov2-test' --secondary=no -o <RUN_ROOT>\/mapping\/out\/sarscov2-test.raw.sam <RUN_ROOT>\/mapping\/tmp\/mapping-reference-stage-<UUID-1>\/reference.fa <RUN_ROOT>\/mapping\/inputs\/test_1.fastq.gz <RUN_ROOT>\/mapping\/inputs\/test_2.fastq.gz",
   "runtime" : {
     "appVersion" : "Lungfish <APP_VERSION> (dev)",
-    "hostOS" : "macOS 26.6.2 (arm64)"
+    "hostOS" : "macOS <HOST-OS-VERSION> (arm64)"
   },
   "runtimeIdentity" : {
     "appVersion" : "Lungfish <APP_VERSION> (dev)",
@@ -529,7 +529,7 @@
     "condaEnvironment" : "minimap2",
     "dependencySet" : "2026.2",
     "executablePath" : "minimap2",
-    "operatingSystemVersion" : "macOS 26.6.2 (arm64)",
+    "operatingSystemVersion" : "macOS <HOST-OS-VERSION> (arm64)",
     "processIdentifier" : "<PID>"
   },
   "schemaVersion" : 1,
@@ -643,7 +643,7 @@
     },
     {
       "argv" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "view",
         "-b",
         "-o",
@@ -653,7 +653,7 @@
         "<RUN_ROOT>\/mapping\/out\/sarscov2-test.raw.sam"
       ],
       "command" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "view",
         "-b",
         "-o",
@@ -692,7 +692,7 @@
           "sizeBytes" : "<SIZE-R8>"
         }
       ],
-      "reproducibleCommand" : "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools view -b -o <RUN_ROOT>\/mapping\/out\/sarscov2-test.filtered.bam -F 256 <RUN_ROOT>\/mapping\/out\/sarscov2-test.raw.sam",
+      "reproducibleCommand" : "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools view -b -o <RUN_ROOT>\/mapping\/out\/sarscov2-test.filtered.bam -F 256 <RUN_ROOT>\/mapping\/out\/sarscov2-test.raw.sam",
       "resolvedOptions" : {
 
       },
@@ -705,7 +705,7 @@
     },
     {
       "argv" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "sort",
         "-@",
         "1",
@@ -714,7 +714,7 @@
         "<RUN_ROOT>\/mapping\/out\/sarscov2-test.filtered.bam"
       ],
       "command" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "sort",
         "-@",
         "1",
@@ -752,7 +752,7 @@
           "sizeBytes" : "<SIZE-R8>"
         }
       ],
-      "reproducibleCommand" : "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools sort -@ 1 -o <RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam <RUN_ROOT>\/mapping\/out\/sarscov2-test.filtered.bam",
+      "reproducibleCommand" : "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools sort -@ 1 -o <RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam <RUN_ROOT>\/mapping\/out\/sarscov2-test.filtered.bam",
       "resolvedOptions" : {
 
       },
@@ -765,12 +765,12 @@
     },
     {
       "argv" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "index",
         "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam"
       ],
       "command" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "index",
         "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam"
       ],
@@ -804,7 +804,7 @@
           "sizeBytes" : "<SIZE-R8>"
         }
       ],
-      "reproducibleCommand" : "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools index <RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam",
+      "reproducibleCommand" : "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools index <RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam",
       "resolvedOptions" : {
 
       },
@@ -817,12 +817,12 @@
     },
     {
       "argv" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "flagstat",
         "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam"
       ],
       "command" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "flagstat",
         "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam"
       ],
@@ -848,7 +848,7 @@
       "outputs" : [
 
       ],
-      "reproducibleCommand" : "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools flagstat <RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam",
+      "reproducibleCommand" : "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools flagstat <RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam",
       "resolvedOptions" : {
 
       },

@@ -13,6 +13,7 @@ R10	bundle/SIMULATED-MHC-haplotypes.xlsx	yes	no
 R10	bundle/SIMULATED-MHC-haplotypes.xlsx.export/replay.sh	yes	no
 R10	bundle/SIMULATED-MHC-haplotypes.xlsx.export/request.json	yes	no
 R10	bundle/SIMULATED-MHC-haplotypes.xlsx.export/snapshot.json	yes	no
+R10	bundle/SIMULATED-MHC-haplotypes.xlsx.export/stdout.json	yes	no
 R10	bundle/SIMULATED-MHC-haplotypes.xlsx.provenance.json	yes	no
 R10	bundle/genotype-result.json	yes	no
 R10	bundle/lungfish-provenance.json	yes	no
@@ -50,11 +51,13 @@ R10	exports/pivot.xlsx	yes	no
 R10	exports/pivot.xlsx.export/replay.sh	yes	no
 R10	exports/pivot.xlsx.export/request.json	yes	no
 R10	exports/pivot.xlsx.export/snapshot.json	yes	no
+R10	exports/pivot.xlsx.export/stdout.json	yes	no
 R10	exports/pivot.xlsx.provenance.json	yes	no
 R10	exports/workbook.xlsx	yes	no
 R10	exports/workbook.xlsx.export/replay.sh	yes	no
 R10	exports/workbook.xlsx.export/request.json	yes	no
 R10	exports/workbook.xlsx.export/snapshot.json	yes	no
+R10	exports/workbook.xlsx.export/stdout.json	yes	no
 R10	exports/workbook.xlsx.provenance.json	yes	no
 R10	run/illumina-sample-manifest.json	no	no
 R16	SIMULATED-MHC-haplotypes.xlsx.export:analysis.json	no	no

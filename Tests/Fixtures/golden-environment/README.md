@@ -23,4 +23,4 @@ These files pin the managed tools and databases the golden captures in `Tests/Fi
 
 ## How the first lock was made
 
-On 2026-10-08 the explicit files were resolved with `environment.py lock --solve` from the manifest pins of that day. The database files are the fingerprints the goldens recorded on the laptop, and `provision` checks the downloaded archives against them. `environment.py lock --from-storage ~/.lungfish-stable` on the laptop shows whether its installed environments match this lock.
+On 2026-10-08 the explicit files were written with `environment.py lock --from-storage` from the `conda-meta` records of the laptop's `~/.lungfish-stable`, the environments the goldens were first captured with. A resolve of the same pins that day gave different dependencies in seven of the eight environments, among them polars 2.0.0 under EsViritu, which stops EsViritu from running. The database files are the fingerprints the goldens recorded on the laptop, and `provision` checks the downloaded archives against them.

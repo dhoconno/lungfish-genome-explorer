@@ -1,7 +1,7 @@
 {
   "assemblyPath" : "sarscov2-R1-len150.detected_virus.assembly_summary.tsv",
   "config" : {
-    "databasePath" : "file:\/\/\/Users\/dho\/.lungfish-stable\/databases\/esviritu\/esviritu-viral-db\/v3.2.4\/",
+    "databasePath" : "file:\/\/\/Users\/Shared\/lungfish-golden\/storage\/databases\/esviritu\/esviritu-viral-db\/v3.2.4\/",
     "extraArguments" : [
 
     ],

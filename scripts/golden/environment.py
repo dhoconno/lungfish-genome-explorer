@@ -343,7 +343,8 @@ def registry_row(storage: Path, entry: dict) -> dict:
         "name": entry["name"],
         "tool": entry["tool"],
         "version": entry["version"],
-        "path": "file://" + urllib.parse.quote(str(location)) + "/",
+        # No trailing slash, as the app writes it. Provenance records this URL.
+        "path": "file://" + urllib.parse.quote(str(location)),
         "isExternal": False,
         "status": "ready",
     })

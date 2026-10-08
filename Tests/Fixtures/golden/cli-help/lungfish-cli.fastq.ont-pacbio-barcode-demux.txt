@@ -32,7 +32,7 @@ OPTIONS:
   -t, --threads <threads> Number of threads to use (default: auto)
   --chunk-jobs <chunk-jobs>
                           Compatibility option for legacy chunked demux paths
-                          (default: active cores) (default: 14)
+                          (default: active cores) (default: <ACTIVE-CORES>)
   --max-reads-per-slice <max-reads-per-slice>
                           Compatibility option for legacy chunked demux paths;
                           0 disables sub-slicing (default: 100000) (default:

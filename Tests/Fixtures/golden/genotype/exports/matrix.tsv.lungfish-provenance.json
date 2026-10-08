@@ -531,13 +531,13 @@
       "sizeBytes" : 0
     },
     {
-      "checksumSHA256" : "dff28dff1feb2317a7f52e65053c94329add227123e8288ab9c82caf502efaf7",
-      "fileSize" : 493,
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
       "format" : "json",
       "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/stdout.json",
       "role" : "input",
-      "sha256" : "dff28dff1feb2317a7f52e65053c94329add227123e8288ab9c82caf502efaf7",
-      "sizeBytes" : 493
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
     },
     {
       "checksumSHA256" : "<SHA256-R10>",
@@ -558,7 +558,7 @@
       "sizeBytes" : 145
     }
   ],
-  "hostOS" : "macOS 26.6.2 (arm64)",
+  "hostOS" : "macOS <HOST-OS-VERSION> (arm64)",
   "id" : "<UUID-2>",
   "name" : "lungfish genotype export",
   "options" : {
@@ -732,14 +732,14 @@
   "reproducibleCommand" : "lungfish-cli genotype export --bundle <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype --export-format tsv --output <RUN_ROOT>\/genotype\/exports\/matrix.tsv",
   "runtime" : {
     "appVersion" : "Lungfish <APP_VERSION> (dev)",
-    "hostOS" : "macOS 26.6.2 (arm64)"
+    "hostOS" : "macOS <HOST-OS-VERSION> (arm64)"
   },
   "runtimeIdentity" : {
     "appVersion" : "Lungfish <APP_VERSION> (dev)",
     "architecture" : "arm64",
     "dependencySet" : "2026.2",
     "executablePath" : "<RUN_ROOT>\/bin\/lungfish-cli",
-    "operatingSystemVersion" : "macOS 26.6.2 (arm64)",
+    "operatingSystemVersion" : "macOS <HOST-OS-VERSION> (arm64)",
     "processIdentifier" : "<PID>"
   },
   "schemaVersion" : 1,
@@ -1286,13 +1286,13 @@
           "sizeBytes" : 0
         },
         {
-          "checksumSHA256" : "dff28dff1feb2317a7f52e65053c94329add227123e8288ab9c82caf502efaf7",
-          "fileSize" : 493,
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
           "format" : "json",
           "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/stdout.json",
           "role" : "input",
-          "sha256" : "dff28dff1feb2317a7f52e65053c94329add227123e8288ab9c82caf502efaf7",
-          "sizeBytes" : 493
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
         },
         {
           "checksumSHA256" : "<SHA256-R10>",

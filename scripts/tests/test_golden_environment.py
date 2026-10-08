@@ -171,7 +171,7 @@ def test_registry_rows_point_at_the_locked_folder_and_keep_other_rows(tmp_path):
     assert rows["Standard"] == {"name": "Standard", "tool": "kraken2"}
     assert rows["Viral"]["status"] == "ready"
     assert rows["Viral"]["version"] == "20260626"
-    assert rows["Viral"]["path"] == f"file://{storage}/databases/kraken2/viral/"
+    assert rows["Viral"]["path"] == f"file://{storage}/databases/kraken2/viral"
     assert rows["Viral"]["isExternal"] is False
     assert environment.registry_problems(lock, storage) == []
 

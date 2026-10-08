@@ -2,7 +2,7 @@ OVERVIEW: Manage bioconda tool plugins via micromamba
 
 Install bioinformatics tools from bioconda and conda-forge using micromamba.
 Each tool is installed in its own isolated environment to prevent dependency
-conflicts. Tools are stored in /Users/dho/.lungfish-stable/conda.
+conflicts. Tools are stored in /Users/Shared/lungfish-golden/storage/conda.
 
 Use 'lungfish-cli conda lock --pack <pack> --output lockfile.yml' to write
 a Lungfish requested environment specification (JSON). This is not a

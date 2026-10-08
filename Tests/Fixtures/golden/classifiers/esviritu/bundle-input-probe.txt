@@ -6,7 +6,7 @@ EsViritu Viral Detection
 Input files   : len-150-any-00000000.lungfishfastq
 Read format   : unpaired (Single-end reads)
 Sample name   : sarscov2-R1-len150
-Database      : /Users/dho/.lungfish-stable/databases/esviritu/esviritu-viral-db/v3.2.4
+Database      : /Users/Shared/lungfish-golden/storage/databases/esviritu/esviritu-viral-db/v3.2.4
 Quality filter: yes
 Threads       : 2
 Output        : <RUN_ROOT>/classifiers/esviritu-bundle-probe

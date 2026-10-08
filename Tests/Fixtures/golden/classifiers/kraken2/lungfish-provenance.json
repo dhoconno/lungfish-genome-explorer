@@ -121,7 +121,7 @@
       "sizeBytes" : 651204094
     }
   ],
-  "hostOS" : "macOS 26.6.2 (arm64)",
+  "hostOS" : "macOS <HOST-OS-VERSION> (arm64)",
   "id" : "<UUID-2>",
   "name" : "lungfish.classify",
   "options" : {
@@ -428,7 +428,7 @@
   "reproducibleCommand" : "<external>\/lungfish-cli conda classify @\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq --db Viral --threads 2 --output-dir @\/Analyses\/kraken2-golden",
   "runtime" : {
     "appVersion" : "<APP_VERSION>",
-    "hostOS" : "macOS 26.6.2 (arm64)"
+    "hostOS" : "macOS <HOST-OS-VERSION> (arm64)"
   },
   "runtimeIdentity" : {
     "appVersion" : "<APP_VERSION>",
@@ -436,7 +436,7 @@
     "condaEnvironment" : "kraken2",
     "dependencySet" : "2026.2",
     "executablePath" : "<external>\/lungfish-cli",
-    "operatingSystemVersion" : "macOS 26.6.2 (arm64)",
+    "operatingSystemVersion" : "macOS <HOST-OS-VERSION> (arm64)",
     "processIdentifier" : "<PID>"
   },
   "schemaVersion" : 1,
@@ -729,7 +729,7 @@
         "condaPrefix" : "<tool-root>\/envs\/kraken2",
         "dependencySet" : "2026.2",
         "executablePath" : "<tool-root>\/envs\/kraken2\/bin\/kraken2",
-        "operatingSystemVersion" : "macOS 26.6.2 (arm64)",
+        "operatingSystemVersion" : "macOS <HOST-OS-VERSION> (arm64)",
         "pluginPack" : "Metagenomics",
         "processIdentifier" : "<PID>"
       },

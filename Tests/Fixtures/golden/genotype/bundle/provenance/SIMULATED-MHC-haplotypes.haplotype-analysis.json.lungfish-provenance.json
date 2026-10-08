@@ -103,7 +103,7 @@
       "sizeBytes" : 256
     }
   ],
-  "hostOS" : "macOS 26.6.2 (arm64)",
+  "hostOS" : "macOS <HOST-OS-VERSION> (arm64)",
   "id" : "<UUID-1>",
   "name" : "Illumina Paired Amplicon Genotyping",
   "options" : {
@@ -1195,16 +1195,16 @@
   "reproducibleCommand" : "lungfish-cli fastq genotype-cohort '<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-A-pairs.lungfishfastq' '<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-B-pairs.lungfishfastq' --mode illumina-paired --read-type illumina --output-dir <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype --output-name SIMULATED-MHC-haplotypes --threads 2 --sort-threads 2 --min-support 1 --analysis-name SIMULATED-MHC-haplotypes --reference '<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref' --haplotype-assay SIMULATED-MHC-three-amplicon --haplotype-species MCM --haplotype-definition-scope project --haplotype-definition mhc-simulated-mcm-teaching",
   "runtime" : {
     "appVersion" : "Lungfish <APP_VERSION> (dev)",
-    "hostOS" : "macOS 26.6.2 (arm64)"
+    "hostOS" : "macOS <HOST-OS-VERSION> (arm64)"
   },
   "runtimeIdentity" : {
     "appVersion" : "Lungfish <APP_VERSION> (dev)",
     "architecture" : "arm64",
     "condaEnvironment" : "lungfish-managed-tools",
-    "condaPrefix" : "\/Users\/dho\/.lungfish-stable\/conda",
+    "condaPrefix" : "\/Users\/Shared\/lungfish-golden\/storage\/conda",
     "dependencySet" : "2026.2",
     "executablePath" : "<RUN_ROOT>\/bin\/lungfish-cli",
-    "operatingSystemVersion" : "macOS 26.6.2 (arm64)",
+    "operatingSystemVersion" : "macOS <HOST-OS-VERSION> (arm64)",
     "processIdentifier" : "<PID>"
   },
   "schemaVersion" : 1,
@@ -1350,7 +1350,7 @@
         "architecture" : "arm64",
         "dependencySet" : "2026.2",
         "executablePath" : "<RUN_ROOT>\/bin\/lungfish-cli",
-        "operatingSystemVersion" : "macOS 26.6.2 (arm64)",
+        "operatingSystemVersion" : "macOS <HOST-OS-VERSION> (arm64)",
         "processIdentifier" : "<PID>"
       },
       "startTime" : "<TIMESTAMP>",

@@ -86,50 +86,50 @@
       "explicit": "bbtools-osx-arm64-explicit.txt",
       "name": "bbtools",
       "packageSpec": "bioconda::bbmap=40.02=he046917_0",
-      "packages": 23,
-      "sha256": "33b7c43b7c40f572ee30609181d1a08d3008ca3e366caa52771c80ca32ab0e5d"
+      "packages": 22,
+      "sha256": "46bf62b36f2feb9e11070c96301108d19b5da17d98123cd343ea31368ab25ab5"
     },
     {
       "explicit": "esviritu-osx-arm64-explicit.txt",
       "name": "esviritu",
       "packageSpec": "bioconda::esviritu=1.3.3=pyhdfd78af_0",
-      "packages": 192,
-      "sha256": "073f8f187535c8715e0a0fdc3345eb1b0c8f2dabea6271308aeede79df9987f9"
+      "packages": 191,
+      "sha256": "8de02a50ba7b584eb55b6ebe55a88b1905de52d1b366b5f6189ead7f4817890c"
     },
     {
       "explicit": "kraken2-osx-arm64-explicit.txt",
       "name": "kraken2",
       "packageSpec": "bioconda::kraken2=2.17.1=pl5321h158e17b_0",
-      "packages": 65,
-      "sha256": "a3ebc102fceb6c496059908512d14c384d23b5287a7c1d2d0c5a690c7150c152"
+      "packages": 67,
+      "sha256": "39ab6de2f3373804a152bca91b91961939e2f8f12ba6b5c7384b5e696be77b39"
     },
     {
       "explicit": "minimap2-osx-arm64-explicit.txt",
       "name": "minimap2",
       "packageSpec": "bioconda::minimap2=2.31=h6bd33b9_0",
       "packages": 4,
-      "sha256": "b13050737d7e80be2e0569b48c3c51d0de9827576da99727895680356100eb9f"
+      "sha256": "341e787db99192ca3db9b4de9de0c3613e1465a13ca3c5267058c78d559aa6bb"
     },
     {
       "explicit": "openpyxl-osx-arm64-explicit.txt",
       "name": "openpyxl",
       "packageSpec": "conda-forge::openpyxl=3.1.5=py312h2a925e6_3",
-      "packages": 18,
-      "sha256": "def3f49f9b21e5b1fa3e345e7ab18b7f13f8dc2d0a4f3fef614266347f908004"
+      "packages": 19,
+      "sha256": "0ab2bd9f45c19546191f92060895d47f0d0a01690e0404be8c9111da83735c23"
     },
     {
       "explicit": "pysam-osx-arm64-explicit.txt",
       "name": "pysam",
       "packageSpec": "bioconda::pysam=0.24.0=py310hf7cbfa5_1",
       "packages": 27,
-      "sha256": "15abd33c2e226a6c3a4851feab4045493725be16b76a5bec94772ee300c6fbaf"
+      "sha256": "c18d14d832ceae525d9fee4e11f598df5a92cb9ed68fca58550ecb942a3a3b49"
     },
     {
       "explicit": "samtools-osx-arm64-explicit.txt",
       "name": "samtools",
       "packageSpec": "bioconda::samtools=1.24=h36b3a25_1",
       "packages": 20,
-      "sha256": "653501f4e73a39f873cc5647a251c92f4b3d45369f34d12fbd2bbb3838c2242e"
+      "sha256": "1939c9a1dcd11858b7c41733e4e28a72e9677f241fe1deb478ac2a1ee7503be7"
     },
     {
       "explicit": "seqkit-osx-arm64-explicit.txt",

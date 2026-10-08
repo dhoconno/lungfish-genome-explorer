@@ -66,7 +66,7 @@
       "sizeBytes" : 20296
     }
   ],
-  "hostOS" : "macOS 26.6.2 (arm64)",
+  "hostOS" : "macOS <HOST-OS-VERSION> (arm64)",
   "id" : "<UUID-1>",
   "name" : "lungfish-cli fastq materialize",
   "options" : {
@@ -190,14 +190,14 @@
   "reproducibleCommand" : "lungfish-cli fastq materialize <RUN_ROOT>\/classifiers\/Golden.lungfish\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq --output <RUN_ROOT>\/classifiers\/work\/sarscov2-R1-len150.fastq",
   "runtime" : {
     "appVersion" : "Lungfish <APP_VERSION> (dev)",
-    "hostOS" : "macOS 26.6.2 (arm64)"
+    "hostOS" : "macOS <HOST-OS-VERSION> (arm64)"
   },
   "runtimeIdentity" : {
     "appVersion" : "Lungfish <APP_VERSION> (dev)",
     "architecture" : "arm64",
     "dependencySet" : "2026.2",
     "executablePath" : "<RUN_ROOT>\/bin\/lungfish-cli",
-    "operatingSystemVersion" : "macOS 26.6.2 (arm64)",
+    "operatingSystemVersion" : "macOS <HOST-OS-VERSION> (arm64)",
     "processIdentifier" : "<PID>"
   },
   "schemaVersion" : 1,

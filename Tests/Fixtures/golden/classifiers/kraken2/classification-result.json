@@ -8,7 +8,7 @@
       }
     },
     "databaseName" : "Viral",
-    "databasePath" : "file:\/\/\/Users\/dho\/.lungfish-stable\/databases\/kraken2\/viral",
+    "databasePath" : "file:\/\/\/Users\/Shared\/lungfish-golden\/storage\/databases\/kraken2\/viral",
     "databaseVersion" : "20260626",
     "extraArguments" : [
 

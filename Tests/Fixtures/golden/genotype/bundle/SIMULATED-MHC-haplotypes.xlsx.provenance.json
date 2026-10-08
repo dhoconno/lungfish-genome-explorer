@@ -42,13 +42,13 @@
     "--provenance-request",
     "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/request.json",
     "--python",
-    "/Users/dho/.lungfish-stable/conda/envs/openpyxl/bin/python",
+    "/Users/Shared/lungfish-golden/storage/conda/envs/openpyxl/bin/python",
     "--output",
     "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx",
     "--force"
   ],
   "executedArgv" : [
-    "/Users/dho/.lungfish-stable/conda/envs/openpyxl/bin/python",
+    "/Users/Shared/lungfish-golden/storage/conda/envs/openpyxl/bin/python",
     "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/renderer.py",
     "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/snapshot.json",
     "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/rendered.xlsx"
@@ -103,7 +103,7 @@
   },
   "receiptPath" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.provenance.json",
   "replacingExisting" : true,
-  "replayCommand" : "'<RUN_ROOT>/bin/lungfish-cli' 'genotype' 'export-xlsx' '--snapshot' '<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/snapshot.json' '--provenance-request' '<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/request.json' '--python' '/Users/dho/.lungfish-stable/conda/envs/openpyxl/bin/python' '--output' '<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx' '--force'",
+  "replayCommand" : "'<RUN_ROOT>/bin/lungfish-cli' 'genotype' 'export-xlsx' '--snapshot' '<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/snapshot.json' '--provenance-request' '<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/request.json' '--python' '/Users/Shared/lungfish-golden/storage/conda/envs/openpyxl/bin/python' '--output' '<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx' '--force'",
   "replayScript" : {
     "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/replay.sh",
     "sha256" : "<SHA256-R10>",
@@ -120,8 +120,8 @@
   },
   "runtime" : {
     "openpyxlVersion" : "3.1.5",
-    "platform" : "macOS-26.6.2-arm64-arm-64bit",
-    "pythonExecutable" : "/Users/dho/.lungfish-stable/conda/envs/openpyxl/bin/python",
+    "platform" : "macOS-<HOST-OS-VERSION>-arm64-arm-64bit",
+    "pythonExecutable" : "/Users/Shared/lungfish-golden/storage/conda/envs/openpyxl/bin/python",
     "pythonVersion" : "3.12.14",
     "renderer" : {
       "schemaVersion" : 3,
@@ -151,7 +151,7 @@
   },
   "runtimeContext" : {
     "condaEnvironment" : "openpyxl",
-    "condaPrefix" : "/Users/dho/.lungfish-stable/conda"
+    "condaPrefix" : "/Users/Shared/lungfish-golden/storage/conda"
   },
   "schemaVersion" : 1,
   "scientificInputWitnesses" : {

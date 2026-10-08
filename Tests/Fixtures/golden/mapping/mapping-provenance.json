@@ -225,7 +225,7 @@
     },
     {
       "command" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "view",
         "-b",
         "-o",
@@ -265,7 +265,7 @@
     },
     {
       "command" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "sort",
         "-@",
         "1",
@@ -304,7 +304,7 @@
     },
     {
       "command" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "index",
         "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam"
       ],
@@ -339,7 +339,7 @@
     },
     {
       "command" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "flagstat",
         "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam"
       ],

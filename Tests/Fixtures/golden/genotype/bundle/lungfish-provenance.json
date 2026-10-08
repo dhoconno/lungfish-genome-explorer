@@ -112,11 +112,11 @@
     },
     {
       "checksumSHA256" : "<SHA256-R10>",
-      "fileSize" : 4898,
+      "fileSize" : 4702,
       "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/inputs\/illumina-sample-manifest.json",
       "role" : "input",
       "sha256" : "<SHA256-R10>",
-      "sizeBytes" : 4898
+      "sizeBytes" : 4702
     },
     {
       "checksumSHA256" : "c34b272d73258cbb24c41583b8d74e8b25a3503e00579329ed662d42e76b1ce7",
@@ -247,12 +247,12 @@
       "sizeBytes" : "<SIZE-R10>"
     },
     {
-      "checksumSHA256" : "dff28dff1feb2317a7f52e65053c94329add227123e8288ab9c82caf502efaf7",
-      "fileSize" : 493,
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
       "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/stdout.json",
       "role" : "output",
-      "sha256" : "dff28dff1feb2317a7f52e65053c94329add227123e8288ab9c82caf502efaf7",
-      "sizeBytes" : 493
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
     },
     {
       "checksumSHA256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -319,20 +319,20 @@
       "sizeBytes" : 256
     },
     {
-      "checksumSHA256" : "aca85ee9e71084fa00d9ed324f79f872fec54dc2aef358659ff48547063876d2",
-      "fileSize" : 2357,
+      "checksumSHA256" : "81a00a975c8557c7df094d9a8bab950bf069f294222ec685d845fafe66212be0",
+      "fileSize" : 2348,
       "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/001-SIMULATED-MHC-A-pairs.sorted.bam",
       "role" : "output",
-      "sha256" : "aca85ee9e71084fa00d9ed324f79f872fec54dc2aef358659ff48547063876d2",
-      "sizeBytes" : 2357
+      "sha256" : "81a00a975c8557c7df094d9a8bab950bf069f294222ec685d845fafe66212be0",
+      "sizeBytes" : 2348
     },
     {
-      "checksumSHA256" : "41e227bf91fbd77f94e2cc710340829f446eda26a2711fd9765978ac2980f5c5",
-      "fileSize" : 2190,
+      "checksumSHA256" : "f67694bca84b5a83db09cb38a235a415e5aa4fa244eccbd576ec3b9310634f5b",
+      "fileSize" : 2181,
       "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/002-SIMULATED-MHC-B-pairs.sorted.bam",
       "role" : "output",
-      "sha256" : "41e227bf91fbd77f94e2cc710340829f446eda26a2711fd9765978ac2980f5c5",
-      "sizeBytes" : 2190
+      "sha256" : "f67694bca84b5a83db09cb38a235a415e5aa4fa244eccbd576ec3b9310634f5b",
+      "sizeBytes" : 2181
     },
     {
       "checksumSHA256" : "<SHA256-N2>",
@@ -351,7 +351,7 @@
       "sizeBytes" : 256
     }
   ],
-  "hostOS" : "macOS 26.6.2 (arm64)",
+  "hostOS" : "macOS <HOST-OS-VERSION> (arm64)",
   "id" : "<UUID-2>",
   "name" : "Illumina Paired Amplicon Genotyping",
   "options" : {
@@ -1061,12 +1061,12 @@
       "sizeBytes" : "<SIZE-R10>"
     },
     {
-      "checksumSHA256" : "dff28dff1feb2317a7f52e65053c94329add227123e8288ab9c82caf502efaf7",
-      "fileSize" : 493,
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
       "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/stdout.json",
       "role" : "output",
-      "sha256" : "dff28dff1feb2317a7f52e65053c94329add227123e8288ab9c82caf502efaf7",
-      "sizeBytes" : 493
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
     },
     {
       "checksumSHA256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -1603,16 +1603,16 @@
   "reproducibleCommand" : "lungfish-cli fastq genotype-cohort '<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-A-pairs.lungfishfastq' '<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-B-pairs.lungfishfastq' --mode illumina-paired --read-type illumina --output-dir <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype --output-name SIMULATED-MHC-haplotypes --threads 2 --sort-threads 2 --min-support 1 --analysis-name SIMULATED-MHC-haplotypes --reference '<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref' --haplotype-assay SIMULATED-MHC-three-amplicon --haplotype-species MCM --haplotype-definition-scope project --haplotype-definition mhc-simulated-mcm-teaching",
   "runtime" : {
     "appVersion" : "Lungfish <APP_VERSION> (dev)",
-    "hostOS" : "macOS 26.6.2 (arm64)"
+    "hostOS" : "macOS <HOST-OS-VERSION> (arm64)"
   },
   "runtimeIdentity" : {
     "appVersion" : "Lungfish <APP_VERSION> (dev)",
     "architecture" : "arm64",
     "condaEnvironment" : "lungfish-managed-tools",
-    "condaPrefix" : "\/Users\/dho\/.lungfish-stable\/conda",
+    "condaPrefix" : "\/Users\/Shared\/lungfish-golden\/storage\/conda",
     "dependencySet" : "2026.2",
     "executablePath" : "<RUN_ROOT>\/bin\/lungfish-cli",
-    "operatingSystemVersion" : "macOS 26.6.2 (arm64)",
+    "operatingSystemVersion" : "macOS <HOST-OS-VERSION> (arm64)",
     "processIdentifier" : "<PID>"
   },
   "schemaVersion" : 1,
@@ -1624,7 +1624,7 @@
   "steps" : [
     {
       "argv" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/minimap2\/bin\/minimap2",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/minimap2\/bin\/minimap2",
         "-a",
         "-x",
         "sr",
@@ -1637,7 +1637,7 @@
         "-"
       ],
       "command" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/minimap2\/bin\/minimap2",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/minimap2\/bin\/minimap2",
         "-a",
         "-x",
         "sr",
@@ -1675,19 +1675,19 @@
       ],
       "outputs" : [
         {
-          "checksumSHA256" : "aca85ee9e71084fa00d9ed324f79f872fec54dc2aef358659ff48547063876d2",
-          "fileSize" : 2357,
+          "checksumSHA256" : "81a00a975c8557c7df094d9a8bab950bf069f294222ec685d845fafe66212be0",
+          "fileSize" : 2348,
           "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/001-SIMULATED-MHC-A-pairs.sorted.bam",
           "role" : "output",
-          "sha256" : "aca85ee9e71084fa00d9ed324f79f872fec54dc2aef358659ff48547063876d2",
-          "sizeBytes" : 2357
+          "sha256" : "81a00a975c8557c7df094d9a8bab950bf069f294222ec685d845fafe66212be0",
+          "sizeBytes" : 2348
         }
       ],
-      "reproducibleCommand" : "\/Users\/dho\/.lungfish-stable\/conda\/envs\/minimap2\/bin\/minimap2 -a -x sr --MD -t 2 -R '@RG\\tID:SIMULATED-MHC-haplotypes-1\\tSM:SIMULATED-MHC-haplotypes-1\\tLB:SIMULATED-MHC-haplotypes\\tPL:ILLUMINA\\tPU:SIMULATED-MHC-haplotypes-1' '<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz' -",
+      "reproducibleCommand" : "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/minimap2\/bin\/minimap2 -a -x sr --MD -t 2 -R '@RG\\tID:SIMULATED-MHC-haplotypes-1\\tSM:SIMULATED-MHC-haplotypes-1\\tLB:SIMULATED-MHC-haplotypes\\tPL:ILLUMINA\\tPU:SIMULATED-MHC-haplotypes-1' '<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz' -",
       "resolvedOptions" : {
 
       },
-      "stderr" : "[M::mm_idx_gen::<DURATION>*<CPU-RATIO>] collected minimizers\n[M::mm_idx_gen::<DURATION>*<CPU-RATIO>] sorted minimizers\n[M::main::<DURATION>*<CPU-RATIO>] loaded\/built the index for 3 target sequence(s)\n[M::mm_mapopt_update::<DURATION>*<CPU-RATIO>] mid_occ = 1000\n[M::mm_idx_stat] kmer size: 21; skip: 11; is_hpc: 0; #seq: 3\n[M::mm_idx_stat::<DURATION>*<CPU-RATIO>] distinct minimizers: 90 (100.00% are singletons); average occurrences: 1.000; average spacing: 6.367; total length: 573\n[M::worker_pipeline::<DURATION>*<CPU-RATIO>] mapped 204 sequences\n[M::main] Version: 2.31-r1302\n[M::main] CMD: \/Users\/dho\/.lungfish-stable\/conda\/envs\/minimap2\/bin\/minimap2 -a -x sr --MD -t 2 -R @RG\\tID:SIMULATED-MHC-haplotypes-1\\tSM:SIMULATED-MHC-haplotypes-1\\tLB:SIMULATED-MHC-haplotypes\\tPL:ILLUMINA\\tPU:SIMULATED-MHC-haplotypes-1 <RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz -\n[M::main] Real time: <DURATION> sec; CPU: <CPU-SECONDS> sec; Peak RSS: <PEAK-RSS> GB\n",
+      "stderr" : "[M::mm_idx_gen::<DURATION>*<CPU-RATIO>] collected minimizers\n[M::mm_idx_gen::<DURATION>*<CPU-RATIO>] sorted minimizers\n[M::main::<DURATION>*<CPU-RATIO>] loaded\/built the index for 3 target sequence(s)\n[M::mm_mapopt_update::<DURATION>*<CPU-RATIO>] mid_occ = 1000\n[M::mm_idx_stat] kmer size: 21; skip: 11; is_hpc: 0; #seq: 3\n[M::mm_idx_stat::<DURATION>*<CPU-RATIO>] distinct minimizers: 90 (100.00% are singletons); average occurrences: 1.000; average spacing: 6.367; total length: 573\n[M::worker_pipeline::<DURATION>*<CPU-RATIO>] mapped 204 sequences\n[M::main] Version: 2.31-r1302\n[M::main] CMD: \/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/minimap2\/bin\/minimap2 -a -x sr --MD -t 2 -R @RG\\tID:SIMULATED-MHC-haplotypes-1\\tSM:SIMULATED-MHC-haplotypes-1\\tLB:SIMULATED-MHC-haplotypes\\tPL:ILLUMINA\\tPU:SIMULATED-MHC-haplotypes-1 <RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz -\n[M::main] Real time: <DURATION> sec; CPU: <CPU-SECONDS> sec; Peak RSS: <PEAK-RSS> GB\n",
       "toolName" : "minimap2",
       "toolVersion" : "unknown",
       "wallTime" : "<DURATION>",
@@ -1695,7 +1695,7 @@
     },
     {
       "argv" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "sort",
         "-@",
         "2",
@@ -1704,7 +1704,7 @@
         "-"
       ],
       "command" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "sort",
         "-@",
         "2",
@@ -1738,15 +1738,15 @@
       ],
       "outputs" : [
         {
-          "checksumSHA256" : "aca85ee9e71084fa00d9ed324f79f872fec54dc2aef358659ff48547063876d2",
-          "fileSize" : 2357,
+          "checksumSHA256" : "81a00a975c8557c7df094d9a8bab950bf069f294222ec685d845fafe66212be0",
+          "fileSize" : 2348,
           "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/001-SIMULATED-MHC-A-pairs.sorted.bam",
           "role" : "output",
-          "sha256" : "aca85ee9e71084fa00d9ed324f79f872fec54dc2aef358659ff48547063876d2",
-          "sizeBytes" : 2357
+          "sha256" : "81a00a975c8557c7df094d9a8bab950bf069f294222ec685d845fafe66212be0",
+          "sizeBytes" : 2348
         }
       ],
-      "reproducibleCommand" : "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools sort -@ 2 -o <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/001-SIMULATED-MHC-A-pairs.sorted.bam -",
+      "reproducibleCommand" : "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools sort -@ 2 -o <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/001-SIMULATED-MHC-A-pairs.sorted.bam -",
       "resolvedOptions" : {
 
       },
@@ -1758,7 +1758,7 @@
     },
     {
       "argv" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/minimap2\/bin\/minimap2",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/minimap2\/bin\/minimap2",
         "-a",
         "-x",
         "sr",
@@ -1771,7 +1771,7 @@
         "-"
       ],
       "command" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/minimap2\/bin\/minimap2",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/minimap2\/bin\/minimap2",
         "-a",
         "-x",
         "sr",
@@ -1809,19 +1809,19 @@
       ],
       "outputs" : [
         {
-          "checksumSHA256" : "41e227bf91fbd77f94e2cc710340829f446eda26a2711fd9765978ac2980f5c5",
-          "fileSize" : 2190,
+          "checksumSHA256" : "f67694bca84b5a83db09cb38a235a415e5aa4fa244eccbd576ec3b9310634f5b",
+          "fileSize" : 2181,
           "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/002-SIMULATED-MHC-B-pairs.sorted.bam",
           "role" : "output",
-          "sha256" : "41e227bf91fbd77f94e2cc710340829f446eda26a2711fd9765978ac2980f5c5",
-          "sizeBytes" : 2190
+          "sha256" : "f67694bca84b5a83db09cb38a235a415e5aa4fa244eccbd576ec3b9310634f5b",
+          "sizeBytes" : 2181
         }
       ],
-      "reproducibleCommand" : "\/Users\/dho\/.lungfish-stable\/conda\/envs\/minimap2\/bin\/minimap2 -a -x sr --MD -t 2 -R '@RG\\tID:SIMULATED-MHC-haplotypes-2\\tSM:SIMULATED-MHC-haplotypes-2\\tLB:SIMULATED-MHC-haplotypes\\tPL:ILLUMINA\\tPU:SIMULATED-MHC-haplotypes-2' '<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz' -",
+      "reproducibleCommand" : "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/minimap2\/bin\/minimap2 -a -x sr --MD -t 2 -R '@RG\\tID:SIMULATED-MHC-haplotypes-2\\tSM:SIMULATED-MHC-haplotypes-2\\tLB:SIMULATED-MHC-haplotypes\\tPL:ILLUMINA\\tPU:SIMULATED-MHC-haplotypes-2' '<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz' -",
       "resolvedOptions" : {
 
       },
-      "stderr" : "[M::mm_idx_gen::<DURATION>*<CPU-RATIO>] collected minimizers\n[M::mm_idx_gen::<DURATION>*<CPU-RATIO>] sorted minimizers\n[M::main::<DURATION>*<CPU-RATIO>] loaded\/built the index for 3 target sequence(s)\n[M::mm_mapopt_update::<DURATION>*<CPU-RATIO>] mid_occ = 1000\n[M::mm_idx_stat] kmer size: 21; skip: 11; is_hpc: 0; #seq: 3\n[M::mm_idx_stat::<DURATION>*<CPU-RATIO>] distinct minimizers: 90 (100.00% are singletons); average occurrences: 1.000; average spacing: 6.367; total length: 573\n[M::worker_pipeline::<DURATION>*<CPU-RATIO>] mapped 172 sequences\n[M::main] Version: 2.31-r1302\n[M::main] CMD: \/Users\/dho\/.lungfish-stable\/conda\/envs\/minimap2\/bin\/minimap2 -a -x sr --MD -t 2 -R @RG\\tID:SIMULATED-MHC-haplotypes-2\\tSM:SIMULATED-MHC-haplotypes-2\\tLB:SIMULATED-MHC-haplotypes\\tPL:ILLUMINA\\tPU:SIMULATED-MHC-haplotypes-2 <RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz -\n[M::main] Real time: <DURATION> sec; CPU: <CPU-SECONDS> sec; Peak RSS: <PEAK-RSS> GB\n",
+      "stderr" : "[M::mm_idx_gen::<DURATION>*<CPU-RATIO>] collected minimizers\n[M::mm_idx_gen::<DURATION>*<CPU-RATIO>] sorted minimizers\n[M::main::<DURATION>*<CPU-RATIO>] loaded\/built the index for 3 target sequence(s)\n[M::mm_mapopt_update::<DURATION>*<CPU-RATIO>] mid_occ = 1000\n[M::mm_idx_stat] kmer size: 21; skip: 11; is_hpc: 0; #seq: 3\n[M::mm_idx_stat::<DURATION>*<CPU-RATIO>] distinct minimizers: 90 (100.00% are singletons); average occurrences: 1.000; average spacing: 6.367; total length: 573\n[M::worker_pipeline::<DURATION>*<CPU-RATIO>] mapped 172 sequences\n[M::main] Version: 2.31-r1302\n[M::main] CMD: \/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/minimap2\/bin\/minimap2 -a -x sr --MD -t 2 -R @RG\\tID:SIMULATED-MHC-haplotypes-2\\tSM:SIMULATED-MHC-haplotypes-2\\tLB:SIMULATED-MHC-haplotypes\\tPL:ILLUMINA\\tPU:SIMULATED-MHC-haplotypes-2 <RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz -\n[M::main] Real time: <DURATION> sec; CPU: <CPU-SECONDS> sec; Peak RSS: <PEAK-RSS> GB\n",
       "toolName" : "minimap2",
       "toolVersion" : "unknown",
       "wallTime" : "<DURATION>",
@@ -1829,7 +1829,7 @@
     },
     {
       "argv" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "sort",
         "-@",
         "2",
@@ -1838,7 +1838,7 @@
         "-"
       ],
       "command" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "sort",
         "-@",
         "2",
@@ -1872,15 +1872,15 @@
       ],
       "outputs" : [
         {
-          "checksumSHA256" : "41e227bf91fbd77f94e2cc710340829f446eda26a2711fd9765978ac2980f5c5",
-          "fileSize" : 2190,
+          "checksumSHA256" : "f67694bca84b5a83db09cb38a235a415e5aa4fa244eccbd576ec3b9310634f5b",
+          "fileSize" : 2181,
           "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/002-SIMULATED-MHC-B-pairs.sorted.bam",
           "role" : "output",
-          "sha256" : "41e227bf91fbd77f94e2cc710340829f446eda26a2711fd9765978ac2980f5c5",
-          "sizeBytes" : 2190
+          "sha256" : "f67694bca84b5a83db09cb38a235a415e5aa4fa244eccbd576ec3b9310634f5b",
+          "sizeBytes" : 2181
         }
       ],
-      "reproducibleCommand" : "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools sort -@ 2 -o <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/002-SIMULATED-MHC-B-pairs.sorted.bam -",
+      "reproducibleCommand" : "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools sort -@ 2 -o <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/002-SIMULATED-MHC-B-pairs.sorted.bam -",
       "resolvedOptions" : {
 
       },
@@ -1892,7 +1892,7 @@
     },
     {
       "argv" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "merge",
         "-f",
         "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.md.sorted.bam",
@@ -1900,7 +1900,7 @@
         "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/002-SIMULATED-MHC-B-pairs.sorted.bam"
       ],
       "command" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "merge",
         "-f",
         "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.md.sorted.bam",
@@ -1915,20 +1915,20 @@
       "id" : "<UUID-7>",
       "inputs" : [
         {
-          "checksumSHA256" : "aca85ee9e71084fa00d9ed324f79f872fec54dc2aef358659ff48547063876d2",
-          "fileSize" : 2357,
+          "checksumSHA256" : "81a00a975c8557c7df094d9a8bab950bf069f294222ec685d845fafe66212be0",
+          "fileSize" : 2348,
           "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/001-SIMULATED-MHC-A-pairs.sorted.bam",
           "role" : "output",
-          "sha256" : "aca85ee9e71084fa00d9ed324f79f872fec54dc2aef358659ff48547063876d2",
-          "sizeBytes" : 2357
+          "sha256" : "81a00a975c8557c7df094d9a8bab950bf069f294222ec685d845fafe66212be0",
+          "sizeBytes" : 2348
         },
         {
-          "checksumSHA256" : "41e227bf91fbd77f94e2cc710340829f446eda26a2711fd9765978ac2980f5c5",
-          "fileSize" : 2190,
+          "checksumSHA256" : "f67694bca84b5a83db09cb38a235a415e5aa4fa244eccbd576ec3b9310634f5b",
+          "fileSize" : 2181,
           "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/002-SIMULATED-MHC-B-pairs.sorted.bam",
           "role" : "output",
-          "sha256" : "41e227bf91fbd77f94e2cc710340829f446eda26a2711fd9765978ac2980f5c5",
-          "sizeBytes" : 2190
+          "sha256" : "f67694bca84b5a83db09cb38a235a415e5aa4fa244eccbd576ec3b9310634f5b",
+          "sizeBytes" : 2181
         }
       ],
       "outputs" : [
@@ -1941,7 +1941,7 @@
           "sizeBytes" : "<SIZE-N2>"
         }
       ],
-      "reproducibleCommand" : "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools merge -f <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.md.sorted.bam <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/001-SIMULATED-MHC-A-pairs.sorted.bam <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/002-SIMULATED-MHC-B-pairs.sorted.bam",
+      "reproducibleCommand" : "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools merge -f <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.md.sorted.bam <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/001-SIMULATED-MHC-A-pairs.sorted.bam <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/002-SIMULATED-MHC-B-pairs.sorted.bam",
       "resolvedOptions" : {
 
       },
@@ -1953,12 +1953,12 @@
     },
     {
       "argv" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "index",
         "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.md.sorted.bam"
       ],
       "command" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
         "index",
         "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.md.sorted.bam"
       ],
@@ -1988,7 +1988,7 @@
           "sizeBytes" : 256
         }
       ],
-      "reproducibleCommand" : "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools index <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.md.sorted.bam",
+      "reproducibleCommand" : "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools index <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.md.sorted.bam",
       "resolvedOptions" : {
 
       },
@@ -2000,7 +2000,7 @@
     },
     {
       "argv" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/pysam\/bin\/python",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/pysam\/bin\/python",
         "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/filter-demux-retained-bam.py",
         "--input-bam",
         "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.md.sorted.bam",
@@ -2024,7 +2024,7 @@
         "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/inputs\/illumina-sample-manifest.json"
       ],
       "command" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/pysam\/bin\/python",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/pysam\/bin\/python",
         "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/filter-demux-retained-bam.py",
         "--input-bam",
         "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.md.sorted.bam",
@@ -2064,11 +2064,11 @@
         },
         {
           "checksumSHA256" : "<SHA256-R10>",
-          "fileSize" : 4898,
+          "fileSize" : 4702,
           "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/inputs\/illumina-sample-manifest.json",
           "role" : "input",
           "sha256" : "<SHA256-R10>",
-          "sizeBytes" : 4898
+          "sizeBytes" : 4702
         },
         {
           "checksumSHA256" : "c34b272d73258cbb24c41583b8d74e8b25a3503e00579329ed662d42e76b1ce7",
@@ -2129,7 +2129,7 @@
           "sizeBytes" : "<SIZE-R10>"
         }
       ],
-      "reproducibleCommand" : "\/Users\/dho\/.lungfish-stable\/conda\/envs\/pysam\/bin\/python <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/filter-demux-retained-bam.py --input-bam <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.md.sorted.bam --reference-fasta '<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz' --demux-manifest <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/inputs\/illumina-sample-manifest.json --output-dir <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype --prefix SIMULATED-MHC-haplotypes --max-mismatches 0 --min-support 1 --provenance-command 'lungfish-cli fastq genotype-cohort '\\''<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-A-pairs.lungfishfastq'\\'' '\\''<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-B-pairs.lungfishfastq'\\'' --mode illumina-paired --read-type illumina --output-dir <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype --output-name SIMULATED-MHC-haplotypes --threads 2 --sort-threads 2 --min-support 1 --analysis-name SIMULATED-MHC-haplotypes --reference '\\''<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref'\\'' --haplotype-assay SIMULATED-MHC-three-amplicon --haplotype-species MCM --haplotype-definition-scope project --haplotype-definition mhc-simulated-mcm-teaching' --assignment-mode query-prefix --sample-manifest <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/inputs\/illumina-sample-manifest.json",
+      "reproducibleCommand" : "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/pysam\/bin\/python <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/filter-demux-retained-bam.py --input-bam <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.md.sorted.bam --reference-fasta '<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz' --demux-manifest <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/inputs\/illumina-sample-manifest.json --output-dir <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype --prefix SIMULATED-MHC-haplotypes --max-mismatches 0 --min-support 1 --provenance-command 'lungfish-cli fastq genotype-cohort '\\''<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-A-pairs.lungfishfastq'\\'' '\\''<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-B-pairs.lungfishfastq'\\'' --mode illumina-paired --read-type illumina --output-dir <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype --output-name SIMULATED-MHC-haplotypes --threads 2 --sort-threads 2 --min-support 1 --analysis-name SIMULATED-MHC-haplotypes --reference '\\''<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref'\\'' --haplotype-assay SIMULATED-MHC-three-amplicon --haplotype-species MCM --haplotype-definition-scope project --haplotype-definition mhc-simulated-mcm-teaching' --assignment-mode query-prefix --sample-manifest <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/inputs\/illumina-sample-manifest.json",
       "resolvedOptions" : {
 
       },
@@ -2275,7 +2275,7 @@
         "architecture" : "arm64",
         "dependencySet" : "2026.2",
         "executablePath" : "<RUN_ROOT>\/bin\/lungfish-cli",
-        "operatingSystemVersion" : "macOS 26.6.2 (arm64)",
+        "operatingSystemVersion" : "macOS <HOST-OS-VERSION> (arm64)",
         "processIdentifier" : "<PID>"
       },
       "startTime" : "<TIMESTAMP>",
@@ -2360,13 +2360,13 @@
     },
     {
       "argv" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/openpyxl\/bin\/python",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/openpyxl\/bin\/python",
         "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/renderer.py",
         "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/snapshot.json",
         "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/rendered.xlsx"
       ],
       "command" : [
-        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/openpyxl\/bin\/python",
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/openpyxl\/bin\/python",
         "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/renderer.py",
         "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/snapshot.json",
         "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/rendered.xlsx"
@@ -2437,7 +2437,7 @@
           "sizeBytes" : "<SIZE-R10>"
         }
       ],
-      "reproducibleCommand" : "\/Users\/dho\/.lungfish-stable\/conda\/envs\/openpyxl\/bin\/python <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/renderer.py <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/snapshot.json <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/rendered.xlsx",
+      "reproducibleCommand" : "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/openpyxl\/bin\/python <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/renderer.py <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/snapshot.json <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/rendered.xlsx",
       "resolvedOptions" : {
 
       },

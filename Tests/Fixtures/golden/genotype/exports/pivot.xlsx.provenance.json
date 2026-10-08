@@ -18,12 +18,12 @@
     "--provenance-request",
     "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/request.json",
     "--python",
-    "/Users/dho/.lungfish-stable/conda/envs/openpyxl/bin/python",
+    "/Users/Shared/lungfish-golden/storage/conda/envs/openpyxl/bin/python",
     "--output",
     "<RUN_ROOT>/genotype/exports/pivot.xlsx"
   ],
   "executedArgv" : [
-    "/Users/dho/.lungfish-stable/conda/envs/openpyxl/bin/python",
+    "/Users/Shared/lungfish-golden/storage/conda/envs/openpyxl/bin/python",
     "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/renderer.py",
     "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/snapshot.json",
     "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/rendered.xlsx"
@@ -114,7 +114,7 @@
   },
   "receiptPath" : "<RUN_ROOT>/genotype/exports/pivot.xlsx.provenance.json",
   "replacingExisting" : false,
-  "replayCommand" : "'<RUN_ROOT>/bin/lungfish-cli' 'genotype' 'export-xlsx' '--snapshot' '<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/snapshot.json' '--provenance-request' '<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/request.json' '--python' '/Users/dho/.lungfish-stable/conda/envs/openpyxl/bin/python' '--output' '<RUN_ROOT>/genotype/exports/pivot.xlsx'",
+  "replayCommand" : "'<RUN_ROOT>/bin/lungfish-cli' 'genotype' 'export-xlsx' '--snapshot' '<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/snapshot.json' '--provenance-request' '<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/request.json' '--python' '/Users/Shared/lungfish-golden/storage/conda/envs/openpyxl/bin/python' '--output' '<RUN_ROOT>/genotype/exports/pivot.xlsx'",
   "replayScript" : {
     "path" : "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/replay.sh",
     "sha256" : "<SHA256-R10>",
@@ -136,8 +136,8 @@
   },
   "runtime" : {
     "openpyxlVersion" : "3.1.5",
-    "platform" : "macOS-26.6.2-arm64-arm-64bit",
-    "pythonExecutable" : "/Users/dho/.lungfish-stable/conda/envs/openpyxl/bin/python",
+    "platform" : "macOS-<HOST-OS-VERSION>-arm64-arm-64bit",
+    "pythonExecutable" : "/Users/Shared/lungfish-golden/storage/conda/envs/openpyxl/bin/python",
     "pythonVersion" : "3.12.14",
     "renderer" : {
       "schemaVersion" : 3,
@@ -171,7 +171,7 @@
     "cliExecutable" : "<RUN_ROOT>/bin/lungfish-cli",
     "knownPercentBasis" : "sampleRetained",
     "percentBasis" : "Per-sample read fraction for known and candidate rows alike. viewedLocus is per source locus: Unique retained reads of the same sample at the same source locus (known alleles plus candidate clusters at that locus). sampleRetained: unique retained reads of the whole sample.",
-    "platform" : "Version 26.6.2 (Build 25G83)",
+    "platform" : "Version <HOST-OS-VERSION> (Build <HOST-OS-BUILD>)",
     "prevalenceBasis" : "Samples where the row is visible with positive reads / full logical sample roster; 0 is off"
   },
   "schemaVersion" : 1,
