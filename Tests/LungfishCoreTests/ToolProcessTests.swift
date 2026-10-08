@@ -301,4 +301,17 @@ final class ToolProcessTests: XCTestCase {
         XCTAssertEqual(result.stdoutText, "done\n")
         XCTAssertFalse(ProcessTreeTerminator.processExists(pid: sleeper), "the run must kill the lingering writer before it returns")
     }
+
+    /// bcftools and seqkit call exit(-1) on a missing input. waitid reports 24 bits
+    /// of that value, but the exit code has always been the 8 bits wait(2) keeps.
+    func testExitMinusOneReportsTwoHundredFiftyFive() async throws {
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: "/usr/bin/perl"),
+            arguments: ["-e", "exit(-1)"],
+            environment: ToolProcessSpec.inheritedEnvironment()
+        )
+        let result = try await ToolProcess.run(spec)
+        XCTAssertEqual(result.termination, .exited(code: 255))
+        XCTAssertEqual(result.status, 255)
+    }
 }

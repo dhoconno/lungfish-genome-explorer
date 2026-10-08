@@ -102,7 +102,10 @@ enum ToolProcessSpawner {
                 guard info.si_pid == pid else { return .running }
                 switch info.si_code {
                 case CLD_EXITED:
-                    return .exited(.exited(code: info.si_status))
+                    // waitid keeps 24 bits of the value passed to exit(3), so
+                    // exit(-1) reads 16777215. Keep the 8 bits wait(2) and every
+                    // shell report, so exit(-1) is 255 as it always was.
+                    return .exited(.exited(code: info.si_status & 0xFF))
                 case CLD_KILLED, CLD_DUMPED:
                     return .exited(.signaled(signal: info.si_status))
                 default:
