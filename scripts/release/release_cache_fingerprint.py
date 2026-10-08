@@ -200,6 +200,12 @@ def compiler_project_bytes(path: Path) -> bytes:
         '', text, flags=re.MULTILINE,
     )
     text = re.sub(r'^\s*shellScript = .*;\n', '', text, flags=re.MULTILINE)
+    # Version stamps change with every release and only reach Info.plist
+    # processing, never a compiler. Hashing them made each release cold.
+    text = re.sub(
+        r'^\s*(?:MARKETING_VERSION|CURRENT_PROJECT_VERSION)\s*=.*;\n',
+        '', text, flags=re.MULTILINE,
+    )
     return text.encode("utf-8")
 
 

@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -212,6 +213,23 @@ class ReleaseCacheFingerprintTests(unittest.TestCase):
             self.assertEqual(baseline, helper.compiler_project_bytes(path))
             path.write_text(raw.replace('SWIFT_OPTIMIZATION_LEVEL = "-O"', 'SWIFT_OPTIMIZATION_LEVEL = "-Osize"'))
             self.assertNotEqual(baseline, helper.compiler_project_bytes(path))
+
+    def test_project_version_stamps_preserve_compiler_cache(self):
+        # Every release changes these lines; before 2026-10-07 each bump
+        # selected a new cold namespace (62 of them, 243 GB).
+        helper = load_helper()
+        raw = (ROOT / "Lungfish.xcodeproj/project.pbxproj").read_text()
+        self.assertIn("MARKETING_VERSION = ", raw)
+        self.assertIn("CURRENT_PROJECT_VERSION = ", raw)
+        bumped = re.sub(r'MARKETING_VERSION = [^;\n]*;', 'MARKETING_VERSION = "2099.12.99";', raw)
+        bumped = re.sub(r'CURRENT_PROJECT_VERSION = [^;\n]*;', "CURRENT_PROJECT_VERSION = 99999;", bumped)
+        self.assertNotEqual(raw, bumped)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "project.pbxproj"
+            path.write_text(raw)
+            baseline = helper.compiler_project_bytes(path)
+            path.write_text(bumped)
+            self.assertEqual(baseline, helper.compiler_project_bytes(path))
 
     def test_checkout_and_xcode_install_relocation_do_not_change_the_key(self):
         helper = load_helper()
