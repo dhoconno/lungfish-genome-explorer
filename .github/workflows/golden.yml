@@ -30,6 +30,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
+      - name: Check Python
+        # The runner's PATH comes from ~/actions-runner/.path. Without
+        # /opt/homebrew/bin first it finds macOS's own Python 3.9.
+        run: python3 -c 'import sys; v = sys.version_info; print(sys.executable, sys.version.split()[0]); sys.exit(v < (3, 11))'
+
       - name: Select supported Xcode
         run: python3 scripts/release/release_xcode.py --shell >> "$GITHUB_ENV"
 

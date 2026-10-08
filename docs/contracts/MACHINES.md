@@ -68,6 +68,7 @@ The owner registers the runner once on the Mac Studio. It was set up this way on
 1. Create a standard macOS account for the runner, `lge-runner`. The runner must not use the account that holds the signing identity and notary profile, because workflow code runs with that account's keychain. A standard account is in the `staff` group, which the golden folder is shared with.
 2. Check that full Xcode 27 is installed in `/Applications`, that its license is accepted and that its first launch is complete.
 3. In the repository's Settings, open Actions, then Runners, then New self-hosted runner, and pick macOS and ARM64. As `lge-runner`, download the runner into `/Users/lge-runner/actions-runner` as the page shows, then run `./config.sh` with the URL and token it gives and `--labels lge-golden --name mac-studio-golden`.
+4. Put `/opt/homebrew/bin` at the front of the one line in `/Users/lge-runner/actions-runner/.path`. The runner takes its PATH from that file, and without Homebrew first `python3` is macOS's own 3.9, older than the 3.11 the scripts need. The workflow's first step stops when Python is older than 3.11.
 
 ### Launch daemon
 

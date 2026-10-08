@@ -35,6 +35,11 @@ class GoldenWorkflowTests(unittest.TestCase):
         self.assertNotIn("secrets.", yaml.safe_dump(self.workflow["jobs"]))
         self.assertEqual(self.workflow["concurrency"], {"group": "golden", "cancel-in-progress": False})
 
+    def test_checks_python_before_anything_else_runs(self):
+        steps = self.workflow["jobs"]["golden"]["steps"]
+        self.assertEqual(steps[1]["name"], "Check Python")
+        self.assertIn("(3, 11)", steps[1]["run"])
+
     def test_provisions_from_the_lock_before_comparing(self):
         runs = [step.get("run", "") for step in self.workflow["jobs"]["golden"]["steps"]]
         provision = runs.index("python3 scripts/golden/environment.py provision")
