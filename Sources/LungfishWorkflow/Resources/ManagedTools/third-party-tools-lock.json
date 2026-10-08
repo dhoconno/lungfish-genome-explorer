@@ -58,7 +58,8 @@
   ],
   "explicitLocks": [
     { "packID": "pcr-primer-design", "id": "olivar", "platform": "osx-arm64", "resource": "olivar-osx-arm64-explicit.txt", "sha256": "5d6b712936440e761f8366cf35b709db0a5d676efed728577af20f33a5f2510a" },
-    { "packID": "pcr-primer-design", "id": "varvamp", "platform": "osx-arm64", "resource": "varvamp-osx-arm64-explicit.txt", "sha256": "c193411672d8a9a63e45a9431242707d42c23f1b562e89c3abd099aade200afd" }
+    { "packID": "pcr-primer-design", "id": "varvamp", "platform": "osx-arm64", "resource": "varvamp-osx-arm64-explicit.txt", "sha256": "c193411672d8a9a63e45a9431242707d42c23f1b562e89c3abd099aade200afd" },
+    { "packID": "metagenomics", "id": "esviritu", "platform": "osx-arm64", "resource": "esviritu-osx-arm64-explicit.txt", "sha256": "8de02a50ba7b584eb55b6ebe55a88b1905de52d1b366b5f6189ead7f4817890c" }
   ],
   "pipelines": [
     { "id": "taxtriage", "repository": "jhuapl-bio/taxtriage", "revision": "e10bfebda32a62711f38a4e23ab03b61725a9675", "releaseVersion": "v3.3.8" },

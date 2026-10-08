@@ -34,6 +34,10 @@ public struct DependencyPlannerInputs: Sendable {
     /// tool the app has promised never to repair. The default answers false, so a caller that
     /// does not wire this up never preserves anything.
     public let environmentExecutableExists: @Sendable (_ environment: String, _ executable: String) -> Bool
+    /// Environment name -> every package its explicit lock installs
+    /// (``ManagedToolLock/explicitLockPackages()``). An environment listed here is current only
+    /// when its `conda-meta` holds exactly these packages, not merely the pinned one.
+    public let explicitLockPackages: [String: [LockedCondaPackage]]
 
     public init(
         manifest: ManagedToolLock,
@@ -45,7 +49,8 @@ public struct DependencyPlannerInputs: Sendable {
         installedMicromambaVersion: String?,
         estimatedEnvBytes: @escaping @Sendable (String) -> Int64 = { _ in 150 * 1_048_576 },
         knownEnvironmentNames: Set<String> = [],
-        environmentExecutableExists: @escaping @Sendable (String, String) -> Bool = { _, _ in false }
+        environmentExecutableExists: @escaping @Sendable (String, String) -> Bool = { _, _ in false },
+        explicitLockPackages: [String: [LockedCondaPackage]] = [:]
     ) {
         self.manifest = manifest
         self.receipt = receipt
@@ -57,6 +62,7 @@ public struct DependencyPlannerInputs: Sendable {
         self.installedMicromambaVersion = installedMicromambaVersion
         self.estimatedEnvBytes = estimatedEnvBytes
         self.environmentExecutableExists = environmentExecutableExists
+        self.explicitLockPackages = explicitLockPackages
     }
 }
 
@@ -83,6 +89,8 @@ public enum DependencyPlanner {
         let preserveExistingInstall: Bool
         /// Executables the entry declares, used to judge whether a preserved install is usable.
         let executables: [String]
+        /// Every package the entry's explicit lock installs, or nil when it has none.
+        var lockedPackages: [LockedCondaPackage]? = nil
     }
 
     public static func plan(_ inputs: DependencyPlannerInputs) -> ReconciliationPlan {
@@ -122,7 +130,8 @@ public enum DependencyPlanner {
             desired.append(DesiredEnvironment(environment: packTool.environment, spec: packTool.packageSpec,
                                               packID: packTool.packID, isRequired: false,
                                               preserveExistingInstall: packTool.preserveExistingInstall ?? false,
-                                              executables: packTool.executables))
+                                              executables: packTool.executables,
+                                              lockedPackages: inputs.explicitLockPackages[packTool.environment]))
         }
 
         for target in desired.sorted(by: { $0.environment < $1.environment }) {
@@ -213,6 +222,11 @@ public enum DependencyPlanner {
             // Disk satisfies the manifest. A receipt entry stuck in pending/failed still means
             // the recorded install never completed cleanly, so redo it.
             if let receiptEntry, receiptEntry.state != .installed { return .metadataMismatch }
+            // A locked tool is current only with exactly its locked packages.
+            if let locked = target.lockedPackages,
+               Set(locked) != Set(onDisk.map(LockedCondaPackage.init)) {
+                return .lockMismatch
+            }
             return nil
         }
 

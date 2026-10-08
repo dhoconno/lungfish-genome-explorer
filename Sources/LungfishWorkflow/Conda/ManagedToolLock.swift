@@ -65,6 +65,20 @@ public struct ManagedCondaExplicitLockSpec: Sendable, Codable, Hashable, Identif
         return url
     }
 
+    /// Every package the lock installs, read from the validated bundled resource.
+    func lockedPackages() throws -> [LockedCondaPackage] {
+        let text = try String(contentsOf: validatedResourceURL(), encoding: .utf8)
+        return Self.lockedPackages(fromExplicitText: text)
+    }
+
+    /// The package lines of an explicit file, by the name, version and build of each URL.
+    static func lockedPackages(fromExplicitText text: String) -> [LockedCondaPackage] {
+        text.split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") && $0 != "@EXPLICIT" }
+            .compactMap { LockedCondaPackage(packageURL: $0) }
+    }
+
     func validateContents(_ data: Data) throws {
         guard let text = String(data: data, encoding: .utf8) else {
             throw CondaLockfileError.invalidSpecification(
@@ -95,6 +109,38 @@ public struct ManagedCondaExplicitLockSpec: Sendable, Codable, Hashable, Identif
                     "Explicit conda lock \(resource) contains an unsafe or unhashed package URL.")
             }
         }
+    }
+}
+
+/// One package an explicit conda lock installs, as conda-meta records it.
+public struct LockedCondaPackage: Sendable, Hashable {
+    public let name: String
+    public let version: String
+    public let build: String
+
+    public init(name: String, version: String, build: String) {
+        self.name = name
+        self.version = version
+        self.build = build
+    }
+
+    /// Parses `…/osx-arm64/polars-1.44.2-pyh3138b34_0.conda#<md5>`. Package names may hold
+    /// hyphens, versions and builds never do, so the last two fields are the version and build.
+    init?(packageURL: String) {
+        let path = packageURL.split(separator: "#", maxSplits: 1).first.map(String.init) ?? packageURL
+        var filename = path.split(separator: "/").last.map(String.init) ?? path
+        for suffix in [".conda", ".tar.bz2"] where filename.hasSuffix(suffix) {
+            filename.removeLast(suffix.count)
+        }
+        let fields = filename.split(separator: "-", omittingEmptySubsequences: false).map(String.init)
+        guard fields.count >= 3, !fields.contains(where: \.isEmpty) else { return nil }
+        self.init(name: fields.dropLast(2).joined(separator: "-"),
+                  version: fields[fields.count - 2],
+                  build: fields[fields.count - 1])
+    }
+
+    public init(_ installed: CondaMetaPackage) {
+        self.init(name: installed.name, version: installed.version, build: installed.build ?? "")
     }
 }
 
@@ -342,6 +388,24 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
 
     public func explicitLock(packID: String, toolID: String) -> ManagedCondaExplicitLockSpec? {
         explicitLocks.first { $0.packID == packID && $0.toolID == toolID }
+    }
+
+    /// The explicit lock that installs an environment, if one does.
+    public func explicitLock(forEnvironment environment: String) -> ManagedCondaExplicitLockSpec? {
+        guard let tool = packTools.first(where: { $0.environment == environment }) else { return nil }
+        return explicitLock(packID: tool.packID, toolID: tool.toolID)
+    }
+
+    /// Environment name -> every package its explicit lock installs. A lock whose bundled
+    /// resource fails validation is left out here, and installing it reports the failure.
+    public func explicitLockPackages() -> [String: [LockedCondaPackage]] {
+        var result: [String: [LockedCondaPackage]] = [:]
+        for tool in packTools {
+            guard let lock = explicitLock(packID: tool.packID, toolID: tool.toolID),
+                  let packages = try? lock.lockedPackages() else { continue }
+            result[tool.environment] = packages
+        }
+        return result
     }
 
     public static func loadFromBundle() throws -> ManagedToolLock {

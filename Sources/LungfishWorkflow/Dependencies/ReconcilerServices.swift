@@ -86,7 +86,8 @@ public extension ReconcilerServices {
     ) -> ReconcilerServices {
         ReconcilerServices(
             createEnvironment: { name, spec, progress in
-                try await condaManager.createEnvironment(name: name, packages: [spec], progress: progress)
+                let packages = try Self.installPackages(environment: name, spec: spec, manifest: .bundled)
+                try await condaManager.createEnvironment(name: name, packages: packages, progress: progress)
             },
             removeEnvironment: { name in
                 try await condaManager.removeEnvironment(name: name)
@@ -189,6 +190,15 @@ public extension ReconcilerServices {
     }
 
     /// The pack requirement that owns `environment`, used to find its smoke test.
+    /// What `micromamba create` installs for an environment: its explicit lock when the
+    /// manifest has one, the same file `conda install --pack` uses, and otherwise the pin.
+    /// Without this, `tools update` solved the pin alone and could pull in dependencies the
+    /// lock exists to keep out.
+    static func installPackages(environment: String, spec: String, manifest: ManagedToolLock) throws -> [String] {
+        guard let lock = manifest.explicitLock(forEnvironment: environment) else { return [spec] }
+        return ["--file", try lock.validatedResourceURL().path]
+    }
+
     private static func requirement(forEnvironment environment: String) -> PackToolRequirement? {
         for pack in PluginPack.builtIn {
             if let match = pack.toolRequirements.first(where: { $0.environment == environment }) {
