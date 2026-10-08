@@ -872,6 +872,132 @@ def find_unit_evidence(root, commit, patterns, logs=None):
     return None
 
 
+# How long a waiter gives other gate runs, and how long a run folder may go
+# unwritten before it counts as a crashed run: one whole unit tier.
+GATE_RUN_BUDGET_SECONDS = 60 * 60
+
+
+def process_command_lines():
+    listing = subprocess.run(["/bin/ps", "-axo", "command="], capture_output=True, text=True, check=False)
+    return listing.stdout if listing.returncode == 0 else ""
+
+
+def _result_written(path):
+    """True once a run's gate.result.json holds its whole record. write_json
+    creates the file before it writes, and every record ends in a newline."""
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(-1, os.SEEK_END)
+            return handle.read(1) == b"\n"
+    except OSError:
+        return False
+
+
+def worktree_heads(root):
+    """Each worktree's HEAD, keyed by its resolved path. Read from git
+    worktree list, because inside a hook run from a linked worktree git exports
+    GIT_DIR, and `git rev-parse HEAD` in any other worktree then answers for
+    the worktree that is pushing."""
+    heads = {}
+    listing = _git(Path(root), "worktree", "list", "--porcelain", "-z")
+    if listing.returncode != 0:
+        return heads
+    path = None
+    for field in listing.stdout.split(b"\0"):
+        if field.startswith(b"worktree "):
+            path = Path(os.fsdecode(field[len(b"worktree "):])).resolve()
+        elif field.startswith(b"HEAD ") and path is not None:
+            heads[path] = field[len(b"HEAD "):].decode()
+    return heads
+
+
+def live_gate_runs(root, max_age=GATE_RUN_BUDGET_SECONDS, process_lines=process_command_lines):
+    """(folder, short commit) for each full-suite-gate.sh run still writing
+    evidence in any worktree of this repository. The folder is named for the
+    short commit and the pid of full-suite-gate.sh."""
+    entries = []
+    for parent in evidence_log_roots(root):
+        try:
+            entries += list(parent.iterdir())
+        except OSError:
+            continue
+    live = []
+    listing = None
+    for entry in entries:
+        match = GATE_DIRECTORY_NAME.match(entry.name)
+        if match is None or _result_written(entry / "gate.result.json"):
+            continue
+        # A run writes its logs continuously. A folder untouched for longer
+        # than the unit tier's whole budget belongs to a crashed run, even
+        # if its pid now names an unrelated process.
+        touched = 0.0
+        for item in [entry, *entry.rglob("*")]:
+            try:
+                touched = max(touched, item.lstat().st_mtime)
+            except OSError:
+                continue
+        if time.time() - touched > max_age:
+            continue
+        try:
+            os.kill(int(entry.name.rsplit("-", 1)[1]), 0)
+            live.append((entry, match.group(1)))
+            continue
+        except PermissionError:
+            live.append((entry, match.group(1)))
+            continue
+        except (ProcessLookupError, ValueError):
+            pass
+        # full-suite-gate.sh --bg exits after it starts the gate, so its pid
+        # is gone while the run goes on under a command line naming the folder.
+        if listing is None:
+            listing = process_lines()
+        if str(entry) in listing:
+            live.append((entry, match.group(1)))
+    return live
+
+
+def related_live_gates(root, commit, patterns, max_age=GATE_RUN_BUDGET_SECONDS,
+                       process_lines=process_command_lines):
+    """Live gate runs named for commit or for an ancestor whose changes since
+    are all release-neutral."""
+    return [(folder, short) for folder, short in live_gate_runs(root, max_age, process_lines)
+            if commit.startswith(short) or (
+                patterns and neutral_delta(root, short, commit, patterns) is not None)]
+
+
+def deciding_unit_gate(root, commit, patterns, max_age=GATE_RUN_BUDGET_SECONDS,
+                       process_lines=process_command_lines):
+    """The short commit of a unit-tier run, in any worktree, whose result will
+    decide commit: a run on commit itself, or on an ancestor whose changes
+    since are all release-neutral (find_unit_evidence then inherits it, green
+    or red). Only a unit-tier run on a checkout still at its commit counts.
+    Other tiers are never unit evidence, and a run whose checkout moved
+    records "source changed during gate", which decides nothing."""
+    listing = heads = None
+    for folder, short in related_live_gates(root, commit, patterns, max_age, process_lines):
+        if listing is None:
+            listing, heads = process_lines(), worktree_heads(root)
+        unit_tier = any(
+            re.search(rf"--output (?:.*/)?{re.escape(folder.name)}(\s|$)", line)
+            and re.search(r"--tier unit(\s|$)", line)
+            for line in listing.splitlines()
+        )
+        if unit_tier and heads.get(folder.parent.parent.parent.resolve(), "").startswith(short):
+            return short
+    return None
+
+
+def local_gate_run(root, max_age=GATE_RUN_BUDGET_SECONDS, process_lines=process_command_lines):
+    """The short commit of a full-suite-gate.sh run in this checkout. SwiftPM
+    builds one thing at a time per .build folder, so a second run here would
+    only wait on its lock, invisibly and against its own clock."""
+    local = Path(root) / ".build" / "gate-logs"
+    for folder, short in live_gate_runs(root, max_age, process_lines):
+        if folder.parent == local:
+            return short
+    return None
+
+
 def release_neutral_patterns(root):
     from release_contract import load_contract
     return load_contract(Path(root) / "config/release-contract.json").gates.releaseNeutralPaths
@@ -880,12 +1006,49 @@ def release_neutral_patterns(root):
 def run_unit_evidence(args):
     root = Path(args.root).resolve()
     patterns = release_neutral_patterns(root)
-    covered = True
-    red = False
+    commits = []
     for commit in args.commit:
         resolved = _git(root, "rev-parse", "--verify", "--quiet", commit + "^{commit}")
-        full = resolved.stdout.decode().strip() if resolved.returncode == 0 else ""
-        record = find_unit_evidence(root, full, patterns, args.logs) if full else None
+        commits.append((commit, resolved.stdout.decode().strip() if resolved.returncode == 0 else ""))
+
+    def records():
+        return [find_unit_evidence(root, full, patterns, args.logs) if full else None for _, full in commits]
+
+    found = records()
+    if args.wait and not any(record and record["kind"] == "red" for record in found):
+        # One budget covers both waits. Exit 4 when it runs out: the caller
+        # must not start a unit tier that would queue behind a running one.
+        deadline = time.monotonic() + args.wait_seconds
+        uncovered = [full for (_, full), record in zip(commits, found) if full and record is None]
+        steps = (
+            (lambda: next((short for full in uncovered
+                           if (short := deciding_unit_gate(root, full, patterns)) is not None), None),
+             "a unit-tier run on {} decides a pushed commit and is in progress; waiting for its evidence"),
+            (lambda: local_gate_run(root),
+             "a gate run on {} is using this checkout's build folder; waiting for it to finish"),
+        )
+        for running, announce in steps:
+            if all(record is not None for record in found):
+                break
+            short = running()
+            if short is None:
+                continue
+            print(f"unit-evidence: {announce.format(short)}.", file=sys.stderr, flush=True)
+            while running() is not None:
+                if time.monotonic() > deadline:
+                    print(f"unit-evidence: the gate run on {short} has not finished after "
+                          f"{args.wait_seconds:g} seconds; check its gate-logs folder.", file=sys.stderr)
+                    return 4
+                time.sleep(args.poll_seconds)
+            found = records()
+            if any(record and record["kind"] == "red" for record in found):
+                break
+        # Asked again last, so a run that finished since the first look is
+        # reused rather than repeated.
+        found = records()
+    covered = True
+    red = False
+    for (commit, full), record in zip(commits, found):
         if record is None:
             covered = False
             print(f"none {commit}")
@@ -898,7 +1061,8 @@ def run_unit_evidence(args):
         else:
             print(f"inherited {full} from {record['gatedCommit']} "
                   f"({len(record['changedPaths'])} release-neutral paths) {record['resultPath']}")
-    # 0 covered, 1 not covered, 3 the code already failed the unit tier.
+    # 0 covered, 1 not covered, 3 the code already failed the unit tier,
+    # 4 (with --wait) a run it waited for outlasted the budget.
     return 0 if covered else (3 if red else 1)
 
 
@@ -1166,6 +1330,12 @@ def main():
     coverage.add_argument("--root", required=True)
     coverage.add_argument("--commit", action="append", required=True)
     coverage.add_argument("--logs", help="One gate log folder to search instead of every worktree's .build/gate-logs.")
+    coverage.add_argument("--wait", action="store_true",
+                          help="Before reporting, wait for a unit-tier run whose result decides an uncovered "
+                               "commit, then for any other gate run using this checkout's build folder. "
+                               "Exit 4 if one outlasts --wait-seconds.")
+    coverage.add_argument("--wait-seconds", type=float, default=GATE_RUN_BUDGET_SECONDS, help=argparse.SUPPRESS)
+    coverage.add_argument("--poll-seconds", type=float, default=30.0, help=argparse.SUPPRESS)
     args = parser.parse_args()
     try:
         if args.command == "unit-evidence":

@@ -44,8 +44,9 @@ from sparkle_yank import (  # noqa: E402
     plan_yank,
 )
 from gate_evidence import (EvidenceError, _descendant_pids, create_manifest,  # noqa: E402
-                           evidence_log_roots, find_unit_evidence, neutral_delta,
-                           source_identity, verify_manifest)
+                           deciding_unit_gate, find_unit_evidence, live_gate_runs,
+                           local_gate_run, process_command_lines, related_live_gates, source_identity,
+                           verify_manifest)
 from release_cache_fingerprint import (  # noqa: E402
     CacheFingerprintError,
     CachePaths,
@@ -1781,85 +1782,22 @@ class LocalReleaseOperations:
             "dependency verification before packaging"
         )
 
+    # The detection of gate runs already going lives in gate_evidence.py, which
+    # the pre-push hook's `unit-evidence --wait` shares. These pass this run's
+    # budget and its ps listing, which tests replace.
     def _live_unit_gates(self) -> list[tuple[Path, str]]:
-        """(folder, short commit) for each unit-tier run still writing evidence
-        in any worktree of this repository (full-suite-gate.sh names its folder
-        for the short commit and its pid)."""
-        entries = []
-        for parent in evidence_log_roots(self.root):
-            try:
-                entries += list(parent.iterdir())
-            except OSError:
-                continue
-        live = []
-        for entry in entries:
-            match = re.fullmatch(r"gate-[0-9]{8}-[0-9]{6}-([0-9a-f]{4,40})-([0-9]+)", entry.name)
-            if match is None or (entry / "gate.result.json").exists():
-                continue
-            # A run writes its logs continuously. A folder untouched for longer
-            # than the unit tier's whole budget belongs to a crashed run, even
-            # if its pid now names an unrelated process.
-            touched = 0.0
-            for item in [entry, *entry.rglob("*")]:
-                try:
-                    touched = max(touched, item.lstat().st_mtime)
-                except OSError:
-                    continue
-            if time.time() - touched > UNIT_GATE_WAIT_SECONDS:
-                continue
-            try:
-                os.kill(int(match.group(2)), 0)
-                live.append((entry, match.group(1)))
-                continue
-            except PermissionError:
-                live.append((entry, match.group(1)))
-                continue
-            except (ProcessLookupError, ValueError):
-                pass
-            if str(entry) in self._process_command_lines():
-                live.append((entry, match.group(1)))
-        return live
+        return live_gate_runs(self.root, UNIT_GATE_WAIT_SECONDS, self._process_command_lines)
 
     def _related_live_gates(self, commit: str) -> list[tuple[Path, str]]:
-        neutral = self.contract.gates.releaseNeutralPaths
-        return [(folder, short) for folder, short in self._live_unit_gates()
-                if commit.startswith(short) or (
-                    neutral and neutral_delta(self.root, short, commit, neutral) is not None)]
+        return related_live_gates(self.root, commit, self.contract.gates.releaseNeutralPaths,
+                                  UNIT_GATE_WAIT_SECONDS, self._process_command_lines)
 
     def _deciding_unit_gate(self, commit: str) -> str | None:
-        """The short commit of a unit-tier run, in any worktree, whose result
-        will decide commit: a run on commit itself, or on an ancestor whose
-        changes since are all release-neutral (find_unit_evidence then
-        inherits it, green or red). Only a unit-tier run on a checkout still at
-        its commit counts. Other tiers are never unit evidence, and a run whose
-        checkout moved records "source changed during gate", which decides
-        nothing. None when no such run is going."""
-        listing = None
-        for folder, short in self._related_live_gates(commit):
-            if listing is None:
-                listing = self._process_command_lines()
-            unit_tier = any(
-                re.search(rf"--output (?:.*/)?{re.escape(folder.name)}(\s|$)", line)
-                and re.search(r"--tier unit(\s|$)", line)
-                for line in listing.splitlines()
-            )
-            if not unit_tier:
-                continue
-            head = subprocess.run(["git", "-C", str(folder.parent.parent.parent), "rev-parse", "HEAD"],
-                                  capture_output=True, text=True, check=False)
-            if head.returncode == 0 and head.stdout.strip().startswith(short):
-                return short
-        return None
+        return deciding_unit_gate(self.root, commit, self.contract.gates.releaseNeutralPaths,
+                                  UNIT_GATE_WAIT_SECONDS, self._process_command_lines)
 
     def _running_local_unit_gate(self) -> str | None:
-        """The short commit of a full-suite-gate.sh run in this checkout.
-        SwiftPM builds one thing at a time per .build folder, so a second run
-        here would only wait on its lock, invisibly and against its own clock."""
-        local = self.root / ".build" / "gate-logs"
-        for folder, short in self._live_unit_gates():
-            if folder.parent == local:
-                return short
-        return None
+        return local_gate_run(self.root, UNIT_GATE_WAIT_SECONDS, self._process_command_lines)
 
     def _wait_for_unit_gate(self, running, describe: str, deadline: float) -> None:
         while running() is not None:
@@ -1876,8 +1814,7 @@ class LocalReleaseOperations:
 
     @staticmethod
     def _process_command_lines() -> str:
-        listing = subprocess.run(["/bin/ps", "-axo", "command="], capture_output=True, text=True, check=False)
-        return listing.stdout if listing.returncode == 0 else ""
+        return process_command_lines()
 
     def _pinned_source(self) -> dict[str, Any]:
         """The clean commit this package run started compiling, or the

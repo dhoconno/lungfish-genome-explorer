@@ -890,7 +890,7 @@ class UnitTierInPackageTests(GateOperationsMixin, unittest.TestCase):
         folder = self.root / ".build/gate-logs" / f"gate-{stamp}-{commit[:7]}-{os.getpid() if pid is None else pid}"
         folder.mkdir(parents=True)
         if finished:
-            (folder / "gate.result.json").write_text("{}")
+            (folder / "gate.result.json").write_text("{}\n")  # every record gate_evidence writes ends in a newline
         return folder
 
     @staticmethod

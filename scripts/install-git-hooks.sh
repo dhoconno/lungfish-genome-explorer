@@ -28,6 +28,9 @@
 #     .build/gate-logs covers every pushed commit, exactly or through
 #     release-neutral paths (scripts/release/gate_evidence.py unit-evidence,
 #     docs/contracts/VERIFICATION-ORDER.md); the other checks still run.
+#     Before deciding, it waits for a unit-tier run already going whose
+#     result decides a pushed commit, and for any other gate run using this
+#     checkout's build folder (unit-evidence --wait).
 #     Before the unit tier it also checks that published screencasts agree
 #     with the Videos page (screencasts/publish.py --check;
 #     docs/contracts/SCREENCASTS.md).
@@ -220,13 +223,16 @@ fi
 # A passing unit-tier run on a pushed commit, or on an ancestor that differs
 # only in release-neutral paths such as release notes, already covers it
 # (docs/contracts/VERIFICATION-ORDER.md). Never run the 25-minute tier twice.
+# --wait first waits for a unit-tier run already going whose result decides a
+# pushed commit, then for any other gate run using this checkout's build
+# folder, where a second run would only queue on the SwiftPM lock.
 if [ "$UNRESOLVED" -eq 0 ] && [ "${#PUSHED_COMMITS[@]}" -gt 0 ]; then
     EVIDENCE_ARGS=()
     for commit in "${PUSHED_COMMITS[@]}"; do
         EVIDENCE_ARGS+=(--commit "$commit")
     done
     echo "pre-push: looking for retained unit-tier evidence for the pushed commits..."
-    python3 "$REPO_ROOT/scripts/release/gate_evidence.py" unit-evidence --root "$REPO_ROOT" "${EVIDENCE_ARGS[@]}"
+    python3 "$REPO_ROOT/scripts/release/gate_evidence.py" unit-evidence --root "$REPO_ROOT" --wait "${EVIDENCE_ARGS[@]}"
     EVIDENCE_STATUS=$?
     if [ "$EVIDENCE_STATUS" -eq 0 ]; then
         echo "pre-push: retained unit-tier evidence covers every pushed commit; skipping the unit-tier gate."
@@ -234,6 +240,10 @@ if [ "$UNRESOLVED" -eq 0 ] && [ "${#PUSHED_COMMITS[@]}" -gt 0 ]; then
     fi
     if [ "$EVIDENCE_STATUS" -eq 3 ]; then
         echo "pre-push: the unit tier already failed on this code — push aborted. Diagnose and fix it in a new commit (docs/contracts/VERIFICATION-ORDER.md), or use --no-verify." >&2
+        exit 1
+    fi
+    if [ "$EVIDENCE_STATUS" -eq 4 ]; then
+        echo "pre-push: a gate run it waited for is still running — push aborted. Check its .build/gate-logs folder and push again when it ends." >&2
         exit 1
     fi
 fi

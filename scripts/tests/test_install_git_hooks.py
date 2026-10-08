@@ -303,7 +303,7 @@ class InstallGitHooksUnitEvidenceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("skipping the unit-tier gate", result.stdout)
         self.assertFalse(self.unit_marker.exists(), "the unit gate must not run")
-        self.assertEqual(self.evidence_calls(), [["unit-evidence", "--root", str(self.repo), "--commit", pushed]])
+        self.assertEqual(self.evidence_calls(), [["unit-evidence", "--root", str(self.repo), "--wait", "--commit", pushed]])
 
     def test_uncovered_commits_run_the_unit_gate(self):
         pushed = self.commit("second")
@@ -325,6 +325,17 @@ class InstallGitHooksUnitEvidenceTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn("unit tier already failed on this code", result.stdout)
         self.assertFalse(self.unit_marker.exists(), "a red commit is diagnosed, never retried by the hook")
+
+    def test_a_run_that_outlasts_the_wait_blocks_the_push_without_starting_another(self):
+        # unit-evidence --wait exits 4 when a unit-tier run that decides the push,
+        # or another gate in this checkout, is still going after its budget.
+        self.commit("second")
+
+        result = self.git("push", "origin", "main", check=False, evidence_exit=4)
+
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("still running", result.stdout)
+        self.assertFalse(self.unit_marker.exists(), "a second unit tier would only queue behind the first")
 
     def test_a_failing_unit_gate_still_blocks_the_push(self):
         self.commit("second")
@@ -378,7 +389,7 @@ class InstallGitHooksUnitEvidenceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         calls = self.evidence_calls()
         self.assertEqual(len(calls), 1, calls)
-        self.assertEqual(calls[0][:3], ["unit-evidence", "--root", str(self.repo)])
+        self.assertEqual(calls[0][:4], ["unit-evidence", "--root", str(self.repo), "--wait"])
         self.assertEqual(sorted(self.asked_about(calls[0])), sorted([main_tip, other_tip]))
         self.assertFalse(self.unit_marker.exists())
 

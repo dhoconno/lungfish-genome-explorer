@@ -17,6 +17,7 @@ import io
 import itertools
 import json
 import os
+import select
 import shutil
 import subprocess
 import sys
@@ -1102,6 +1103,164 @@ class UnitEvidenceCommandTests(InheritanceTestCase):
 
         self.assertEqual(result.returncode, 2)
         self.assertIn("--commit", result.stderr)
+
+
+class UnitEvidenceWaitTests(InheritanceTestCase):
+    """unit-evidence --wait, which the pre-push hook uses, waits for a unit-tier
+    run whose result decides a pushed commit, and for any other gate run using
+    this checkout's build folder, before it reports."""
+
+    def command(self, *commits, wait_seconds=60):
+        command = [sys.executable, str(GATE_EVIDENCE), "unit-evidence", "--root", str(self.repo.root),
+                   "--wait", "--wait-seconds", str(wait_seconds), "--poll-seconds", "0.2"]
+        for commit in commits:
+            command += ["--commit", commit]
+        return command
+
+    def run_command(self, *commits, wait_seconds=60, cwd=ROOT, env=None):
+        return subprocess.run(self.command(*commits, wait_seconds=wait_seconds), cwd=cwd, env=env, text=True,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=120)
+
+    def run_until_waiting(self, finish, *commits, cwd=ROOT, env=None):
+        """Start the command, let the run it waits for end once it says it is
+        waiting, and return what it reported. No timing assumptions."""
+        process = subprocess.Popen(self.command(*commits), cwd=cwd, env=env, text=True,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.addCleanup(process.kill)
+        ready, _, _ = select.select([process.stderr], [], [], 120)
+        self.assertTrue(ready, "the command never said it was waiting")
+        announced = process.stderr.readline()
+        finish()
+        stdout, rest = process.communicate(timeout=120)
+        return process.returncode, stdout, announced + rest
+
+    def live_run(self, commit, root, tier="unit"):
+        """A gate run still going: its folder names this live test process, and
+        a helper process whose command line names the folder and tier stands in
+        for gate_evidence.py swift in ps."""
+        folder = root / ".build" / "gate-logs" / f"gate-20261008-105631-{commit[:9]}-{os.getpid()}"
+        folder.mkdir(parents=True)
+        (folder / "runner.log").write_text("Test Case started\n")
+        helper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)", "swift",
+                                   "--output", str(folder), "--tier", tier], stdin=subprocess.DEVNULL)
+        self.addCleanup(helper.wait)
+        self.addCleanup(helper.kill)
+        return folder, helper
+
+    @staticmethod
+    def finish(root, commit, folder, helper, **options):
+        """What the run leaves when it ends."""
+        def end():
+            make_unit_gate_pointer(root, {"commit": commit, "clean": True}, name=folder.name, **options)
+            helper.kill()
+        return end
+
+    def test_it_waits_for_a_unit_run_on_a_neutral_ancestor_and_reports_what_it_left(self):
+        b = self.notes(2)
+        linked = self.repo.linked_worktree(self, self.a)
+        folder, helper = self.live_run(self.a, linked)
+
+        status, stdout, stderr = self.run_until_waiting(self.finish(linked, self.a, folder, helper), b)
+
+        self.assertEqual(status, 0, stdout + stderr)
+        self.assertTrue(stdout.startswith(f"inherited {b} from {self.a}"), stdout)
+        self.assertIn(f"run on {self.a[:9]} decides a pushed commit", stderr)
+
+    def test_a_push_from_a_linked_worktree_still_reads_each_worktrees_own_head(self):
+        # git runs a hook from a linked worktree with GIT_DIR set to that
+        # worktree's git folder, which makes `git rev-parse HEAD` anywhere
+        # answer for the worktree that is pushing.
+        b = self.notes(2)
+        gating = self.repo.linked_worktree(self, self.a)
+        folder, helper = self.live_run(self.a, gating)
+        pushing = self.repo.linked_worktree(self, b)
+        git_dir = subprocess.run(["git", "-C", str(pushing), "rev-parse", "--absolute-git-dir"], check=True,
+                                 text=True, stdout=subprocess.PIPE, env=GIT_ENVIRONMENT).stdout.strip()
+        environment = {**GIT_ENVIRONMENT, "GIT_DIR": git_dir}
+
+        status, stdout, stderr = self.run_until_waiting(
+            self.finish(gating, self.a, folder, helper), b, cwd=pushing, env=environment)
+
+        self.assertEqual(status, 0, stdout + stderr)
+        self.assertTrue(stdout.startswith(f"inherited {b} from {self.a}"), stdout)
+
+    def test_a_red_result_from_the_awaited_run_exits_three(self):
+        b = self.notes(2)
+        linked = self.repo.linked_worktree(self, self.a)
+        folder, helper = self.live_run(self.a, linked)
+
+        status, stdout, stderr = self.run_until_waiting(
+            self.finish(linked, self.a, folder, helper, authorized=False), b)
+
+        self.assertEqual(status, 3, stdout + stderr)
+        self.assertTrue(stdout.startswith(f"red {b} failed on {self.a}"), stdout)
+
+    def test_it_waits_for_any_gate_run_in_this_checkout_before_reporting_none(self):
+        b = self.code(2)
+        folder, helper = self.live_run(self.a, self.repo.root, tier="integration")
+
+        status, stdout, stderr = self.run_until_waiting(self.finish(self.repo.root, self.a, folder, helper), b)
+
+        self.assertEqual(status, 1, stdout + stderr)
+        self.assertEqual(stdout.splitlines(), [f"none {b}"])
+        self.assertIn("build folder", stderr)
+
+    def test_a_run_that_outlasts_the_budget_exits_four_without_a_verdict(self):
+        b = self.code(2)
+        self.live_run(self.a, self.repo.root)
+
+        result = self.run_command(b, wait_seconds=1)
+
+        self.assertEqual(result.returncode, 4, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("has not finished", result.stderr)
+
+    def test_covered_commits_are_reported_without_looking_for_runs(self):
+        self.repo.evidence(self.a, "unit-a")
+        b = self.notes(2)
+        self.live_run(self.a, self.repo.root)  # would hold the build folder, but nothing needs it
+
+        result = self.run_command(b, wait_seconds=30)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stderr, "")
+
+    def test_a_run_on_unrelated_code_elsewhere_does_not_delay_an_uncovered_commit(self):
+        b = self.code(2)
+        self.live_run(self.a, self.repo.linked_worktree(self, self.a))  # a code change separates a from b
+
+        result = self.run_command(b, wait_seconds=30)
+
+        self.assertEqual((result.returncode, result.stdout.splitlines()), (1, [f"none {b}"]), result.stderr)
+        self.assertEqual(result.stderr, "", "it announced no wait")
+
+    def test_evidence_that_lands_after_the_first_look_is_reported(self):
+        b = self.notes(2)
+
+        def finished_meanwhile(*_args, **_kwargs):
+            self.repo.evidence(self.a, "unit-late")
+            return None
+
+        arguments = SimpleNamespace(root=str(self.repo.root), commit=[b], logs=None, wait=True,
+                                    wait_seconds=60, poll_seconds=0.2)
+        with mock.patch.object(gate, "deciding_unit_gate", side_effect=finished_meanwhile), \
+                mock.patch.object(gate, "local_gate_run", return_value=None), \
+                contextlib.redirect_stdout(io.StringIO()) as printed:
+            status = gate.run_unit_evidence(arguments)
+
+        self.assertEqual(status, 0, printed.getvalue())
+        self.assertTrue(printed.getvalue().startswith(f"inherited {b} from {self.a}"))
+
+    def test_a_result_still_being_written_does_not_end_the_run(self):
+        folder, _ = self.live_run(self.a, self.repo.root)
+        result = folder / "gate.result.json"
+
+        result.write_bytes(b"")
+        self.assertEqual(gate.local_gate_run(self.repo.root), self.a[:9], "created, nothing written yet")
+        result.write_bytes(b'{"kind":"sw')
+        self.assertEqual(gate.local_gate_run(self.repo.root), self.a[:9], "half written")
+        result.write_bytes(b'{"kind":"swift"}\n')
+        self.assertIsNone(gate.local_gate_run(self.repo.root), "a whole record ends the run")
 
 
 class ReleasePreconditionInheritanceTests(InheritanceTestCase):
