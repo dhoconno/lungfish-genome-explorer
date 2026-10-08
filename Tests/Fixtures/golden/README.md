@@ -115,13 +115,14 @@ The program manager ruled on these on 2026-10-02 as well. N1 and N2 cover nondet
 
 N2 keeps a records hash and index statistics of both BAMs as goldens, so their content is compared, and the size of each index stays compared. No header golden is kept for these two BAMs, because the suffix would need a mask of its own. For N3 the capture keeps the copy of the deleted manifest as a golden, where the run ID rule masks the staging folder, and R10 masks the digest the provenance records for it.
 
-### Host rule
+### Host rules
 
-The owner ruled on this on 2026-10-08, when a second Mac became a release Mac. Without it the goldens pass only on the macOS build they were captured on.
+The owner ruled on these on 2026-10-08, when a second Mac became a release Mac. Without them the goldens pass only on the macOS build and the core count they were captured with.
 
 | Rule | What it masks | Why it varies |
 |---|---|---|
 | H1 | The macOS version as `<HOST-OS-VERSION>` and the build as `<HOST-OS-BUILD>`, only under `hostOS` and `operatingSystemVersion` (`macOS 26.6.2 (arm64)`) and `platform` (`Version 26.6.2 (Build 25G83)` from LGE, `macOS-26.6.2-arm64-arm-64bit` from Python) | Each release Mac runs its own macOS build, and macOS updates change it |
+| H2 | The number ArgumentParser prints after `(default: active cores)` in help text, as `<ACTIVE-CORES>` | It is the core count of the Mac that prints the help. Every capture pins its thread counts in argv, so no other golden records it. |
 
 The architecture and the rest of each value stay compared. An export folder's `stdout.json` holds Python's `platform`, so R10 masks its digest and size where they are recorded.
 

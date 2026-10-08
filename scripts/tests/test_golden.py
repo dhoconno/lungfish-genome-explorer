@@ -167,6 +167,15 @@ def test_two_macos_builds_normalize_alike_and_the_architecture_stays_compared():
     assert normalizer().text(intel) != normalizer().text(laptop)
 
 
+def test_active_core_count_is_masked_only_as_the_active_cores_default():
+    laptop = "  --chunk-jobs <chunk-jobs>\n                          (default: active cores) (default: 14)\n"
+    desktop = laptop.replace("(default: 14)", "(default: 20)")
+    assert normalizer().text(laptop) == normalizer().text(desktop)
+    assert "(default: active cores) (default: <ACTIVE-CORES>)" in normalizer().text(laptop)
+    other = "  --max-reads-per-slice <n>   (default: 100000)\n  --threads <n>   (default: 14)\n"
+    assert normalizer().text(other) == other
+
+
 def test_host_os_is_masked_only_under_its_keys():
     text = '{"note" : "macOS 26.6.2 (arm64)", "platform" : "linux-x86_64", "os" : "Version 26.6.2 (Build 25G83)"}'
     assert normalizer().text(text) == text

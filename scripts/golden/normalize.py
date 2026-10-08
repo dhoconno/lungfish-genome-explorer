@@ -11,8 +11,8 @@ Rules come in four classes. Tests/Fixtures/golden/README.md lists every rule.
 - The second ruling round approved N1 and N2, which cover nondeterminism in
   the app and random identifiers in tool output. `golden.py compare --strict`
   leaves them out to show what they hide.
-- The owner approved H1 on 2026-10-08. It masks the macOS version and build,
-  so the goldens pass on every release Mac.
+- The owner approved H1 and H2 on 2026-10-08. They mask the macOS version and
+  build and the active core count, so the goldens pass on every Mac.
 
 Every rule works on the raw text, so formatting, key order and escaping of
 everything a rule does not touch are still compared byte for byte.
@@ -280,6 +280,17 @@ def mask_host_os(text: str) -> str:
         lambda m: m.group(1) + HOST_OS_VERSION_TOKEN + m.group(3) + HOST_OS_BUILD_TOKEN + m.group(5), text
     )
     return _PYTHON_PLATFORM.sub(lambda m: m.group(1) + HOST_OS_VERSION_TOKEN + m.group(3), text)
+
+
+# H2: the active core count that ArgumentParser prints as the default of an
+# option whose help says "(default: active cores)". Every capture pins its
+# thread counts in argv, so only this help text records the core count.
+ACTIVE_CORES_TOKEN = "<ACTIVE-CORES>"
+_ACTIVE_CORES_DEFAULT = re.compile(r"(\(default: active cores\)\s+\(default: )([0-9]+)(\))")
+
+
+def mask_active_cores(text: str) -> str:
+    return _ACTIVE_CORES_DEFAULT.sub(lambda m: m.group(1) + ACTIVE_CORES_TOKEN + m.group(3), text)
 
 
 # ---------------------------------------------------------------------------
@@ -688,8 +699,9 @@ class Normalizer:
         text = mask_minimap2_resources(text)
         text = mask_kraken2_rates(text)
         text = mask_app_version(text, self.app_version)
-        # Host rule.
+        # Host rules.
         text = mask_host_os(text)
+        text = mask_active_cores(text)
         root = parse_json(text)
         if root is not None:
             edits = drop_truncated_partial_lines(text, root)
