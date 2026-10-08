@@ -83,7 +83,6 @@ Some values are the same in every run on the capture Mac but would differ on ano
 
 | Tool | Why |
 |---|---|
-| primer3, primalscheme3, olivar, varvamp | Run through `NativeToolRunner.runProcess`. Their packs are not installed on the capture Mac, so their cases skip and have no golden folder yet. |
 | GATK (`gatk-core`), whatshap (`phasing`), freyja | Run through `CondaManager.runTool` and, for whatshap and freyja, `NativeToolRunner.run`. Not installed on the capture Mac, so their cases skip and have no golden folder yet. |
 | IQ-TREE | `lungfish-cli tree infer iqtree` launches it with its own `Process`, outside the three runners Phase 2 rewrites |
 
