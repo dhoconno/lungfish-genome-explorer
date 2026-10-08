@@ -49,7 +49,7 @@ Sources/LungfishApp/Views/Metagenomics/TaxaCollectionsDrawerView.swift 806
 Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction.swift 891
 Sources/LungfishApp/Views/Metagenomics/TaxonomySunburstView.swift 874
 Sources/LungfishApp/Views/Metagenomics/TaxonomyTableView.swift 1602
-Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift 1973
+Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift 1972
 Sources/LungfishApp/Views/Operations/OperationsPanelViewController.swift 1059
 Sources/LungfishApp/Views/PluginManager/PluginManagerView.swift 1283
 Sources/LungfishApp/Views/PluginManager/PluginManagerViewModel.swift 1161
@@ -120,7 +120,7 @@ Sources/LungfishGenotypeUI/GenotypeManualHaplotypeEditor.swift 1050
 Sources/LungfishGenotypeUI/GenotypeOutlineView.swift 814
 Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift 2137
 Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift 951
-Sources/LungfishGenotypeUI/GenotypeResultViewController.swift 11935
+Sources/LungfishGenotypeUI/GenotypeResultViewController.swift 11934
 Sources/LungfishGenotypeUI/GenotypeSampleComparisonModel.swift 899
 Sources/LungfishGenotypeUI/GenotypeSampleComparisonPanel.swift 1604
 Sources/LungfishIO/Bundles/AlignmentDataProvider.swift 1412
@@ -149,7 +149,7 @@ Sources/LungfishIO/Formats/Nvd/NvdDatabase.swift 906
 Sources/LungfishIO/Formats/TaxTriage/TaxTriageDatabase.swift 839
 Sources/LungfishIO/Search/ProjectUniversalSearchIndex+Indexers.swift 1243
 Sources/LungfishKit/BatchTableView.swift 1406
-Sources/LungfishKit/BlastResultsDrawerTab.swift 2055
+Sources/LungfishKit/BlastResultsDrawerTab.swift 2054
 Sources/LungfishKit/LungfishHelpContent.swift 1052
 Sources/LungfishKit/MetadataColumnController.swift 895
 Sources/LungfishKit/MiniBAMViewController.swift 1013
@@ -157,7 +157,7 @@ Sources/LungfishKit/MiniPileupView.swift 861
 Sources/LungfishKit/OperationCenter.swift 1381
 Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift 3287
 Sources/LungfishNvdUI/NvdResultViewController.swift 3191
-Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift 1613
+Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift 1612
 Sources/LungfishTaxTriageUI/TaxTriageBatchOverviewView.swift 867
 Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift 5916
 Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController.swift 1781
