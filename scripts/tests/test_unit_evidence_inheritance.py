@@ -9,9 +9,12 @@ throwaway git repository, drop fixture evidence into its .build/gate-logs, and
 ask gate_evidence.find_unit_evidence and the unit-evidence command what each
 commit inherits.
 """
+import contextlib
 import copy
 import hashlib
 import importlib.util
+import io
+import itertools
 import json
 import os
 import shutil
@@ -87,6 +90,12 @@ class ThrowawayRepository:
     def edit(self, name, change):
         """Rewrite a retained result the way a different kind of run would have left it."""
         path = self.logs / name / "gate.result.json"
+        result = json.loads(path.read_text())
+        change(result)
+        path.write_text(json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n")
+
+    def edit_in(self, root, name, change):
+        path = root / ".build" / "gate-logs" / name / "gate.result.json"
         result = json.loads(path.read_text())
         change(result)
         path.write_text(json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n")
@@ -1105,6 +1114,10 @@ class ReleasePreconditionInheritanceTests(InheritanceTestCase):
         sys.modules[spec.name] = cls.release
         spec.loader.exec_module(cls.release)
 
+    def setUp(self):
+        super().setUp()
+        self.listing = []  # the command lines ps shows, as live_run adds them
+
     def test_a_release_notes_commit_is_covered_when_the_contract_list_is_passed(self):
         self.repo.evidence(self.a, "unit-a")
         b = self.repo.commit("B: release notes", {NOTES: "Notes\n"})
@@ -1142,6 +1155,7 @@ class ReleasePreconditionInheritanceTests(InheritanceTestCase):
         operations.root = self.repo.root
         operations.contract = self.release.load_contract(CONTRACT)
         operations.runner = SimpleNamespace(environment={"PATH": "/usr/bin:/bin"}, run=mock.Mock())
+        operations._process_command_lines = lambda: "\n".join(self.listing)
         return operations
 
     def test_package_inherits_through_the_contracts_neutral_paths_without_running_the_unit_tier(self):
@@ -1165,6 +1179,239 @@ class ReleasePreconditionInheritanceTests(InheritanceTestCase):
         with mock.patch.object(self.release, "source_identity", return_value={"commit": c, "clean": True}):
             with self.assertRaisesRegex(self.release.UnitTierRed, f"the unit tier failed on {b[:12]}"):
                 operations._ensure_unit_evidence({})
+
+        operations.runner.run.assert_not_called()
+
+    def live_run(self, commit, root=None, tier="unit"):
+        """A gate run still writing evidence for commit: no result yet, its
+        folder names this live process the way full-suite-gate.sh names its
+        own, and ps lists its gate_evidence.py command with its tier."""
+        logs = (root or self.repo.root) / ".build" / "gate-logs"
+        folder = logs / f"gate-20261008-105631-{commit[:9]}-{os.getpid()}"
+        folder.mkdir(parents=True)
+        (folder / "runner.log").write_text("Test Case started\n")
+        self.listing.append(f"python3 scripts/release/gate_evidence.py swift --root {logs.parent.parent} "
+                            f"--output {folder} --tier {tier} --quiet")
+        return folder
+
+    def finish(self, root, commit, folder, **options):
+        """What the run in folder leaves when it ends."""
+        return lambda: make_unit_gate_pointer(root, {"commit": commit, "clean": True}, name=folder.name, **options)
+
+    def wait_on(self, operations, commit, finish, monotonic=None):
+        """Run _ensure_unit_evidence for commit with a clock whose sleep calls
+        finish, which leaves the result the run in progress would have left.
+        The default clock moves ten minutes per reading, so a wait that never
+        ends runs out its budget and fails instead of hanging the suite."""
+        if monotonic is None:
+            monotonic = itertools.count(0.0, 600.0).__next__
+        slept = []
+
+        def sleep(seconds):
+            slept.append(seconds)
+            finish()
+
+        clock = SimpleNamespace(monotonic=monotonic, sleep=sleep, time=time.time)
+        with mock.patch.object(self.release, "source_identity", return_value={"commit": commit, "clean": True}), \
+                mock.patch.object(self.release, "time", clock), \
+                contextlib.redirect_stdout(io.StringIO()) as printed:
+            record = operations._ensure_unit_evidence({})
+        return record, slept, printed.getvalue()
+
+    def runs_own_tier(self, operations, commit):
+        """Make the package's own unit-tier command leave passing evidence for commit."""
+        ran = []
+        operations.runner.run.side_effect = lambda command, **_: (
+            ran.append(command),
+            make_unit_gate_pointer(self.repo.root, {"commit": commit, "clean": True}, name="gate-own"),
+            subprocess.CompletedProcess(command, 0))[-1]
+        return ran
+
+    def test_package_waits_for_a_unit_run_on_a_release_neutral_ancestor_and_inherits_it(self):
+        b = self.repo.commit("B: release notes", {NOTES: "Notes\n"})
+        linked = self.repo.linked_worktree(self, self.a)
+        folder = self.live_run(self.a, root=linked)
+        operations = self.operations()
+
+        record, slept, printed = self.wait_on(operations, b, self.finish(linked, self.a, folder))
+
+        self.assertEqual((record["kind"], record["gatedCommit"], record["changedPaths"]), ("inherited", self.a, [NOTES]))
+        self.assertEqual(slept, [30])
+        self.assertIn(f"run on {self.a[:9]} decides this commit", printed)
+        operations.runner.run.assert_not_called()
+
+    def test_a_failed_unit_run_on_a_neutral_ancestor_refuses_the_package_without_a_second_run(self):
+        b = self.repo.commit("B: release notes", {NOTES: "Notes\n"})
+        linked = self.repo.linked_worktree(self, self.a)
+        folder = self.live_run(self.a, root=linked)
+        operations = self.operations()
+
+        with self.assertRaisesRegex(self.release.UnitTierRed, f"the unit tier failed on {self.a[:12]}"):
+            self.wait_on(operations, b, self.finish(linked, self.a, folder, authorized=False))
+
+        operations.runner.run.assert_not_called()
+
+    def test_package_waits_out_a_run_in_this_checkout_whose_commit_moved_then_runs_its_own(self):
+        # 2026.10.11: a unit-tier run on the parent was going in this checkout
+        # when the release notes were committed on top. Its result can only say
+        # "source changed during gate", so nothing inherits it. Package waits for
+        # it to release the build folder, visibly, and then runs the tier once.
+        # Before, its own run sat on the SwiftPM lock for 25 minutes.
+        folder = self.live_run(self.a)
+        b = self.repo.commit("B: release notes", {NOTES: "Notes\n"})
+        operations = self.operations()
+        ran = self.runs_own_tier(operations, b)
+
+        def moved():
+            make_unit_gate_pointer(self.repo.root, {"commit": self.a, "clean": True}, authorized=False, name=folder.name)
+            self.repo.edit(folder.name, UNINFORMATIVE_FAILURES["the checkout changed during the run"])
+
+        record, slept, printed = self.wait_on(operations, b, moved)
+
+        self.assertNotIn("decides this commit", printed, "a run whose checkout moved decides nothing")
+        self.assertIn(f"run on {self.a[:9]} is using this checkout's build folder", printed)
+        self.assertEqual((record["kind"], record["gatedCommit"], slept, len(ran)), ("exact", b, [30], 1))
+
+    def test_only_a_unit_tier_run_on_a_checkout_still_at_its_commit_decides(self):
+        b = self.repo.commit("B: release notes", {NOTES: "Notes\n"})
+        operations = self.operations()
+        cases = (
+            ("a unit run", "unit", False, self.a[:9]),
+            ("a full-tier run, which is never unit evidence", "full", False, None),
+            ("a unit run whose checkout moved on", "unit", True, None),
+        )
+        for label, tier, move, expected in cases:
+            with self.subTest(label):
+                self.listing.clear()
+                linked = self.repo.linked_worktree(self, self.a)
+                self.live_run(self.a, root=linked, tier=tier)
+                if move:
+                    subprocess.run(["git", "-C", str(linked), "checkout", "-q", "--detach", b], check=True,
+                                   env=GIT_ENVIRONMENT)
+
+                self.assertEqual(operations._deciding_unit_gate(b), expected)
+                self.assertEqual(len(operations._related_live_gates(b)), 1, "the run itself is live and related")
+                shutil.rmtree(linked / ".build")
+
+    def test_a_full_tier_run_on_a_neutral_ancestor_elsewhere_does_not_delay_the_package(self):
+        b = self.repo.commit("B: release notes", {NOTES: "Notes\n"})
+        self.live_run(self.a, root=self.repo.linked_worktree(self, self.a), tier="full")
+        operations = self.operations()
+        ran = self.runs_own_tier(operations, b)
+
+        record, slept, _ = self.wait_on(operations, b, lambda: self.fail("must not wait"))
+
+        self.assertEqual((record["kind"], slept, len(ran)), ("exact", [], 1))
+
+    def test_a_run_on_an_ancestor_with_code_changes_since_does_not_decide_the_package(self):
+        b = self.code(2)
+        self.live_run(self.a, root=self.repo.linked_worktree(self, self.a))
+        operations = self.operations()
+
+        self.assertIsNone(operations._deciding_unit_gate(b), "its result could never cover b")
+        self.assertEqual(operations._deciding_unit_gate(self.a), self.a[:9])
+
+    def test_a_run_on_a_descendant_or_sibling_does_not_decide_the_package(self):
+        b = self.notes(2)
+        self.repo.git("checkout", "-q", "-b", "side", self.a)
+        sibling = self.notes(3)
+        self.repo.git("checkout", "-q", "main")
+        self.live_run(b, root=self.repo.linked_worktree(self, b))
+        self.live_run(sibling, root=self.repo.linked_worktree(self, sibling))
+        operations = self.operations()
+
+        self.assertEqual(operations._related_live_gates(self.a), [])
+        self.assertIsNone(operations._deciding_unit_gate(self.a))
+
+    def test_package_waits_for_another_run_using_this_checkouts_build_folder_then_runs_its_own(self):
+        # SwiftPM builds one thing at a time per .build folder, so a second
+        # unit-tier run there only waits on its lock.
+        b = self.code(2)
+        folder = self.live_run(self.a, tier="integration")
+        operations = self.operations()
+        ran = self.runs_own_tier(operations, b)
+
+        record, slept, printed = self.wait_on(operations, b, self.finish(self.repo.root, self.a, folder))
+
+        self.assertEqual((record["kind"], record["gatedCommit"]), ("exact", b))
+        self.assertEqual(slept, [30], "it waited for the other run before starting its own")
+        self.assertIn("build folder", printed)
+        self.assertEqual(len(ran), 1)
+
+    def test_a_run_on_unrelated_code_in_another_worktree_does_not_delay_the_package(self):
+        b = self.code(2)
+        self.live_run(self.a, root=self.repo.linked_worktree(self, self.a))
+        operations = self.operations()
+        ran = self.runs_own_tier(operations, b)
+
+        record, slept, _ = self.wait_on(operations, b, lambda: self.fail("must not wait"))
+
+        self.assertEqual((record["kind"], slept, len(ran)), ("exact", [], 1))
+
+    def test_evidence_that_lands_after_the_first_look_is_reused_not_repeated(self):
+        b = self.repo.commit("B: release notes", {NOTES: "Notes\n"})
+        operations = self.operations()
+
+        def finished_meanwhile(_commit):
+            make_unit_gate_pointer(self.repo.root, {"commit": self.a, "clean": True}, name="gate-late")
+            return None
+
+        operations._deciding_unit_gate = finished_meanwhile
+        record, slept, _ = self.wait_on(operations, b, lambda: self.fail("must not wait"))
+
+        self.assertEqual((record["kind"], record["gatedCommit"], slept), ("inherited", self.a, []))
+        operations.runner.run.assert_not_called()
+
+    def test_both_waits_share_one_budget(self):
+        b = self.repo.commit("B: release notes", {NOTES: "Notes\n"})
+        linked = self.repo.linked_worktree(self, self.a)
+        deciding = self.live_run(self.a, root=linked)
+        self.live_run("f" * 40)  # another run in this checkout, on code outside this history
+        operations = self.operations()
+        readings = iter([0.0, 10.0, self.release.UNIT_GATE_WAIT_SECONDS + 1.0])
+
+        def says_nothing():
+            # The deciding run ends without a verdict, so the build-folder wait follows.
+            make_unit_gate_pointer(linked, {"commit": self.a, "clean": True}, authorized=False, name=deciding.name)
+            self.repo.edit_in(linked, deciding.name, UNINFORMATIVE_FAILURES["the watchdog stopped the test attempt"])
+
+        with self.assertRaisesRegex(self.release.ReleaseError, "in this checkout has not finished after 60 minutes"):
+            self.wait_on(operations, b, says_nothing, monotonic=lambda: next(readings))
+
+        operations.runner.run.assert_not_called()
+
+    def test_a_green_deciding_run_is_used_at_once_while_another_run_holds_this_checkout(self):
+        b = self.repo.commit("B: release notes", {NOTES: "Notes\n"})
+        linked = self.repo.linked_worktree(self, self.a)
+        deciding = self.live_run(self.a, root=linked)
+        self.live_run("f" * 40)  # still going when the deciding run ends
+        operations = self.operations()
+
+        record, slept, printed = self.wait_on(operations, b, self.finish(linked, self.a, deciding))
+
+        self.assertEqual((record["kind"], record["gatedCommit"], slept), ("inherited", self.a, [30]))
+        self.assertNotIn("build folder", printed, "evidence already covers b, so nothing waits for the other run")
+        operations.runner.run.assert_not_called()
+
+    def test_a_unit_run_in_a_worktree_whose_path_has_a_space_still_decides(self):
+        b = self.repo.commit("B: release notes", {NOTES: "Notes\n"})
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        spaced = Path(temporary.name).resolve() / "Application Support" / "lane"
+        self.repo.git("worktree", "add", "-q", "--detach", str(spaced), self.a)
+        self.live_run(self.a, root=spaced)
+        operations = self.operations()
+
+        self.assertEqual(operations._deciding_unit_gate(b), self.a[:9])
+
+    def test_waiting_on_another_run_in_this_checkout_is_bounded(self):
+        b = self.code(2)
+        self.live_run(self.a)
+        operations = self.operations()
+        readings = iter([0.0, 10.0 ** 9])
+
+        with self.assertRaisesRegex(self.release.ReleaseError, "has not finished after 60 minutes"):
+            self.wait_on(operations, b, lambda: None, monotonic=lambda: next(readings))
 
         operations.runner.run.assert_not_called()
 

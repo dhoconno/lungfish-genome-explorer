@@ -908,6 +908,13 @@ class UnitTierInPackageTests(GateOperationsMixin, unittest.TestCase):
     def no_sleep(self, seconds):
         self.fail(f"must not wait {seconds} seconds")
 
+    @staticmethod
+    def running(operations, commit):
+        """True while a live, unfinished gate run named for commit exists.
+        run_folder puts runs in this checkout, so the waits these tests see
+        are package's wait for this checkout's build folder."""
+        return any(commit.startswith(short) for _folder, short in operations._live_unit_gates())
+
     def operations(self, after_run=None):
         """Operations whose unit-tier command is a recorded double; after_run
         writes whatever evidence that run would have left."""
@@ -984,7 +991,7 @@ class UnitTierInPackageTests(GateOperationsMixin, unittest.TestCase):
         (folder / "dangling").symlink_to(folder / "missing-target")
         operations = self.operations()
 
-        self.assertIs(operations._running_unit_gate("a" * 40), True)
+        self.assertIs(self.running(operations, "a" * 40), True)
 
     def test_only_a_live_unfinished_run_on_this_commit_counts_as_running(self):
         operations = self.operations()
@@ -1001,23 +1008,23 @@ class UnitTierInPackageTests(GateOperationsMixin, unittest.TestCase):
                 shutil.rmtree(self.root / ".build", ignore_errors=True)
                 create()
 
-                self.assertIs(operations._running_unit_gate(asked), expected)
+                self.assertIs(self.running(operations, asked), expected)
 
     def test_folders_that_are_not_gate_runs_are_never_running(self):
         operations = self.operations()
-        self.assertFalse(operations._running_unit_gate("a" * 40), "no gate-logs folder at all")
+        self.assertFalse(self.running(operations, "a" * 40), "no gate-logs folder at all")
         for name in ("fixture-unit", "release-abc123", "gate-xyz", "gate-20261007-120000-unknown-1",
                      f"gate-20261007-120000-aaaaaaa-{os.getpid()}.old"):
             with self.subTest(name=name):
                 (self.root / ".build/gate-logs" / name).mkdir(parents=True)
-                self.assertFalse(operations._running_unit_gate("a" * 40))
+                self.assertFalse(self.running(operations, "a" * 40))
 
     def test_a_process_owned_by_someone_else_still_counts_as_running(self):
         operations = self.operations()
         self.run_folder()
 
         with mock.patch.object(self.release.os, "kill", side_effect=PermissionError):
-            self.assertTrue(operations._running_unit_gate("a" * 40))
+            self.assertTrue(self.running(operations, "a" * 40))
 
     def test_a_run_folder_untouched_for_the_whole_unit_budget_is_a_crashed_run(self):
         operations = self.operations()
@@ -1027,9 +1034,9 @@ class UnitTierInPackageTests(GateOperationsMixin, unittest.TestCase):
         budget = self.release.UNIT_GATE_WAIT_SECONDS
 
         self.touch_tree(folder, budget - 600)
-        self.assertTrue(operations._running_unit_gate("a" * 40), "written to within the budget")
+        self.assertTrue(self.running(operations, "a" * 40), "written to within the budget")
         self.touch_tree(folder, budget + 600)
-        self.assertFalse(operations._running_unit_gate("a" * 40),
+        self.assertFalse(self.running(operations, "a" * 40),
                          "a live pid proves nothing about a folder nobody has written to for that long")
 
     def test_one_fresh_file_anywhere_inside_the_folder_keeps_the_run_alive(self):
@@ -1039,11 +1046,11 @@ class UnitTierInPackageTests(GateOperationsMixin, unittest.TestCase):
         log = folder / "primary/runner.log"
         log.write_text("Test Case passed\n")
         self.touch_tree(folder, self.release.UNIT_GATE_WAIT_SECONDS + 600)
-        self.assertFalse(operations._running_unit_gate("a" * 40), "control: everything is old")
+        self.assertFalse(self.running(operations, "a" * 40), "control: everything is old")
 
         os.utime(log, None)  # the running tests append to their log; the folders above it stay old
 
-        self.assertTrue(operations._running_unit_gate("a" * 40))
+        self.assertTrue(self.running(operations, "a" * 40))
 
     def test_a_run_whose_pid_is_gone_counts_while_a_command_line_names_its_folder(self):
         # full-suite-gate.sh --bg exits after it starts the gate, so the pid in the
@@ -1057,7 +1064,7 @@ class UnitTierInPackageTests(GateOperationsMixin, unittest.TestCase):
         )
         for label, listing, expected in cases:
             with self.subTest(label), mock.patch.object(operations, "_process_command_lines", return_value=listing):
-                self.assertIs(operations._running_unit_gate("a" * 40), expected)
+                self.assertIs(self.running(operations, "a" * 40), expected)
 
     def test_a_stale_folder_is_not_revived_by_a_command_line(self):
         operations = self.operations()
@@ -1065,7 +1072,7 @@ class UnitTierInPackageTests(GateOperationsMixin, unittest.TestCase):
         self.touch_tree(folder, self.release.UNIT_GATE_WAIT_SECONDS + 600)
 
         with mock.patch.object(operations, "_process_command_lines", return_value=f"python gate_evidence.py --output {folder}"):
-            self.assertFalse(operations._running_unit_gate("a" * 40))
+            self.assertFalse(self.running(operations, "a" * 40))
 
     def test_a_real_process_working_in_the_folder_is_found_through_ps(self):
         operations = self.operations()
@@ -1076,11 +1083,11 @@ class UnitTierInPackageTests(GateOperationsMixin, unittest.TestCase):
         self.addCleanup(worker.kill)
         self.wait_for(lambda: str(folder) in operations._process_command_lines(), "ps to list the worker", timeout=15)
 
-        self.assertTrue(operations._running_unit_gate("a" * 40))
+        self.assertTrue(self.running(operations, "a" * 40))
 
         worker.kill()
         worker.wait()
-        self.assertFalse(operations._running_unit_gate("a" * 40), "the run is over once nothing names its folder")
+        self.assertFalse(self.running(operations, "a" * 40), "the run is over once nothing names its folder")
 
     def test_a_failing_ps_lists_no_command_lines(self):
         failed = subprocess.CompletedProcess(["ps"], 1, stdout="python gate_evidence.py", stderr="")
