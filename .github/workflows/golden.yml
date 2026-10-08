@@ -1,0 +1,50 @@
+name: Golden
+
+# Compares the golden outputs on the self-hosted golden runner, the Mac Studio
+# that holds the locked golden storage at /Users/Shared/lungfish-golden. It
+# never runs on a hosted runner, and it never runs code from a pull request,
+# because a self-hosted runner executes whatever the job checks out.
+# docs/contracts/MACHINES.md describes the runner, how to register it and what
+# laptops do instead. ci.yml stays dispatch-only (owner decision, 2026-09-23).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One golden run at a time on the runner. golden.py also holds a lock file,
+# but queueing here keeps a second run from failing on that lock.
+concurrency:
+  group: golden
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  golden:
+    name: Golden comparison
+    runs-on: [self-hosted, macOS, ARM64, lge-golden]
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Select supported Xcode
+        run: python3 scripts/release/release_xcode.py --shell >> "$GITHUB_ENV"
+
+      - name: Build or repair the golden storage from the lock
+        # A no-op when the storage already matches. After a lock change it
+        # installs the new environments before the comparison runs.
+        run: python3 scripts/golden/environment.py provision
+
+      - name: Compare the goldens
+        run: python3 scripts/golden/golden.py compare
+
+      - name: Keep the timing summary
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: golden-compare
+          path: /Users/Shared/lungfish-golden/cache/last-compare.json
+          if-no-files-found: warn

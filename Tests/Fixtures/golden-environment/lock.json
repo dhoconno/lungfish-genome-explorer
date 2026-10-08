@@ -1,0 +1,148 @@
+{
+  "databases": [
+    {
+      "exactFiles": false,
+      "files": {
+        "hash.k2d": {
+          "bytes": 648733288,
+          "sha256": "1bd239b207e1d0f679f910cf323c9b6894fdb85c80f0358fa144aca25a7bdfa7"
+        },
+        "opts.k2d": {
+          "bytes": 64,
+          "sha256": "b7ecfc6e365325b71a3514049bc80faeaf2549463ab93ff07cdbc112bd5a8c75"
+        },
+        "taxo.k2d": {
+          "bytes": 2470742,
+          "sha256": "681162e42813064ebe74d55950cf53da33157d28db3ef4e4ad378af007384d24"
+        }
+      },
+      "name": "Viral",
+      "path": "kraken2/viral",
+      "registry": {
+        "catalogID": "kraken2-viral",
+        "collection": "viral",
+        "description": "RefSeq viral genomes only",
+        "downloadURL": "https://genome-idx.s3.amazonaws.com/kraken/k2_viral_20260626.tar.gz",
+        "recommendedRAM": 536870912,
+        "sizeBytes": 536870912,
+        "sizeOnDisk": 536870912
+      },
+      "source": {
+        "url": "https://genome-idx.s3.amazonaws.com/kraken/k2_viral_20260626.tar.gz"
+      },
+      "tool": "kraken2",
+      "version": "20260626"
+    },
+    {
+      "derivedFiles": [
+        {
+          "command": [
+            "samtools",
+            "faidx",
+            "v3.2.4/virus_pathogen_database.fna"
+          ],
+          "environment": "samtools",
+          "file": "v3.2.4/virus_pathogen_database.fna.fai"
+        }
+      ],
+      "exactFiles": true,
+      "files": {
+        "v3.2.4/virus_pathogen_database.all_metadata.tsv": {
+          "bytes": 8727768,
+          "sha256": "5431e4c496ed3e687e3d36167859161f3f893b5bcdf5a9f649f1cd126f4ce0eb"
+        },
+        "v3.2.4/virus_pathogen_database.fna": {
+          "bytes": 239596694,
+          "sha256": "72b90cb934bd43138e7bc4f9a1220ef7116d5ea9c0d40af8d5892e5f66de298b"
+        },
+        "v3.2.4/virus_pathogen_database.fna.fai": {
+          "bytes": 975717,
+          "sha256": "f830160b28c4fd73323b8ab09c7354f3d3eca1f39eb1863bdbb0f6baf774e102"
+        },
+        "v3.2.4/virus_pathogen_database.mmi": {
+          "bytes": 646318574,
+          "sha256": "c82f7630c89077382413fe55564af508d5fe70be2f079f281d168dcfd28bbd5f"
+        }
+      },
+      "name": "EsViritu Viral DB",
+      "path": "esviritu/esviritu-viral-db",
+      "registry": {
+        "catalogID": "esviritu-viral-v3",
+        "description": "19,925 curated viral assemblies across 63 families (Tisza et al. 2023)",
+        "downloadURL": "https://zenodo.org/records/17716199/files/esviritu_db_v3.2.4.tar.gz",
+        "recommendedRAM": 8589934592,
+        "sizeBytes": 419430400,
+        "sizeOnDisk": 5368709120
+      },
+      "source": {
+        "url": "https://zenodo.org/records/17716199/files/esviritu_db_v3.2.4.tar.gz"
+      },
+      "tool": "esviritu",
+      "version": "v3.2.4"
+    }
+  ],
+  "environments": [
+    {
+      "explicit": "bbtools-osx-arm64-explicit.txt",
+      "name": "bbtools",
+      "packageSpec": "bioconda::bbmap=40.02=he046917_0",
+      "packages": 23,
+      "sha256": "33b7c43b7c40f572ee30609181d1a08d3008ca3e366caa52771c80ca32ab0e5d"
+    },
+    {
+      "explicit": "esviritu-osx-arm64-explicit.txt",
+      "name": "esviritu",
+      "packageSpec": "bioconda::esviritu=1.3.3=pyhdfd78af_0",
+      "packages": 192,
+      "sha256": "073f8f187535c8715e0a0fdc3345eb1b0c8f2dabea6271308aeede79df9987f9"
+    },
+    {
+      "explicit": "kraken2-osx-arm64-explicit.txt",
+      "name": "kraken2",
+      "packageSpec": "bioconda::kraken2=2.17.1=pl5321h158e17b_0",
+      "packages": 65,
+      "sha256": "a3ebc102fceb6c496059908512d14c384d23b5287a7c1d2d0c5a690c7150c152"
+    },
+    {
+      "explicit": "minimap2-osx-arm64-explicit.txt",
+      "name": "minimap2",
+      "packageSpec": "bioconda::minimap2=2.31=h6bd33b9_0",
+      "packages": 4,
+      "sha256": "b13050737d7e80be2e0569b48c3c51d0de9827576da99727895680356100eb9f"
+    },
+    {
+      "explicit": "openpyxl-osx-arm64-explicit.txt",
+      "name": "openpyxl",
+      "packageSpec": "conda-forge::openpyxl=3.1.5=py312h2a925e6_3",
+      "packages": 18,
+      "sha256": "def3f49f9b21e5b1fa3e345e7ab18b7f13f8dc2d0a4f3fef614266347f908004"
+    },
+    {
+      "explicit": "pysam-osx-arm64-explicit.txt",
+      "name": "pysam",
+      "packageSpec": "bioconda::pysam=0.24.0=py310hf7cbfa5_1",
+      "packages": 27,
+      "sha256": "15abd33c2e226a6c3a4851feab4045493725be16b76a5bec94772ee300c6fbaf"
+    },
+    {
+      "explicit": "samtools-osx-arm64-explicit.txt",
+      "name": "samtools",
+      "packageSpec": "bioconda::samtools=1.24=h36b3a25_1",
+      "packages": 20,
+      "sha256": "653501f4e73a39f873cc5647a251c92f4b3d45369f34d12fbd2bbb3838c2242e"
+    },
+    {
+      "explicit": "seqkit-osx-arm64-explicit.txt",
+      "name": "seqkit",
+      "packageSpec": "bioconda::seqkit=2.13.0=hd5f1084_0",
+      "packages": 1,
+      "sha256": "9f14fbab0d3120c4a17da47ef55ea8131ed7aed7e4761376477f773ff9760a02"
+    }
+  ],
+  "micromamba": {
+    "sha256": "ec2a072f028e1a7cf20f3e2e74d5a8127cf5a5f27636375b5359811565f4e5be",
+    "version": "2.9.0-0"
+  },
+  "platform": "osx-arm64",
+  "schemaVersion": 1
+}

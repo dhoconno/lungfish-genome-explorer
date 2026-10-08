@@ -13,10 +13,13 @@ show what they hide.
 
 Without --cli the command builds lungfish-cli from this checkout with
 `swift build --skip-update --product lungfish-cli --package-path <repo root>`.
-Downloads are cached in ~/Library/Caches/lungfish-golden and checked by SHA-256.
-The scratch folder of the last run stays in that cache folder until the next
-run, and the hidden --replay option normalizes such a kept folder again without
-rerunning any tool. Tests/Fixtures/golden/README.md describes each capture and
+Every capture runs under /Users/Shared/lungfish-golden, the same path on every
+Mac and for every user. The CLI uses the locked storage in its storage/ folder,
+which `scripts/golden/environment.py provision` builds, and the run checks it
+against the lock first. Downloads are cached in its cache/ folder and checked by
+SHA-256. The scratch folder of the last run stays in its run/ folder until the
+next run, and the hidden --replay option normalizes such a kept folder again
+without rerunning any tool. Tests/Fixtures/golden/README.md describes each capture and
 every normalization rule.
 """
 
@@ -38,15 +41,18 @@ sys.path.insert(0, str(SCRIPT_DIR))
 sys.dont_write_bytecode = True
 
 import captures  # noqa: E402
+import environment  # noqa: E402
 import normalize  # noqa: E402
 
 REPO_ROOT = SCRIPT_DIR.parents[1]
 GOLDEN_ROOT = REPO_ROOT / "Tests" / "Fixtures" / "golden"
-CACHE_ROOT = Path.home() / "Library" / "Caches" / "lungfish-golden"
+CACHE_ROOT = environment.GOLDEN_HOME / "cache"
 # The scratch root is a fixed folder that is emptied before each run. A fixed
 # path keeps the bytes of outputs that embed their own paths (BAM headers,
 # provenance hashes of those files) identical from run to run.
-RUN_ROOT_NAME = "run"
+RUN_ROOT = environment.GOLDEN_HOME / "run"
+# Captures that run managed tools. cli-help needs only the CLI.
+NEEDS_STORAGE = {"mapping", "classifiers", "genotype"}
 MAX_GOLDEN_FILE_BYTES = 1_000_000
 MAX_DIFF_LINES_PER_FILE = 400
 
@@ -157,7 +163,8 @@ def diff_capture(name: str, expected: dict[str, bytes], actual: dict[str, bytes]
 def portability_problems(name: str, outputs: dict[str, bytes], run_root: Path) -> list[str]:
     """Paths that would make the goldens differ between checkouts or runs."""
     problems = []
-    needles = {str(REPO_ROOT): "this checkout's path", str(run_root): "the raw scratch root"}
+    needles = {str(REPO_ROOT): "this checkout's path", str(run_root): "the raw scratch root",
+               str(Path.home()) + "/": "the home folder, which differs between users"}
     for relpath, data in outputs.items():
         if len(data) > MAX_GOLDEN_FILE_BYTES:
             problems.append(f"{name}/{relpath} is {len(data)} bytes, over the {MAX_GOLDEN_FILE_BYTES} byte limit")
@@ -184,6 +191,7 @@ def main(argv: list[str] | None = None) -> int:
 
     names = args.only or list(captures.CAPTURES)
     started = time.monotonic()
+    environment.prepare_golden_home()
     CACHE_ROOT.mkdir(parents=True, exist_ok=True)
     lock_handle = (CACHE_ROOT / ".lock").open("w")
     try:
@@ -192,7 +200,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"golden: another golden run holds {CACHE_ROOT / '.lock'}", file=sys.stderr)
         return 2
 
-    run_root = Path(os.path.realpath(CACHE_ROOT)) / RUN_ROOT_NAME
+    run_root = Path(os.path.realpath(RUN_ROOT))
+    if not args.replay and set(names) & NEEDS_STORAGE:
+        problems = environment.verify(environment.STORAGE_ROOT)
+        if problems:
+            print("golden: the golden storage does not match Tests/Fixtures/golden-environment/lock.json\n"
+                  + "".join(f"  {problem}\n" for problem in problems)
+                  + "golden: run `python3 scripts/golden/environment.py provision` to build or repair it",
+                  file=sys.stderr)
+            return 2
     if args.replay:
         work_root = args.replay.expanduser().resolve()
         version = (work_root / "version.txt").read_text().strip()
@@ -218,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
     for name in names:
         context = captures.CaptureContext(
             name=name, repo_root=REPO_ROOT, cli=staged_cli, run_root=run_root,
-            cache_root=CACHE_ROOT, strict=args.strict, work_root=work_root,
+            cache_root=CACHE_ROOT, storage_root=environment.STORAGE_ROOT, strict=args.strict, work_root=work_root,
         )
         context.normalizer = normalize.Normalizer(run_root=str(run_root), app_version=version, strict=args.strict)
         capture_started = time.monotonic()

@@ -11,7 +11,7 @@ The owner set it on 2026-10-07. Preview 2026.10.10 ran the 25-minute unit tier t
 | Targeted tests | `swift test --skip-update --filter <Target or Class>` or `bash scripts/test-surface.sh <name>` | The change under test. Targeted tests never authorize a push or a release. |
 | Unit tier | `bash scripts/full-suite-gate.sh --tier unit --quiet` | The exact commit it ran on, and every descendant whose changes all fall under the release-neutral paths |
 | Replay suites | `bash scripts/full-suite-gate.sh --filter ReplayTests --quiet` | The exact commit. Run them again only after a change to a recorded command, a CLI command or a replayed tool. |
-| Golden outputs | `python3 scripts/golden/golden.py compare` | The same as the replay suites |
+| Golden outputs | `python3 scripts/golden/golden.py compare` on a Mac with the golden environment, or the `Golden` workflow on the golden runner (`docs/contracts/MACHINES.md`) | The same as the replay suites. The runner's result counts the same as a local run. |
 | GUI walk | The Debug app from `python3 scripts/release/release.py debug` | The build it walked. Walk again only the surfaces that changed after it. |
 | Release candidate | `python3 scripts/release/release.py package preview` | The exact commit. `publish` signs those bytes without rebuilding. |
 

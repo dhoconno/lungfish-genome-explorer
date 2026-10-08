@@ -126,6 +126,7 @@ class CaptureContext:
     cli: Path | None
     run_root: Path  # the scratch root the tools ran in; its path becomes <RUN_ROOT>
     cache_root: Path
+    storage_root: Path | None = None  # the managed storage the CLI uses (environment.STORAGE_ROOT)
     strict: bool = False
     work_root: Path | None = None  # where <name>/ lives when it is not run_root (replay)
     queue: list[Golden] = field(default_factory=list)
@@ -148,7 +149,7 @@ class CaptureContext:
 
     def environment(self) -> dict[str, str]:
         user = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
-        return {
+        environment = {
             "HOME": str(Path.home()),
             "USER": user,
             "LOGNAME": user,
@@ -157,6 +158,13 @@ class CaptureContext:
             "COLUMNS": "80",
             "LINES": "24",
         }
+        if self.storage_root is not None:
+            # The locked storage at a fixed path, so the goldens record the
+            # same tool and database paths on every Mac and for every user.
+            # The shared package cache lives in the home folder, so it is off.
+            environment["LUNGFISH_STORAGE_ROOT"] = str(self.storage_root)
+            environment["LUNGFISH_CONDA_SHARED_PKGS"] = "0"
+        return environment
 
     def log_file(self, label: str, stream: str) -> Path:
         """logs/<label>.<stream>, where stream is argv, exit, stdout or stderr."""

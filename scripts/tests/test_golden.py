@@ -489,4 +489,13 @@ def test_missing_and_extra_golden_files_fail_the_compare():
 def test_portability_check_flags_checkout_and_raw_scratch_paths(tmp_path):
     outputs = {"a.json": f'"{golden.REPO_ROOT}/x"'.encode(), "b.json": f'"{tmp_path}/y"'.encode(), "c.json": b"ok"}
     problems = golden.portability_problems("x", outputs, tmp_path)
-    assert len(problems) == 2
+    assert any("this checkout's path" in problem for problem in problems)
+    assert any("the raw scratch root" in problem for problem in problems)
+    assert not any(problem.startswith("x/c.json") for problem in problems)
+
+
+def test_portability_check_flags_the_home_folder():
+    outputs = {"a.json": f'"{Path.home()}/.lungfish-shared/conda/pkgs"'.encode(),
+               "b.json": b'"/Users/Shared/lungfish-golden/storage/conda/envs/samtools"'}
+    problems = golden.portability_problems("x", outputs, Path("/Users/Shared/lungfish-golden/run"))
+    assert problems == [f"x/a.json contains the home folder, which differs between users ({Path.home()}/)"]
