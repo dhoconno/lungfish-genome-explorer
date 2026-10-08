@@ -88,6 +88,7 @@ def test_tool_log_durations_are_masked():
     text = (
         "INFO - Completed trim_filter in 0.29 seconds\n"
         "INFO - reactable report finished in 1.27 seconds\n"
+        "INFO - EsViritu run for sarscov2-R1-len150 finished in 00:00:09\n"
         "fastp v1.3.7, time used: 0 seconds\n"
         "[M::mm_idx_gen::0.001*5.59] collected minimizers\n"
         "[M::main] Real time: 0.005 sec; CPU: 0.012 sec; Peak RSS: 0.005 GB\n"
@@ -99,6 +100,7 @@ def test_tool_log_durations_are_masked():
     assert normalize.mask_tool_log_durations(text) == (
         "INFO - Completed trim_filter in <DURATION> seconds\n"
         "INFO - reactable report finished in <DURATION> seconds\n"
+        "INFO - EsViritu run for sarscov2-R1-len150 finished in <DURATION>\n"
         "fastp v1.3.7, time used: <DURATION> seconds\n"
         "[M::mm_idx_gen::<DURATION>*5.59] collected minimizers\n"
         "[M::main] Real time: <DURATION> sec; CPU: 0.012 sec; Peak RSS: 0.005 GB\n"

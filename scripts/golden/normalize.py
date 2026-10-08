@@ -117,6 +117,8 @@ _TOOL_LOG_DURATIONS = (
     re.compile(r"(Completed [A-Za-z0-9_]+ in )(" + _NUMBER + r")( seconds)"),
     # EsViritu: "reactable report finished in 1.27 seconds"
     re.compile(r"(finished in )(" + _NUMBER + r")( seconds)"),
+    # EsViritu: "EsViritu run for sarscov2-R1-len150 finished in 00:00:09"
+    re.compile(r"(EsViritu run for [^\n\\]+ finished in )([0-9]{2}:[0-9]{2}:[0-9]{2})()"),
     # fastp: "fastp v1.3.7, time used: 0 seconds"
     re.compile(r"(time used: )([0-9]+)( seconds)"),
     # minimap2: "[M::main] Real time: 0.005 sec"

@@ -61,7 +61,7 @@ These rules come from the lane brief and mask only wall-clock times and run IDs.
 | Run IDs | UUIDs, numbered by first appearance in each file so links inside a file stay visible | `<UUID-1>` |
 | Epoch times | Numbers under `createdAt`, `startTime`, `endTime` and similar keys, only within a wall-clock range | `<EPOCH>` |
 | Durations | Numbers under `wallTimeSeconds`, `wallClockSeconds`, `runtime` and similar keys, quoted or not | `<DURATION>` |
-| Tool log times | EsViritu step times, fastp `time used`, minimap2 elapsed and real time, kraken2 `processed in`, LGE `completed in` and `Runtime` | `<DURATION>` |
+| Tool log times | EsViritu step and total run times, fastp `time used`, minimap2 elapsed and real time, kraken2 `processed in`, LGE `completed in` and `Runtime` | `<DURATION>` |
 
 The workbook rule from the brief stores the XML parts in canonical order and masks the times in `docProps/core.xml`.
 
