@@ -6,7 +6,6 @@ import dataclasses
 import datetime as dt
 import json
 import os
-import plistlib
 import re
 import shutil
 import subprocess
@@ -21,14 +20,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import release as release_coordinator  # noqa: E402
-
-VERSIONED_FILES = (
-    "Lungfish.xcodeproj/project.pbxproj",
-    "Sources/LungfishCore/AppVersion.swift",
-    "Sources/LungfishApp/Resources/HelpBook/Lungfish.help/Contents/Info.plist",
-    "Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json",
-    "Tests/LungfishCoreTests/AppVersionTests.swift",
-)
+from release_version import ReleaseVersionError, release_version  # noqa: E402
 
 AGENT_BRANCH_PREFIXES = ("codex/", "claude/")
 CLAUDE_WORKTREE_PREFIX = "worktree-"
@@ -147,20 +139,6 @@ def previous_release_tag(current_version: str, tags: list[str]) -> str:
     if legacy_tags:
         return max(legacy_tags)[1]
     raise NightlyReleaseError(f"no previous versioned tag found for {current_version}")
-
-
-def update_versioned_files(root: Path, old_version: str, new_version: str) -> list[str]:
-    changed: list[str] = []
-    for relative_path in VERSIONED_FILES:
-        path = root / relative_path
-        if not path.is_file():
-            raise NightlyReleaseError(f"versioned file not found: {relative_path}")
-        text = path.read_text(encoding="utf-8")
-        if old_version not in text:
-            raise NightlyReleaseError(f"{relative_path} does not contain {old_version}")
-        path.write_text(text.replace(old_version, new_version), encoding="utf-8")
-        changed.append(relative_path)
-    return changed
 
 
 def prune_rescue_archives(
@@ -499,14 +477,12 @@ def merge_agent_branches(root: Path, candidates: list[BranchCandidate]) -> None:
 
 
 def current_version(root: Path) -> str:
-    version_file = root / "Sources" / "LungfishCore" / "AppVersion.swift"
-    match = re.search(
-        r'public\s+static\s+let\s+short\s*=\s*"([^"]+)"',
-        version_file.read_text(encoding="utf-8"),
-    )
-    if not match:
-        raise NightlyReleaseError("could not read LungfishAppVersion.short")
-    return match.group(1)
+    """The newest release-notes version, which names the release; no source
+    file carries the version (scripts/release/release_version.py)."""
+    try:
+        return release_version(root)
+    except ReleaseVersionError as exc:
+        raise NightlyReleaseError(f"could not read the release version: {exc}") from exc
 
 
 def write_release_notes(
@@ -548,60 +524,16 @@ def write_release_notes(
 def prepare_release_commit(
     root: Path, release_tag: str, old_version: str, new_version: str, previous_tag: str
 ) -> None:
-    changed = update_versioned_files(root, old_version, new_version)
+    # The notes file is the whole release change: it declares the version,
+    # and packaging stamps that version into the app after compiling.
     notes_path = write_release_notes(root, old_version, new_version, previous_tag)
-    git(root, "add", *changed, str(notes_path.relative_to(root)))
+    git(root, "add", str(notes_path.relative_to(root)))
     git(root, "commit", "-m", f"release: {release_tag}")
 
 
 def verify_prepared_release(root: Path, version: str, previous_tag: str) -> None:
-    app_version_text = (root / "Sources/LungfishCore/AppVersion.swift").read_text(
-        encoding="utf-8"
-    )
-    app_match = re.search(
-        r'public\s+static\s+let\s+short\s*=\s*"([^"]+)"', app_version_text
-    )
-    if app_match is None or app_match.group(1) != version:
-        raise NightlyReleaseError("prepared release has the wrong AppVersion.short")
-
-    project_text = (root / "Lungfish.xcodeproj/project.pbxproj").read_text(
-        encoding="utf-8"
-    )
-    marketing_versions = re.findall(
-        r"MARKETING_VERSION\s*=\s*\"?([^;\"\s]+)\"?\s*;", project_text
-    )
-    if not marketing_versions or set(marketing_versions) != {version}:
-        raise NightlyReleaseError(
-            "prepared release has inconsistent MARKETING_VERSION entries"
-        )
-
-    help_plist = (
-        root
-        / "Sources/LungfishApp/Resources/HelpBook/Lungfish.help/Contents/Info.plist"
-    )
-    with help_plist.open("rb") as handle:
-        help_version = plistlib.load(handle).get("CFBundleShortVersionString")
-    if help_version != version:
-        raise NightlyReleaseError("prepared release has the wrong HelpBook version")
-
-    manifest_path = (
-        root
-        / "Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json"
-    )
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("version") != version:
-        raise NightlyReleaseError(
-            "prepared release has the wrong manifest top-level version"
-        )
-
-    tests_text = (root / "Tests/LungfishCoreTests/AppVersionTests.swift").read_text(
-        encoding="utf-8"
-    )
-    expected_test_literals = (f'"{version}"', f'"lungfish-cli {version}"')
-    if any(literal not in tests_text for literal in expected_test_literals):
-        raise NightlyReleaseError(
-            "prepared release has stale AppVersion test expectations"
-        )
+    if current_version(root) != version:
+        raise NightlyReleaseError("prepared release notes do not name the new version")
     write_release_notes(root, version, version, previous_tag)
 
 

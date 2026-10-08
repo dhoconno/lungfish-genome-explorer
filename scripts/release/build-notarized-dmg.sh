@@ -22,6 +22,9 @@ Required for signing completion:
 
 Optional:
   --package-only      Build and verify an unsigned reusable candidate without credentials
+  --gate-handoff-fd N With --package-only: build while the coordinator's gates run,
+                      then read PASS, the gate manifest SHA-256 and its path from
+                      descriptor N before writing the receipt (internal)
   --resume-candidate RECEIPT
                       Verify and sign the exact candidate bound by RECEIPT without rebuilding
   --describe-channel preview|stable
@@ -100,6 +103,7 @@ SCRATCH_PATH=""
 SCRATCH_PATH_EXPLICIT=0
 GATE_MANIFEST=""
 GATE_MANIFEST_SHA256=""
+GATE_HANDOFF_FD=""
 RELEASE_DIR=""
 RELEASE_DIR_EXPLICIT=0
 ARCHIVE_PATH=""
@@ -190,6 +194,11 @@ while [ "$#" -gt 0 ]; do
         --gate-manifest|--gate-manifest-sha256)
             [ "$#" -ge 2 ] || { echo "Missing gate evidence value" >&2; exit 64; }
             if [ "$1" = "--gate-manifest" ]; then GATE_MANIFEST="$2"; else GATE_MANIFEST_SHA256="$2"; fi
+            shift 2
+            ;;
+        --gate-handoff-fd)
+            [ "$#" -ge 2 ] || { echo "Missing gate handoff descriptor" >&2; exit 64; }
+            GATE_HANDOFF_FD="$2"
             shift 2
             ;;
         --release-dir)
@@ -453,6 +462,13 @@ if [ "$REUSE_ARCHIVE" -eq 1 ] || [ "$REUSE_BUILT_CLI" -eq 1 ]; then
     echo "--reuse-archive and --reuse-built-cli are retired; use --resume-candidate RECEIPT" >&2
     exit 64
 fi
+if [ -n "$GATE_HANDOFF_FD" ]; then
+    if [ "$PACKAGE_ONLY" -ne 1 ] || [ -n "$GATE_MANIFEST" ] || [ -n "$GATE_MANIFEST_SHA256" ] \
+        || ! [[ "$GATE_HANDOFF_FD" =~ ^[3-9]$|^[1-9][0-9]{1,3}$ ]]; then
+        echo "--gate-handoff-fd needs --package-only, a descriptor of 3 or more, and no --gate-manifest" >&2
+        exit 64
+    fi
+fi
 if [ "$PACKAGE_ONLY" -eq 1 ] && [ -n "$RESUME_CANDIDATE" ]; then
     echo "--package-only and --resume-candidate are mutually exclusive" >&2
     exit 64
@@ -491,8 +507,10 @@ if [ "$CHANNEL" = "stable" ] && [ "$PRERELEASE_PRUNE_ENABLED" -eq 1 ]; then
     exit 64
 fi
 
-SOURCE_VERSION=$(awk -F'"' '/public static let short/ { print $2; exit }' \
-    "${PROJECT_ROOT}/Sources/LungfishCore/AppVersion.swift")
+# The release version is the newest docs/release-notes/<YYYY.M.PATCH>.md. No
+# source file carries it; configure_sparkle_info_plist stamps it after the build.
+SOURCE_VERSION=$("$RELEASE_PYTHON" "${PROJECT_ROOT}/scripts/release/release_version.py" \
+    --root "$PROJECT_ROOT") || SOURCE_VERSION=""
 if ! [[ "$SOURCE_VERSION" =~ ^[0-9]{4}\.([1-9]|1[0-2])\.[1-9][0-9]*$ ]]; then
     echo "invalid release version; expected YYYY.M.PATCH, found: ${SOURCE_VERSION:-<missing>}" >&2
     exit 64
@@ -914,6 +932,7 @@ configure_sparkle_info_plist() {
         exit 72
     fi
 
+    /usr/bin/plutil -replace CFBundleShortVersionString -string "$SOURCE_VERSION" "$info_plist"
     /usr/bin/plutil -replace CFBundleVersion -string "$SPARKLE_BUILD_NUMBER" "$info_plist"
     /usr/bin/plutil -replace SUFeedURL -string "$SPARKLE_FEED_URL" "$info_plist"
     /usr/bin/plutil -replace SUPublicEDKey -string "$SPARKLE_PUBLIC_ED_KEY" "$info_plist"
@@ -1446,6 +1465,11 @@ IDENTITY_PY
     install_app_icon
     install_third_party_notices
     configure_sparkle_info_plist "$APP_PATH/Contents/Info.plist"
+    # Help Viewer re-indexes a help book when its version changes.
+    for help_info_plist in "$APP_PATH"/Contents/Resources/*.help/Contents/Info.plist; do
+        [ -f "$help_info_plist" ] || continue
+        /usr/bin/plutil -replace CFBundleShortVersionString -string "$SOURCE_VERSION" "$help_info_plist"
+    done
     "$RELEASE_PYTHON" - "$PROJECT_ROOT" "$APP_PATH" "$RELEASE_CHANNEL" <<'IDENTITY_PY'
 import sys
 from pathlib import Path
@@ -1475,6 +1499,27 @@ IDENTITY_PY
     if [ "$VERSION" != "$SOURCE_VERSION" ]; then
         echo "packaged app version does not match source version: $VERSION != $SOURCE_VERSION" >&2
         exit 65
+    fi
+
+    if [ -n "$GATE_HANDOFF_FD" ]; then
+        # The coordinator compiles while its gates run and hands over the gate
+        # manifest only after every gate passed: a PASS line, the manifest's
+        # SHA-256, then its path. A failed gate or a vanished coordinator closes
+        # the pipe instead, and no receipt is written. Receipt creation still
+        # verifies the manifest in full.
+        echo "Candidate assembled and smoke-tested; waiting for the release gates..." >&2
+        handoff_status=""
+        IFS= read -r -u "$GATE_HANDOFF_FD" handoff_status || true
+        if [ "$handoff_status" != "PASS" ]; then
+            echo "release gates did not pass; no candidate receipt was written" >&2
+            exit 75
+        fi
+        IFS= read -r -u "$GATE_HANDOFF_FD" GATE_MANIFEST_SHA256 || true
+        IFS= read -r -u "$GATE_HANDOFF_FD" GATE_MANIFEST || true
+        if ! [[ "$GATE_MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]] || [ ! -f "$GATE_MANIFEST" ]; then
+            echo "release gate handoff is malformed; no candidate receipt was written" >&2
+            exit 65
+        fi
     fi
 
     CANDIDATE_CREATE_ARGS=(create

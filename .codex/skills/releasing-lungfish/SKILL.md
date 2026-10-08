@@ -159,10 +159,14 @@ and safe logs; failure preserves recovery evidence instead of waiting indefinite
 source checkout, runs package Doctor, verifies committed dependency manifests, and runs the contract-defined focused and channel gates locally.
 Both channels run the compact headless `release` profile once; UI and external-tool
 conformance are optional diagnostics. The default manifest policy requires no installed
-managed environment or parity runtime. Only after those gates pass does it assemble the unsigned app,
-validate the actual artifact's portability and smoke behavior, and create and
-verify a candidate receipt at
-`build/Release/<channel>/<40-hex-commit>/unsigned-candidate-receipt.json`.
+managed environment or parity runtime. Unit-tier evidence must cover HEAD: `package`
+reuses a passing unit-tier result on HEAD, or on an ancestor that differs only in
+`gates.releaseNeutralPaths` such as release notes, and otherwise runs the unit tier
+itself. It compiles, assembles and smoke-tests the unsigned app while those gates run,
+and creates and verifies the candidate receipt at
+`build/Release/<channel>/<40-hex-commit>/unsigned-candidate-receipt.json` only after
+every gate passed; a failed gate stops the build and leaves no receipt. The order of
+verification inside a session is `docs/contracts/VERIFICATION-ORDER.md`.
 
 GitHub Actions is advisory only. Main and pull requests run script contracts and a narrow Swift compile/behavior
 gate, and explicitly dispatched diagnostic jobs may do more work. Tag pushes do
@@ -190,7 +194,11 @@ identity, arm64/deployment settings, dependency locks, release contract, and
 build recipe. Compatible repeated builds reuse the same serialized namespace;
 changed compiler inputs select a sibling. Candidates, receipts, apps, DMGs,
 signatures, feeds, and credentials never enter the cache, and cache contents
-never authorize release reuse. There is no hidden cache or candidate pruning.
+never authorize release reuse. Version stamps are not compiler inputs, so a new
+release reuses the namespace of the previous one. There is no hidden cache or
+candidate pruning; `python3 scripts/release/prune-release-cache.py` lists stale
+namespaces and removes them only with `--apply`, refusing while a build holds a
+namespace lock.
 
 ## Load and validate current authority
 

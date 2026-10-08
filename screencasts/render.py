@@ -78,8 +78,10 @@ def spec_fingerprint(cfg: dict, video_dir: Path) -> str:
 
 
 def current_app_version() -> str:
-    text = (REPO / "Sources/LungfishCore/AppVersion.swift").read_text()
-    return re.search(r'static let short = "([^"]+)"', text).group(1)
+    # The newest release-notes file names the release (scripts/release/release_version.py).
+    sys.path.insert(0, str(REPO / "scripts/release"))
+    from release_version import release_version
+    return release_version(REPO)
 
 
 def print_status():

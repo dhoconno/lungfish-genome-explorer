@@ -158,7 +158,6 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             script = root / "scripts" / "release" / "build-notarized-dmg.sh"
-            version_file = root / "Sources" / "LungfishCore" / "AppVersion.swift"
             manifest_file = (
                 root
                 / "Sources"
@@ -168,7 +167,6 @@ class SparkleReleasePackagingTests(unittest.TestCase):
                 / "third-party-tools-lock.json"
             )
             script.parent.mkdir(parents=True)
-            version_file.parent.mkdir(parents=True)
             manifest_file.parent.mkdir(parents=True)
             shutil.copy2(
                 self.root / "scripts" / "release" / "build-notarized-dmg.sh", script
@@ -177,7 +175,7 @@ class SparkleReleasePackagingTests(unittest.TestCase):
                 self.root / "scripts" / "release" / "release_contract.py",
                 script.parent / "release_contract.py",
             )
-            for helper in ("release_xcode.py", "release_identity.py"):
+            for helper in ("release_xcode.py", "release_identity.py", "release_version.py"):
                 shutil.copy2(
                     self.root / "scripts" / "release" / helper,
                     script.parent / helper,
@@ -188,12 +186,13 @@ class SparkleReleasePackagingTests(unittest.TestCase):
             manifest_file.write_text('{"dependencySet":"2026.2"}\n', encoding="utf-8")
 
             def run(version, tag=None, notes_text=None, channel="preview"):
-                version_file.write_text(
-                    f'public enum LungfishAppVersion {{ public static let short = "{version}" }}\n',
-                    encoding="utf-8",
-                )
+                # The newest docs/release-notes/<YYYY.M.PATCH>.md names the
+                # release, so each run starts from a notes folder holding only
+                # this version's file; a malformed name leaves no version.
                 notes = root / "docs" / "release-notes" / f"{version}.md"
                 notes.parent.mkdir(parents=True, exist_ok=True)
+                for stale in notes.parent.iterdir():
+                    stale.unlink()
                 notes.write_text(
                     notes_text
                     or (

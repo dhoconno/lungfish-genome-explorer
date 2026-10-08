@@ -74,7 +74,8 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertEqual(request.credential_probe_mode, 'setup')
         operations.return_value.doctor_package.assert_not_called()
         operations.return_value.run_local_gates.assert_not_called()
-        operations.return_value.package_only.assert_not_called()
+        operations.return_value.start_package_build.assert_not_called()
+        operations.return_value.finish_package_build.assert_not_called()
 
     def test_fork_sparkle_floors_allow_initial_feeds_without_legacy_bridge(self):
         self.configure()

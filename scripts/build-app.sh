@@ -7,9 +7,8 @@ set -euo pipefail
 
 # Configuration
 APP_NAME="Lungfish"
-# VERSION is sourced from Lungfish.xcodeproj's MARKETING_VERSION below (after
-# PROJECT_ROOT is resolved) so the debug bundle and the notarized build share a
-# single version source of truth.
+# VERSION is the newest docs/release-notes/<YYYY.M.PATCH>.md (read below, after
+# PROJECT_ROOT is resolved), the same source the notarized build stamps.
 VERSION=""
 BUILD_NUMBER="1"
 CONFIGURATION="debug"
@@ -30,11 +29,11 @@ RELEASE_CONTRACT_SCRIPT="$PROJECT_ROOT/scripts/release/release_contract.py"
 XCODE_RESOLVER="$PROJECT_ROOT/scripts/release/release_xcode.py"
 DEBUG_ARTIFACT_HELPER="$PROJECT_ROOT/scripts/release/debug_artifact.py"
 
-# Single source of truth for the version + minimum OS: the xcodeproj settings,
-# so the debug bundle and the notarized build never diverge.
-VERSION="$(/usr/bin/grep -m1 'MARKETING_VERSION' "$PROJECT_ROOT/Lungfish.xcodeproj/project.pbxproj" | /usr/bin/sed -E 's/.*= *"?([^";]+)"?;.*/\1/')"
+# The version comes from the release notes, as for the notarized build, which
+# stamps it after compiling; the minimum OS comes from the xcodeproj settings.
+VERSION="$(python3 "$PROJECT_ROOT/scripts/release/release_version.py" --root "$PROJECT_ROOT")" || VERSION=""
 if [ -z "$VERSION" ]; then
-    echo "Error: could not read MARKETING_VERSION from Lungfish.xcodeproj" >&2
+    echo "Error: could not read the release version from docs/release-notes" >&2
     exit 1
 fi
 MINIMUM_SYSTEM_VERSION="$(/usr/bin/grep -m1 'MACOSX_DEPLOYMENT_TARGET' "$PROJECT_ROOT/Lungfish.xcodeproj/project.pbxproj" | /usr/bin/sed -E 's/.*= *"?([^";]+)"?;.*/\1/')"

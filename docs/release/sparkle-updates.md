@@ -67,6 +67,16 @@ across remote immutable versioned tags and GitHub releases. Ignore drafts,
 legacy versions, and mutable `sparkle-*` containers. Never overwrite a
 collision.
 
+The notes file declares the version. The newest
+`docs/release-notes/<YYYY.M.PATCH>.md` is the release that `package` and `publish`
+cut (`scripts/release/release_version.py`), and packaging stamps it into the app's
+and help book's `CFBundleShortVersionString` after compiling. No Swift source,
+project setting or managed-tools lock changes for a release, so the notes commit is
+release-neutral and reuses the final candidate's unit-tier evidence
+(`docs/contracts/VERIFICATION-ORDER.md`). Builds without a stamped bundle, such as
+`swift test` and a bare SwiftPM `lungfish-cli`, report
+`LungfishAppVersion.developmentBaseline`.
+
 Every `docs/release-notes/<version>.md` begins with:
 
 ```text

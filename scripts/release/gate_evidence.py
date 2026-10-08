@@ -722,6 +722,137 @@ def validate_result(result, source):
         raise EvidenceError("unknown gate kind")
 
 
+# A passing unit-tier run also covers a descendant commit when every path
+# changed since the gated commit is release-neutral (docs that no test reads,
+# such as release notes). docs/contracts/VERIFICATION-ORDER.md owns the rule;
+# config/release-contract.json gates.releaseNeutralPaths owns the list.
+GATE_DIRECTORY_NAME = re.compile(r"^gate-[0-9]{8}-[0-9]{6}-([0-9a-f]{4,40})-[0-9]+$")
+
+
+def is_release_neutral(path, patterns):
+    for pattern in patterns:
+        if pattern.endswith("/**"):
+            if path.startswith(pattern[:-2]):
+                return True
+        elif path == pattern:
+            return True
+    return False
+
+
+def _git(root, *args):
+    return subprocess.run(["git", *args], cwd=root, capture_output=True, check=False)
+
+
+def neutral_delta(root, ancestor, commit, patterns):
+    """Return the paths changed from ancestor to commit when all are
+    release-neutral, or None when commit does not descend from ancestor or
+    any changed path is not neutral. Renames count as a delete plus an add,
+    so moving a file out of a neutral folder is never hidden."""
+    if _git(root, "merge-base", "--is-ancestor", ancestor, commit).returncode != 0:
+        return None
+    diff = _git(root, "diff", "--name-only", "-z", "--no-renames", ancestor, commit)
+    if diff.returncode != 0:
+        return None
+    paths = sorted(os.fsdecode(raw) for raw in diff.stdout.split(b"\0") if raw)
+    return paths if all(is_release_neutral(path, patterns) for path in paths) else None
+
+
+def evidence_log_roots(root):
+    """Gate-log folders of every worktree of this repository, this one first.
+    Evidence is bound to a clean commit, not to the checkout that produced it,
+    so a unit-tier run in a lane or program worktree covers the same commit in
+    the primary checkout."""
+    root = Path(root)
+    roots = [root / ".build" / "gate-logs"]
+    listing = _git(root, "worktree", "list", "--porcelain", "-z")
+    if listing.returncode == 0:
+        for field in listing.stdout.split(b"\0"):
+            if field.startswith(b"worktree "):
+                candidate = Path(os.fsdecode(field[len(b"worktree "):])) / ".build" / "gate-logs"
+                if candidate not in roots:
+                    roots.append(candidate)
+    return roots
+
+
+def find_unit_evidence(root, commit, patterns, logs=None):
+    """Return a record of the authorized unit-tier result that covers commit,
+    or None. A result on commit itself wins; otherwise the newest result on an
+    ancestor reached through release-neutral paths only. Every candidate must
+    pass validate_result against its own clean source and match the canonical
+    unit selection of this checkout, so a run with an older skip list never
+    counts. Without logs, every worktree's gate logs are searched."""
+    root = Path(root)
+    log_roots = [Path(logs)] if logs else evidence_log_roots(root)
+    ancestry = _git(root, "rev-list", "--max-count=5000", commit)
+    ancestors = ancestry.stdout.decode().split() if ancestry.returncode == 0 else [commit]
+    directories = []
+    for log_root in log_roots:
+        try:
+            directories += [entry for entry in log_root.iterdir() if entry.is_dir() and not entry.is_symlink()]
+        except OSError:
+            continue
+    directories.sort(key=lambda entry: entry.stat().st_mtime, reverse=True)
+    expected = None
+    inherited = None
+    for directory in directories:
+        named = GATE_DIRECTORY_NAME.match(directory.name)
+        if named and not any(full.startswith(named.group(1)) for full in ancestors):
+            continue
+        path = directory / "gate.result.json"
+        if path.is_symlink() or not path.is_file():
+            continue
+        try:
+            result = read_json(path)
+            options = result.get("options", {})
+            if options.get("tier") != "unit":
+                continue
+            if expected is None:
+                expected = canonical_tier_options("unit", False)
+            if any(options.get(key) != value for key, value in expected.items()):
+                continue
+            gated = result.get("source", {})
+            if not isinstance(gated, dict) or not re.fullmatch(r"[0-9a-f]{40}", str(gated.get("commit", ""))):
+                continue
+            validate_result(result, gated)
+            digest = file_record(path, directory)["sha256"]
+        except (EvidenceError, OSError, ValueError):
+            continue
+        record = {"schemaVersion": 1, "candidateCommit": commit, "gatedCommit": gated["commit"],
+                  "resultPath": str(path), "resultSha256": digest,
+                  "releaseNeutralPaths": list(patterns)}
+        if gated["commit"] == commit:
+            return {**record, "kind": "exact", "changedPaths": []}
+        if inherited is None:
+            changed = neutral_delta(root, gated["commit"], commit, patterns)
+            if changed is not None:
+                inherited = {**record, "kind": "inherited", "changedPaths": changed}
+    return inherited
+
+
+def release_neutral_patterns(root):
+    from release_contract import load_contract
+    return load_contract(Path(root) / "config/release-contract.json").gates.releaseNeutralPaths
+
+
+def run_unit_evidence(args):
+    root = Path(args.root).resolve()
+    patterns = release_neutral_patterns(root)
+    covered = True
+    for commit in args.commit:
+        resolved = _git(root, "rev-parse", "--verify", "--quiet", commit + "^{commit}")
+        full = resolved.stdout.decode().strip() if resolved.returncode == 0 else ""
+        record = find_unit_evidence(root, full, patterns, args.logs) if full else None
+        if record is None:
+            covered = False
+            print(f"none {commit}")
+        elif record["kind"] == "exact":
+            print(f"exact {full} {record['resultPath']}")
+        else:
+            print(f"inherited {full} from {record['gatedCommit']} "
+                  f"({len(record['changedPaths'])} release-neutral paths) {record['resultPath']}")
+    return 0 if covered else 1
+
+
 def result_files(result):
     records = list(result.get("files", []))
     records += result.get("identityCommand", {}).get("files", [])
@@ -979,8 +1110,17 @@ def main():
     for command in (swift, python):
         command.add_argument("--root", required=True)
         command.add_argument("--output", required=True)
+    coverage = sub.add_parser(
+        "unit-evidence",
+        help="Exit 0 when retained unit-tier evidence covers every commit, exactly or "
+             "through release-neutral paths; print one line per commit.")
+    coverage.add_argument("--root", required=True)
+    coverage.add_argument("--commit", action="append", required=True)
+    coverage.add_argument("--logs", help="Gate log folder; defaults to <root>/.build/gate-logs.")
     args = parser.parse_args()
     try:
+        if args.command == "unit-evidence":
+            return run_unit_evidence(args)
         return run_swift_gate(args) if args.command == "swift" else run_python_gate(args)
     except (EvidenceError, OSError, ValueError) as error:
         print("GATE FAIL: " + str(error), file=sys.stderr)

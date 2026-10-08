@@ -24,6 +24,10 @@
 #     A push of tags alone, on commits already on the remote's branches,
 #     skips all of these checks, since those commits were checked when
 #     their branch was pushed (release.py pushes its release tag this way).
+#     The unit tier is also skipped when retained evidence under
+#     .build/gate-logs covers every pushed commit, exactly or through
+#     release-neutral paths (scripts/release/gate_evidence.py unit-evidence,
+#     docs/contracts/VERIFICATION-ORDER.md); the other checks still run.
 #     Before the unit tier it also checks that published screencasts agree
 #     with the Videos page (screencasts/publish.py --check;
 #     docs/contracts/SCREENCASTS.md).
@@ -82,11 +86,21 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 REMOTE="$1"
 TAGS_ONLY=1
 SAW_REF=0
+# Commits this push adds that the checks have not seen; the unit tier is
+# skipped only when retained evidence covers every one of them.
+PUSHED_COMMITS=()
+UNRESOLVED=0
 while read -r local_ref local_sha remote_ref remote_sha; do
     SAW_REF=1
     case "$remote_ref" in
         refs/tags/*) ;;
-        *) TAGS_ONLY=0; continue ;;
+        *)
+            TAGS_ONLY=0
+            case "$local_sha" in
+                *[!0]*) PUSHED_COMMITS+=("$local_sha") ;;
+            esac
+            continue
+            ;;
     esac
     case "$local_sha" in
         *[!0]*) ;;
@@ -94,10 +108,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     esac
     if ! commit="$(git rev-parse --verify --quiet "$local_sha^{commit}")"; then
         TAGS_ONLY=0
+        UNRESOLVED=1
         continue
     fi
     if [ -z "$(git for-each-ref --contains "$commit" --format='x' "refs/remotes/$REMOTE/")" ]; then
         TAGS_ONLY=0
+        PUSHED_COMMITS+=("$commit")
     fi
 done
 if [ "$SAW_REF" -eq 1 ] && [ "$TAGS_ONLY" -eq 1 ]; then
@@ -199,6 +215,21 @@ echo "pre-push: checking that published screencasts agree with the Videos page (
 if ! python3 "$REPO_ROOT/screencasts/publish.py" --check; then
     echo "pre-push: screencast publishing check FAILED (see docs/contracts/SCREENCASTS.md, Publishing) — push aborted. Use --no-verify to bypass." >&2
     exit 1
+fi
+
+# A passing unit-tier run on a pushed commit, or on an ancestor that differs
+# only in release-neutral paths such as release notes, already covers it
+# (docs/contracts/VERIFICATION-ORDER.md). Never run the 25-minute tier twice.
+if [ "$UNRESOLVED" -eq 0 ] && [ "${#PUSHED_COMMITS[@]}" -gt 0 ]; then
+    EVIDENCE_ARGS=()
+    for commit in "${PUSHED_COMMITS[@]}"; do
+        EVIDENCE_ARGS+=(--commit "$commit")
+    done
+    echo "pre-push: looking for retained unit-tier evidence for the pushed commits..."
+    if python3 "$REPO_ROOT/scripts/release/gate_evidence.py" unit-evidence --root "$REPO_ROOT" "${EVIDENCE_ARGS[@]}"; then
+        echo "pre-push: retained unit-tier evidence covers every pushed commit; skipping the unit-tier gate."
+        exit 0
+    fi
 fi
 
 echo "pre-push: running unit-tier gate (use --no-verify to skip)..."

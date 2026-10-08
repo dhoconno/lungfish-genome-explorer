@@ -41,8 +41,12 @@ struct ReleaseBuildConfigurationTests {
             encoding: .utf8
         )
 
-        #expect(project.contains(#"MARKETING_VERSION = "\#(LungfishAppVersion.short)";"#))
+        // Releases stamp the version after compiling (release_version.py); the
+        // project keeps the unchanging development baseline.
+        #expect(project.contains(#"MARKETING_VERSION = "\#(LungfishAppVersion.developmentBaseline)";"#))
         #expect(project.contains("0.5.0-alpha") == false)
+        #expect(releaseScript.contains("scripts/release/release_version.py"))
+        #expect(releaseScript.contains(#"plutil -replace CFBundleShortVersionString -string "$SOURCE_VERSION""#))
         #expect(infoPlist.contains("<key>SUFeedURL</key>") == false)
         #expect(infoPlist.contains("<key>SUPublicEDKey</key>") == false)
         #expect(releaseScript.contains("configure_sparkle_info_plist"))
@@ -825,12 +829,11 @@ struct ReleaseBuildConfigurationTests {
         #expect(doctor.contains(#""mktemp", "plutil""#))
         #expect(doctor.contains(#""plutil", "rg""#) == false)
         #expect(doctor.contains(#""python3", "rg""#) == false)
-        #expect(coordinator.contains("self.operations.doctor_package(request)"))
-        #expect(coordinator.contains("self.operations.package_only(request)"))
-        #expect(
-            coordinator.range(of: "self.operations.doctor_package(request)")!.lowerBound
-                < coordinator.range(of: "self.operations.package_only(request)")!.lowerBound
-        )
+        // Package starts compiling while its gates run, so Doctor must come
+        // before the build starts, not merely before the receipt.
+        let doctorCall = try #require(coordinator.range(of: "self.operations.doctor_package(request)"))
+        let buildStart = try #require(coordinator.range(of: "self.operations.start_package_build(request)"))
+        #expect(doctorCall.lowerBound < buildStart.lowerBound)
     }
 
     @Test("Release smoke test uses the macOS system grep without requiring ripgrep")

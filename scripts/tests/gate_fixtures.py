@@ -90,20 +90,44 @@ def make_gate_fixture(directory, source, channel="stable", modules=None, *, cont
     return directory / "manifest.json"
 
 
-def make_unit_gate_pointer(root, source, *, tier="unit", authorized=True):
-    """Writes a minimal unit-tier gate.result.json plus the
-    .build/gate-logs/latest-unit.json pointer release.py's
-    verify_unit_gate_precondition reads, bound to `source`.
+_SELECTION_CACHE = {}
+
+
+def canonical_selection(tier):
+    """The options full-suite-gate.sh --describe-selection prints for `tier`.
+
+    gate_evidence.find_unit_evidence accepts a unit result only when its
+    options equal this selection, so fixtures must carry the real one rather
+    than an invented filter and skip list. The selection depends only on this
+    checkout, so it is resolved once per tier and handed out as a copy.
+    """
+    if tier not in _SELECTION_CACHE:
+        command = ["/bin/bash", str(Path(__file__).resolve().parents[1] / "full-suite-gate.sh"),
+                   "--describe-selection", "--tier", tier]
+        _SELECTION_CACHE[tier] = json.loads(subprocess.check_output(
+            command, env={**os.environ, "LUNGFISH_RELEASE_PYTHON": sys.executable}))
+    return dict(_SELECTION_CACHE[tier])
+
+
+def make_unit_gate_pointer(root, source, *, tier="unit", authorized=True,
+                           name="fixture-unit", options=None):
+    """Writes a minimal unit-tier gate.result.json under
+    .build/gate-logs/<name>, plus the .build/gate-logs/latest-unit.json
+    pointer full-suite-gate.sh still writes, bound to `source`.
 
     Shaped like make_gate_fixture's per-step "swift" result (the same
     fields gate_evidence.validate_result checks), just for a standalone
-    unit-tier run rather than one bundled into a release manifest.
+    unit-tier run rather than one bundled into a release manifest. Its
+    options default to the canonical selection for `tier`, which is what
+    gate_evidence.find_unit_evidence requires of unit evidence; pass
+    `options` to override them (for example to test a stale skip list).
 
     `root` is the release front door's repo root (request.root /
     self.root), matching where full-suite-gate.sh would write the real
-    pointer relative to PROJECT_ROOT.
+    pointer relative to PROJECT_ROOT. `name` is the evidence folder, so one
+    root can hold several results.
     """
-    evidence_dir = root / ".build/gate-logs/fixture-unit"
+    evidence_dir = root / ".build/gate-logs" / name
     evidence_dir.mkdir(parents=True, exist_ok=True)
     (evidence_dir / "sdk-path.log").write_text(FIXTURE_SDK_PATH + "\n")
     (evidence_dir / "runner.log").write_text(
@@ -118,7 +142,7 @@ def make_unit_gate_pointer(root, source, *, tier="unit", authorized=True):
     result = {"schemaVersion": 1, "kind": "swift", "source": source, "runtime": runtime,
               "argv": ["fixture-gate"], "startedAt": "2026-09-05T00:00:00+00:00",
               "endedAt": "2026-09-05T00:00:01+00:00",
-              "options": {"tier": tier, "filter": "", "skip": "", "parallel": True, "requireTools": False},
+              "options": canonical_selection(tier) if options is None else options,
               "identityCommand": {"argv": ["swift", "--version"], "exitStatus": 0, "intervention": None, "files": []},
               "sdkCommand": {"argv": ["xcrun", "--sdk", "macosx", "--show-sdk-path"], "exitStatus": 0,
                              "intervention": None, "files": [record(evidence_dir / "sdk-path.log", evidence_dir)]},
@@ -132,7 +156,7 @@ def make_unit_gate_pointer(root, source, *, tier="unit", authorized=True):
     pointer_dir = root / ".build/gate-logs"
     pointer_dir.mkdir(parents=True, exist_ok=True)
     write_json(pointer_dir / "latest-unit.json",
-               {"resultPath": "fixture-unit/gate.result.json", "evidenceDir": str(evidence_dir)})
+               {"resultPath": f"{name}/gate.result.json", "evidenceDir": str(evidence_dir)})
     return pointer_dir / "latest-unit.json"
 
 

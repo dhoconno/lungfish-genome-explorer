@@ -230,6 +230,38 @@ enum RuntimeAppIdentityResolver {
         return try resolve(embeddedExecutableInfo: embedded, enclosingAppInfo: enclosing)
     }
 
+    /// The stamped release version, resolved like the identity: the running
+    /// app's own Info.plist, else the app that bundles this command-line tool,
+    /// else this executable's embedded section. Only Lungfish metadata counts,
+    /// so a host such as xctest never lends its version.
+    static func resolveVersion(mainAppInfo: [String: Any]? = nil,
+                               embeddedExecutableInfo: [String: Any]? = nil,
+                               enclosingAppInfo: [String: Any]? = nil) -> String? {
+        if let mainAppInfo { return stampedVersion(mainAppInfo) }
+        return stampedVersion(enclosingAppInfo) ?? stampedVersion(embeddedExecutableInfo)
+    }
+
+    static func currentVersion() -> String? {
+        let executable = _dyld_get_image_name(0).map {
+            URL(fileURLWithPath: String(cString: $0)).resolvingSymlinksInPath().standardizedFileURL
+        }
+        if Bundle.main.bundleURL.pathExtension == "app",
+           let name = Bundle.main.infoDictionary?["CFBundleExecutable"] as? String,
+           executable?.lastPathComponent == name {
+            return resolveVersion(mainAppInfo: Bundle.main.infoDictionary ?? [:])
+        }
+        let enclosing = executable.flatMap { try? enclosingAppInfo(executableURL: $0) }
+        let embedded = try? embeddedInfoDictionary()
+        return resolveVersion(embeddedExecutableInfo: embedded, enclosingAppInfo: enclosing)
+    }
+
+    private static func stampedVersion(_ info: [String: Any]?) -> String? {
+        guard let info, info["LungfishReleaseChannel"] is String,
+              let version = info["CFBundleShortVersionString"] as? String,
+              LungfishAppVersion.isReleaseVersion(version) else { return nil }
+        return version
+    }
+
     static func enclosingAppInfo(executableURL: URL) throws -> [String: Any]? {
         let executable = executableURL.resolvingSymlinksInPath().standardizedFileURL
         var directory = executable.deletingLastPathComponent()

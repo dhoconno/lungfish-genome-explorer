@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import secrets
 import shlex
+import signal
 import stat
 import subprocess
 import sys
@@ -31,6 +32,7 @@ from release_identity import prepare_identity_plist, identity_plist, fork_contra
 from bounded_process import run_bounded
 from release_profiles import ReleaseProfile, ProfileError, load_release_profile as _load_profile, write_release_profile
 from release_contract import load_contract  # noqa: E402
+from release_version import ReleaseVersionError, release_version  # noqa: E402
 from sparkle_yank import (  # noqa: E402
     FeedTarget,
     GitHubYankRunner,
@@ -41,8 +43,8 @@ from sparkle_yank import (  # noqa: E402
     parse_appcast_items,
     plan_yank,
 )
-from gate_evidence import (EvidenceError, create_manifest, read_json,  # noqa: E402
-                           source_identity, validate_result, verify_manifest)
+from gate_evidence import (EvidenceError, create_manifest, evidence_log_roots,  # noqa: E402
+                           find_unit_evidence, source_identity, verify_manifest)
 from release_cache_fingerprint import (  # noqa: E402
     CacheFingerprintError,
     CachePaths,
@@ -100,6 +102,16 @@ class GateEvidence:
     sha256: str
 
 
+@dataclass
+class PackageBuild:
+    """A candidate build that runs while the gates do. The builder waits on
+    the pipe's read end before writing a receipt; only a PASS handoff after
+    every gate passed lets it continue (docs/contracts/VERIFICATION-ORDER.md)."""
+    process: Any
+    handoff: int | None
+    started: float
+
+
 @dataclass(frozen=True)
 class ReleaseRequest:
     root: Path
@@ -150,7 +162,13 @@ class ReleaseOperations(Protocol):
     def doctor_package(self, request: ReleaseRequest) -> None:
         ...
 
-    def package_only(self, request: ReleaseRequest) -> Path:
+    def start_package_build(self, request: ReleaseRequest) -> PackageBuild:
+        ...
+
+    def finish_package_build(self, build: PackageBuild, request: ReleaseRequest) -> Path:
+        ...
+
+    def abort_package_build(self, build: PackageBuild) -> None:
         ...
 
     def run_local_gates(self, request: ReleaseRequest) -> GateEvidence:
@@ -187,11 +205,18 @@ class ReleaseCoordinator:
     def package(self, request: ReleaseRequest) -> CandidateIdentity:
         self.operations.verify_package_source(request)
         self.operations.doctor_package(request)
-        gates = self.operations.run_local_gates(request)
-        if not isinstance(gates, GateEvidence):
-            raise ReleaseError("local release gates did not return immutable evidence")
+        # Compile, assemble and smoke-test while the gates run; the builder
+        # writes no receipt until the gates hand over their evidence.
+        build = self.operations.start_package_build(request)
+        try:
+            gates = self.operations.run_local_gates(request)
+            if not isinstance(gates, GateEvidence):
+                raise ReleaseError("local release gates did not return immutable evidence")
+        except BaseException:
+            self.operations.abort_package_build(build)
+            raise
         request = replace(request, gate_evidence=gates)
-        receipt = self.operations.package_only(request)
+        receipt = self.operations.finish_package_build(build, request)
         active = replace(request, receipt=receipt)
         return self.operations.verify_candidate_receipt(active)
 
@@ -246,48 +271,38 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-# Well-known pointer written by scripts/full-suite-gate.sh --tier unit (via
-# the pre-push hook) or the optional nightly job, recording where that run's
-# gate.result.json lives. release.py must refuse to package
-# unless a green unit-tier result exists for the EXACT release commit,
-# reusing gate_evidence.py's fail-closed evidence model rather than the
-# narrow "release" profile (186 of ~14.2K tests) that previously authorized
-# 11 releases over a red unit tier.
+# release.py must refuse to package unless a green unit-tier result covers the
+# EXACT release commit, reusing gate_evidence.py's fail-closed evidence model
+# rather than the narrow "release" profile (186 of ~14.2K tests) that
+# previously authorized 11 releases over a red unit tier. A result on an
+# ancestor covers the commit when every path changed since then is
+# release-neutral (gates.releaseNeutralPaths), so committing release notes
+# never forces a second unit-tier run (docs/contracts/VERIFICATION-ORDER.md).
 UNIT_GATE_POINTER_RELATIVE_PATH = ".build/gate-logs/latest-unit.json"
+# The unit tier's own budget is 45 minutes (gate_evidence.DEFAULT_TIER_TIMEOUT_SECONDS).
+UNIT_GATE_WAIT_SECONDS = 60 * 60
 
 
-def verify_unit_gate_precondition(root: Path, source: dict) -> None:
-    """Refuse to run the release gates unless a green unit-tier result is on
-    record for the exact candidate commit on a clean tree.
-
-    Reuses gate_evidence.validate_result, the same fail-closed validator
-    scripts/full-suite-gate.sh's own evidence goes through, so this cannot
-    drift from what "green" means there. The pointer file is written by
-    `scripts/full-suite-gate.sh --tier unit` (installed as the pre-push
-    hook) or the optional nightly job; see scripts/install-git-hooks.sh and
-    scripts/testing/nightly-full-suite.sh.
-    """
-    pointer_path = root / UNIT_GATE_POINTER_RELATIVE_PATH
-    if not pointer_path.is_file():
-        raise ReleaseError(
-            "no unit-tier gate evidence is on record "
-            f"({UNIT_GATE_POINTER_RELATIVE_PATH} is missing); run "
-            "`scripts/full-suite-gate.sh --tier unit` (or push, which runs it "
-            "via the pre-push hook) before packaging a release"
-        )
+def verify_unit_gate_precondition(
+    root: Path, source: dict, neutral_paths: tuple[str, ...] = ()
+) -> dict[str, Any]:
+    """Return the record of the unit-tier evidence that covers the clean
+    candidate, or refuse. Every retained result goes through
+    gate_evidence.validate_result, the same validator full-suite-gate.sh's
+    own evidence uses, so this cannot drift from what "green" means there."""
+    if source.get("clean") is not True or not source.get("commit"):
+        raise ReleaseError("unit-tier gate evidence requires a clean candidate tree")
     try:
-        pointer = read_json(pointer_path)
-        result_path = (pointer_path.parent / pointer["resultPath"]).resolve()
-        result = read_json(result_path)
-        if result.get("options", {}).get("tier") != "unit":
-            raise EvidenceError("recorded gate evidence is not the unit tier")
-        validate_result(result, source)
-    except (EvidenceError, OSError, ValueError, KeyError, TypeError) as error:
+        record = find_unit_evidence(root, source["commit"], neutral_paths)
+    except (EvidenceError, OSError, ValueError) as error:
+        raise ReleaseError(f"unit-tier gate evidence could not be read ({error})") from error
+    if record is None:
         raise ReleaseError(
-            "unit-tier gate evidence is missing, stale, or failed for this "
-            f"exact commit; run `scripts/full-suite-gate.sh --tier unit` at "
-            f"HEAD on a clean tree and retry ({error})"
-        ) from error
+            "no unit-tier gate evidence covers this exact commit or a "
+            "release-neutral ancestor; run `scripts/full-suite-gate.sh --tier unit` "
+            "at HEAD on a clean tree and retry"
+        )
+    return record
 
 
 def verify_dependency_receipt_file(root: Path, receipt_path: Path) -> None:
@@ -1504,18 +1519,14 @@ class LocalReleaseOperations:
     def _validate_release_notes(
         self, request: ReleaseRequest, identity: CandidateIdentity | None = None
     ) -> None:
-        """Apply the signer's notes contract before building or pushing a tag."""
-        version_path = self.root / "Sources/LungfishCore/AppVersion.swift"
+        """Apply the signer's notes contract before building or pushing a tag.
+        The newest docs/release-notes/<YYYY.M.PATCH>.md names the release."""
         try:
-            match = re.search(
-                r'public\s+static\s+let\s+short\s*=\s*"([^"]+)"',
-                version_path.read_text(encoding="utf-8"),
-            )
-        except (OSError, UnicodeError) as error:
-            raise ReleaseError(f"release notes source version is unavailable: {version_path}") from error
-        if match is None or CALVER.fullmatch(match.group(1)) is None:
+            version = release_version(self.root)
+        except ReleaseVersionError as error:
+            raise ReleaseError(f"release version is unavailable: {error}") from error
+        if CALVER.fullmatch(version) is None:
             raise ReleaseError("release notes source version must be YYYY.M.PATCH")
-        version = match.group(1)
         if identity is not None and (identity.version != version or identity.tag != f"v{version}"):
             raise ReleaseError("release notes source version does not match the candidate")
         notes_path = self.root / "docs/release-notes" / f"{version}.md"
@@ -1708,8 +1719,98 @@ class LocalReleaseOperations:
             "dependency verification before packaging"
         )
 
+    def _running_unit_gate(self, commit: str) -> bool:
+        """True while full-suite-gate.sh is still writing unit evidence for
+        commit in any worktree of this repository (its folder name carries the
+        short commit and its pid)."""
+        entries = []
+        for parent in evidence_log_roots(self.root):
+            try:
+                entries += list(parent.iterdir())
+            except OSError:
+                continue
+        for entry in entries:
+            match = re.fullmatch(r"gate-[0-9]{8}-[0-9]{6}-([0-9a-f]{4,40})-([0-9]+)", entry.name)
+            if (match is None or not commit.startswith(match.group(1))
+                    or (entry / "gate.result.json").exists()):
+                continue
+            try:
+                os.kill(int(match.group(2)), 0)
+            except (ProcessLookupError, ValueError):
+                continue
+            except PermissionError:
+                pass
+            return True
+        return False
+
+    def _red_unit_result(self, commit: str) -> Path | None:
+        """The newest unit-tier result recorded on exactly this commit, when it
+        failed. A newer passing run on the commit would already cover it."""
+        newest: tuple[float, Path, dict[str, Any]] | None = None
+        for parent in evidence_log_roots(self.root):
+            try:
+                folders = list(parent.iterdir())
+            except OSError:
+                continue
+            for folder in folders:
+                result_path = folder / "gate.result.json"
+                try:
+                    if folder.is_symlink() or result_path.is_symlink() or not result_path.is_file():
+                        continue
+                    result = json.loads(result_path.read_text(encoding="utf-8"))
+                    modified = result_path.stat().st_mtime
+                except (OSError, ValueError, UnicodeError):
+                    continue
+                if (not isinstance(result, dict) or result.get("options", {}).get("tier") != "unit"
+                        or result.get("source", {}).get("commit") != commit):
+                    continue
+                if newest is None or modified > newest[0]:
+                    newest = (modified, result_path, result)
+        if newest is not None and newest[2].get("authorized") is not True:
+            return newest[1]
+        return None
+
+    def _ensure_unit_evidence(self, gate_environment: dict[str, str]) -> dict[str, Any]:
+        """Reuse unit-tier evidence that covers HEAD, wait for a unit-tier
+        run on HEAD that is already going, or run the unit tier now while the
+        candidate compiles. Never two unit-tier runs on one tree."""
+        source = source_identity(self.root)
+        neutral = self.contract.gates.releaseNeutralPaths
+        try:
+            return verify_unit_gate_precondition(self.root, source, neutral)
+        except ReleaseError:
+            pass
+        if self._running_unit_gate(source["commit"]):
+            print("A unit-tier run on this commit is in progress; waiting for its evidence.")
+            deadline = time.monotonic() + UNIT_GATE_WAIT_SECONDS
+            while self._running_unit_gate(source["commit"]):
+                if time.monotonic() > deadline:
+                    raise ReleaseError(
+                        "a unit-tier run on this commit has not finished after "
+                        f"{UNIT_GATE_WAIT_SECONDS // 60} minutes; check its gate-logs folder"
+                    )
+                time.sleep(30)
+            try:
+                return verify_unit_gate_precondition(self.root, source, neutral)
+            except ReleaseError:
+                pass
+        red = self._red_unit_result(source["commit"])
+        if red is not None:
+            # docs/contracts/VERIFICATION-ORDER.md: a red unit tier is
+            # diagnosed and fixed, never retried on the same commit.
+            raise ReleaseError(
+                f"the unit tier failed on this commit ({red}); diagnose the failure, "
+                "fix it in a new commit and package that one"
+            )
+        print("No unit-tier evidence covers this commit; running the unit tier now "
+              "while the candidate compiles (about 25 minutes).")
+        self.runner.run(
+            ["/bin/bash", str(self.root / "scripts/full-suite-gate.sh"), "--tier", "unit", "--quiet"],
+            env=gate_environment, check=False,
+        )
+        return verify_unit_gate_precondition(self.root, source_identity(self.root), neutral)
+
     def run_local_gates(self, request: ReleaseRequest) -> GateEvidence:
-        verify_unit_gate_precondition(self.root, source_identity(self.root))
         if self.contract.gates.dependencyPolicy == "installed":
             verify_dependency_receipt_file(self.root, request.dependency_receipt)
             gate_python = self._managed_gate_python(request)
@@ -1719,11 +1820,17 @@ class LocalReleaseOperations:
             "PATH": f"{gate_python.parent}:{self.runner.environment.get('PATH', '')}",
             "LUNGFISH_RELEASE_PYTHON": str(gate_python),
         }
+        unit_evidence = self._ensure_unit_evidence(gate_environment)
+        print(f"Unit-tier evidence ({unit_evidence['kind']}): {unit_evidence['resultPath']}")
         # The builder replaces release_dir. Keep immutable staging outside it;
         # receipt creation retains and revalidates the exact bytes below it.
         parent = self.root / ".build/gate-logs"
         parent.mkdir(parents=True, exist_ok=True)
         directory = Path(tempfile.mkdtemp(prefix="release-", dir=parent))
+        # Bound into the manifest (and so the receipt) with every other file here.
+        (directory / "unit-precondition.json").write_text(
+            json.dumps(unit_evidence, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+        )
         source = source_identity(self.root)
         dependency_digest = hashlib.sha256(request.dependency_receipt.read_bytes()).hexdigest()
         result_paths = []
@@ -1757,24 +1864,14 @@ class LocalReleaseOperations:
             raise ReleaseError(f"local gate evidence is invalid: {error}") from error
         return GateEvidence(manifest=manifest, sha256=digest)
 
-    def package_only(self, request: ReleaseRequest) -> Path:
-        if request.gate_evidence is None:
-            raise ReleaseError("package requires immutable gate evidence")
-        try:
-            verify_manifest(request.gate_evidence.manifest, request.gate_evidence.sha256,
-                            source_identity(self.root), request.channel, self.contract)
-        except (EvidenceError, OSError, ValueError) as error:
-            raise ReleaseError(f"package gate evidence is invalid: {error}") from error
+    def _package_command(self, request: ReleaseRequest, gate_arguments: list[str]) -> list[str]:
         archive, derived, release_dir = self._paths(request)
         selected_cache = self._cache_paths(request)
-        command = [
+        return [
             "/bin/bash",
             str(SCRIPT_DIR / "build-notarized-dmg.sh"),
             "--package-only",
-            "--gate-manifest",
-            str(request.gate_evidence.manifest),
-            "--gate-manifest-sha256",
-            request.gate_evidence.sha256,
+            *gate_arguments,
             "--channel",
             request.channel,
             "--release-dir",
@@ -1792,11 +1889,76 @@ class LocalReleaseOperations:
             "--github-repository",
             request.github_repository,
         ]
-        self.runner.run(command, env={"LUNGFISH_CLI_INFOPLIST_FILE": str(prepare_identity_plist(self.root, self.contract, request.channel))})
+
+    def start_package_build(self, request: ReleaseRequest) -> PackageBuild:
+        read_end, write_end = os.pipe()
+        try:
+            command = self._package_command(request, ["--gate-handoff-fd", str(read_end)])
+            environment = self.runner.environment.copy()
+            environment["LUNGFISH_CLI_INFOPLIST_FILE"] = str(
+                prepare_identity_plist(self.root, self.contract, request.channel)
+            )
+            # Own process group: an aborted package stops the compiler too.
+            process = subprocess.Popen(
+                command, cwd=self.root, env=environment, stdin=subprocess.DEVNULL,
+                pass_fds=(read_end,), start_new_session=True,
+            )
+        except BaseException:
+            os.close(write_end)
+            raise
+        finally:
+            os.close(read_end)
+        print(f"Building the candidate while the gates run (builder pid {process.pid}).")
+        return PackageBuild(process=process, handoff=write_end, started=time.monotonic())
+
+    def _close_handoff(self, build: PackageBuild) -> None:
+        if build.handoff is not None:
+            os.close(build.handoff)
+            build.handoff = None
+
+    def finish_package_build(self, build: PackageBuild, request: ReleaseRequest) -> Path:
+        if request.gate_evidence is None:
+            self.abort_package_build(build)
+            raise ReleaseError("package requires immutable gate evidence")
+        try:
+            verify_manifest(request.gate_evidence.manifest, request.gate_evidence.sha256,
+                            source_identity(self.root), request.channel, self.contract)
+        except (EvidenceError, OSError, ValueError) as error:
+            self.abort_package_build(build)
+            raise ReleaseError(f"package gate evidence is invalid: {error}") from error
+        handoff = f"PASS\n{request.gate_evidence.sha256}\n{request.gate_evidence.manifest}\n"
+        try:
+            os.write(build.handoff, handoff.encode("utf-8"))
+        except (BrokenPipeError, OSError):
+            pass  # The builder already exited; its status below says why.
+        finally:
+            self._close_handoff(build)
+        status = build.process.wait()
+        _record_timing("build-notarized-dmg.sh", time.monotonic() - build.started, status)
+        if status != 0:
+            raise ReleaseError(f"command failed with exit {status}: build-notarized-dmg.sh")
+        _, _, release_dir = self._paths(request)
         receipt = release_dir / "unsigned-candidate-receipt.json"
         if not receipt.is_file():
             raise ReleaseError("package phase did not produce a candidate receipt")
         return receipt
+
+    def abort_package_build(self, build: PackageBuild) -> None:
+        self._close_handoff(build)
+        if build.process.poll() is None:
+            try:
+                os.killpg(build.process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                build.process.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(build.process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                build.process.wait()
+        _record_timing("build-notarized-dmg.sh", time.monotonic() - build.started, build.process.returncode)
 
     def validate_sparkle_build_number(
         self, request: ReleaseRequest, identity: CandidateIdentity | None = None

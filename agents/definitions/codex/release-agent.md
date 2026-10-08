@@ -61,8 +61,11 @@ local date once and choose one more than the highest patch for that month across
 remote immutable versioned tags and GitHub releases. Exclude drafts and mutable
 `sparkle-*` feed containers; never overwrite a collision.
 
-Harmonize all app/CLI/help/test/managed-lock version declarations. Create
-`docs/release-notes/<version>.md` with `Channel:`, `Previous versioned release:`,
+The release notes file is the version declaration: the newest
+`docs/release-notes/<version>.md` names the release
+(`scripts/release/release_version.py`), and packaging stamps it into the app after
+compiling. Never edit a version in Swift, the Xcode project, the help book or the
+managed-tools lock. Create `docs/release-notes/<version>.md` with `Channel:`, `Previous versioned release:`,
 `Stable baseline:`, and `Dependency set:`. Preview covers the previous
 versioned-release delta. Stable reconciles the Git diff and intervening notes
 from the latest full release or recorded bootstrap baseline and includes

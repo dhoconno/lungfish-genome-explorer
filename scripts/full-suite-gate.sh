@@ -254,10 +254,11 @@ run_gate() {
         "${command[@]}"
         status=$?
     fi
-    # Record where this run's evidence lives: release.py refuses
-    # to package unless it finds a green unit-tier result here for the exact
-    # commit it is releasing. Recorded on both pass and fail, so a red run
-    # is visible to release.py rather than just leaving the prior pointer.
+    # Record where this run's latest unit evidence lives. release.py and the
+    # pre-push hook look for a green unit-tier result under .build/gate-logs
+    # that covers the commit exactly or through release-neutral paths
+    # (scripts/release/gate_evidence.py unit-evidence); this pointer is kept
+    # for people and older tools. Recorded on both pass and fail.
     if [ "$EFFECTIVE_TIER" = "unit" ] && [ -f "$EVIDENCE_DIR/gate.result.json" ]; then
         local pointer="$PROJECT_ROOT/.build/gate-logs/latest-unit.json"
         "${LUNGFISH_RELEASE_PYTHON:-python3}" -c '

@@ -127,6 +127,7 @@ class GateContract:
     appSmokeAccount: str
     dependencyPolicy: str = "installed"
     appSmokeRequired: bool = True
+    releaseNeutralPaths: tuple[str, ...] = ()
 
     def for_channel(self, name: str) -> tuple[GateStep, ...]:
         try:
@@ -141,6 +142,7 @@ class GateContract:
             "appSmokeAccount": self.appSmokeAccount,
             "dependencyPolicy": self.dependencyPolicy,
             "appSmokeRequired": self.appSmokeRequired,
+            "releaseNeutralPaths": list(self.releaseNeutralPaths),
             "channels": {
                 name: [step.to_dict() for step in steps]
                 for name, steps in self.channels.items()
@@ -284,7 +286,7 @@ def _parse_toolchain(raw: Any) -> ToolchainContract:
 
 def _parse_gates(raw: Any) -> GateContract:
     value = _require_object(raw, "gates")
-    _require_fields(value, GATE_FIELDS | (set(value) & {"dependencyPolicy", "appSmokeRequired"}), "gates")
+    _require_fields(value, GATE_FIELDS | (set(value) & {"dependencyPolicy", "appSmokeRequired", "releaseNeutralPaths"}), "gates")
     modules = value["focusedReleaseTests"]
     if not isinstance(modules, list) or not modules:
         raise ValueError("gates.focusedReleaseTests must be a nonempty array")
@@ -336,7 +338,30 @@ def _parse_gates(raw: Any) -> GateContract:
         raise ValueError("unknown dependency policy")
     app_smoke_required = value.get("appSmokeRequired", True)
     _require_type(app_smoke_required, bool, "gates.appSmokeRequired")
-    return GateContract(tuple(focused), MappingProxyType(channels), tuple(app_smoke), account, dependency_policy, app_smoke_required)
+    neutral = _parse_release_neutral_paths(value.get("releaseNeutralPaths", []))
+    return GateContract(tuple(focused), MappingProxyType(channels), tuple(app_smoke), account,
+                        dependency_policy, app_smoke_required, neutral)
+
+
+def _parse_release_neutral_paths(raw: Any) -> tuple[str, ...]:
+    """Paths whose changes cannot alter a Swift test result, so unit-tier
+    evidence carries across them (docs/contracts/VERIFICATION-ORDER.md).
+    Only documentation qualifies: each entry is an exact docs/ file or a
+    docs/ folder ending in /**, with no other wildcard and no '..'."""
+    if not isinstance(raw, list):
+        raise ValueError("gates.releaseNeutralPaths must be an array")
+    paths: list[str] = []
+    for index, entry in enumerate(raw):
+        _require_type(entry, str, f"gates.releaseNeutralPaths[{index}]")
+        body = entry[:-3] if entry.endswith("/**") else entry
+        parts = body.split("/")
+        if (not entry.startswith("docs/") or len(parts) < 2 or any(part in {"", ".", ".."} for part in parts)
+                or any(character in body for character in "*?[]\\")):
+            raise ValueError(f"release-neutral path must be a docs/ file or docs/ folder ending in /**: {entry}")
+        paths.append(entry)
+    if len(paths) != len(set(paths)):
+        raise ValueError("duplicate release-neutral path")
+    return tuple(paths)
 
 
 def _reject_duplicates(channels: Mapping[str, ChannelContract]) -> None:

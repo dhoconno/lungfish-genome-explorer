@@ -11,6 +11,7 @@ These documents are the written rules for extending Lungfish Genome Explorer (LG
 | `docs/contracts/READ-PAIRING.md` | change how any tool receives paired, merged or single reads, or add a tool that reads FASTQ |
 | `docs/contracts/EXTERNAL-VOLUMES.md` | touch the file system in any way, because the project may live on an ExFAT external drive |
 | `docs/contracts/CONCURRENCY-PLAYBOOK.md` | move work off the main actor, report progress, or apply a result that might be stale |
+| `docs/contracts/VERIFICATION-ORDER.md` | run tests, gates, golden comparisons or a GUI walk in a session, or package and publish a release, so that nothing runs twice on the same code |
 | `docs/contracts/SCREENCASTS.md` | make a new screencast, change one after review, or publish one to the website's Videos page |
 | `docs/contracts/screencast-checklist.md` | need the copyable per-video checklist |
 

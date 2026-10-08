@@ -263,33 +263,43 @@ Pinned dependency set `2026.2`.
                     root, "0.5.0-beta29", "2026.8.1", "v0.5.0-beta29"
                 )
 
-    def test_version_updater_changes_only_configured_release_version_files(self):
+    def test_release_notes_name_the_version_and_are_the_only_release_change(self):
+        # No source file carries the version: the newest CalVer notes file
+        # names it, and preparing a release commits that file alone.
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            for relative_path in self.release.VERSIONED_FILES:
-                target = root / relative_path
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text("version 0.5.0-beta13\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q", "-b", "main", str(root)], check=True)
+            for key, value in (("user.email", "test@example.com"), ("user.name", "Test")):
+                subprocess.run(["git", "-C", str(root), "config", key, value], check=True)
+            notes = root / "docs" / "release-notes"
+            notes.mkdir(parents=True)
+            (notes / "v0.5.0-beta13.md").write_text("# Lungfish 0.5.0-beta13\n", encoding="utf-8")
+            (notes / "2026.7.9.md").write_text("# Lungfish 2026.7.9\n", encoding="utf-8")
+            manifest = root / "Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text('{"dependencySet": "2026.2", "version": "2026.7.9"}\n', encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-q", "-m", "base"], check=True)
+            self.assertEqual(self.release.current_version(root), "2026.7.9")
 
-            old_release_note = root / "docs" / "release-notes" / "v0.5.0-beta13.md"
-            old_release_note.parent.mkdir(parents=True, exist_ok=True)
-            old_release_note.write_text("# Lungfish 0.5.0-beta13\n", encoding="utf-8")
-
-            changed = self.release.update_versioned_files(
-                root,
-                "0.5.0-beta13",
-                "2026.8.1",
+            (notes / "2026.8.1.md").write_text(
+                "# Lungfish 2026.8.1\n\nChannel: Preview\n\n"
+                "Previous versioned release: v2026.7.9\n\n"
+                "Stable baseline: None\n\nDependency set: 2026.2\n\n"
+                "## Dependency versions\n",
+                encoding="utf-8",
             )
+            self.release.prepare_release_commit(root, "v2026.8.1", "2026.7.9", "2026.8.1", "v2026.7.9")
 
-            self.assertEqual(set(changed), set(self.release.VERSIONED_FILES))
-            for relative_path in self.release.VERSIONED_FILES:
-                self.assertIn(
-                    "2026.8.1", (root / relative_path).read_text(encoding="utf-8")
-                )
-            self.assertEqual(
-                old_release_note.read_text(encoding="utf-8"),
-                "# Lungfish 0.5.0-beta13\n",
-            )
+            changed = subprocess.run(
+                ["git", "-C", str(root), "show", "--name-only", "--format=%s", "HEAD"],
+                text=True, capture_output=True, check=True,
+            ).stdout.split()
+            self.assertEqual(changed, ["release:", "v2026.8.1", "docs/release-notes/2026.8.1.md"])
+            self.assertEqual(self.release.current_version(root), "2026.8.1")
+            self.release.verify_prepared_release(root, "2026.8.1", "v2026.7.9")
+            with self.assertRaisesRegex(self.release.NightlyReleaseError, "do not name the new version"):
+                self.release.verify_prepared_release(root, "2026.8.2", "v2026.8.1")
 
     def test_prepared_release_can_resume_without_another_version_commit(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1350,6 +1360,13 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         def doctor_credentials(self, _request):
             self.events.append("doctor:credentials")
 
+        def start_package_build(self, _request):
+            self.events.append("builder-start")
+            self.build = self.coordinator.PackageBuild(
+                process=None, handoff=None, started=0.0
+            )
+            return self.build
+
         def run_local_gates(self, _request):
             self.events.append("local-release-gates")
             self.gates = self.coordinator.GateEvidence(
@@ -1373,10 +1390,14 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         def coordinator_error(message):
             return RuntimeError(message)
 
-        def package_only(self, request):
-            self.events.append("package-only")
+        def finish_package_build(self, build, request):
+            self.events.append("builder-finish")
+            assert build is self.build
             assert request.gate_evidence is self.gates
             return request.receipt
+
+        def abort_package_build(self, build):
+            self.events.append("builder-abort")
 
         def verify_candidate_receipt(self, request):
             self.events.append("verify-candidate-receipt")
@@ -1496,8 +1517,9 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
             [
                 "package-source",
                 "doctor:package",
+                "builder-start",
                 "local-release-gates",
-                "package-only",
+                "builder-finish",
                 "verify-candidate-receipt",
                 "source-history",
                 "verify-candidate-receipt",
@@ -1522,7 +1544,8 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
 
         self.assertEqual(operations.events[0], "source-history")
         self.assertNotIn("doctor:package", operations.events)
-        self.assertNotIn("package-only", operations.events)
+        for rebuild in ("builder-start", "builder-finish", "builder-abort"):
+            self.assertNotIn(rebuild, operations.events)
         self.assertNotIn("focused-release-tests", operations.events)
         self.assertEqual(operations.events.count("doctor:credentials"), 2)
         self.assertEqual(operations.events.count("sparkle-build-number"), 2)

@@ -74,6 +74,16 @@ EXPECTED_GATES = {
     # False until the owner creates the dedicated lungfish-release-qa macOS account the
     # real-app smoke runs under. Flip both together.
     "appSmokeRequired": False,
+    # Documentation no test reads: unit-tier evidence carries across changes to these paths
+    # (docs/contracts/VERIFICATION-ORDER.md). Grow it only with proof that nothing reads the path.
+    "releaseNeutralPaths": [
+        "docs/release-notes/**",
+        "docs/plans/**",
+        "docs/reports/**",
+        "docs/contracts/**",
+        "docs/architecture/**",
+        "docs/release/NEXT-RELEASE-HANDOFF.md",
+    ],
     "focusedReleaseTests": [
         "scripts.tests.test_test_catalog",
         "scripts.tests.test_release_contract",
@@ -81,6 +91,7 @@ EXPECTED_GATES = {
         "scripts.tests.test_gate_profile_evidence",
         "scripts.tests.test_release_identity",
         "scripts.tests.test_release_notes_preflight",
+        "scripts.tests.test_release_version",
     ],
     "channels": {
         "preview": [{"tier": "release", "requireTools": False}],
@@ -352,6 +363,106 @@ class ReleaseContractTests(unittest.TestCase):
             with self.subTest(duplicate=label):
                 with self.assertRaisesRegex(ValueError, "duplicate.*appcast"):
                     self.module.load_contract(self.write_contract(mutation))
+
+    def contract_with_neutral_paths(self, value):
+        data = copy.deepcopy(self.raw_contract)
+        data["gates"]["releaseNeutralPaths"] = value
+        return data
+
+    def test_release_neutral_paths_accept_docs_files_and_docs_folders(self):
+        accepted = [
+            ["docs/release-notes/**"],
+            ["docs/contracts/README.md"],
+            ["docs/release-notes/**", "docs/contracts/README.md"],
+            ["docs/a/b/c/**"],
+            ["docs/a.md", "docs/b.md"],
+            [],
+        ]
+        for value in accepted:
+            with self.subTest(value=value):
+                loaded = self.module.load_contract(self.write_contract(self.contract_with_neutral_paths(value)))
+
+                self.assertEqual(loaded.gates.releaseNeutralPaths, tuple(value))
+
+    def test_release_neutral_paths_reject_anything_but_docs_files_and_docs_folders(self):
+        rejected = {
+            "source folder": ["Sources/**"],
+            "source file": ["Sources/LungfishCore/Example.swift"],
+            "script": ["scripts/release/release.py"],
+            "package manifest": ["Package.swift"],
+            "contract": ["config/release-contract.json"],
+            "all of docs": ["docs/**"],
+            "bare docs": ["docs"],
+            "docs root slash": ["docs/"],
+            "docs lookalike": ["docs-extra/x.md"],
+            "star in a name": ["docs/a*"],
+            "star between folders": ["docs/a/**/b"],
+            "single-star folder": ["docs/release-notes/*"],
+            "star as a folder": ["docs/*/x.md"],
+            "doubled recursion": ["docs/a/**/**"],
+            "question mark": ["docs/a?.md"],
+            "character class": ["docs/[ab].md"],
+            "backslash": ["docs\\a.md"],
+            "parent segment": ["docs/../x"],
+            "parent out of docs": ["docs/release-notes/../../Sources/x.swift"],
+            "parent before a folder glob": ["docs/release-notes/../**"],
+            "absolute path": ["/docs/x"],
+            "dot segment": ["docs/./x"],
+            "empty segment": ["docs//x"],
+            "trailing slash": ["docs/release-notes/"],
+            "empty entry": [""],
+            "duplicate": ["docs/release-notes/**", "docs/release-notes/**"],
+            "duplicate after a valid entry": ["docs/a.md", "docs/b.md", "docs/a.md"],
+        }
+        for label, value in rejected.items():
+            with self.subTest(label):
+                with self.assertRaisesRegex(ValueError, "release-neutral|releaseNeutralPaths"):
+                    self.module.load_contract(self.write_contract(self.contract_with_neutral_paths(value)))
+
+    def test_release_neutral_paths_reject_values_that_are_not_a_list_of_strings(self):
+        rejected = {
+            "string": "docs/release-notes/**",
+            "object": {"docs/release-notes/**": True},
+            "number": 7,
+            "null": None,
+            "number entry": [7],
+            "null entry": [None],
+            "boolean entry": [True],
+            "list entry": [["docs/release-notes/**"]],
+            "object entry": [{"path": "docs/release-notes/**"}],
+            "valid entry then bad entry": ["docs/release-notes/**", 3],
+        }
+        for label, value in rejected.items():
+            with self.subTest(label):
+                with self.assertRaisesRegex(ValueError, "releaseNeutralPaths"):
+                    self.module.load_contract(self.write_contract(self.contract_with_neutral_paths(value)))
+
+    def test_an_absent_release_neutral_list_is_empty_not_a_default(self):
+        data = copy.deepcopy(self.raw_contract)
+        del data["gates"]["releaseNeutralPaths"]
+
+        loaded = self.module.load_contract(self.write_contract(data))
+
+        self.assertEqual(loaded.gates.releaseNeutralPaths, ())
+        self.assertEqual(loaded.to_dict()["gates"]["releaseNeutralPaths"], [])
+
+    def test_release_neutral_paths_round_trip_through_to_dict(self):
+        original = self.module.load_contract(CONTRACT_PATH)
+        data = copy.deepcopy(self.raw_contract)
+        data["gates"] = original.to_dict()["gates"]
+
+        reloaded = self.module.load_contract(self.write_contract(data))
+
+        self.assertEqual(original.to_dict()["gates"]["releaseNeutralPaths"], list(original.gates.releaseNeutralPaths))
+        self.assertEqual(reloaded.gates.releaseNeutralPaths, original.gates.releaseNeutralPaths)
+        self.assertEqual(reloaded.to_dict()["gates"], original.to_dict()["gates"])
+
+    def test_release_neutral_paths_are_not_an_unknown_gate_field(self):
+        data = self.contract_with_neutral_paths(["docs/release-notes/**"])
+        data["gates"]["releaseNeutralPath"] = ["docs/release-notes/**"]
+
+        with self.assertRaisesRegex(ValueError, "gates"):
+            self.module.load_contract(self.write_contract(data))
 
     def test_builder_describe_channel_matches_contract_without_credentials(self):
         for name, expected in EXPECTED_CHANNELS.items():

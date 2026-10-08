@@ -66,6 +66,7 @@ fi
             "config/test-catalog.json",
             "scripts/release/gate_evidence.py",
             "scripts/release/release_contract.py",
+            "scripts/release/release_version.py",
             "scripts/release/release_cache_fingerprint.py",
             "scripts/release/release_cache_security.py",
             "scripts/release/release_repository.py",

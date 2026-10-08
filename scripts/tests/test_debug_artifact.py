@@ -142,8 +142,12 @@ class DebugArtifactTests(unittest.TestCase):
             shutil.copy2(source / relative, target)
         release = root / 'scripts/release'
         release.mkdir()
-        for name in ('release_contract.py', 'release_identity.py', 'release_xcode.py', 'debug_artifact.py', 'swiftpm_build.py'):
+        for name in ('release_contract.py', 'release_identity.py', 'release_xcode.py', 'debug_artifact.py', 'swiftpm_build.py',
+                     'release_version.py'):
             shutil.copy2(source / 'scripts/release' / name, release / name)
+        notes = root / 'docs/release-notes'
+        notes.mkdir(parents=True)
+        (notes / '2026.8.1.md').write_text('# Lungfish 2026.8.1\n')
         developer = self.root / 'Xcode.app/Contents/Developer'
         (developer / 'usr/bin').mkdir(parents=True)
         xcodebuild = developer / 'usr/bin/xcodebuild'

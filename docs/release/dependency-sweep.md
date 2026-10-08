@@ -344,9 +344,9 @@ Also carry into the notes any upstream taxonomy or display-name change in a
 bumped database, since users match on those names even though the parsers
 carry taxonomy ids.
 
-### 8. Bump the app version and release
+### 8. Write the release notes and release
 
-Bump the app version and run the release skill
+Write `docs/release-notes/<version>.md`, which declares the app version, and run the release skill
 (`.codex/skills/releasing-lungfish/SKILL.md`). Every release gate validates the
 isolated verification receipt against the manifest's exact dependency set and
 canonical hash, then runs the channel's blocking gates locally before creating
@@ -354,8 +354,8 @@ the candidate receipt. GitHub Actions is advisory: main and pull requests run
 the Fast gate, while build, full-suite, and toolset-conformance diagnostics are
 available only by explicit dispatch and never authorize or block publication.
 
-Remember that the app version itself is restated in roughly eight source
-locations plus two test expectations, which all move together.
+No source file carries the app version. Packaging stamps the newest release-notes
+version into the app after compiling (`scripts/release/release_version.py`).
 
 ## Known-risk checklist
 

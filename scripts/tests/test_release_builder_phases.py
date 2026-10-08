@@ -1,3 +1,4 @@
+import fcntl
 import hashlib
 import inspect
 import json
@@ -73,6 +74,7 @@ class ReleaseBuilderFixture:
             ".gitignore",
             "scripts/release/build-notarized-dmg.sh",
             "scripts/release/release_contract.py",
+            "scripts/release/release_version.py",
             "scripts/release/release_identity.py",
             "scripts/release/release_archive.py",
             "scripts/release/debug_artifact.py",
@@ -754,7 +756,12 @@ class ReleaseBuilderFixture:
         extra_env=None,
         coordinated=True,
         include_output_paths=True,
+        with_gate_manifest=True,
+        pass_fds=(),
     ):
+        """``with_gate_manifest=False`` leaves the gate evidence out of the
+        command line, as the coordinator does when it hands the result over a
+        descriptor instead (``pass_fds`` keeps that descriptor open)."""
         environment = os.environ.copy()
         environment.update(
             {
@@ -782,11 +789,9 @@ class ReleaseBuilderFixture:
             environment["LUNGFISH_RELEASE_COORDINATOR_CAPABILITY"] = "a" * 64
         command = ["/bin/bash", str(self.builder)]
         channel = arguments[arguments.index("--channel") + 1] if "--channel" in arguments else "stable"
-        staging = Path(tempfile.mkdtemp(prefix="gates-", dir=self.root)) / "evidence"
-        manifest = make_gate_fixture(staging, {"clean": True, "commit": self._git("rev-parse", "HEAD").stdout.strip()}, channel,
-                                     json.loads((self.repo / "config/release-contract.json").read_text())["gates"]["focusedReleaseTests"],
-                                     contract_path=self.repo / "config/release-contract.json")
-        command += ["--gate-manifest", str(manifest), "--gate-manifest-sha256", hashlib.sha256(manifest.read_bytes()).hexdigest()]
+        if with_gate_manifest:
+            manifest, digest = self.gate_manifest(channel)
+            command += ["--gate-manifest", str(manifest), "--gate-manifest-sha256", digest]
 
         if include_output_paths:
             command.extend(
@@ -808,7 +813,16 @@ class ReleaseBuilderFixture:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=False,
+            pass_fds=pass_fds,
         )
+
+    def gate_manifest(self, channel):
+        """Retained gate evidence for the fixture's HEAD: the manifest path and its SHA-256."""
+        staging = Path(tempfile.mkdtemp(prefix="gates-", dir=self.root)) / "evidence"
+        manifest = make_gate_fixture(staging, {"clean": True, "commit": self._git("rev-parse", "HEAD").stdout.strip()}, channel,
+                                     json.loads((self.repo / "config/release-contract.json").read_text())["gates"]["focusedReleaseTests"],
+                                     contract_path=self.repo / "config/release-contract.json")
+        return manifest, hashlib.sha256(manifest.read_bytes()).hexdigest()
 
     def event_lines(self):
         return self.events.read_text().splitlines() if self.events.exists() else []
@@ -2351,6 +2365,104 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         for tool in ("codesign", "ditto", "hdiutil", "xcrun"):
             with self.subTest(tool=tool):
                 self.assertIn(f"/usr/bin/{tool}", source)
+
+    def run_with_handoff(self, handoff, *arguments, high_descriptor=False):
+        """Run the builder as the coordinator does: no gate manifest on the
+        command line, and an inherited pipe that carries the gate result once
+        the candidate is assembled. ``handoff`` is what the coordinator wrote
+        before it closed its end, or None when it closed the pipe unwritten.
+        ``high_descriptor`` moves the read end above 40, as happens when the
+        coordinator has many files open."""
+        read_end, write_end = os.pipe()
+        if high_descriptor:
+            moved = fcntl.fcntl(read_end, fcntl.F_DUPFD, 40)
+            os.close(read_end)
+            read_end = moved
+        try:
+            if handoff is not None:
+                os.write(write_end, handoff.encode())
+            os.close(write_end)
+            write_end = None
+            return self.fixture.run("--package-only", *arguments, "--gate-handoff-fd", str(read_end),
+                                    with_gate_manifest=False, pass_fds=(read_end,))
+        finally:
+            os.close(read_end)
+            if write_end is not None:
+                os.close(write_end)
+
+    def test_gate_handoff_descriptor_needs_package_only_a_high_descriptor_and_no_gate_manifest(self):
+        cases = (
+            ("without --package-only", ("--gate-handoff-fd", "7"), False),
+            ("together with --gate-manifest", ("--package-only", "--gate-handoff-fd", "7"), True),
+            ("standard input", ("--package-only", "--gate-handoff-fd", "0"), False),
+            ("standard error", ("--package-only", "--gate-handoff-fd", "2"), False),
+            ("not a number", ("--package-only", "--gate-handoff-fd", "pipe"), False),
+            ("negative", ("--package-only", "--gate-handoff-fd", "-3"), False),
+            ("leading zero", ("--package-only", "--gate-handoff-fd", "07"), False),
+            ("beyond four digits", ("--package-only", "--gate-handoff-fd", "10000"), False),
+        )
+        for label, arguments, with_gate_manifest in cases:
+            with self.subTest(label):
+                before = len(self.fixture.event_lines())
+
+                result = self.fixture.run(*arguments, "--channel", "stable", with_gate_manifest=with_gate_manifest)
+
+                self.assertEqual(result.returncode, 64, result.stdout + result.stderr)
+                self.assertIn("--gate-handoff-fd needs --package-only", result.stderr)
+                self.assertEqual(self.fixture.event_lines()[before:], [], "nothing was built or probed")
+                self.assertFalse((self.fixture.release / "unsigned-candidate-receipt.json").exists())
+
+    def test_gate_handoff_pass_lets_the_builder_write_the_receipt(self):
+        manifest, digest = self.fixture.gate_manifest("stable")
+
+        result = self.run_with_handoff(f"PASS\n{digest}\n{manifest}\n", "--channel", "stable")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("waiting for the release gates", result.stderr)
+        self.assertIn("Unsigned package complete", result.stdout)
+        receipt = json.loads((self.fixture.release / "unsigned-candidate-receipt.json").read_text())
+        self.assertEqual(receipt["gates"]["sha256"], digest, "the receipt binds the evidence handed over the pipe")
+        self.assertTrue((self.fixture.release / "package-metadata.txt").is_file())
+
+    def test_gate_handoff_without_a_pass_leaves_an_assembled_candidate_and_no_receipt(self):
+        for label, handoff in (("pipe closed unwritten", None), ("a failure reported", "FAIL\n")):
+            with self.subTest(label):
+                result = self.run_with_handoff(handoff, "--channel", "stable")
+
+                self.assertEqual(result.returncode, 75, result.stdout + result.stderr)
+                self.assertIn("release gates did not pass", result.stderr)
+                self.assertFalse((self.fixture.release / "unsigned-candidate-receipt.json").exists())
+                self.assertFalse((self.fixture.release / "package-metadata.txt").exists())
+                self.assertNotIn("Unsigned package complete", result.stdout)
+                # The builder does all its work before it waits, so a late gate result costs nothing.
+                events = self.fixture.event_lines()
+                self.assertTrue(any(line.startswith("xcodebuild:") for line in events), "the compile ran first")
+                self.assertTrue(any(line.startswith("smoke:complete:") for line in events), "so did the smoke tests")
+                self.assertTrue((self.fixture.release / "Lungfish.app").is_dir(), "the candidate app is assembled")
+
+    def test_gate_handoff_that_is_malformed_writes_no_receipt(self):
+        manifest, digest = self.fixture.gate_manifest("stable")
+        cases = (
+            ("digest is not hex", f"PASS\nnot-a-digest\n{manifest}\n", False),
+            # Exit 65 rather than 75 shows the PASS line was read from a two-digit descriptor.
+            ("manifest is missing, on a high descriptor", f"PASS\n{digest}\n{manifest}.missing\n", True),
+        )
+        for label, handoff, high_descriptor in cases:
+            with self.subTest(label):
+                result = self.run_with_handoff(handoff, "--channel", "stable", high_descriptor=high_descriptor)
+
+                self.assertEqual(result.returncode, 65, result.stdout + result.stderr)
+                self.assertIn("handoff is malformed", result.stderr)
+                self.assertFalse((self.fixture.release / "unsigned-candidate-receipt.json").exists())
+
+    def test_gate_handoff_with_the_wrong_digest_still_fails_receipt_verification(self):
+        manifest, _digest = self.fixture.gate_manifest("stable")
+
+        result = self.run_with_handoff(f"PASS\n{'0' * 64}\n{manifest}\n", "--channel", "stable")
+
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((self.fixture.release / "unsigned-candidate-receipt.json").exists())
+        self.assertNotIn("Unsigned package complete", result.stdout)
 
     def test_raw_reuse_flags_fail_with_receipt_migration_guidance(self):
         for flag in ("--reuse-archive", "--reuse-built-cli"):
