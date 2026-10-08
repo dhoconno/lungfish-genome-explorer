@@ -272,10 +272,12 @@ def prepare_golden_home(home: Path = GOLDEN_HOME) -> None:
 def share_tree(root: Path) -> None:
     """Make what this account wrote under root writable by its group.
 
-    Tools ignore the umask for some folders (lungfish-cli creates
-    .lungfish-operation-history as 0755, conda packages keep their own
-    modes), and another account can delete or replace an entry only when its
-    folder is group writable. Entries other accounts own are left as they are.
+    Tools ignore the umask for some entries (lungfish-cli writes
+    .lungfish-operation-history folders as 0700 and their files as 0600,
+    conda packages keep their own modes). Another account can list and
+    delete a folder only with group read, write and search, and can replace
+    a file only with group read and write. Entries other accounts own are
+    left as they are.
     """
     if not root.exists():
         return
@@ -288,9 +290,7 @@ def share_tree(root: Path) -> None:
         if status.st_uid != uid or path.is_symlink():
             continue
         mode = status.st_mode & 0o7777
-        wanted = mode | 0o020
-        if path.is_dir():
-            wanted |= 0o2010
+        wanted = mode | (0o2070 if path.is_dir() else 0o060)
         if wanted != mode:
             path.chmod(wanted)
 

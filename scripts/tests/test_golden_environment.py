@@ -248,11 +248,11 @@ def test_share_tree_lets_the_group_replace_what_this_account_wrote(tmp_path):
     history = tmp_path / "run" / ".lungfish-operation-history" / "a"
     history.mkdir(parents=True)
     (history / "row.json").write_text("{}")
-    (history / "row.json").chmod(0o644)
-    history.chmod(0o755)
+    (history / "row.json").chmod(0o600)  # as lungfish-cli writes them
+    history.chmod(0o700)
     history.parent.chmod(0o755)
     (tmp_path / "run" / "link").symlink_to("/nonexistent")
     environment.share_tree(tmp_path / "run")
-    assert history.stat().st_mode & 0o7777 == 0o2775
-    assert history.parent.stat().st_mode & 0o2070 == 0o2070
-    assert (history / "row.json").stat().st_mode & 0o777 == 0o664
+    assert history.stat().st_mode & 0o7777 == 0o2770
+    assert history.parent.stat().st_mode & 0o7777 == 0o2775
+    assert (history / "row.json").stat().st_mode & 0o777 == 0o660
