@@ -478,6 +478,12 @@ final class NativeProcessRunState: @unchecked Sendable {
         return cancelled
     }
 
+    var isTimedOut: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return timedOut
+    }
+
     func resumeOnce(_ body: (NativeProcessCompletionReason) -> Void) {
         let reason: NativeProcessCompletionReason
         lock.lock()

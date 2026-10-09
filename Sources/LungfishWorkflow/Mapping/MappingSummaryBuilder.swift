@@ -8,6 +8,8 @@ import LungfishIO
 public enum MappingSummaryBuilderError: Error, LocalizedError, Sendable {
     case samtoolsCoverageFailed(String)
     case samtoolsViewFailed(String)
+    /// The step ran past its time limit and its processes were stopped.
+    case samtoolsTimedOut(step: String, seconds: TimeInterval)
 
     public var errorDescription: String? {
         switch self {
@@ -15,6 +17,8 @@ public enum MappingSummaryBuilderError: Error, LocalizedError, Sendable {
             return "samtools coverage failed: \(detail)"
         case .samtoolsViewFailed(let detail):
             return "samtools view failed: \(detail)"
+        case .samtoolsTimedOut(let step, let seconds):
+            return "\(step) did not finish within \(Int(seconds.rounded(.up))) seconds and was stopped"
         }
     }
 }
@@ -273,6 +277,10 @@ public enum MappingSummaryBuilder {
         view.currentDirectoryURL = sortedBAMURL.deletingLastPathComponent()
         // This is an actual pipeline, not an assignment to a nil default stdin.
         view.standardOutput = input
+        // Captured so that a failing view names its own error. It used to inherit
+        // this process's stderr, and its failure surfaced as coverage's empty one.
+        let viewError = Pipe()
+        view.standardError = viewError
 
         coverageCancellationHandle.store(coverage)
         viewCancellationHandle.store(view)
@@ -283,8 +291,13 @@ public enum MappingSummaryBuilder {
 
         let stdoutBox = MappingSummaryDataBox()
         let stderrBox = MappingSummaryDataBox()
+        let viewStderrBox = MappingSummaryDataBox()
         let drainGroup = DispatchGroup()
-        for (handle, box) in [(output.fileHandleForReading, stdoutBox), (error.fileHandleForReading, stderrBox)] {
+        for (handle, box) in [
+            (output.fileHandleForReading, stdoutBox),
+            (error.fileHandleForReading, stderrBox),
+            (viewError.fileHandleForReading, viewStderrBox),
+        ] {
             drainGroup.enter()
             DispatchQueue.global().async {
                 box.value = handle.readDataToEndOfFile()
@@ -305,6 +318,7 @@ public enum MappingSummaryBuilder {
             viewCancellationHandle.terminateIfRequested()
         } catch {
             input.fileHandleForWriting.closeFile()
+            viewError.fileHandleForWriting.closeFile()
             coverageCancellationHandle.requestProcessTreeTermination()
             coverage.waitUntilExit()
             drainGroup.wait()
@@ -318,7 +332,15 @@ public enum MappingSummaryBuilder {
         let stdout = String(data: stdoutBox.value, encoding: .utf8) ?? ""
         let stderr = String(data: stderrBox.value, encoding: .utf8) ?? ""
         if runState.isCancelled { throw CancellationError() }
-        guard view.terminationStatus == 0, coverage.terminationStatus == 0 else {
+        // A timeout stops both processes, so their exit status says nothing about
+        // samtools. It was reported as "samtools coverage failed: " with no detail.
+        if runState.isTimedOut {
+            throw MappingSummaryBuilderError.samtoolsTimedOut(step: "samtools view | samtools coverage", seconds: timeout)
+        }
+        guard view.terminationStatus == 0 else {
+            throw MappingSummaryBuilderError.samtoolsViewFailed(String(data: viewStderrBox.value, encoding: .utf8) ?? "")
+        }
+        guard coverage.terminationStatus == 0 else {
             throw MappingSummaryBuilderError.samtoolsCoverageFailed(stderr)
         }
         return stdout

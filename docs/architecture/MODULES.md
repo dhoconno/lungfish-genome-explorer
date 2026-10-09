@@ -25,7 +25,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 6 | 2473 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 8 | 8359 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 14 | 3548 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 708 | 226559 | 1348 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 708 | 226587 | 1348 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 4 | 399 | 2 | LungfishKit, LungfishTestSupport |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 34 | 5961 | 28 | LungfishCore, LungfishIO, LungfishWorkflow |
 
@@ -50,7 +50,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUITests | Tests/LungfishPhylogeneticsUITests | 4 | 1114 | LungfishIO, LungfishKit, LungfishPhylogeneticsUI, LungfishTestSupport, LungfishWorkflow |
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 10 | 3200 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 12 | 2554 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
-| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 388 | 160752 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
+| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 388 | 160820 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 
 ## Lungfish
 
@@ -1775,7 +1775,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 708, lines 226559
+- Swift files. 708, lines 226587
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1804,10 +1804,10 @@ None.
 | Geneious | 10 | 2380 |
 | Ingestion | 29 | 10152 |
 | MSA | 14 | 2641 |
-| Mapping | 24 | 9636 |
+| Mapping | 24 | 9658 |
 | Metagenomics | 48 | 20559 |
 | Metagenomics/CzId | 3 | 909 |
-| Native | 9 | 5115 |
+| Native | 9 | 5121 |
 | ONTGenotyping | 154 | 48285 |
 | Orient | 1 | 670 |
 | PBAA | 4 | 930 |
@@ -2490,7 +2490,7 @@ None.
 - `MappingResultLayoutService` enum, `Sources/LungfishWorkflow/Mapping/MappingResultLayoutService.swift:20`
 - `MappingResultLoadError` enum, `Sources/LungfishWorkflow/Mapping/MappingResult.swift:192`
 - `MappingRunRequest` struct, `Sources/LungfishWorkflow/Mapping/MappingRunRequest.swift:71`
-- `MappingSummaryBuilder` enum, `Sources/LungfishWorkflow/Mapping/MappingSummaryBuilder.swift:22`
+- `MappingSummaryBuilder` enum, `Sources/LungfishWorkflow/Mapping/MappingSummaryBuilder.swift:26`
 - `MappingSummaryBuilderError` enum, `Sources/LungfishWorkflow/Mapping/MappingSummaryBuilder.swift:8`
 - `MappingTool` enum, `Sources/LungfishWorkflow/Mapping/MappingTool.swift:8`
 - `MappingViewerBundlePreparer` enum, `Sources/LungfishWorkflow/Mapping/MappingViewerBundlePreparer.swift:10`
@@ -2572,7 +2572,7 @@ None.
 - `NativeBundleBuildError` enum, `Sources/LungfishWorkflow/Native/NativeBundleBuilder.swift:1763`
 - `NativePipelineResult` struct, `Sources/LungfishWorkflow/Native/NativeToolRunner.swift:1434`
 - `NativePipelineStage` struct, `Sources/LungfishWorkflow/Native/NativeToolRunner.swift:1457`
-- `NativeProcessCancellationHandle` class, `Sources/LungfishWorkflow/Native/ProcessTreeTerminator.swift:501`
+- `NativeProcessCancellationHandle` class, `Sources/LungfishWorkflow/Native/ProcessTreeTerminator.swift:507`
 - `NativeProcessEvent` enum, `Sources/LungfishWorkflow/Native/NativeToolRunner.swift:13`
 - `NativeProcessObservation` enum, `Sources/LungfishWorkflow/Native/NativeToolRunner.swift:22`
 - `NativeProcessRegistry` class, `Sources/LungfishWorkflow/Native/ProcessTreeTerminator.swift:385`

@@ -46,7 +46,9 @@ final class MappingSummaryBuilderTests: XCTestCase {
         try Data().write(to: bam)
         let summaries = try await MappingSummaryBuilder.build(
             sortedBAMURL: bam, totalReads: 99, readGroupIDs: ["S1-A", "S1-B"],
-            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview), timeout: 2
+            // Not a test of the time limit. Two seconds timed out a loaded unit tier
+            // on the Mac Studio, where two bash processes took that long to start.
+            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview), timeout: 300
         )
         XCTAssertEqual(try XCTUnwrap(summaries.first).mappedReadPercent, 25, accuracy: 0.001)
         let invocationLog = try String(contentsOf: log, encoding: .utf8)
@@ -55,6 +57,72 @@ final class MappingSummaryBuilderTests: XCTestCase {
         XCTAssertTrue(invocationLog.contains("-R"))
         XCTAssertTrue(invocationLog.contains("coverage -"))
         XCTAssertTrue(invocationLog.contains("view -c -F"))
+    }
+
+    /// A fake samtools whose read-group `view` runs `viewBody`, and whose `view -c`
+    /// and `coverage -` behave as in the read-group pipe test.
+    private func readGroupPipeRoot(viewBody: String) throws -> (root: URL, bam: URL) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mapping-summary-rg-pipe-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent(".lungfish/conda/envs/samtools/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let samtools = bin.appendingPathComponent("samtools")
+        try """
+        #!/bin/bash
+        if [[ "$1 $2" == "view -c" ]]; then echo 4; exit 0; fi
+        if [[ "$1" == "view" ]]; then
+        \(viewBody)
+        fi
+        if [[ "$1" == "coverage" && "$2" == "-" ]]; then
+          cat >/dev/null
+          printf '#rname\\tstartpos\\tendpos\\tnumreads\\tcovbases\\tcoverage\\tmeandepth\\tmeanbaseq\\tmeanmapq\\n'
+          exit 0
+        fi
+        exit 93
+        """.write(to: samtools, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: samtools.path)
+        let bam = root.appendingPathComponent("input.bam")
+        try Data().write(to: bam)
+        return (root, bam)
+    }
+
+    func testAReadGroupPipeThatRunsPastItsLimitReportsATimeout() async throws {
+        let (root, bam) = try readGroupPipeRoot(viewBody: "  sleep 30")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let started = Date()
+        do {
+            _ = try await MappingSummaryBuilder.build(
+                sortedBAMURL: bam, totalReads: 99, readGroupIDs: ["S1-A"],
+                runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview), timeout: 1
+            )
+            XCTFail("a pipe that sleeps 30 seconds finished within a 1 second limit")
+        } catch let error as MappingSummaryBuilderError {
+            guard case .samtoolsTimedOut(let step, let seconds) = error else {
+                return XCTFail("expected a timeout, got \(error.localizedDescription)")
+            }
+            XCTAssertEqual(step, "samtools view | samtools coverage")
+            XCTAssertEqual(seconds, 1)
+            XCTAssertEqual(error.localizedDescription,
+                           "samtools view | samtools coverage did not finish within 1 seconds and was stopped")
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(started), 20, "the sleeping view was not stopped")
+    }
+
+    func testAFailingReadGroupViewReportsItsOwnError() async throws {
+        let (root, bam) = try readGroupPipeRoot(viewBody: "  echo 'read group list is unreadable' >&2; exit 94")
+        defer { try? FileManager.default.removeItem(at: root) }
+        do {
+            _ = try await MappingSummaryBuilder.build(
+                sortedBAMURL: bam, totalReads: 99, readGroupIDs: ["S1-A"],
+                runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview), timeout: 300
+            )
+            XCTFail("a view that exits 94 succeeded")
+        } catch let error as MappingSummaryBuilderError {
+            guard case .samtoolsViewFailed(let detail) = error else {
+                return XCTFail("expected a view failure, got \(error.localizedDescription)")
+            }
+            XCTAssertTrue(detail.contains("read group list is unreadable"), detail)
+        }
     }
 
     func testBuildSummariesCombinesCoverageAndIdentityMetrics() throws {
