@@ -11,11 +11,15 @@ public enum ProcessGATKCommandRunnerError: Error, LocalizedError, Sendable, Equa
     /// drain grace period, or reading the output failed, so the captured
     /// output and any file the command wrote may be incomplete.
     case outputIncomplete(executable: String, exitCode: Int32, detail: String)
+    /// The command ran past the runner's timeout and its process tree was stopped.
+    case timedOut(executable: String, seconds: TimeInterval)
 
     public var errorDescription: String? {
         switch self {
         case .outputIncomplete(_, _, let detail):
             return detail
+        case .timedOut(let executable, let seconds):
+            return "\(executable) timed out after \(Int(seconds)) seconds and was stopped."
         }
     }
 }
@@ -36,8 +40,9 @@ public struct ProcessGATKCommandRunner: GATKCommandRunning {
 
 /// Runs a GATK command through ``ToolProcess``, which reads both streams while
 /// the command runs and stops its whole process tree, the JVM included, when
-/// the calling task is cancelled or the timeout passes. Both of those throw
-/// `CancellationError`, as this runner always has.
+/// the calling task is cancelled or the timeout passes. A cancellation throws
+/// `CancellationError` and a timeout throws
+/// ``ProcessGATKCommandRunnerError/timedOut(executable:seconds:)``.
 private func runGATKProcess(
     _ command: GATKCommand,
     environment: [String: String],
@@ -53,24 +58,25 @@ private func runGATKProcess(
         executableURL = URL(fileURLWithPath: "/usr/bin/env")
         arguments = [command.executable] + command.arguments
     }
-    let drainGrace: Duration = .seconds(2)
     let spec = ToolProcessSpec(
         executableURL: executableURL,
         arguments: arguments,
         environment: ToolProcessSpec.inheritedEnvironment(overriding: environment),
         workingDirectory: command.workingDirectory,
         timeout: CondaFamilyProcess.limit(seconds: timeout),
-        drainGracePeriod: drainGrace,
+        terminationGracePeriod: CondaFamilyProcess.terminationGracePeriod,
         label: command.executable
     )
 
     let result: ToolProcessResult
     do {
         result = try await ToolProcess.run(spec)
-    } catch ToolProcessError.cancelled, ToolProcessError.timedOut {
+    } catch ToolProcessError.cancelled {
         throw CancellationError()
+    } catch ToolProcessError.timedOut {
+        throw ProcessGATKCommandRunnerError.timedOut(executable: command.executable, seconds: timeout)
     }
-    if let reason = CondaFamilyProcess.incompleteOutputReason(result, drainGrace: drainGrace) {
+    if let reason = result.incompleteOutputReason {
         throw ProcessGATKCommandRunnerError.outputIncomplete(
             executable: command.executable,
             exitCode: result.status,
@@ -79,8 +85,8 @@ private func runGATKProcess(
     }
     return GATKCommandExecutionResult(
         exitCode: result.status,
-        stdout: CondaFamilyProcess.text(result.stdout),
-        stderr: CondaFamilyProcess.text(result.stderr),
+        stdout: result.stdoutText,
+        stderr: result.stderrText,
         wallTime: commandClock.elapsed
     )
 }

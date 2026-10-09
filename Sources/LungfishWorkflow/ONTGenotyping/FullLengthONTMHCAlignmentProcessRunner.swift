@@ -69,13 +69,8 @@ struct FullLengthONTMHCAlignmentProcessRunner: @unchecked Sendable {
         case .success(let result):
             // A descendant that outlived the tool may still have been writing
             // its output or logs, so the run cannot vouch for them.
-            if result.outputDrainTimedOut {
-                throw FullLengthONTMHCAlignmentSafetyError(
-                    "\(spec.label) output was incomplete: a child process kept writing after it exited."
-                )
-            }
-            if result.outputReadFailed {
-                throw FullLengthONTMHCAlignmentSafetyError("\(spec.label) output was incomplete: reading it failed.")
+            if let reason = result.incompleteOutputReason {
+                throw FullLengthONTMHCAlignmentSafetyError(reason)
             }
             status = result.status
             launchError = nil

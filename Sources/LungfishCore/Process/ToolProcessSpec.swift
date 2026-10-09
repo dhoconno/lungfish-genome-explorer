@@ -67,7 +67,10 @@ public struct ToolProcessSpec: Sendable {
     /// Limit on the time with no output on any captured stream. Nil means none.
     /// It needs at least one stream set to ``ToolProcessOutput/capture(limit:)``.
     public var idleTimeout: Duration?
-    /// How long a cancelled or timed-out process tree has between SIGTERM and SIGKILL.
+    /// How long a cancelled or timed-out process tree has between SIGTERM and
+    /// SIGKILL. It applies to a cancellation and a timeout only. Descendants
+    /// still holding output when ``drainGracePeriod`` runs out get a short
+    /// fixed grace of their own, because the run is already over for them.
     public var terminationGracePeriod: Duration
     /// How long to wait for end of file on captured streams after the process
     /// exits. A background descendant that inherited a pipe can hold it open
@@ -81,6 +84,18 @@ public struct ToolProcessSpec: Sendable {
     /// A short name for logs and errors.
     public var label: String
 
+    /// The default ``drainGracePeriod``. Five seconds gives a helper that a
+    /// launcher script forked, such as a JVM or a Python worker of medaka or
+    /// clair3, room to flush its last lines on a loaded Mac, and still bounds
+    /// a daemonized grandchild that never closes the pipe.
+    public static let defaultDrainGracePeriod: Duration = .seconds(5)
+
+    /// The default stderr capture keeps the last 4 MB. Diagnostics and the
+    /// summaries tools print at the end, such as BBTools statistics, live in
+    /// the tail, and a run that logs for hours cannot grow memory without
+    /// bound. A caller that parses more sets its own limit.
+    public static let defaultStderrCaptureLimit = 4 * 1024 * 1024
+
     public init(
         executableURL: URL,
         arguments: [String] = [],
@@ -88,11 +103,11 @@ public struct ToolProcessSpec: Sendable {
         workingDirectory: URL? = nil,
         stdin: ToolProcessInput = .null,
         stdout: ToolProcessOutput = .capture(),
-        stderr: ToolProcessOutput = .capture(),
+        stderr: ToolProcessOutput = .capture(limit: ToolProcessSpec.defaultStderrCaptureLimit),
         timeout: Duration? = nil,
         idleTimeout: Duration? = nil,
         terminationGracePeriod: Duration = .milliseconds(500),
-        drainGracePeriod: Duration = .seconds(2),
+        drainGracePeriod: Duration = ToolProcessSpec.defaultDrainGracePeriod,
         maxLineBytes: Int = ProcessOutputLineFramer.defaultMaxLineBytes,
         label: String? = nil
     ) {

@@ -75,7 +75,8 @@ final class ProcessManagerTests: XCTestCase {
     /// longer leaves runAndWait returning only what was buffered at exit. The
     /// output gets the drain grace period, then the child is stopped and the
     /// run is an error, because the output is incomplete (Phase 2.2 lane 2C
-    /// manager ruling).
+    /// manager ruling). A short grace through the internal knob keeps the
+    /// test fast and its timing window tight (lane 5A).
     func testRunAndWaitReportsOutputABackgroundDescendantHeldOpenAsIncomplete() async throws {
         let tempDir = try makeTemporaryDirectory()
         let scriptURL = tempDir.appendingPathComponent("background-pipe-holder.sh")
@@ -107,7 +108,8 @@ final class ProcessManagerTests: XCTestCase {
                 executable: scriptURL,
                 arguments: [childPIDFile.path],
                 workingDirectory: tempDir,
-                environment: nil
+                environment: nil,
+                drainGracePeriod: .milliseconds(300)
             )
             XCTFail("Output a child held open must not be returned as complete")
         } catch let error as WorkflowError {
@@ -116,13 +118,13 @@ final class ProcessManagerTests: XCTestCase {
             }
             XCTAssertTrue(underlying is ProcessOutputIncompleteError, "\(underlying)")
             let message = error.localizedDescription
-            XCTAssertTrue(message.contains("incomplete because a child process kept it open"), message)
+            XCTAssertTrue(message.contains("The output of background-pipe-holder.sh is incomplete because a child process kept it open after background-pipe-holder.sh exited, so LGE stopped it."), message)
         }
         let elapsed = Date().timeIntervalSince(start)
 
         // The drain grace period, then the stop of the child's group.
-        XCTAssertGreaterThanOrEqual(elapsed, 4.5)
-        XCTAssertLessThan(elapsed, 10)
+        XCTAssertGreaterThanOrEqual(elapsed, 0.3)
+        XCTAssertLessThan(elapsed, 4)
         let childPID = try await waitForPIDFile(childPIDFile)
         let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 2.0)
         XCTAssertTrue(childExited, "The child that held the output open is stopped")
@@ -206,7 +208,8 @@ final class ProcessManagerTests: XCTestCase {
             executable: scriptURL,
             arguments: [childPIDFile.path],
             workingDirectory: tempDir,
-            environment: nil
+            environment: nil,
+            drainGracePeriod: .milliseconds(300)
         )
         async let stdout = handle.collectStdout()
         async let stderr = handle.collectStderr()
@@ -215,7 +218,7 @@ final class ProcessManagerTests: XCTestCase {
 
         XCTAssertEqual(exitCode, ProcessManager.incompleteOutputStatus)
         XCTAssertEqual(out, "root-stdout")
-        XCTAssertTrue(err.contains("incomplete because a child process kept it open"), err)
+        XCTAssertTrue(err.contains("The output of spawn-pipe-holder.sh is incomplete because a child process kept it open"), err)
         let childPID = try await waitForPIDFile(childPIDFile)
         let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 2.0)
         XCTAssertTrue(childExited, "The child that held the output open is stopped")

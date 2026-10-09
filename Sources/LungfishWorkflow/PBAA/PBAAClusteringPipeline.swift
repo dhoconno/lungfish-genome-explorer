@@ -39,6 +39,7 @@ public struct PBAAClusteringResult: Sendable, Equatable {
 public enum PBAAClusteringError: Error, LocalizedError, Equatable {
     case nextflowUnavailable
     case nextflowFailed(status: Int32, stderr: String)
+    case nextflowTimedOut(detail: String)
     case missingPassedConsensusFASTA(URL)
     case emptyPassedConsensusFASTA(URL)
 
@@ -48,6 +49,8 @@ public enum PBAAClusteringError: Error, LocalizedError, Equatable {
             return "Nextflow is not available. Install or provision Nextflow before running pbAA clustering."
         case .nextflowFailed(let status, let stderr):
             return "pbAA Nextflow workflow failed with exit status \(status): \(stderr)"
+        case .nextflowTimedOut(let detail):
+            return "pbAA Nextflow workflow was stopped. \(detail)"
         case .missingPassedConsensusFASTA(let url):
             return "pbAA did not produce the passed cluster FASTA: \(url.lastPathComponent)"
         case .emptyPassedConsensusFASTA(let url):
@@ -567,28 +570,24 @@ public struct ProcessPBAANextflowRunner: PBAANextflowRunning {
             executableURL: executableURL,
             arguments: arguments,
             environment: environment,
-            workingDirectory: workingDirectory,
-            // Nextflow can leave its JVM or a task child holding the output
-            // for a moment after it exits.
-            drainGracePeriod: .seconds(5)
+            workingDirectory: workingDirectory
         )
         let result: ToolProcessResult
         do {
             result = try await ToolProcess.run(spec)
         } catch {
             switch error {
-            case .cancelled, .timedOut:
+            case .cancelled:
                 throw CancellationError()
+            case .timedOut:
+                throw PBAAClusteringError.nextflowTimedOut(detail: error.localizedDescription)
             case .invalidSpec, .launchFailed:
                 throw PBAAClusteringError.nextflowUnavailable
             }
         }
-        let stdout = String(data: result.stdout, encoding: .utf8) ?? ""
-        let stderr = String(data: result.stderr, encoding: .utf8) ?? ""
-        guard result.outputComplete else {
-            let reason = result.outputDrainTimedOut
-                ? "The output of \(spec.label) is incomplete because a child process kept it open after \(spec.label) exited. The child process was stopped."
-                : "The output of \(spec.label) is incomplete because reading it failed."
+        let stdout = result.stdoutText
+        let stderr = result.stderrText
+        if let reason = result.incompleteOutputReason {
             let separator = stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : "\n\n"
             throw PBAAClusteringError.nextflowFailed(status: result.status, stderr: stderr + separator + reason)
         }

@@ -2734,10 +2734,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         for (tool, result, stderrURL) in [
             ("minimap2", minimap2Result, minimap2StderrURL),
             ("samtools sort", sortResult, sortStderrURL),
-        ] where !result.outputComplete {
-            let reason = result.outputDrainTimedOut
-                ? "\(tool) output was incomplete: a child process kept writing after it exited"
-                : "\(tool) output was incomplete: reading it failed"
+        ] {
+            guard let reason = result.incompleteOutputReason else { continue }
             throw failing(ONTBarcodeDemuxGenotypingError.processFailed(
                 tool: tool,
                 status: result.status,

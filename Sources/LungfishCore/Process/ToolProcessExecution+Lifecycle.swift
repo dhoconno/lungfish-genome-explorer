@@ -205,9 +205,19 @@ extension ToolProcessExecution {
         }
     }
 
+    /// How long descendants still holding output when the drain grace period
+    /// runs out have between SIGTERM and SIGKILL. The run is over for them,
+    /// so they get a short fixed grace, independent of the spec's
+    /// ``ToolProcessSpec/terminationGracePeriod``, which applies to a
+    /// cancellation and a timeout only.
+    static let leftoverTerminationGrace: Duration = .milliseconds(200)
+
     /// Cuts short every stage whose output has not settled. Its open streams
-    /// are marked abandoned, its process group is sent SIGTERM and, after the
-    /// grace period, SIGKILL, and then its streams are closed. Runs on `queue`.
+    /// are marked abandoned, its process group is sent SIGTERM and, after a
+    /// grace period, SIGKILL, and then its streams are closed. The grace is
+    /// the spec's termination grace when the run is stopping (`stop` is set),
+    /// and ``leftoverTerminationGrace`` when only the drain grace ran out.
+    /// Runs on `queue`.
     private func cutShort(stop: ToolProcessStop?, reason: String) {
         let targets = state.withLock { run -> [(index: Int, pid: pid_t?, drains: [ToolProcessStreamDrain])] in
             guard !run.completed else { return [] }
@@ -239,7 +249,7 @@ extension ToolProcessExecution {
                 target.drains.forEach { $0.abandon() }
                 continue
             }
-            let grace = Self.seconds(specs[target.index].terminationGracePeriod)
+            let grace = Self.seconds(stop == nil ? Self.leftoverTerminationGrace : specs[target.index].terminationGracePeriod)
             Self.sleepingWorkQueue().async { [self] in
                 // The leader is an unreaped zombie, so this group ID is still ours.
                 killpg(pid, SIGTERM)

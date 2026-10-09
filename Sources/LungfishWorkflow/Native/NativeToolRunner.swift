@@ -763,15 +763,15 @@ public actor NativeToolRunner {
             environment: ToolProcessSpec.inheritedEnvironment(overriding: environment ?? [:]),
             workingDirectory: workingDirectory,
             stdout: .capture(),
-            stderr: .capture(limit: maxStderrBytes),
+            stderr: .capture(limit: maxStderrBytes ?? ToolProcessSpec.defaultStderrCaptureLimit),
             timeout: try NativeToolProcessAdapter.limit(actualTimeout, name: name),
             label: name
         )
         let processResult = try await NativeToolProcessAdapter.run(spec, timeout: actualTimeout, onEvent: onEvent)
         let result = NativeToolResult(
-            exitCode: NativeToolProcessAdapter.status(processResult),
-            stdout: NativeToolProcessAdapter.text(processResult.stdout),
-            stderr: NativeToolProcessAdapter.text(processResult.stderr),
+            exitCode: processResult.status,
+            stdout: processResult.stdoutText,
+            stderr: processResult.stderrText,
             arguments: spec.argv
         )
         if result.isSuccess {
@@ -833,7 +833,6 @@ public actor NativeToolRunner {
                 environment: ToolProcessSpec.inheritedEnvironment(overriding: effectiveEnvironment ?? [:]),
                 workingDirectory: workingDirectory,
                 stdout: .file(temporaryOutputFile),
-                stderr: .capture(),
                 timeout: try NativeToolProcessAdapter.limit(actualTimeout, name: name),
                 label: name
             )
@@ -844,9 +843,9 @@ public actor NativeToolRunner {
         }
 
         let result = NativeToolResult(
-            exitCode: NativeToolProcessAdapter.status(processResult),
+            exitCode: processResult.status,
             stdout: "",
-            stderr: NativeToolProcessAdapter.text(processResult.stderr),
+            stderr: processResult.stderrText,
             arguments: [toolPath.path] + arguments
         )
         guard result.isSuccess else {
@@ -1078,9 +1077,9 @@ extension NativeToolRunner {
 
         let pipeline = try await NativeToolProcessAdapter.runPipeline(specs, name: stageNames, timeout: actualTimeout)
         let result = NativePipelineResult(
-            exitCodes: pipeline.stages.map(NativeToolProcessAdapter.status),
-            stderrByStage: pipeline.stages.map { NativeToolProcessAdapter.text($0.stderr) },
-            stdout: NativeToolProcessAdapter.text(pipeline.stages.last?.stdout ?? Data())
+            exitCodes: pipeline.stages.map(\.status),
+            stderrByStage: pipeline.stages.map(\.stderrText),
+            stdout: pipeline.stages.last?.stdoutText ?? ""
         )
         if result.isSuccess {
             logger.info("Pipeline completed successfully: \(stageNames)")

@@ -490,14 +490,8 @@ public actor DockerRuntime: ContainerRuntimeProtocol {
                     )
                 }
                 // A run a signal stopped is reported by its status alone.
-                guard result.outputComplete || result.stop != nil else {
-                    throw ContainerRuntimeError.execFailed(
-                        containerID: containerId,
-                        command: execCommand,
-                        reason: result.outputDrainTimedOut
-                            ? "Output was incomplete: a child process kept its output open after docker exited"
-                            : "Output was incomplete: reading it failed"
-                    )
+                if result.stop == nil, let reason = result.incompleteOutputReason {
+                    throw ContainerRuntimeError.execFailed(containerID: containerId, command: execCommand, reason: reason)
                 }
                 return result.status
             },
@@ -645,10 +639,7 @@ public actor DockerRuntime: ContainerRuntimeProtocol {
 
         let stdout = trimmed(result.stdout)
         let stderr = trimmed(result.stderr)
-        guard result.outputComplete else {
-            let reason = result.outputDrainTimedOut
-                ? "\(command) output was incomplete: a child process kept its output open after docker exited"
-                : "\(command) output was incomplete: reading it failed"
+        if let reason = result.incompleteOutputReason {
             return (-1, stdout, stderr.isEmpty ? reason : stderr + "\n" + reason)
         }
         return (result.status, stdout, stderr)

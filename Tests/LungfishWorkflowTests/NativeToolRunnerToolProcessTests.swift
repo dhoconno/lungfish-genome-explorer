@@ -39,7 +39,7 @@ final class NativeToolRunnerToolProcessTests: XCTestCase {
         } catch NativeToolError.executionFailed(let name, let status, let message) {
             XCTAssertEqual(name, "lingering")
             XCTAssertEqual(status, 0)
-            XCTAssertEqual(message, "lingering output was incomplete: a child process kept its output open after it exited")
+            XCTAssertEqual(message, "The output of lingering is incomplete because a child process kept it open after lingering exited, so LGE stopped it.")
         }
         let child = try XCTUnwrap(Int32(String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
         try await assertProcessEnds(child)
@@ -63,7 +63,7 @@ final class NativeToolRunnerToolProcessTests: XCTestCase {
         } catch NativeToolError.executionFailed(let name, let status, let message) {
             XCTAssertEqual(name, "pigz")
             XCTAssertEqual(status, 0)
-            XCTAssertTrue(message.hasPrefix("pigz output was incomplete"), message)
+            XCTAssertEqual(message, "The output of pigz is incomplete because a child process kept it open after pigz exited, so LGE stopped it.")
         }
         XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), "original\n")
         let leftovers = try FileManager.default.contentsOfDirectory(atPath: fixture.root.path)

@@ -54,8 +54,9 @@ struct ProcessNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning {
 /// such as Nextflow's JVM and its task processes.
 enum WorkflowEngineProcess {
     /// How long the engine's process group has to empty after the engine
-    /// exits. Nextflow and Snakemake can leave a child running for a moment.
-    static let drainGracePeriod: Duration = .seconds(5)
+    /// exits. Nextflow and Snakemake can leave a child running for a moment,
+    /// and ToolProcess's default grace covers it.
+    static let drainGracePeriod = ToolProcessSpec.defaultDrainGracePeriod
 
     struct Output: Sendable, Equatable {
         let exitCode: Int32
@@ -95,8 +96,7 @@ enum WorkflowEngineProcess {
             environment: environment,
             workingDirectory: workingDirectory,
             stdout: .file(stdoutURL),
-            stderr: .file(stderrURL),
-            drainGracePeriod: drainGracePeriod
+            stderr: .file(stderrURL)
         )
         let result: ToolProcessResult
         do {

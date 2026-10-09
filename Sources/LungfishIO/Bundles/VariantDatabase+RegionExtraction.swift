@@ -757,7 +757,7 @@ extension VariantDatabase {
         finished = true
         guard !cancelled else { return cancelled }
         let problem: String? = switch outcome {
-        case .success(let result) where !result.outputComplete: "gzip output was incomplete"
+        case .success(let result) where !result.outputComplete: result.incompleteOutputReason
         case .success(let result): result.status == 0 ? nil : "gzip exit code \(result.status)"
         case .failure(let error): error.localizedDescription
         }

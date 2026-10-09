@@ -1,3 +1,3 @@
-# process-spawn baseline: counts under Sources/ outside the process primitive folders. Counts may only fall.
+# process-spawn baseline: counts under Sources/ outside the process primitive folder, Sources/LungfishCore/Process/. Counts may only fall.
 files_creating_process 56
 raw_terminate_calls 15

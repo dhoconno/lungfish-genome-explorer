@@ -422,6 +422,20 @@ final class GATKPipelineExecutorTests: XCTestCase {
         XCTAssertTrue(result.stderr.contains("stderr-19999"))
     }
 
+    /// A timeout stops the command's tree and reads as a timeout, not as a
+    /// cancellation the user asked for (Phase 2.2 lane 5A).
+    func testProcessRunnerReportsATimeoutAsATimeoutNotACancellation() async throws {
+        let runner = ProcessGATKCommandRunner(timeout: 0.3)
+        let start = Date()
+        do {
+            _ = try await runner.run(GATKCommand(executable: "/bin/sleep", arguments: ["30"]))
+            XCTFail("Expected a timeout")
+        } catch let error as ProcessGATKCommandRunnerError {
+            XCTAssertEqual(error, .timedOut(executable: "/bin/sleep", seconds: 0.3))
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(start), 10)
+    }
+
     /// R3-R3ML-14: ProcessGATKCommandRunner previously ran inside a plain
     /// Task.detached with a synchronous process.waitUntilExit() and no cancellation
     /// or timeout enforcement -- if the underlying process hung or the enclosing Task

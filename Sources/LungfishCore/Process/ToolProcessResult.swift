@@ -134,6 +134,20 @@ public struct ToolProcessResult: Sendable {
         !outputDrainTimedOut && !outputReadFailed
     }
 
+    /// The one sentence every adapter uses to say why this result's output
+    /// is incomplete, naming ``label``, or nil when ``outputComplete`` is true.
+    /// Adapters wrap it in their own error types, so the reason reads the
+    /// same whichever runner served the tool.
+    public var incompleteOutputReason: String? {
+        if outputDrainTimedOut {
+            return "The output of \(label) is incomplete because a child process kept it open after \(label) exited, so LGE stopped it."
+        }
+        if outputReadFailed {
+            return "The output of \(label) is incomplete because reading it failed."
+        }
+        return nil
+    }
+
     /// True when the process exited with status 0 and its output is complete.
     /// Data integrity comes first, so a clean exit whose output a lingering
     /// descendant kept open is not a success.

@@ -15,18 +15,13 @@ private let logger = Logger(subsystem: LogSubsystem.workflow, category: "CondaMa
 /// `ManagedMappingPipeline`, `ManagedToolSourceInstaller.run` and
 /// `ProcessGATKCommandRunner` use it.
 enum CondaFamilyProcess {
-    /// How long a micromamba run's captured streams, and the process group of
-    /// a run that writes stdout to a file, get to settle after micromamba exits.
-    ///
-    /// `micromamba run` starts the tool as its child and exits once that child
-    /// exits, so in a normal run end of file arrives with the exit and this
-    /// time is never spent. It matters only when something the tool started
-    /// outlives it, such as a helper that a launcher script forked and that is
-    /// still flushing its last lines on a loaded Mac. Five seconds gives such
-    /// a late flush room that the 2 second ToolProcess default may not, and
-    /// still bounds a daemonized grandchild that never closes the pipe, which
-    /// used to hang the run forever.
-    static let micromambaDrainGracePeriod: Duration = .seconds(5)
+    /// How long a cancelled or timed-out run's process tree has between
+    /// SIGTERM and SIGKILL, the one policy for runTool, the streaming mapper,
+    /// the source installer and GATK. ToolProcess has one grace for both, so
+    /// a timeout keeps the 0.5 seconds it had before Phase 2.2 and a
+    /// cancellation, which used to kill at once, now waits the same 0.5
+    /// seconds, so a JVM or a Python worker can flush and exit.
+    static let terminationGracePeriod: Duration = .milliseconds(500)
 
     /// The ToolProcess limit for a timeout in seconds. A value that is not
     /// finite, or too large to count in nanoseconds, means no limit. A value at
@@ -35,12 +30,6 @@ enum CondaFamilyProcess {
     static func limit(seconds: TimeInterval) -> Duration? {
         guard seconds.isFinite, seconds < 9e9 else { return nil }
         return .nanoseconds(max(Int64((seconds * 1e9).rounded()), 1))
-    }
-
-    /// Captured bytes as UTF-8 text, or the empty string when they are not
-    /// valid UTF-8, which is what `String(data:encoding:)` gave these runners.
-    static func text(_ data: Data) -> String {
-        String(data: data, encoding: .utf8) ?? ""
     }
 
     /// An event observer that hands each captured line to the handler for its
@@ -57,19 +46,6 @@ enum CondaFamilyProcess {
             case .stderr: stderrHandler?(line)
             }
         }
-    }
-
-    /// Why a run's output is incomplete, for an error message, or nil when it
-    /// is complete.
-    static func incompleteOutputReason(_ result: ToolProcessResult, drainGrace: Duration) -> String? {
-        if result.outputDrainTimedOut {
-            let waited = drainGrace.components.seconds
-            return "The output of \(result.label) is incomplete because a child process kept it open after \(result.label) exited. LGE waited \(waited) seconds for it, then stopped it."
-        }
-        if result.outputReadFailed {
-            return "The output of \(result.label) is incomplete because reading it failed."
-        }
-        return nil
     }
 
     /// The `Process` termination reason that matches a ToolProcess termination.
@@ -584,7 +560,6 @@ public actor CondaManager {
             executableURL: path,
             arguments: ["--version"],
             environment: ToolProcessSpec.inheritedEnvironment(),
-            drainGracePeriod: CondaFamilyProcess.micromambaDrainGracePeriod,
             label: "micromamba"
         )
         // An unstructured task does not inherit cancellation, so the probe
@@ -598,12 +573,10 @@ public actor CondaManager {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             )
         }
-        if let reason = CondaFamilyProcess.incompleteOutputReason(
-            result, drainGrace: CondaFamilyProcess.micromambaDrainGracePeriod
-        ) {
+        if let reason = result.incompleteOutputReason {
             throw CondaError.executionFailed(tool: "micromamba", exitCode: result.status, stderr: reason)
         }
-        return String(decoding: result.stdout, as: UTF8.self)
+        return result.stdoutText
     }
 
     // MARK: - Environment Management
@@ -1101,9 +1074,9 @@ public actor CondaManager {
     /// the process runs, so more than 64 KB of output never blocks it, and
     /// which stops the whole micromamba process tree on cancellation or
     /// timeout. Output that a child process still holds open
-    /// ``CondaFamilyProcess/micromambaDrainGracePeriod`` after micromamba
-    /// exits is incomplete, and the run throws ``CondaError/executionFailed(tool:exitCode:stderr:)``
-    /// saying so.
+    /// ``ToolProcessSpec/drainGracePeriod`` after micromamba exits is
+    /// incomplete, and the run throws ``CondaError/executionFailed(tool:exitCode:stderr:)``
+    /// saying so, as it does for a micromamba that a signal from outside LGE ended.
     ///
     /// - Parameters:
     ///   - name: The tool executable name (e.g., "kraken2").
@@ -1167,17 +1140,13 @@ public actor CondaManager {
         if let environmentVariables {
             processEnvironment.merge(environmentVariables) { _, new in new }
         }
-        // ToolProcess has one grace period for a cancellation and a timeout.
-        // A cancellation keeps the immediate kill it has always had, so a
-        // timeout now gets no grace either, where it had 0.5 seconds.
         let spec = ToolProcessSpec(
             executableURL: micromambaPath,
             arguments: args,
             environment: processEnvironment,
             workingDirectory: workingDirectory,
             timeout: CondaFamilyProcess.limit(seconds: timeout),
-            terminationGracePeriod: .zero,
-            drainGracePeriod: CondaFamilyProcess.micromambaDrainGracePeriod,
+            terminationGracePeriod: CondaFamilyProcess.terminationGracePeriod,
             label: name
         )
         let result: ToolProcessResult
@@ -1192,14 +1161,14 @@ public actor CondaManager {
         } catch ToolProcessError.cancelled {
             throw CancellationError()
         }
-        // A SIGTERM from outside LGE reads as a timeout, as it always has.
+        let stderr = result.stderrText
+        // ToolProcess reports LGE's own timeouts, so a SIGTERM here came from
+        // outside LGE and is a failure that names the signal.
         if result.termination == .signaled(signal: SIGTERM) {
-            throw CondaError.timeout(tool: name, seconds: timeout)
+            let reason = "\(name) was ended by signal \(SIGTERM) (SIGTERM) from outside LGE."
+            throw CondaError.executionFailed(tool: name, exitCode: SIGTERM, stderr: stderr.isEmpty ? reason : "\(reason)\n\(stderr)")
         }
-        let stderr = CondaFamilyProcess.text(result.stderr)
-        if let reason = CondaFamilyProcess.incompleteOutputReason(
-            result, drainGrace: CondaFamilyProcess.micromambaDrainGracePeriod
-        ) {
+        if let reason = result.incompleteOutputReason {
             logger.error("\(reason, privacy: .public)")
             throw CondaError.executionFailed(
                 tool: name,
@@ -1207,7 +1176,7 @@ public actor CondaManager {
                 stderr: stderr.isEmpty ? reason : "\(reason)\n\(stderr)"
             )
         }
-        return (CondaFamilyProcess.text(result.stdout), stderr, result.status)
+        return (result.stdoutText, stderr, result.status)
     }
 
     // MARK: - Nextflow Integration
@@ -1466,13 +1435,12 @@ public actor CondaManager {
                 "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
                 "TMPDIR": ProcessInfo.processInfo.environment["TMPDIR"] ?? "/tmp",
             ],
-            drainGracePeriod: CondaFamilyProcess.micromambaDrainGracePeriod,
             label: "micromamba"
         )
         // An unstructured task does not inherit cancellation.
         let result = try await Task { try await ToolProcess.run(spec) }.value
-        let stdout = CondaFamilyProcess.text(result.stdout)
-        let stderr = CondaFamilyProcess.text(result.stderr)
+        let stdout = result.stdoutText
+        let stderr = result.stderrText
         if result.status != 0 {
             let message = Self.micromambaFailureMessage(
                 executable: executablePath,
@@ -1485,9 +1453,7 @@ public actor CondaManager {
             logger.error("\(message, privacy: .public)")
             throw CondaError.packageInstallFailed(message)
         }
-        if let reason = CondaFamilyProcess.incompleteOutputReason(
-            result, drainGrace: CondaFamilyProcess.micromambaDrainGracePeriod
-        ) {
+        if let reason = result.incompleteOutputReason {
             let command = ([executablePath.path] + arguments).joined(separator: " ")
             logger.error("\(reason, privacy: .public)")
             throw CondaError.packageInstallFailed("\(reason) command: \(command)")

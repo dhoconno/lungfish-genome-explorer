@@ -1295,7 +1295,7 @@ final class CondaManagerTests: XCTestCase {
             XCTAssertEqual(tool, "lingering")
             XCTAssertEqual(exitCode, 0)
             XCTAssertTrue(
-                stderr.hasPrefix("The output of lingering is incomplete because a child process kept it open after lingering exited."),
+                stderr.hasPrefix("The output of lingering is incomplete because a child process kept it open after lingering exited, so LGE stopped it."),
                 stderr
             )
         }
@@ -1343,10 +1343,12 @@ final class CondaManagerTests: XCTestCase {
         XCTAssertEqual(result.stderr, expectedStderr.joined(separator: "\n") + "\n")
     }
 
-    /// micromamba ended by an uncaught SIGTERM reads as a timeout, as it did
-    /// before runTool moved to ToolProcess.
-    func testRunToolMapsAnUncaughtSIGTERMToTimeout() async throws {
+    /// ToolProcess reports LGE's own timeouts, so micromamba ended by an
+    /// uncaught SIGTERM from outside LGE is an execution failure that names
+    /// the signal, no longer a timeout (Phase 2.2 lane 5A).
+    func testRunToolReportsAnUncaughtSIGTERMAsAFailureNamingTheSignal() async throws {
         let (manager, sandbox) = try await makeScriptedRunManager(runBody: """
+                echo "before the signal" >&2
                 kill -TERM $$
                 sleep 5
         """)
@@ -1354,10 +1356,12 @@ final class CondaManagerTests: XCTestCase {
 
         do {
             _ = try await manager.runTool(name: "terminated", environment: "terminated-env", timeout: 42)
-            XCTFail("Expected SIGTERM to map to a timeout")
-        } catch CondaError.timeout(let tool, let seconds) {
+            XCTFail("Expected SIGTERM to throw")
+        } catch CondaError.executionFailed(let tool, let exitCode, let stderr) {
             XCTAssertEqual(tool, "terminated")
-            XCTAssertEqual(seconds, 42)
+            XCTAssertEqual(exitCode, SIGTERM)
+            XCTAssertTrue(stderr.hasPrefix("terminated was ended by signal 15 (SIGTERM) from outside LGE."), stderr)
+            XCTAssertTrue(stderr.hasSuffix("\nbefore the signal\n"), stderr)
         }
     }
 

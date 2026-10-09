@@ -446,7 +446,8 @@ public struct ManagedToolSourceInstaller: Sendable {
             arguments: invocation.arguments,
             environment: ToolProcessSpec.inheritedEnvironment(overriding: invocation.environment),
             workingDirectory: invocation.workingDirectory,
-            timeout: CondaFamilyProcess.limit(seconds: timeout)
+            timeout: CondaFamilyProcess.limit(seconds: timeout),
+            terminationGracePeriod: CondaFamilyProcess.terminationGracePeriod
         )
         let result: ToolProcessResult
         do {
@@ -456,8 +457,8 @@ public struct ManagedToolSourceInstaller: Sendable {
         } catch ToolProcessError.cancelled {
             throw CancellationError()
         }
-        let stderr = CondaFamilyProcess.text(result.stderr)
-        if let reason = CondaFamilyProcess.incompleteOutputReason(result, drainGrace: spec.drainGracePeriod) {
+        let stderr = result.stderrText
+        if let reason = result.incompleteOutputReason {
             throw CondaError.executionFailed(
                 tool: spec.label,
                 exitCode: result.status,
@@ -466,7 +467,7 @@ public struct ManagedToolSourceInstaller: Sendable {
         }
         return .init(
             exitStatus: result.status,
-            stdout: CondaFamilyProcess.text(result.stdout),
+            stdout: result.stdoutText,
             stderr: stderr
         )
     }

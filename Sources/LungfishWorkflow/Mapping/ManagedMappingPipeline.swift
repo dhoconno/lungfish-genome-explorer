@@ -703,8 +703,8 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
     /// Runs `micromamba run` with the tool's stdout written straight into
     /// `stdoutURL`, through ``ToolProcess``. The run returns only once no
     /// process of micromamba's group can still write the file. A child still
-    /// running ``CondaFamilyProcess/micromambaDrainGracePeriod`` after
-    /// micromamba exits is stopped, and the run throws
+    /// running ``ToolProcessSpec/drainGracePeriod`` after micromamba exits is
+    /// stopped, and the run throws
     /// ``CondaError/executionFailed(tool:exitCode:stderr:)``, because the file
     /// may be incomplete.
     private func runCondaToolStreamingStdout(
@@ -733,7 +733,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             workingDirectory: workingDirectory,
             stdout: .file(stdoutURL),
             timeout: CondaFamilyProcess.limit(seconds: timeout),
-            drainGracePeriod: CondaFamilyProcess.micromambaDrainGracePeriod,
+            terminationGracePeriod: CondaFamilyProcess.terminationGracePeriod,
             label: executable
         )
         let result: ToolProcessResult
@@ -744,10 +744,8 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         } catch ToolProcessError.cancelled {
             throw CancellationError()
         }
-        let stderr = CondaFamilyProcess.text(result.stderr)
-        if let reason = CondaFamilyProcess.incompleteOutputReason(
-            result, drainGrace: CondaFamilyProcess.micromambaDrainGracePeriod
-        ) {
+        let stderr = result.stderrText
+        if let reason = result.incompleteOutputReason {
             throw CondaError.executionFailed(
                 tool: executable,
                 exitCode: result.status,

@@ -21,12 +21,6 @@ enum NativeToolProcessAdapter {
         return .seconds(seconds)
     }
 
-    /// The status `Process.terminationStatus` reported, which the runner has
-    /// always returned: the exit code in 0...255, or the signal number.
-    static func status(_ result: ToolProcessResult) -> Int32 {
-        result.status
-    }
-
     /// The error NativeToolRunner has always thrown for each way a run can
     /// fail to produce a result.
     static func nativeError(_ error: ToolProcessError, name: String, timeout: TimeInterval) -> Error {
@@ -42,19 +36,10 @@ enum NativeToolProcessAdapter {
 
     /// Refuses a result whose output a lingering descendant cut short or a
     /// read error lost, because a truncated output must never pass as a
-    /// complete one.
+    /// complete one. The message is ToolProcess's own reason.
     static func requireCompleteOutput(_ result: ToolProcessResult, name: String) throws {
-        if result.outputDrainTimedOut {
-            throw NativeToolError.executionFailed(
-                name, status(result),
-                "\(name) output was incomplete: a child process kept its output open after it exited"
-            )
-        }
-        if result.outputReadFailed {
-            throw NativeToolError.executionFailed(
-                name, status(result),
-                "\(name) output was incomplete: reading it failed"
-            )
+        if let reason = result.incompleteOutputReason {
+            throw NativeToolError.executionFailed(name, result.status, reason)
         }
     }
 
@@ -112,10 +97,5 @@ enum NativeToolProcessAdapter {
             try requireCompleteOutput(stage, name: name)
         }
         return result
-    }
-
-    /// Decodes captured bytes as NativeToolRunner always has.
-    static func text(_ data: Data) -> String {
-        String(data: data, encoding: .utf8) ?? ""
     }
 }

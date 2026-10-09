@@ -1211,11 +1211,8 @@ public final class AlignmentDataProvider: @unchecked Sendable {
     /// Refuses output that a lingering descendant cut short or a read error
     /// lost, because a truncated read set must never pass as a complete one.
     private static func requireCompleteOutput(_ result: ToolProcessResult) throws {
-        if result.outputDrainTimedOut {
-            throw AlignmentFetchError.samtoolsFailed("samtools output was incomplete: a child process kept its output open after it exited")
-        }
-        if result.outputReadFailed {
-            throw AlignmentFetchError.samtoolsFailed("samtools output was incomplete: reading it failed")
+        if let reason = result.incompleteOutputReason {
+            throw AlignmentFetchError.samtoolsFailed(reason)
         }
     }
 

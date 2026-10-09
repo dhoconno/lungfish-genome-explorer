@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """process-spawn.sh - Ratchet on direct subprocess creation and termination (review finding R7).
 
-Counts, over Sources/**/*.swift, outside the two folders that host the process primitive
-(Sources/LungfishCore/Process/ and Sources/LungfishWorkflow/Native/):
+Counts, over Sources/**/*.swift, outside the folder that hosts the process primitive
+(Sources/LungfishCore/Process/):
     files_creating_process   files that contain Process()
     raw_terminate_calls      occurrences of .terminate()
 Each count may only fall. Text after // on a line is ignored (comment lines and trailing
-comments). A folder that does not exist yet is simply not excluded from anything.
+comments). Sources/LungfishWorkflow/Native/ is counted like any other folder, because
+NativeToolRunner is an adapter on ToolProcess and spawns nothing itself.
 New code should launch tools through the shared process primitive so cancellation, process
 group teardown and output capture behave the same everywhere.
 
@@ -30,7 +31,6 @@ BASELINE_FILE = Path(__file__).resolve().with_suffix(".baseline")
 
 EXCLUDED_PREFIXES = (
     "Sources/LungfishCore/Process/",
-    "Sources/LungfishWorkflow/Native/",
 )
 
 PROCESS_RX = re.compile(r"(?<![\w.])(?:Foundation\.)?Process\(\)")
@@ -110,7 +110,7 @@ def main(argv):
         return 0
 
     if "--update" in argv:
-        lines = ["# process-spawn baseline: counts under Sources/ outside the process primitive folders. Counts may only fall."]
+        lines = ["# process-spawn baseline: counts under Sources/ outside the process primitive folder, Sources/LungfishCore/Process/. Counts may only fall."]
         lines += [f"{name} {n}" for name, n in counts.items()]
         BASELINE_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
         print("Updated baseline: " + ", ".join(f"{n} {name}" for name, n in counts.items()) + ".")
@@ -133,8 +133,8 @@ def main(argv):
                 file=sys.stderr,
             )
         print(
-            "Launch tools through the shared process primitive (Sources/LungfishCore/Process/ or "
-            "Sources/LungfishWorkflow/Native/) instead of creating a Process() or calling .terminate() "
+            "Launch tools through the shared process primitive, ToolProcess in "
+            "Sources/LungfishCore/Process/, instead of creating a Process() or calling .terminate() "
             "directly (review finding R7).",
             file=sys.stderr,
         )

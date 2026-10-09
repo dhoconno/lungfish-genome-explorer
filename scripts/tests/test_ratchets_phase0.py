@@ -163,17 +163,25 @@ def test_spawn_new_terminate_call_fails(tmp_path):
     assert "raw_terminate_calls" in result.stderr
 
 
-def test_spawn_ignores_the_two_primitive_folders(tmp_path):
+def test_spawn_ignores_only_the_core_process_folder(tmp_path):
     script = make_repo(tmp_path, SPAWN, {"Sources/A/A.swift": "let a = 1\n"})
     assert run(script, "--update").returncode == 0
-    for rel in (
-        "Sources/LungfishCore/Process/Runner.swift",
-        "Sources/LungfishWorkflow/Native/Tool.swift",
-    ):
-        path = tmp_path / rel
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(SPAWN_SRC)
+    path = tmp_path / "Sources/LungfishCore/Process/Runner.swift"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(SPAWN_SRC)
     assert run(script).returncode == 0
+
+
+def test_spawn_counts_the_workflow_native_folder(tmp_path):
+    script = make_repo(tmp_path, SPAWN, {"Sources/A/A.swift": "let a = 1\n"})
+    assert run(script, "--update").returncode == 0
+    path = tmp_path / "Sources/LungfishWorkflow/Native/Tool.swift"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(SPAWN_SRC)
+    result = run(script)
+    assert result.returncode == 1
+    assert "files_creating_process" in result.stderr
+    assert "raw_terminate_calls" in result.stderr
 
 
 def test_spawn_works_when_the_core_process_folder_is_absent(tmp_path):
@@ -184,8 +192,8 @@ def test_spawn_works_when_the_core_process_folder_is_absent(tmp_path):
     )
     assert run(script, "--update").returncode == 0
     baseline = (tmp_path / "scripts/ratchets/process-spawn.baseline").read_text()
-    assert "files_creating_process 0" in baseline
-    assert "raw_terminate_calls 0" in baseline
+    assert "files_creating_process 1" in baseline
+    assert "raw_terminate_calls 1" in baseline
 
 
 def test_spawn_ignores_commented_lines(tmp_path):

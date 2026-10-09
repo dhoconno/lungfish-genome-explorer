@@ -22,15 +22,18 @@ import Foundation
 /// - After the root process exits, captured streams get
 ///   ``ToolProcessSpec/drainGracePeriod`` to reach end of file, and a stage
 ///   that writes a file gets the same time for its process group to empty.
-///   Descendants still running then are killed through the group, so the call
-///   cannot hang and nothing writes after it returns. The result is then not
-///   a success and says so with ``ToolProcessResult/outputDrainTimedOut``.
+///   Descendants still running then get SIGTERM through the group and SIGKILL
+///   after a short fixed grace, so the call cannot hang and nothing writes
+///   after it returns. The result is then not a success and says so with
+///   ``ToolProcessResult/outputDrainTimedOut`` and
+///   ``ToolProcessResult/incompleteOutputReason``.
 /// - Cancelling the calling task (or calling ``ToolProcessRun/cancel()``, or
 ///   the ``ToolProcessCancellation`` of a blocking run), or exceeding the wall-clock or idle limit,
 ///   sends SIGTERM to the process group and the descendant tree, then
-///   SIGKILL after the grace period, so helper processes such as a JVM under
-///   a wrapper script do not survive. The limits run on the suspending clock,
-///   so time the Mac spends asleep does not count.
+///   SIGKILL after ``ToolProcessSpec/terminationGracePeriod``, so helper
+///   processes such as a JVM under a wrapper script do not survive. The
+///   limits run on the suspending clock, so time the Mac spends asleep does
+///   not count.
 /// - Every running process is registered with ``NativeProcessRegistry``, so
 ///   app quit reaches it.
 /// - A nonzero exit status is a result, not an error. Only an invalid spec, a
@@ -157,7 +160,7 @@ public enum ToolProcess {
             limits: .init(
                 wallClock: timeout,
                 idle: idleTimeout,
-                drainGrace: stages.map(\.drainGracePeriod).max() ?? .seconds(2)
+                drainGrace: stages.map(\.drainGracePeriod).max() ?? ToolProcessSpec.defaultDrainGracePeriod
             ),
             observers: .init(failurePolicy: failurePolicy, onLaunch: onLaunch, onEvent: onEvent)
         )

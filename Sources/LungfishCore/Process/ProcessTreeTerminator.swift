@@ -165,7 +165,15 @@ public enum ProcessTreeTerminator {
         return descendants
     }
 
+    @available(*, deprecated, message: "Use ToolProcess")
     public static func terminate(rootProcess: Process, gracePeriod: TimeInterval = 0.5) {
+        terminateRegistered(rootProcess, gracePeriod: gracePeriod)
+    }
+
+    /// The tree termination behind the deprecated `terminate(rootProcess:)`,
+    /// kept for ``NativeProcessRegistry``, which still has to stop the
+    /// `Process` instances registered with it when the app quits.
+    static func terminateRegistered(_ rootProcess: Process, gracePeriod: TimeInterval) {
         let rootPID = rootProcess.processIdentifier
         guard rootPID > 0 else {
             if rootProcess.isRunning {
@@ -320,6 +328,7 @@ public enum ProcessTreeTerminator {
 ///
 /// - Returns: `true` if cancellation was requested and the tree was
 ///   terminated; `false` if the process exited normally first.
+@available(*, deprecated, message: "Use ToolProcess")
 @discardableResult
 public func waitForHelperProcessExit(
     _ process: Process,
@@ -456,7 +465,7 @@ public final class NativeProcessRegistry: @unchecked Sendable {
         lock.unlock()
 
         var terminations: [@Sendable () -> Void] = snapshot.map { process in
-            { ProcessTreeTerminator.terminate(rootProcess: process, gracePeriod: gracePeriod) }
+            { ProcessTreeTerminator.terminateRegistered(process, gracePeriod: gracePeriod) }
         }
         terminations += leaders.map { pid in
             { ProcessTreeTerminator.terminate(processGroupLeader: pid, gracePeriod: gracePeriod) }
@@ -544,6 +553,7 @@ package final class NativeProcessRunState: @unchecked Sendable {
     }
 }
 
+@available(*, deprecated, message: "Use ToolProcess")
 public final class NativeProcessCancellationHandle: @unchecked Sendable {
     private let lock = NSLock()
     private var process: Process?

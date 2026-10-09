@@ -826,7 +826,7 @@ final class ManagedMappingPipelineTests: XCTestCase {
             XCTAssertEqual(tool, "mapper")
             XCTAssertEqual(exitCode, 0)
             XCTAssertTrue(
-                stderr.hasPrefix("The output of mapper is incomplete because a child process kept it open after mapper exited."),
+                stderr.hasPrefix("The output of mapper is incomplete because a child process kept it open after mapper exited, so LGE stopped it."),
                 stderr
             )
         }

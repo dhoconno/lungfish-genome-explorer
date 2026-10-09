@@ -65,17 +65,11 @@ public actor ProcessManager: ProcessManaging {
 
     // MARK: - Policy
 
-    /// How long the output of a process has to reach end of file after the
-    /// process exits. Nextflow and Snakemake, the engines this manager runs,
-    /// can leave a daemon or JVM child holding the output for a moment after
-    /// the engine exits. A child still holding it after this long is stopped
-    /// and the output counts as incomplete.
-    static let drainGracePeriod: Duration = .seconds(5)
-
     /// The status a spawned handle reports when the process exited cleanly
-    /// but its output is incomplete, because a child process kept the output
-    /// open past ``drainGracePeriod`` or reading it failed. It is the value
-    /// `ProcessHandle.waitForExit()` already uses for "no exit status".
+    /// but its output is incomplete, because a child process, such as a
+    /// daemon or JVM child of Nextflow or Snakemake, kept the output open
+    /// past ToolProcess's drain grace period or reading it failed. It is the
+    /// value `ProcessHandle.waitForExit()` already uses for "no exit status".
     static let incompleteOutputStatus: Int32 = -1
 
     // MARK: - Properties
@@ -89,10 +83,12 @@ public actor ProcessManager: ProcessManaging {
     /// Active processes indexed by handle ID.
     private var activeProcesses: [UUID: ProcessEntry] = [:]
 
-    /// A running process and the task that runs it.
+    /// A running process, its ToolProcess handle and the task that turns its
+    /// result into the outcome.
     private struct ProcessEntry: Sendable {
         let handle: ProcessHandle
-        let run: Task<ProcessRunOutcome, Never>
+        let run: ToolProcessRun
+        let outcome: Task<ProcessRunOutcome, Never>
         let record: ProcessRunRecord
     }
 
@@ -123,17 +119,36 @@ public actor ProcessManager: ProcessManaging {
         workingDirectory: URL,
         environment: [String: String]? = nil
     ) async throws -> ProcessHandle {
+        try await spawn(
+            executable: executable,
+            arguments: arguments,
+            workingDirectory: workingDirectory,
+            environment: environment,
+            drainGracePeriod: nil
+        )
+    }
+
+    /// ``spawn(executable:arguments:workingDirectory:environment:)`` with the
+    /// drain grace period set, or ToolProcess's default when it is nil.
+    func spawn(
+        executable: URL,
+        arguments: [String],
+        workingDirectory: URL,
+        environment: [String: String]?,
+        drainGracePeriod: Duration?
+    ) async throws -> ProcessHandle {
         try await launch(
             executable: executable,
             arguments: arguments,
             workingDirectory: workingDirectory,
             environment: environment,
-            keepsOutput: false
+            keepsOutput: false,
+            drainGracePeriod: drainGracePeriod
         ).handle
     }
 
-    /// Launches a process on ``ToolProcess`` in its own task and returns once
-    /// it has started.
+    /// Starts a process with ``ToolProcess/start(_:onEvent:onLaunch:)`` and
+    /// returns once it has launched, with the task that waits for its outcome.
     ///
     /// With `keepsOutput` the output is kept whole for ``runAndWait`` and the
     /// handle's streams stay empty. Without it the output is streamed line by
@@ -143,8 +158,9 @@ public actor ProcessManager: ProcessManaging {
         arguments: [String],
         workingDirectory: URL,
         environment: [String: String]?,
-        keepsOutput: Bool
-    ) async throws -> (handle: ProcessHandle, run: Task<ProcessRunOutcome, Never>) {
+        keepsOutput: Bool,
+        drainGracePeriod: Duration?
+    ) async throws -> ProcessEntry {
         let handleId = UUID()
 
         logger.info(
@@ -169,16 +185,18 @@ public actor ProcessManager: ProcessManaging {
         }
 
         let output: ToolProcessOutput = keepsOutput ? .capture() : .capture(limit: 0)
-        let spec = ToolProcessSpec(
+        var spec = ToolProcessSpec(
             executableURL: executable,
             arguments: arguments,
             environment: ToolProcessSpec.inheritedEnvironment(overriding: environment ?? [:]),
             workingDirectory: workingDirectory,
             stdout: output,
             stderr: output,
-            drainGracePeriod: Self.drainGracePeriod,
             label: executable.lastPathComponent
         )
+        if let drainGracePeriod {
+            spec.drainGracePeriod = drainGracePeriod
+        }
 
         let (stdoutStream, stdoutContinuation) = AsyncStream.makeStream(of: String.self)
         let (stderrStream, stderrContinuation) = AsyncStream.makeStream(of: String.self)
@@ -189,17 +207,23 @@ public actor ProcessManager: ProcessManaging {
             termination: terminationContinuation,
             streamsLines: !keepsOutput
         )
-        let launchSignal = ProcessLaunchSignal()
         let record = ProcessRunRecord()
         let startTime = Date()
 
-        let run = Task.detached(priority: Task.currentPriority) {
-            await Self.execute(spec, bridge: bridge, launchSignal: launchSignal, record: record)
+        var onEvent: (@Sendable (ToolProcessEvent) -> Void)?
+        if bridge.streamsLines {
+            onEvent = { event in bridge.deliver(event) }
         }
-
+        let run: ToolProcessRun
         let pid: Int32
         do {
-            pid = try await launchSignal.wait()
+            run = try ToolProcess.start(spec, onEvent: onEvent)
+            guard let launched = run.pid else {
+                // Nothing launched, so the run's error is the launch failure.
+                _ = try await run.result()
+                throw ToolProcessError.launchFailed(label: spec.label, reason: "No process was launched.", results: [])
+            }
+            pid = launched
         } catch {
             logger.error("Failed to launch process: \(error.localizedDescription)")
             throw WorkflowError.processError(
@@ -220,11 +244,15 @@ public actor ProcessManager: ProcessManaging {
             terminationContinuation: terminationContinuation,
             terminationStream: terminationStream
         )
-        activeProcesses[handleId] = ProcessEntry(handle: handle, run: run, record: record)
+        let outcome = Task.detached(priority: Task.currentPriority) {
+            await Self.outcome(of: run, label: spec.label, bridge: bridge, record: record)
+        }
+        let entry = ProcessEntry(handle: handle, run: run, outcome: outcome, record: record)
+        activeProcesses[handleId] = entry
 
         // Registered first, so the cleanup always finds the entry.
         Task { [weak self] in
-            _ = await run.value
+            _ = await outcome.value
             await self?.processDidTerminate(handleId: handleId)
         }
 
@@ -232,45 +260,41 @@ public actor ProcessManager: ProcessManaging {
             "Process spawned successfully: PID=\(pid), handle=\(handleId)"
         )
 
-        return (handle, run)
+        return entry
     }
 
-    /// Runs one process to its end and feeds the handle's streams. Never
-    /// isolated to the actor, so output is never queued behind it.
-    private nonisolated static func execute(
-        _ spec: ToolProcessSpec,
+    /// Waits for a run to end and feeds the handle's streams. Never isolated
+    /// to the actor, so output is never queued behind it.
+    private nonisolated static func outcome(
+        of run: ToolProcessRun,
+        label: String,
         bridge: ProcessStreamBridge,
-        launchSignal: ProcessLaunchSignal,
         record: ProcessRunRecord
     ) async -> ProcessRunOutcome {
         let logger = Logger(subsystem: LogSubsystem.workflow, category: "ProcessManager")
-        var onEvent: (@Sendable (ToolProcessEvent) -> Void)?
-        if bridge.streamsLines {
-            onEvent = { event in bridge.deliver(event) }
-        }
         let result: ToolProcessResult
         do {
-            result = try await ToolProcess.run(spec, onEvent: onEvent, onLaunch: { pid in
-                launchSignal.launched(pid)
-            })
+            result = try await run.result()
         } catch {
             // A cancelled or stopped run still reports how the process ended.
-            if case .cancelled(let results) = error, let first = results.first {
-                result = first
-            } else if case .timedOut(_, let results) = error, let first = results.first {
-                result = first
-            } else {
-                // Nothing ran, so the spawn reports the error.
-                launchSignal.failed(error)
+            let results: [ToolProcessResult]
+            switch error {
+            case .cancelled(let stopped), .timedOut(_, let stopped), .launchFailed(_, _, let stopped):
+                results = stopped
+            case .invalidSpec:
+                results = []
+            }
+            guard let first = results.first else {
                 bridge.finish(status: nil)
                 record.finish(status: -1)
                 return ProcessRunOutcome(status: -1, stdout: Data(), stderr: Data(), incompleteOutput: nil)
             }
+            result = first
         }
 
         // A run that was stopped on purpose is cut short by design, so only a
         // run that ended by itself reports incomplete output.
-        let incomplete = result.stop == nil ? Self.incompleteOutputDescription(result) : nil
+        let incomplete = result.stop == nil ? result.incompleteOutputReason : nil
         var reported = result.status
         if let incomplete {
             logger.error("\(incomplete, privacy: .public)")
@@ -281,24 +305,13 @@ public actor ProcessManager: ProcessManaging {
         }
         record.finish(status: reported)
         bridge.finish(status: reported)
-        logger.info("\(spec.label, privacy: .public) (pid \(result.pid)) finished with status \(reported)")
+        logger.info("\(label, privacy: .public) (pid \(result.pid)) finished with status \(reported)")
         return ProcessRunOutcome(
             status: result.status,
             stdout: result.stdout,
             stderr: result.stderr,
             incompleteOutput: incomplete
         )
-    }
-
-    /// Says why a result's output is incomplete, or nil when it is complete.
-    static func incompleteOutputDescription(_ result: ToolProcessResult) -> String? {
-        if result.outputDrainTimedOut {
-            return "The output of \(result.label) is incomplete because a child process kept it open after \(result.label) exited. The child process was stopped."
-        }
-        if result.outputReadFailed {
-            return "The output of \(result.label) is incomplete because reading it failed."
-        }
-        return nil
     }
 
     /// Called when a process has finished and its output is drained.
@@ -326,7 +339,7 @@ public actor ProcessManager: ProcessManaging {
 
         // Cancelling the run stops the process group and the descendant tree.
         entry.run.cancel()
-        _ = await entry.run.value
+        _ = await entry.outcome.value
     }
 
     /// Terminates all running processes.
@@ -429,54 +442,6 @@ private struct ProcessStreamBridge: Sendable {
     }
 }
 
-/// Hands the pid of a run, or the error that stopped its launch, to the
-/// spawn that waits for it. Only the first report counts.
-private final class ProcessLaunchSignal: Sendable {
-    private enum State {
-        case waiting(CheckedContinuation<Int32, any Error>?)
-        case launched(Int32)
-        case failed(any Error)
-    }
-
-    private let state = Mutex<State>(.waiting(nil))
-
-    func launched(_ pid: Int32) {
-        resolve(.launched(pid))
-    }
-
-    func failed(_ error: any Error) {
-        resolve(.failed(error))
-    }
-
-    private func resolve(_ outcome: State) {
-        let waiter = state.withLock { state -> CheckedContinuation<Int32, any Error>? in
-            guard case .waiting(let waiter) = state else { return nil }
-            state = outcome
-            return waiter
-        }
-        switch outcome {
-        case .launched(let pid): waiter?.resume(returning: pid)
-        case .failed(let error): waiter?.resume(throwing: error)
-        case .waiting: break
-        }
-    }
-
-    func wait() async throws -> Int32 {
-        try await withCheckedThrowingContinuation { continuation in
-            let ready = state.withLock { state -> State? in
-                guard case .waiting = state else { return state }
-                state = .waiting(continuation)
-                return nil
-            }
-            switch ready {
-            case .launched(let pid): continuation.resume(returning: pid)
-            case .failed(let error): continuation.resume(throwing: error)
-            case .waiting, nil: break
-            }
-        }
-    }
-}
-
 /// The status of a run once it has ended, readable without waiting.
 private final class ProcessRunRecord: Sendable {
     private let finishedStatus = Mutex<Int32?>(nil)
@@ -487,35 +452,6 @@ private final class ProcessRunRecord: Sendable {
 
     func finish(status: Int32) {
         finishedStatus.withLock { $0 = status }
-    }
-}
-
-/// Cancels the run of a ``ProcessManager/runAndWait`` when its caller is
-/// cancelled, whether that happens before or after the launch.
-private final class RunAndWaitCancellation: Sendable {
-    private struct State {
-        var run: Task<ProcessRunOutcome, Never>?
-        var cancelled = false
-    }
-
-    private let state = Mutex(State())
-
-    func attach(_ run: Task<ProcessRunOutcome, Never>) {
-        let cancelNow = state.withLock { state -> Bool in
-            state.run = run
-            return state.cancelled
-        }
-        if cancelNow {
-            run.cancel()
-        }
-    }
-
-    func cancel() {
-        let run = state.withLock { state -> Task<ProcessRunOutcome, Never>? in
-            state.cancelled = true
-            return state.run
-        }
-        run?.cancel()
     }
 }
 
@@ -549,36 +485,53 @@ extension ProcessManager {
         workingDirectory: URL,
         environment: [String: String]? = nil
     ) async throws -> (exitCode: Int32, stdout: String, stderr: String) {
-        let cancellation = RunAndWaitCancellation()
+        try await runAndWait(
+            executable: executable,
+            arguments: arguments,
+            workingDirectory: workingDirectory,
+            environment: environment,
+            drainGracePeriod: nil
+        )
+    }
 
-        return try await withTaskCancellationHandler {
-            try Task.checkCancellation()
-
-            let launched = try await launch(
-                executable: executable,
-                arguments: arguments,
-                workingDirectory: workingDirectory,
-                environment: environment,
-                keepsOutput: true
-            )
-            cancellation.attach(launched.run)
-            let outcome = await launched.run.value
-
-            try Task.checkCancellation()
-            if let reason = outcome.incompleteOutput {
-                throw WorkflowError.processError(
-                    operation: "read the output of \(executable.lastPathComponent)",
-                    underlying: ProcessOutputIncompleteError(reason: reason)
-                )
-            }
-            return (
-                outcome.status,
-                Self.joinedNonemptyLines(outcome.stdout),
-                Self.joinedNonemptyLines(outcome.stderr)
-            )
+    /// ``runAndWait(executable:arguments:workingDirectory:environment:)``
+    /// with the drain grace period set, or ToolProcess's default when it is nil.
+    func runAndWait(
+        executable: URL,
+        arguments: [String],
+        workingDirectory: URL,
+        environment: [String: String]?,
+        drainGracePeriod: Duration?
+    ) async throws -> (exitCode: Int32, stdout: String, stderr: String) {
+        try Task.checkCancellation()
+        let launched = try await launch(
+            executable: executable,
+            arguments: arguments,
+            workingDirectory: workingDirectory,
+            environment: environment,
+            keepsOutput: true,
+            drainGracePeriod: drainGracePeriod
+        )
+        // The handler runs at once when the caller was cancelled during the
+        // launch, so no cancellation is lost between the check and here.
+        let outcome = await withTaskCancellationHandler {
+            await launched.outcome.value
         } onCancel: {
-            cancellation.cancel()
+            launched.run.cancel()
         }
+
+        try Task.checkCancellation()
+        if let reason = outcome.incompleteOutput {
+            throw WorkflowError.processError(
+                operation: "read the output of \(executable.lastPathComponent)",
+                underlying: ProcessOutputIncompleteError(reason: reason)
+            )
+        }
+        return (
+            outcome.status,
+            Self.joinedNonemptyLines(outcome.stdout),
+            Self.joinedNonemptyLines(outcome.stderr)
+        )
     }
 
     /// Splits output into lines at LF, CR and CRLF, drops the empty ones and
