@@ -6,10 +6,24 @@ import LungfishIO
 import LungfishWorkflow
 import LungfishKit
 
-extension GenotypeResultViewController {
+/// Owns the genotype viewport export path of one GenotypeResultViewController.
+/// It settles the view, freezes the Excel capture, presents the save panel,
+/// runs the export task and publishes the export events. The controller
+/// creates the coordinator once and holds it for its own lifetime, so the
+/// coordinator never outlives the controller it reads. It reads controller
+/// state only through the forwarders at the end of this file. New export
+/// logic belongs here and not in the controller (REVIEW.md R6).
+@MainActor
+final class GenotypeViewportExportCoordinator {
+    private unowned let host: GenotypeResultViewController
+
+    init(host: GenotypeResultViewController) {
+        self.host = host
+    }
+
     /// Settles native drafts and filters, then freezes both worksheets before
     /// the ordinary save panel can delay publication.
-    public func presentExcelExportPanel(
+    func presentExcelExportPanel(
         expectedDisplayState: GenotypeResultDisplayState,
         settleDisplayState: (() throws -> GenotypeResultDisplayState)? = nil,
         originStillCurrent: @escaping () -> Bool = { true }
@@ -546,4 +560,37 @@ extension GenotypeResultViewController {
     func fileViewerSelectionURLs(for export: GenotypeViewportExportResult) -> [URL] {
         [export.outputURL]
     }
+}
+
+// The controller state the export reads. Each line forwards one member to the
+// controller under the member's own name, so every moved line above stays
+// byte-identical and a new controller dependency shows up as a new line here.
+private extension GenotypeViewportExportCoordinator {
+    var result: ONTGenotypeResultBundleData? { host.result }
+    var annotationStore: GenotypeAnnotationStore? { host.annotationStore }
+    var selectedLens: GenotypeResultViewportLens { host.selectedLens }
+    var displayState: GenotypeResultDisplayState { host.displayState }
+    var presentationPolicy: GenotypeResultPresentationPolicy? { host.presentationPolicy }
+    var manualHaplotypeEligibility: GenotypeManualHaplotypeEligibility { host.manualHaplotypeEligibility }
+    var activeSmartCohort: GenotypeCohortSmartFilter? { host.activeSmartCohort }
+    var quickFilterState: GenotypeQuickFilterBarView.FilterState { host.quickFilterState }
+    var quickFilterSearchText: String { host.quickFilterSearchText }
+    var deferredMatrixAnnotationMutationCount: Int { host.deferredMatrixAnnotationMutationCount }
+    var comparisonMatrix: GenotypeComparisonMatrixView { host.comparisonMatrix }
+    var haplotypeMatrixView: GenotypeHaplotypeDefinitionMatrixView { host.haplotypeMatrixView }
+    var quickFilterBar: GenotypeQuickFilterBarView { host.quickFilterBar }
+    var view: NSView { host.view }
+    var representedBundleURL: URL? { host.representedBundleURL }
+    var desiredResultConfigurationAuthority: GenotypeResultDesiredConfigurationAuthority { host.desiredResultConfigurationAuthority }
+    var excelSavePanelPresenter: (NSSavePanel, NSWindow, @escaping (URL?) -> Void) -> Void { host.excelSavePanelPresenter }
+    var viewportExportRunner: (GenotypeViewportExportSnapshot, GenotypeViewportExportFormat, URL) async throws -> Void { host.viewportExportRunner }
+    var onExcelExportEvent: ((GenotypeExcelExportEvent) -> Void)? { host.onExcelExportEvent }
+
+    func activeHaplotypeAnalysis() -> GenotypeHaplotypeAnalysis? { host.activeHaplotypeAnalysis() }
+    func definitionSetForResult(_ result: ONTGenotypeResultBundleData) -> GenotypeHaplotypeDefinitionSet? { host.definitionSetForResult(result) }
+    func activeHaplotypeDefinitionSetID() -> String? { host.activeHaplotypeDefinitionSetID() }
+    func effectiveHaplotypeCall(sample: String, call: GenotypeHaplotypeLocusCall) -> GenotypeResultViewController.EffectiveHaplotypeCall { host.effectiveHaplotypeCall(sample: sample, call: call) }
+    func ensureComparisonMatrixConfigured() { host.ensureComparisonMatrixConfigured() }
+    func ownsDesiredResultConfiguration(_ authority: GenotypeResultDesiredConfigurationAuthority) -> Bool { host.ownsDesiredResultConfiguration(authority) }
+    func deferManualHaplotypeTransition(_ transition: GenotypeManualHaplotypeDraftCoordinator.Transition, mutation: @escaping @MainActor () -> Void) -> Bool { host.deferManualHaplotypeTransition(transition, mutation: mutation) }
 }

@@ -550,6 +550,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             try await GenotypeViewportExportService().export(snapshot: snapshot, format: format, to: url)
         }.value
     }
+    private lazy var viewportExportCoordinator = GenotypeViewportExportCoordinator(host: self)
     private var resultConfigurationGeneration: UInt64 = 0
     private var desiredResultConfigurationBundleURL: URL?
     private var aiHaplotypingStatus: String?
@@ -8952,6 +8953,23 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         result?.bundleURL.standardizedFileURL
     }
 
+    /// Forwards to the export coordinator, which owns the Excel export path.
+    public func presentExcelExportPanel(
+        expectedDisplayState: GenotypeResultDisplayState,
+        settleDisplayState: (() throws -> GenotypeResultDisplayState)? = nil,
+        originStillCurrent: @escaping () -> Bool = { true }
+    ) {
+        viewportExportCoordinator.presentExcelExportPanel(
+            expectedDisplayState: expectedDisplayState,
+            settleDisplayState: settleDisplayState,
+            originStillCurrent: originStillCurrent
+        )
+    }
+
+    func captureExcelExportSnapshot() throws -> GenotypeViewportExportSnapshot {
+        try viewportExportCoordinator.captureExcelExportSnapshot()
+    }
+
     private func locusSummaryRow(_ summary: ONTGenotypeLocusSummary) -> NSView {
         let topCall = summary.sharedCalls.first
         return detailRows([
@@ -10928,7 +10946,7 @@ extension GenotypeResultViewController {
     }
 
     func testingCurrentExportSnapshot() -> GenotypeViewportExportSnapshot? {
-        currentExportSnapshot()
+        viewportExportCoordinator.currentExportSnapshot()
     }
 
     func testingSetComparisonLocusFilter(_ locus: String?) {
@@ -10936,7 +10954,7 @@ extension GenotypeResultViewController {
     }
 
     func testingFileViewerSelectionURLs(for export: GenotypeViewportExportResult) -> [URL] {
-        fileViewerSelectionURLs(for: export)
+        viewportExportCoordinator.fileViewerSelectionURLs(for: export)
     }
 
     var testingSavedCohortChipTitle: String? {
