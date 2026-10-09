@@ -1054,9 +1054,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         try writeReportCSV(reportRows, to: request.reportCSVURL)
         try writeSampleSummaryCSV(sampleSummaries, to: request.sampleSummaryCSVURL)
         try writeStatsJSON(
+            request: request,
             sampleSummaries: sampleSummaries,
-            genotypeRows: allGenotypeRows,
-            to: request.statsJSONURL
+            genotypeRows: allGenotypeRows
         )
         let candidateCanonicalizationInputURL = request.outputDirectory.appendingPathComponent(
             "artifacts/internal/mhc-candidate-canonicalization-input.json"

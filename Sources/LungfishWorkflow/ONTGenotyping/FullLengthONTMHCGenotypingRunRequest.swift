@@ -235,18 +235,64 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         return values
     }
 
+    /// The dropout thresholds this run applies when it infers haplotypes, or
+    /// nil when no fraction and no override is set, so the run filters nothing.
     public var haplotypeDropoutEvaluator: GenotypeDropoutEvaluator? {
-        guard haplotypeDropoutSampleFraction != nil
-                || haplotypeDropoutLocusFraction != nil
-                || !haplotypeDropoutLocusFractionOverrides.isEmpty else {
-            return nil
-        }
-        return GenotypeDropoutEvaluator(
-            absolute: 1,
+        Self.haplotypeDropoutEvaluator(
             sampleFraction: haplotypeDropoutSampleFraction,
             locusFraction: haplotypeDropoutLocusFraction,
             locusFractionOverrides: haplotypeDropoutLocusFractionOverrides
         )
+    }
+
+    /// The thresholds a recorded argv carries, read back the way
+    /// `appendHaplotypeThresholdArguments` wrote them. Full-length runs before
+    /// finding SF1 recorded no thresholds in their stats JSON, so
+    /// `GenotypeHaplotypeAnalysisResolver` re-infers such a bundle with the
+    /// thresholds its provenance argv carries. An argv without the three flags
+    /// ran with no dropout filter, so this is nil for it.
+    public static func haplotypeDropoutEvaluator(recordedIn argv: [String]) -> GenotypeDropoutEvaluator? {
+        var sampleFraction: Double?
+        var locusFraction: Double?
+        var overrides: [String: Double] = [:]
+        for (flag, value) in zip(argv, argv.dropFirst()) {
+            switch flag {
+            case "--haplotype-min-sample-percent":
+                sampleFraction = fraction(fromPercentArgument: value)
+            case "--haplotype-min-locus-percent":
+                locusFraction = fraction(fromPercentArgument: value)
+            case "--haplotype-min-locus-percent-override":
+                let parts = value.split(separator: "=", maxSplits: 1).map {
+                    String($0).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                guard parts.count == 2, !parts[0].isEmpty,
+                      let fraction = fraction(fromPercentArgument: parts[1]) else { continue }
+                overrides[parts[0]] = fraction
+            default:
+                continue
+            }
+        }
+        return haplotypeDropoutEvaluator(
+            sampleFraction: sampleFraction,
+            locusFraction: locusFraction,
+            locusFractionOverrides: overrides
+        )
+    }
+
+    /// The thresholds this run applies, in the keys and units the barcode
+    /// script records in its stats JSON (percent of reads, overrides as
+    /// LOCUS=PERCENT), so `GenotypeHaplotypeAnalysisResolver` re-infers a
+    /// bundle of either workflow with the thresholds its run used (finding
+    /// SF1). `minSupport` is the evaluator's floor of one read.
+    var haplotypeThresholdStatsMetrics: [String: Any] {
+        [
+            "minSupport": 1,
+            "haplotypeMinSamplePercent": (haplotypeDropoutSampleFraction ?? 0) * 100.0,
+            "haplotypeMinLocusPercent": (haplotypeDropoutLocusFraction ?? 0) * 100.0,
+            "haplotypeMinLocusPercentOverrides": haplotypeDropoutLocusFractionOverrides
+                .sorted { $0.key < $1.key }
+                .map { "\($0.key)=\(Self.percentArgument(forFraction: $0.value))" },
+        ]
     }
 
     public func appendHaplotypeThresholdArguments(to values: inout [String]) {
@@ -318,8 +364,31 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         return normalized
     }
 
+    private static func haplotypeDropoutEvaluator(
+        sampleFraction: Double?,
+        locusFraction: Double?,
+        locusFractionOverrides: [String: Double]
+    ) -> GenotypeDropoutEvaluator? {
+        guard sampleFraction != nil || locusFraction != nil || !locusFractionOverrides.isEmpty else {
+            return nil
+        }
+        return GenotypeDropoutEvaluator(
+            absolute: 1,
+            sampleFraction: sampleFraction,
+            locusFraction: locusFraction,
+            locusFractionOverrides: locusFractionOverrides
+        )
+    }
+
     private static func percentArgument(forFraction fraction: Double) -> String {
         String(format: "%g", fraction * 100.0)
+    }
+
+    /// The inverse of `percentArgument(forFraction:)`, and the CLI's reading of
+    /// a percent flag (`FastqGenotypingSubcommand.fraction(fromPercent:)`).
+    private static func fraction(fromPercentArgument value: String) -> Double? {
+        guard let percent = Double(value.trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
+        return normalizedFraction(percent / 100.0)
     }
 
     private static func sanitizedOutputName(_ value: String) -> String {

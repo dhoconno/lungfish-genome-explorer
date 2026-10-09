@@ -45,14 +45,11 @@ public enum GenotypeHaplotypeAnalysisResolver {
         guard let definitionSet else {
             return result.haplotypeAnalysis
         }
-        let evaluator = hasRunHaplotypeDropoutMetrics(result)
-            ? runHaplotypeDropoutEvaluator(for: result)
-            : sidecarHaplotypeDropoutEvaluator(sidecar: sidecar)
         return GenotypeHaplotypeAnalyzer.analyze(
             calls: result.calls,
             definitionSet: definitionSet,
             generatedAt: nil,
-            dropoutFilter: evaluator,
+            dropoutFilter: runHaplotypeDropoutEvaluator(for: result),
             matrixReviews: sidecar?.matrixReviews ?? [],
             locusDenominator: GenotypeLocusDenominator(result: result)
         )
@@ -221,10 +218,25 @@ public enum GenotypeHaplotypeAnalysisResolver {
         return nil
     }
 
+    /// The dropout thresholds the run applied when it inferred haplotypes.
+    /// Every re-inference uses them, the GUI's live analysis, the CLI exports
+    /// and the Excel capture alike (finding SF1). The run stats come first, in
+    /// the keys the barcode script records. A bundle whose stats carry none of
+    /// them, a full-length ONT run before SF1, is read from the argv its
+    /// provenance recorded. A run that recorded no threshold anywhere used no
+    /// dropout filter, so its re-inference uses none.
     public static func runHaplotypeDropoutEvaluator(
         for result: ONTGenotypeResultBundleData
     ) -> GenotypeDropoutEvaluator? {
-        let metrics = result.stats.rawMetrics
+        if hasRunHaplotypeDropoutMetrics(result) {
+            return recordedMetricsHaplotypeDropoutEvaluator(result.stats.rawMetrics)
+        }
+        return recordedArgvHaplotypeDropoutEvaluator(for: result)
+    }
+
+    private static func recordedMetricsHaplotypeDropoutEvaluator(
+        _ metrics: [String: String]
+    ) -> GenotypeDropoutEvaluator? {
         let absolute = intMetric(metrics["minSupport"]).flatMap { $0 > 1 ? $0 : nil }
         let sampleFraction = percentMetric(metrics["haplotypeMinSamplePercent"])
         let locusFraction = percentMetric(metrics["haplotypeMinLocusPercent"])
@@ -248,16 +260,13 @@ public enum GenotypeHaplotypeAnalysisResolver {
             || metrics["haplotypeMinLocusPercentOverrides"] != nil
     }
 
-    private static func sidecarHaplotypeDropoutEvaluator(
-        sidecar: GenotypeAnnotationSidecar?
+    private static func recordedArgvHaplotypeDropoutEvaluator(
+        for result: ONTGenotypeResultBundleData
     ) -> GenotypeDropoutEvaluator? {
-        let settings = sidecar?.settings ?? .default
-        return GenotypeDropoutEvaluator(
-            absolute: settings.dropoutAbsolute,
-            sampleFraction: settings.dropoutSampleFraction,
-            locusFraction: settings.dropoutLocusFraction,
-            locusFractionOverrides: settings.locusFractionOverrides ?? [:]
-        )
+        guard let envelope = try? ProvenanceEnvelopeReader.load(fromSidecar: result.artifacts.provenanceURL) else {
+            return nil
+        }
+        return FullLengthONTMHCGenotypingRunRequest.haplotypeDropoutEvaluator(recordedIn: envelope.argv)
     }
 
     private static func intMetric(_ value: String?) -> Int? {

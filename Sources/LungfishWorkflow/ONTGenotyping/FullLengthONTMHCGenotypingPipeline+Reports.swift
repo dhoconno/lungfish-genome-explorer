@@ -132,10 +132,12 @@ extension FullLengthONTMHCGenotypingPipeline {
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
+    /// Writes the run stats to `request.statsJSONURL`, with the haplotype
+    /// thresholds the run applies among them.
     internal func writeStatsJSON(
+        request: FullLengthONTMHCGenotypingRunRequest,
         sampleSummaries: [FullLengthONTMHCSampleSummary],
-        genotypeRows: [FullLengthONTMHCClusterGenotypeRow],
-        to url: URL
+        genotypeRows: [FullLengthONTMHCClusterGenotypeRow]
     ) throws {
         let totalInput = sampleSummaries.reduce(0) { $0 + $1.totalInputReads }
         let assigned = Dictionary(
@@ -143,7 +145,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             uniquingKeysWith: max
         ).values.reduce(0, +)
         let clustered = sampleSummaries.reduce(0) { $0 + $1.clusteredReads }
-        let object: [String: Any] = [
+        var object: [String: Any] = [
             "totalInputReads": totalInput,
             "totalAlignments": assigned,
             "passedAlignments": assigned,
@@ -156,8 +158,11 @@ extension FullLengthONTMHCGenotypingPipeline {
             "unmatchedClusters": sampleSummaries.reduce(0) { $0 + $1.unmatchedClusters },
             "cdnaClusters": sampleSummaries.reduce(0) { $0 + $1.cdnaClusters },
         ]
+        // The haplotype thresholds the run applies, in the keys the barcode
+        // script records, so every re-inference uses them (finding SF1).
+        object.merge(request.haplotypeThresholdStatsMetrics) { _, threshold in threshold }
         let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: url, options: .atomic)
+        try data.write(to: request.statsJSONURL, options: .atomic)
     }
 
     internal func workbookSheets(
