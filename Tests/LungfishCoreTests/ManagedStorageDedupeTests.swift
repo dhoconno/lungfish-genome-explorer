@@ -294,7 +294,11 @@ struct ManagedStorageDedupeTests {
         #expect(report.filesHashed == 20_000)
         #expect(probe.snapshotsBuilt == 0, "a dry run must never inspect open files")
         #expect(probe.checks == 0)
-        #expect(elapsed < 5, "20k tiny files took \(elapsed)s")
+        // The probe counts above pin the per-file process scan that once took
+        // hours. The time bound only catches an algorithmic blowup. It allows
+        // the parallel unit tier, where this run took 22.7 s against about
+        // 9 s alone.
+        #expect(elapsed < 60, "20k tiny files took \(elapsed)s")
     }
 
     @Test("Already cloned families are not hashed")
