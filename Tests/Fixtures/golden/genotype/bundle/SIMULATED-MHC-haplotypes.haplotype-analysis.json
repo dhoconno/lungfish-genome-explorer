@@ -171,7 +171,7 @@
       "sample" : "SIMULATED-MHC-B-pairs"
     }
   ],
-  "schemaVersion" : 3,
+  "schemaVersion" : 4,
   "source" : "deterministic",
   "speciesName" : "Mauritian cynomolgus macaque"
 }
