@@ -174,6 +174,35 @@ final class GenotypeExportCharacterizationTests: GenotypeResultViewportTestCase 
         XCTAssertEqual(events, [], "no event is published before the save completes")
     }
 
+    /// Finding SF4. The filter context the matrix attaches to the capture
+    /// used to print its three percent thresholds with one decimal, so a
+    /// minimum percent of 0.125 appeared as 0.1 beside the Export Metadata
+    /// row that prints the applied value exactly. Both now record the value
+    /// the way the metadata rows do, so provenance states one number.
+    func testExportFilterContextRecordsThresholdValuesExactly() throws {
+        let scenario = try makeHaplotypedMiSeqScenario()
+        defer { scenario.cleanup() }
+        let controller = scenario.controller
+        var state = controller.testingDisplayState
+        state.hideLowSupport = false
+        state.minimumSupportPercent = 0.125
+        state.matrixMinimumPercent = 0.125
+        state.matrixMinimumPrevalencePercent = 0.125
+        controller.testingApplyDisplayStateImmediately(state)
+
+        let snapshot = try scenario.withAquaDrawingAppearance { try controller.captureExcelExportSnapshot() }
+        XCTAssertEqual(snapshot.filters["minimumSupportPercent"], "0.125")
+        XCTAssertEqual(snapshot.filters["matrixMinimumPercent"], "0.125")
+        XCTAssertEqual(snapshot.filters["matrixMinimumPrevalencePercent"], "0.125")
+        let frozen = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: XCTUnwrap(snapshot.excelSnapshotData))
+        let rows = Dictionary(frozen.metadata.compactMap { row in row.count == 2 ? (row[0], row[1]) : nil }, uniquingKeysWith: { first, _ in first })
+        XCTAssertEqual(rows["Minimum percent"], "0.125")
+        XCTAssertEqual(rows[GenotypeExcelSnapshotBuilder.prevalenceMetadataLabel], "0.125")
+        XCTAssertEqual(rows["matrixMinimumPercent"], "0.125", "the filter context row agrees with the metadata row")
+        XCTAssertEqual(rows["matrixMinimumPrevalencePercent"], "0.125")
+        XCTAssertEqual(rows["minimumSupportPercent"], "0.125")
+    }
+
     // MARK: E3, the panel flow
 
     func testExcelPanelFlowHandsTheRunnerTheFrozenCaptureAndPublishesEvents() async throws {

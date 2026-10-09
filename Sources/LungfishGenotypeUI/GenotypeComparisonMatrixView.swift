@@ -1081,15 +1081,15 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             "searchText": filterText,
             "locus": selectedFilterLocus ?? "All Loci",
             "hideLowSupport": String(displayState.hideLowSupport),
-            "minimumSupportPercent": String(format: "%.1f", displayState.minimumSupportPercent),
+            "minimumSupportPercent": String(displayState.minimumSupportPercent),
             "supportDenominator": displayState.supportDenominator.displayName,
             "matrixMinimumReads": "\(displayState.matrixMinimumReads)",
-            "matrixMinimumPercent": String(format: "%.1f", displayState.matrixMinimumPercent),
+            "matrixMinimumPercent": String(displayState.matrixMinimumPercent),
             "matrixPercentDenominator": displayState.matrixPercentDenominator.displayName,
             "matrixPercentBasis": displayState.matrixPercentDenominator == .viewedLocus
                 ? "per-sample read fraction, \(GenotypeLocusDenominator.basisLabel)"
                 : "per-sample read fraction, sample retained reads",
-            "matrixMinimumPrevalencePercent": String(format: "%.1f", displayState.matrixMinimumPrevalencePercent),
+            "matrixMinimumPrevalencePercent": String(displayState.matrixMinimumPrevalencePercent),
             "matrixRowFilterText": displayState.matrixRowFilterText,
             "matrixSampleFilterText": displayState.matrixSampleFilterText,
             "cellColorMode": displayState.cellColorMode.displayName,
