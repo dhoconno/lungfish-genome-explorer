@@ -1,0 +1,3601 @@
+{
+  "normalization" : {
+    "masks" : [
+      {
+        "applies" : "The test's own temp root in plain paths and file URLs, in the /var and the /private/var spelling",
+        "count" : 0,
+        "guard" : "None, it is the fixture root",
+        "token" : "<ROOT>"
+      },
+      {
+        "applies" : "The top-level generatedAt of the frozen Excel capture",
+        "count" : 0,
+        "guard" : "Parses as ISO 8601 UTC to the second and lies inside the test's time window",
+        "token" : "<GENERATED_AT>"
+      },
+      {
+        "applies" : "A sourceRevision digest of the frozen Excel capture whose key names a captured input",
+        "count" : 0,
+        "guard" : "Equals the SHA-256 of that input's raw bytes, which are decoded and compared in full",
+        "token" : "<SHA256>"
+      }
+    ]
+  },
+  "value" : {
+    "changedRawSupport" : null,
+    "passes" : [
+      {
+        "cases" : [
+          {
+            "capability" : {
+              "clearReview" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "commentsByTarget" : {
+
+              },
+              "commentState" : "none",
+              "falseNegative" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "falsePositive" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "isWritable" : false,
+              "removeComments" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "reviewState" : "none",
+              "selectedCellCount" : 0,
+              "selectionShape" : "none",
+              "support" : {
+                "supportedCount" : 0,
+                "unknownCount" : 0,
+                "unsupportedCount" : 0
+              },
+              "upsertComment" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              }
+            },
+            "cellTexts" : [
+
+            ],
+            "label" : "empty selection",
+            "matrixCapabilityEqualsController" : true,
+            "menu" : null,
+            "menuTarget" : null,
+            "selectedTargets" : [
+
+            ],
+            "targets" : [
+
+            ]
+          },
+          {
+            "capability" : {
+              "clearReview" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "commentsByTarget" : [
+                {
+                  "key" : {
+                    "genotype" : "01_Mafa_A1_SUP",
+                    "kind" : "row",
+                    "locus" : "MHC-A"
+                  },
+                  "value" : {
+                    "author" : "Analyst",
+                    "body" : "Reference allele row",
+                    "target" : {
+                      "genotype" : "01_Mafa_A1_SUP",
+                      "kind" : "row",
+                      "locus" : "MHC-A"
+                    },
+                    "timestamp" : "2026-09-02T10:00:00Z"
+                  }
+                }
+              ],
+              "commentState" : "none",
+              "falseNegative" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "falsePositive" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "isWritable" : false,
+              "removeComments" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "reviewState" : {
+                "uniform" : "falsePositive"
+              },
+              "selectedCellCount" : 1,
+              "selectionShape" : "cells",
+              "support" : {
+                "supportedCount" : 1,
+                "unknownCount" : 0,
+                "unsupportedCount" : 0
+              },
+              "upsertComment" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              }
+            },
+            "cellTexts" : [
+              "[7]"
+            ],
+            "label" : "SUP S1, positive with a false positive",
+            "matrixCapabilityEqualsController" : true,
+            "menu" : {
+              "inspectedTargetCount" : 1,
+              "items" : [
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalsePositive",
+                  "keyEquivalent" : "p",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Positive"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalseNegative",
+                  "keyEquivalent" : "x",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Negative"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "clearReview",
+                  "keyEquivalent" : "r",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Clear Review"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "editComment",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Add Comment…"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "removeComments",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Remove Comment"
+                }
+              ],
+              "selectionTargets" : [
+                {
+                  "genotype" : "01_Mafa_A1_SUP",
+                  "kind" : "cell",
+                  "locus" : "MHC-A",
+                  "sample" : "S1"
+                }
+              ],
+              "visibilityItems" : [
+
+              ],
+              "visibilitySubmenus" : [
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Row"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Row"
+                    }
+                  ],
+                  "kind" : "rowVisibility",
+                  "title" : "Row Visibility"
+                },
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Column"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Column"
+                    }
+                  ],
+                  "kind" : "columnVisibility",
+                  "title" : "Column Visibility"
+                }
+              ]
+            },
+            "menuTarget" : {
+              "genotype" : "01_Mafa_A1_SUP",
+              "kind" : "cell",
+              "locus" : "MHC-A",
+              "sample" : "S1"
+            },
+            "selectedTargets" : [
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S1"
+              }
+            ],
+            "targets" : [
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S1"
+              }
+            ]
+          },
+          {
+            "capability" : {
+              "clearReview" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "commentsByTarget" : [
+                {
+                  "key" : {
+                    "genotype" : "01_Mafa_A1_SUP",
+                    "kind" : "row",
+                    "locus" : "MHC-A"
+                  },
+                  "value" : {
+                    "author" : "Analyst",
+                    "body" : "Reference allele row",
+                    "target" : {
+                      "genotype" : "01_Mafa_A1_SUP",
+                      "kind" : "row",
+                      "locus" : "MHC-A"
+                    },
+                    "timestamp" : "2026-09-02T10:00:00Z"
+                  }
+                },
+                {
+                  "key" : {
+                    "kind" : "column",
+                    "sample" : "S2"
+                  },
+                  "value" : {
+                    "author" : "Analyst",
+                    "body" : "Index animal",
+                    "target" : {
+                      "kind" : "column",
+                      "sample" : "S2"
+                    },
+                    "timestamp" : "2026-09-02T10:00:00Z"
+                  }
+                }
+              ],
+              "commentState" : "none",
+              "falseNegative" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "falsePositive" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "isWritable" : false,
+              "removeComments" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "reviewState" : {
+                "uniform" : "falseNegative"
+              },
+              "selectedCellCount" : 1,
+              "selectionShape" : "cells",
+              "support" : {
+                "supportedCount" : 0,
+                "unknownCount" : 0,
+                "unsupportedCount" : 1
+              },
+              "upsertComment" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              }
+            },
+            "cellTexts" : [
+              "0"
+            ],
+            "label" : "SUP S2, attested zero with a false negative",
+            "matrixCapabilityEqualsController" : true,
+            "menu" : {
+              "inspectedTargetCount" : 1,
+              "items" : [
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalsePositive",
+                  "keyEquivalent" : "p",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Positive"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalseNegative",
+                  "keyEquivalent" : "x",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Negative"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "clearReview",
+                  "keyEquivalent" : "r",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Clear Review"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "editComment",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Add Comment…"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "removeComments",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Remove Comment"
+                }
+              ],
+              "selectionTargets" : [
+                {
+                  "genotype" : "01_Mafa_A1_SUP",
+                  "kind" : "cell",
+                  "locus" : "MHC-A",
+                  "sample" : "S2"
+                }
+              ],
+              "visibilityItems" : [
+
+              ],
+              "visibilitySubmenus" : [
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Row"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Row"
+                    }
+                  ],
+                  "kind" : "rowVisibility",
+                  "title" : "Row Visibility"
+                },
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Column"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Column"
+                    }
+                  ],
+                  "kind" : "columnVisibility",
+                  "title" : "Column Visibility"
+                }
+              ]
+            },
+            "menuTarget" : {
+              "genotype" : "01_Mafa_A1_SUP",
+              "kind" : "cell",
+              "locus" : "MHC-A",
+              "sample" : "S2"
+            },
+            "selectedTargets" : [
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S2"
+              }
+            ],
+            "targets" : [
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S2"
+              }
+            ]
+          },
+          {
+            "capability" : {
+              "clearReview" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "commentsByTarget" : [
+                {
+                  "key" : {
+                    "genotype" : "01_Mafa_A1_SUP",
+                    "kind" : "row",
+                    "locus" : "MHC-A"
+                  },
+                  "value" : {
+                    "author" : "Analyst",
+                    "body" : "Reference allele row",
+                    "target" : {
+                      "genotype" : "01_Mafa_A1_SUP",
+                      "kind" : "row",
+                      "locus" : "MHC-A"
+                    },
+                    "timestamp" : "2026-09-02T10:00:00Z"
+                  }
+                }
+              ],
+              "commentState" : "none",
+              "falseNegative" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "falsePositive" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "isWritable" : false,
+              "removeComments" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "reviewState" : "none",
+              "selectedCellCount" : 1,
+              "selectionShape" : "cells",
+              "support" : {
+                "supportedCount" : 0,
+                "unknownCount" : 1,
+                "unsupportedCount" : 0
+              },
+              "upsertComment" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              }
+            },
+            "cellTexts" : [
+              ""
+            ],
+            "label" : "SUP S3, absent with a stored false negative",
+            "matrixCapabilityEqualsController" : true,
+            "menu" : {
+              "inspectedTargetCount" : 1,
+              "items" : [
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalsePositive",
+                  "keyEquivalent" : "p",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Positive"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalseNegative",
+                  "keyEquivalent" : "x",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Negative"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "clearReview",
+                  "keyEquivalent" : "r",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Clear Review"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "editComment",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Add Comment…"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "removeComments",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Remove Comment"
+                }
+              ],
+              "selectionTargets" : [
+                {
+                  "genotype" : "01_Mafa_A1_SUP",
+                  "kind" : "cell",
+                  "locus" : "MHC-A",
+                  "sample" : "S3"
+                }
+              ],
+              "visibilityItems" : [
+
+              ],
+              "visibilitySubmenus" : [
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Row"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Row"
+                    }
+                  ],
+                  "kind" : "rowVisibility",
+                  "title" : "Row Visibility"
+                },
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Column"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Column"
+                    }
+                  ],
+                  "kind" : "columnVisibility",
+                  "title" : "Column Visibility"
+                }
+              ]
+            },
+            "menuTarget" : {
+              "genotype" : "01_Mafa_A1_SUP",
+              "kind" : "cell",
+              "locus" : "MHC-A",
+              "sample" : "S3"
+            },
+            "selectedTargets" : [
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S3"
+              }
+            ],
+            "targets" : [
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S3"
+              }
+            ]
+          },
+          {
+            "capability" : {
+              "clearReview" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "commentsByTarget" : [
+                {
+                  "key" : {
+                    "genotype" : "02_Mafa_A1_CAT",
+                    "kind" : "cell",
+                    "locus" : "MHC-A",
+                    "sample" : "S1"
+                  },
+                  "value" : {
+                    "author" : "Analyst",
+                    "body" : "Check the catalog count",
+                    "target" : {
+                      "genotype" : "02_Mafa_A1_CAT",
+                      "kind" : "cell",
+                      "locus" : "MHC-A",
+                      "sample" : "S1"
+                    },
+                    "timestamp" : "2026-09-02T10:00:00Z"
+                  }
+                }
+              ],
+              "commentState" : {
+                "uniform" : "Check the catalog count"
+              },
+              "falseNegative" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "falsePositive" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "isWritable" : false,
+              "removeComments" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "reviewState" : "none",
+              "selectedCellCount" : 1,
+              "selectionShape" : "cells",
+              "support" : {
+                "supportedCount" : 1,
+                "unknownCount" : 0,
+                "unsupportedCount" : 0
+              },
+              "upsertComment" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              }
+            },
+            "cellTexts" : [
+              "12"
+            ],
+            "label" : "CAT S1, positive with a duplicate review pair and a comment",
+            "matrixCapabilityEqualsController" : true,
+            "menu" : {
+              "inspectedTargetCount" : 1,
+              "items" : [
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalsePositive",
+                  "keyEquivalent" : "p",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Positive"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalseNegative",
+                  "keyEquivalent" : "x",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Negative"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "clearReview",
+                  "keyEquivalent" : "r",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Clear Review"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "editComment",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Edit Comment…"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "removeComments",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Remove Comment"
+                }
+              ],
+              "selectionTargets" : [
+                {
+                  "genotype" : "02_Mafa_A1_CAT",
+                  "kind" : "cell",
+                  "locus" : "MHC-A",
+                  "sample" : "S1"
+                }
+              ],
+              "visibilityItems" : [
+
+              ],
+              "visibilitySubmenus" : [
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Row"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Row"
+                    }
+                  ],
+                  "kind" : "rowVisibility",
+                  "title" : "Row Visibility"
+                },
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Column"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Column"
+                    }
+                  ],
+                  "kind" : "columnVisibility",
+                  "title" : "Column Visibility"
+                }
+              ]
+            },
+            "menuTarget" : {
+              "genotype" : "02_Mafa_A1_CAT",
+              "kind" : "cell",
+              "locus" : "MHC-A",
+              "sample" : "S1"
+            },
+            "selectedTargets" : [
+              {
+                "genotype" : "02_Mafa_A1_CAT",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S1"
+              }
+            ],
+            "targets" : [
+              {
+                "genotype" : "02_Mafa_A1_CAT",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S1"
+              }
+            ]
+          },
+          {
+            "capability" : {
+              "clearReview" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "commentsByTarget" : [
+                {
+                  "key" : {
+                    "kind" : "column",
+                    "sample" : "S2"
+                  },
+                  "value" : {
+                    "author" : "Analyst",
+                    "body" : "Index animal",
+                    "target" : {
+                      "kind" : "column",
+                      "sample" : "S2"
+                    },
+                    "timestamp" : "2026-09-02T10:00:00Z"
+                  }
+                }
+              ],
+              "commentState" : "none",
+              "falseNegative" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "falsePositive" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "isWritable" : false,
+              "removeComments" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "reviewState" : "none",
+              "selectedCellCount" : 1,
+              "selectionShape" : "cells",
+              "support" : {
+                "supportedCount" : 0,
+                "unknownCount" : 0,
+                "unsupportedCount" : 1
+              },
+              "upsertComment" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              }
+            },
+            "cellTexts" : [
+              ""
+            ],
+            "label" : "CAT S2, catalog zero",
+            "matrixCapabilityEqualsController" : true,
+            "menu" : {
+              "inspectedTargetCount" : 1,
+              "items" : [
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalsePositive",
+                  "keyEquivalent" : "p",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Positive"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalseNegative",
+                  "keyEquivalent" : "x",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Negative"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "clearReview",
+                  "keyEquivalent" : "r",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Clear Review"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "editComment",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Add Comment…"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "removeComments",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Remove Comment"
+                }
+              ],
+              "selectionTargets" : [
+                {
+                  "genotype" : "02_Mafa_A1_CAT",
+                  "kind" : "cell",
+                  "locus" : "MHC-A",
+                  "sample" : "S2"
+                }
+              ],
+              "visibilityItems" : [
+
+              ],
+              "visibilitySubmenus" : [
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Row"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Row"
+                    }
+                  ],
+                  "kind" : "rowVisibility",
+                  "title" : "Row Visibility"
+                },
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Column"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Column"
+                    }
+                  ],
+                  "kind" : "columnVisibility",
+                  "title" : "Column Visibility"
+                }
+              ]
+            },
+            "menuTarget" : {
+              "genotype" : "02_Mafa_A1_CAT",
+              "kind" : "cell",
+              "locus" : "MHC-A",
+              "sample" : "S2"
+            },
+            "selectedTargets" : [
+              {
+                "genotype" : "02_Mafa_A1_CAT",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S2"
+              }
+            ],
+            "targets" : [
+              {
+                "genotype" : "02_Mafa_A1_CAT",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S2"
+              }
+            ]
+          },
+          {
+            "capability" : {
+              "clearReview" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "commentsByTarget" : {
+
+              },
+              "commentState" : "none",
+              "falseNegative" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "falsePositive" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "isWritable" : false,
+              "removeComments" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "reviewState" : {
+                "uniform" : "falseNegative"
+              },
+              "selectedCellCount" : 1,
+              "selectionShape" : "cells",
+              "support" : {
+                "supportedCount" : 0,
+                "unknownCount" : 0,
+                "unsupportedCount" : 1
+              },
+              "upsertComment" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              }
+            },
+            "cellTexts" : [
+              "—"
+            ],
+            "label" : "CAT S3, catalog zero with a false negative",
+            "matrixCapabilityEqualsController" : true,
+            "menu" : {
+              "inspectedTargetCount" : 1,
+              "items" : [
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalsePositive",
+                  "keyEquivalent" : "p",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Positive"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalseNegative",
+                  "keyEquivalent" : "x",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Negative"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "clearReview",
+                  "keyEquivalent" : "r",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Clear Review"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "editComment",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Add Comment…"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "removeComments",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Remove Comment"
+                }
+              ],
+              "selectionTargets" : [
+                {
+                  "genotype" : "02_Mafa_A1_CAT",
+                  "kind" : "cell",
+                  "locus" : "MHC-A",
+                  "sample" : "S3"
+                }
+              ],
+              "visibilityItems" : [
+
+              ],
+              "visibilitySubmenus" : [
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Row"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Row"
+                    }
+                  ],
+                  "kind" : "rowVisibility",
+                  "title" : "Row Visibility"
+                },
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Column"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Column"
+                    }
+                  ],
+                  "kind" : "columnVisibility",
+                  "title" : "Column Visibility"
+                }
+              ]
+            },
+            "menuTarget" : {
+              "genotype" : "02_Mafa_A1_CAT",
+              "kind" : "cell",
+              "locus" : "MHC-A",
+              "sample" : "S3"
+            },
+            "selectedTargets" : [
+              {
+                "genotype" : "02_Mafa_A1_CAT",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S3"
+              }
+            ],
+            "targets" : [
+              {
+                "genotype" : "02_Mafa_A1_CAT",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S3"
+              }
+            ]
+          },
+          {
+            "capability" : {
+              "clearReview" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "commentsByTarget" : {
+
+              },
+              "commentState" : "none",
+              "falseNegative" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "falsePositive" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "isWritable" : false,
+              "removeComments" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "reviewState" : "none",
+              "selectedCellCount" : 1,
+              "selectionShape" : "cells",
+              "support" : {
+                "supportedCount" : 0,
+                "unknownCount" : 1,
+                "unsupportedCount" : 0
+              },
+              "upsertComment" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              }
+            },
+            "cellTexts" : [
+              ""
+            ],
+            "label" : "PROD S1, production-shape catalog zero with a stored false negative",
+            "matrixCapabilityEqualsController" : true,
+            "menu" : {
+              "inspectedTargetCount" : 1,
+              "items" : [
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalsePositive",
+                  "keyEquivalent" : "p",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Positive"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalseNegative",
+                  "keyEquivalent" : "x",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Negative"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "clearReview",
+                  "keyEquivalent" : "r",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Clear Review"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "editComment",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Add Comment…"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "removeComments",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Remove Comment"
+                }
+              ],
+              "selectionTargets" : [
+                {
+                  "genotype" : "03_Mafa_A1_PROD",
+                  "kind" : "cell",
+                  "locus" : "MHC-A",
+                  "sample" : "S1"
+                }
+              ],
+              "visibilityItems" : [
+
+              ],
+              "visibilitySubmenus" : [
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Row"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Row"
+                    }
+                  ],
+                  "kind" : "rowVisibility",
+                  "title" : "Row Visibility"
+                },
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Column"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Column"
+                    }
+                  ],
+                  "kind" : "columnVisibility",
+                  "title" : "Column Visibility"
+                }
+              ]
+            },
+            "menuTarget" : {
+              "genotype" : "03_Mafa_A1_PROD",
+              "kind" : "cell",
+              "locus" : "MHC-A",
+              "sample" : "S1"
+            },
+            "selectedTargets" : [
+              {
+                "genotype" : "03_Mafa_A1_PROD",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S1"
+              }
+            ],
+            "targets" : [
+              {
+                "genotype" : "03_Mafa_A1_PROD",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S1"
+              }
+            ]
+          },
+          {
+            "capability" : {
+              "clearReview" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "commentsByTarget" : [
+                {
+                  "key" : {
+                    "kind" : "column",
+                    "sample" : "S2"
+                  },
+                  "value" : {
+                    "author" : "Analyst",
+                    "body" : "Index animal",
+                    "target" : {
+                      "kind" : "column",
+                      "sample" : "S2"
+                    },
+                    "timestamp" : "2026-09-02T10:00:00Z"
+                  }
+                }
+              ],
+              "commentState" : "none",
+              "falseNegative" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "falsePositive" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "isWritable" : false,
+              "removeComments" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "reviewState" : "none",
+              "selectedCellCount" : 1,
+              "selectionShape" : "cells",
+              "support" : {
+                "supportedCount" : 0,
+                "unknownCount" : 1,
+                "unsupportedCount" : 0
+              },
+              "upsertComment" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              }
+            },
+            "cellTexts" : [
+              ""
+            ],
+            "label" : "PROD S2, production-shape catalog zero",
+            "matrixCapabilityEqualsController" : true,
+            "menu" : {
+              "inspectedTargetCount" : 1,
+              "items" : [
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalsePositive",
+                  "keyEquivalent" : "p",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Positive"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalseNegative",
+                  "keyEquivalent" : "x",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Negative"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "clearReview",
+                  "keyEquivalent" : "r",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Clear Review"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "editComment",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Add Comment…"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "removeComments",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Remove Comment"
+                }
+              ],
+              "selectionTargets" : [
+                {
+                  "genotype" : "03_Mafa_A1_PROD",
+                  "kind" : "cell",
+                  "locus" : "MHC-A",
+                  "sample" : "S2"
+                }
+              ],
+              "visibilityItems" : [
+
+              ],
+              "visibilitySubmenus" : [
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Row"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Row"
+                    }
+                  ],
+                  "kind" : "rowVisibility",
+                  "title" : "Row Visibility"
+                },
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Column"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Column"
+                    }
+                  ],
+                  "kind" : "columnVisibility",
+                  "title" : "Column Visibility"
+                }
+              ]
+            },
+            "menuTarget" : {
+              "genotype" : "03_Mafa_A1_PROD",
+              "kind" : "cell",
+              "locus" : "MHC-A",
+              "sample" : "S2"
+            },
+            "selectedTargets" : [
+              {
+                "genotype" : "03_Mafa_A1_PROD",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S2"
+              }
+            ],
+            "targets" : [
+              {
+                "genotype" : "03_Mafa_A1_PROD",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S2"
+              }
+            ]
+          },
+          {
+            "capability" : {
+              "clearReview" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "commentsByTarget" : {
+
+              },
+              "commentState" : "none",
+              "falseNegative" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "falsePositive" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "isWritable" : false,
+              "removeComments" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "reviewState" : "none",
+              "selectedCellCount" : 1,
+              "selectionShape" : "cells",
+              "support" : {
+                "supportedCount" : 1,
+                "unknownCount" : 0,
+                "unsupportedCount" : 0
+              },
+              "upsertComment" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              }
+            },
+            "cellTexts" : [
+              "4"
+            ],
+            "label" : "PROD S3, positive",
+            "matrixCapabilityEqualsController" : true,
+            "menu" : {
+              "inspectedTargetCount" : 1,
+              "items" : [
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalsePositive",
+                  "keyEquivalent" : "p",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Positive"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalseNegative",
+                  "keyEquivalent" : "x",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Negative"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "clearReview",
+                  "keyEquivalent" : "r",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Clear Review"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "editComment",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Add Comment…"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "removeComments",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Remove Comment"
+                }
+              ],
+              "selectionTargets" : [
+                {
+                  "genotype" : "03_Mafa_A1_PROD",
+                  "kind" : "cell",
+                  "locus" : "MHC-A",
+                  "sample" : "S3"
+                }
+              ],
+              "visibilityItems" : [
+
+              ],
+              "visibilitySubmenus" : [
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Row"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Row"
+                    }
+                  ],
+                  "kind" : "rowVisibility",
+                  "title" : "Row Visibility"
+                },
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Column"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Column"
+                    }
+                  ],
+                  "kind" : "columnVisibility",
+                  "title" : "Column Visibility"
+                }
+              ]
+            },
+            "menuTarget" : {
+              "genotype" : "03_Mafa_A1_PROD",
+              "kind" : "cell",
+              "locus" : "MHC-A",
+              "sample" : "S3"
+            },
+            "selectedTargets" : [
+              {
+                "genotype" : "03_Mafa_A1_PROD",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S3"
+              }
+            ],
+            "targets" : [
+              {
+                "genotype" : "03_Mafa_A1_PROD",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S3"
+              }
+            ]
+          },
+          {
+            "capability" : {
+              "clearReview" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "commentsByTarget" : [
+                {
+                  "key" : {
+                    "genotype" : "01_Mafa_A1_SUP",
+                    "kind" : "row",
+                    "locus" : "MHC-A"
+                  },
+                  "value" : {
+                    "author" : "Analyst",
+                    "body" : "Reference allele row",
+                    "target" : {
+                      "genotype" : "01_Mafa_A1_SUP",
+                      "kind" : "row",
+                      "locus" : "MHC-A"
+                    },
+                    "timestamp" : "2026-09-02T10:00:00Z"
+                  }
+                },
+                {
+                  "key" : {
+                    "genotype" : "02_Mafa_A1_CAT",
+                    "kind" : "cell",
+                    "locus" : "MHC-A",
+                    "sample" : "S1"
+                  },
+                  "value" : {
+                    "author" : "Analyst",
+                    "body" : "Check the catalog count",
+                    "target" : {
+                      "genotype" : "02_Mafa_A1_CAT",
+                      "kind" : "cell",
+                      "locus" : "MHC-A",
+                      "sample" : "S1"
+                    },
+                    "timestamp" : "2026-09-02T10:00:00Z"
+                  }
+                }
+              ],
+              "commentState" : "mixed",
+              "falseNegative" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "falsePositive" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "isWritable" : false,
+              "removeComments" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "reviewState" : "mixed",
+              "selectedCellCount" : 2,
+              "selectionShape" : "cells",
+              "support" : {
+                "supportedCount" : 2,
+                "unknownCount" : 0,
+                "unsupportedCount" : 0
+              },
+              "upsertComment" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              }
+            },
+            "cellTexts" : [
+              "[7]",
+              "12"
+            ],
+            "label" : "two positives",
+            "matrixCapabilityEqualsController" : true,
+            "menu" : {
+              "inspectedTargetCount" : 2,
+              "items" : [
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalsePositive",
+                  "keyEquivalent" : "p",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Positive"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalseNegative",
+                  "keyEquivalent" : "x",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Negative"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "clearReview",
+                  "keyEquivalent" : "r",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Clear Review"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "editComment",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Replace Comments…"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "removeComments",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Remove Comments"
+                }
+              ],
+              "selectionTargets" : [
+                {
+                  "genotype" : "01_Mafa_A1_SUP",
+                  "kind" : "cell",
+                  "locus" : "MHC-A",
+                  "sample" : "S1"
+                },
+                {
+                  "genotype" : "02_Mafa_A1_CAT",
+                  "kind" : "cell",
+                  "locus" : "MHC-A",
+                  "sample" : "S1"
+                }
+              ],
+              "visibilityItems" : [
+
+              ],
+              "visibilitySubmenus" : [
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 2 Selected Rows"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 2 Selected Rows"
+                    }
+                  ],
+                  "kind" : "rowVisibility",
+                  "title" : "Row Visibility"
+                },
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Column"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Column"
+                    }
+                  ],
+                  "kind" : "columnVisibility",
+                  "title" : "Column Visibility"
+                }
+              ]
+            },
+            "menuTarget" : {
+              "genotype" : "02_Mafa_A1_CAT",
+              "kind" : "cell",
+              "locus" : "MHC-A",
+              "sample" : "S1"
+            },
+            "selectedTargets" : [
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S1"
+              },
+              {
+                "genotype" : "02_Mafa_A1_CAT",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S1"
+              }
+            ],
+            "targets" : [
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S1"
+              },
+              {
+                "genotype" : "02_Mafa_A1_CAT",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S1"
+              }
+            ]
+          },
+          {
+            "capability" : {
+              "clearReview" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "commentsByTarget" : [
+                {
+                  "key" : {
+                    "genotype" : "01_Mafa_A1_SUP",
+                    "kind" : "row",
+                    "locus" : "MHC-A"
+                  },
+                  "value" : {
+                    "author" : "Analyst",
+                    "body" : "Reference allele row",
+                    "target" : {
+                      "genotype" : "01_Mafa_A1_SUP",
+                      "kind" : "row",
+                      "locus" : "MHC-A"
+                    },
+                    "timestamp" : "2026-09-02T10:00:00Z"
+                  }
+                },
+                {
+                  "key" : {
+                    "kind" : "column",
+                    "sample" : "S2"
+                  },
+                  "value" : {
+                    "author" : "Analyst",
+                    "body" : "Index animal",
+                    "target" : {
+                      "kind" : "column",
+                      "sample" : "S2"
+                    },
+                    "timestamp" : "2026-09-02T10:00:00Z"
+                  }
+                }
+              ],
+              "commentState" : "none",
+              "falseNegative" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "falsePositive" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "isWritable" : false,
+              "removeComments" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "reviewState" : "mixed",
+              "selectedCellCount" : 2,
+              "selectionShape" : "cells",
+              "support" : {
+                "supportedCount" : 1,
+                "unknownCount" : 0,
+                "unsupportedCount" : 1
+              },
+              "upsertComment" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              }
+            },
+            "cellTexts" : [
+              "[7]",
+              "0"
+            ],
+            "label" : "positive and attested zero",
+            "matrixCapabilityEqualsController" : true,
+            "menu" : {
+              "inspectedTargetCount" : 2,
+              "items" : [
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalsePositive",
+                  "keyEquivalent" : "p",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Positive"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalseNegative",
+                  "keyEquivalent" : "x",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Negative"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "clearReview",
+                  "keyEquivalent" : "r",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Clear Review"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "editComment",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Add Comment…"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "removeComments",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Remove Comments"
+                }
+              ],
+              "selectionTargets" : [
+                {
+                  "genotype" : "01_Mafa_A1_SUP",
+                  "kind" : "cell",
+                  "locus" : "MHC-A",
+                  "sample" : "S1"
+                },
+                {
+                  "genotype" : "01_Mafa_A1_SUP",
+                  "kind" : "cell",
+                  "locus" : "MHC-A",
+                  "sample" : "S2"
+                }
+              ],
+              "visibilityItems" : [
+
+              ],
+              "visibilitySubmenus" : [
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Row"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Row"
+                    }
+                  ],
+                  "kind" : "rowVisibility",
+                  "title" : "Row Visibility"
+                },
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 2 Selected Columns"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 2 Selected Columns"
+                    }
+                  ],
+                  "kind" : "columnVisibility",
+                  "title" : "Column Visibility"
+                }
+              ]
+            },
+            "menuTarget" : {
+              "genotype" : "01_Mafa_A1_SUP",
+              "kind" : "cell",
+              "locus" : "MHC-A",
+              "sample" : "S2"
+            },
+            "selectedTargets" : [
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S1"
+              },
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S2"
+              }
+            ],
+            "targets" : [
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S1"
+              },
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S2"
+              }
+            ]
+          },
+          {
+            "capability" : {
+              "clearReview" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "commentsByTarget" : [
+                {
+                  "key" : {
+                    "genotype" : "01_Mafa_A1_SUP",
+                    "kind" : "row",
+                    "locus" : "MHC-A"
+                  },
+                  "value" : {
+                    "author" : "Analyst",
+                    "body" : "Reference allele row",
+                    "target" : {
+                      "genotype" : "01_Mafa_A1_SUP",
+                      "kind" : "row",
+                      "locus" : "MHC-A"
+                    },
+                    "timestamp" : "2026-09-02T10:00:00Z"
+                  }
+                }
+              ],
+              "commentState" : "none",
+              "falseNegative" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "falsePositive" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "isWritable" : false,
+              "removeComments" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "reviewState" : "mixed",
+              "selectedCellCount" : 2,
+              "selectionShape" : "cells",
+              "support" : {
+                "supportedCount" : 1,
+                "unknownCount" : 1,
+                "unsupportedCount" : 0
+              },
+              "upsertComment" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              }
+            },
+            "cellTexts" : [
+              "[7]",
+              ""
+            ],
+            "label" : "positive and absent",
+            "matrixCapabilityEqualsController" : true,
+            "menu" : {
+              "inspectedTargetCount" : 2,
+              "items" : [
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalsePositive",
+                  "keyEquivalent" : "p",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Positive"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalseNegative",
+                  "keyEquivalent" : "x",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Negative"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "clearReview",
+                  "keyEquivalent" : "r",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Clear Review"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "editComment",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Add Comment…"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "removeComments",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Remove Comments"
+                }
+              ],
+              "selectionTargets" : [
+                {
+                  "genotype" : "01_Mafa_A1_SUP",
+                  "kind" : "cell",
+                  "locus" : "MHC-A",
+                  "sample" : "S1"
+                },
+                {
+                  "genotype" : "01_Mafa_A1_SUP",
+                  "kind" : "cell",
+                  "locus" : "MHC-A",
+                  "sample" : "S3"
+                }
+              ],
+              "visibilityItems" : [
+
+              ],
+              "visibilitySubmenus" : [
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Row"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Row"
+                    }
+                  ],
+                  "kind" : "rowVisibility",
+                  "title" : "Row Visibility"
+                },
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 2 Selected Columns"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 2 Selected Columns"
+                    }
+                  ],
+                  "kind" : "columnVisibility",
+                  "title" : "Column Visibility"
+                }
+              ]
+            },
+            "menuTarget" : {
+              "genotype" : "01_Mafa_A1_SUP",
+              "kind" : "cell",
+              "locus" : "MHC-A",
+              "sample" : "S3"
+            },
+            "selectedTargets" : [
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S1"
+              },
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S3"
+              }
+            ],
+            "targets" : [
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S1"
+              },
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S3"
+              }
+            ]
+          },
+          {
+            "capability" : {
+              "clearReview" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "commentsByTarget" : [
+                {
+                  "key" : {
+                    "genotype" : "01_Mafa_A1_SUP",
+                    "kind" : "row",
+                    "locus" : "MHC-A"
+                  },
+                  "value" : {
+                    "author" : "Analyst",
+                    "body" : "Reference allele row",
+                    "target" : {
+                      "genotype" : "01_Mafa_A1_SUP",
+                      "kind" : "row",
+                      "locus" : "MHC-A"
+                    },
+                    "timestamp" : "2026-09-02T10:00:00Z"
+                  }
+                },
+                {
+                  "key" : {
+                    "kind" : "column",
+                    "sample" : "S2"
+                  },
+                  "value" : {
+                    "author" : "Analyst",
+                    "body" : "Index animal",
+                    "target" : {
+                      "kind" : "column",
+                      "sample" : "S2"
+                    },
+                    "timestamp" : "2026-09-02T10:00:00Z"
+                  }
+                }
+              ],
+              "commentState" : "none",
+              "falseNegative" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "falsePositive" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "isWritable" : false,
+              "removeComments" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "reviewState" : {
+                "uniform" : "falseNegative"
+              },
+              "selectedCellCount" : 2,
+              "selectionShape" : "cells",
+              "support" : {
+                "supportedCount" : 0,
+                "unknownCount" : 0,
+                "unsupportedCount" : 2
+              },
+              "upsertComment" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              }
+            },
+            "cellTexts" : [
+              "0",
+              "—"
+            ],
+            "label" : "two zeros",
+            "matrixCapabilityEqualsController" : true,
+            "menu" : {
+              "inspectedTargetCount" : 2,
+              "items" : [
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalsePositive",
+                  "keyEquivalent" : "p",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Positive"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalseNegative",
+                  "keyEquivalent" : "x",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Negative"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "clearReview",
+                  "keyEquivalent" : "r",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Clear Review"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "editComment",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Add Comment…"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "removeComments",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Remove Comments"
+                }
+              ],
+              "selectionTargets" : [
+                {
+                  "genotype" : "01_Mafa_A1_SUP",
+                  "kind" : "cell",
+                  "locus" : "MHC-A",
+                  "sample" : "S2"
+                },
+                {
+                  "genotype" : "02_Mafa_A1_CAT",
+                  "kind" : "cell",
+                  "locus" : "MHC-A",
+                  "sample" : "S3"
+                }
+              ],
+              "visibilityItems" : [
+
+              ],
+              "visibilitySubmenus" : [
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 2 Selected Rows"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 2 Selected Rows"
+                    }
+                  ],
+                  "kind" : "rowVisibility",
+                  "title" : "Row Visibility"
+                },
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 2 Selected Columns"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 2 Selected Columns"
+                    }
+                  ],
+                  "kind" : "columnVisibility",
+                  "title" : "Column Visibility"
+                }
+              ]
+            },
+            "menuTarget" : {
+              "genotype" : "02_Mafa_A1_CAT",
+              "kind" : "cell",
+              "locus" : "MHC-A",
+              "sample" : "S3"
+            },
+            "selectedTargets" : [
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S2"
+              },
+              {
+                "genotype" : "02_Mafa_A1_CAT",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S3"
+              }
+            ],
+            "targets" : [
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S2"
+              },
+              {
+                "genotype" : "02_Mafa_A1_CAT",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S3"
+              }
+            ]
+          },
+          {
+            "capability" : {
+              "clearReview" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "commentsByTarget" : [
+                {
+                  "key" : {
+                    "genotype" : "01_Mafa_A1_SUP",
+                    "kind" : "row",
+                    "locus" : "MHC-A"
+                  },
+                  "value" : {
+                    "author" : "Analyst",
+                    "body" : "Reference allele row",
+                    "target" : {
+                      "genotype" : "01_Mafa_A1_SUP",
+                      "kind" : "row",
+                      "locus" : "MHC-A"
+                    },
+                    "timestamp" : "2026-09-02T10:00:00Z"
+                  }
+                }
+              ],
+              "commentState" : {
+                "uniform" : "Reference allele row"
+              },
+              "falseNegative" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "falsePositive" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "isWritable" : false,
+              "removeComments" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "reviewState" : "none",
+              "selectedCellCount" : 0,
+              "selectionShape" : "rows",
+              "support" : {
+                "supportedCount" : 0,
+                "unknownCount" : 1,
+                "unsupportedCount" : 0
+              },
+              "upsertComment" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              }
+            },
+            "cellTexts" : [
+
+            ],
+            "label" : "row SUP",
+            "matrixCapabilityEqualsController" : true,
+            "menu" : {
+              "inspectedTargetCount" : 1,
+              "items" : [
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalsePositive",
+                  "keyEquivalent" : "p",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Positive"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalseNegative",
+                  "keyEquivalent" : "x",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Negative"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "clearReview",
+                  "keyEquivalent" : "r",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Clear Review"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "editComment",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Edit Comment…"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "removeComments",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Remove Comment"
+                },
+                {
+                  "availability" : "enabled",
+                  "command" : "selectSupportedCells",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Select Supported Cells (≥ 1 read)"
+                }
+              ],
+              "selectionTargets" : [
+                {
+                  "genotype" : "01_Mafa_A1_SUP",
+                  "kind" : "row",
+                  "locus" : "MHC-A"
+                }
+              ],
+              "visibilityItems" : [
+                {
+                  "availability" : "enabled",
+                  "command" : "hideSelectedRows",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Hide 1 Selected Row"
+                },
+                {
+                  "availability" : "enabled",
+                  "command" : "showOnlySelectedRows",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Show Only 1 Selected Row"
+                },
+                {
+                  "availability" : "enabled",
+                  "command" : "showOnlyColumnsWithSelectedRowCalls",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Show Only Columns with Calls in This Row"
+                }
+              ],
+              "visibilitySubmenus" : [
+
+              ]
+            },
+            "menuTarget" : {
+              "genotype" : "01_Mafa_A1_SUP",
+              "kind" : "row",
+              "locus" : "MHC-A"
+            },
+            "selectedTargets" : [
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "row",
+                "locus" : "MHC-A"
+              }
+            ],
+            "targets" : [
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "row",
+                "locus" : "MHC-A"
+              }
+            ]
+          },
+          {
+            "capability" : {
+              "clearReview" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "commentsByTarget" : [
+                {
+                  "key" : {
+                    "kind" : "column",
+                    "sample" : "S2"
+                  },
+                  "value" : {
+                    "author" : "Analyst",
+                    "body" : "Index animal",
+                    "target" : {
+                      "kind" : "column",
+                      "sample" : "S2"
+                    },
+                    "timestamp" : "2026-09-02T10:00:00Z"
+                  }
+                }
+              ],
+              "commentState" : {
+                "uniform" : "Index animal"
+              },
+              "falseNegative" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "falsePositive" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "isWritable" : false,
+              "removeComments" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "reviewState" : "none",
+              "selectedCellCount" : 0,
+              "selectionShape" : "columns",
+              "support" : {
+                "supportedCount" : 0,
+                "unknownCount" : 1,
+                "unsupportedCount" : 0
+              },
+              "upsertComment" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              }
+            },
+            "cellTexts" : [
+
+            ],
+            "label" : "column S2",
+            "matrixCapabilityEqualsController" : true,
+            "menu" : {
+              "inspectedTargetCount" : 1,
+              "items" : [
+                {
+                  "availability" : "enabled",
+                  "command" : "editManualHaplotypeAssignments",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Edit Haplotype Assignments…"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalsePositive",
+                  "keyEquivalent" : "p",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Positive"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalseNegative",
+                  "keyEquivalent" : "x",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Negative"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "clearReview",
+                  "keyEquivalent" : "r",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Clear Review"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "editComment",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Edit Comment…"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "removeComments",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Remove Comment"
+                },
+                {
+                  "availability" : "enabled",
+                  "command" : "selectSupportedCells",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Select Supported Cells (≥ 1 read)"
+                }
+              ],
+              "selectionTargets" : [
+                {
+                  "kind" : "column",
+                  "sample" : "S2"
+                }
+              ],
+              "visibilityItems" : [
+                {
+                  "availability" : "enabled",
+                  "command" : "hideSelectedColumns",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Hide 1 Selected Column"
+                },
+                {
+                  "availability" : "enabled",
+                  "command" : "showOnlySelectedColumns",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Show Only 1 Selected Column"
+                }
+              ],
+              "visibilitySubmenus" : [
+
+              ]
+            },
+            "menuTarget" : {
+              "kind" : "column",
+              "sample" : "S2"
+            },
+            "selectedTargets" : [
+              {
+                "kind" : "column",
+                "sample" : "S2"
+              }
+            ],
+            "targets" : [
+              {
+                "kind" : "column",
+                "sample" : "S2"
+              }
+            ]
+          },
+          {
+            "capability" : {
+              "clearReview" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "commentsByTarget" : [
+                {
+                  "key" : {
+                    "kind" : "column",
+                    "sample" : "S2"
+                  },
+                  "value" : {
+                    "author" : "Analyst",
+                    "body" : "Index animal",
+                    "target" : {
+                      "kind" : "column",
+                      "sample" : "S2"
+                    },
+                    "timestamp" : "2026-09-02T10:00:00Z"
+                  }
+                }
+              ],
+              "commentState" : "mixed",
+              "falseNegative" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "falsePositive" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "isWritable" : false,
+              "removeComments" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "reviewState" : "none",
+              "selectedCellCount" : 0,
+              "selectionShape" : "columns",
+              "support" : {
+                "supportedCount" : 0,
+                "unknownCount" : 2,
+                "unsupportedCount" : 0
+              },
+              "upsertComment" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              }
+            },
+            "cellTexts" : [
+
+            ],
+            "label" : "columns S1 and S2",
+            "matrixCapabilityEqualsController" : true,
+            "menu" : {
+              "inspectedTargetCount" : 2,
+              "items" : [
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalsePositive",
+                  "keyEquivalent" : "p",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Positive"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalseNegative",
+                  "keyEquivalent" : "x",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Negative"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "clearReview",
+                  "keyEquivalent" : "r",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Clear Review"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "editComment",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Replace Comments…"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "removeComments",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Remove Comments"
+                },
+                {
+                  "availability" : "enabled",
+                  "command" : "selectSupportedCells",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Select Supported Cells (≥ 1 read)"
+                }
+              ],
+              "selectionTargets" : [
+                {
+                  "kind" : "column",
+                  "sample" : "S1"
+                },
+                {
+                  "kind" : "column",
+                  "sample" : "S2"
+                }
+              ],
+              "visibilityItems" : [
+                {
+                  "availability" : "enabled",
+                  "command" : "hideSelectedColumns",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Hide 2 Selected Columns"
+                },
+                {
+                  "availability" : "enabled",
+                  "command" : "showOnlySelectedColumns",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Show Only 2 Selected Columns"
+                }
+              ],
+              "visibilitySubmenus" : [
+
+              ]
+            },
+            "menuTarget" : {
+              "kind" : "column",
+              "sample" : "S2"
+            },
+            "selectedTargets" : [
+              {
+                "kind" : "column",
+                "sample" : "S1"
+              },
+              {
+                "kind" : "column",
+                "sample" : "S2"
+              }
+            ],
+            "targets" : [
+              {
+                "kind" : "column",
+                "sample" : "S1"
+              },
+              {
+                "kind" : "column",
+                "sample" : "S2"
+              }
+            ]
+          },
+          {
+            "capability" : {
+              "clearReview" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "commentsByTarget" : [
+                {
+                  "key" : {
+                    "genotype" : "01_Mafa_A1_SUP",
+                    "kind" : "row",
+                    "locus" : "MHC-A"
+                  },
+                  "value" : {
+                    "author" : "Analyst",
+                    "body" : "Reference allele row",
+                    "target" : {
+                      "genotype" : "01_Mafa_A1_SUP",
+                      "kind" : "row",
+                      "locus" : "MHC-A"
+                    },
+                    "timestamp" : "2026-09-02T10:00:00Z"
+                  }
+                }
+              ],
+              "commentState" : "mixed",
+              "falseNegative" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "falsePositive" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "isWritable" : false,
+              "removeComments" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              },
+              "reviewState" : "mixed",
+              "selectedCellCount" : 1,
+              "selectionShape" : "mixed",
+              "support" : {
+                "supportedCount" : 1,
+                "unknownCount" : 1,
+                "unsupportedCount" : 0
+              },
+              "upsertComment" : {
+                "disabled" : [
+                  "This bundle is read-only."
+                ]
+              }
+            },
+            "cellTexts" : [
+              "[7]"
+            ],
+            "label" : "cell and row",
+            "matrixCapabilityEqualsController" : true,
+            "menu" : {
+              "inspectedTargetCount" : 2,
+              "items" : [
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalsePositive",
+                  "keyEquivalent" : "p",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Positive"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "markFalseNegative",
+                  "keyEquivalent" : "x",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Mark False Negative"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "clearReview",
+                  "keyEquivalent" : "r",
+                  "keyModifierRawValue" : 1572864,
+                  "title" : "Clear Review"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "editComment",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Replace Comments…"
+                },
+                {
+                  "availability" : {
+                    "disabled" : [
+                      "This bundle is read-only."
+                    ]
+                  },
+                  "command" : "removeComments",
+                  "keyEquivalent" : "",
+                  "keyModifierRawValue" : 0,
+                  "title" : "Remove Comments"
+                }
+              ],
+              "selectionTargets" : [
+                {
+                  "genotype" : "01_Mafa_A1_SUP",
+                  "kind" : "cell",
+                  "locus" : "MHC-A",
+                  "sample" : "S1"
+                },
+                {
+                  "genotype" : "01_Mafa_A1_SUP",
+                  "kind" : "row",
+                  "locus" : "MHC-A"
+                }
+              ],
+              "visibilityItems" : [
+
+              ],
+              "visibilitySubmenus" : [
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Row"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedRows",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Row"
+                    }
+                  ],
+                  "kind" : "rowVisibility",
+                  "title" : "Row Visibility"
+                },
+                {
+                  "items" : [
+                    {
+                      "availability" : "enabled",
+                      "command" : "hideSelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Hide 1 Selected Column"
+                    },
+                    {
+                      "availability" : "enabled",
+                      "command" : "showOnlySelectedColumns",
+                      "keyEquivalent" : "",
+                      "keyModifierRawValue" : 0,
+                      "title" : "Show Only 1 Selected Column"
+                    }
+                  ],
+                  "kind" : "columnVisibility",
+                  "title" : "Column Visibility"
+                }
+              ]
+            },
+            "menuTarget" : {
+              "genotype" : "01_Mafa_A1_SUP",
+              "kind" : "row",
+              "locus" : "MHC-A"
+            },
+            "selectedTargets" : [
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S1"
+              },
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "row",
+                "locus" : "MHC-A"
+              }
+            ],
+            "targets" : [
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "cell",
+                "locus" : "MHC-A",
+                "sample" : "S1"
+              },
+              {
+                "genotype" : "01_Mafa_A1_SUP",
+                "kind" : "row",
+                "locus" : "MHC-A"
+              }
+            ]
+          }
+        ],
+        "label" : "read-only bundle"
+      }
+    ],
+    "rawSupport" : [
+      {
+        "key" : {
+          "genotype" : "01_Mafa_A1_SUP",
+          "kind" : "cell",
+          "locus" : "MHC-A",
+          "sample" : "S1"
+        },
+        "value" : 7
+      },
+      {
+        "key" : {
+          "genotype" : "01_Mafa_A1_SUP",
+          "kind" : "cell",
+          "locus" : "MHC-A",
+          "sample" : "S2"
+        },
+        "value" : 0
+      },
+      {
+        "key" : {
+          "genotype" : "02_Mafa_A1_CAT",
+          "kind" : "cell",
+          "locus" : "MHC-A",
+          "sample" : "S1"
+        },
+        "value" : 12
+      },
+      {
+        "key" : {
+          "genotype" : "02_Mafa_A1_CAT",
+          "kind" : "cell",
+          "locus" : "MHC-A",
+          "sample" : "S2"
+        },
+        "value" : 0
+      },
+      {
+        "key" : {
+          "genotype" : "02_Mafa_A1_CAT",
+          "kind" : "cell",
+          "locus" : "MHC-A",
+          "sample" : "S3"
+        },
+        "value" : 0
+      },
+      {
+        "key" : {
+          "genotype" : "03_Mafa_A1_PROD",
+          "kind" : "cell",
+          "locus" : "MHC-A",
+          "sample" : "S3"
+        },
+        "value" : 4
+      },
+      {
+        "key" : {
+          "genotype" : "reference:MHC-A:03_Mafa_A1_PROD",
+          "kind" : "cell",
+          "locus" : "MHC-A",
+          "sample" : "S1"
+        },
+        "value" : 0
+      },
+      {
+        "key" : {
+          "genotype" : "reference:MHC-A:03_Mafa_A1_PROD",
+          "kind" : "cell",
+          "locus" : "MHC-A",
+          "sample" : "S2"
+        },
+        "value" : 0
+      },
+      {
+        "key" : {
+          "genotype" : "reference:MHC-A:03_Mafa_A1_PROD",
+          "kind" : "cell",
+          "locus" : "MHC-A",
+          "sample" : "S3"
+        },
+        "value" : 4
+      }
+    ]
+  }
+}
