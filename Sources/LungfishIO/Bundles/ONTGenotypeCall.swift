@@ -38,6 +38,19 @@ public struct ONTGenotypeCall: Codable, Equatable, Sendable {
         (indelBases ?? 0) > 0
     }
 
+    /// The other calls of the same animal this call shares its reads with
+    /// (D2). A full-length result gives each equal-best reference of a cluster
+    /// its own call with the full cluster reads and the tie list in
+    /// `ambiguousWith`, so the partners are the listed references that are
+    /// themselves calls of the animal, in the list's order. An ordinary call
+    /// has none, and so does an amplicon row whose list names the references
+    /// collapsed onto it before mapping, because those are not calls.
+    public func sharedReadPartners(in sampleCalls: [ONTGenotypeCall]) -> [String] {
+        guard let ambiguousWith else { return [] }
+        let animalGenotypes = Set(sampleCalls.lazy.filter { $0.sample == sample }.map(\.genotype))
+        return ambiguousWith.filter { $0 != genotype && animalGenotypes.contains($0) }
+    }
+
     public init(
         sample: String,
         genotype: String,
