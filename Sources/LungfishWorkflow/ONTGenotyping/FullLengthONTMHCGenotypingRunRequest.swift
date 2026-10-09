@@ -283,12 +283,14 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
     /// script records in its stats JSON (percent of reads, overrides as
     /// LOCUS=PERCENT), so `GenotypeHaplotypeAnalysisResolver` re-infers a
     /// bundle of either workflow with the thresholds its run used (finding
-    /// SF1). `minSupport` is the evaluator's floor of one read.
+    /// SF1). `minSupport` is the evaluator's floor of one read. The percents
+    /// are the decimals the argv carries, so the stats path and the argv path
+    /// recover the same fraction bit for bit.
     var haplotypeThresholdStatsMetrics: [String: Any] {
         [
             "minSupport": 1,
-            "haplotypeMinSamplePercent": (haplotypeDropoutSampleFraction ?? 0) * 100.0,
-            "haplotypeMinLocusPercent": (haplotypeDropoutLocusFraction ?? 0) * 100.0,
+            "haplotypeMinSamplePercent": Self.percentValue(forFraction: haplotypeDropoutSampleFraction),
+            "haplotypeMinLocusPercent": Self.percentValue(forFraction: haplotypeDropoutLocusFraction),
             "haplotypeMinLocusPercentOverrides": haplotypeDropoutLocusFractionOverrides
                 .sorted { $0.key < $1.key }
                 .map { "\($0.key)=\(Self.percentArgument(forFraction: $0.value))" },
@@ -382,6 +384,16 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
 
     private static func percentArgument(forFraction fraction: Double) -> String {
         String(format: "%g", fraction * 100.0)
+    }
+
+    /// The percent `percentArgument` writes, as the number the stats JSON
+    /// records, and 0 for a threshold that is not set. `fraction * 100.0`
+    /// itself came back one ulp off for 139 of the 10,000 two-decimal percents
+    /// once the stats loader had turned the number into text and back, which
+    /// dropped a cell sitting exactly on the threshold.
+    private static func percentValue(forFraction fraction: Double?) -> Double {
+        guard let fraction else { return 0 }
+        return Double(percentArgument(forFraction: fraction)) ?? fraction * 100.0
     }
 
     /// The inverse of `percentArgument(forFraction:)`, and the CLI's reading of

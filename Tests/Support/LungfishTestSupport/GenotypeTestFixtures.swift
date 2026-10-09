@@ -43,8 +43,11 @@ public enum GenotypeTestFixtures {
     }
 
     /// Builds an `ONTGenotypeResultBundleData` fixture with a canned bundle URL
-    /// and manifest/artifact paths under `/tmp`, matching the shape every
-    /// private `makeResult` copy used for unit-level (non-filesystem) tests.
+    /// and its artifact files inside that bundle, as a loaded bundle resolves
+    /// them, matching the shape every private `makeResult` copy used for
+    /// unit-level (non-filesystem) tests. No artifact points at a shared file
+    /// outside the bundle, because `GenotypeHaplotypeAnalysisResolver` reads
+    /// the provenance of a result whose stats record no haplotype thresholds.
     ///
     /// Pass `manifest` to fully override the manifest (as
     /// `GenotypeManualHaplotypeEligibilityTests` does); otherwise one is built
@@ -89,11 +92,11 @@ public enum GenotypeTestFixtures {
             bundleURL: bundleURL,
             manifest: resolvedManifest,
             artifacts: ONTGenotypeResultArtifacts(
-                workbookURL: URL(fileURLWithPath: "/tmp/example.xlsx"),
-                longSummaryCSVURL: URL(fileURLWithPath: "/tmp/example.retained-demux-genotypes.csv"),
-                sampleSummaryCSVURL: URL(fileURLWithPath: "/tmp/example.retained-demux-samples.csv"),
-                statsJSONURL: URL(fileURLWithPath: "/tmp/example.retained-demux-stats.json"),
-                provenanceURL: URL(fileURLWithPath: "/tmp/retained-demux-genotyping-provenance.json")
+                workbookURL: bundleURL.appendingPathComponent("example.xlsx"),
+                longSummaryCSVURL: bundleURL.appendingPathComponent("example.retained-demux-genotypes.csv"),
+                sampleSummaryCSVURL: bundleURL.appendingPathComponent("example.retained-demux-samples.csv"),
+                statsJSONURL: bundleURL.appendingPathComponent("example.retained-demux-stats.json"),
+                provenanceURL: bundleURL.appendingPathComponent("retained-demux-genotyping-provenance.json")
             ),
             stats: stats,
             calls: calls,

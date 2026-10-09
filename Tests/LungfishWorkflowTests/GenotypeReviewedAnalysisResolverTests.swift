@@ -103,7 +103,7 @@ final class GenotypeReviewedAnalysisResolverTests: XCTestCase {
     // MARK: Finding SF1, the thresholds a re-inference uses
 
     func testRunEvaluatorIsRecoveredFromTheRecordedArgvWhenStatsRecordNoThresholds() throws {
-        let fixture = try makeFullLengthFixture(
+        let fixture = try makeBundleFixture(
             metrics: [:], sampleFraction: 0.005, locusFraction: 0.01, overrides: ["MHC-DQ": 0.1]
         )
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -117,19 +117,19 @@ final class GenotypeReviewedAnalysisResolverTests: XCTestCase {
     }
 
     func testRunEvaluatorIsNilWhenNeitherStatsNorRecordedArgvCarryThresholds() throws {
-        let unfiltered = try makeFullLengthFixture(metrics: [:])
+        let unfiltered = try makeBundleFixture(metrics: [:])
         defer { try? FileManager.default.removeItem(at: unfiltered.root) }
         XCTAssertNil(unfiltered.request.haplotypeDropoutEvaluator)
         XCTAssertFalse(unfiltered.request.argv.contains { $0.hasPrefix("--haplotype-min-") })
         XCTAssertNil(GenotypeHaplotypeAnalysisResolver.runHaplotypeDropoutEvaluator(for: unfiltered.result))
 
-        let unrecorded = try makeFullLengthFixture(metrics: [:], locusFraction: 0.01, recordsProvenance: false)
+        let unrecorded = try makeBundleFixture(metrics: [:], locusFraction: 0.01, provenance: .absent)
         defer { try? FileManager.default.removeItem(at: unrecorded.root) }
         XCTAssertNil(GenotypeHaplotypeAnalysisResolver.runHaplotypeDropoutEvaluator(for: unrecorded.result))
     }
 
     func testRecordedStatsThresholdsDecideTheEvaluatorBeforeTheRecordedArgv() throws {
-        let recorded = try makeFullLengthFixture(
+        let recorded = try makeBundleFixture(
             metrics: [
                 "minSupport": "1", "haplotypeMinSamplePercent": "0", "haplotypeMinLocusPercent": "2",
                 "haplotypeMinLocusPercentOverrides": "[]",
@@ -142,7 +142,7 @@ final class GenotypeReviewedAnalysisResolverTests: XCTestCase {
             GenotypeDropoutEvaluator(absolute: nil, sampleFraction: nil, locusFraction: 0.02)
         )
 
-        let disabled = try makeFullLengthFixture(
+        let disabled = try makeBundleFixture(
             metrics: [
                 "minSupport": "1", "haplotypeMinSamplePercent": "0", "haplotypeMinLocusPercent": "0",
                 "haplotypeMinLocusPercentOverrides": "[]",
@@ -154,7 +154,7 @@ final class GenotypeReviewedAnalysisResolverTests: XCTestCase {
     }
 
     func testCLIAndGUIReinferenceAgreeOnTheRunThresholdsWhenStatsRecordNone() throws {
-        let fixture = try makeFullLengthFixture(metrics: [:], locusFraction: 0.01)
+        let fixture = try makeBundleFixture(metrics: [:], locusFraction: 0.01)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
         // The CLI exports resolve the definition from the bundle and pass its
@@ -182,6 +182,44 @@ final class GenotypeReviewedAnalysisResolverTests: XCTestCase {
         XCTAssertEqual(gui, cli)
     }
 
+    func testCorruptOrUnreadableProvenanceLeavesTheReinferenceUnfiltered() throws {
+        for provenance in [RecordedProvenance.corrupt, .unreadable] {
+            let fixture = try makeBundleFixture(metrics: [:], locusFraction: 0.01, provenance: provenance)
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            XCTAssertNil(
+                GenotypeHaplotypeAnalysisResolver.runHaplotypeDropoutEvaluator(for: fixture.result),
+                "\(provenance) must read as no recorded threshold"
+            )
+            // The re-inference still runs, with no filter, so the one-read
+            // marker makes the locus too many haplotypes.
+            let analysis = try XCTUnwrap(GenotypeHaplotypeAnalysisResolver.activeAnalysis(for: fixture.result, sidecar: nil))
+            XCTAssertEqual(analysis.samples.first?.calls.first?.status, .tooManyHaplotypes, "\(provenance)")
+        }
+    }
+
+    func testBarcodeStatsFloorIsKeptWhateverTheProvenanceHolds() throws {
+        let barcodeMetrics = [
+            "minSupport": "5", "haplotypeMinSamplePercent": "0", "haplotypeMinLocusPercent": "0",
+            "haplotypeMinLocusPercentOverrides": "[]",
+        ]
+        let floor = GenotypeDropoutEvaluator(absolute: 5, sampleFraction: nil, locusFraction: nil)
+
+        // An argv that would give a 7 percent locus threshold if it were read.
+        let conflicting = try makeBundleFixture(
+            kind: "ont-barcode-genotype", metrics: barcodeMetrics,
+            provenance: .envelopeWithArgv([
+                "lungfish-cli", "fastq", "genotype", "--min-support", "5", "--haplotype-min-locus-percent", "7",
+            ])
+        )
+        defer { try? FileManager.default.removeItem(at: conflicting.root) }
+        XCTAssertEqual(GenotypeHaplotypeAnalysisResolver.runHaplotypeDropoutEvaluator(for: conflicting.result), floor)
+
+        // A provenance path whose read would throw.
+        let unreadable = try makeBundleFixture(kind: "ont-barcode-genotype", metrics: barcodeMetrics, provenance: .unreadable)
+        defer { try? FileManager.default.removeItem(at: unreadable.root) }
+        XCTAssertEqual(GenotypeHaplotypeAnalysisResolver.runHaplotypeDropoutEvaluator(for: unreadable.result), floor)
+    }
+
     private struct FullLengthFixture {
         let root: URL
         let result: ONTGenotypeResultBundleData
@@ -199,17 +237,31 @@ final class GenotypeReviewedAnalysisResolverTests: XCTestCase {
               ])
     }
 
-    /// A full-length ONT MHC bundle under Project.lungfish/Analyses/Run with the
-    /// definition snapshot the run retains, one sample whose three MHC-A calls
-    /// carry 100, 2 and 1 reads of the three diagnostic markers, the given stats
-    /// metrics and, unless `recordsProvenance` is false, the provenance envelope
-    /// whose argv the run's request wrote.
-    private func makeFullLengthFixture(
+    /// What sits at the bundle's provenance path.
+    private enum RecordedProvenance {
+        /// The envelope the run writes, carrying the request's argv.
+        case envelope
+        /// An envelope carrying another argv.
+        case envelopeWithArgv([String])
+        /// Bytes that decode as no provenance shape at all.
+        case corrupt
+        /// A directory, so reading the path throws.
+        case unreadable
+        /// No file.
+        case absent
+    }
+
+    /// A bundle under Project.lungfish/Analyses/Run, full-length ONT MHC unless
+    /// another kind is given, with the definition snapshot the run retains, one
+    /// sample whose three MHC-A calls carry 100, 2 and 1 reads of the three
+    /// diagnostic markers, the given stats metrics and the recorded provenance.
+    private func makeBundleFixture(
+        kind: String = GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
         metrics: [String: String],
         sampleFraction: Double? = nil,
         locusFraction: Double? = nil,
         overrides: [String: Double] = [:],
-        recordsProvenance: Bool = true
+        provenance: RecordedProvenance = .envelope
     ) throws -> FullLengthFixture {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("ReviewedResolverSF1-\(UUID().uuidString)")
         let project = root.appendingPathComponent("Project.lungfish")
@@ -231,8 +283,8 @@ final class GenotypeReviewedAnalysisResolverTests: XCTestCase {
         try FileManager.default.createDirectory(at: snapshotURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try JSONEncoder().encode(sf1Definition()).write(to: snapshotURL)
         let manifest = ONTGenotypeResultBundleManifest(
-            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
-            workflowKind: .fullLengthONTMHCGenotype,
+            kind: kind,
+            workflowKind: GenotypeResultWorkflowKind(rawValue: kind),
             workflowMode: .haplotyped,
             outputName: "cohort", analysisName: "Cohort",
             primaryWorkbookPath: request.workbookURL.lastPathComponent,
@@ -242,14 +294,26 @@ final class GenotypeReviewedAnalysisResolverTests: XCTestCase {
             provenancePath: request.provenanceURL.lastPathComponent,
             haplotypeDefinitionSetID: "sf1-defs", haplotypeAssayID: "sf1-assay"
         )
-        if recordsProvenance {
+        func writeEnvelope(argv: [String]) throws {
             let envelope = ProvenanceEnvelope(
                 workflowName: "lungfish fastq full-length-ont-mhc-genotype",
                 toolName: "lungfish-cli",
-                argv: request.argv,
-                durableReplayArgv: request.argv
+                argv: argv,
+                durableReplayArgv: argv
             )
             try ProvenanceJSON.encoder.encode(envelope).write(to: request.provenanceURL)
+        }
+        switch provenance {
+        case .envelope:
+            try writeEnvelope(argv: request.argv)
+        case .envelopeWithArgv(let argv):
+            try writeEnvelope(argv: argv)
+        case .corrupt:
+            try Data("{\"argv\": [\"lungfish-cli\", \"fastq\", \"full-length-ont-mhc-geno".utf8).write(to: request.provenanceURL)
+        case .unreadable:
+            try FileManager.default.createDirectory(at: request.provenanceURL, withIntermediateDirectories: true)
+        case .absent:
+            break
         }
         func call(_ marker: String, reads: Int) -> ONTGenotypeCall {
             .init(sample: "sample", genotype: "\(marker)|source_loci=MHC-A|haplotype_groups=MHC-A",
