@@ -3,7 +3,7 @@
     "masks" : [
       {
         "applies" : "The test's own temp root in plain paths and file URLs, in the /var and the /private/var spelling",
-        "count" : 3,
+        "count" : 9,
         "guard" : "None, it is the fixture root",
         "token" : "<ROOT>"
       },
@@ -2523,12 +2523,12 @@
         },
         "result.json" : {
           "artifacts" : {
-            "longSummaryCSVURL" : "file:///tmp/example.retained-demux-genotypes.csv",
-            "primaryWorkbookURL" : "file:///tmp/example.xlsx",
-            "provenanceURL" : "file:///tmp/retained-demux-genotyping-provenance.json",
-            "sampleSummaryCSVURL" : "file:///tmp/example.retained-demux-samples.csv",
-            "statsJSONURL" : "file:///tmp/example.retained-demux-stats.json",
-            "workbookURL" : "file:///tmp/example.xlsx"
+            "longSummaryCSVURL" : "file://<ROOT>/Project/Analyses/run/literal.lungfishgenotype/example.retained-demux-genotypes.csv",
+            "primaryWorkbookURL" : "file://<ROOT>/Project/Analyses/run/literal.lungfishgenotype/example.xlsx",
+            "provenanceURL" : "file://<ROOT>/Project/Analyses/run/literal.lungfishgenotype/retained-demux-genotyping-provenance.json",
+            "sampleSummaryCSVURL" : "file://<ROOT>/Project/Analyses/run/literal.lungfishgenotype/example.retained-demux-samples.csv",
+            "statsJSONURL" : "file://<ROOT>/Project/Analyses/run/literal.lungfishgenotype/example.retained-demux-stats.json",
+            "workbookURL" : "file://<ROOT>/Project/Analyses/run/literal.lungfishgenotype/example.xlsx"
           },
           "bundleURL" : "file://<ROOT>/Project/Analyses/run/literal.lungfishgenotype/",
           "calls" : [
