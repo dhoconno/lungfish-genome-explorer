@@ -360,17 +360,19 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
             "Selecting a sample column of a haplotyped MiSeq bundle mounts the effective editor"
         )
         XCTAssertEqual(controller.testingCapturedScientificCalls().first?.haplotype2, "M2A")
-        var capabilities = 0
+        var capabilities: [GenotypeMatrixReviewCapabilityState] = []
         var sidecars: [GenotypeAnnotationSidecar] = []
-        controller.onMatrixReviewCapabilityChanged = { _ in capabilities += 1 }
+        controller.onMatrixReviewCapabilityChanged = { capabilities.append($0) }
         controller.onAnnotationSidecarChanged = { sidecars.append($0) }
 
-        // Another window marks the contaminant a false positive.
+        // Another window marks the contaminant a false positive and comments
+        // on the selected column.
         let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
             locus: "MHC-A",
             genotype: contaminant.genotype,
             sample: "AnimalA"
         )
+        let column = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
         let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
         try concurrent.setMatrixReviewSynchronously(
             .falsePositive,
@@ -378,6 +380,7 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
             evidence: GenotypeMatrixEvidenceIndex([target: 3]),
             author: "other"
         )
+        try concurrent.upsertMatrixCommentSynchronously(body: "concurrent", targets: [column], author: "other")
 
         controller.testingReloadEffectiveHaplotypeEditor()
 
@@ -387,8 +390,14 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
             "Reload must re-infer the live calls from the reloaded reviews"
         )
         XCTAssertEqual(controller.testingEffectiveHaplotypeEditorValue(locus: "MHC-A", slot: .h2), "M1A")
-        XCTAssertGreaterThan(capabilities, 0, "Reload must republish the review capability")
+        // The last published capability carries the reloaded comment, so the
+        // republish happened after the index rebuild, with the reloaded store.
+        XCTAssertEqual(
+            capabilities.last?.commentsByTarget[column]?.body, "concurrent",
+            "Reload must republish the review capability from the reloaded store"
+        )
         XCTAssertEqual(sidecars.last?.matrixReviews.map(\.target), [target])
+        XCTAssertEqual(sidecars.last?.resolvedMatrixComments[column]?.body, "concurrent")
     }
 
     /// The same recovery for the effective editor. With no store held, Reload

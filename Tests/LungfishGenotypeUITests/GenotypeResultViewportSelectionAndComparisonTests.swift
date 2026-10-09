@@ -2457,6 +2457,19 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
             from: XCTUnwrap(frozen.capturedScientificInputs?["definition.json"]))
         XCTAssertEqual(capturedDefinition.id, definitionID)
         XCTAssertEqual(capturedDefinition.assayID, "custom-assay")
+        // The content, not only the id. A stale definition with the same id
+        // would otherwise pass, which is the case where a user edits a custom
+        // definition. The store stamps a schema version and a modification
+        // date on save, so the comparison is with what the store loads.
+        let stored = try XCTUnwrap(
+            HaplotypeDefinitionStore(projectRoot: projectRoot).loadAllUserSets().first { $0.id == definitionID }
+        )
+        XCTAssertEqual(capturedDefinition, stored, "the capture embeds the definition the store loads")
+        XCTAssertEqual(
+            capturedDefinition.locusDefinitions.flatMap(\.haplotypes).map { [$0.name] + $0.diagnosticAlleles },
+            [["NewB", "12_M9_B_001_01"]]
+        )
+        XCTAssertEqual(frozen.calls.first { $0.locus == "MHC-B" }?.h1.effective, "NewB")
     }
 
 

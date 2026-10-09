@@ -24,24 +24,25 @@ final class GenotypeViewportStyleCaptureTests: XCTestCase {
     }
 
     /// The Excel builder refuses a row whose cell count differs from the
-    /// sample count, so the serializer pads every row to the visible columns.
-    func testProjectionPadsRaggedRowsToColumnCount() {
-        // Three visible samples; only the first reports reads.
+    /// sample count, so the serializer pads every row, and its colour array,
+    /// to the visible columns.
+    func testProjectionPadsRaggedRowsToColumnCount() throws {
+        // Three visible samples; only the first reports reads and carries a fill.
         let snapshot = GenotypeViewportExportSnapshot(
             bundleURL: URL(fileURLWithPath: "/tmp/padded.lungfishgenotype"), analysisName: "test", lens: "allele",
             filters: [:], sampleNames: ["S1", "S2", "S3"],
             rows: [GenotypeViewportExportRow(genotype: "G1", locus: "MHC-A", sampleCount: 1, totalUniqueReads: 10,
-                sampleReads: ["S1": 10], rowStyle: GenotypeResultHighlightStyle(), cellStyles: [:])]
+                sampleReads: ["S1": 10], rowStyle: GenotypeResultHighlightStyle(),
+                cellStyles: ["S1": GenotypeResultHighlightStyle(fillColor: .init(red: 1, green: 0, blue: 0))])]
         )
         let projection = GenotypeViewProjectionSerializer.makeProjection(from: snapshot)
         XCTAssertEqual(projection.sampleColumns.count, 3)
         XCTAssertEqual(projection.rows.count, 1)
-        for row in projection.rows {
-            XCTAssertEqual(row.cells, ["10", "", ""], "every row must have one cell per visible sample")
-            if let colors = row.cellColorsHex {
-                XCTAssertEqual(colors.count, 3, "cell color array must match column count when present")
-            }
-        }
+        let row = try XCTUnwrap(projection.rows.first)
+        XCTAssertEqual(row.cells, ["10", "", ""], "every row must have one cell per visible sample")
+        let colors = try XCTUnwrap(row.cellColorsHex, "a filled cell makes the colour array present")
+        XCTAssertEqual(colors.count, 3, "the colour array must match the column count")
+        XCTAssertEqual(colors, ["#FF0000", nil, nil])
     }
 }
 
