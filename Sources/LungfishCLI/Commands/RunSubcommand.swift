@@ -153,6 +153,13 @@ struct RunSubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
+        // The app reads stdout from a pipe and logs each line to the
+        // Operations Panel as it arrives. On a pipe print holds lines in a
+        // block buffer until the command exits, so a read-pairing split that
+        // takes minutes showed nothing until the end. Line buffering writes
+        // each line as it is printed. Only this command sets it, because
+        // other commands write bulk data to stdout.
+        setvbuf(stdout, nil, _IOLBF, 0)
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         if repeatFrom != nil, workflow.contains("nf-core") || Self.normalizedViralReconWorkflowName(workflow) != nil {
             throw CLIError.workflowFailed(reason: "--repeat-from supports identified local workflow packages only.")
