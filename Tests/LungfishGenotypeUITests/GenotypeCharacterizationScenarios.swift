@@ -309,18 +309,59 @@ extension GenotypeResultViewportTestCase {
         try makeHaplotypedMiSeqScenario(.thresholded)
     }
 
-    /// The two scenarios that share the haplotyped MiSeq data.
+    /// Scenario E, the data of scenario A with its five-animal catalog, which
+    /// holds the catalog-only AnimalF, matrix prevalence 40, and the Samples
+    /// and Unique Reads matrix columns hidden. It pins the roster discrepancy
+    /// of finding T2 in the bioinformatics report. The matrix counts prevalence
+    /// over the five animals the result holds, so 04_Mafa_B_082_01 stays
+    /// visible at 2 of 5, exactly 40 percent. The Excel builder counts over the
+    /// union of the result, call, catalog and analysis samples, so AnimalF
+    /// makes the roster six, the row falls to 2 of 6 and leaves the Filtered
+    /// sheet. The two count columns are hidden because the builder recomputes
+    /// them over its own roster and refuses the whole capture when they differ
+    /// from the GUI's, which the next scenario pins. Scenario D keeps the same
+    /// row with its four-animal catalog, where both rosters agree.
+    func makeCatalogPrevalenceMiSeqScenario() throws -> GenotypeCharacterizationScenario {
+        try makeHaplotypedMiSeqScenario(.catalogPrevalence)
+    }
+
+    /// Scenario E with the Samples and Unique Reads columns visible, the GUI's
+    /// default. The Excel builder recomputes both columns over its six-animal
+    /// roster, finds the GUI's five-animal values for 04_Mafa_B_082_01
+    /// different and refuses the capture, so the export publishes one failed
+    /// event and opens no save panel. The other consequence of finding T2.
+    func makeCatalogPrevalenceWithCountColumnsMiSeqScenario() throws -> GenotypeCharacterizationScenario {
+        try makeHaplotypedMiSeqScenario(.catalogPrevalenceWithCountColumns)
+    }
+
+    /// The four scenarios that share the haplotyped MiSeq data.
     enum HaplotypedMiSeqVariant {
         /// Scenario A, with the catalog-only animal and the production-shape row.
         case catalogExtended
         /// Scenario D, with the global percent, prevalence and a locus order.
         case thresholded
+        /// Scenario E, the catalog of scenario A with prevalence 40 and the count columns hidden.
+        case catalogPrevalence
+        /// Scenario E with the count columns visible, so the Excel capture is refused.
+        case catalogPrevalenceWithCountColumns
 
         var temporaryPrefix: String {
             switch self {
             case .catalogExtended: return "GenotypeCharacterizationHaplotyped"
             case .thresholded: return "GenotypeCharacterizationThresholded"
+            case .catalogPrevalence: return "GenotypeCharacterizationCatalogPrevalence"
+            case .catalogPrevalenceWithCountColumns: return "GenotypeCharacterizationCatalogPrevalenceCounts"
             }
+        }
+
+        /// Prevalence 40 is the one viewport input both scenario E states add.
+        var appliesPrevalence: Bool {
+            self == .catalogPrevalence || self == .catalogPrevalenceWithCountColumns
+        }
+
+        /// Scenario E hides the two columns the Excel builder recomputes over its roster.
+        var hidesCountColumns: Bool {
+            self == .catalogPrevalence
         }
     }
 
@@ -363,7 +404,7 @@ extension GenotypeResultViewportTestCase {
         // today it becomes a second All row for the same allele (finding S1).
         let catalog: GenotypeReviewableRowCatalog
         switch variant {
-        case .catalogExtended:
+        case .catalogExtended, .catalogPrevalence, .catalogPrevalenceWithCountColumns:
             catalog = GenotypeReviewableRowCatalog(samples: ["AnimalA", "AnimalB", "AnimalD", "AnimalE", "AnimalF"], rows: [
                 .init(kind: .reference, callID: "01_Mafa_A1_001_01", displayName: "Mafa-A1*001:01", locus: "MHC-A",
                       stableID: nil, section: "reference", sortKey: "1",
@@ -434,9 +475,10 @@ extension GenotypeResultViewportTestCase {
 
         let controller = makeCharacterizationController()
         controller.configure(result: result)
+        let countColumnsVisible = !variant.hidesCountColumns
         pinCharacterizationMatrixPresentation(
             controller,
-            standardColumns: ["genotype": true, "stableClusterID": false, "locus": true, "samples": true, "uniqueReads": true],
+            standardColumns: ["genotype": true, "stableClusterID": false, "locus": true, "samples": countColumnsVisible, "uniqueReads": countColumnsVisible],
             referenceColumns: ["feature.allele": true, "source.organism": true, "record.definition": false]
         )
         var state = controller.testingDisplayState
@@ -446,6 +488,9 @@ extension GenotypeResultViewportTestCase {
         if variant == .thresholded {
             state.hideLowSupport = false
             state.minimumSupportPercent = 7.5
+            state.matrixMinimumPrevalencePercent = 40
+        }
+        if variant.appliesPrevalence {
             state.matrixMinimumPrevalencePercent = 40
         }
         controller.testingApplyDisplayStateImmediately(state)

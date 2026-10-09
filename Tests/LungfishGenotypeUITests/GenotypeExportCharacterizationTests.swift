@@ -4,10 +4,11 @@
 //
 // Byte-level characterization of the genotype export coordinator before its
 // extraction from GenotypeResultViewController (Phase 2.3, REVIEW.md R6).
-// The frozen Excel capture and the delimited viewport snapshot of four
+// The frozen Excel capture and the delimited viewport snapshot of five
 // scenarios are compared with committed files under
 // Tests/Fixtures/golden/genotype-gui. The panel flow, the manual definitions
-// provenance, the scoped export request and the panel's window are pinned
+// provenance, the scoped export request, the panel's window and the refused
+// capture of a catalog-only sample under a prevalence filter are pinned
 // inline. Every test pins current behaviour, including behaviour the design
 // experts flagged as wrong, so a later fix shows up as a reviewed diff.
 
@@ -84,6 +85,55 @@ final class GenotypeExportCharacterizationTests: GenotypeResultViewportTestCase 
             defer { scenario.cleanup() }
             return try scenario.canonicalExportFiles(prefix: "haplotyped-miseq-thresholds")
         }
+    }
+
+    /// Scenario E pins the first consequence of finding T2. With the
+    /// catalog-only AnimalF in the roster the Excel builder counts and
+    /// prevalence 40, the Filtered sheet drops 04_Mafa_B_082_01 at 2 of 6
+    /// while the GUI matrix keeps it at 2 of 5. Its Samples and Unique Reads
+    /// columns are hidden, see the next test for why.
+    func testCatalogPrevalenceMiSeqExportCapturesMatchCharacterization() throws {
+        try GenotypeCharacterizationExpectedStore.verify(prefix: "haplotyped-miseq-catalog-prevalence") {
+            let scenario = try makeCatalogPrevalenceMiSeqScenario()
+            defer { scenario.cleanup() }
+            return try scenario.canonicalExportFiles(prefix: "haplotyped-miseq-catalog-prevalence")
+        }
+    }
+
+    /// The second consequence of finding T2. With the Samples and Unique Reads
+    /// columns visible, the GUI's default, the Excel builder recomputes both
+    /// over its six-animal roster, finds the GUI's five-animal values for
+    /// 04_Mafa_B_082_01 different and refuses the capture. The export then
+    /// publishes exactly one failed event with that message and opens no save
+    /// panel. Pinned as it is today, T2 is on the owner's decision list.
+    func testCatalogPrevalenceWithCountColumnsRefusesTheExcelCapture() throws {
+        let scenario = try makeCatalogPrevalenceWithCountColumnsMiSeqScenario()
+        defer { scenario.cleanup() }
+        let controller = scenario.controller
+        let refusal = "Incoherent Excel capture: projected native matrix column values disagree with scientific authority"
+        XCTAssertThrowsError(try scenario.withAquaDrawingAppearance { try controller.captureExcelExportSnapshot() }) { error in
+            guard case GenotypeExcelSnapshotBuilder.CaptureError.incoherent(let message) = error else {
+                return XCTFail("Expected the builder's incoherent capture error, got \(error)")
+            }
+            XCTAssertEqual(message, "projected native matrix column values disagree with scientific authority")
+            XCTAssertEqual(error.localizedDescription, refusal)
+        }
+
+        var panels = 0
+        var events: [String] = []
+        controller.excelSavePanelPresenter = { _, _, _ in panels += 1 }
+        controller.onExcelExportEvent = { event in
+            switch event {
+            case .started: events.append("started")
+            case .succeeded(let url): events.append("succeeded " + url.lastPathComponent)
+            case .failed(let message): events.append("failed " + message)
+            }
+        }
+        try scenario.withAquaDrawingAppearance {
+            controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
+        }
+        XCTAssertEqual(panels, 0, "A refused capture must open no save panel")
+        XCTAssertEqual(events, ["failed " + refusal])
     }
 
     // MARK: E3, the panel flow
