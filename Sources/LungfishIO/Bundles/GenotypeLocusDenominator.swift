@@ -124,6 +124,15 @@ public struct GenotypeLocusDenominator: Sendable, Equatable {
         }
     }
 
+    /// The known reads of `calls` pooled across their animals and source
+    /// loci, counting a tied cluster once. The call evidence pane's pooled
+    /// locus and sample read summaries read it, so a tie is not counted k
+    /// times there either. Every per-allele percent still divides by the
+    /// allele's own source-locus total.
+    public static func pooledKnownReads(calls: [ONTGenotypeCall]) -> Int {
+        knownReadTotals(calls: calls).values.reduce(0, +)
+    }
+
     /// One tied cluster of one animal at one source locus.
     private struct TieGroup: Hashable {
         let key: Key

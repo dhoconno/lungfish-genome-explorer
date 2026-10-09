@@ -3212,11 +3212,11 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             return group == locusCall.locus
                 || group == GenotypeHaplotypeLocusResolver.canonicalLocusName(locusCall.sourceLocus)
         }
-        // Haplotype-locus pool, kept only for the evidence summary. Every
-        // per-allele percentage below uses the allele's own source-locus
-        // denominator, exactly as the matrix and caller do.
-        let locusTotal = locusCalls.reduce(0) { $0 + max(0, $1.passedUniqueReads) }
-        let sampleTotal = sampleCalls.reduce(0) { $0 + max(0, $1.passedUniqueReads) }
+        // Haplotype-locus pool, kept only for the evidence summary. It counts
+        // a tied cluster once (D2). Every per-allele percentage below uses the
+        // allele's own source-locus denominator, exactly as the matrix and caller do.
+        let locusTotal = GenotypeLocusDenominator.pooledKnownReads(calls: locusCalls)
+        let sampleTotal = GenotypeLocusDenominator.pooledKnownReads(calls: sampleCalls)
         let observedSet = Set(locusCall.observedGenotypes)
         let runEvaluator = runHaplotypeDropoutEvaluator()
         let evaluator = runEvaluator ?? GenotypeDropoutEvaluator(
@@ -3344,7 +3344,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             omittedHaplotypeGenotypes: omittedGenotypes,
             sampleTotalReads: sampleResult?.sampleTotalReads,
             sampleFullLengthReads: sampleResult?.passedUniqueReads,
-            sampleAssignedGenotypeReads: sampleCalls.reduce(0) { $0 + max(0, $1.passedUniqueReads) },
+            sampleAssignedGenotypeReads: sampleTotal,
             locusReadTotal: locusTotal,
             neighborsBefore: [],
             neighborsAfter: [],
@@ -3476,7 +3476,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         evaluator: GenotypeDropoutEvaluator
     ) -> [GenotypeCallEvidenceView.PerHaplotypeSupport] {
         guard !locusCall.matchedHaplotypes.isEmpty else { return [] }
-        let sampleTotal = sampleCalls.reduce(0) { $0 + max(0, $1.passedUniqueReads) }
+        let sampleTotal = GenotypeLocusDenominator.pooledKnownReads(calls: sampleCalls)
         return locusCall.matchedHaplotypes.map { matched in
             let alleles = matched.observedDiagnosticAlleles.map { allele -> GenotypeCallEvidenceView.DiagnosticAllele in
                 let identifier = Self.genotypeIdentifier(allele)

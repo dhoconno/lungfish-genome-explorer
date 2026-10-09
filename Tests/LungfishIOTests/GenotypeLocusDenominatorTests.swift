@@ -231,6 +231,22 @@ final class GenotypeLocusDenominatorTests: XCTestCase {
 
     /// The tie rule is per animal. The same tie in two animals counts once in
     /// each, and never merges the animals.
+    /// The call evidence pane pools an animal's reads across source loci for
+    /// its summary. The pool counts a tied cluster once and sums every other
+    /// locus, so it agrees with the per-locus totals it is built from.
+    func testPooledKnownReadsCountATiedClusterOnceAcrossLoci() {
+        let tie = ["Mamu-A1*001:01", "Mamu-A1*001:02"]
+        let calls = [
+            Self.call("S1", tie[0], 1_000, ambiguousWith: tie),
+            Self.call("S1", tie[1], 1_000, ambiguousWith: tie),
+            Self.call("S1", "Mamu-A1*002:01", 15),
+            Self.call("S1", "Mamu-B*001:01", 300),
+        ]
+        XCTAssertEqual(GenotypeLocusDenominator.pooledKnownReads(calls: calls), 1_315)
+        XCTAssertEqual(GenotypeLocusDenominator.pooledKnownReads(calls: Array(calls.prefix(3))), 1_015)
+        XCTAssertEqual(GenotypeLocusDenominator.pooledKnownReads(calls: []), 0)
+    }
+
     func testTheTieRuleIsPerAnimal() {
         let calls = Self.tiedClusterCalls(sample: "S1") + Self.tiedClusterCalls(sample: "S2")
         let denominator = GenotypeLocusDenominator(calls: calls)
