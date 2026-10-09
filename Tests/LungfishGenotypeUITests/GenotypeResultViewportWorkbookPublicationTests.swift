@@ -645,6 +645,40 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
     /// read of annotations.json, so it must run the reconcile a stale
     /// publication runs: redraw the cells another writer changed, republish
     /// the review capability and hand the Inspector the reloaded sidecar.
+    /// After a failed reopen in the candidate-settings persistence path the
+    /// controller holds no store while the editor stays mounted, and Reload
+    /// is the user's recovery. It reopens the store from disk and reconciles
+    /// every surface instead of failing (the wave-1 review of D5c).
+    func testManualEditorReloadReopensTheStoreWhenTheControllerHoldsNone() throws {
+        let root = try TestTempDirectory.make(prefix: "ManualEditorReloadWithoutStore")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let column = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
+        let controller = makeMatrixAnnotationGuardedController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_FIRST", reads: 12)]
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        let editor = try XCTUnwrap(controller.testingRetainedManualHaplotypeEditorModel)
+        var capabilities: [GenotypeMatrixReviewCapabilityState] = []
+        var sidecars: [GenotypeAnnotationSidecar] = []
+        controller.onMatrixReviewCapabilityChanged = { capabilities.append($0) }
+        controller.onAnnotationSidecarChanged = { sidecars.append($0) }
+        let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
+        try concurrent.upsertMatrixCommentSynchronously(body: "concurrent", targets: [column], author: "other")
+        controller.testingRemoveEffectiveHaplotypeAnnotationStore()
+
+        editor.reload()
+
+        XCTAssertNil(editor.persistenceErrorMessage, "Reload must reopen the store instead of failing")
+        XCTAssertEqual(sidecars.last?.resolvedMatrixComments[column]?.body, "concurrent")
+        XCTAssertEqual(capabilities.last?.commentsByTarget[column]?.body, "concurrent")
+    }
+
     func testManualEditorReloadRedrawsChangedCellsAndRepublishesReviewCapability() throws {
         let root = try TestTempDirectory.make(prefix: "ManualEditorReloadReconcile")
         defer { TestTempDirectory.cleanup(root) }

@@ -391,6 +391,70 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
         XCTAssertEqual(sidecars.last?.matrixReviews.map(\.target), [target])
     }
 
+    /// The same recovery for the effective editor. With no store held, Reload
+    /// reopens it from disk and re-infers the live calls from the reloaded
+    /// reviews instead of failing (the wave-1 review of D5c).
+    func testEffectiveEditorReloadReopensTheStoreWhenTheControllerHoldsNone() throws {
+        let root = try TestTempDirectory.make(prefix: "EffectiveEditorReloadWithoutStore")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundleURL = root.appendingPathComponent(
+            "reviewed.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        try installCallOverrideManifest(in: bundleURL)
+        let definition = makeDefinition()
+        try writeDefinitionSnapshot(definition, to: bundleURL)
+        let retained = makeCall(sample: "AnimalA", genotype: "01_M1_A_marker", reads: 100)
+        let contaminant = makeCall(sample: "AnimalA", genotype: "02_M2_A_marker", reads: 3)
+        let rawCalls = [retained, contaminant]
+        let controller = makeMatrixAnnotationGuardedController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [
+                .init(
+                    sample: "AnimalA",
+                    passedAlignments: 103,
+                    passedUniqueReads: 103,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: rawCalls
+                ),
+            ],
+            calls: rawCalls,
+            haplotypeAnalysis: GenotypeHaplotypeAnalyzer.analyze(calls: rawCalls, definitionSet: definition)
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        XCTAssertEqual(controller.testingEffectiveHaplotypeEditorSample, "AnimalA")
+        XCTAssertEqual(controller.testingCapturedScientificCalls().first?.haplotype2, "M2A")
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: contaminant.genotype,
+            sample: "AnimalA"
+        )
+        let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
+        try concurrent.setMatrixReviewSynchronously(
+            .falsePositive,
+            targets: [target],
+            evidence: GenotypeMatrixEvidenceIndex([target: 3]),
+            author: "other"
+        )
+        controller.testingRemoveEffectiveHaplotypeAnnotationStore()
+
+        controller.testingReloadEffectiveHaplotypeEditor()
+
+        XCTAssertNil(
+            controller.testingEffectiveHaplotypeEditorPersistenceError,
+            "Reload must reopen the store instead of failing"
+        )
+        XCTAssertEqual(controller.testingCapturedScientificCalls().first?.haplotype2, "M1A")
+        XCTAssertEqual(controller.testingEffectiveHaplotypeEditorValue(locus: "MHC-A", slot: .h2), "M1A")
+    }
+
     private func makeDefinition() -> GenotypeHaplotypeDefinitionSet {
         GenotypeHaplotypeDefinitionSet(
             id: "reviewed-evidence-test",

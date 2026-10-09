@@ -6151,11 +6151,11 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
                 )
             },
             onReload: { [weak self] in
-                guard let self,
-                      let currentResult = self.result,
-                      let previousSidecar = self.annotationStore?.sidecar else {
+                guard let self, let currentResult = self.result else {
                     throw ManualHaplotypeEditorError.unavailable
                 }
+                // With no store held, Reload is the user's recovery and reopens it from disk.
+                let previousSidecar = self.annotationStore?.sidecar ?? .empty(generatedAt: "")
                 let reloadedStore = try GenotypeAnnotationStore(
                     bundleURL: currentResult.bundleURL,
                     author: self.annotationAuthorProvider(),
@@ -6353,11 +6353,11 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
                 return refreshed
             },
             onReload: { [weak self] in
-                guard let self,
-                      let currentResult = self.result,
-                      let previousSidecar = self.annotationStore?.sidecar else {
+                guard let self, let currentResult = self.result else {
                     throw ManualHaplotypeEditorError.unavailable
                 }
+                // With no store held, Reload is the user's recovery and reopens it from disk.
+                let previousSidecar = self.annotationStore?.sidecar ?? .empty(generatedAt: "")
                 let reloadedStore = try GenotypeAnnotationStore(
                     bundleURL: currentResult.bundleURL,
                     author: self.annotationAuthorProvider(),
