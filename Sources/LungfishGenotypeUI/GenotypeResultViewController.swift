@@ -172,7 +172,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         let overrides: [GenotypeAnnotationSidecar.CallOverride]
     }
 
-    struct EffectiveHaplotypeCall {
+    private struct EffectiveHaplotypeCall {
         let h1: String
         let h2: String
         let h1Status: GenotypeHaplotypeCallStatus
@@ -264,7 +264,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     private let detailContainer = NSView()
     let comparisonMatrix = GenotypeComparisonMatrixView()
     private let outlineView = GenotypeOutlineView()
-    let haplotypeMatrixView = GenotypeHaplotypeDefinitionMatrixView()
+    private let haplotypeMatrixView = GenotypeHaplotypeDefinitionMatrixView()
     private let cohortSummaryPanel = GenotypeCohortSummaryPanelView()
     let quickFilterBar = GenotypeQuickFilterBarView()
     private let detailScrollView = NSScrollView()
@@ -489,7 +489,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     /// surrounding project root in `configure(result:)`.
     private var haplotypeDefinitionStore = HaplotypeDefinitionStore(projectRoot: nil)
     private var cachedHaplotypeDefinitionContext: HaplotypeDefinitionContext?
-    private(set) var presentationPolicy: GenotypeResultPresentationPolicy?
+    private var presentationPolicy: GenotypeResultPresentationPolicy?
     private(set) var selectedLens: Lens = .summary
     private(set) var displayState = GenotypeResultDisplayState()
     private var currentSharedCall: ONTGenotypeSharedCall?
@@ -7788,7 +7788,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         }
     }
 
-    func effectiveHaplotypeCall(
+    private func effectiveHaplotypeCall(
         sample sampleId: String,
         call: GenotypeHaplotypeLocusCall
     ) -> EffectiveHaplotypeCall {
@@ -8889,7 +8889,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         )
     }
 
-    func activeHaplotypeDefinitionSetID() -> String? {
+    private func activeHaplotypeDefinitionSetID() -> String? {
         guard let result else {
             return annotationStore?.sidecar.settings.activeHaplotypeDefinitionSetID
         }
