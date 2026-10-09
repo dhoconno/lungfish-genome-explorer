@@ -39,9 +39,8 @@ struct GenotypeCharacterizationScenario {
         TestTempDirectory.cleanup(root)
     }
 
-    /// The canonical frozen Excel capture. Call it before
-    /// `canonicalViewportSnapshot`, because the Excel capture settles pending
-    /// search and filter state.
+    /// The canonical frozen Excel capture. It settles pending search and
+    /// filter state before it freezes the worksheets.
     func canonicalExcelCapture() throws -> Data {
         let start = Date()
         let snapshot = try withAquaDrawingAppearance { try controller.captureExcelExportSnapshot() }
@@ -57,21 +56,10 @@ struct GenotypeCharacterizationScenario {
         ).encode(snapshot)
     }
 
-    /// The canonical delimited viewport snapshot, the production-dead path
-    /// that `testingCurrentExportSnapshot` still reaches.
-    func canonicalViewportSnapshot() throws -> Data {
-        let snapshot = try XCTUnwrap(withAquaDrawingAppearance { controller.testingCurrentExportSnapshot() })
-        return try GenotypeCharacterizationCanonicalizer(root: root).encode(snapshot)
-    }
-
-    /// Both expected files of a scenario, keyed by file name.
+    /// The expected file of a scenario, keyed by file name. Excel is the one
+    /// GUI export, so the Excel capture is the one file (decision D6).
     func canonicalExportFiles(prefix: String) throws -> [String: Data] {
-        let excel = try canonicalExcelCapture()
-        let viewport = try canonicalViewportSnapshot()
-        return [
-            "\(prefix).excel-capture.json": excel,
-            "\(prefix).viewport-snapshot.json": viewport,
-        ]
+        ["\(prefix).excel-capture.json": try canonicalExcelCapture()]
     }
 
     /// Runs `body` under the aqua appearance, the one the scenario pinned.

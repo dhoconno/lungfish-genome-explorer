@@ -148,48 +148,6 @@ final class GenotypeHaplotypeDefinitionMatrixView: NSView {
         applyContentTypography()
     }
 
-    func exportSnapshot(
-        bundleURL: URL,
-        analysisName: String,
-        lens: String
-    ) -> GenotypeViewportExportSnapshot {
-        let exportRows = rows.map { row -> GenotypeViewportExportRow in
-            let reads = Dictionary(uniqueKeysWithValues: alleleColumns.map { alleleName in
-                (alleleName, row.allele(named: alleleName)?.reads ?? 0)
-            })
-            return GenotypeViewportExportRow(
-                genotype: row.haplotypeName,
-                locus: "\(row.sample) \(row.locus)",
-                sampleCount: row.observedCount,
-                totalUniqueReads: row.alleles.reduce(0) { $0 + max(0, $1.reads) },
-                sampleReads: reads,
-                rowStyle: GenotypeResultHighlightStyle(),
-                cellStyles: [:]
-            )
-        }
-        var filters: [String: String] = [
-            "view": "Haplotype diagnostic allele matrix",
-            "definition": definitionName ?? "",
-            "rowCount": "\(rows.count)",
-        ]
-        filters["statusLegend"] = "Called, observed support, not observed"
-        return GenotypeViewportExportSnapshot(
-            bundleURL: bundleURL,
-            analysisName: analysisName,
-            lens: lens,
-            filters: filters,
-            sampleNames: alleleColumns,
-            rows: exportRows,
-            haplotypeSampleScope: uniqueInOrder(rows.map(\.sample)),
-            haplotypeLocusScope: uniqueInOrder(rows.map(\.locus))
-        )
-    }
-
-    private func uniqueInOrder(_ values: [String]) -> [String] {
-        var seen = Set<String>()
-        return values.filter { seen.insert($0).inserted }
-    }
-
     private func buildSubviews() {
         translatesAutoresizingMaskIntoConstraints = false
 

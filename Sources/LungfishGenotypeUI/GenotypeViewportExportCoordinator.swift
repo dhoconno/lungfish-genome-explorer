@@ -6,13 +6,15 @@ import LungfishIO
 import LungfishWorkflow
 import LungfishKit
 
-/// Owns the genotype viewport export path of one GenotypeResultViewController.
-/// It settles the view, freezes the Excel capture, presents the save panel,
-/// runs the export task and publishes the export events. The controller
-/// creates the coordinator once and holds it for its own lifetime, so the
-/// coordinator never outlives the controller it reads. It reads controller
-/// state only through the forwarders at the end of this file. New export
-/// logic belongs here and not in the controller (REVIEW.md R6).
+/// Owns the Excel export path of one GenotypeResultViewController, the one
+/// GUI export since 24fe49f05. It settles the view, freezes the Excel
+/// capture, presents the save panel, runs the export task and publishes the
+/// export events. The controller creates the coordinator once and holds it
+/// for its own lifetime, so the coordinator never outlives the controller it
+/// reads. It reads controller state only through the forwarders at the end of
+/// this file. New export logic belongs here and not in the controller
+/// (REVIEW.md R6). CSV and TSV come from `lungfish-cli genotype export`,
+/// which takes its calls from the same builder as the workbook.
 @MainActor
 final class GenotypeViewportExportCoordinator {
     /// The controller this coordinator reads, held without a retain because
@@ -53,9 +55,9 @@ final class GenotypeViewportExportCoordinator {
                 guard self.displayState == settled, originStillCurrent(), self.ownsDesiredResultConfiguration(authority) else { return }
                 let snapshot = try self.captureExcelExportSnapshot()
                 self.presentViewExportPanel(format: .excel, filenameSuffix: "genotype", capturedSnapshot: snapshot,
-                    excelWorkflow: true, originStillCurrent: originStillCurrent)
+                    originStillCurrent: originStillCurrent)
             } catch {
-                self.publishExcelExportEvent(.failed(error.localizedDescription), excelWorkflow: true)
+                self.publishExcelExportEvent(.failed(error.localizedDescription))
             }
         }
         if !deferManualHaplotypeTransition(.export, mutation: capture) { capture() }
@@ -147,11 +149,13 @@ final class GenotypeViewportExportCoordinator {
             excelSnapshotData: try encoder.encode(capture))
     }
 
+    /// Presents the save panel for a capture frozen before the panel opened
+    /// and runs the export task with that capture, so a view change while the
+    /// panel is up never reaches the workbook.
     private func presentViewExportPanel(
         format: GenotypeViewportExportFormat,
         filenameSuffix: String,
-        capturedSnapshot: GenotypeViewportExportSnapshot? = nil,
-        excelWorkflow: Bool = false,
+        capturedSnapshot snapshot: GenotypeViewportExportSnapshot,
         originStillCurrent: @escaping () -> Bool = { true }
     ) {
         guard let result else { return }
@@ -169,13 +173,8 @@ final class GenotypeViewportExportCoordinator {
             guard let url else { return }
             guard let self, originStillCurrent(), self.representedBundleURL == origin,
                   self.ownsDesiredResultConfiguration(authority) else { return }
-            // Excel always carries its pre-panel immutable scientific capture.
-            // The CSV and TSV fallback to currentExportSnapshot has had no GUI
-            // caller since 24fe49f05, so in production this guard always sees
-            // the capture. See the doc comment on currentExportSnapshot.
-            guard let snapshot = capturedSnapshot ?? self.currentExportSnapshot() else { return }
             let outputURL = url
-            self.publishExcelExportEvent(.started, excelWorkflow: excelWorkflow)
+            self.publishExcelExportEvent(.started)
             let export = self.viewportExportRunner
             Task { [weak self] in
                 do {
@@ -183,13 +182,13 @@ final class GenotypeViewportExportCoordinator {
                     await MainActor.run {
                         guard let self, originStillCurrent(), self.representedBundleURL == origin,
                               self.ownsDesiredResultConfiguration(authority) else { return }
-                        self.publishExcelExportEvent(.succeeded(outputURL), excelWorkflow: excelWorkflow)
+                        self.publishExcelExportEvent(.succeeded(outputURL))
                     }
                 } catch {
                     await MainActor.run {
                         guard let self, originStillCurrent(), self.representedBundleURL == origin,
                               self.ownsDesiredResultConfiguration(authority) else { return }
-                        self.publishExcelExportEvent(.failed(error.localizedDescription), excelWorkflow: excelWorkflow)
+                        self.publishExcelExportEvent(.failed(error.localizedDescription))
                         if let window = self.view.window ?? NSApp.keyWindow {
                             NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
                         } else {
@@ -201,141 +200,8 @@ final class GenotypeViewportExportCoordinator {
         }
     }
 
-    func publishExcelExportEvent(
-        _ event: GenotypeExcelExportEvent,
-        excelWorkflow: Bool
-    ) {
-        guard excelWorkflow else { return }
+    func publishExcelExportEvent(_ event: GenotypeExcelExportEvent) {
         onExcelExportEvent?(event)
-    }
-
-    /// The delimited CSV and TSV viewport path. It has had no GUI caller since
-    /// 24fe49f05 removed its callers, because the one production call of
-    /// presentViewExportPanel passes the frozen Excel capture and the fallback
-    /// to this snapshot in its completion never runs. Phase 2.3 moved it here
-    /// intact, and GenotypeExportCharacterizationTests pins it through
-    /// testingCurrentExportSnapshot and the viewport-snapshot expected files
-    /// under Tests/Fixtures/golden/genotype-gui. Phase 4a decides whether to
-    /// restore an entry point or delete the path with its tests. Until then,
-    /// change nothing here without recapturing those files.
-    func currentExportSnapshot() -> GenotypeViewportExportSnapshot? {
-        guard let result else { return nil }
-        let capturedAnalysis = activeHaplotypeAnalysis()
-        let capturedSidecar = annotationStore?.sidecar
-        let baseSnapshot: GenotypeViewportExportSnapshot
-        if selectedLens == .summary,
-           displayState.summaryViewMode == .matrix,
-           presentationPolicy?.appliesToHaplotypedMiSeq != true,
-           definitionSetForResult(result) != nil,
-           !displayState.showsAncillaryLoci {
-            let haplotypeScope = haplotypeMatrixView.exportSnapshot(
-                bundleURL: result.bundleURL,
-                analysisName: result.manifest.analysisName,
-                lens: "summary.matrix.haplotypeDefinitions"
-            )
-            ensureComparisonMatrixConfigured()
-            let matrix = comparisonMatrix.exportSnapshot(
-                bundleURL: result.bundleURL,
-                analysisName: result.manifest.analysisName,
-                lens: selectedLens.identifier
-            )
-            baseSnapshot = GenotypeViewportExportSnapshot(
-                bundleURL: matrix.bundleURL,
-                analysisName: matrix.analysisName,
-                lens: matrix.lens,
-                filters: matrix.filters.merging([
-                    "haplotypeScopeView": haplotypeScope.lens,
-                ]) { _, new in new },
-                sampleNames: matrix.sampleNames,
-                rows: matrix.rows,
-                provenanceInputURLs: matrix.provenanceInputURLs,
-                annotationSidecarURL: matrix.annotationSidecarURL,
-                annotationSidecarData: matrix.annotationSidecarData,
-                sidecar: matrix.sidecar,
-                haplotypeCalls: matrix.haplotypeCalls,
-                sourceRevision: matrix.sourceRevision,
-                haplotypeSampleScope: haplotypeScope.haplotypeSampleScope,
-                haplotypeLocusScope: haplotypeScope.haplotypeLocusScope,
-                matrixColumns: matrix.matrixColumns
-            )
-        } else {
-            ensureComparisonMatrixConfigured()
-            baseSnapshot = comparisonMatrix.exportSnapshot(
-                bundleURL: result.bundleURL,
-                analysisName: result.manifest.analysisName,
-                lens: selectedLens.identifier
-            )
-        }
-        return attachSidecarSnapshot(
-            to: attachEffectiveHaplotypeCalls(
-                to: attachHaplotypeDefinitionProvenanceContext(
-                    to: attachFilterContext(to: baseSnapshot),
-                    capturedAnalysis: capturedAnalysis
-                ),
-                capturedAnalysis: capturedAnalysis,
-                capturedSidecar: capturedSidecar
-            ),
-            capturedSidecar: capturedSidecar
-        )
-    }
-
-    /// Empty annotation state is authoritative too. Failure to encode must
-    /// prevent export rather than falling back to the live bundle sidecar.
-    private func attachSidecarSnapshot(
-        to base: GenotypeViewportExportSnapshot,
-        capturedSidecar sidecar: GenotypeAnnotationSidecar?
-    ) -> GenotypeViewportExportSnapshot? {
-        let sidecar = sidecar ?? .empty(generatedAt: "1970-01-01T00:00:00Z")
-        guard let annotationData = try? sidecar.encoded() else { return nil }
-        let overrides = sidecar.callOverrides.map { o in
-            GenotypeAnnotationOverrideEntry(
-                sample: o.sample, locus: o.locus, slot: o.slot.rawValue,
-                originalCall: o.originalCall, overrideCall: o.overrideCall,
-                reasonTag: o.reasonTag.rawValue, rationale: o.rationale,
-                author: o.author, timestamp: o.timestamp
-            )
-        }
-        let auditEntries = sidecar.auditLog.map { e in
-            GenotypeAnnotationAuditEntry(
-                action: e.action,
-                sample: e.sample,
-                locus: e.locus ?? "",
-                slot: e.slot?.rawValue ?? "",
-                before: e.before ?? "",
-                after: e.after ?? "",
-                author: e.author,
-                timestamp: e.timestamp
-            )
-        }
-        let annotationSidecarURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: base.bundleURL)
-        var provenanceInputURLs = base.provenanceInputURLs
-        if FileManager.default.fileExists(atPath: annotationSidecarURL.path),
-           !provenanceInputURLs.contains(annotationSidecarURL) {
-            provenanceInputURLs.append(annotationSidecarURL)
-        }
-        return GenotypeViewportExportSnapshot(
-            bundleURL: base.bundleURL,
-            analysisName: base.analysisName,
-            lens: base.lens,
-            filters: base.filters,
-            sampleNames: base.sampleNames,
-            rows: base.rows,
-            provenanceInputURLs: provenanceInputURLs,
-            annotationSidecarURL: FileManager.default.fileExists(atPath: annotationSidecarURL.path)
-                ? annotationSidecarURL
-                : nil,
-            annotationSidecarData: annotationData,
-            sidecar: GenotypeAnnotationSidecarSnapshot(
-                overrides: overrides,
-                auditEntries: auditEntries
-            ),
-            haplotypeCalls: base.haplotypeCalls,
-            sourceRevision: base.sourceRevision,
-            haplotypeSampleScope: base.haplotypeSampleScope,
-            haplotypeLocusScope: base.haplotypeLocusScope,
-            presentationColors: base.presentationColors,
-            matrixColumns: base.matrixColumns
-        )
     }
 
     private func attachFilterContext(
@@ -360,177 +226,6 @@ final class GenotypeViewportExportCoordinator {
             haplotypeLocusScope: base.haplotypeLocusScope,
             presentationColors: base.presentationColors,
             matrixColumns: base.matrixColumns
-        )
-    }
-
-    private func attachHaplotypeDefinitionProvenanceContext(
-        to base: GenotypeViewportExportSnapshot,
-        capturedAnalysis analysis: GenotypeHaplotypeAnalysis?
-    ) -> GenotypeViewportExportSnapshot {
-        guard let result,
-              let definitionID = analysis?.definitionSetID
-                ?? activeHaplotypeDefinitionSetID() else {
-            return base
-        }
-        var filters = base.filters
-        filters["activeHaplotypeDefinitionSetID"] = definitionID
-        if let definition = definitionSetForResult(result) {
-            filters["activeHaplotypeAssayID"] = definition.assayID
-            filters["activeHaplotypeDefinitionName"] = definition.displayName
-            if let schemaVersion = definition.schemaVersion {
-                filters["activeHaplotypeDefinitionSchemaVersion"] = "\(schemaVersion)"
-            }
-            if let lastModified = definition.lastModified {
-                filters["activeHaplotypeDefinitionLastModified"] = lastModified
-            }
-        }
-        var provenanceInputURLs = base.provenanceInputURLs
-        if let url = GenotypeHaplotypeAnalysisResolver.activeDefinitionFileURL(
-            for: result, sidecar: annotationStore?.sidecar
-        ),
-           FileManager.default.fileExists(atPath: url.path),
-           !provenanceInputURLs.contains(url) {
-            provenanceInputURLs.append(url)
-            filters["activeHaplotypeDefinitionPath"] = url.path
-        }
-        return GenotypeViewportExportSnapshot(
-            bundleURL: base.bundleURL,
-            analysisName: base.analysisName,
-            lens: base.lens,
-            filters: filters,
-            sampleNames: base.sampleNames,
-            rows: base.rows,
-            provenanceInputURLs: provenanceInputURLs,
-            annotationSidecarURL: base.annotationSidecarURL,
-            annotationSidecarData: base.annotationSidecarData,
-            sidecar: base.sidecar,
-            haplotypeCalls: base.haplotypeCalls,
-            sourceRevision: base.sourceRevision,
-            haplotypeSampleScope: base.haplotypeSampleScope,
-            haplotypeLocusScope: base.haplotypeLocusScope,
-            presentationColors: resolvedWorkbookPresentationColors(),
-            matrixColumns: base.matrixColumns
-        )
-    }
-
-    private func attachEffectiveHaplotypeCalls(
-        to base: GenotypeViewportExportSnapshot,
-        capturedAnalysis analysis: GenotypeHaplotypeAnalysis?,
-        capturedSidecar: GenotypeAnnotationSidecar?
-    ) -> GenotypeViewportExportSnapshot {
-        func replacingCalls(
-            _ calls: [GenotypeViewProjectionHaplotypeCall],
-            sourceRevision: GenotypeViewProjectionSourceRevision? = nil
-        ) -> GenotypeViewportExportSnapshot {
-            GenotypeViewportExportSnapshot(
-                bundleURL: base.bundleURL,
-                analysisName: base.analysisName,
-                lens: base.lens,
-                filters: base.filters,
-                sampleNames: base.sampleNames,
-                rows: base.rows,
-                provenanceInputURLs: base.provenanceInputURLs,
-                annotationSidecarURL: base.annotationSidecarURL,
-                annotationSidecarData: base.annotationSidecarData,
-                sidecar: base.sidecar,
-                haplotypeCalls: calls,
-                sourceRevision: sourceRevision,
-                haplotypeSampleScope: base.haplotypeSampleScope,
-                haplotypeLocusScope: base.haplotypeLocusScope,
-                presentationColors: base.presentationColors,
-                matrixColumns: base.matrixColumns
-            )
-        }
-        guard let analysis else {
-            if case .eligible = manualHaplotypeEligibility {
-                let visibleSamples = base.haplotypeSampleScope ?? base.sampleNames
-                let selectedLocus = base.filters["locus"].flatMap { $0 == "All Loci" || $0.isEmpty ? nil : $0 }
-                let visibleLoci = base.haplotypeLocusScope
-                    ?? selectedLocus.map { [$0] }
-                    ?? GenotypeManualHaplotypeLocus.allCases.map(\.rawValue)
-                let index = GenotypeManualHaplotypeAssignmentIndex(
-                    assignments: capturedSidecar?.manualHaplotypeAssignments ?? []
-                )
-                return replacingCalls(visibleSamples.flatMap { sample in
-                    visibleLoci.compactMap { locus -> GenotypeViewProjectionHaplotypeCall? in
-                        guard let manualLocus = GenotypeManualHaplotypeLocus(rawValue: locus) else { return nil }
-                        let slots = index.assignments(sample: sample, locus: manualLocus)
-                        let notes = [slots.h1?.notes, slots.h2?.notes].compactMap { $0 }.filter { !$0.isEmpty }
-                        return .init(
-                            sample: sample, locus: locus,
-                            haplotype1: slots.h1?.label ?? "", haplotype2: slots.h2?.label ?? "",
-                            haplotype1Status: "called", haplotype2Status: "called",
-                            haplotype1Source: slots.h1 == nil ? "unassigned" : "manualAssignment",
-                            haplotype2Source: slots.h2 == nil ? "unassigned" : "manualAssignment",
-                            baselineHaplotype1: "", baselineHaplotype2: "",
-                            comment: notes.joined(separator: "; "),
-                            baselineHaplotype1Available: false,
-                            baselineHaplotype2Available: false
-                        )
-                    }
-                })
-            }
-            // GUI projections always opt in to the typed, clean workbook
-            // contract. `nil` remains reserved for decoded legacy projections.
-            return replacingCalls([])
-        }
-        let sidecar = capturedSidecar
-            ?? GenotypeAnnotationSidecar.empty(
-                generatedAt: analysis.generatedAt ?? "1970-01-01T00:00:00Z"
-            )
-        let resolution = GenotypeEffectiveCallAuthority.resolve(
-            analysis: analysis,
-            sidecar: sidecar
-        )
-        let visibleSamples = base.haplotypeSampleScope ?? base.sampleNames
-        let selectedLocus = base.filters["locus"].flatMap {
-            $0 == "All Loci" || $0.isEmpty ? nil : $0
-        }
-        let visibleLoci = base.haplotypeLocusScope
-            ?? selectedLocus.map { [$0] }
-            ?? resolution.orderedLoci
-        let commentsBySampleLocus = Dictionary(
-            uniqueKeysWithValues: analysis.samples.flatMap { sample in
-                sample.calls.map { ((sample.sample + "\u{1f}" + $0.locus), $0.notes) }
-            }
-        )
-        func sourceName(_ source: GenotypeEffectiveHaplotypeValue.Source) -> String {
-            switch source {
-            case .pipeline: return "pipeline"
-            case .analystOverride: return "analystOverride"
-            case .staleOverride: return "staleOverride"
-            }
-        }
-        var calls: [GenotypeViewProjectionHaplotypeCall] = []
-        for sample in visibleSamples {
-            for locus in visibleLoci {
-                guard resolution.locusValue(sample: sample, locus: locus) != nil else { continue }
-                guard let rawCall = analysis.samples.first(where: { $0.sample == sample })?.calls.first(where: { $0.locus == locus }) else { continue }
-                let effective = effectiveHaplotypeCall(sample: sample, call: rawCall)
-                calls.append(.init(
-                    sample: sample,
-                    locus: locus,
-                    haplotype1: effective.h1,
-                    haplotype2: effective.h2,
-                    haplotype1Status: effective.h1Status.rawValue,
-                    haplotype2Status: effective.h2Status.rawValue,
-                    haplotype1Source: sourceName(effective.h1Source),
-                    haplotype2Source: sourceName(effective.h2Source),
-                    baselineHaplotype1: rawCall.haplotype1,
-                    baselineHaplotype2: rawCall.haplotype2,
-                    comment: commentsBySampleLocus[sample + "\u{1f}" + locus],
-                    baselineHaplotype1Available: true,
-                    baselineHaplotype2Available: true
-                ))
-            }
-        }
-        return replacingCalls(
-            calls,
-            sourceRevision: .init(
-                assayID: resolution.identity.assayID,
-                analysisRevisionID: resolution.identity.analysisRevisionID,
-                definitionSetID: resolution.identity.definitionSetID
-            )
         )
     }
 
@@ -578,28 +273,21 @@ final class GenotypeViewportExportCoordinator {
             }
         }
     }
-
-    func fileViewerSelectionURLs(for export: GenotypeViewportExportResult) -> [URL] {
-        [export.outputURL]
-    }
 }
 
 // The controller state the export reads. Each line forwards one member to the
-// controller under the member's own name, so every moved line above stays
-// byte-identical and a new controller dependency shows up as a new line here.
+// controller under the member's own name, so every line above reads as it did
+// in the controller and a new controller dependency shows up as a new line here.
 private extension GenotypeViewportExportCoordinator {
     var result: ONTGenotypeResultBundleData? { host.result }
     var annotationStore: GenotypeAnnotationStore? { host.annotationStore }
     var selectedLens: GenotypeResultViewportLens { host.selectedLens }
     var displayState: GenotypeResultDisplayState { host.displayState }
-    var presentationPolicy: GenotypeResultPresentationPolicy? { host.presentationPolicy }
-    var manualHaplotypeEligibility: GenotypeManualHaplotypeEligibility { host.manualHaplotypeEligibility }
     var activeSmartCohort: GenotypeCohortSmartFilter? { host.activeSmartCohort }
     var quickFilterState: GenotypeQuickFilterBarView.FilterState { host.quickFilterState }
     var quickFilterSearchText: String { host.quickFilterSearchText }
     var deferredMatrixAnnotationMutationCount: Int { host.deferredMatrixAnnotationMutationCount }
     var comparisonMatrix: GenotypeComparisonMatrixView { host.comparisonMatrix }
-    var haplotypeMatrixView: GenotypeHaplotypeDefinitionMatrixView { host.haplotypeMatrixView }
     var quickFilterBar: GenotypeQuickFilterBarView { host.quickFilterBar }
     var view: NSView { host.view }
     var representedBundleURL: URL? { host.representedBundleURL }
@@ -610,8 +298,6 @@ private extension GenotypeViewportExportCoordinator {
 
     func activeHaplotypeAnalysis() -> GenotypeHaplotypeAnalysis? { host.activeHaplotypeAnalysis() }
     func definitionSetForResult(_ result: ONTGenotypeResultBundleData) -> GenotypeHaplotypeDefinitionSet? { host.definitionSetForResult(result) }
-    func activeHaplotypeDefinitionSetID() -> String? { host.activeHaplotypeDefinitionSetID() }
-    func effectiveHaplotypeCall(sample: String, call: GenotypeHaplotypeLocusCall) -> GenotypeResultViewController.EffectiveHaplotypeCall { host.effectiveHaplotypeCall(sample: sample, call: call) }
     func ensureComparisonMatrixConfigured() { host.ensureComparisonMatrixConfigured() }
     func ownsDesiredResultConfiguration(_ authority: GenotypeResultDesiredConfigurationAuthority) -> Bool { host.ownsDesiredResultConfiguration(authority) }
     func deferManualHaplotypeTransition(_ transition: GenotypeManualHaplotypeDraftCoordinator.Transition, mutation: @escaping @MainActor () -> Void) -> Bool { host.deferManualHaplotypeTransition(transition, mutation: mutation) }

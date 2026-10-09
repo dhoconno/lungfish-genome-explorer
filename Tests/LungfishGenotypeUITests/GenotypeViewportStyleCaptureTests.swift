@@ -22,6 +22,27 @@ final class GenotypeViewportStyleCaptureTests: XCTestCase {
         XCTAssertEqual(GenotypeViewProjectionSerializer.normalizedHex(.init(red: 0, green: 0, blue: 1, alpha: 0.2)), "#CCCCFF")
         XCTAssertEqual(GenotypeViewProjectionSerializer.normalizedHex(.init(red: 1, green: 0, blue: 0, alpha: 0)), "#FFFFFF")
     }
+
+    /// The Excel builder refuses a row whose cell count differs from the
+    /// sample count, so the serializer pads every row to the visible columns.
+    func testProjectionPadsRaggedRowsToColumnCount() {
+        // Three visible samples; only the first reports reads.
+        let snapshot = GenotypeViewportExportSnapshot(
+            bundleURL: URL(fileURLWithPath: "/tmp/padded.lungfishgenotype"), analysisName: "test", lens: "allele",
+            filters: [:], sampleNames: ["S1", "S2", "S3"],
+            rows: [GenotypeViewportExportRow(genotype: "G1", locus: "MHC-A", sampleCount: 1, totalUniqueReads: 10,
+                sampleReads: ["S1": 10], rowStyle: GenotypeResultHighlightStyle(), cellStyles: [:])]
+        )
+        let projection = GenotypeViewProjectionSerializer.makeProjection(from: snapshot)
+        XCTAssertEqual(projection.sampleColumns.count, 3)
+        XCTAssertEqual(projection.rows.count, 1)
+        for row in projection.rows {
+            XCTAssertEqual(row.cells, ["10", "", ""], "every row must have one cell per visible sample")
+            if let colors = row.cellColorsHex {
+                XCTAssertEqual(colors.count, 3, "cell color array must match column count when present")
+            }
+        }
+    }
 }
 
 /// Reads the actual serialized boundary, so omitting optional style fields

@@ -5,53 +5,14 @@ import LungfishIO
 import LungfishWorkflow
 import UniformTypeIdentifiers
 
-/// Container format for a genotype viewport export, mirroring the CLI's
-/// `genotype export --export-format` values.
-enum GenotypeViewportExportFormat: String, CaseIterable, Identifiable, Sendable {
-    case csv
-    case tsv
+/// The one container format of the GUI genotype export. CSV and TSV belong to
+/// `lungfish-cli genotype export`, which has owned them since 24fe49f05.
+enum GenotypeViewportExportFormat: String, Sendable {
     case excel
 
-    var id: String { rawValue }
+    var fileExtension: String { "xlsx" }
 
-    var displayName: String {
-        switch self {
-        case .csv: return "CSV"
-        case .tsv: return "TSV"
-        case .excel: return "Excel"
-        }
-    }
-
-    var fileExtension: String {
-        switch self {
-        case .csv: return "csv"
-        case .tsv: return "tsv"
-        case .excel: return "xlsx"
-        }
-    }
-
-    /// Value passed to `genotype export --export-format`.
-    var cliValue: String {
-        switch self {
-        case .csv: return "csv"
-        case .tsv: return "tsv"
-        case .excel: return "xlsx"
-        }
-    }
-
-    var provenanceWorkflowName: String { "lungfish genotype export" }
-    var provenanceToolName: String { CLICommandIdentity.executableName }
-
-    var contentType: UTType {
-        switch self {
-        case .csv:
-            return .commaSeparatedText
-        case .tsv:
-            return UTType(filenameExtension: "tsv") ?? .plainText
-        case .excel:
-            return UTType(filenameExtension: "xlsx") ?? .data
-        }
-    }
+    var contentType: UTType { UTType(filenameExtension: "xlsx") ?? .data }
 }
 
 struct GenotypeViewportExportResult: Equatable {
@@ -59,29 +20,11 @@ struct GenotypeViewportExportResult: Equatable {
     let provenanceURL: URL
 }
 
-/// Seam over the `lungfish-cli` subprocess so tests can record the argv and the
-/// view-projection JSON the GUI hands the CLI without launching a process.
-protocol GenotypeViewportExportRunning {
-    func run(arguments: [String]) async throws -> LungfishCLIRunner.Output
-}
-
-struct DefaultGenotypeViewportExportRunner: GenotypeViewportExportRunning {
-    func run(arguments: [String]) async throws -> LungfishCLIRunner.Output {
-        try await LungfishCLIRunner.run(arguments: arguments)
-    }
-}
-
 /// Publishes the frozen scientific XLSX capture through the shared export owner.
-/// CSV/TSV retain the established CLI projection/provenance contract.
 struct GenotypeViewportExportService {
-    private let runner: GenotypeViewportExportRunning
     private let fileManager: FileManager
 
-    init(
-        runner: GenotypeViewportExportRunning = DefaultGenotypeViewportExportRunner(),
-        fileManager: FileManager = .default
-    ) {
-        self.runner = runner
+    init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
     }
 
@@ -128,177 +71,16 @@ struct GenotypeViewportExportService {
         }
         return .init(outputURL: result.outputURL, provenanceURL: result.receiptURL)
     }
-
-    func export(
-        snapshot: GenotypeViewportExportSnapshot,
-        format: GenotypeViewportExportFormat,
-        to outputURL: URL
-    ) async throws -> GenotypeViewportExportResult {
-        guard format == .csv || format == .tsv else {
-            throw GenotypeExcelSnapshotBuilder.CaptureError.incoherent("Use the immutable Excel capture export")
-        }
-        try fileManager.createDirectory(
-            at: outputURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let standardizedOutputURL = outputURL.standardizedFileURL
-        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: standardizedOutputURL)
-
-        // Serialize exactly what the viewport rendered, then keep the JSON
-        // beside the export so the provenance argv can be replayed later.
-        let projection = GenotypeViewProjectionSerializer.makeProjection(from: snapshot)
-        let projectionURL = standardizedOutputURL.appendingPathExtension("view-projection.json")
-        let projectionData = try JSONEncoder().encode(projection)
-        let capturedAnnotationURL = standardizedOutputURL
-            .appendingPathExtension("annotations.json")
-        let effectiveAnnotationURL = snapshot.annotationSidecarData == nil
-            ? snapshot.annotationSidecarURL
-            : capturedAnnotationURL
-
-        var arguments = [
-            "genotype", "export",
-            "--bundle", snapshot.bundleURL.path,
-            "--export-format", format.cliValue,
-            "--output", standardizedOutputURL.path,
-            "--lens", snapshot.lens,
-            "--view-projection", projectionURL.path,
-        ]
-        for sample in snapshot.sampleNames {
-            arguments += ["--sample", sample]
-        }
-        if let minReads = minimumReads(from: snapshot.filters) {
-            arguments += ["--min-reads", String(minReads)]
-        }
-        if let filterText = filterText(from: snapshot.filters) {
-            arguments += ["--filter", filterText]
-        }
-        if let definitionID = snapshot.filters["activeHaplotypeDefinitionSetID"],
-           !definitionID.isEmpty {
-            arguments += ["--active-haplotype-definition", definitionID]
-        }
-        if let annotationSidecarURL = effectiveAnnotationURL {
-            arguments += ["--annotations", annotationSidecarURL.path]
-        }
-        arguments.append("--force")
-
-        let rollbackSnapshot = try GenotypeViewportExportRollbackSnapshot(
-            urls: [standardizedOutputURL, provenanceURL, projectionURL]
-                + (snapshot.annotationSidecarData == nil ? [] : [capturedAnnotationURL]),
-            fileManager: fileManager
-        )
-        do {
-            try projectionData.write(to: projectionURL, options: .atomic)
-            if let annotationSidecarData = snapshot.annotationSidecarData {
-                try annotationSidecarData.write(
-                    to: capturedAnnotationURL,
-                    options: .atomic
-                )
-            }
-            _ = try await runner.run(arguments: arguments)
-            guard fileManager.fileExists(atPath: standardizedOutputURL.path) else {
-                throw GenotypeViewportExportError.missingOutput(standardizedOutputURL.path)
-            }
-            guard fileManager.fileExists(atPath: provenanceURL.path) else {
-                throw GenotypeViewportExportError.missingProvenance(provenanceURL.path)
-            }
-            let expectedInputURLs = [projectionURL]
-                + (effectiveAnnotationURL.map { [$0] } ?? [])
-            try verifyProvenance(
-                provenanceURL: provenanceURL,
-                outputURL: standardizedOutputURL,
-                expectedWorkflowName: format.provenanceWorkflowName,
-                expectedToolName: format.provenanceToolName,
-                expectedInputURLs: expectedInputURLs
-            )
-            rollbackSnapshot.discard()
-            return GenotypeViewportExportResult(
-                outputURL: standardizedOutputURL,
-                provenanceURL: provenanceURL
-            )
-        } catch {
-            do {
-                try rollbackSnapshot.restore()
-            } catch let rollbackError {
-                throw GenotypeViewportExportError.rollbackFailed(
-                    original: String(describing: error),
-                    rollback: String(describing: rollbackError)
-                )
-            }
-            throw error
-        }
-    }
-
-    private func verifyProvenance(
-        provenanceURL: URL,
-        outputURL: URL,
-        expectedWorkflowName: String = "lungfish genotype export",
-        expectedToolName: String = CLICommandIdentity.executableName,
-        expectedInputURLs: [URL] = []
-    ) throws {
-        guard let envelope = try ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL),
-              envelope.toolName == expectedToolName,
-              envelope.workflowName == expectedWorkflowName,
-              envelope.exitStatus == 0,
-              !envelope.argv.isEmpty else {
-            throw GenotypeViewportExportError.invalidProvenance(provenanceURL.path)
-        }
-        // Physical paths (CanonicalFilePath): the CLI records the spelling it
-        // was given (`/tmp/...`), the viewport may hold `/private/tmp/...`.
-        let outputPath = outputURL.canonicalFilePath
-        let outputPaths = Set(
-            (envelope.outputs + envelope.steps.flatMap(\.outputs))
-                .map { URL(fileURLWithPath: $0.path).canonicalFilePath }
-        )
-        guard outputPaths.contains(outputPath) else {
-            throw GenotypeViewportExportError.invalidProvenance(provenanceURL.path)
-        }
-        guard expectedInputURLs.isEmpty else {
-            let inputPaths = Set(
-                (envelope.files + envelope.steps.flatMap(\.inputs))
-                    .map { URL(fileURLWithPath: $0.path).canonicalFilePath }
-            )
-            for expectedInputURL in expectedInputURLs {
-                guard fileManager.fileExists(atPath: expectedInputURL.path),
-                      inputPaths.contains(expectedInputURL.canonicalFilePath) else {
-                    throw GenotypeViewportExportError.invalidProvenance(provenanceURL.path)
-                }
-            }
-            return
-        }
-    }
-
-    /// The genotype viewport filters by support *percent*, not an absolute
-    /// unique-read floor, so `--min-reads` is only emitted when the snapshot
-    /// carries an explicit integer read count.
-    private func minimumReads(from filters: [String: String]) -> Int? {
-        for key in ["matrixMinimumReads", "minimumSupportReads", "minimumReads", "minReads"] {
-            if let raw = filters[key], let value = Int(raw), value > 0 {
-                return value
-            }
-        }
-        return nil
-    }
-
-    /// The free-text filter the analyst typed, recorded in provenance.
-    private func filterText(from filters: [String: String]) -> String? {
-        for key in ["searchText", "quickFilter", "quickFilterSearchText"] {
-            if let raw = filters[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !raw.isEmpty {
-                return raw
-            }
-        }
-        return nil
-    }
 }
 
 /// Maps a rendered ``GenotypeViewportExportSnapshot`` into the
-/// ``GenotypeViewProjection`` contract the CLI consumes.
+/// ``GenotypeViewProjection`` the Excel capture embeds as its
+/// `all-projection.json` and `filtered-projection.json` inputs.
 ///
-/// Guarantees the producer-side invariants the CLI relies on:
-/// every row's `cells` (and `cellColorsHex`, when present) has exactly one
-/// entry per visible sample column, and every color is a normalized `#RRGGBB`
-/// string. Ragged rows would be silently truncated by the CLI's projection
-/// filter, so they are padded here instead.
+/// Guarantees the invariants the Excel builder relies on: every row's `cells`
+/// (and `cellColorsHex`, when present) has exactly one entry per visible
+/// sample column, and every color is a normalized `#RRGGBB` string. The
+/// builder refuses a ragged row, so rows are padded here instead.
 enum GenotypeViewProjectionSerializer {
     static func makeProjection(
         from snapshot: GenotypeViewportExportSnapshot
@@ -366,7 +148,7 @@ enum GenotypeViewProjectionSerializer {
     /// Spreadsheet backgrounds are white. Composite translucent screen colors
     /// onto white deliberately instead of silently dropping their alpha.
     /// ``AnnotationColor/hexString`` already renders this shape; this guards
-    /// against any future drift so the CLI writer never falls back.
+    /// against any future drift so the workbook writer never falls back.
     static func normalizedHex(_ color: AnnotationColor?) -> String? {
         guard let color else { return nil }
         let alpha = min(1, max(0, color.alpha))
@@ -377,114 +159,13 @@ enum GenotypeViewProjectionSerializer {
     }
 }
 
-/// Keeps a byte-for-byte rollback copy of every durable file in a viewport
-/// export generation. The CLI is allowed to atomically replace individual
-/// files; if the runner or the cross-file provenance verification fails, this
-/// restores the prior output/provenance/projection trio instead of deleting it.
-private final class GenotypeViewportExportRollbackSnapshot {
-    private struct Entry {
-        let destinationURL: URL
-        let backupURL: URL?
-    }
-
-    private let fileManager: FileManager
-    private let backupDirectoryURL: URL
-    private var entries: [Entry] = []
-    private var isFinished = false
-
-    init(urls: [URL], fileManager: FileManager) throws {
-        self.fileManager = fileManager
-        backupDirectoryURL = urls[0].deletingLastPathComponent().appendingPathComponent(
-            ".lungfish-genotype-export-rollback-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        do {
-            try fileManager.createDirectory(
-                at: backupDirectoryURL,
-                withIntermediateDirectories: false
-            )
-            for (index, url) in urls.enumerated() {
-                let backupURL: URL?
-                if fileManager.fileExists(atPath: url.path) {
-                    let candidate = backupDirectoryURL.appendingPathComponent(String(index))
-                    try fileManager.copyItem(at: url, to: candidate)
-                    backupURL = candidate
-                } else {
-                    backupURL = nil
-                }
-                entries.append(Entry(destinationURL: url, backupURL: backupURL))
-            }
-        } catch {
-            try? fileManager.removeItem(at: backupDirectoryURL)
-            throw error
-        }
-    }
-
-    func restore() throws {
-        guard !isFinished else { return }
-        var failures: [String] = []
-        for entry in entries {
-            do {
-                if let backupURL = entry.backupURL {
-                    if fileManager.fileExists(atPath: entry.destinationURL.path) {
-                        _ = try fileManager.replaceItemAt(
-                            entry.destinationURL,
-                            withItemAt: backupURL
-                        )
-                    } else {
-                        try fileManager.moveItem(
-                            at: backupURL,
-                            to: entry.destinationURL
-                        )
-                    }
-                } else if fileManager.fileExists(atPath: entry.destinationURL.path) {
-                    try fileManager.removeItem(at: entry.destinationURL)
-                }
-            } catch {
-                failures.append("\(entry.destinationURL.path): \(error)")
-            }
-        }
-        isFinished = true
-        try? fileManager.removeItem(at: backupDirectoryURL)
-        if !failures.isEmpty {
-            throw NSError(
-                domain: "GenotypeViewportExportRollbackSnapshot",
-                code: 1,
-                userInfo: [
-                    NSLocalizedDescriptionKey:
-                        "Failed to restore viewport export generation: \(failures.joined(separator: "; "))"
-                ]
-            )
-        }
-    }
-
-    func discard() {
-        guard !isFinished else { return }
-        isFinished = true
-        try? fileManager.removeItem(at: backupDirectoryURL)
-    }
-
-    deinit {
-        discard()
-    }
-}
-
 enum GenotypeViewportExportError: Error, LocalizedError, Equatable {
-    case missingOutput(String)
     case missingProvenance(String)
-    case invalidProvenance(String)
-    case rollbackFailed(original: String, rollback: String)
 
     var errorDescription: String? {
         switch self {
-        case .missingOutput(let path):
-            return "The genotype export did not create the expected output file at \(path)."
         case .missingProvenance(let path):
             return "The genotype export did not create required provenance at \(path)."
-        case .invalidProvenance(let path):
-            return "The genotype export provenance is missing required lungfish-cli execution metadata at \(path)."
-        case .rollbackFailed(let original, let rollback):
-            return "The genotype export failed (\(original)) and its prior files could not be restored (\(rollback))."
         }
     }
 }

@@ -954,18 +954,6 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
     }
 
 
-    func testExportRevealTargetsExportedWorkbookFile() {
-        let controller = makeMatrixAnnotationGuardedController()
-        let outputURL = URL(fileURLWithPath: "/tmp/export.xlsx")
-        let result = GenotypeViewportExportResult(
-            outputURL: outputURL,
-            provenanceURL: outputURL.appendingPathExtension("lungfish-provenance.json")
-        )
-
-        XCTAssertEqual(controller.testingFileViewerSelectionURLs(for: result), [outputURL])
-    }
-
-
     func testDisplayStateCanMoveListRightAndTop() {
         let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
@@ -1770,35 +1758,6 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
         let table = try XCTUnwrap(view.firstDescendant(ofType: NSTableView.self))
         XCTAssertTrue(table.tableColumns.allSatisfy { $0.sortDescriptorPrototype != nil })
     }
-
-    func testHaplotypeDefinitionMatrixExportCarriesSemanticCallScope() {
-        let view = GenotypeHaplotypeDefinitionMatrixView()
-        view.configure(rows: [
-            .init(
-                sample: "DW472", locus: "MHC-B", callName: "M3B",
-                haplotypeName: "M3B", observedCount: 1, diagnosticCount: 1,
-                minimumMatches: 1, status: .called,
-                alleles: [.init(name: "B-marker", reads: 10)]
-            ),
-            .init(
-                sample: "DW474", locus: "MHC-DQ", callName: "M4DQ",
-                haplotypeName: "M4DQ", observedCount: 1, diagnosticCount: 1,
-                minimumMatches: 1, status: .called,
-                alleles: [.init(name: "DQ-marker", reads: 8)]
-            ),
-        ], definitionName: "Scoped")
-
-        let snapshot = view.exportSnapshot(
-            bundleURL: URL(fileURLWithPath: "/tmp/scoped.lungfishgenotype"),
-            analysisName: "Scoped",
-            lens: "summary.matrix.haplotypeDefinitions"
-        )
-
-        XCTAssertEqual(snapshot.haplotypeSampleScope, ["DW472", "DW474"])
-        XCTAssertEqual(snapshot.haplotypeLocusScope, ["MHC-B", "MHC-DQ"])
-        XCTAssertEqual(snapshot.sampleNames, ["B-marker", "DQ-marker"])
-    }
-
 
     func testHaplotypeDefinitionMatrixTypographyUpdatesAndRecoversWithoutReconfiguration() {
         let settings = AppSettings.shared

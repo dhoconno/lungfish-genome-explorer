@@ -541,14 +541,8 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     var excelSavePanelPresenter: (NSSavePanel, NSWindow, @escaping (URL?) -> Void) -> Void = { panel, window, completion in
         panel.beginSheetModal(for: window) { response in completion(response == .OK ? panel.url : nil) }
     }
-    var viewportExportRunner: (GenotypeViewportExportSnapshot, GenotypeViewportExportFormat, URL) async throws -> Void = { snapshot, format, url in
-        if format == .excel {
-            _ = try await GenotypeViewportExportService().exportExcel(snapshot: snapshot, to: url)
-            return
-        }
-        _ = try await Task.detached {
-            try await GenotypeViewportExportService().export(snapshot: snapshot, format: format, to: url)
-        }.value
+    var viewportExportRunner: (GenotypeViewportExportSnapshot, GenotypeViewportExportFormat, URL) async throws -> Void = { snapshot, _, url in
+        _ = try await GenotypeViewportExportService().exportExcel(snapshot: snapshot, to: url)
     }
     private lazy var viewportExportCoordinator = GenotypeViewportExportCoordinator(host: self)
     private var resultConfigurationGeneration: UInt64 = 0
@@ -10945,16 +10939,8 @@ extension GenotypeResultViewController {
         haplotypeWorkCount = 0
     }
 
-    func testingCurrentExportSnapshot() -> GenotypeViewportExportSnapshot? {
-        viewportExportCoordinator.currentExportSnapshot()
-    }
-
     func testingSetComparisonLocusFilter(_ locus: String?) {
         comparisonMatrix.testingSetLocusFilter(locus)
-    }
-
-    func testingFileViewerSelectionURLs(for export: GenotypeViewportExportResult) -> [URL] {
-        viewportExportCoordinator.fileViewerSelectionURLs(for: export)
     }
 
     var testingSavedCohortChipTitle: String? {

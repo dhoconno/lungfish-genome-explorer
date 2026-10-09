@@ -84,13 +84,12 @@ private struct BandHitTarget {
     let accessibilityIdentifier: String
 }
 
-/// The scopes the delimited export reads from the band.
+/// The band inputs the Excel capture reads through the matrix's export
+/// snapshot: the sample columns, the locus filter and the band's locus scope.
 private struct BandExport {
     let sampleNames: [String]
     let locusFilter: String?
-    let haplotypeSampleScope: [String]?
     let haplotypeLocusScope: [String]?
-    let haplotypeCalls: [GenotypeViewProjectionHaplotypeCall]?
 }
 
 @MainActor
@@ -226,7 +225,11 @@ final class GenotypeHaplotypeBandCharacterizationTests: GenotypeResultViewportTe
                 }
             )
         }
-        let snapshot = controller.testingCurrentExportSnapshot()
+        let snapshot = matrix.exportSnapshot(
+            bundleURL: scenario.bundleURL,
+            analysisName: scenario.result.manifest.analysisName,
+            lens: "summary"
+        )
         return BandStep(
             label: label,
             mode: String(describing: mode),
@@ -253,11 +256,9 @@ final class GenotypeHaplotypeBandCharacterizationTests: GenotypeResultViewportTe
             selectedCallEvidenceSample: controller.testingCurrentCallEvidenceSample,
             samples: samples,
             export: BandExport(
-                sampleNames: snapshot?.sampleNames ?? [],
-                locusFilter: snapshot?.filters["locus"],
-                haplotypeSampleScope: snapshot?.haplotypeSampleScope,
-                haplotypeLocusScope: snapshot?.haplotypeLocusScope,
-                haplotypeCalls: snapshot?.haplotypeCalls
+                sampleNames: snapshot.sampleNames,
+                locusFilter: snapshot.filters["locus"],
+                haplotypeLocusScope: snapshot.haplotypeLocusScope
             )
         )
     }

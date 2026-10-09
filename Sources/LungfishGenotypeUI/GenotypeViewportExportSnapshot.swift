@@ -8,9 +8,10 @@ import LungfishWorkflow
 /// reads and viewport fill/border colors), the active filter context, and an
 /// optional annotation sidecar.
 ///
-/// Delimiter export serializes the viewport projection for the CLI. Excel export
-/// uses the separately frozen scientific snapshot with simultaneous All and
-/// Filtered projections, retained replay inputs, and canonical provenance.
+/// The Excel export, the one GUI export since 24fe49f05, carries its frozen
+/// scientific capture in `excelSnapshotData`, with simultaneous All and
+/// Filtered projections, retained replay inputs and canonical provenance. The
+/// CLI's CSV and TSV exports never see this type.
 struct GenotypeViewportExportSnapshot: Equatable {
     let bundleURL: URL
     let analysisName: String

@@ -15,7 +15,7 @@ LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit, AppKit and SwiftUI. Nev
 | Type | Path |
 |---|---|
 | `GenotypeResultViewController` and `configure(result:)` | Sources/LungfishGenotypeUI/GenotypeResultViewController.swift lines 78 and 1197 |
-| `GenotypeViewportExportCoordinator`, the Excel and viewport export path | Sources/LungfishGenotypeUI/GenotypeViewportExportCoordinator.swift. The controller creates one through its `viewportExportCoordinator` property and keeps `presentExcelExportPanel` and `captureExcelExportSnapshot` as forwarders. The manual haplotype definitions export (`exportManualDefinitions` and `writeManualDefinitionsExport`) stays in the controller until Phase 4a moves the manual haplotyping slice |
+| `GenotypeViewportExportCoordinator`, the Excel export path, the one GUI export since 24fe49f05 (CSV and TSV come from `lungfish-cli genotype export`) | Sources/LungfishGenotypeUI/GenotypeViewportExportCoordinator.swift. The controller creates one through its `viewportExportCoordinator` property and keeps `presentExcelExportPanel` and `captureExcelExportSnapshot` as forwarders. The manual haplotype definitions export (`exportManualDefinitions` and `writeManualDefinitionsExport`) stays in the controller until Phase 4a moves the manual haplotyping slice |
 | Comparison matrix | Sources/LungfishGenotypeUI/GenotypeComparisonMatrixView.swift |
 | Annotation sidecar store | Sources/LungfishGenotypeUI/GenotypeAnnotationStore.swift, backed by Sources/LungfishIO/Bundles/GenotypeAnnotationSidecar.swift |
 | Export snapshot and service | Sources/LungfishGenotypeUI/GenotypeViewportExportSnapshot.swift, GenotypeViewportExportService.swift |
@@ -58,4 +58,4 @@ Lane L6 of Phase 2.3 mapped the three responsibilities that leave the controller
 - Haplotype-band disclosure, pinned by `haplotype-band.effective.json` and `haplotype-band.manual.json`.
   - Matrix view. `haplotypeBandMode`, `effectiveHaplotypeBandSnapshot`, `manualHaplotypeBandSnapshot`, `setHaplotypeBand`, `updateManualHaplotypeBand`, `activeHaplotypeBandLoci`, `activeHaplotypeBandValues`, `applyManualHaplotypeBandPresentation`, `setManualHaplotypeBandExpandedPreservingViewport` and the `haplotypeLocusScope` of `exportSnapshot`.
   - Controller. `manualHaplotypeBandDisclosureStore`, `effectiveHaplotypeProjection`, `rebuildEffectiveHaplotypeProjectionIfNeeded`, `applyComparisonMatrixHaplotypeBandProjection`, `orderedLoci`, `effectiveIncludedLoci`, `defaultIncludedLoci`, `selectHaplotypeBandTarget` and the display state's `manualHaplotypeBandExpanded`, `includedLoci` and `showsAncillaryLoci`.
-- The export is the fourth responsibility and already has its type, `GenotypeViewportExportCoordinator`, pinned by the `*.excel-capture.json` and `*.viewport-snapshot.json` files.
+- The export is the fourth responsibility and already has its type, `GenotypeViewportExportCoordinator`, pinned by the `*.excel-capture.json` files.
