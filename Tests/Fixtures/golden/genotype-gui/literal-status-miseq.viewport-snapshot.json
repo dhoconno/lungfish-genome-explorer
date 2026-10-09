@@ -1,0 +1,867 @@
+{
+  "normalization" : {
+    "masks" : [
+      {
+        "applies" : "The test's own temp root in plain paths and file URLs, in the /var and the /private/var spelling",
+        "count" : 3,
+        "guard" : "None, it is the fixture root",
+        "token" : "<ROOT>"
+      },
+      {
+        "applies" : "The top-level generatedAt of the frozen Excel capture",
+        "count" : 0,
+        "guard" : "Parses as ISO 8601 UTC to the second and lies inside the test's time window",
+        "token" : "<GENERATED_AT>"
+      },
+      {
+        "applies" : "A sourceRevision digest of the frozen Excel capture whose key names a captured input",
+        "count" : 0,
+        "guard" : "Equals the SHA-256 of that input's raw bytes, which are decoded and compared in full",
+        "token" : "<SHA256>"
+      }
+    ]
+  },
+  "value" : {
+    "analysisName" : "Example",
+    "annotationSidecarData" : {
+      "aiHaplotypeReviews" : [
+
+      ],
+      "auditLog" : [
+
+      ],
+      "callOverrides" : [
+        {
+          "analysisIdentity" : {
+            "analysisRevisionID" : "revision-7",
+            "assayID" : "MHC-exon2-miSeq",
+            "definitionSetID" : "characterization.literal-definitions"
+          },
+          "author" : "Analyst",
+          "locus" : "MHC-A",
+          "operationID" : "exact-identity",
+          "originalCall" : "M1A",
+          "overrideCall" : "M3A",
+          "rationale" : "Characterization override exact-identity",
+          "reasonTag" : "analyst-judgment",
+          "sample" : "AnimalA",
+          "slot" : "h1",
+          "timestamp" : "2026-09-02T10:00:00Z"
+        },
+        {
+          "analysisIdentity" : {
+            "analysisRevisionID" : "revision-6",
+            "assayID" : "MHC-exon2-miSeq",
+            "definitionSetID" : "characterization.literal-definitions"
+          },
+          "author" : "Analyst",
+          "locus" : "MHC-B",
+          "operationID" : "stale-identity",
+          "originalCall" : "M1B",
+          "overrideCall" : "M9B",
+          "rationale" : "Characterization override stale-identity",
+          "reasonTag" : "analyst-judgment",
+          "sample" : "AnimalA",
+          "slot" : "h1",
+          "timestamp" : "2026-09-02T10:05:00Z"
+        },
+        {
+          "author" : "Analyst",
+          "locus" : "MHC-DRB",
+          "operationID" : "nil-identity",
+          "originalCall" : "M3DR",
+          "overrideCall" : "M1DR",
+          "rationale" : "Characterization override nil-identity",
+          "reasonTag" : "analyst-judgment",
+          "sample" : "AnimalC",
+          "slot" : "h2",
+          "timestamp" : "2026-09-02T10:10:00Z"
+        },
+        {
+          "analysisIdentity" : {
+            "analysisRevisionID" : "revision-7",
+            "assayID" : "MHC-exon2-miSeq",
+            "definitionSetID" : "characterization.literal-definitions"
+          },
+          "author" : "Analyst",
+          "locus" : "MHC-DRB",
+          "operationID" : "dash",
+          "originalCall" : "ERR: TMH (M1DR, M2DR, M3DR)",
+          "overrideCall" : "-",
+          "rationale" : "Characterization override dash",
+          "reasonTag" : "analyst-judgment",
+          "sample" : "AnimalB",
+          "slot" : "h2",
+          "timestamp" : "2026-09-02T10:15:00Z"
+        },
+        {
+          "analysisIdentity" : {
+            "analysisRevisionID" : "revision-7",
+            "assayID" : "MHC-exon2-miSeq",
+            "definitionSetID" : "characterization.literal-definitions"
+          },
+          "author" : "Analyst",
+          "locus" : "MHC-DRB",
+          "operationID" : "question-mark",
+          "originalCall" : "M3DR",
+          "overrideCall" : "?",
+          "rationale" : "Characterization override question-mark",
+          "reasonTag" : "analyst-judgment",
+          "sample" : "AnimalA",
+          "slot" : "h2",
+          "timestamp" : "2026-09-02T10:20:00Z"
+        },
+        {
+          "analysisIdentity" : {
+            "analysisRevisionID" : "revision-7",
+            "assayID" : "MHC-exon2-miSeq",
+            "definitionSetID" : "characterization.literal-definitions"
+          },
+          "author" : "Analyst",
+          "locus" : "MHC-A",
+          "operationID" : "malformed-timestamp",
+          "originalCall" : "M2A",
+          "overrideCall" : "M5A",
+          "rationale" : "Characterization override malformed-timestamp",
+          "reasonTag" : "analyst-judgment",
+          "sample" : "AnimalC",
+          "slot" : "h1",
+          "timestamp" : "yesterday"
+        },
+        {
+          "analysisIdentity" : {
+            "analysisRevisionID" : "revision-7",
+            "assayID" : "MHC-exon2-miSeq",
+            "definitionSetID" : "characterization.literal-definitions"
+          },
+          "author" : "Analyst",
+          "locus" : "MHC-A",
+          "operationID" : "slot-first",
+          "originalCall" : "M1A|M2A",
+          "overrideCall" : "M1A",
+          "rationale" : "Characterization override slot-first",
+          "reasonTag" : "analyst-judgment",
+          "sample" : "AnimalB",
+          "slot" : "h1",
+          "timestamp" : "2026-09-02T10:25:00Z"
+        },
+        {
+          "author" : "Analyst",
+          "locus" : "MHC-A",
+          "operationID" : "slot-second",
+          "originalCall" : "M1A|M2A",
+          "overrideCall" : "M2A",
+          "rationale" : "Characterization override slot-second",
+          "reasonTag" : "analyst-judgment",
+          "sample" : "AnimalB",
+          "slot" : "h1",
+          "timestamp" : "2026-09-02T10:30:00Z"
+        }
+      ],
+      "callStatusFlags" : [
+
+      ],
+      "cellComments" : [
+
+      ],
+      "cellHighlights" : [
+
+      ],
+      "generatedAt" : "2026-09-01T00:00:00Z",
+      "manualHaplotypeAssignments" : [
+        {
+          "colorTokenIndex" : 5,
+          "diagnosticAlleles" : [
+
+          ],
+          "label" : "Manual-A",
+          "locus" : "MHC-A",
+          "notes" : "Ignored for haplotyped MiSeq",
+          "sample" : "AnimalA",
+          "slot" : "h1"
+        }
+      ],
+      "matrixComments" : [
+
+      ],
+      "matrixReviews" : [
+
+      ],
+      "matrixStyles" : [
+
+      ],
+      "rowHighlights" : [
+
+      ],
+      "sampleNotes" : [
+
+      ],
+      "sampleStatusFlags" : [
+
+      ],
+      "schemaVersion" : 4,
+      "settings" : {
+        "cardDensity" : "auto",
+        "cardDensityThreshold" : 30,
+        "dropoutAbsolute" : 50,
+        "dropoutLocusFraction" : 0.01,
+        "mhcCandidateDisplay" : {
+          "showKnown" : true,
+          "showSharedCandidates" : true,
+          "showSingletonCandidates" : true,
+          "tints" : {
+            "sharedExtension" : {
+              "alpha" : 1,
+              "blue" : 0.81568627450980391,
+              "green" : 0.84705882352941175,
+              "red" : 0.6588235294117647
+            },
+            "sharedNovel" : {
+              "alpha" : 1,
+              "blue" : 0.55686274509803924,
+              "green" : 0.84313725490196079,
+              "red" : 0.96078431372549022
+            },
+            "singletonExtension" : {
+              "alpha" : 1,
+              "blue" : 0.94901960784313721,
+              "green" : 0.79607843137254897,
+              "red" : 0.68627450980392157
+            },
+            "singletonNovel" : {
+              "alpha" : 1,
+              "blue" : 0.47843137254901963,
+              "green" : 0.72549019607843135,
+              "red" : 0.96078431372549022
+            }
+          }
+        },
+        "panelLayout" : "aLeading",
+        "preferredSummaryViewMode" : "matrix",
+        "viewMode" : "outline"
+      },
+      "smartCohorts" : [
+        {
+          "description" : "Samples with unresolved, not-assayed, or error haplotype slots.",
+          "isStarred" : true,
+          "name" : "Incomplete haplotypes",
+          "predicate" : {
+            "kind" : "needsHaplotypeReview"
+          },
+          "scope" : "bundle"
+        },
+        {
+          "description" : "Incomplete haplotypes, low support, or analyst-flagged samples.",
+          "isStarred" : true,
+          "name" : "Needs review",
+          "predicate" : {
+            "children" : [
+              {
+                "kind" : "needsHaplotypeReview"
+              },
+              {
+                "kind" : "qcStatus",
+                "set" : [
+                  "lowSupport",
+                  "review"
+                ]
+              },
+              {
+                "kind" : "hasAnalystFlag",
+                "value" : "needsReview"
+              }
+            ],
+            "kind" : "any"
+          },
+          "scope" : "bundle"
+        },
+        {
+          "description" : "Samples whose H1 equals H2 at every called locus.",
+          "isStarred" : false,
+          "name" : "Homozygous",
+          "predicate" : {
+            "kind" : "isHomozygousAcrossAll"
+          },
+          "scope" : "bundle"
+        },
+        {
+          "description" : "Samples carrying a rec* haplotype at any locus.",
+          "isStarred" : false,
+          "name" : "Recombinants",
+          "predicate" : {
+            "kind" : "hasRegionalRecombinant"
+          },
+          "scope" : "bundle"
+        }
+      ]
+    },
+    "annotationSidecarURL" : "<ROOT>/Project/Analyses/run/literal.lungfishgenotype/annotations.json",
+    "bundleURL" : "<ROOT>/Project/Analyses/run/literal.lungfishgenotype",
+    "excelSnapshotData" : null,
+    "filters" : {
+      "activeHaplotypeAssayID" : "MHC-exon2-miSeq",
+      "activeHaplotypeDefinitionName" : "Characterization literal definitions",
+      "activeHaplotypeDefinitionSetID" : "characterization.literal-definitions",
+      "cellColorMode" : "Support",
+      "diagnosticAllelesOnly" : "false",
+      "genotypeLocusDisplayOrder" : "",
+      "genotypeNumericPrefixOrder" : "true",
+      "hideFilteredHighlights" : "true",
+      "hideLowSupport" : "false",
+      "includeTotalReads" : "true",
+      "locus" : "All Loci",
+      "matrixMinimumPercent" : "0.0",
+      "matrixMinimumPrevalencePercent" : "0.0",
+      "matrixMinimumReads" : "0",
+      "matrixPercentBasis" : "per-sample read fraction, per source locus",
+      "matrixPercentDenominator" : "Source Locus",
+      "matrixRowFilterText" : "",
+      "matrixSampleFilterText" : "",
+      "minimumSupportPercent" : "0.0",
+      "searchText" : "",
+      "supportDenominator" : "Source Locus"
+    },
+    "haplotypeCalls" : [
+      {
+        "baselineHaplotype1" : "M1A",
+        "baselineHaplotype1Available" : true,
+        "baselineHaplotype2" : "-",
+        "baselineHaplotype2Available" : true,
+        "comment" : "",
+        "haplotype1" : "M3A",
+        "haplotype1Source" : "analystOverride",
+        "haplotype1Status" : "called",
+        "haplotype2" : "M3A",
+        "haplotype2Source" : "pipeline",
+        "haplotype2Status" : "called",
+        "locus" : "MHC-A",
+        "sample" : "AnimalA"
+      },
+      {
+        "baselineHaplotype1" : "M1B",
+        "baselineHaplotype1Available" : true,
+        "baselineHaplotype2" : "M2B",
+        "baselineHaplotype2Available" : true,
+        "comment" : "Two diagnostic alleles observed",
+        "haplotype1" : "M1B",
+        "haplotype1Source" : "staleOverride",
+        "haplotype1Status" : "called",
+        "haplotype2" : "M2B",
+        "haplotype2Source" : "pipeline",
+        "haplotype2Status" : "called",
+        "locus" : "MHC-B",
+        "sample" : "AnimalA"
+      },
+      {
+        "baselineHaplotype1" : "M1DR|M2DR",
+        "baselineHaplotype1Available" : true,
+        "baselineHaplotype2" : "M3DR",
+        "baselineHaplotype2Available" : true,
+        "comment" : "GEN-02: M1DR|M2DR and M3DR cannot be distinguished from the observed diagnostic alleles",
+        "haplotype1" : "M1DR|M2DR",
+        "haplotype1Source" : "pipeline",
+        "haplotype1Status" : "ambiguous",
+        "haplotype2" : "?",
+        "haplotype2Source" : "analystOverride",
+        "haplotype2Status" : "ambiguous",
+        "locus" : "MHC-DRB",
+        "sample" : "AnimalA"
+      },
+      {
+        "baselineHaplotype1" : "M1A|M2A",
+        "baselineHaplotype1Available" : true,
+        "baselineHaplotype2" : "M1A|M2A",
+        "baselineHaplotype2Available" : true,
+        "comment" : "GEN-02: M1A|M2A cannot be distinguished from the observed diagnostic alleles",
+        "haplotype1" : "M1A",
+        "haplotype1Source" : "analystOverride",
+        "haplotype1Status" : "called",
+        "haplotype2" : "M1A|M2A",
+        "haplotype2Source" : "pipeline",
+        "haplotype2Status" : "ambiguous",
+        "locus" : "MHC-A",
+        "sample" : "AnimalB"
+      },
+      {
+        "baselineHaplotype1" : "ERR: NO HAP",
+        "baselineHaplotype1Available" : true,
+        "baselineHaplotype2" : "ERR: NO HAP",
+        "baselineHaplotype2Available" : true,
+        "comment" : "",
+        "haplotype1" : "ERR: NO HAP",
+        "haplotype1Source" : "pipeline",
+        "haplotype1Status" : "noHaplotype",
+        "haplotype2" : "ERR: NO HAP",
+        "haplotype2Source" : "pipeline",
+        "haplotype2Status" : "noHaplotype",
+        "locus" : "MHC-B",
+        "sample" : "AnimalB"
+      },
+      {
+        "baselineHaplotype1" : "ERR: TMH (M1DR, M2DR, M3DR)",
+        "baselineHaplotype1Available" : true,
+        "baselineHaplotype2" : "ERR: TMH (M1DR, M2DR, M3DR)",
+        "baselineHaplotype2Available" : true,
+        "comment" : "",
+        "haplotype1" : "ERR: TMH (M1DR, M2DR, M3DR)",
+        "haplotype1Source" : "pipeline",
+        "haplotype1Status" : "tooManyHaplotypes",
+        "haplotype2" : "-",
+        "haplotype2Source" : "analystOverride",
+        "haplotype2Status" : "noHaplotype",
+        "locus" : "MHC-DRB",
+        "sample" : "AnimalB"
+      },
+      {
+        "baselineHaplotype1" : "M2A",
+        "baselineHaplotype1Available" : true,
+        "baselineHaplotype2" : "?",
+        "baselineHaplotype2Available" : true,
+        "comment" : "GEN-08: only M2A matched a defined haplotype",
+        "haplotype1" : "M2A",
+        "haplotype1Source" : "pipeline",
+        "haplotype1Status" : "unresolvedSecondHaplotype",
+        "haplotype2" : "?",
+        "haplotype2Source" : "pipeline",
+        "haplotype2Status" : "unresolvedSecondHaplotype",
+        "locus" : "MHC-A",
+        "sample" : "AnimalC"
+      },
+      {
+        "baselineHaplotype1" : "Not assayed",
+        "baselineHaplotype1Available" : true,
+        "baselineHaplotype2" : "Not assayed",
+        "baselineHaplotype2Available" : true,
+        "comment" : "MHC-B was not observed anywhere in this run for the active definition set.",
+        "haplotype1" : "Not assayed",
+        "haplotype1Source" : "pipeline",
+        "haplotype1Status" : "notAssayed",
+        "haplotype2" : "Not assayed",
+        "haplotype2Source" : "pipeline",
+        "haplotype2Status" : "notAssayed",
+        "locus" : "MHC-B",
+        "sample" : "AnimalC"
+      },
+      {
+        "baselineHaplotype1" : "M2DR",
+        "baselineHaplotype1Available" : true,
+        "baselineHaplotype2" : "M3DR",
+        "baselineHaplotype2Available" : true,
+        "comment" : "",
+        "haplotype1" : "M2DR",
+        "haplotype1Source" : "pipeline",
+        "haplotype1Status" : "called",
+        "haplotype2" : "M1DR",
+        "haplotype2Source" : "analystOverride",
+        "haplotype2Status" : "called",
+        "locus" : "MHC-DRB",
+        "sample" : "AnimalC"
+      }
+    ],
+    "haplotypeLocusScope" : [
+      "MHC-A",
+      "MHC-B",
+      "MHC-DRB"
+    ],
+    "haplotypeSampleScope" : null,
+    "lens" : "summary",
+    "matrixColumns" : [
+      {
+        "key" : "standard.genotype",
+        "kind" : "genotype",
+        "title" : "Genotype"
+      },
+      {
+        "key" : "standard.locus",
+        "kind" : "locus",
+        "title" : "Locus"
+      },
+      {
+        "key" : "standard.samples",
+        "kind" : "sampleCount",
+        "title" : "Samples"
+      },
+      {
+        "key" : "standard.totalUniqueReads",
+        "kind" : "totalUniqueReads",
+        "title" : "Total Reads"
+      }
+    ],
+    "presentationColors" : [
+      {
+        "call" : "M1A",
+        "fillHex" : "#0C0000",
+        "fontHex" : "#FFFFFF",
+        "locus" : "MHC-A"
+      },
+      {
+        "call" : "M2A",
+        "fillHex" : "#FF0000",
+        "fontHex" : "#FFFFFF",
+        "locus" : "MHC-A"
+      },
+      {
+        "call" : "M1A|M2A",
+        "fillHex" : "#61D8A3",
+        "fontHex" : "#000000",
+        "locus" : "MHC-A"
+      },
+      {
+        "call" : "?",
+        "fillHex" : "#720B8C",
+        "fontHex" : "#FFFFFF",
+        "locus" : "MHC-A"
+      },
+      {
+        "call" : "M1B",
+        "fillHex" : "#0C0000",
+        "fontHex" : "#FFFFFF",
+        "locus" : "MHC-B"
+      },
+      {
+        "call" : "M2B",
+        "fillHex" : "#FF0000",
+        "fontHex" : "#FFFFFF",
+        "locus" : "MHC-B"
+      },
+      {
+        "call" : "Not assayed",
+        "fillHex" : "#808080",
+        "fontHex" : "#FFFFFF",
+        "locus" : "MHC-B"
+      },
+      {
+        "call" : "M1DR",
+        "fillHex" : "#0C0000",
+        "fontHex" : "#FFFFFF",
+        "locus" : "MHC-DRB"
+      },
+      {
+        "call" : "M2DR",
+        "fillHex" : "#FF0000",
+        "fontHex" : "#FFFFFF",
+        "locus" : "MHC-DRB"
+      },
+      {
+        "call" : "M3DR",
+        "fillHex" : "#0000FF",
+        "fontHex" : "#FFFFFF",
+        "locus" : "MHC-DRB"
+      },
+      {
+        "call" : "M1DR|M2DR",
+        "fillHex" : "#AB3BC6",
+        "fontHex" : "#FFFFFF",
+        "locus" : "MHC-DRB"
+      }
+    ],
+    "provenanceInputURLs" : [
+      "file://<ROOT>/Project/Analyses/run/literal.lungfishgenotype/annotations.json"
+    ],
+    "rows" : [
+      {
+        "cellStyles" : {
+
+        },
+        "displayName" : "01_Mafa_A1_001_01",
+        "genotype" : "01_Mafa_A1_001_01",
+        "locus" : "MHC-A",
+        "matrixColumnValues" : [
+          {
+            "key" : "standard.genotype",
+            "text" : "01_Mafa_A1_001_01"
+          },
+          {
+            "key" : "standard.locus",
+            "text" : "MHC-A"
+          },
+          {
+            "integer" : 1,
+            "key" : "standard.samples"
+          },
+          {
+            "integer" : 60,
+            "key" : "standard.totalUniqueReads"
+          }
+        ],
+        "renderedCellStyles" : {
+          "AnimalA" : {
+            "borderColor" : null,
+            "fillColor" : "#0088FF33",
+            "isBold" : false,
+            "isItalic" : false,
+            "textColor" : null
+          },
+          "AnimalB" : {
+            "borderColor" : null,
+            "fillColor" : null,
+            "isBold" : false,
+            "isItalic" : false,
+            "textColor" : null
+          },
+          "AnimalC" : {
+            "borderColor" : null,
+            "fillColor" : null,
+            "isBold" : false,
+            "isItalic" : false,
+            "textColor" : null
+          }
+        },
+        "renderedRowStyle" : {
+          "borderColor" : null,
+          "fillColor" : null,
+          "isBold" : false,
+          "isItalic" : false,
+          "textColor" : null
+        },
+        "rowStyle" : {
+          "borderColor" : null,
+          "fillColor" : null
+        },
+        "sampleCount" : 1,
+        "sampleReads" : {
+          "AnimalA" : 60
+        },
+        "stableClusterID" : null,
+        "totalUniqueReads" : 60
+      },
+      {
+        "cellStyles" : {
+
+        },
+        "displayName" : "02_Mafa_A1_002_01",
+        "genotype" : "02_Mafa_A1_002_01",
+        "locus" : "MHC-A",
+        "matrixColumnValues" : [
+          {
+            "key" : "standard.genotype",
+            "text" : "02_Mafa_A1_002_01"
+          },
+          {
+            "key" : "standard.locus",
+            "text" : "MHC-A"
+          },
+          {
+            "integer" : 1,
+            "key" : "standard.samples"
+          },
+          {
+            "integer" : 70,
+            "key" : "standard.totalUniqueReads"
+          }
+        ],
+        "renderedCellStyles" : {
+          "AnimalA" : {
+            "borderColor" : null,
+            "fillColor" : null,
+            "isBold" : false,
+            "isItalic" : false,
+            "textColor" : null
+          },
+          "AnimalB" : {
+            "borderColor" : null,
+            "fillColor" : "#0088FF33",
+            "isBold" : false,
+            "isItalic" : false,
+            "textColor" : null
+          },
+          "AnimalC" : {
+            "borderColor" : null,
+            "fillColor" : null,
+            "isBold" : false,
+            "isItalic" : false,
+            "textColor" : null
+          }
+        },
+        "renderedRowStyle" : {
+          "borderColor" : null,
+          "fillColor" : null,
+          "isBold" : false,
+          "isItalic" : false,
+          "textColor" : null
+        },
+        "rowStyle" : {
+          "borderColor" : null,
+          "fillColor" : null
+        },
+        "sampleCount" : 1,
+        "sampleReads" : {
+          "AnimalB" : 70
+        },
+        "stableClusterID" : null,
+        "totalUniqueReads" : 70
+      },
+      {
+        "cellStyles" : {
+
+        },
+        "displayName" : "03_Mafa_B_075_01",
+        "genotype" : "03_Mafa_B_075_01",
+        "locus" : "MHC-B",
+        "matrixColumnValues" : [
+          {
+            "key" : "standard.genotype",
+            "text" : "03_Mafa_B_075_01"
+          },
+          {
+            "key" : "standard.locus",
+            "text" : "MHC-B"
+          },
+          {
+            "integer" : 1,
+            "key" : "standard.samples"
+          },
+          {
+            "integer" : 80,
+            "key" : "standard.totalUniqueReads"
+          }
+        ],
+        "renderedCellStyles" : {
+          "AnimalA" : {
+            "borderColor" : null,
+            "fillColor" : null,
+            "isBold" : false,
+            "isItalic" : false,
+            "textColor" : null
+          },
+          "AnimalB" : {
+            "borderColor" : null,
+            "fillColor" : null,
+            "isBold" : false,
+            "isItalic" : false,
+            "textColor" : null
+          },
+          "AnimalC" : {
+            "borderColor" : null,
+            "fillColor" : "#0088FF33",
+            "isBold" : false,
+            "isItalic" : false,
+            "textColor" : null
+          }
+        },
+        "renderedRowStyle" : {
+          "borderColor" : null,
+          "fillColor" : null,
+          "isBold" : false,
+          "isItalic" : false,
+          "textColor" : null
+        },
+        "rowStyle" : {
+          "borderColor" : null,
+          "fillColor" : null
+        },
+        "sampleCount" : 1,
+        "sampleReads" : {
+          "AnimalC" : 80
+        },
+        "stableClusterID" : null,
+        "totalUniqueReads" : 80
+      }
+    ],
+    "sampleNames" : [
+      "AnimalA",
+      "AnimalB",
+      "AnimalC"
+    ],
+    "sidecar" : {
+      "auditEntries" : [
+
+      ],
+      "overrides" : [
+        {
+          "author" : "Analyst",
+          "locus" : "MHC-A",
+          "originalCall" : "M1A",
+          "overrideCall" : "M3A",
+          "rationale" : "Characterization override exact-identity",
+          "reasonTag" : "analyst-judgment",
+          "sample" : "AnimalA",
+          "slot" : "h1",
+          "timestamp" : "2026-09-02T10:00:00Z"
+        },
+        {
+          "author" : "Analyst",
+          "locus" : "MHC-B",
+          "originalCall" : "M1B",
+          "overrideCall" : "M9B",
+          "rationale" : "Characterization override stale-identity",
+          "reasonTag" : "analyst-judgment",
+          "sample" : "AnimalA",
+          "slot" : "h1",
+          "timestamp" : "2026-09-02T10:05:00Z"
+        },
+        {
+          "author" : "Analyst",
+          "locus" : "MHC-DRB",
+          "originalCall" : "M3DR",
+          "overrideCall" : "M1DR",
+          "rationale" : "Characterization override nil-identity",
+          "reasonTag" : "analyst-judgment",
+          "sample" : "AnimalC",
+          "slot" : "h2",
+          "timestamp" : "2026-09-02T10:10:00Z"
+        },
+        {
+          "author" : "Analyst",
+          "locus" : "MHC-DRB",
+          "originalCall" : "ERR: TMH (M1DR, M2DR, M3DR)",
+          "overrideCall" : "-",
+          "rationale" : "Characterization override dash",
+          "reasonTag" : "analyst-judgment",
+          "sample" : "AnimalB",
+          "slot" : "h2",
+          "timestamp" : "2026-09-02T10:15:00Z"
+        },
+        {
+          "author" : "Analyst",
+          "locus" : "MHC-DRB",
+          "originalCall" : "M3DR",
+          "overrideCall" : "?",
+          "rationale" : "Characterization override question-mark",
+          "reasonTag" : "analyst-judgment",
+          "sample" : "AnimalA",
+          "slot" : "h2",
+          "timestamp" : "2026-09-02T10:20:00Z"
+        },
+        {
+          "author" : "Analyst",
+          "locus" : "MHC-A",
+          "originalCall" : "M2A",
+          "overrideCall" : "M5A",
+          "rationale" : "Characterization override malformed-timestamp",
+          "reasonTag" : "analyst-judgment",
+          "sample" : "AnimalC",
+          "slot" : "h1",
+          "timestamp" : "yesterday"
+        },
+        {
+          "author" : "Analyst",
+          "locus" : "MHC-A",
+          "originalCall" : "M1A|M2A",
+          "overrideCall" : "M1A",
+          "rationale" : "Characterization override slot-first",
+          "reasonTag" : "analyst-judgment",
+          "sample" : "AnimalB",
+          "slot" : "h1",
+          "timestamp" : "2026-09-02T10:25:00Z"
+        },
+        {
+          "author" : "Analyst",
+          "locus" : "MHC-A",
+          "originalCall" : "M1A|M2A",
+          "overrideCall" : "M2A",
+          "rationale" : "Characterization override slot-second",
+          "reasonTag" : "analyst-judgment",
+          "sample" : "AnimalB",
+          "slot" : "h1",
+          "timestamp" : "2026-09-02T10:30:00Z"
+        }
+      ]
+    },
+    "sourceRevision" : {
+      "analysisRevisionID" : "revision-7",
+      "assayID" : "MHC-exon2-miSeq",
+      "definitionSetID" : "characterization.literal-definitions"
+    }
+  }
+}

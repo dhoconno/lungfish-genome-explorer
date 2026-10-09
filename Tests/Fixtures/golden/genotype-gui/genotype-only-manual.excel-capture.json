@@ -1,0 +1,1796 @@
+{
+  "normalization" : {
+    "masks" : [
+      {
+        "applies" : "The test's own temp root in plain paths and file URLs, in the /var and the /private/var spelling",
+        "count" : 3,
+        "guard" : "None, it is the fixture root",
+        "token" : "<ROOT>"
+      },
+      {
+        "applies" : "The top-level generatedAt of the frozen Excel capture",
+        "count" : 1,
+        "guard" : "Parses as ISO 8601 UTC to the second and lies inside the test's time window",
+        "token" : "<GENERATED_AT>"
+      },
+      {
+        "applies" : "A sourceRevision digest of the frozen Excel capture whose key names a captured input",
+        "count" : 5,
+        "guard" : "Equals the SHA-256 of that input's raw bytes, which are decoded and compared in full",
+        "token" : "<SHA256>"
+      }
+    ]
+  },
+  "value" : {
+    "analysisName" : "Example",
+    "annotationSidecarData" : {
+      "aiHaplotypeReviews" : [
+
+      ],
+      "auditLog" : [
+
+      ],
+      "callOverrides" : [
+
+      ],
+      "callStatusFlags" : [
+
+      ],
+      "cellComments" : [
+
+      ],
+      "cellHighlights" : [
+
+      ],
+      "generatedAt" : "2026-09-01T00:00:00Z",
+      "manualHaplotypeAssignments" : [
+        {
+          "colorTokenIndex" : 0,
+          "diagnosticAlleles" : [
+            "01_Mafa_A1_001_01"
+          ],
+          "label" : "M1A",
+          "locus" : "MHC-A",
+          "notes" : "Pedigree confirmed",
+          "sample" : "AnimalA",
+          "slot" : "h1"
+        },
+        {
+          "colorTokenIndex" : 1,
+          "diagnosticAlleles" : [
+            "02_Mafa_A1_002_01"
+          ],
+          "label" : "M2A",
+          "locus" : "MHC-A",
+          "notes" : "",
+          "sample" : "AnimalA",
+          "slot" : "h2"
+        },
+        {
+          "colorTokenIndex" : 2,
+          "diagnosticAlleles" : [
+            "03_Mafa_B_075_01"
+          ],
+          "label" : "M1B",
+          "locus" : "MHC-B",
+          "notes" : "",
+          "sample" : "AnimalA",
+          "slot" : "h1"
+        },
+        {
+          "colorTokenIndex" : 3,
+          "diagnosticAlleles" : [
+
+          ],
+          "label" : "M3A",
+          "locus" : "MHC-A",
+          "notes" : "Provisional",
+          "sample" : "AnimalB",
+          "slot" : "h1"
+        },
+        {
+          "colorTokenIndex" : 4,
+          "diagnosticAlleles" : [
+
+          ],
+          "label" : "bad\nlabel",
+          "locus" : "MHC-B",
+          "notes" : "Rejected by the validator",
+          "sample" : "AnimalB",
+          "slot" : "h2"
+        }
+      ],
+      "matrixComments" : [
+        {
+          "author" : "Analyst",
+          "body" : "Low support",
+          "target" : {
+            "genotype" : "04_Mafa_B_082_01",
+            "kind" : "cell",
+            "locus" : "MHC-B",
+            "sample" : "AnimalB"
+          },
+          "timestamp" : "2026-09-02T10:00:00Z"
+        }
+      ],
+      "matrixReviews" : [
+
+      ],
+      "matrixStyles" : [
+
+      ],
+      "rowHighlights" : [
+
+      ],
+      "sampleNotes" : [
+
+      ],
+      "sampleStatusFlags" : [
+
+      ],
+      "schemaVersion" : 4,
+      "settings" : {
+        "cardDensity" : "auto",
+        "cardDensityThreshold" : 30,
+        "dropoutAbsolute" : 50,
+        "dropoutLocusFraction" : 0.01,
+        "mhcCandidateDisplay" : {
+          "showKnown" : true,
+          "showSharedCandidates" : true,
+          "showSingletonCandidates" : true,
+          "tints" : {
+            "sharedExtension" : {
+              "alpha" : 1,
+              "blue" : 0.81568627450980391,
+              "green" : 0.84705882352941175,
+              "red" : 0.6588235294117647
+            },
+            "sharedNovel" : {
+              "alpha" : 1,
+              "blue" : 0.55686274509803924,
+              "green" : 0.84313725490196079,
+              "red" : 0.96078431372549022
+            },
+            "singletonExtension" : {
+              "alpha" : 1,
+              "blue" : 0.94901960784313721,
+              "green" : 0.79607843137254897,
+              "red" : 0.68627450980392157
+            },
+            "singletonNovel" : {
+              "alpha" : 1,
+              "blue" : 0.47843137254901963,
+              "green" : 0.72549019607843135,
+              "red" : 0.96078431372549022
+            }
+          }
+        },
+        "panelLayout" : "aLeading",
+        "viewMode" : "outline"
+      },
+      "smartCohorts" : [
+        {
+          "description" : "Samples with unresolved, not-assayed, or error haplotype slots.",
+          "isStarred" : true,
+          "name" : "Incomplete haplotypes",
+          "predicate" : {
+            "kind" : "needsHaplotypeReview"
+          },
+          "scope" : "bundle"
+        },
+        {
+          "description" : "Incomplete haplotypes, low support, or analyst-flagged samples.",
+          "isStarred" : true,
+          "name" : "Needs review",
+          "predicate" : {
+            "children" : [
+              {
+                "kind" : "needsHaplotypeReview"
+              },
+              {
+                "kind" : "qcStatus",
+                "set" : [
+                  "lowSupport",
+                  "review"
+                ]
+              },
+              {
+                "kind" : "hasAnalystFlag",
+                "value" : "needsReview"
+              }
+            ],
+            "kind" : "any"
+          },
+          "scope" : "bundle"
+        },
+        {
+          "description" : "Samples whose H1 equals H2 at every called locus.",
+          "isStarred" : false,
+          "name" : "Homozygous",
+          "predicate" : {
+            "kind" : "isHomozygousAcrossAll"
+          },
+          "scope" : "bundle"
+        },
+        {
+          "description" : "Samples carrying a rec* haplotype at any locus.",
+          "isStarred" : false,
+          "name" : "Recombinants",
+          "predicate" : {
+            "kind" : "hasRegionalRecombinant"
+          },
+          "scope" : "bundle"
+        }
+      ]
+    },
+    "annotationSidecarURL" : null,
+    "bundleURL" : "<ROOT>/Project/Analyses/run/manual.lungfishgenotype",
+    "excelSnapshotData" : {
+      "allMatrix" : {
+        "columns" : [
+          {
+            "key" : "standard.genotype",
+            "kind" : "genotype",
+            "title" : "Genotype"
+          },
+          {
+            "key" : "standard.samples",
+            "kind" : "sampleCount",
+            "title" : "Samples"
+          },
+          {
+            "key" : "standard.totalUniqueReads",
+            "kind" : "totalUniqueReads",
+            "title" : "Total Reads"
+          }
+        ],
+        "loci" : [
+          "MHC-A",
+          "MHC-B"
+        ],
+        "rows" : [
+          {
+            "cells" : [
+              {
+                "displayValue" : 60,
+                "rawSupport" : 60,
+                "reviewEligible" : true,
+                "sampleID" : "AnimalA",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              },
+              {
+                "reviewEligible" : false,
+                "sampleID" : "AnimalB",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              },
+              {
+                "displayValue" : 30,
+                "rawSupport" : 30,
+                "reviewEligible" : true,
+                "sampleID" : "AnimalC",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              }
+            ],
+            "columnValues" : [
+              {
+                "key" : "standard.genotype",
+                "text" : "01_Mafa_A1_001_01"
+              },
+              {
+                "integer" : 2,
+                "key" : "standard.samples"
+              },
+              {
+                "integer" : 90,
+                "key" : "standard.totalUniqueReads"
+              }
+            ],
+            "displayName" : "01_Mafa_A1_001_01",
+            "id" : "43dad97338931b585b7c775daa344411b42e090bce1be11fe72f9dc6d07dad22",
+            "style" : {
+              "isBold" : false,
+              "isItalic" : false
+            },
+            "target" : {
+              "genotype" : "01_Mafa_A1_001_01",
+              "kind" : "row",
+              "locus" : "MHC-A"
+            }
+          },
+          {
+            "cells" : [
+              {
+                "reviewEligible" : false,
+                "sampleID" : "AnimalA",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              },
+              {
+                "displayValue" : 81,
+                "rawSupport" : 81,
+                "reviewEligible" : true,
+                "sampleID" : "AnimalB",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              },
+              {
+                "reviewEligible" : false,
+                "sampleID" : "AnimalC",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              }
+            ],
+            "columnValues" : [
+              {
+                "key" : "standard.genotype",
+                "text" : "02_Mafa_A1_002_01"
+              },
+              {
+                "integer" : 1,
+                "key" : "standard.samples"
+              },
+              {
+                "integer" : 81,
+                "key" : "standard.totalUniqueReads"
+              }
+            ],
+            "displayName" : "02_Mafa_A1_002_01",
+            "id" : "7baea7b2bd3da07c0e91a3edbc78cb023bbfd8580e473c93a45067220b794846",
+            "style" : {
+              "isBold" : false,
+              "isItalic" : false
+            },
+            "target" : {
+              "genotype" : "02_Mafa_A1_002_01",
+              "kind" : "row",
+              "locus" : "MHC-A"
+            }
+          },
+          {
+            "cells" : [
+              {
+                "displayValue" : 40,
+                "rawSupport" : 40,
+                "reviewEligible" : true,
+                "sampleID" : "AnimalA",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              },
+              {
+                "reviewEligible" : false,
+                "sampleID" : "AnimalB",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              },
+              {
+                "displayValue" : 30,
+                "rawSupport" : 30,
+                "reviewEligible" : true,
+                "sampleID" : "AnimalC",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              }
+            ],
+            "columnValues" : [
+              {
+                "key" : "standard.genotype",
+                "text" : "03_Mafa_B_075_01"
+              },
+              {
+                "integer" : 2,
+                "key" : "standard.samples"
+              },
+              {
+                "integer" : 70,
+                "key" : "standard.totalUniqueReads"
+              }
+            ],
+            "displayName" : "03_Mafa_B_075_01",
+            "id" : "c03f039abfdee3c6cdcb6de8025b14ef6f2abe40d67a96fd6044f7eca25b3e94",
+            "style" : {
+              "isBold" : false,
+              "isItalic" : false
+            },
+            "target" : {
+              "genotype" : "03_Mafa_B_075_01",
+              "kind" : "row",
+              "locus" : "MHC-B"
+            }
+          },
+          {
+            "cells" : [
+              {
+                "reviewEligible" : false,
+                "sampleID" : "AnimalA",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              },
+              {
+                "comment" : "Low support",
+                "displayValue" : 10,
+                "rawSupport" : 10,
+                "reviewEligible" : true,
+                "sampleID" : "AnimalB",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              },
+              {
+                "reviewEligible" : false,
+                "sampleID" : "AnimalC",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              }
+            ],
+            "columnValues" : [
+              {
+                "key" : "standard.genotype",
+                "text" : "04_Mafa_B_082_01"
+              },
+              {
+                "integer" : 1,
+                "key" : "standard.samples"
+              },
+              {
+                "integer" : 10,
+                "key" : "standard.totalUniqueReads"
+              }
+            ],
+            "displayName" : "04_Mafa_B_082_01",
+            "id" : "1e59fe8e7c57bb3b81f2f67edd099f7b60452a55b53c25ff620d03786e827c4d",
+            "style" : {
+              "isBold" : false,
+              "isItalic" : false
+            },
+            "target" : {
+              "genotype" : "04_Mafa_B_082_01",
+              "kind" : "row",
+              "locus" : "MHC-B"
+            }
+          },
+          {
+            "cells" : [
+              {
+                "reviewEligible" : false,
+                "sampleID" : "AnimalA",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              },
+              {
+                "displayValue" : 9,
+                "rawSupport" : 9,
+                "reviewEligible" : true,
+                "sampleID" : "AnimalB",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              },
+              {
+                "reviewEligible" : false,
+                "sampleID" : "AnimalC",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              }
+            ],
+            "columnValues" : [
+              {
+                "key" : "standard.genotype",
+                "text" : "05_Mafa_B_090_01"
+              },
+              {
+                "integer" : 1,
+                "key" : "standard.samples"
+              },
+              {
+                "integer" : 9,
+                "key" : "standard.totalUniqueReads"
+              }
+            ],
+            "displayName" : "05_Mafa_B_090_01",
+            "id" : "b48f435bf825232be1a4d0f3c1c22b8da28112905fd70f367ad680498c61d3a7",
+            "style" : {
+              "isBold" : false,
+              "isItalic" : false
+            },
+            "target" : {
+              "genotype" : "05_Mafa_B_090_01",
+              "kind" : "row",
+              "locus" : "MHC-B"
+            }
+          }
+        ],
+        "samples" : [
+          {
+            "id" : "AnimalA",
+            "name" : "AnimalA"
+          },
+          {
+            "id" : "AnimalB",
+            "name" : "AnimalB"
+          },
+          {
+            "id" : "AnimalC",
+            "name" : "AnimalC"
+          }
+        ]
+      },
+      "calls" : [
+        {
+          "comment" : "Pedigree confirmed\n",
+          "h1" : {
+            "baselineAvailable" : false,
+            "effective" : "M1A",
+            "source" : "manualAssignment",
+            "status" : "called"
+          },
+          "h2" : {
+            "baselineAvailable" : false,
+            "effective" : "M2A",
+            "source" : "manualAssignment",
+            "status" : "called"
+          },
+          "id" : "cb0fd7ce9d875e9de71baed14ecc7a4448b4913e5ebcec6262896e3b8965fcfd",
+          "locus" : "MHC-A",
+          "sampleID" : "AnimalA"
+        },
+        {
+          "comment" : "",
+          "h1" : {
+            "baselineAvailable" : false,
+            "effective" : "M1B",
+            "source" : "manualAssignment",
+            "status" : "called"
+          },
+          "h2" : {
+            "baselineAvailable" : false,
+            "effective" : "",
+            "source" : "unassigned",
+            "status" : "unassigned"
+          },
+          "id" : "8da3f2ed88932e73f9648c50dcd5ed03e02bcd8c3d29ecbdbb88052f5e2d1d0a",
+          "locus" : "MHC-B",
+          "sampleID" : "AnimalA"
+        },
+        {
+          "comment" : "Provisional",
+          "h1" : {
+            "baselineAvailable" : false,
+            "effective" : "M3A",
+            "source" : "manualAssignment",
+            "status" : "called"
+          },
+          "h2" : {
+            "baselineAvailable" : false,
+            "effective" : "",
+            "source" : "unassigned",
+            "status" : "unassigned"
+          },
+          "id" : "eff2cc89a79d67fd6483e16aa37b9f60e9fd6e61a4ebddd10899233d217110d5",
+          "locus" : "MHC-A",
+          "sampleID" : "AnimalB"
+        }
+      ],
+      "capturedScientificInputs" : {
+        "all-projection.json" : {
+          "filterContext" : {
+            "cellColorMode" : "Haplotype",
+            "diagnosticAllelesOnly" : "false",
+            "genotypeLocusDisplayOrder" : "",
+            "genotypeNumericPrefixOrder" : "true",
+            "hideFilteredHighlights" : "true",
+            "hideLowSupport" : "false",
+            "includeTotalReads" : "true",
+            "locus" : "All Loci",
+            "matrixMinimumPercent" : "10.0",
+            "matrixMinimumPrevalencePercent" : "0.0",
+            "matrixMinimumReads" : "0",
+            "matrixPercentBasis" : "per-sample read fraction, sample retained reads",
+            "matrixPercentDenominator" : "Sample Retained",
+            "matrixRowFilterText" : "",
+            "matrixSampleFilterText" : "",
+            "minimumSupportPercent" : "0.0",
+            "searchText" : "",
+            "supportDenominator" : "Source Locus"
+          },
+          "lens" : "summary",
+          "matrixColumns" : [
+            {
+              "key" : "standard.genotype",
+              "kind" : "genotype",
+              "title" : "Genotype"
+            },
+            {
+              "key" : "standard.samples",
+              "kind" : "sampleCount",
+              "title" : "Samples"
+            },
+            {
+              "key" : "standard.totalUniqueReads",
+              "kind" : "totalUniqueReads",
+              "title" : "Total Reads"
+            }
+          ],
+          "presentationColors" : [
+
+          ],
+          "rows" : [
+            {
+              "cells" : [
+                "60",
+                "",
+                "30"
+              ],
+              "cellStyles" : [
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                },
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                },
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              ],
+              "label" : "01_Mafa_A1_001_01",
+              "locus" : "MHC-A",
+              "matrixColumnValues" : [
+                {
+                  "key" : "standard.genotype",
+                  "text" : "01_Mafa_A1_001_01"
+                },
+                {
+                  "integer" : 2,
+                  "key" : "standard.samples"
+                },
+                {
+                  "integer" : 90,
+                  "key" : "standard.totalUniqueReads"
+                }
+              ],
+              "rawGenotype" : "01_Mafa_A1_001_01",
+              "rowStyle" : {
+                "isBold" : false,
+                "isItalic" : false
+              }
+            },
+            {
+              "cells" : [
+                "",
+                "81",
+                ""
+              ],
+              "cellStyles" : [
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                },
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                },
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              ],
+              "label" : "02_Mafa_A1_002_01",
+              "locus" : "MHC-A",
+              "matrixColumnValues" : [
+                {
+                  "key" : "standard.genotype",
+                  "text" : "02_Mafa_A1_002_01"
+                },
+                {
+                  "integer" : 1,
+                  "key" : "standard.samples"
+                },
+                {
+                  "integer" : 81,
+                  "key" : "standard.totalUniqueReads"
+                }
+              ],
+              "rawGenotype" : "02_Mafa_A1_002_01",
+              "rowStyle" : {
+                "isBold" : false,
+                "isItalic" : false
+              }
+            },
+            {
+              "cells" : [
+                "40",
+                "",
+                "30"
+              ],
+              "cellStyles" : [
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                },
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                },
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              ],
+              "label" : "03_Mafa_B_075_01",
+              "locus" : "MHC-B",
+              "matrixColumnValues" : [
+                {
+                  "key" : "standard.genotype",
+                  "text" : "03_Mafa_B_075_01"
+                },
+                {
+                  "integer" : 2,
+                  "key" : "standard.samples"
+                },
+                {
+                  "integer" : 70,
+                  "key" : "standard.totalUniqueReads"
+                }
+              ],
+              "rawGenotype" : "03_Mafa_B_075_01",
+              "rowStyle" : {
+                "isBold" : false,
+                "isItalic" : false
+              }
+            },
+            {
+              "cells" : [
+                "",
+                "10",
+                ""
+              ],
+              "cellStyles" : [
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                },
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                },
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              ],
+              "label" : "04_Mafa_B_082_01",
+              "locus" : "MHC-B",
+              "matrixColumnValues" : [
+                {
+                  "key" : "standard.genotype",
+                  "text" : "04_Mafa_B_082_01"
+                },
+                {
+                  "integer" : 1,
+                  "key" : "standard.samples"
+                },
+                {
+                  "integer" : 10,
+                  "key" : "standard.totalUniqueReads"
+                }
+              ],
+              "rawGenotype" : "04_Mafa_B_082_01",
+              "rowStyle" : {
+                "isBold" : false,
+                "isItalic" : false
+              }
+            },
+            {
+              "cells" : [
+                "",
+                "9",
+                ""
+              ],
+              "cellStyles" : [
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                },
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                },
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              ],
+              "label" : "05_Mafa_B_090_01",
+              "locus" : "MHC-B",
+              "matrixColumnValues" : [
+                {
+                  "key" : "standard.genotype",
+                  "text" : "05_Mafa_B_090_01"
+                },
+                {
+                  "integer" : 1,
+                  "key" : "standard.samples"
+                },
+                {
+                  "integer" : 9,
+                  "key" : "standard.totalUniqueReads"
+                }
+              ],
+              "rawGenotype" : "05_Mafa_B_090_01",
+              "rowStyle" : {
+                "isBold" : false,
+                "isItalic" : false
+              }
+            }
+          ],
+          "sampleColumns" : [
+            "AnimalA",
+            "AnimalB",
+            "AnimalC"
+          ]
+        },
+        "annotations.json" : {
+          "aiHaplotypeReviews" : [
+
+          ],
+          "auditLog" : [
+
+          ],
+          "callOverrides" : [
+
+          ],
+          "callStatusFlags" : [
+
+          ],
+          "cellComments" : [
+
+          ],
+          "cellHighlights" : [
+
+          ],
+          "generatedAt" : "2026-09-01T00:00:00Z",
+          "manualHaplotypeAssignments" : [
+            {
+              "colorTokenIndex" : 0,
+              "diagnosticAlleles" : [
+                "01_Mafa_A1_001_01"
+              ],
+              "label" : "M1A",
+              "locus" : "MHC-A",
+              "notes" : "Pedigree confirmed",
+              "sample" : "AnimalA",
+              "slot" : "h1"
+            },
+            {
+              "colorTokenIndex" : 1,
+              "diagnosticAlleles" : [
+                "02_Mafa_A1_002_01"
+              ],
+              "label" : "M2A",
+              "locus" : "MHC-A",
+              "notes" : "",
+              "sample" : "AnimalA",
+              "slot" : "h2"
+            },
+            {
+              "colorTokenIndex" : 2,
+              "diagnosticAlleles" : [
+                "03_Mafa_B_075_01"
+              ],
+              "label" : "M1B",
+              "locus" : "MHC-B",
+              "notes" : "",
+              "sample" : "AnimalA",
+              "slot" : "h1"
+            },
+            {
+              "colorTokenIndex" : 3,
+              "diagnosticAlleles" : [
+
+              ],
+              "label" : "M3A",
+              "locus" : "MHC-A",
+              "notes" : "Provisional",
+              "sample" : "AnimalB",
+              "slot" : "h1"
+            },
+            {
+              "colorTokenIndex" : 4,
+              "diagnosticAlleles" : [
+
+              ],
+              "label" : "bad\nlabel",
+              "locus" : "MHC-B",
+              "notes" : "Rejected by the validator",
+              "sample" : "AnimalB",
+              "slot" : "h2"
+            }
+          ],
+          "matrixComments" : [
+            {
+              "author" : "Analyst",
+              "body" : "Low support",
+              "target" : {
+                "genotype" : "04_Mafa_B_082_01",
+                "kind" : "cell",
+                "locus" : "MHC-B",
+                "sample" : "AnimalB"
+              },
+              "timestamp" : "2026-09-02T10:00:00Z"
+            }
+          ],
+          "matrixReviews" : [
+
+          ],
+          "matrixStyles" : [
+
+          ],
+          "rowHighlights" : [
+
+          ],
+          "sampleNotes" : [
+
+          ],
+          "sampleStatusFlags" : [
+
+          ],
+          "schemaVersion" : 4,
+          "settings" : {
+            "cardDensity" : "auto",
+            "cardDensityThreshold" : 30,
+            "dropoutAbsolute" : 50,
+            "dropoutLocusFraction" : 0.01,
+            "mhcCandidateDisplay" : {
+              "showKnown" : true,
+              "showSharedCandidates" : true,
+              "showSingletonCandidates" : true,
+              "tints" : {
+                "sharedExtension" : {
+                  "alpha" : 1,
+                  "blue" : 0.81568627450980391,
+                  "green" : 0.84705882352941175,
+                  "red" : 0.6588235294117647
+                },
+                "sharedNovel" : {
+                  "alpha" : 1,
+                  "blue" : 0.55686274509803924,
+                  "green" : 0.84313725490196079,
+                  "red" : 0.96078431372549022
+                },
+                "singletonExtension" : {
+                  "alpha" : 1,
+                  "blue" : 0.94901960784313721,
+                  "green" : 0.79607843137254897,
+                  "red" : 0.68627450980392157
+                },
+                "singletonNovel" : {
+                  "alpha" : 1,
+                  "blue" : 0.47843137254901963,
+                  "green" : 0.72549019607843135,
+                  "red" : 0.96078431372549022
+                }
+              }
+            },
+            "panelLayout" : "aLeading",
+            "viewMode" : "outline"
+          },
+          "smartCohorts" : [
+            {
+              "description" : "Samples with unresolved, not-assayed, or error haplotype slots.",
+              "isStarred" : true,
+              "name" : "Incomplete haplotypes",
+              "predicate" : {
+                "kind" : "needsHaplotypeReview"
+              },
+              "scope" : "bundle"
+            },
+            {
+              "description" : "Incomplete haplotypes, low support, or analyst-flagged samples.",
+              "isStarred" : true,
+              "name" : "Needs review",
+              "predicate" : {
+                "children" : [
+                  {
+                    "kind" : "needsHaplotypeReview"
+                  },
+                  {
+                    "kind" : "qcStatus",
+                    "set" : [
+                      "lowSupport",
+                      "review"
+                    ]
+                  },
+                  {
+                    "kind" : "hasAnalystFlag",
+                    "value" : "needsReview"
+                  }
+                ],
+                "kind" : "any"
+              },
+              "scope" : "bundle"
+            },
+            {
+              "description" : "Samples whose H1 equals H2 at every called locus.",
+              "isStarred" : false,
+              "name" : "Homozygous",
+              "predicate" : {
+                "kind" : "isHomozygousAcrossAll"
+              },
+              "scope" : "bundle"
+            },
+            {
+              "description" : "Samples carrying a rec* haplotype at any locus.",
+              "isStarred" : false,
+              "name" : "Recombinants",
+              "predicate" : {
+                "kind" : "hasRegionalRecombinant"
+              },
+              "scope" : "bundle"
+            }
+          ]
+        },
+        "capture-context.json" : {
+          "authority" : {
+            "colors" : [
+
+            ]
+          },
+          "filter" : {
+            "globalDenominator" : "viewedLocus",
+            "globalMinimumPercent" : 0,
+            "matrixDenominator" : "sampleRetained",
+            "matrixMinimumPercent" : 10,
+            "matrixMinimumReads" : 0
+          },
+          "filteredEvidenceRowPolicy" : "positive-displayed-count-in-visible-samples"
+        },
+        "filtered-projection.json" : {
+          "cellColorMode" : "Haplotype",
+          "diagnosticAllelesOnly" : false,
+          "filterContext" : {
+            "cellColorMode" : "Haplotype",
+            "diagnosticAllelesOnly" : "false",
+            "genotypeLocusDisplayOrder" : "",
+            "genotypeNumericPrefixOrder" : "true",
+            "hideFilteredHighlights" : "true",
+            "hideLowSupport" : "false",
+            "includeTotalReads" : "true",
+            "locus" : "All Loci",
+            "matrixMinimumPercent" : "10.0",
+            "matrixMinimumPrevalencePercent" : "0.0",
+            "matrixMinimumReads" : "0",
+            "matrixPercentBasis" : "per-sample read fraction, sample retained reads",
+            "matrixPercentDenominator" : "Sample Retained",
+            "matrixRowFilterText" : "",
+            "matrixSampleFilterText" : "",
+            "minimumSupportPercent" : "0.0",
+            "quickFilter" : "AnimalB",
+            "quickFilterPredicate" : "{\"kind\":\"textContains\",\"value\":\"AnimalB\"}",
+            "quickFilterSearchText" : "AnimalB",
+            "searchText" : "",
+            "supportDenominator" : "Source Locus"
+          },
+          "genotypeNumericPrefixOrder" : true,
+          "includeTotalReads" : true,
+          "lens" : "summary",
+          "matrixColumns" : [
+            {
+              "key" : "standard.genotype",
+              "kind" : "genotype",
+              "title" : "Genotype"
+            },
+            {
+              "key" : "standard.samples",
+              "kind" : "sampleCount",
+              "title" : "Samples"
+            },
+            {
+              "key" : "standard.totalUniqueReads",
+              "kind" : "totalUniqueReads",
+              "title" : "Total Reads"
+            }
+          ],
+          "presentationColors" : [
+
+          ],
+          "rows" : [
+            {
+              "cells" : [
+                "81"
+              ],
+              "cellStyles" : [
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              ],
+              "label" : "02_Mafa_A1_002_01",
+              "locus" : "MHC-A",
+              "matrixColumnValues" : [
+                {
+                  "key" : "standard.genotype",
+                  "text" : "02_Mafa_A1_002_01"
+                },
+                {
+                  "integer" : 1,
+                  "key" : "standard.samples"
+                },
+                {
+                  "integer" : 81,
+                  "key" : "standard.totalUniqueReads"
+                }
+              ],
+              "rawGenotype" : "02_Mafa_A1_002_01",
+              "rowStyle" : {
+                "isBold" : false,
+                "isItalic" : false
+              }
+            },
+            {
+              "cells" : [
+                "10"
+              ],
+              "cellStyles" : [
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              ],
+              "label" : "04_Mafa_B_082_01",
+              "locus" : "MHC-B",
+              "matrixColumnValues" : [
+                {
+                  "key" : "standard.genotype",
+                  "text" : "04_Mafa_B_082_01"
+                },
+                {
+                  "integer" : 1,
+                  "key" : "standard.samples"
+                },
+                {
+                  "integer" : 10,
+                  "key" : "standard.totalUniqueReads"
+                }
+              ],
+              "rawGenotype" : "04_Mafa_B_082_01",
+              "rowStyle" : {
+                "isBold" : false,
+                "isItalic" : false
+              }
+            }
+          ],
+          "sampleColumns" : [
+            "AnimalB"
+          ]
+        },
+        "result.json" : {
+          "artifacts" : {
+            "longSummaryCSVURL" : "file:///tmp/example.retained-demux-genotypes.csv",
+            "primaryWorkbookURL" : "file:///tmp/example.xlsx",
+            "provenanceURL" : "file:///tmp/retained-demux-genotyping-provenance.json",
+            "sampleSummaryCSVURL" : "file:///tmp/example.retained-demux-samples.csv",
+            "statsJSONURL" : "file:///tmp/example.retained-demux-stats.json",
+            "workbookURL" : "file:///tmp/example.xlsx"
+          },
+          "bundleURL" : "file://<ROOT>/Project/Analyses/run/manual.lungfishgenotype/",
+          "calls" : [
+            {
+              "genotype" : "01_Mafa_A1_001_01",
+              "passedAlignments" : 60,
+              "passedUniqueReads" : 60,
+              "sample" : "AnimalA"
+            },
+            {
+              "genotype" : "03_Mafa_B_075_01",
+              "passedAlignments" : 40,
+              "passedUniqueReads" : 40,
+              "sample" : "AnimalA"
+            },
+            {
+              "genotype" : "02_Mafa_A1_002_01",
+              "passedAlignments" : 81,
+              "passedUniqueReads" : 81,
+              "sample" : "AnimalB"
+            },
+            {
+              "genotype" : "04_Mafa_B_082_01",
+              "passedAlignments" : 10,
+              "passedUniqueReads" : 10,
+              "sample" : "AnimalB"
+            },
+            {
+              "genotype" : "05_Mafa_B_090_01",
+              "passedAlignments" : 9,
+              "passedUniqueReads" : 9,
+              "sample" : "AnimalB"
+            },
+            {
+              "genotype" : "01_Mafa_A1_001_01",
+              "passedAlignments" : 30,
+              "passedUniqueReads" : 30,
+              "sample" : "AnimalC"
+            },
+            {
+              "genotype" : "03_Mafa_B_075_01",
+              "passedAlignments" : 30,
+              "passedUniqueReads" : 30,
+              "sample" : "AnimalC"
+            }
+          ],
+          "integrityWarnings" : [
+
+          ],
+          "manifest" : {
+            "analysisName" : "Example",
+            "kind" : "miseq-amplicon-mhc-genotype",
+            "longSummaryCSVPath" : "example.retained-demux-genotypes.csv",
+            "outputName" : "example",
+            "primaryWorkbookPath" : "example.xlsx",
+            "provenancePath" : "retained-demux-genotyping-provenance.json",
+            "sampleSummaryCSVPath" : "example.retained-demux-samples.csv",
+            "schemaVersion" : 1,
+            "statsJSONPath" : "example.retained-demux-stats.json",
+            "workflowKind" : "miseq-amplicon-mhc-genotype",
+            "workflowMode" : "genotypeOnly"
+          },
+          "mhcAlignmentArtifactURLs" : {
+
+          },
+          "mhcCandidateGenBankArtifactURLs" : {
+
+          },
+          "mhcCandidateSequencesByStableClusterID" : {
+
+          },
+          "provisionalExon2ArtifactURLs" : {
+
+          },
+          "provisionalExon2SequencesByGenotype" : {
+
+          },
+          "samples" : [
+            {
+              "calls" : [
+                {
+                  "genotype" : "01_Mafa_A1_001_01",
+                  "passedAlignments" : 60,
+                  "passedUniqueReads" : 60,
+                  "sample" : "AnimalA"
+                },
+                {
+                  "genotype" : "03_Mafa_B_075_01",
+                  "passedAlignments" : 40,
+                  "passedUniqueReads" : 40,
+                  "sample" : "AnimalA"
+                }
+              ],
+              "passedAlignments" : 100,
+              "passedUniqueReads" : 100,
+              "sample" : "AnimalA"
+            },
+            {
+              "calls" : [
+                {
+                  "genotype" : "02_Mafa_A1_002_01",
+                  "passedAlignments" : 81,
+                  "passedUniqueReads" : 81,
+                  "sample" : "AnimalB"
+                },
+                {
+                  "genotype" : "04_Mafa_B_082_01",
+                  "passedAlignments" : 10,
+                  "passedUniqueReads" : 10,
+                  "sample" : "AnimalB"
+                },
+                {
+                  "genotype" : "05_Mafa_B_090_01",
+                  "passedAlignments" : 9,
+                  "passedUniqueReads" : 9,
+                  "sample" : "AnimalB"
+                }
+              ],
+              "passedAlignments" : 100,
+              "passedUniqueReads" : 100,
+              "sample" : "AnimalB"
+            },
+            {
+              "calls" : [
+                {
+                  "genotype" : "01_Mafa_A1_001_01",
+                  "passedAlignments" : 30,
+                  "passedUniqueReads" : 30,
+                  "sample" : "AnimalC"
+                },
+                {
+                  "genotype" : "03_Mafa_B_075_01",
+                  "passedAlignments" : 30,
+                  "passedUniqueReads" : 30,
+                  "sample" : "AnimalC"
+                }
+              ],
+              "passedAlignments" : 60,
+              "passedUniqueReads" : 60,
+              "sample" : "AnimalC"
+            }
+          ],
+          "stats" : {
+            "rawMetrics" : {
+
+            },
+            "retainedUniqueReads" : 60,
+            "totalInputReads" : 1000
+          }
+        }
+      },
+      "colors" : [
+        {
+          "call" : "M1A",
+          "fillHex" : "#DDDDDD",
+          "fontHex" : "#6B6B6B",
+          "locus" : "MHC-A"
+        },
+        {
+          "call" : "M2A",
+          "fillHex" : "#0C0000",
+          "fontHex" : "#FFFFFF",
+          "locus" : "MHC-A"
+        },
+        {
+          "call" : "M1B",
+          "fillHex" : "#FF0000",
+          "fontHex" : "#FFFFFF",
+          "locus" : "MHC-B"
+        },
+        {
+          "call" : "M3A",
+          "fillHex" : "#0000FF",
+          "fontHex" : "#FFFFFF",
+          "locus" : "MHC-A"
+        }
+      ],
+      "filteredMatrix" : {
+        "columns" : [
+          {
+            "key" : "standard.genotype",
+            "kind" : "genotype",
+            "title" : "Genotype"
+          },
+          {
+            "key" : "standard.samples",
+            "kind" : "sampleCount",
+            "title" : "Samples"
+          },
+          {
+            "key" : "standard.totalUniqueReads",
+            "kind" : "totalUniqueReads",
+            "title" : "Total Reads"
+          }
+        ],
+        "loci" : [
+          "MHC-A",
+          "MHC-B"
+        ],
+        "rows" : [
+          {
+            "cells" : [
+              {
+                "displayValue" : 81,
+                "rawSupport" : 81,
+                "reviewEligible" : true,
+                "sampleID" : "AnimalB",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              }
+            ],
+            "columnValues" : [
+              {
+                "key" : "standard.genotype",
+                "text" : "02_Mafa_A1_002_01"
+              },
+              {
+                "integer" : 1,
+                "key" : "standard.samples"
+              },
+              {
+                "integer" : 81,
+                "key" : "standard.totalUniqueReads"
+              }
+            ],
+            "displayName" : "02_Mafa_A1_002_01",
+            "id" : "7baea7b2bd3da07c0e91a3edbc78cb023bbfd8580e473c93a45067220b794846",
+            "style" : {
+              "isBold" : false,
+              "isItalic" : false
+            },
+            "target" : {
+              "genotype" : "02_Mafa_A1_002_01",
+              "kind" : "row",
+              "locus" : "MHC-A"
+            }
+          },
+          {
+            "cells" : [
+              {
+                "comment" : "Low support",
+                "displayValue" : 10,
+                "rawSupport" : 10,
+                "reviewEligible" : true,
+                "sampleID" : "AnimalB",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              }
+            ],
+            "columnValues" : [
+              {
+                "key" : "standard.genotype",
+                "text" : "04_Mafa_B_082_01"
+              },
+              {
+                "integer" : 1,
+                "key" : "standard.samples"
+              },
+              {
+                "integer" : 10,
+                "key" : "standard.totalUniqueReads"
+              }
+            ],
+            "displayName" : "04_Mafa_B_082_01",
+            "id" : "1e59fe8e7c57bb3b81f2f67edd099f7b60452a55b53c25ff620d03786e827c4d",
+            "style" : {
+              "isBold" : false,
+              "isItalic" : false
+            },
+            "target" : {
+              "genotype" : "04_Mafa_B_082_01",
+              "kind" : "row",
+              "locus" : "MHC-B"
+            }
+          }
+        ],
+        "samples" : [
+          {
+            "id" : "AnimalB",
+            "name" : "AnimalB"
+          }
+        ]
+      },
+      "generatedAt" : "<GENERATED_AT>",
+      "hasHaplotypeContent" : true,
+      "metadata" : [
+        [
+          "Scope",
+          "All authoritative evidence and captured filtered view"
+        ],
+        [
+          "Filtering",
+          "Filtering does not redact Genotype Matrix - All"
+        ],
+        [
+          "Editing",
+          "Point-in-time report; make edits in LGE"
+        ],
+        [
+          "Minimum reads",
+          "0"
+        ],
+        [
+          "Minimum percent",
+          "10.0"
+        ],
+        [
+          "Percent denominator",
+          "sampleRetained"
+        ],
+        [
+          "Global minimum percent",
+          "0.0"
+        ],
+        [
+          "Global percent denominator",
+          "viewedLocus"
+        ],
+        [
+          "Percent basis",
+          "Per-sample read fraction for known and candidate rows alike. viewedLocus is per source locus: Unique retained reads of the same sample at the same source locus (known alleles plus candidate clusters at that locus). sampleRetained: unique retained reads of the whole sample."
+        ],
+        [
+          "Seen in at least N% of animals",
+          "0.0"
+        ],
+        [
+          "Prevalence basis",
+          "Samples where the row is visible with positive reads / full logical sample roster; 0 is off"
+        ],
+        [
+          "Filtered evidence row policy",
+          "positive-displayed-count-in-visible-samples"
+        ],
+        [
+          "cellColorMode",
+          "Haplotype"
+        ],
+        [
+          "diagnosticAllelesOnly",
+          "false"
+        ],
+        [
+          "genotypeLocusDisplayOrder",
+          ""
+        ],
+        [
+          "genotypeNumericPrefixOrder",
+          "true"
+        ],
+        [
+          "hideFilteredHighlights",
+          "true"
+        ],
+        [
+          "hideLowSupport",
+          "false"
+        ],
+        [
+          "includeTotalReads",
+          "true"
+        ],
+        [
+          "locus",
+          "All Loci"
+        ],
+        [
+          "matrixMinimumPercent",
+          "10.0"
+        ],
+        [
+          "matrixMinimumPrevalencePercent",
+          "0.0"
+        ],
+        [
+          "matrixMinimumReads",
+          "0"
+        ],
+        [
+          "matrixPercentBasis",
+          "per-sample read fraction, sample retained reads"
+        ],
+        [
+          "matrixPercentDenominator",
+          "Sample Retained"
+        ],
+        [
+          "matrixRowFilterText",
+          ""
+        ],
+        [
+          "matrixSampleFilterText",
+          ""
+        ],
+        [
+          "minimumSupportPercent",
+          "0.0"
+        ],
+        [
+          "quickFilter",
+          "AnimalB"
+        ],
+        [
+          "quickFilterPredicate",
+          "{\"kind\":\"textContains\",\"value\":\"AnimalB\"}"
+        ],
+        [
+          "quickFilterSearchText",
+          "AnimalB"
+        ],
+        [
+          "searchText",
+          ""
+        ],
+        [
+          "supportDenominator",
+          "Source Locus"
+        ]
+      ],
+      "schemaVersion" : 3,
+      "sourceRevision" : {
+        "all-projection.json" : "<SHA256>",
+        "analysisRevisionID" : "",
+        "annotations.json" : "<SHA256>",
+        "bundle" : "<ROOT>/Project/Analyses/run/manual.lungfishgenotype",
+        "capture-context.json" : "<SHA256>",
+        "definitionSetID" : "",
+        "filtered-projection.json" : "<SHA256>",
+        "result.json" : "<SHA256>"
+      }
+    },
+    "filters" : {
+      "cellColorMode" : "Haplotype",
+      "diagnosticAllelesOnly" : "false",
+      "genotypeLocusDisplayOrder" : "",
+      "genotypeNumericPrefixOrder" : "true",
+      "hideFilteredHighlights" : "true",
+      "hideLowSupport" : "false",
+      "includeTotalReads" : "true",
+      "locus" : "All Loci",
+      "matrixMinimumPercent" : "10.0",
+      "matrixMinimumPrevalencePercent" : "0.0",
+      "matrixMinimumReads" : "0",
+      "matrixPercentBasis" : "per-sample read fraction, sample retained reads",
+      "matrixPercentDenominator" : "Sample Retained",
+      "matrixRowFilterText" : "",
+      "matrixSampleFilterText" : "",
+      "minimumSupportPercent" : "0.0",
+      "quickFilter" : "AnimalB",
+      "quickFilterPredicate" : "{\"kind\":\"textContains\",\"value\":\"AnimalB\"}",
+      "quickFilterSearchText" : "AnimalB",
+      "searchText" : "",
+      "supportDenominator" : "Source Locus"
+    },
+    "haplotypeCalls" : null,
+    "haplotypeLocusScope" : null,
+    "haplotypeSampleScope" : null,
+    "lens" : "summary",
+    "matrixColumns" : [
+      {
+        "key" : "standard.genotype",
+        "kind" : "genotype",
+        "title" : "Genotype"
+      },
+      {
+        "key" : "standard.samples",
+        "kind" : "sampleCount",
+        "title" : "Samples"
+      },
+      {
+        "key" : "standard.totalUniqueReads",
+        "kind" : "totalUniqueReads",
+        "title" : "Total Reads"
+      }
+    ],
+    "presentationColors" : [
+
+    ],
+    "provenanceInputURLs" : [
+
+    ],
+    "rows" : [
+      {
+        "cellStyles" : {
+
+        },
+        "displayName" : "02_Mafa_A1_002_01",
+        "genotype" : "02_Mafa_A1_002_01",
+        "locus" : "MHC-A",
+        "matrixColumnValues" : [
+          {
+            "key" : "standard.genotype",
+            "text" : "02_Mafa_A1_002_01"
+          },
+          {
+            "integer" : 1,
+            "key" : "standard.samples"
+          },
+          {
+            "integer" : 81,
+            "key" : "standard.totalUniqueReads"
+          }
+        ],
+        "renderedCellStyles" : {
+          "AnimalB" : {
+            "borderColor" : null,
+            "fillColor" : null,
+            "isBold" : false,
+            "isItalic" : false,
+            "textColor" : null
+          }
+        },
+        "renderedRowStyle" : {
+          "borderColor" : null,
+          "fillColor" : null,
+          "isBold" : false,
+          "isItalic" : false,
+          "textColor" : null
+        },
+        "rowStyle" : {
+          "borderColor" : null,
+          "fillColor" : null
+        },
+        "sampleCount" : 1,
+        "sampleReads" : {
+          "AnimalB" : 81
+        },
+        "stableClusterID" : null,
+        "totalUniqueReads" : 81
+      },
+      {
+        "cellStyles" : {
+
+        },
+        "displayName" : "04_Mafa_B_082_01",
+        "genotype" : "04_Mafa_B_082_01",
+        "locus" : "MHC-B",
+        "matrixColumnValues" : [
+          {
+            "key" : "standard.genotype",
+            "text" : "04_Mafa_B_082_01"
+          },
+          {
+            "integer" : 1,
+            "key" : "standard.samples"
+          },
+          {
+            "integer" : 10,
+            "key" : "standard.totalUniqueReads"
+          }
+        ],
+        "renderedCellStyles" : {
+          "AnimalB" : {
+            "borderColor" : null,
+            "fillColor" : null,
+            "isBold" : false,
+            "isItalic" : false,
+            "textColor" : null
+          }
+        },
+        "renderedRowStyle" : {
+          "borderColor" : null,
+          "fillColor" : null,
+          "isBold" : false,
+          "isItalic" : false,
+          "textColor" : null
+        },
+        "rowStyle" : {
+          "borderColor" : null,
+          "fillColor" : null
+        },
+        "sampleCount" : 1,
+        "sampleReads" : {
+          "AnimalB" : 10
+        },
+        "stableClusterID" : null,
+        "totalUniqueReads" : 10
+      }
+    ],
+    "sampleNames" : [
+      "AnimalB"
+    ],
+    "sidecar" : null,
+    "sourceRevision" : null
+  }
+}
