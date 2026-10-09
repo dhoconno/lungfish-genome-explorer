@@ -293,9 +293,7 @@ public final class GenotypeResultDisplaySectionViewModel {
             && declaration?.candidateJSON != nil
             && declaration?.candidateFASTA != nil
             && result.mhcCandidates.map { isSupportedMHCCandidateDocumentSchemaVersion($0.schemaVersion) } == true
-        mhcCandidateIntegrityWarnings = isFullLengthMHCResult
-            ? result.integrityWarnings.map(Self.integrityWarningText)
-            : []
+        mhcCandidateIntegrityWarnings = Self.candidateWarningLines(for: result)
         if !mhcCandidateControlsAvailable {
             displayState.mhcCandidateDisplaySettings = nil
         }
@@ -1238,11 +1236,6 @@ public final class GenotypeResultDisplaySectionViewModel {
             comments: [],
             isWritable: false
         )
-    }
-
-    private static func integrityWarningText(_ warning: ONTGenotypeIntegrityWarning) -> String {
-        let location = warning.path.map { " (\($0))" } ?? ""
-        return "\(warning.code.rawValue): \(warning.detail)\(location)"
     }
 
     private static func swiftUIColor(from annotationColor: AnnotationColor) -> Color {

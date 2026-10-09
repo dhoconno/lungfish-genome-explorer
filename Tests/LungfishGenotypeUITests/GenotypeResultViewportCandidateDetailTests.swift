@@ -761,14 +761,77 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
 
         viewModel.updateMHCCandidatePresentation(from: invalid)
         XCTAssertFalse(viewModel.mhcCandidateControlsAvailable)
-        XCTAssertEqual(viewModel.mhcCandidateIntegrityWarnings.count, 1)
-        XCTAssertTrue(viewModel.mhcCandidateIntegrityWarnings[0].contains("checksum"))
+        XCTAssertEqual(
+            viewModel.mhcCandidateIntegrityWarnings.count, 2,
+            "the plain basis sentence leads and the coded line follows (D3)"
+        )
+        XCTAssertEqual(viewModel.mhcCandidateIntegrityWarnings[0], GenotypeLocusDenominator.rejectedCandidateArtifactsDisclosure)
+        XCTAssertTrue(viewModel.mhcCandidateIntegrityWarnings[1].contains("checksum"))
 
         let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: invalid)
         XCTAssertEqual(controller.testingVisibleMatrixGenotypes, ["Known"])
         XCTAssertTrue(controller.testingCandidateIntegrityWarningText.contains("checksum"))
+    }
+
+    /// Decision D3 of the Phase 2.3 follow-up, the Inspector half. When a
+    /// full-length bundle declares candidate artifacts that the loader
+    /// rejected, its locus percents and haplotype calls count known alleles
+    /// only, so the Inspector's candidate warning leads with the plain
+    /// sentence of the shared basis rule and the coded lines that name each
+    /// failed file follow it. A bundle whose candidate document loaded keeps
+    /// the documented basis and gets no such sentence.
+    func testCandidateWarningLeadsWithThePlainBasisSentenceWhenCandidateArtifactsWereRejected() {
+        let candidate = makeCandidateResult(
+            calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 8)],
+            candidates: [makeCandidate(id: "candidate", name: "Candidate_nov", classification: .novel, support: .singleton, samples: ["AnimalA"])],
+            observations: [makeCandidateObservation(cluster: "candidate", sample: "AnimalA", reads: 5)]
+        )
+        let rejected = ONTGenotypeResultBundleData(
+            bundleURL: candidate.bundleURL,
+            manifest: candidate.manifest,
+            artifacts: candidate.artifacts,
+            stats: candidate.stats,
+            calls: candidate.calls,
+            samples: candidate.samples,
+            haplotypeAnalysis: nil,
+            mhcCandidates: nil,
+            mhcUnnameableClusters: nil,
+            integrityWarnings: [
+                .init(
+                    code: .candidateArtifactChecksumMismatch,
+                    detail: "candidate JSON checksum did not match",
+                    path: "artifacts/candidates/candidates.json"
+                ),
+                .init(
+                    code: .candidateArtifactMissing,
+                    detail: "the reciprocal BAM is missing",
+                    path: "artifacts/alignments/unmatched-to-reference.bam"
+                ),
+            ],
+            referenceMetadata: nil
+        )
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+
+        viewModel.updateMHCCandidatePresentation(from: rejected)
+
+        XCTAssertEqual(GenotypeLocusDenominator.basis(for: rejected), .knownAllelesOnlyAfterRejectedCandidateArtifacts)
+        XCTAssertEqual(viewModel.mhcCandidateIntegrityWarnings.count, 3)
+        XCTAssertEqual(
+            viewModel.mhcCandidateIntegrityWarnings.first,
+            "Candidate files failed validation, so candidate alleles are hidden and locus percents and "
+                + "haplotype calls count known-allele reads only. These values can differ from the run's own workbook."
+        )
+        XCTAssertEqual(viewModel.mhcCandidateIntegrityWarnings.first, GenotypeLocusDenominator.rejectedCandidateArtifactsDisclosure)
+        let codedLines = viewModel.mhcCandidateIntegrityWarnings.dropFirst()
+        XCTAssertEqual(codedLines.count, 2)
+        XCTAssertTrue(codedLines.contains { $0.contains("candidate-artifact-checksum-mismatch") && $0.contains("artifacts/candidates/candidates.json") })
+        XCTAssertTrue(codedLines.contains { $0.contains("candidate-artifact-missing") && $0.contains("artifacts/alignments/unmatched-to-reference.bam") })
+
+        viewModel.updateMHCCandidatePresentation(from: candidate)
+        XCTAssertEqual(GenotypeLocusDenominator.basis(for: candidate), .knownAllelesAndCandidateClusters)
+        XCTAssertTrue(viewModel.mhcCandidateIntegrityWarnings.isEmpty, "a loaded candidate document gets no basis sentence")
     }
 
 
