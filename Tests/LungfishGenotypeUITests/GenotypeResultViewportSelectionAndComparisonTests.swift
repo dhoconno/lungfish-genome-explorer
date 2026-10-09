@@ -2699,7 +2699,11 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
                 ),
             ]
         )
-        controller.configure(result: makeResult(samples: [], calls: [], haplotypeAnalysis: analysis))
+        // LF2832 is a sample of the run. An analysis alone names no roster animal (D1).
+        controller.configure(result: makeResult(
+            samples: GenotypeCharacterizationFixture.sampleResults(for: [], order: ["LF2832"]),
+            calls: [], haplotypeAnalysis: analysis
+        ))
 
         XCTAssertFalse(
             controller.testingOutlineSlots(sample: "LF2832").map(\.locus)
@@ -2817,7 +2821,11 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
                 ),
             ]
         )
-        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: [], haplotypeAnalysis: analysis))
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: GenotypeCharacterizationFixture.sampleResults(for: [], order: ["LF2832"]),
+            calls: [], haplotypeAnalysis: analysis
+        ))
 
         let captured = try XCTUnwrap(controller.testingCapturedScientificCalls().first)
         XCTAssertEqual(captured.sample, "LF2832")

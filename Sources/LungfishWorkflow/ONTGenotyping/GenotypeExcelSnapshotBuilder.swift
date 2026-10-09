@@ -166,6 +166,16 @@ public enum GenotypeExcelSnapshotBuilder {
         let comments = sidecar.resolvedMatrixComments
         let styles = Dictionary(sidecar.matrixStyles.map { ($0.target, $0.style) }, uniquingKeysWith: { _, last in last })
         let callCapture = try calls(result: result, sidecar: sidecar, authority: authority, samples: sampleNames)
+        // The roster is a function of the result alone (D1), so an analysis
+        // that names an animal no sample row or call names, which only a
+        // hand-edited bundle holds, would give the Haplotype Calls sheet a row
+        // for a sample without a column. The renderer refuses that at save
+        // time with a traceback, so refuse here first, in plain words.
+        let roster = Set(sampleNames)
+        let strangers = unique(callCapture.calls.map(\.sampleID).filter { !roster.contains($0) })
+        guard strangers.isEmpty else {
+            throw CaptureError.incoherent("haplotype analysis names a sample outside the roster: " + strangers.joined(separator: ", "))
+        }
         let loci = unique(callCapture.calls.map(\.locus))
         let rowKey: (String, String, String?) -> String = { locus, genotype, stable in
             // JSON tuple encoding prevents delimiter collisions.

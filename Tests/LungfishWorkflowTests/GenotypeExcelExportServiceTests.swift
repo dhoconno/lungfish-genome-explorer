@@ -679,7 +679,7 @@ print(json.dumps(result))
                 outputName: "test", analysisName: "test", primaryWorkbookPath: "report.xlsx",
                 longSummaryCSVPath: "calls.csv", sampleSummaryCSVPath: "samples.csv", statsJSONPath: "stats.json",
                 provenancePath: "provenance.json", haplotypeAnalysisPath: "analysis.json")
-            let result = GenotypeTestFixtures.makeResult(calls: [], haplotypeAnalysis: analysis, manifest: manifest)
+            let result = GenotypeTestFixtures.makeResult(samples: [sampleRow("S1")], calls: [], haplotypeAnalysis: analysis, manifest: manifest)
             let snapshot = try GenotypeExcelSnapshotBuilder.capture(result: result, sidecar: sidecar,
                 allProjection: nil, filteredProjection: nil, generatedAt: timestamp, authority: .init(analysis: analysis))
             let call = try XCTUnwrap(snapshot.calls.first)
@@ -1049,6 +1049,30 @@ print(json.dumps(result))
         XCTAssertEqual(snapshot.calls.map(\.locus), ["MHC-A", "MHC-B", "MHC-DRB", "MHC-DQ", "MHC-DP"], "every call is still reported")
         XCTAssertEqual(snapshot.colors.map { $0.locus + " " + $0.call }, ["MHC-A M1A", "MHC-A M2A", "MHC-DQ M1DQ"])
         XCTAssertEqual(snapshot.colors.first?.fillHex, "#112233", "a seeded colour for a haplotype name keeps its fill")
+    }
+
+    /// Decision D1 made the roster a function of the result alone, so an
+    /// analysis that names an animal no sample row or call names, which only
+    /// a hand-edited bundle can hold, would give the Haplotype Calls sheet a
+    /// row for a sample without a column. The renderer refuses such a snapshot
+    /// at save time with a traceback. The capture refuses first, in plain
+    /// words, before any save panel opens.
+    func testCaptureRefusesAnAnalysisThatNamesASampleOutsideTheRoster() throws {
+        let analysis = GenotypeHaplotypeAnalysis(assayID: "fixture", definitionSetID: "fixture", definitionSetName: "fixture",
+            speciesName: "fixture", samples: ["S1", "Ghost"].map { sample in
+                .init(sample: sample, calls: [.init(locus: "MHC-A", sourceLocus: "MHC-A", haplotype1: "M1A", haplotype2: "-",
+                    status: .called, matchedHaplotypes: [], observedGenotypeCount: 0, observedGenotypes: [])])
+            })
+        let result = GenotypeTestFixtures.makeResult(samples: [sampleRow("S1")], calls: [], haplotypeAnalysis: analysis)
+        XCTAssertThrowsError(try GenotypeExcelSnapshotBuilder.capture(result: result, sidecar: .empty(generatedAt: timestamp),
+            allProjection: nil, filteredProjection: nil, generatedAt: timestamp, authority: .init(analysis: analysis))) { error in
+            guard case GenotypeExcelSnapshotBuilder.CaptureError.incoherent(let message) = error else {
+                return XCTFail("Expected the builder's incoherent capture error, got \(error)")
+            }
+            XCTAssertEqual(message, "haplotype analysis names a sample outside the roster: Ghost")
+            XCTAssertEqual(error.localizedDescription,
+                           "Incoherent Excel capture: haplotype analysis names a sample outside the roster: Ghost")
+        }
     }
 
     func testCaptureRecordsAllFilterDefaultsAndFrozenOrdering() throws {
