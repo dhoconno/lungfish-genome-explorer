@@ -117,7 +117,7 @@ Sources/LungfishGenotypeUI/GenotypeManualHaplotypeDraft.swift 814
 Sources/LungfishGenotypeUI/GenotypeOutlineView.swift 814
 Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift 842
 Sources/LungfishGenotypeUI/GenotypeResultDisplaySectionViewModel.swift 1284
-Sources/LungfishGenotypeUI/GenotypeResultViewController.swift 11874
+Sources/LungfishGenotypeUI/GenotypeResultViewController.swift 11352
 Sources/LungfishGenotypeUI/GenotypeSampleComparisonModel.swift 843
 Sources/LungfishGenotypeUI/GenotypeSampleComparisonPanel.swift 1372
 Sources/LungfishIO/Bundles/AlignmentDataProvider.swift 1229
