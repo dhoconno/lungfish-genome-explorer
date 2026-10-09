@@ -172,7 +172,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         let overrides: [GenotypeAnnotationSidecar.CallOverride]
     }
 
-    private struct EffectiveHaplotypeCall {
+    struct EffectiveHaplotypeCall {
         let h1: String
         let h2: String
         let h1Status: GenotypeHaplotypeCallStatus
@@ -262,11 +262,11 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     private let splitView = TrackedDividerSplitView()
     private let sampleContainer = NSView()
     private let detailContainer = NSView()
-    private let comparisonMatrix = GenotypeComparisonMatrixView()
+    let comparisonMatrix = GenotypeComparisonMatrixView()
     private let outlineView = GenotypeOutlineView()
-    private let haplotypeMatrixView = GenotypeHaplotypeDefinitionMatrixView()
+    let haplotypeMatrixView = GenotypeHaplotypeDefinitionMatrixView()
     private let cohortSummaryPanel = GenotypeCohortSummaryPanelView()
-    private let quickFilterBar = GenotypeQuickFilterBarView()
+    let quickFilterBar = GenotypeQuickFilterBarView()
     private let detailScrollView = NSScrollView()
     private let detailDocumentView = FlippedDocumentView()
     private let detailStack = NSStackView()
@@ -307,7 +307,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
     private var miSeqMatrixDetachedLayout: GenotypeResultPanelLayout?
 
-    private var result: ONTGenotypeResultBundleData?
+    private(set) var result: ONTGenotypeResultBundleData?
     public private(set) var manualHaplotypeEligibility:
         GenotypeManualHaplotypeEligibility = .ineligible(
             reason: "No genotype result is loaded."
@@ -410,10 +410,10 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     private var manualHaplotypingSelection: Set<String> = []
     private var manualHaplotypingDraftLabel: String = ""
     private var manualHaplotypingDraftColorTokenIndex: Int = 1
-    private var activeSmartCohort: GenotypeCohortSmartFilter?
+    private(set) var activeSmartCohort: GenotypeCohortSmartFilter?
     private var quickFilterPredicate: SmartCohortPredicate?
-    private var quickFilterSearchText: String = ""
-    private var quickFilterState = GenotypeQuickFilterBarView.FilterState()
+    private(set) var quickFilterSearchText: String = ""
+    private(set) var quickFilterState = GenotypeQuickFilterBarView.FilterState()
     private var genotypeSearchIndex: GenotypeSearchIndex?
     private var latestGenotypeSearchResult = GenotypeSearchIndex.Result.empty
     private var latestGenotypeSearchQuery = ""
@@ -489,9 +489,9 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     /// surrounding project root in `configure(result:)`.
     private var haplotypeDefinitionStore = HaplotypeDefinitionStore(projectRoot: nil)
     private var cachedHaplotypeDefinitionContext: HaplotypeDefinitionContext?
-    private var presentationPolicy: GenotypeResultPresentationPolicy?
-    private var selectedLens: Lens = .summary
-    private var displayState = GenotypeResultDisplayState()
+    private(set) var presentationPolicy: GenotypeResultPresentationPolicy?
+    private(set) var selectedLens: Lens = .summary
+    private(set) var displayState = GenotypeResultDisplayState()
     private var currentSharedCall: ONTGenotypeSharedCall?
     private var currentCandidateRow: GenotypeCandidateMatrixRow?
     private var candidatePersistenceWarning: String?
@@ -912,7 +912,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         }
     }
 
-    private func ensureComparisonMatrixConfigured() {
+    func ensureComparisonMatrixConfigured() {
         guard !comparisonMatrixConfigured, let result else { return }
 #if DEBUG
         testingSynchronizedMiSeqMatrixConfigureCount += 1
@@ -2039,7 +2039,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         editMatrixComment(request)
     }
 
-    private var deferredMatrixAnnotationMutationCount: Int {
+    var deferredMatrixAnnotationMutationCount: Int {
         deferredMatrixAnnotationMutations.count - deferredMatrixAnnotationMutationHead
     }
 
@@ -5957,7 +5957,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     /// Returns the haplotype analysis the UI should consult: the
     /// dropout-aware recomputation when present, otherwise the
     /// pipeline-persisted version embedded in the bundle.
-    private func activeHaplotypeAnalysis() -> GenotypeHaplotypeAnalysis? {
+    func activeHaplotypeAnalysis() -> GenotypeHaplotypeAnalysis? {
         guard hasHaplotypingResult else { return nil }
         if let liveHaplotypeAnalysis { return liveHaplotypeAnalysis }
         return result?.haplotypeAnalysis
@@ -7807,7 +7807,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         }
     }
 
-    private func effectiveHaplotypeCall(
+    func effectiveHaplotypeCall(
         sample sampleId: String,
         call: GenotypeHaplotypeLocusCall
     ) -> EffectiveHaplotypeCall {
@@ -8721,7 +8721,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         }
     }
 
-    private func definitionSetForResult(_ result: ONTGenotypeResultBundleData) -> GenotypeHaplotypeDefinitionSet? {
+    func definitionSetForResult(_ result: ONTGenotypeResultBundleData) -> GenotypeHaplotypeDefinitionSet? {
         haplotypeDefinitionContext(for: result)?.definition
     }
 
@@ -8908,7 +8908,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         )
     }
 
-    private func activeHaplotypeDefinitionSetID() -> String? {
+    func activeHaplotypeDefinitionSetID() -> String? {
         guard let result else {
             return annotationStore?.sidecar.settings.activeHaplotypeDefinitionSetID
         }
@@ -9239,7 +9239,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         return text
     }
 
-    private func currentExportSnapshot() -> GenotypeViewportExportSnapshot? {
+    func currentExportSnapshot() -> GenotypeViewportExportSnapshot? {
         guard let result else { return nil }
         let capturedAnalysis = activeHaplotypeAnalysis()
         let capturedSidecar = annotationStore?.sidecar
@@ -9300,7 +9300,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         )
     }
 
-    private func fileViewerSelectionURLs(for export: GenotypeViewportExportResult) -> [URL] {
+    func fileViewerSelectionURLs(for export: GenotypeViewportExportResult) -> [URL] {
         [export.outputURL]
     }
 
