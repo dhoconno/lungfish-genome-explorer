@@ -465,6 +465,10 @@ extension ImportCommand {
                         if isJSON || !quiet {
                             let json = FASTQBatchImporter.encodeLogEvent(event)
                             print(json)
+                            // stdout is a pipe when the app runs this import, so
+                            // print buffers. Flush each event, or the Operations
+                            // Panel sees none of them until the import ends.
+                            fflush(stdout)
                         }
                     }
                 )
