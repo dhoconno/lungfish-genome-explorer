@@ -71,7 +71,7 @@ public enum GenotypeHaplotypeAnalyzer {
         matrixReviews: [GenotypeAnnotationSidecar.MatrixReviewAnnotation],
         locusDenominator: GenotypeLocusDenominator
     ) -> GenotypeHaplotypeAnalysis {
-        // N1: a zero-read genotype row is not an observation, so it never enters matching.
+        // N1. A zero-read genotype row is not an observation, so it never enters matching.
         let reviewedCalls = GenotypeReviewedHaplotypeEvidence.callsForInference(calls.filter { $0.passedUniqueReads > 0 }, reviews: matrixReviews)
         let filteredCalls = applyDropout(
             reviewedCalls,

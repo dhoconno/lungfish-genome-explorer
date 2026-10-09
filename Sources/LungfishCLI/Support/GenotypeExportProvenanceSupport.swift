@@ -209,6 +209,7 @@ enum GenotypeExcelCLIExportSupport {
             from: bundle,
             requiring: manifest
         )
+        GenotypeExportBasisDisclosure.disclose(result)
         try verify(witnessed)
         var sidecar = try loadSidecar(
             bundleURL: bundle,

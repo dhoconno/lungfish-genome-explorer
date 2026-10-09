@@ -68,6 +68,7 @@ struct GenotypeExportLabKeySubcommand: AsyncParsableCommand {
         // sidecar fragments. The haplotype and allele tables degrade to
         // header-only files in that case.
         let result = try? ONTGenotypeResultBundle.loadResult(from: bundleURL)
+        GenotypeExportBasisDisclosure.disclose(result)
 
         let exporter = LabKeyExporter(
             outputDir: outputDirURL,

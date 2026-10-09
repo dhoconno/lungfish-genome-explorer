@@ -131,6 +131,59 @@ public struct GenotypeLocusDenominator: Sendable, Equatable {
         let reads: Int
     }
 
+    // MARK: D3, the basis a result's locus totals count
+
+    /// What a result's locus totals count (D3).
+    public enum Basis: String, Equatable, Sendable {
+        /// Known alleles plus the candidate clusters observed at the locus,
+        /// the documented basis.
+        case knownAllelesAndCandidateClusters
+        /// Known alleles only. The bundle declares candidate artifacts that
+        /// the loader rejected, so no candidate reads could be counted, and
+        /// locus percents and haplotype calls can differ from the run's own
+        /// workbook.
+        case knownAllelesOnlyAfterRejectedCandidateArtifacts
+    }
+
+    /// The basis of a result's locus totals. A full-length bundle whose
+    /// manifest declares a candidate or un-nameable document while neither
+    /// loaded has had its candidate artifacts rejected by the loader's
+    /// all-or-nothing validation. Any other result counts candidate clusters
+    /// wherever it has them. The workbook's Percent basis row, the
+    /// Inspector's candidate warning and the CLI exports all read this one
+    /// value.
+    public static func basis(for result: ONTGenotypeResultBundleData) -> Basis {
+        guard result.manifest.kind == GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+              let declared = result.manifest.mhcCandidateArtifacts,
+              declared.candidateJSON != nil || declared.unnameableJSON != nil,
+              result.mhcCandidates == nil, result.mhcUnnameableClusters == nil else {
+            return .knownAllelesAndCandidateClusters
+        }
+        return .knownAllelesOnlyAfterRejectedCandidateArtifacts
+    }
+
+    /// The one-sentence basis statement for a basis. Normal bundles keep
+    /// `basisDescription` byte for byte.
+    public static func basisDescription(for basis: Basis) -> String {
+        switch basis {
+        case .knownAllelesAndCandidateClusters: return basisDescription
+        case .knownAllelesOnlyAfterRejectedCandidateArtifacts: return knownAllelesOnlyBasisDescription
+        }
+    }
+
+    /// The basis statement of a bundle whose candidate artifacts failed
+    /// validation.
+    public static let knownAllelesOnlyBasisDescription =
+        "Unique retained reads of the same sample at the same source locus "
+        + "(known alleles only, because the bundle's candidate artifacts failed validation)"
+
+    /// The plain-words disclosure for such a bundle, the lead sentence of the
+    /// Inspector's candidate warning and the one line the CLI genotype
+    /// exports print on standard error.
+    public static let rejectedCandidateArtifactsDisclosure =
+        "Candidate files failed validation, so candidate alleles are hidden and locus percents and "
+        + "haplotype calls count known-allele reads only. These values can differ from the run's own workbook."
+
     /// The source-locus key for a call: `source_loci` metadata first, the
     /// allele name otherwise (the same key the matrix groups rows by).
     public static func sourceLocus(for call: ONTGenotypeCall) -> String {

@@ -17,15 +17,15 @@ public struct ONTGenotypeCall: Codable, Equatable, Sendable {
     /// The references this row cannot be told apart from. Nil for ordinary
     /// rows and for older bundles.
     ///
-    /// Amplicon results: the reference held identical sequences (including
+    /// In amplicon results the reference held identical sequences (including
     /// reverse complements), collapsed onto this row's genotype before
-    /// mapping. Lists every member of that ambiguity group, this genotype
-    /// first, and the other members are not calls.
+    /// mapping. The list holds every member of that ambiguity group, this
+    /// genotype first, and the other members are not calls.
     ///
-    /// Full-length results: every reference that tied for this call's best
-    /// hit in one of its clusters, sorted. Each tied reference is its own call
-    /// with the full cluster reads, so the read totals count such a group
-    /// once (`GenotypeLocusDenominator.knownReadTotals`, D2).
+    /// In full-length results the list holds every reference that tied for
+    /// this call's best hit in one of its clusters, sorted. Each tied
+    /// reference is its own call with the full cluster reads, so the read
+    /// totals count such a group once (`GenotypeLocusDenominator.knownReadTotals`, D2).
     public let ambiguousWith: [String]?
     /// Full-length ONT only. Indel bases in the zero-SNP hit
     /// behind this known call (largest over its clusters). Nil for amplicon

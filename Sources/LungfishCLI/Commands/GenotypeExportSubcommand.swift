@@ -336,7 +336,7 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
         )
         let sidecar = loadedAnnotation.sidecar
         let loadedResult = try? ONTGenotypeResultBundle.loadResult(from: bundleURL)
-
+        GenotypeExportBasisDisclosure.disclose(loadedResult)
         let resolvedColumns: [String]
         var loadedProjection: LoadedViewProjection?
 

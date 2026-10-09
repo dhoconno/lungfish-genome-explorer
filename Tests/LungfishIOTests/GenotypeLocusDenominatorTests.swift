@@ -89,8 +89,8 @@ final class GenotypeLocusDenominatorTests: XCTestCase {
         XCTAssertTrue(gGenotypes.isSubset(of: Set(atFifty.observedGenotypes)))
         let aboveFifty = try mhcA(locusFraction: 0.5001)
         XCTAssertTrue(gGenotypes.isDisjoint(with: Set(aboveFifty.observedGenotypes)))
-        // 4: D2 (a tied cluster counts once) and N1 (a zero-read row is not
-        // an observation) change the calls users see.
+        // Version 4, D2 (a tied cluster counts once) and N1 (a zero-read row
+        // is not an observation), changes the calls users see.
         XCTAssertEqual(GenotypeHaplotypeAnalyzer.callingRulesVersion, 4)
     }
 
@@ -168,13 +168,13 @@ final class GenotypeLocusDenominatorTests: XCTestCase {
         XCTAssertTrue(sampleCall.observedGenotypes.contains("Mamu-A1*002:01"), "\(sampleCall.observedGenotypes)")
         XCTAssertEqual(Set(sampleCall.matchedHaplotypes.map(\.name)), ["M1A", "M2A"])
 
-        // 1.48 percent is the boundary: dropped just above it.
+        // 1.48 percent is the boundary, and the allele is dropped just above it.
         let aboveBoundary = try mhcA(GenotypeDropoutEvaluator(absolute: nil, sampleFraction: nil, locusFraction: 0.0148))
         XCTAssertFalse(aboveBoundary.observedGenotypes.contains("Mamu-A1*002:01"), "\(aboveBoundary.observedGenotypes)")
     }
 
-    /// The three-way tie of the pipeline test: refA, refB and refC at 20
-    /// reads each, all tied, plus refD at 7, all at one locus, total 27.
+    /// The three-way tie of the pipeline test, refA, refB and refC at 20
+    /// reads each, all tied, plus refD at 7, all at one locus, is 27 reads.
     func testAThreeWayTieBesideAMinorAlleleCountsOnce() {
         let tie = ["refA|source_loci=MHC-A", "refB|source_loci=MHC-A", "refC|source_loci=MHC-A"]
         let calls = tie.map { Self.call("S1", $0, 20, ambiguousWith: tie) }
@@ -275,6 +275,78 @@ final class GenotypeLocusDenominatorTests: XCTestCase {
             XCTAssertEqual(try XCTUnwrap(result.supportFraction(for: allele, denominator: .viewedLocus)), 0.5, accuracy: 1e-12)
         }
         XCTAssertEqual(result.hiddenSupportCallCount(minimumSupportPercent: 5, denominator: .viewedLocus), 0)
+    }
+
+    // MARK: D3, the basis a result's locus totals count
+
+    private static func candidateDeclaration() -> ONTMHCCandidateArtifactManifest {
+        ONTMHCCandidateArtifactManifest(
+            schemaVersion: 2,
+            genotypingEvidence: nil,
+            reciprocalEvidence: nil,
+            candidateJSON: ONTMHCArtifactReference(
+                path: "candidate-alleles.json", sha256: String(repeating: "a", count: 64), sizeBytes: 1
+            ),
+            candidateFASTA: ONTMHCArtifactReference(
+                path: "candidate_alleles.fasta", sha256: String(repeating: "b", count: 64), sizeBytes: 1
+            ),
+            unnameableJSON: nil,
+            unnameableFASTA: nil
+        )
+    }
+
+    /// The loader keeps its all-or-nothing contract. A full-length bundle whose
+    /// manifest declares candidate artifacts while no candidate document
+    /// loaded counts known alleles only, and every surface says so from this
+    /// one basis.
+    func testBasisIsKnownAllelesOnlyWhenDeclaredCandidateArtifactsWereRejected() {
+        let rejected = GenotypeTestFixtures.makeResult(
+            calls: [Self.call("S1", "Mamu-A1*001:01", 40)],
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            mhcCandidateArtifacts: Self.candidateDeclaration()
+        )
+        XCTAssertNil(rejected.mhcCandidates)
+        XCTAssertEqual(GenotypeLocusDenominator.basis(for: rejected), .knownAllelesOnlyAfterRejectedCandidateArtifacts)
+        XCTAssertEqual(
+            GenotypeLocusDenominator.basisDescription(for: .knownAllelesOnlyAfterRejectedCandidateArtifacts),
+            "Unique retained reads of the same sample at the same source locus "
+                + "(known alleles only, because the bundle's candidate artifacts failed validation)"
+        )
+        XCTAssertEqual(
+            GenotypeLocusDenominator.rejectedCandidateArtifactsDisclosure,
+            "Candidate files failed validation, so candidate alleles are hidden and locus percents and "
+                + "haplotype calls count known-allele reads only. These values can differ from the run's own workbook."
+        )
+    }
+
+    func testBasisCountsCandidateClustersUnlessDeclaredArtifactsWereRejected() {
+        let fullLength = GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue
+        let calls = [Self.call("S1", "Mamu-A1*001:01", 40)]
+
+        let undeclared = GenotypeTestFixtures.makeResult(calls: calls, kind: fullLength)
+        XCTAssertEqual(GenotypeLocusDenominator.basis(for: undeclared), .knownAllelesAndCandidateClusters)
+        XCTAssertEqual(
+            GenotypeLocusDenominator.basisDescription(for: .knownAllelesAndCandidateClusters),
+            GenotypeLocusDenominator.basisDescription
+        )
+
+        // Declared and loaded.
+        let declared = GenotypeTestFixtures.makeResult(calls: calls, kind: fullLength, mhcCandidateArtifacts: Self.candidateDeclaration())
+        let loaded = ONTGenotypeResultBundleData(
+            bundleURL: declared.bundleURL, manifest: declared.manifest, artifacts: declared.artifacts,
+            stats: declared.stats, calls: calls, samples: [], haplotypeAnalysis: nil,
+            mhcCandidates: GenotypeLocusDenominatorFixtures.candidateDocument(
+                candidates: [("novel", "Mamu-A1*900:01_nov", "MHC-A")], observations: [("novel", "S1", 60)]
+            ),
+            mhcUnnameableClusters: nil, mhcCandidateSequencesByStableClusterID: [:],
+            integrityWarnings: [], referenceMetadata: nil
+        )
+        XCTAssertEqual(GenotypeLocusDenominator.basis(for: loaded), .knownAllelesAndCandidateClusters)
+
+        // An amplicon bundle never loads candidate documents, so a declaration
+        // there is not a rejection.
+        let amplicon = GenotypeTestFixtures.makeResult(calls: calls, mhcCandidateArtifacts: Self.candidateDeclaration())
+        XCTAssertEqual(GenotypeLocusDenominator.basis(for: amplicon), .knownAllelesAndCandidateClusters)
     }
 
     static func call(

@@ -9,10 +9,21 @@ public enum GenotypeExcelSnapshotBuilder {
     /// Filters-sheet and provenance statement of what "Min percent"
     /// means.
     public static let percentBasisDescription =
+        percentBasisDescription(locusBasis: GenotypeLocusDenominator.basisDescription)
+    /// The Percent basis row of one result. A bundle whose candidate
+    /// artifacts failed validation counts known alleles only, and its row
+    /// says so (D3). Every other result keeps `percentBasisDescription` byte
+    /// for byte.
+    public static func percentBasisDescription(for result: ONTGenotypeResultBundleData) -> String {
+        percentBasisDescription(
+            locusBasis: GenotypeLocusDenominator.basisDescription(for: GenotypeLocusDenominator.basis(for: result))
+        )
+    }
+    private static func percentBasisDescription(locusBasis: String) -> String {
         "Per-sample read fraction for known and candidate rows alike. viewedLocus is "
-        + GenotypeLocusDenominator.basisLabel + ": "
-        + GenotypeLocusDenominator.basisDescription
+        + GenotypeLocusDenominator.basisLabel + ": " + locusBasis
         + ". sampleRetained: unique retained reads of the whole sample."
+    }
     /// The separate prevalence control.
     public static let prevalenceMetadataLabel = "Seen in at least N% of animals"
     public static let prevalenceBasisDescription =
@@ -447,7 +458,7 @@ public enum GenotypeExcelSnapshotBuilder {
             ["Minimum reads", String(filter.matrixMinimumReads)], ["Minimum percent", String(filter.matrixMinimumPercent)],
             ["Percent denominator", filter.matrixDenominator.rawValue], ["Global minimum percent", String(filter.globalMinimumPercent)],
             ["Global percent denominator", filter.globalDenominator.rawValue],
-            ["Percent basis", percentBasisDescription],
+            ["Percent basis", percentBasisDescription(for: result)],
             [prevalenceMetadataLabel, String(filter.minimumPrevalencePercent)],
             ["Prevalence basis", prevalenceBasisDescription],
             ["Filtered evidence row policy", filteredEvidenceRowPolicy]]

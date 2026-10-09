@@ -55,6 +55,7 @@ final class FullLengthONTMHCGenotypingDenominatorTests: XCTestCase {
         XCTAssertEqual(run.unnameableDocument.clusters.compactMap(\.candidateInterpretation).count, 1)
         XCTAssertEqual(GenotypeLocusDenominator(calls: published.calls).total(sample: "sample", sourceLocus: "MHC-A"), 155)
         XCTAssertEqual(GenotypeLocusDenominator(result: published).total(sample: "sample", sourceLocus: "MHC-A"), 210)
+        XCTAssertEqual(GenotypeLocusDenominator.basis(for: published), .knownAllelesAndCandidateClusters)
         XCTAssertEqual(
             GenotypeHaplotypeAnalysisResolver.runHaplotypeDropoutEvaluator(for: published),
             GenotypeDropoutEvaluator(absolute: nil, sampleFraction: nil, locusFraction: 0.01)
@@ -160,6 +161,44 @@ final class FullLengthONTMHCGenotypingDenominatorTests: XCTestCase {
         XCTAssertEqual(gui.samples, cli.samples)
         XCTAssertEqual(run.analysis.samples, cli.samples, "the run counts the tied cluster once as every re-inference does")
         XCTAssertEqual(run.analysis.schemaVersion, GenotypeHaplotypeAnalyzer.callingRulesVersion)
+    }
+
+    /// D3. A published bundle whose reciprocal BAM was deleted. The loader
+    /// keeps its all-or-nothing contract and rejects every candidate
+    /// artifact, so the locus totals hold known alleles only (155 at MHC-A,
+    /// not 210), B_marker is 1.29 percent instead of 0.95 and re-inference
+    /// calls M-A and M-B where the run called M-A alone. The owner accepted
+    /// that fallback and asked that it be disclosed, so the workbook's Percent
+    /// basis row says the total counts known alleles only.
+    func testRejectedCandidateArtifactsLeaveKnownOnlyTotalsAndTheWorkbookSaysSo() throws {
+        let fixture = try makeFixture(clusterLocus: "MHC-A")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let run = try runAnalysisStep(fixture)
+        try publishBundle(fixture)
+        try FileManager.default.removeItem(at: fixture.request.outputDirectory.appendingPathComponent(Self.reciprocalBAMPath))
+        let published = try ONTGenotypeResultBundle.loadResult(from: fixture.request.outputDirectory)
+
+        XCTAssertEqual(published.integrityWarnings.map(\.code), [.candidateArtifactMissing])
+        XCTAssertNil(published.mhcCandidates)
+        XCTAssertNil(published.mhcUnnameableClusters)
+        XCTAssertEqual(GenotypeLocusDenominator(result: published).total(sample: "sample", sourceLocus: "MHC-A"), 155)
+
+        let cli = try XCTUnwrap(GenotypeHaplotypeAnalysisResolver.activeAnalysis(for: published, sidecar: nil))
+        let reinferred = try XCTUnwrap(cli.samples.first?.calls.first)
+        XCTAssertEqual([reinferred.haplotype1, reinferred.haplotype2], ["M-A", "M-B"])
+        let ran = try XCTUnwrap(run.analysis.samples.first?.calls.first)
+        XCTAssertEqual([ran.haplotype1, ran.haplotype2], ["M-A", "-"], "the run's own analysis counted the candidate reads")
+
+        let snapshot = try GenotypeExcelSnapshotBuilder.capture(
+            result: published, sidecar: .empty(generatedAt: "2026-10-09T00:00:00Z"),
+            allProjection: nil, filteredProjection: nil, generatedAt: "2026-10-09T00:00:00Z",
+            authority: .init(analysis: cli), filter: .unfiltered
+        )
+        let row = try XCTUnwrap(snapshot.metadata.first { $0.first == "Percent basis" }?.last)
+        XCTAssertTrue(row.contains("known alleles only, because the bundle's candidate artifacts failed validation"), row)
+        XCTAssertEqual(GenotypeLocusDenominator.basis(for: published), .knownAllelesOnlyAfterRejectedCandidateArtifacts)
+        XCTAssertEqual(row, GenotypeExcelSnapshotBuilder.percentBasisDescription(for: published))
     }
 
     // MARK: Fixture
