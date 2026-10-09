@@ -95,12 +95,16 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         controller.editMatrixComment(.init(targets: [target], intent: .upsert(body: "pending native note")))
         XCTAssertEqual(controller.testingDeferredMatrixAnnotationMutationCount, 1)
         var panels = 0
-        var failures = 0
+        var failures: [String] = []
         controller.excelSavePanelPresenter = { _, _, completion in panels += 1; completion(nil) }
-        controller.onExcelExportEvent = { if case .failed = $0 { failures += 1 } }
+        controller.onExcelExportEvent = { if case .failed(let message) = $0 { failures.append(message) } }
         controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
         XCTAssertEqual(panels, 0)
-        XCTAssertEqual(failures, 1)
+        XCTAssertEqual(
+            failures,
+            ["Annotations are still saving. Wait for the save to finish, then export again."],
+            "the Inspector status reads in plain words while the save is pending"
+        )
         publicationLock.release()
         scheduler.fireScheduledActions()
         controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)

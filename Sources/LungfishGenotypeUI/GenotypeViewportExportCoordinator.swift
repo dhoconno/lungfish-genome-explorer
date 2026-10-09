@@ -58,7 +58,7 @@ final class GenotypeViewportExportCoordinator {
                 self.presentViewExportPanel(filenameSuffix: "genotype", capturedSnapshot: snapshot,
                     originStillCurrent: originStillCurrent)
             } catch {
-                self.publishExcelExportEvent(.failed(error.localizedDescription))
+                self.publishExcelExportEvent(.failed(GenotypeExcelExportRefusal.message(for: error)))
             }
         }
         if !deferManualHaplotypeTransition(.export, mutation: capture) { capture() }
@@ -69,8 +69,7 @@ final class GenotypeViewportExportCoordinator {
     func captureExcelExportSnapshot() throws -> GenotypeViewportExportSnapshot {
         guard let result else { throw GenotypeExcelSnapshotBuilder.CaptureError.incoherent("no selected result") }
         guard deferredMatrixAnnotationMutationCount == 0 else {
-            throw GenotypeExcelSnapshotBuilder.CaptureError.incoherent(
-                "Native annotations are still saving. Wait for the save to finish, then export again.")
+            throw GenotypeExcelExportRefusal.annotationsStillSaving
         }
         quickFilterBar.settleSearchForExport(committedState: quickFilterState)
         ensureComparisonMatrixConfigured()
