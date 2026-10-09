@@ -72,12 +72,6 @@ private struct RecommendedDatabaseSelection: Equatable {
     }
 }
 
-struct OfflinePackCommandGuidance: Equatable {
-    let exportCommand: String
-    let installCommand: String
-    let copyText: String
-}
-
 private final class PluginPackInstallProgressLog: @unchecked Sendable {
     private let lock = NSLock()
     private var events: [PluginPackInstallProgress] = []
@@ -296,10 +290,10 @@ final class PluginManagerViewModel {
 
     @ObservationIgnored private var storageLocationChangeObserver: StorageLocationChangeObserver?
 
-    /// The experimental setting the current pack list was loaded with. The
-    /// Plugin Manager window outlives a Settings change, so a flip of the
-    /// setting reloads the list instead of waiting for a tab switch.
-    @ObservationIgnored private var observedExperimentalFeaturesEnabled = AppSettings.shared.experimentalFeaturesEnabled
+    /// The experimental setting the pack list was loaded with, and the task
+    /// that reloads the list when Settings flips it (+ExperimentalPacks).
+    @ObservationIgnored var observedExperimentalFeaturesEnabled = AppSettings.shared.experimentalFeaturesEnabled
+    @ObservationIgnored var experimentalFeaturesObservation: Task<Void, Never>?
 
     /// True while a "Check for Tool Updates" request is planning, so the button can show
     /// progress and refuse to stack a second plan on top of the first.
@@ -512,60 +506,9 @@ final class PluginManagerViewModel {
         }
     }
 
-    /// Reloads the pack list whenever Settings turns experimental features on
-    /// or off, re-registering after each change.
-    private func observeExperimentalFeaturesSetting() {
-        withObservationTracking {
-            _ = AppSettings.shared.experimentalFeaturesEnabled
-        } onChange: { [weak self] in
-            DispatchQueue.main.async { [weak self] in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    self.observeExperimentalFeaturesSetting()
-                    let enabled = AppSettings.shared.experimentalFeaturesEnabled
-                    guard enabled != self.observedExperimentalFeaturesEnabled else { return }
-                    self.observedExperimentalFeaturesEnabled = enabled
-                    self.refreshPackStatuses()
-                }
-            }
-        }
-    }
-
     func focusPack(_ packID: String) {
         selectedTab = .packs
         focusedPackID = packID
-    }
-
-    func offlinePackCommandGuidance(for pack: PluginPack) -> OfflinePackCommandGuidance {
-        let archivePath = "./\(pack.id)-conda-offline-pack.tgz"
-        let exportCommand = shellCommand([
-            CLICommandIdentity.executableName,
-            "conda",
-            "export-pack",
-            "--pack",
-            pack.id,
-            "--output",
-            archivePath,
-        ])
-        let installCommand = shellCommand([
-            CLICommandIdentity.executableName,
-            "conda",
-            "install",
-            "--offline",
-            "--from-bundle",
-            archivePath,
-        ])
-        return OfflinePackCommandGuidance(
-            exportCommand: exportCommand,
-            installCommand: installCommand,
-            copyText: [exportCommand, installCommand].joined(separator: "\n")
-        )
-    }
-
-    func copyOfflinePackCommandGuidance(for pack: PluginPack) {
-        let guidance = offlinePackCommandGuidance(for: pack)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(guidance.copyText, forType: .string)
     }
 
     /// Installs or reinstalls a plugin pack through the shared status service.
@@ -1054,7 +997,7 @@ final class PluginManagerViewModel {
     }
 }
 
-private func shellCommand(_ argv: [String]) -> String {
+func shellCommand(_ argv: [String]) -> String {
     argv.map(shellEscape).joined(separator: " ")
 }
 
