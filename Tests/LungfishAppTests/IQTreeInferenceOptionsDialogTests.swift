@@ -233,17 +233,22 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
         defer { window.orderOut(nil) }
         window.makeKey()
 
-        func focusedIdentifier() -> String? {
-            var view = window.firstResponder as? NSView
-            while let current = view {
-                let identifier = current.accessibilityIdentifier()
-                if identifier.isEmpty == false { return identifier }
-                view = current.superview
-            }
-            return nil
+        // SwiftUI sets the identifier on the pop-up's accessibility element, not
+        // on the AppKit view that becomes first responder, so the focused view is
+        // matched to the element: the element reports focus, or the focused
+        // view lies inside the element's frame.
+        func modelPopUpHasFocus() -> Bool {
+            guard let element = AccessibilityTreeProbe.element(in: window, identifier: "iqtree-options-model")
+                    as? NSAccessibilityProtocol,
+                  let responder = window.firstResponder as? NSView,
+                  responder !== window.contentView else { return false }
+            if element.isAccessibilityFocused() { return true }
+            let responderFrame = window.convertToScreen(responder.convert(responder.bounds, to: nil))
+            let elementFrame = element.accessibilityFrame()
+            return !elementFrame.isEmpty && elementFrame.contains(CGPoint(x: responderFrame.midX, y: responderFrame.midY))
         }
-        AccessibilityTreeProbe.waitUntil { focusedIdentifier() == "iqtree-options-model" }
-        XCTAssertEqual(focusedIdentifier(), "iqtree-options-model", String(describing: window.firstResponder))
+        AccessibilityTreeProbe.waitUntil { modelPopUpHasFocus() }
+        XCTAssertTrue(modelPopUpHasFocus(), String(describing: window.firstResponder))
     }
 
     /// The live AX tree, as VoiceOver reads it. Every text field speaks its
