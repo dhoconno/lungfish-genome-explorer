@@ -182,13 +182,16 @@ extension ToolGoldenCase {
     // MARK: Workflow engines through ProcessManager
 
     /// NXF_HOME points into the scratch folder so a probe never writes the
-    /// user's ~/.nextflow. Everything else is the shared launch environment.
+    /// user's ~/.nextflow. NXF_DISABLE_CHECK_LATEST keeps Nextflow from asking
+    /// the network for a newer release, whose notice would otherwise enter
+    /// stderr the day one is published. Everything else is the shared launch
+    /// environment.
     static let engineCases: [ToolGoldenCase] = [
         .init("nextflow-version", tool: "nextflow", runner: .processManager(engine: "nextflow"), tier: .heavy,
-              argv: ["-version"], compareStderr: true, environment: ["NXF_HOME": "{work}/nxf-home"]),
+              argv: ["-version"], compareStderr: true, environment: ["NXF_HOME": "{work}/nxf-home", "NXF_DISABLE_CHECK_LATEST": "true"]),
         .init("nextflow-run-missing-script", tool: "nextflow", runner: .processManager(engine: "nextflow"),
               tier: .heavy, argv: ["run", "{in}/missing.nf"], compareStderr: true,
-              environment: ["NXF_HOME": "{work}/nxf-home"]),
+              environment: ["NXF_HOME": "{work}/nxf-home", "NXF_DISABLE_CHECK_LATEST": "true"]),
         .init("snakemake-version", tool: "snakemake", runner: .processManager(engine: "snakemake"), tier: .heavy,
               argv: ["--version"], compareStderr: true),
         .init("snakemake-missing-snakefile", tool: "snakemake", runner: .processManager(engine: "snakemake"),
