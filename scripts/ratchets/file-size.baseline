@@ -49,7 +49,7 @@ Sources/LungfishApp/Views/Metagenomics/TaxaCollectionsDrawerView.swift 806
 Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction.swift 891
 Sources/LungfishApp/Views/Metagenomics/TaxonomySunburstView.swift 874
 Sources/LungfishApp/Views/Metagenomics/TaxonomyTableView.swift 1602
-Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift 1972
+Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift 1968
 Sources/LungfishApp/Views/Operations/OperationsPanelViewController.swift 1059
 Sources/LungfishApp/Views/PluginManager/PluginManagerView.swift 1283
 Sources/LungfishApp/Views/PluginManager/PluginManagerViewModel.swift 1161

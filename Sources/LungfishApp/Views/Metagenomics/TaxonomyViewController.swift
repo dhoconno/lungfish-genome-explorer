@@ -459,12 +459,8 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             ?? result.config.inputFiles.first?
                 .deletingPathExtension().lastPathComponent
             ?? "sample"
-        let projectURL = result.config.outputDirectory
-            .deletingLastPathComponent()  // derivatives/
-            .deletingLastPathComponent()  // bundle.lungfishfastq/
-            .deletingLastPathComponent()  // project/
         let sampleName = FASTQDisplayNameResolver.resolveDisplayName(
-            sampleId: rawSampleName, projectURL: projectURL)
+            sampleId: rawSampleName, projectURL: Self.projectURL(forClassificationOutput: result.config.outputDirectory))
         sampleEntries = [Kraken2SampleEntry(
             id: rawSampleName,
             displayName: sampleName,
