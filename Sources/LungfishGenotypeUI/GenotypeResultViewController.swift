@@ -5242,7 +5242,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             case let .cell(locus, genotype, sample, stableClusterID):
                 return [("Selection Type", "Cell"), ("Sample", sample), ("Locus", locus), ("Genotype", genotype)]
                     + (stableClusterID.map { [("Cluster ID", $0)] } ?? [])
-                    + GenotypeSharedReadsDetailRow.rows(genotype: genotype, sample: sample, callsBySample: callsBySample)
+                    + GenotypeIndelReviewDetailRow.rowsBesideSharedReads(genotype: genotype, sample: sample, callsBySample: callsBySample)
             }
         }
         return [
@@ -5293,7 +5293,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         }
         rows.append(("Locus", sharedCall.locus))
         rows += sharedCall.aliasDisplay.map { [("Aliases", $0)] } ?? []
-        rows += GenotypeSharedReadsDetailRow.rows(genotype: sharedCall.genotype, sample: sample, callsBySample: callsBySample)
+        rows += GenotypeIndelReviewDetailRow.rowsBesideSharedReads(genotype: sharedCall.genotype, sample: sample, callsBySample: callsBySample)
         rows += genBankFieldRows(for: sharedCall.genotype)
         let matrixTargets = providedMatrixTargets ?? [
             sample.map {

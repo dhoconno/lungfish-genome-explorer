@@ -13,6 +13,7 @@ import LungfishTestSupport
 @MainActor
 final class GenotypeResultViewportSharedReadsTests: GenotypeResultViewportTestCase {
     private let sharedReadsLabel = "Shares reads with"
+    private let reviewFlagLabel = "Review flag"
 
     func testSelectedTiedCellNamesThePartnersItSharesReadsWith() {
         let tie = ["01_M1_A1_001", "02_M1_A1_002"]
@@ -77,7 +78,73 @@ final class GenotypeResultViewportSharedReadsTests: GenotypeResultViewportTestCa
         XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0.0 == sharedReadsLabel })
     }
 
-    private func tiedCall(sample: String, genotype: String, reads: Int, ambiguousWith: [String]?) -> ONTGenotypeCall {
+    /// The indel review flag sits beside the tie partners. A full-length call
+    /// whose best hit carries indel bases has `review_flag` "indel" in the
+    /// long summary, and the Selected Item detail of its cell says so in
+    /// plain words. A call without indels, and a row selection, get no row.
+    func testSelectedCellOfAnIndelCallShowsTheReviewFlagBesideItsPartners() {
+        let tie = ["01_M1_A1_001", "02_M1_A1_002"]
+        let calls = [
+            tiedCall(sample: "LF1", genotype: tie[0], reads: 1_000, ambiguousWith: tie, indelBases: 3),
+            tiedCall(sample: "LF1", genotype: tie[1], reads: 1_000, ambiguousWith: tie, indelBases: 0),
+            tiedCall(sample: "LF1", genotype: "03_M2_A1_003", reads: 15, ambiguousWith: nil, indelBases: 1),
+            tiedCall(sample: "LF2", genotype: tie[0], reads: 400, ambiguousWith: nil, indelBases: nil),
+        ]
+        let locus = calls[0].locusGroup
+        let controller = makeMatrixAnnotationGuardedController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: calls,
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue
+        ))
+
+        let threeBases = (
+            reviewFlagLabel,
+            "Indel. The reads match this reference with 3 inserted or deleted bases, "
+                + "so check the alignment before relying on this call."
+        )
+        controller.testingSelectMatrixCell(genotype: tie[0], sample: "LF1")
+        var rows = controller.testingCurrentSelectionDetailRows
+        let partnerIndex = rows.firstIndex { $0 == (sharedReadsLabel, tie[1]) }
+        let flagIndex = rows.firstIndex { $0 == threeBases }
+        XCTAssertNotNil(flagIndex, "the indel call shows its review flag, rows were \(rows)")
+        XCTAssertEqual(flagIndex, partnerIndex.map { $0 + 1 }, "the flag follows the tie partners, rows were \(rows)")
+
+        controller.testingSelectMatrixCell(genotype: "03_M2_A1_003", sample: "LF1")
+        rows = controller.testingCurrentSelectionDetailRows
+        XCTAssertTrue(
+            rows.contains {
+                $0 == (reviewFlagLabel, "Indel. The reads match this reference with 1 inserted or deleted base, "
+                    + "so check the alignment before relying on this call.")
+            },
+            "one base reads in the singular, rows were \(rows)"
+        )
+
+        controller.testingSelectMatrixCell(genotype: tie[1], sample: "LF1")
+        XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0.0 == reviewFlagLabel })
+        controller.testingSelectMatrixCell(genotype: tie[0], sample: "LF2")
+        XCTAssertFalse(
+            controller.testingCurrentSelectionDetailRows.contains { $0.0 == reviewFlagLabel },
+            "the flag belongs to one animal's call, not to the allele"
+        )
+
+        controller.testingShowMatrixTargetSelection([.row(locus: locus, genotype: tie[0])])
+        XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0.0 == reviewFlagLabel })
+        controller.testingShowMatrixTargetSelection([.cell(locus: locus, genotype: tie[0], sample: "LF1")])
+        XCTAssertTrue(
+            controller.testingCurrentSelectionDetailRows.contains { $0 == threeBases },
+            "a cell target shows the flag too, rows were \(controller.testingCurrentSelectionDetailRows)"
+        )
+    }
+
+    private func tiedCall(
+        sample: String,
+        genotype: String,
+        reads: Int,
+        ambiguousWith: [String]?,
+        indelBases: Int? = nil
+    ) -> ONTGenotypeCall {
         ONTGenotypeCall(
             sample: sample,
             genotype: genotype,
@@ -89,7 +156,8 @@ final class GenotypeResultViewportSharedReadsTests: GenotypeResultViewportTestCa
             overallInputReads: nil,
             overallUniqueRetainedReads: nil,
             overallUniqueRetainedPercent: nil,
-            ambiguousWith: ambiguousWith
+            ambiguousWith: ambiguousWith,
+            indelBases: indelBases
         )
     }
 }
