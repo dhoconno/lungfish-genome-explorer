@@ -1,0 +1,2 @@
+<STORAGE_ROOT>/conda/envs/clair3/bin/run_clair3.sh
+--version

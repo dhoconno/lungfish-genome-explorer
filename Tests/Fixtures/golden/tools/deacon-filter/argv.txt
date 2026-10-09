@@ -1,0 +1,5 @@
+<STORAGE_ROOT>/conda/envs/deacon/bin/deacon
+filter
+-d
+<SCRATCH>/work/genome.idx
+<SCRATCH>/in/test_1.fastq.gz

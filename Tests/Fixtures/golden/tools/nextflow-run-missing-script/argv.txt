@@ -1,0 +1,3 @@
+<STORAGE_ROOT>/conda/envs/nextflow/bin/nextflow
+run
+<SCRATCH>/in/missing.nf

@@ -1,0 +1,9 @@
+<STORAGE_ROOT>/conda/bin/micromamba
+run
+-n
+pysam
+python
+-c
+import os, sys; print('argv=' + repr(sys.argv[1:])); [print('key=' + k) for k in sorted(os.environ)]; [print(k + '=' + os.environ.get(k, '<unset>')) for k in ('PATH', 'CONDA_PREFIX', 'CONDA_DEFAULT_ENV', 'CONDA_SHLVL', 'MAMBA_ROOT_PREFIX', 'PWD', 'LC_ALL')]
+argument with spaces
+<SCRATCH>/in/genome.fasta

@@ -1,0 +1,6 @@
+id: bbtools-reformat-stdout-conda
+tool: BBTools reformat.sh
+tier: light
+runner: conda
+call: CondaManager.runTool(name: reformat.sh, environment: bbtools)
+compares: argv, exit, stdout

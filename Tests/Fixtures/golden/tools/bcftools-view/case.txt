@@ -1,0 +1,6 @@
+id: bcftools-view
+tool: bcftools
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.bcftools)
+compares: argv, exit, stdout

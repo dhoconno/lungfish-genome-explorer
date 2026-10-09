@@ -1,0 +1,6 @@
+id: seqkit-stats-missing-input
+tool: seqkit
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.seqkit)
+compares: argv, exit, stdout, stderr

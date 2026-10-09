@@ -1,0 +1,6 @@
+id: bwa-mem2-index
+tool: bwa-mem2
+tier: light
+runner: conda
+call: CondaManager.runTool(name: bwa-mem2, environment: bwa-mem2)
+compares: argv, exit, stdout, outputs/genome.0123, outputs/genome.amb, outputs/genome.ann, outputs/genome.bwt.2bit.64, outputs/genome.pac

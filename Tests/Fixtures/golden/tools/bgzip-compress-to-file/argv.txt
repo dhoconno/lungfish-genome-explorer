@@ -1,0 +1,5 @@
+<STORAGE_ROOT>/conda/envs/htslib/bin/bgzip
+-c
+<SCRATCH>/in/test.vcf
+>
+<SCRATCH>/work/test.vcf.gz

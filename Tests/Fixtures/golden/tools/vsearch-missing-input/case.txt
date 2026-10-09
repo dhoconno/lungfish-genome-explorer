@@ -1,0 +1,6 @@
+id: vsearch-missing-input
+tool: vsearch
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.vsearch)
+compares: argv, exit, stdout, stderr

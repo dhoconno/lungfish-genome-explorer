@@ -1,0 +1,23 @@
+
+medaka 2.2.2
+------------
+
+Haploid variant calling via neural networks.
+
+medaka_variant [-h] -i <fastx> -r <fasta>
+
+    -h  show this help text.
+    -i  fastx input basecalls (required).
+    -r  fasta reference sequence (required).
+    -o  output folder (default: medaka).
+    -m  medaka model, (default: r1041_e82_400bps_sup_variant_v5.0.0).
+        Choices: r103_fast_variant_g507 r103_hac_variant_g507 r103_sup_variant_g507 r1041_e82_260bps_fast_variant_g632 r1041_e82_260bps_hac_variant_g632 r1041_e82_260bps_hac_variant_v4.1.0 r1041_e82_260bps_sup_variant_g632 r1041_e82_260bps_sup_variant_v4.1.0 r1041_e82_400bps_fast_variant_g615 r1041_e82_400bps_fast_variant_g632 r1041_e82_400bps_hac_variant_g615 r1041_e82_400bps_hac_variant_g632 r1041_e82_400bps_hac_variant_v4.1.0 r1041_e82_400bps_hac_variant_v4.2.0 r1041_e82_400bps_hac_variant_v4.3.0 r1041_e82_400bps_hac_variant_v5.0.0 r1041_e82_400bps_sup_variant_g615 r1041_e82_400bps_sup_variant_v4.1.0 r1041_e82_400bps_sup_variant_v4.2.0 r1041_e82_400bps_sup_variant_v4.3.0 r1041_e82_400bps_sup_variant_v5.0.0 r104_e81_fast_variant_g5015 r104_e81_hac_variant_g5015 r104_e81_sup_variant_g610 r941_e81_fast_variant_g514 r941_e81_hac_variant_g514 r941_e81_sup_variant_g514 r941_min_fast_variant_g507 r941_min_hac_variant_g507 r941_min_sup_variant_g507 r941_prom_fast_variant_g507 r941_prom_hac_variant_g507 r941_prom_sup_variant_g507 r941_sup_plant_variant_g61.
+        If not provided, and automatic choice will be attempted based on
+        the contents of the input file.
+    -s  Perform read realignment when annotating variants.
+    -f  Force overwrite of outputs (default will reuse existing outputs).
+    -x  Force recreation of alignment index.
+    -t  number of threads with which to create features (default: 1).
+    -b  batchsize, controls memory use (default: 100).
+
+-i must be specified.

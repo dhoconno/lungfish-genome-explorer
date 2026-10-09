@@ -1,0 +1,3 @@
+<STORAGE_ROOT>/conda/envs/medaka/bin/medaka
+consensus
+<SCRATCH>/in/missing.bam

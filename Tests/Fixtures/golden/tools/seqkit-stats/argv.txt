@@ -1,0 +1,8 @@
+<STORAGE_ROOT>/conda/envs/seqkit/bin/seqkit
+stats
+-a
+-T
+-j
+1
+<SCRATCH>/in/test_1.fastq.gz
+<SCRATCH>/in/test_2.fastq.gz

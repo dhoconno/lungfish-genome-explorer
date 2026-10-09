@@ -1,0 +1,2 @@
+status	in_reads	in_bp	too_short	too_long	too_many_n	out_reads	w/adapters	qualtrim_bp	out_bp
+OK	100	13897	0	0	0	100	2	0	13890

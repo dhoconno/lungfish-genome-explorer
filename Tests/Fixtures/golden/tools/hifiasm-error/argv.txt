@@ -1,0 +1,8 @@
+<STORAGE_ROOT>/conda/bin/micromamba
+run
+-n
+hifiasm
+hifiasm
+-o
+<SCRATCH>/work/hifiasm
+<SCRATCH>/in/missing.fq

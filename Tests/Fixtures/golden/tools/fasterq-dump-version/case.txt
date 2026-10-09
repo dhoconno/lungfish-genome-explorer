@@ -1,0 +1,6 @@
+id: fasterq-dump-version
+tool: fasterq-dump
+tier: heavy
+runner: nativeTool
+call: NativeToolRunner.run(.fasterqDump)
+compares: argv, exit, stdout, stderr

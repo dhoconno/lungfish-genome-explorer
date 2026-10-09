@@ -1,0 +1,3 @@
+<STORAGE_ROOT>/conda/envs/htslib/bin/tabix
+<SCRATCH>/in/test.vcf.gz
+MT192765.1:1-10000

@@ -1,0 +1,6 @@
+id: bbtools-reformat-missing-input
+tool: BBTools reformat.sh
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.reformat)
+compares: argv, exit, stdout, stderr

@@ -1,0 +1,4 @@
+skesa --reads <SCRATCH>/in/missing.fq 
+
+
+Error (./readsgetter.hpp:297): Errno 2 opening file <SCRATCH>/in/missing.fq

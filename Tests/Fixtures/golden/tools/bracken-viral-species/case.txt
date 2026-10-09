@@ -1,0 +1,7 @@
+id: bracken-viral-species
+tool: bracken
+tier: light
+runner: conda
+call: CondaManager.runTool(name: bracken, environment: bracken)
+compares: argv, exit, stdout, outputs/bracken.tsv, outputs/bracken.kreport
+masks: bracken-program-time

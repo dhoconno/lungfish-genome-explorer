@@ -1,0 +1,4 @@
+<STORAGE_ROOT>/conda/envs/bcftools/bin/bcftools
+view
+--no-version
+<SCRATCH>/in/test.vcf.gz

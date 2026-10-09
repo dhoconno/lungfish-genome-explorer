@@ -1,0 +1,3 @@
+<STORAGE_ROOT>/conda/envs/samtools/bin/samtools
+view
+<SCRATCH>/in/missing.bam

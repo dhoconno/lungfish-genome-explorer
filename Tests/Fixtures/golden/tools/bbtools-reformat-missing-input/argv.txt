@@ -1,0 +1,4 @@
+<STORAGE_ROOT>/conda/envs/bbtools/bin/reformat.sh
+-Xmx1g
+in=<SCRATCH>/in/missing.fq
+out=stdout.fq

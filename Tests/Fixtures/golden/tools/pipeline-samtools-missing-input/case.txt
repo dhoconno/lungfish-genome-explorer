@@ -1,0 +1,6 @@
+id: pipeline-samtools-missing-input
+tool: samtools | samtools
+tier: light
+runner: pipeline
+call: NativeToolRunner.runPipeline(.samtools | .samtools)
+compares: argv, exit, stdout, stderr

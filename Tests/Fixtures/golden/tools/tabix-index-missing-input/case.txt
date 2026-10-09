@@ -1,0 +1,6 @@
+id: tabix-index-missing-input
+tool: tabix
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.tabix)
+compares: argv, exit, stdout, stderr

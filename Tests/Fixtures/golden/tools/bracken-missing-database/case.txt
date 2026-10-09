@@ -1,0 +1,6 @@
+id: bracken-missing-database
+tool: bracken
+tier: light
+runner: conda
+call: CondaManager.runTool(name: bracken, environment: bracken)
+compares: argv, exit, stdout, stderr

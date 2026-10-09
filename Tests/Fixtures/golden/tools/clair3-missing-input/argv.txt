@@ -1,0 +1,7 @@
+<STORAGE_ROOT>/conda/envs/clair3/bin/run_clair3.sh
+--bam_fn=<SCRATCH>/in/missing.bam
+--ref_fn=<SCRATCH>/in/genome.fasta
+--threads=1
+--platform=ont
+--model_path=<SCRATCH>/in/no-model
+--output=<SCRATCH>/work/clair3

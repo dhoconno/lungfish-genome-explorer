@@ -1,0 +1,9 @@
+<STORAGE_ROOT>/conda/bin/micromamba
+run
+-n
+deacon
+deacon
+filter
+-d
+<SCRATCH>/work/genome.idx
+<SCRATCH>/in/test_1.fastq.gz

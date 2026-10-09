@@ -1,0 +1,12 @@
+<STORAGE_ROOT>/conda/envs/bcftools/bin/bcftools
+mpileup
+--no-version
+-f
+<SCRATCH>/in/genome.fasta
+-Ou
+<SCRATCH>/in/test.paired_end.sorted.bam
+|
+<STORAGE_ROOT>/conda/envs/bcftools/bin/bcftools
+call
+--no-version
+-mv

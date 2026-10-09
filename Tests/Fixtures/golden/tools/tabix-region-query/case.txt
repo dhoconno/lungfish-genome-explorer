@@ -1,0 +1,6 @@
+id: tabix-region-query
+tool: tabix
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.tabix)
+compares: argv, exit, stdout

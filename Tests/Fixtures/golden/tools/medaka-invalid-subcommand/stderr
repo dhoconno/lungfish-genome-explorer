@@ -1,0 +1,4 @@
+usage: medaka [-h] [--version]
+              {compress_bam,features,train,inference,smolecule,tandem,consensus_from_features,fastrle,sequence,vcf,tools}
+              ...
+medaka: error: argument command: invalid choice: 'consensus' (choose from compress_bam, features, train, inference, smolecule, tandem, consensus_from_features, fastrle, sequence, vcf, tools)

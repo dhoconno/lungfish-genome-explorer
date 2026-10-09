@@ -1,0 +1,6 @@
+id: bgzip-missing-input
+tool: bgzip
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.bgzip)
+compares: argv, exit, stdout, stderr

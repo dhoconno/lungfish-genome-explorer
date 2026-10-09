@@ -1,0 +1,6 @@
+id: pipeline-bcftools-mpileup-call
+tool: bcftools | bcftools
+tier: light
+runner: pipeline
+call: NativeToolRunner.runPipeline(.bcftools | .bcftools)
+compares: argv, exit, stdout

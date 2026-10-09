@@ -1,0 +1,6 @@
+id: nextflow-version
+tool: nextflow
+tier: heavy
+runner: processManager
+call: ProcessManager.runAndWait(nextflow)
+compares: argv, exit, stdout, stderr

@@ -1,0 +1,6 @@
+id: medaka-version
+tool: medaka
+tier: heavy
+runner: nativeTool
+call: NativeToolRunner.run(.medaka)
+compares: argv, exit, stdout, stderr

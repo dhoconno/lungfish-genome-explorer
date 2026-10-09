@@ -1,0 +1,7 @@
+java -ea   -Xmx1g -Xms1g -cp <STORAGE_ROOT>/conda/envs/bbtools/opt/bbmap-40.02-0/current/ jgi.ReformatReads -Xmx1g in=<SCRATCH>/in/missing.fq out=stdout.fq
+Executing jgi.ReformatReads [-Xmx1g, in=<SCRATCH>/in/missing.fq, out=stdout.fq]
+
+Exception in thread "main" java.lang.RuntimeException: Can't read file '<SCRATCH>/in/missing.fq'
+	at shared.Tools.testInputFiles(Tools.java:298)
+	at jgi.ReformatReads.<init>(ReformatReads.java:399)
+	at jgi.ReformatReads.main(ReformatReads.java:58)

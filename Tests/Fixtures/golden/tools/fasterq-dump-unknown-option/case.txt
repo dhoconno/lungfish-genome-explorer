@@ -1,0 +1,7 @@
+id: fasterq-dump-unknown-option
+tool: fasterq-dump
+tier: heavy
+runner: nativeTool
+call: NativeToolRunner.run(.fasterqDump)
+compares: argv, exit, stdout, stderr
+masks: sra-log-timestamp

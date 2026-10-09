@@ -1,0 +1,18 @@
+ >> Checking for Valid Options...
+ >> Running Bracken 
+      >> python src/est_abundance.py -i <SCRATCH>/work/classification.kreport -o <SCRATCH>/work/bracken.tsv -k <STORAGE_ROOT>/databases/kraken2/viral/database150mers.kmer_distrib -l S -t 0
+PROGRAM START TIME: <TIMESTAMP>
+BRACKEN SUMMARY (Kraken report: <SCRATCH>/work/classification.kreport)
+    >>> Threshold: 0 
+    >>> Number of species in sample: 1 
+	  >> Number of species with reads > threshold: 1 
+	  >> Number of species with reads < threshold: 0 
+    >>> Total reads in sample: 100
+	  >> Total reads kept at species level (reads > threshold): 100
+	  >> Total reads discarded (species reads < threshold): 0
+	  >> Reads distributed: 0
+	  >> Reads not distributed (eg. no species above threshold): 0
+	  >> Unclassified reads: 0
+BRACKEN OUTPUT PRODUCED: <SCRATCH>/work/bracken.tsv
+PROGRAM END TIME: <TIMESTAMP>
+  Bracken complete.

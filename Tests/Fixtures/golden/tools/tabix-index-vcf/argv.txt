@@ -1,0 +1,4 @@
+<STORAGE_ROOT>/conda/envs/htslib/bin/tabix
+-p
+vcf
+<SCRATCH>/in/test.vcf.gz

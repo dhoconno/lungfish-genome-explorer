@@ -1,0 +1,9 @@
+<STORAGE_ROOT>/conda/envs/ribodetector/bin/ribodetector_cpu
+-t
+1
+-l
+150
+-i
+<SCRATCH>/in/test_1.fastq.gz
+-e
+rrna

@@ -1,0 +1,6 @@
+id: deacon-filter-missing-index
+tool: deacon
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.deacon)
+compares: argv, exit, stdout, stderr

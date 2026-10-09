@@ -1,0 +1,8 @@
+<STORAGE_ROOT>/conda/envs/bbtools/bin/bbmerge.sh
+-Xmx1g
+in1=<SCRATCH>/in/test_1.fastq.gz
+in2=<SCRATCH>/in/test_2.fastq.gz
+out=<SCRATCH>/work/merged.fq
+outu1=<SCRATCH>/work/unmerged_1.fq
+outu2=<SCRATCH>/work/unmerged_2.fq
+t=1

@@ -1,0 +1,15 @@
+<STORAGE_ROOT>/conda/bin/micromamba
+run
+-n
+bowtie2
+bowtie2
+-p
+1
+--seed
+0
+-x
+<SCRATCH>/work/genome
+-1
+<SCRATCH>/in/test_1.fastq.gz
+-2
+<SCRATCH>/in/test_2.fastq.gz

@@ -1,0 +1,2 @@
+<STORAGE_ROOT>/conda/envs/medaka/bin/medaka
+--version

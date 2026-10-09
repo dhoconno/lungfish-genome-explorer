@@ -1,0 +1,6 @@
+id: fastp-missing-input
+tool: fastp
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.fastp)
+compares: argv, exit, stdout, stderr

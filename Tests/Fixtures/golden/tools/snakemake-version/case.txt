@@ -1,0 +1,6 @@
+id: snakemake-version
+tool: snakemake
+tier: heavy
+runner: processManager
+call: ProcessManager.runAndWait(snakemake)
+compares: argv, exit, stdout, stderr

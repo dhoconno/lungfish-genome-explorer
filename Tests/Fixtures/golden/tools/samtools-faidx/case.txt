@@ -1,0 +1,6 @@
+id: samtools-faidx
+tool: samtools
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.samtools)
+compares: argv, exit, stdout, outputs/genome.fasta.fai

@@ -1,0 +1,6 @@
+id: clair3-version
+tool: clair3
+tier: heavy
+runner: nativeTool
+call: NativeToolRunner.run(.clair3)
+compares: argv, exit, stdout, stderr

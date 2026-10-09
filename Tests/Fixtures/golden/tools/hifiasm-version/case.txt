@@ -1,0 +1,6 @@
+id: hifiasm-version
+tool: hifiasm
+tier: heavy
+runner: conda
+call: CondaManager.runTool(name: hifiasm, environment: hifiasm)
+compares: argv, exit, stdout, stderr

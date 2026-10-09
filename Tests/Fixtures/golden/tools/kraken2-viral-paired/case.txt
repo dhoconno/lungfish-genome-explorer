@@ -1,0 +1,6 @@
+id: kraken2-viral-paired
+tool: kraken2
+tier: light
+runner: conda
+call: CondaManager.runTool(name: kraken2, environment: kraken2)
+compares: argv, exit, stdout, outputs/classification.kreport

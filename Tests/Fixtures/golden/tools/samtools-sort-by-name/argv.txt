@@ -1,0 +1,9 @@
+<STORAGE_ROOT>/conda/envs/samtools/bin/samtools
+sort
+-n
+--no-PG
+-@
+1
+-o
+<SCRATCH>/work/name-sorted.bam
+<SCRATCH>/in/test.paired_end.sorted.bam

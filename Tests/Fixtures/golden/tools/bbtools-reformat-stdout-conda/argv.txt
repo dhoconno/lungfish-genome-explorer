@@ -1,0 +1,8 @@
+<STORAGE_ROOT>/conda/bin/micromamba
+run
+-n
+bbtools
+reformat.sh
+-Xmx1g
+in=<SCRATCH>/in/test_1.fastq.gz
+out=stdout.fq

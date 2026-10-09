@@ -1,0 +1,6 @@
+<STORAGE_ROOT>/conda/envs/seqkit/bin/seqkit
+stats
+-T
+-j
+1
+<SCRATCH>/in/missing.fq

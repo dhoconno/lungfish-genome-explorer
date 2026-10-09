@@ -1,0 +1,11 @@
+<STORAGE_ROOT>/conda/bin/micromamba
+run
+-n
+bwa-mem2
+bwa-mem2
+mem
+-t
+1
+<SCRATCH>/work/genome
+<SCRATCH>/in/test_1.fastq.gz
+<SCRATCH>/in/test_2.fastq.gz

@@ -1,0 +1,7 @@
+id: prefetch-unknown-option
+tool: prefetch
+tier: heavy
+runner: nativeTool
+call: NativeToolRunner.run(.prefetch)
+compares: argv, exit, stdout, stderr
+masks: sra-log-timestamp

@@ -1,0 +1,6 @@
+id: esviritu-error
+tool: EsViritu
+tier: heavy
+runner: conda
+call: CondaManager.runTool(name: EsViritu, environment: esviritu)
+compares: argv, exit, stdout, stderr

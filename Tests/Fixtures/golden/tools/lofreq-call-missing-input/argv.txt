@@ -1,0 +1,7 @@
+<STORAGE_ROOT>/conda/envs/lofreq/bin/lofreq
+call
+-f
+<SCRATCH>/in/genome.fasta
+-o
+<SCRATCH>/work/lofreq.vcf
+<SCRATCH>/in/missing.bam

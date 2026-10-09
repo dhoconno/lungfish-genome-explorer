@@ -1,0 +1,6 @@
+id: deacon-index-build
+tool: deacon
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.deacon)
+compares: argv, exit, stdout, outputs/genome.idx

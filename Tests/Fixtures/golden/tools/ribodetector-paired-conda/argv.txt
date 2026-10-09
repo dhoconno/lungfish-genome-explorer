@@ -1,0 +1,17 @@
+<STORAGE_ROOT>/conda/bin/micromamba
+run
+-n
+ribodetector
+ribodetector_cpu
+-t
+1
+-l
+150
+-i
+<SCRATCH>/in/test_1.fastq.gz
+<SCRATCH>/in/test_2.fastq.gz
+-e
+rrna
+-o
+<SCRATCH>/work/nonrrna_1.fq
+<SCRATCH>/work/nonrrna_2.fq

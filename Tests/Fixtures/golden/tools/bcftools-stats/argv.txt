@@ -1,0 +1,3 @@
+<STORAGE_ROOT>/conda/envs/bcftools/bin/bcftools
+stats
+<SCRATCH>/in/test.vcf.gz

@@ -1,0 +1,6 @@
+id: mafft-auto
+tool: mafft
+tier: light
+runner: conda
+call: CondaManager.runTool(name: mafft, environment: mafft)
+compares: argv, exit, stdout

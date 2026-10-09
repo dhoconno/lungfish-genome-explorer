@@ -1,0 +1,7 @@
+<STORAGE_ROOT>/conda/envs/blast/bin/blastn
+-query
+<SCRATCH>/in/query.fasta
+-subject
+<SCRATCH>/in/genome.fasta
+-outfmt
+6

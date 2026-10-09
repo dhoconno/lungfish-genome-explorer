@@ -1,0 +1,9 @@
+<STORAGE_ROOT>/conda/envs/bbtools/bin/bbduk.sh
+-Xmx1g
+in=<SCRATCH>/in/test_1.fastq.gz
+out=<SCRATCH>/work/bbduk.fq
+literal=AGATCGGAAGAGC
+k=13
+ktrim=r
+mink=11
+t=1

@@ -1,0 +1,4 @@
+<STORAGE_ROOT>/conda/envs/samtools/bin/samtools
+depth
+-a
+<SCRATCH>/in/test.paired_end.sorted.bam

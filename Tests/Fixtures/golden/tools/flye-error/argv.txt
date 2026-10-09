@@ -1,0 +1,7 @@
+<STORAGE_ROOT>/conda/bin/micromamba
+run
+-n
+flye
+flye
+--nano-raw
+<SCRATCH>/in/missing.fq

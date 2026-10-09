@@ -1,0 +1,6 @@
+id: blastn-subject
+tool: blastn
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.blastn)
+compares: argv, exit, stdout

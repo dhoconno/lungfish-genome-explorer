@@ -1,0 +1,7 @@
+<STORAGE_ROOT>/conda/bin/micromamba
+run
+-n
+esviritu
+EsViritu
+-r
+<SCRATCH>/in/missing.fq

@@ -1,0 +1,6 @@
+id: deacon-filter-conda
+tool: deacon
+tier: light
+runner: conda
+call: CondaManager.runTool(name: deacon, environment: deacon)
+compares: argv, exit, stdout

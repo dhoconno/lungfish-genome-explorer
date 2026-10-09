@@ -1,0 +1,6 @@
+id: trim-galore-single
+tool: trim_galore
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.trimGalore)
+compares: argv, exit, stdout, outputs/test_1_trimmed.fq

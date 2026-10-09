@@ -1,0 +1,6 @@
+id: savont-error
+tool: savont
+tier: heavy
+runner: conda
+call: CondaManager.runTool(name: savont, environment: savont)
+compares: argv, exit, stdout, stderr

@@ -1,0 +1,6 @@
+id: conda-environment-probe
+tool: python (pysam env)
+tier: light
+runner: conda
+call: CondaManager.runTool(name: python, environment: pysam)
+compares: argv, exit, stdout

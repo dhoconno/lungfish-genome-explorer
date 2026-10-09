@@ -1,0 +1,8 @@
+<STORAGE_ROOT>/conda/envs/ivar/bin/ivar
+trim
+-i
+<SCRATCH>/in/missing.bam
+-b
+<SCRATCH>/in/test.bed
+-p
+<SCRATCH>/work/trimmed

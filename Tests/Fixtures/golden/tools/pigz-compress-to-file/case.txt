@@ -1,0 +1,6 @@
+id: pigz-compress-to-file
+tool: pigz
+tier: light
+runner: nativeFileOutput
+call: NativeToolRunner.runWithFileOutput(.pigz) > {work}/reads.fastq.gz
+compares: argv, exit, stdout, outputs/reads.fastq.gz

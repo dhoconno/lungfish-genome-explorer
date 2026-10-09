@@ -1,0 +1,7 @@
+<STORAGE_ROOT>/conda/envs/pigz/bin/pigz
+-c
+-p
+2
+<SCRATCH>/in/missing.fastq
+>
+<SCRATCH>/work/reads.fastq.gz

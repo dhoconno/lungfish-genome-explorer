@@ -1,0 +1,6 @@
+id: megahit-error
+tool: MEGAHIT
+tier: heavy
+runner: conda
+call: CondaManager.runTool(name: megahit, environment: megahit)
+compares: argv, exit, stdout, stderr

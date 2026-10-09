@@ -1,0 +1,3 @@
+@HD	VN:1.6	SO:unsorted	GO:query
+@SQ	SN:MT192765.1	LN:29829
+@PG	ID:minimap2	PN:minimap2	VN:2.31-r1302	CL:minimap2 -v 1 -a -x sr -t 1 <SCRATCH>/in/genome.fasta <SCRATCH>/in/missing.fq

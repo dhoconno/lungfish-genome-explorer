@@ -1,0 +1,6 @@
+id: medaka-variant-no-arguments
+tool: medaka_variant
+tier: heavy
+runner: nativeTool
+call: NativeToolRunner.run(.medakaVariant)
+compares: argv, exit, stdout, stderr

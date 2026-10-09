@@ -1,0 +1,6 @@
+id: samtools-runprocess-missing-input
+tool: samtools
+tier: light
+runner: nativeProcess
+call: NativeToolRunner.runProcess(envs/samtools/bin/samtools)
+compares: argv, exit, stdout, stderr

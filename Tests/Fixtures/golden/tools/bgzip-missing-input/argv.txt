@@ -1,0 +1,3 @@
+<STORAGE_ROOT>/conda/envs/htslib/bin/bgzip
+-c
+<SCRATCH>/in/missing.vcf

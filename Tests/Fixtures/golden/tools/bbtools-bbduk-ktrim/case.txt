@@ -1,0 +1,6 @@
+id: bbtools-bbduk-ktrim
+tool: BBTools bbduk.sh
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.bbduk)
+compares: argv, exit, stdout, outputs/bbduk.fq

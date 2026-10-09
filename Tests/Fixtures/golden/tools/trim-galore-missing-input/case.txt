@@ -1,0 +1,6 @@
+id: trim-galore-missing-input
+tool: trim_galore
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.trimGalore)
+compares: argv, exit, stdout, stderr

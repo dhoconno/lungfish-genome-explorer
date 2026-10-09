@@ -1,0 +1,6 @@
+id: flye-version
+tool: Flye
+tier: heavy
+runner: conda
+call: CondaManager.runTool(name: flye, environment: flye)
+compares: argv, exit, stdout, stderr

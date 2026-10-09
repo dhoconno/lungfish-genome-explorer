@@ -1,0 +1,9 @@
+<STORAGE_ROOT>/conda/envs/seqkit/bin/seqkit
+sliding
+-s
+10
+-W
+100
+-j
+1
+<SCRATCH>/in/genome.fasta

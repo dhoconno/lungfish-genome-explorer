@@ -1,0 +1,6 @@
+id: bowtie2-align-paired
+tool: bowtie2
+tier: light
+runner: conda
+call: CondaManager.runTool(name: bowtie2, environment: bowtie2)
+compares: argv, exit, stdout

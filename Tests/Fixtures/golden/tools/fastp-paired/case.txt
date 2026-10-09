@@ -1,0 +1,6 @@
+id: fastp-paired
+tool: fastp
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.fastp)
+compares: argv, exit, stdout, outputs/trimmed_1.fq.gz, outputs/trimmed_2.fq.gz, outputs/fastp.json

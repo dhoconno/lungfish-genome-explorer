@@ -1,0 +1,2 @@
+<STORAGE_ROOT>/conda/envs/snakemake/bin/snakemake
+--version

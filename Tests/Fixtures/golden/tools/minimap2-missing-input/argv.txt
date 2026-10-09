@@ -1,0 +1,14 @@
+<STORAGE_ROOT>/conda/bin/micromamba
+run
+-n
+minimap2
+minimap2
+-v
+1
+-a
+-x
+sr
+-t
+1
+<SCRATCH>/in/genome.fasta
+<SCRATCH>/in/missing.fq

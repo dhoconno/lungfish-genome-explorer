@@ -1,0 +1,6 @@
+id: minimap2-sr-paired-stdout
+tool: minimap2
+tier: light
+runner: conda
+call: CondaManager.runTool(name: minimap2, environment: minimap2)
+compares: argv, exit, stdout

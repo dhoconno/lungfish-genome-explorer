@@ -1,0 +1,9 @@
+<STORAGE_ROOT>/conda/bin/micromamba
+run
+-n
+mafft
+mafft
+--thread
+1
+--auto
+<SCRATCH>/in/alignment.fasta

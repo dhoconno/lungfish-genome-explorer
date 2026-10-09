@@ -1,0 +1,6 @@
+<STORAGE_ROOT>/conda/envs/samtools/bin/samtools
+fastq
+-n
+<SCRATCH>/in/test.paired_end.sorted.bam
+>
+<SCRATCH>/work/reads.fastq

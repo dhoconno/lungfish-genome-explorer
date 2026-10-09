@@ -1,0 +1,10 @@
+<STORAGE_ROOT>/conda/bin/micromamba
+run
+-n
+kraken2
+kraken2
+--db
+<SCRATCH>/work/no-database
+--threads
+1
+<SCRATCH>/in/test_1.fastq.gz

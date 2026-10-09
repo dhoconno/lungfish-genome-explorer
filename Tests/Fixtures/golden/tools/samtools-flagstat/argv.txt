@@ -1,0 +1,3 @@
+<STORAGE_ROOT>/conda/envs/samtools/bin/samtools
+flagstat
+<SCRATCH>/in/test.paired_end.sorted.bam

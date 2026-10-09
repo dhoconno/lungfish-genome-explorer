@@ -1,0 +1,6 @@
+id: samtools-fastq-to-file
+tool: samtools
+tier: light
+runner: nativeFileOutput
+call: NativeToolRunner.runWithFileOutput(.samtools) > {work}/reads.fastq
+compares: argv, exit, stdout, outputs/reads.fastq

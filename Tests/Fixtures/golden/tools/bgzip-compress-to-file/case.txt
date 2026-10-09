@@ -1,0 +1,6 @@
+id: bgzip-compress-to-file
+tool: bgzip
+tier: light
+runner: nativeFileOutput
+call: NativeToolRunner.runWithFileOutput(.bgzip) > {work}/test.vcf.gz
+compares: argv, exit, stdout, outputs/test.vcf.gz

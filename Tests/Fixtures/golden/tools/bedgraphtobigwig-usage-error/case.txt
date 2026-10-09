@@ -1,0 +1,6 @@
+id: bedgraphtobigwig-usage-error
+tool: bedGraphToBigWig
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.bedGraphToBigWig)
+compares: argv, exit, stdout, stderr

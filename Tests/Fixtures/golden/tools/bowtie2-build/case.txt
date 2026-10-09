@@ -1,0 +1,6 @@
+id: bowtie2-build
+tool: bowtie2
+tier: light
+runner: conda
+call: CondaManager.runTool(name: bowtie2-build, environment: bowtie2)
+compares: argv, exit, stdout, outputs/genome.1.bt2, outputs/genome.2.bt2, outputs/genome.3.bt2, outputs/genome.4.bt2, outputs/genome.rev.1.bt2, outputs/genome.rev.2.bt2

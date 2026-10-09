@@ -1,0 +1,6 @@
+id: lofreq-call-missing-input
+tool: lofreq
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.lofreq)
+compares: argv, exit, stdout, stderr

@@ -1,0 +1,5 @@
+usage: ribodetector_cpu [-h] [-c CONFIG] -l LEN -i [INPUT ...] -o [OUTPUT ...]
+                        [-r [RRNA ...]] [-e {rrna,norrna,both,none}]
+                        [-t THREADS] [-s SEED] [--chunk_size CHUNK_SIZE]
+                        [--log LOG] [--model-file MODEL_FILE] [-v]
+ribodetector_cpu: error: the following arguments are required: -o/--output

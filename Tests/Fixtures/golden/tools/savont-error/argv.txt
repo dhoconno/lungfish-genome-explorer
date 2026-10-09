@@ -1,0 +1,9 @@
+<STORAGE_ROOT>/conda/bin/micromamba
+run
+-n
+savont
+savont
+asv
+-o
+<SCRATCH>/work/savont
+<SCRATCH>/in/missing.fq

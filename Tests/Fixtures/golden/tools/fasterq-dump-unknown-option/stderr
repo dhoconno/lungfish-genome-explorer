@@ -1,0 +1,2 @@
+<TIMESTAMP> fasterq-dump.3.4.1 err: param unknown while parsing argument list within application support module - Unknown argument '--no-such-option'
+<TIMESTAMP> fasterq-dump.3.4.1 err: ArgsMakeAndHandle() -> RC(rcApp,rcArgv,rcParsing,rcParam,rcUnknown)

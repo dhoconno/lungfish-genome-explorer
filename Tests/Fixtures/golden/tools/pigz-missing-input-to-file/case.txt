@@ -1,0 +1,6 @@
+id: pigz-missing-input-to-file
+tool: pigz
+tier: light
+runner: nativeFileOutput
+call: NativeToolRunner.runWithFileOutput(.pigz) > {work}/reads.fastq.gz
+compares: argv, exit, stdout, stderr, outputs/reads.fastq.gz

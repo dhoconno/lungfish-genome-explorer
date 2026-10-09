@@ -1,0 +1,6 @@
+id: ribodetector-missing-output-argument
+tool: ribodetector
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.ribodetector)
+compares: argv, exit, stdout, stderr

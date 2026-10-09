@@ -1,0 +1,6 @@
+id: spades-version
+tool: SPAdes
+tier: heavy
+runner: conda
+call: CondaManager.runTool(name: spades.py, environment: spades)
+compares: argv, exit, stdout, stderr

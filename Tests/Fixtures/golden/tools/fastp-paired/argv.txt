@@ -1,0 +1,15 @@
+<STORAGE_ROOT>/conda/envs/fastp/bin/fastp
+-i
+<SCRATCH>/in/test_1.fastq.gz
+-I
+<SCRATCH>/in/test_2.fastq.gz
+-o
+<SCRATCH>/work/trimmed_1.fq.gz
+-O
+<SCRATCH>/work/trimmed_2.fq.gz
+-j
+<SCRATCH>/work/fastp.json
+-h
+<SCRATCH>/work/fastp.html
+-w
+1

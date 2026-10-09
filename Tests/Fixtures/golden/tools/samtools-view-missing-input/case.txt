@@ -1,0 +1,6 @@
+id: samtools-view-missing-input
+tool: samtools
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.samtools)
+compares: argv, exit, stdout, stderr

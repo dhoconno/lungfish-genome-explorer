@@ -1,0 +1,9 @@
+<STORAGE_ROOT>/conda/bin/micromamba
+run
+-n
+spades
+spades.py
+-s
+<SCRATCH>/in/missing.fq
+-o
+<SCRATCH>/work/spades

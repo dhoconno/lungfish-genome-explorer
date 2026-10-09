@@ -1,0 +1,6 @@
+id: vsearch-fastx-uniques
+tool: vsearch
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.vsearch)
+compares: argv, exit, stdout, outputs/uniques.fasta

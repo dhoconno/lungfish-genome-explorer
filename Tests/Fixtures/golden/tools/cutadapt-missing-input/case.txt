@@ -1,0 +1,6 @@
+id: cutadapt-missing-input
+tool: cutadapt
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.cutadapt)
+compares: argv, exit, stdout, stderr

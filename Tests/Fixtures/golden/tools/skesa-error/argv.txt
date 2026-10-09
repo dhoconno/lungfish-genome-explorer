@@ -1,0 +1,7 @@
+<STORAGE_ROOT>/conda/bin/micromamba
+run
+-n
+skesa
+skesa
+--reads
+<SCRATCH>/in/missing.fq

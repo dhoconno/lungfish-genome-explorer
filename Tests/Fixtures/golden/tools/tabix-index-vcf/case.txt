@@ -1,0 +1,6 @@
+id: tabix-index-vcf
+tool: tabix
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.tabix)
+compares: argv, exit, stdout, outputs/test.vcf.gz.tbi

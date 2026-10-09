@@ -1,0 +1,7 @@
+<STORAGE_ROOT>/conda/envs/trim_galore/bin/trim_galore
+--dont_gzip
+--cores
+1
+-o
+<SCRATCH>/work/trim-galore
+<SCRATCH>/in/test_1.fastq.gz

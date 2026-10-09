@@ -1,0 +1,10 @@
+
+
+== Warning ==  No assembly mode was specified! If you intend to assemble high-coverage multi-cell/isolate data, use '--isolate' option.
+
+
+
+
+== Error ==  file not found: <SCRATCH>/in/missing.fq (single reads, library number: 1, library type: single)
+SPAdes finished with the following error code: 65. Please, check the error message above.
+

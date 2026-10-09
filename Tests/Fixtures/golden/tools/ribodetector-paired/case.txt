@@ -1,0 +1,6 @@
+id: ribodetector-paired
+tool: ribodetector
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.ribodetector)
+compares: argv, exit, stdout, outputs/nonrrna_1.fq, outputs/nonrrna_2.fq

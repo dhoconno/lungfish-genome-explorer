@@ -1,0 +1,4 @@
+<STORAGE_ROOT>/conda/envs/ucsc-bedgraphtobigwig/bin/bedGraphToBigWig
+<SCRATCH>/in/coverage.bedGraph
+<SCRATCH>/in/chrom.sizes
+<SCRATCH>/work/coverage.bw

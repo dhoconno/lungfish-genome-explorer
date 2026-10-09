@@ -1,0 +1,9 @@
+<frozen importlib._bootstrap>:491: RuntimeWarning: The global interpreter lock (GIL) has been enabled to load module 'pysam.libchtslib', which has not declared that it can run safely without the GIL. To override this behavior and keep the GIL disabled (at your own risk), run with PYTHON_GIL=0 or -Xgil=0.
+usage: EsViritu [-h] -r READS [READS ...] -s SAMPLE -o OUTPUT_DIR [--version]
+                [-t CPU] [-q QUAL] [-f FILTER_SEQS] [--filter_dir FILTER_DIR]
+                [--temp TEMP_DIR] [--keep KEEP]
+                [-p {unpaired,paired,interleaved}]
+                [-mmP {sr,map-hifi,lr:hq,sense}] [--db DB] [-wd C_WORKDIR]
+                [-mmK MMK] [--species-threshold SPTHRESH]
+                [--subspecies-threshold SUBSPTHRESH] [--dedup DEDUP]
+EsViritu: error: the following arguments are required: -s/--sample, -o/--output_dir

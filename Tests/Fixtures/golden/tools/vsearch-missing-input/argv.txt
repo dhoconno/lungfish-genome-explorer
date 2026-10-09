@@ -1,0 +1,8 @@
+<STORAGE_ROOT>/conda/envs/vsearch/bin/vsearch
+--fastx_uniques
+<SCRATCH>/in/missing.fq
+--fastaout
+<SCRATCH>/work/uniques.fasta
+--threads
+1
+--quiet

@@ -1,0 +1,6 @@
+id: ivar-trim-missing-input
+tool: ivar
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.ivar)
+compares: argv, exit, stdout, stderr

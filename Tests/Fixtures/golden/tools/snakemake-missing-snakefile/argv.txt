@@ -1,0 +1,5 @@
+<STORAGE_ROOT>/conda/envs/snakemake/bin/snakemake
+-s
+<SCRATCH>/in/missing.smk
+--cores
+1

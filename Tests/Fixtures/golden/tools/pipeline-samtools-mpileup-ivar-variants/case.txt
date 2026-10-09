@@ -1,0 +1,6 @@
+id: pipeline-samtools-mpileup-ivar-variants
+tool: samtools | ivar
+tier: light
+runner: pipeline
+call: NativeToolRunner.runPipeline(.samtools | .ivar)
+compares: argv, exit, stdout, outputs/ivar.tsv

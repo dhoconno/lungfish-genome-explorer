@@ -1,0 +1,9 @@
+<STORAGE_ROOT>/conda/envs/cutadapt/bin/cutadapt
+-a
+AGATCGGAAGAGC
+-j
+1
+--report=minimal
+-o
+<SCRATCH>/work/trimmed.fastq
+<SCRATCH>/in/test_1.fastq.gz

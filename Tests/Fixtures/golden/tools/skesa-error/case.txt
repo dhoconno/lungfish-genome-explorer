@@ -1,0 +1,6 @@
+id: skesa-error
+tool: SKESA
+tier: heavy
+runner: conda
+call: CondaManager.runTool(name: skesa, environment: skesa)
+compares: argv, exit, stdout, stderr

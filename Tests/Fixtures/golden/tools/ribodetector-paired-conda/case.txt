@@ -1,0 +1,6 @@
+id: ribodetector-paired-conda
+tool: ribodetector
+tier: light
+runner: conda
+call: CondaManager.runTool(name: ribodetector_cpu, environment: ribodetector)
+compares: argv, exit, stdout, outputs/nonrrna_1.fq, outputs/nonrrna_2.fq

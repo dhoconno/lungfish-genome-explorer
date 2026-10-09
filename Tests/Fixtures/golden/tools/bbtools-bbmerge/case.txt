@@ -1,0 +1,6 @@
+id: bbtools-bbmerge
+tool: BBTools bbmerge.sh
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.bbmerge)
+compares: argv, exit, stdout, outputs/merged.fq, outputs/unmerged_1.fq, outputs/unmerged_2.fq
