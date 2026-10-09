@@ -28,6 +28,13 @@ public enum ToolProcessOutput: Sendable, Equatable {
     case file(URL)
     /// Sent to `/dev/null`. No line events are delivered for the stream.
     case discard
+    /// Read raw by the caller through ``ToolProcessRun/stdout`` while the
+    /// process runs, so the bytes keep every CR and no line is cut, and the
+    /// pipe holds the process back when the caller reads slower than it
+    /// writes. Only standard output of a run started with
+    /// ``ToolProcess/start(_:onEvent:onLaunch:)`` can stream. No line events
+    /// are delivered and the result keeps no bytes.
+    case stream
 
     var isCaptured: Bool {
         if case .capture = self { return true }

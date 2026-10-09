@@ -13,13 +13,20 @@ import Foundation
 ///   dispositions (SIGPIPE included) and an empty signal mask.
 /// - Both output pipes are read from launch until end of file, so a process
 ///   that writes more than the 64 KB pipe buffer never blocks on a full pipe.
+///   The one exception is a ``ToolProcessOutput/stream`` stdout, which the
+///   caller reads at its own pace through ``start(_:onEvent:onLaunch:)``.
+/// - The engine runs on posix_spawn and GCD alone. ``start(_:onEvent:onLaunch:)``
+///   and ``runBlocking(_:cancellation:onEvent:onLaunch:)`` start and finish a
+///   run without a Swift task, so they complete even when every thread of the
+///   cooperative pool is blocked.
 /// - After the root process exits, captured streams get
 ///   ``ToolProcessSpec/drainGracePeriod`` to reach end of file, and a stage
 ///   that writes a file gets the same time for its process group to empty.
 ///   Descendants still running then are killed through the group, so the call
 ///   cannot hang and nothing writes after it returns. The result is then not
 ///   a success and says so with ``ToolProcessResult/outputDrainTimedOut``.
-/// - Cancelling the calling task, or exceeding the wall-clock or idle limit,
+/// - Cancelling the calling task (or calling ``ToolProcessRun/cancel()``, or
+///   the ``ToolProcessCancellation`` of a blocking run), or exceeding the wall-clock or idle limit,
 ///   sends SIGTERM to the process group and the descendant tree, then
 ///   SIGKILL after the grace period, so helper processes such as a JVM under
 ///   a wrapper script do not survive. The limits run on the suspending clock,
@@ -45,6 +52,22 @@ public enum ToolProcess {
         onEvent: (@Sendable (ToolProcessEvent) -> Void)? = nil,
         onLaunch: (@Sendable (Int32) -> Void)? = nil
     ) async throws(ToolProcessError) -> ToolProcessResult {
+        try refuseStream(spec, in: "run")
+        let run = ToolProcessRun(try singleExecution(spec, onEvent: onEvent, onLaunch: onLaunch))
+        if Task.isCancelled {
+            throw .cancelled(results: [])
+        }
+        run.begin()
+        // result() forwards the cancellation of this task to the run.
+        return try await run.result()
+    }
+
+    /// Validates a single-process spec and builds the engine that runs it.
+    static func singleExecution(
+        _ spec: ToolProcessSpec,
+        onEvent: (@Sendable (ToolProcessEvent) -> Void)?,
+        onLaunch: (@Sendable (Int32) -> Void)?
+    ) throws(ToolProcessError) -> ToolProcessExecution {
         try validate(spec)
         if let idle = spec.idleTimeout, !spec.stdout.isCaptured && !spec.stderr.isCaptured {
             throw .invalidSpec("An idle timeout of \(idle) needs stdout or stderr captured, because no other output is observed.")
@@ -57,13 +80,18 @@ public enum ToolProcess {
         if let onLaunch {
             launchHandler = { _, pid in onLaunch(pid) }
         }
-        let execution = ToolProcessExecution(
+        return ToolProcessExecution(
             specs: [spec],
             limits: .init(wallClock: spec.timeout, idle: spec.idleTimeout, drainGrace: spec.drainGracePeriod),
             observers: .init(failurePolicy: .runToCompletion, onLaunch: launchHandler, onEvent: stageHandler)
         )
-        let result = try await execution.run()
-        return result.stages[0]
+    }
+
+    /// A streamed stdout needs a reader, which only ``start(_:onEvent:onLaunch:)`` hands out.
+    static func refuseStream(_ spec: ToolProcessSpec, in method: String) throws(ToolProcessError) {
+        if spec.stdout == .stream {
+            throw .invalidSpec("\(spec.label) streams stdout, which needs ToolProcess.start and a reader. \(method) has none.")
+        }
     }
 
     /// Runs stages connected stdout to stdin, as a shell pipeline does, for
@@ -105,6 +133,7 @@ public enum ToolProcess {
         }
         for (index, stage) in stages.enumerated() {
             try validate(stage)
+            try refuseStream(stage, in: "runPipeline")
             if stage.timeout != nil || stage.idleTimeout != nil {
                 throw .invalidSpec("Stage \(index) (\(stage.label)) sets its own timeout. Pass the pipeline's limits to runPipeline instead.")
             }
@@ -138,6 +167,9 @@ public enum ToolProcess {
     private static func validate(_ spec: ToolProcessSpec) throws(ToolProcessError) {
         guard spec.executableURL.isFileURL else {
             throw .invalidSpec("\(spec.label) has an executable URL that is not a file URL.")
+        }
+        if spec.stderr == .stream {
+            throw .invalidSpec("\(spec.label) streams stderr. Only stdout can stream.")
         }
         for output in [spec.stdout, spec.stderr] {
             if case .capture(let limit?) = output, limit < 0 {

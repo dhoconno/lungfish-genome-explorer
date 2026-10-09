@@ -15,8 +15,11 @@ import Synchronization
 /// that writes an output file has no running process left in its group. A
 /// stream or group that has not settled when the drain grace period runs out
 /// is cut short and its group killed. Then every stage is reaped. Mutable
-/// state lives in one Mutex. Exit checks, reads and event delivery run on one
-/// serial queue, and terminations, which sleep, run on GCD threads.
+/// state lives in one Mutex. Exit checks, reads, event delivery, group
+/// polling and limit checks run on one serial queue, and terminations, which
+/// sleep, run on serial queues of their own. Serial queues always get a GCD
+/// thread, so no step of a run waits for the Swift cooperative pool or for
+/// the width-limited global queues.
 final class ToolProcessExecution: Sendable {
     struct Limits: Sendable {
         var wallClock: Duration?
@@ -69,7 +72,7 @@ final class ToolProcessExecution: Sendable {
         var drainPhaseStarted = false
         var drainGraceExpired = false
         var completed = false
-        var continuation: CheckedContinuation<Void, Never>?
+        var onComplete: (@Sendable () -> Void)?
 
         var allLaunchedStagesExited: Bool {
             launchesFinished && stages.allSatisfy { !$0.launched || $0.exit != nil }
@@ -90,6 +93,9 @@ final class ToolProcessExecution: Sendable {
     let limitClock = SuspendingClock()
     let state: Mutex<RunState>
     let lastActivity: Mutex<SuspendingClock.Instant>
+    /// The caller's reader of a ``ToolProcessOutput/stream`` stdout. It
+    /// stays at end of file when the last stage does not stream.
+    let stdoutStream = ToolProcessOutputStream()
 
     init(specs: [ToolProcessSpec], limits: Limits, observers: Observers) {
         self.specs = specs
@@ -98,6 +104,14 @@ final class ToolProcessExecution: Sendable {
         self.queue = DispatchQueue(label: "org.lungfish.tool-process", qos: Self.qualityOfService(Task.currentPriority))
         self.state = Mutex(RunState(stages: Array(repeating: StageRecord(), count: specs.count)))
         self.lastActivity = Mutex(SuspendingClock().now)
+    }
+
+    /// A new serial queue for work that sleeps, such as a termination
+    /// waiting out its grace period. A serial queue always gets a thread,
+    /// even when callers blocked in ``ToolProcess/runBlocking(_:cancellation:onEvent:onLaunch:)``
+    /// hold every thread of the global queues.
+    static func sleepingWorkQueue() -> DispatchQueue {
+        DispatchQueue(label: "org.lungfish.tool-process.stop", qos: .userInitiated)
     }
 
     /// The queue's QoS follows the calling task's priority, so a run started
@@ -118,28 +132,22 @@ final class ToolProcessExecution: Sendable {
             throw .cancelled(results: [])
         }
         await withTaskCancellationHandler {
-            self.launchAll()
-            await self.waitForCompletion()
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                self.start { continuation.resume() }
+            }
         } onCancel: {
             self.requestStop(.cancelled)
         }
         return try outcome()
     }
 
-    private func waitForCompletion() async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let resumeNow = state.withLock { run -> Bool in
-                if run.completed { return true }
-                run.continuation = continuation
-                return false
-            }
-            if resumeNow {
-                // Behind every event already queued.
-                queue.async {
-                    continuation.resume()
-                }
-            }
-        }
+    /// Launches every stage on the calling thread and calls `onComplete` on
+    /// the run's queue once the run is over, behind every event already
+    /// queued. No step needs a Swift task. The run keeps `onComplete`, and
+    /// whatever it captures, alive until then. Call once.
+    func start(onComplete: @escaping @Sendable () -> Void) {
+        state.withLock { $0.onComplete = onComplete }
+        launchAll()
     }
 
     // MARK: - Launch
@@ -197,6 +205,7 @@ final class ToolProcessExecution: Sendable {
         var captures: [(stream: ToolProcessStream, fd: Int32, limit: Int?)] = []
         var feed: (fd: Int32, data: Data)?
         var downstreamRead: Int32?
+        var streamRead: Int32?
 
         func closeAll() {
             (childFDs + parentFDs).forEach { close($0) }
@@ -213,6 +222,11 @@ final class ToolProcessExecution: Sendable {
                 return try ToolProcessDescriptors.openForWriting(url.path)
             case .discard:
                 return try ToolProcessDescriptors.openForWriting("/dev/null")
+            case .stream:
+                let pipe = try ToolProcessDescriptors.makePipe()
+                parentFDs.append(pipe.read)
+                streamRead = pipe.read
+                return pipe.write
             }
         }
 
@@ -271,6 +285,9 @@ final class ToolProcessExecution: Sendable {
         // The child holds its own copies now. Closing ours leaves the child's
         // group and tree as the only writers, so end of file means they are done.
         childFDs.forEach { close($0) }
+        if let streamRead {
+            stdoutStream.attach(streamRead)
+        }
 
         NativeProcessRegistry.shared.register(processGroupLeader: pid)
         observers.onLaunch?(index, pid)
@@ -301,7 +318,9 @@ final class ToolProcessExecution: Sendable {
                 self?.streamClosed(feeder: true)
             }
         }
-        let writesFile = (isLast && Self.isFile(spec.stdout)) || Self.isFile(spec.stderr)
+        // A streamed stdout is settled the way a file is, by the stage's group
+        // emptying, because the caller, not the run, reads it to end of file.
+        let writesFile = (isLast && (Self.isFile(spec.stdout) || spec.stdout == .stream)) || Self.isFile(spec.stderr)
         let stop = state.withLock { run -> ToolProcessStop? in
             run.stages[index].pid = pid
             run.stages[index].launchedAt = launchedAt

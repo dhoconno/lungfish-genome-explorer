@@ -536,7 +536,7 @@ extension VariantDatabase {
             var buffer = Data()
             var keepReading = true
             while keepReading {
-                let chunk = gzip.read(upTo: 64 * 1024)
+                let chunk = gzip.stdout.read(upTo: 64 * 1024)
                 if chunk.isEmpty { break }
                 buffer.append(chunk)
 
@@ -553,8 +553,8 @@ extension VariantDatabase {
                 }
             }
             // The header ends long before the data, so stop gzip there.
-            if !keepReading { gzip.stop() }
-            if case .failure(.launchFailed(_, let reason, _)) = gzip.finishBlocking() {
+            if !keepReading { gzip.cancel() }
+            if case .failure(.launchFailed(_, let reason, _)) = Result(catching: gzip.waitBlocking) {
                 throw VariantDatabaseError.createFailed("Cannot open VCF file: \(url.lastPathComponent) (\(reason))")
             }
             return ordered
@@ -696,7 +696,7 @@ extension VariantDatabase {
         var finished = false
         // If `handler` throws (e.g. a COMMIT failure aborting the import), make sure the
         // still-running gzip child process is torn down instead of leaking.
-        defer { if !finished { gzip.stop(); _ = gzip.finishBlocking() } }
+        defer { if !finished { gzip.cancel(); _ = try? gzip.waitBlocking() } }
 
         var buffer = Data()
         var bytesRead: Int64 = 0
@@ -706,10 +706,10 @@ extension VariantDatabase {
         while true {
             if shouldCancel?() == true {
                 cancelled = true
-                gzip.stop()
+                gzip.cancel()
                 break
             }
-            let chunk = gzip.read(upTo: 64 * 1024)
+            let chunk = gzip.stdout.read(upTo: 64 * 1024)
             if chunk.isEmpty { break }
             bytesRead += Int64(chunk.count)
             buffer.append(chunk)
@@ -753,11 +753,11 @@ extension VariantDatabase {
             )
         }
 
-        let outcome = gzip.finishBlocking()
+        let outcome = Result(catching: gzip.waitBlocking)
         finished = true
         guard !cancelled else { return cancelled }
         let problem: String? = switch outcome {
-        case .success(let result) where !result.outputComplete || gzip.readFailed: "gzip output was incomplete"
+        case .success(let result) where !result.outputComplete: "gzip output was incomplete"
         case .success(let result): result.status == 0 ? nil : "gzip exit code \(result.status)"
         case .failure(let error): error.localizedDescription
         }
@@ -767,14 +767,14 @@ extension VariantDatabase {
         return cancelled
     }
 
-    /// Starts `gzip -dc` on ToolProcess with its output read raw, so every
-    /// byte reaches the line splitter exactly as the file holds it.
-    private static func gzipDecompression(of url: URL) throws -> ToolProcessRawStdout {
+    /// Starts `gzip -dc` with stdout streamed raw, so every byte reaches the
+    /// line splitter as the file holds it, and no step needs a Swift task.
+    private static func gzipDecompression(of url: URL) throws -> ToolProcessRun {
         let spec = ToolProcessSpec(
             executableURL: URL(fileURLWithPath: "/usr/bin/gzip"), arguments: ["-dc", url.path],
-            environment: ToolProcessSpec.inheritedEnvironment(), stderr: .discard, label: "gzip"
+            environment: ToolProcessSpec.inheritedEnvironment(), stdout: .stream, stderr: .discard, label: "gzip"
         )
-        do { return try ToolProcessRawStdout(spec) } catch {
+        do { return try ToolProcess.start(spec) } catch {
             throw VariantDatabaseError.createFailed("Failed to decompress \(url.lastPathComponent) (\(error.localizedDescription))")
         }
     }

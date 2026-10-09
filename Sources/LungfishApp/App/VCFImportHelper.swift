@@ -7,7 +7,6 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import SQLite3
-import os
 #if canImport(Darwin)
 import Darwin
 #endif
@@ -794,27 +793,16 @@ public enum VCFImportHelper {
     /// Runs one process on ToolProcess and waits for it on this thread. Both
     /// pipes are read while it runs, so output past the 64 KB pipe buffer
     /// cannot block it. The helper runs synchronously off the main run loop,
-    /// so blocking here is what the old waitUntilExit did.
+    /// so blocking here is what the old waitUntilExit did, and runBlocking
+    /// needs no Swift task, so it cannot wait on a starved cooperative pool.
     private static func runToCompletion(executablePath: String, arguments: [String], label: String) throws -> ToolProcessResult {
         let spec = ToolProcessSpec(
             executableURL: URL(fileURLWithPath: executablePath), arguments: arguments,
             environment: ToolProcessSpec.inheritedEnvironment(), label: label
         )
-        let outcome = OSAllocatedUnfairLock<Result<ToolProcessResult, ToolProcessError>?>(initialState: nil)
-        let finished = DispatchSemaphore(value: 0)
-        Task.detached {
-            do throws(ToolProcessError) {
-                let result = try await ToolProcess.run(spec)
-                outcome.withLock { $0 = .success(result) }
-            } catch {
-                outcome.withLock { $0 = .failure(error) }
-            }
-            finished.signal()
-        }
-        finished.wait()
         let result: ToolProcessResult
         do {
-            result = try outcome.withLock { $0! }.get()
+            result = try ToolProcess.runBlocking(spec)
         } catch {
             throw VariantDatabaseError.createFailed("\(label) could not run: \(error.localizedDescription)")
         }

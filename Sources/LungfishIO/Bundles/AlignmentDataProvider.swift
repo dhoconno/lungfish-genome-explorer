@@ -1145,39 +1145,39 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         onLaunch: (@Sendable (pid_t) -> Void)? = nil,
         consume: @escaping @Sendable (inout State, Data) -> Bool
     ) async throws -> (result: ToolProcessResult, state: State) {
-        let stdout: ToolProcessRawStdout
+        let run: ToolProcessRun
         do {
-            stdout = try ToolProcessRawStdout(
-                samtoolsSpec(samtoolsPath, arguments, timeout: timeout, stderr: .capture(limit: stderrLimit)),
+            run = try ToolProcess.start(
+                samtoolsSpec(samtoolsPath, arguments, timeout: timeout, stdout: .stream, stderr: .capture(limit: stderrLimit)),
                 onLaunch: onLaunch
             )
         } catch {
             throw samtoolsError(error)
         }
-        let (state, stopped, outcome) = await withTaskCancellationHandler {
-            let (state, stopped) = await stdout.drain((initial, false)) { drained, chunk in
+        let (state, stopped) = await withTaskCancellationHandler {
+            let (state, stopped) = await run.stdout.drain((initial, false)) { drained, chunk in
                 guard consume(&drained.0, chunk) else {
                     drained.1 = true
                     return false
                 }
                 return true
             }
-            if stopped { stdout.stop() }
-            return (state, stopped, await stdout.finish())
+            if stopped { run.cancel() }
+            return (state, stopped)
         } onCancel: {
-            stdout.stop()
+            run.cancel()
         }
-        switch outcome {
-        case .success(let result):
-            if !stopped {
-                try requireCompleteOutput(result, readFailed: stdout.readFailed)
-            }
-            return (result, state)
-        case .failure(.cancelled(let results)) where stopped && !Task.isCancelled && !results.isEmpty:
+        let result: ToolProcessResult
+        do throws(ToolProcessError) {
+            result = try await run.result()
+        } catch .cancelled(let results) where stopped && !Task.isCancelled && !results.isEmpty {
             return (results[0], state)
-        case .failure(let error):
+        } catch {
             throw samtoolsError(error)
         }
+        // The result carries a failed read of the stream as well.
+        if !stopped { try requireCompleteOutput(result) }
+        return (result, state)
     }
 
     /// samtools inherits the app's environment and working directory, as it
@@ -1186,13 +1186,13 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         _ samtoolsPath: String,
         _ arguments: [String],
         timeout: TimeInterval? = nil,
-        stderr: ToolProcessOutput = .capture()
+        stdout: ToolProcessOutput = .capture(), stderr: ToolProcessOutput = .capture()
     ) -> ToolProcessSpec {
         ToolProcessSpec(
             executableURL: URL(fileURLWithPath: samtoolsPath),
             arguments: arguments,
             environment: ToolProcessSpec.inheritedEnvironment(),
-            stderr: stderr,
+            stdout: stdout, stderr: stderr,
             timeout: timeout.map { .seconds($0) },
             label: "samtools"
         )
@@ -1210,11 +1210,11 @@ public final class AlignmentDataProvider: @unchecked Sendable {
 
     /// Refuses output that a lingering descendant cut short or a read error
     /// lost, because a truncated read set must never pass as a complete one.
-    private static func requireCompleteOutput(_ result: ToolProcessResult, readFailed: Bool = false) throws {
+    private static func requireCompleteOutput(_ result: ToolProcessResult) throws {
         if result.outputDrainTimedOut {
             throw AlignmentFetchError.samtoolsFailed("samtools output was incomplete: a child process kept its output open after it exited")
         }
-        if result.outputReadFailed || readFailed {
+        if result.outputReadFailed {
             throw AlignmentFetchError.samtoolsFailed("samtools output was incomplete: reading it failed")
         }
     }

@@ -457,13 +457,13 @@ public actor DockerRuntime: ContainerRuntimeProtocol {
                         reason: "Output writer not set"
                     )
                 }
-                // A capture limit of 0 streams every line into the process's
-                // streams without also keeping the whole output in memory.
+                // Stdout streams raw, byte for byte. A capture limit of 0
+                // streams stderr's lines without keeping the whole output.
                 let spec = ToolProcessSpec(
                     executableURL: URL(fileURLWithPath: path),
                     arguments: execArgs,
                     environment: ToolProcessSpec.inheritedEnvironment(),
-                    stdout: .capture(limit: 0),
+                    stdout: .stream,
                     stderr: .capture(limit: 0),
                     label: "docker exec"
                 )
@@ -489,7 +489,8 @@ public actor DockerRuntime: ContainerRuntimeProtocol {
                         reason: error.localizedDescription
                     )
                 }
-                guard result.outputComplete else {
+                // A run a signal stopped is reported by its status alone.
+                guard result.outputComplete || result.stop != nil else {
                     throw ContainerRuntimeError.execFailed(
                         containerID: containerId,
                         command: execCommand,
@@ -683,13 +684,15 @@ public actor DockerRuntime: ContainerRuntimeProtocol {
 /// One `docker exec` run on ToolProcess, shared by the start, wait and
 /// signal handlers of its ``ContainerProcess``.
 ///
-/// The run is an unstructured task, so it keeps going between `start()` and
-/// `wait()`. Its output lines go to the process's streams as they arrive, and
-/// the streams finish when the run is over. Cancelling the task, through a
-/// signal or a cancelled `wait()`, stops docker's whole process tree.
+/// The run keeps going between `start()` and `wait()`. An unstructured task
+/// copies stdout into the process's stream byte for byte, CRs included, and
+/// stderr arrives as framed lines, each ending in a newline. The streams
+/// finish when the run is over. A signal or a cancelled `wait()` stops
+/// docker's whole process tree.
 private final class DockerExecRun: Sendable {
     private struct State {
         weak var outputWriter: ContainerProcess?
+        var run: ToolProcessRun?
         var task: Task<ToolProcessResult, any Error>?
     }
 
@@ -706,31 +709,27 @@ private final class DockerExecRun: Sendable {
     /// Launches docker and returns once it is running, or throws when it
     /// could not launch.
     func start(_ spec: ToolProcessSpec, writer: ContainerProcess) async throws {
-        let launch = DockerExecLaunchSignal()
+        let run = try ToolProcess.start(
+            spec,
+            onEvent: { event in
+                guard case .output(.stderr, let line) = event else { return }
+                writer.writeStderr(Data((line + "\n").utf8))
+            }
+        )
         let task = Task<ToolProcessResult, any Error> {
             defer { writer.finishStreams() }
-            do {
-                let result = try await ToolProcess.run(
-                    spec,
-                    onEvent: { event in
-                        guard case .output(let stream, let line) = event else { return }
-                        let data = Data((line + "\n").utf8)
-                        switch stream {
-                        case .stdout: writer.writeStdout(data)
-                        case .stderr: writer.writeStderr(data)
-                        }
-                    },
-                    onLaunch: { _ in launch.resolve(nil) }
-                )
-                launch.resolve(nil)
-                return result
-            } catch {
-                launch.resolve(error)
-                throw error
+            _ = await run.stdout.drain(()) { _, chunk in
+                writer.writeStdout(chunk)
+                return true
             }
+            return try await run.result()
         }
-        state.withLock { $0.task = task }
-        if let error = await launch.wait() {
+        state.withLock {
+            $0.run = run
+            $0.task = task
+        }
+        // The spawn happened inside start, so a failed one is the run's error.
+        if run.pid == nil, case .failure(let error) = await task.result {
             throw error
         }
     }
@@ -742,7 +741,7 @@ private final class DockerExecRun: Sendable {
         let outcome = await withTaskCancellationHandler {
             await task.result
         } onCancel: {
-            task.cancel()
+            self.stop()
         }
         switch outcome {
         case .success(let result):
@@ -757,43 +756,10 @@ private final class DockerExecRun: Sendable {
         }
     }
 
+    /// Stops docker's tree, which ends the stdout copy at end of file.
     func stop() {
-        state.withLock { $0.task }?.cancel()
-    }
-}
-
-/// Resolves once, with nil when docker launched or with the error that kept
-/// it from launching.
-private final class DockerExecLaunchSignal: Sendable {
-    private struct State {
-        var resolved = false
-        var error: (any Error)?
-        var waiter: CheckedContinuation<(any Error)?, Never>?
-    }
-
-    private let state = Mutex(State())
-
-    func resolve(_ error: (any Error)?) {
-        let waiter = state.withLock { state -> CheckedContinuation<(any Error)?, Never>? in
-            guard !state.resolved else { return nil }
-            state.resolved = true
-            state.error = error
-            defer { state.waiter = nil }
-            return state.waiter
-        }
-        waiter?.resume(returning: error)
-    }
-
-    func wait() async -> (any Error)? {
-        await withCheckedContinuation { continuation in
-            let resolved = state.withLock { state -> (done: Bool, error: (any Error)?) in
-                if state.resolved { return (true, state.error) }
-                state.waiter = continuation
-                return (false, nil)
-            }
-            if resolved.done {
-                continuation.resume(returning: resolved.error)
-            }
-        }
+        let (run, task) = state.withLock { ($0.run, $0.task) }
+        run?.cancel()
+        task?.cancel()
     }
 }

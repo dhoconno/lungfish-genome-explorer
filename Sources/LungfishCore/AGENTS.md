@@ -26,7 +26,7 @@ Foundation and system frameworks, plus Collections and Algorithms from Package.s
 | BLAST submission | Sources/LungfishCore/Services/Blast/BlastService.swift |
 | SRA download checks shared by the window and `fetch sra download` | Sources/LungfishCore/Services/SRA/SRARunReads.swift, SRADownloadMessages.swift, SRAFASTQDownloadRoute.swift, Sources/LungfishCore/Services/ENA/ENAFASTQDownloadValidator.swift |
 | `ProvenanceRunClock`, which times provenance runs so a wall-clock step cannot end one before it starts | Sources/LungfishCore/ProvenanceRunClock.swift |
-| `ToolProcess`, the one process primitive for every layer (`run` and `runPipeline`, spawned with posix_spawn as one process group per stage), with the tree terminator, line framer and process registry it builds on (`ProcessTreeTerminator`, `ProcessOutputLineFramer`, `NativeProcessRegistry`) | Sources/LungfishCore/Process/ToolProcess.swift and the rest of Sources/LungfishCore/Process/ |
+| `ToolProcess`, the one process primitive for every layer (`run` and `runPipeline`, spawned with posix_spawn as one process group per stage, plus `start`, the one run handle `ToolProcessRun`, with a `.stream` stdout read raw and `runBlocking` for synchronous callers, both on GCD with no Swift task), with the tree terminator, line framer and process registry it builds on (`ProcessTreeTerminator`, `ProcessOutputLineFramer`, `NativeProcessRegistry`) | Sources/LungfishCore/Process/ToolProcess.swift and the rest of Sources/LungfishCore/Process/ |
 
 ## Contracts this module owns
 

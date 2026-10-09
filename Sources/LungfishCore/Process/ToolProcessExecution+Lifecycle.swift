@@ -109,7 +109,7 @@ extension ToolProcessExecution {
     private enum CompletionStep {
         case none
         case beginDrainPhase([ToolProcessInputFeeder], watchGroups: Bool, cutShortFor: ToolProcessStop?)
-        case complete(CheckedContinuation<Void, Never>?, reap: [pid_t], unregister: [pid_t])
+        case complete((@Sendable () -> Void)?, reap: [pid_t], unregister: [pid_t])
     }
 
     func evaluateCompletion() {
@@ -132,10 +132,10 @@ extension ToolProcessExecution {
             }
             run.completed = true
             run.finishedAt = now
-            let continuation = run.continuation
-            run.continuation = nil
+            let onComplete = run.onComplete
+            run.onComplete = nil
             return .complete(
-                continuation,
+                onComplete,
                 reap: run.stages.filter(\.signalable).map(\.pid),
                 unregister: run.stages.filter(\.launched).map(\.pid)
             )
@@ -157,20 +157,23 @@ extension ToolProcessExecution {
                 }
             }
             if watchGroups {
-                DispatchQueue.global(qos: .utility).async { [weak self] in
+                queue.async { [weak self] in
                     self?.pollGroups()
                 }
             }
             evaluateCompletion()
-        case .complete(let continuation, let reap, let unregister):
+        case .complete(let onComplete, let reap, let unregister):
             // Reaping last keeps every pid and group ID reserved until no
             // signal can be sent to it any more.
             reap.forEach(ToolProcessSpawner.reap)
             unregister.forEach { NativeProcessRegistry.shared.unregister(processGroupLeader: $0) }
-            // Resume behind every event already queued, so a run whose streams
+            // A reader of a streamed stdout stops waiting once nothing is
+            // left in the pipe, even if a process outside the run holds it.
+            stdoutStream.runEnded()
+            // Finish behind every event already queued, so a run whose streams
             // are not captured still delivers its started events first.
             queue.async {
-                continuation?.resume()
+                onComplete?()
             }
         }
     }
@@ -196,7 +199,7 @@ extension ToolProcessExecution {
             evaluateCompletion()
         }
         if settled.count < watched.count {
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .milliseconds(25)) { [weak self] in
+            queue.asyncAfter(deadline: .now() + .milliseconds(25)) { [weak self] in
                 self?.pollGroups()
             }
         }
@@ -237,7 +240,7 @@ extension ToolProcessExecution {
                 continue
             }
             let grace = Self.seconds(specs[target.index].terminationGracePeriod)
-            DispatchQueue.global(qos: .userInitiated).async { [self] in
+            Self.sleepingWorkQueue().async { [self] in
                 // The leader is an unreaped zombie, so this group ID is still ours.
                 killpg(pid, SIGTERM)
                 if grace > 0 {
@@ -302,12 +305,12 @@ extension ToolProcessExecution {
         return claimed
     }
 
-    /// Terminates a claimed stage's group and tree on a GCD thread, because
-    /// ProcessTreeTerminator sleeps through the grace period.
+    /// Terminates a claimed stage's group and tree on a queue of its own,
+    /// because ProcessTreeTerminator sleeps through the grace period.
     func terminateStage(_ index: Int) {
         let pid = state.withLock { $0.stages[index].pid }
         let grace = Self.seconds(specs[index].terminationGracePeriod)
-        DispatchQueue.global(qos: .userInitiated).async { [self] in
+        Self.sleepingWorkQueue().async { [self] in
             ProcessTreeTerminator.terminate(processGroupLeader: pid, gracePeriod: grace)
             state.withLock { $0.pendingKills -= 1 }
             evaluateCompletion()
@@ -347,7 +350,7 @@ extension ToolProcessExecution {
         }
         guard let next else { return }
         let delay = Self.dispatchInterval(now.duration(to: next))
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) { [weak self] in
+        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
             self?.checkLimits()
         }
     }

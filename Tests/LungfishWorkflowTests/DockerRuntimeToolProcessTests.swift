@@ -96,6 +96,18 @@ final class DockerRuntimeToolProcessTests: XCTestCase {
         XCTAssertEqual(output.stderrString, Self.lines("stderr", count: Self.bigLineCount))
     }
 
+    /// Stdout reaches the process's stream byte for byte. A CRLF, a lone
+    /// CR and a last line without a newline stay as docker wrote them.
+    func testExecPassesCarriageReturnsThroughUnchanged() async throws {
+        let runtime = try await resolvedRuntime()
+        let process = try await runtime.exec(
+            in: Self.runningContainer, command: "cr", arguments: [], environment: [:], workingDirectory: "/work"
+        )
+        let output = try await withDeadline { try await process.run() }
+        XCTAssertEqual(output.exitCode, 0)
+        XCTAssertEqual(output.stdout, Data("one\r\ntwo\rthree\r\nfour".utf8))
+    }
+
     func testCancellingAnExecWaitKillsTheDockerProcessTree() async throws {
         let runtime = try await resolvedRuntime()
         let childPIDFile = root.appendingPathComponent("exec-child.pid")
@@ -174,6 +186,9 @@ final class DockerRuntimeToolProcessTests: XCTestCase {
             command="$5"
             if [ "$command" = "big" ]; then
               \(awkLines("stdout", "")); \(awkLines("stderr", "> \"/dev/stderr\"")); exit 0
+            fi
+            if [ "$command" = "cr" ]; then
+              printf 'one\\r\\ntwo\\rthree\\r\\nfour'; exit 0
             fi
             if [ "$command" = "tree" ]; then
               /bin/sleep 300 & echo $! > "$6"; wait; exit 0
