@@ -20,12 +20,13 @@ final class GenotypeReportReadCountMetricTests: XCTestCase {
         XCTAssertEqual(result.calls.first?.passedAlignments, 574)
     }
 
-    func testRepeatedKnownRowsPreserveNativeFirstOccurrenceAndRawAuthority() throws {
+    func testRepeatedKnownRowsCollapseToTheMostReadOccurrence() throws {
         let snapshot = try capture(rows: "A1,01_G,10,10\nA1,01_G,5,5", columns: "sample,genotype,passed_alignments,passed_unique_reads")
         XCTAssertEqual(snapshot.allMatrix.rows.first?.cells.first?.displayValue, 10)
         XCTAssertEqual(snapshot.allMatrix.rows.first?.cells.first?.rawSupport, 10)
         let result = try JSONDecoder().decode(ONTGenotypeResultBundleData.self, from: XCTUnwrap(snapshot.capturedScientificInputs?["result.json"]))
-        XCTAssertEqual(result.calls.map(\.passedUniqueReads), [10, 5])
+        XCTAssertEqual(result.calls.map(\.passedUniqueReads), [10])
+        XCTAssertEqual(result.integrityWarnings.map(\.code), [.duplicateCallRowsCollapsed])
     }
 
     private func capture(rows: String, columns: String) throws -> GenotypeWorkbookPresentation.Snapshot {

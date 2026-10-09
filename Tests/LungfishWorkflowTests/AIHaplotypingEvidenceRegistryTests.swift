@@ -627,7 +627,7 @@ final class AIHaplotypingEvidenceRegistryTests: XCTestCase {
         XCTAssertEqual(chunks[1].registry.inputSnapshotDigest, registry.inputSnapshotDigest)
     }
 
-    func testDuplicateRawRowsReceiveDeterministicDistinctObservationIDs() throws {
+    func testDuplicateRawRowsReachTheRegistryAsTheMostReadOccurrence() throws {
         let result = makeResult(
             calls: [
                 makeCall(sample: "DW472", genotype: "12_M9_B_001_01", passedAlignments: 10),
@@ -642,11 +642,32 @@ final class AIHaplotypingEvidenceRegistryTests: XCTestCase {
             parentRevisionID: nil
         )
 
+        XCTAssertEqual(registry.observations.map(\.id), ["obs:DW472:MHC-B:12_M9_B_001_01"])
+        XCTAssertEqual(registry.observations.map(\.passedAlignments), [11])
+    }
+
+    func testObservationsSharingABaseIDReceiveDeterministicDistinctIDs() throws {
+        // The registry trims sample names and the duplicate collapse does not,
+        // so these two rows stay apart but share one base ID.
+        let result = makeResult(
+            calls: [
+                makeCall(sample: "DW472 ", genotype: "12_M9_B_001_01", passedAlignments: 11),
+                makeCall(sample: "DW472", genotype: "12_M9_B_001_01", passedAlignments: 10),
+            ]
+        )
+
+        let registry = try AIHaplotypingEvidenceBuilder.build(
+            result: result,
+            sidecar: nil,
+            mode: .aiDiscovery,
+            parentRevisionID: nil
+        )
+
         XCTAssertEqual(registry.observations.map(\.id), [
             "obs:DW472:MHC-B:12_M9_B_001_01#row-0001",
             "obs:DW472:MHC-B:12_M9_B_001_01#row-0002",
         ])
-        XCTAssertEqual(Set(registry.observations.map(\.id)).count, 2)
+        XCTAssertEqual(registry.observations.map(\.passedAlignments), [10, 11])
     }
 
     func testChunkerDoesNotMixSamplesWhenSampleFitsWithinChunkLimit() throws {
