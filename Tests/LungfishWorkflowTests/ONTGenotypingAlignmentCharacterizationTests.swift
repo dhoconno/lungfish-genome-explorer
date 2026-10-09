@@ -5,6 +5,7 @@
 import CryptoKit
 import Foundation
 import XCTest
+import LungfishTestSupport
 @testable import LungfishCore
 @testable import LungfishWorkflow
 
@@ -236,7 +237,7 @@ final class ONTGenotypingAlignmentCharacterizationTests: XCTestCase {
         for tool in tools {
             let path = root.appendingPathComponent("envs/\(tool.environment)/bin/\(tool.name)").path
             guard FileManager.default.isExecutableFile(atPath: path) else {
-                throw XCTSkip("The managed \(tool.name) is not installed at \(path).")
+                try ToolAvailability.skipOrFail("The managed \(tool.name) is not installed at \(path).")
             }
         }
         return root

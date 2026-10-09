@@ -134,7 +134,7 @@ final class AlignmentDataProviderCharacterizationTests: XCTestCase {
         let version = try ProcessRunner.run(URL(fileURLWithPath: path), ["--version"], timeout: 30)
         let firstLine = version.stdout.split(separator: "\n").first.map(String.init) ?? ""
         guard firstLine == pinnedSamtoolsVersion else {
-            throw XCTSkip("The recorded values are for \(pinnedSamtoolsVersion), found \(firstLine)")
+            try ToolAvailability.skipOrFail("The recorded values are for \(pinnedSamtoolsVersion), found \(firstLine)")
         }
         return path
     }

@@ -1,0 +1,3 @@
+ >> Checking for Valid Options...
+ ERROR: <STORAGE_ROOT>/databases/kraken2/viral/database125mers.kmer_distrib does not exist
+        Run bracken-build to generate the kmer distribution file.

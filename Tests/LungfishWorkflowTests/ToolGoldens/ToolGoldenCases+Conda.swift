@@ -103,6 +103,16 @@ extension ToolGoldenCase {
               outputs: [.file("{work}/bracken.tsv", name: "bracken.tsv"),
                         .file("{work}/bracken.kreport", name: "bracken.kreport")],
               masks: [.brackenProgramTime], databases: [F.krakenViralDB]),
+        // The database holds no database125mers.kmer_distrib. Bracken says so on stdout and exits 0.
+        .init("bracken-missing-kmer-distrib", tool: "bracken",
+              runner: .conda(environment: "bracken", executable: "bracken"),
+              argv: ["-d", krakenDB, "-i", "{work}/classification.kreport", "-o", "{work}/bracken.tsv",
+                     "-w", "{work}/bracken.kreport", "-r", "125", "-l", "S", "-t", "0"],
+              inputs: [F.r1, F.r2],
+              setup: [.init(runner: .conda(environment: "kraken2", executable: "kraken2"),
+                            argv: kraken2Arguments(report: "{work}/classification.kreport", reads: [F.inR1, F.inR2]))],
+              outputs: [.file("{work}/bracken.tsv", name: "bracken.tsv")],
+              compareStderr: true, databases: [F.krakenViralDB]),
         // Bracken reports a missing database on stdout and still exits 0.
         .init("bracken-missing-database", tool: "bracken",
               runner: .conda(environment: "bracken", executable: "bracken"),

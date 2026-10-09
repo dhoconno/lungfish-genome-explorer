@@ -1,0 +1,6 @@
+id: pipeline-mpileup-ivar-truncated-bam
+tool: samtools | ivar
+tier: light
+runner: pipeline
+call: NativeToolRunner.runPipeline(.samtools | .ivar)
+compares: argv, exit, stdout, stderr, outputs/ivar.tsv

@@ -193,6 +193,27 @@ public struct ManagedAssemblyPipeline: Sendable {
             )
         }
 
+        if request.tool == .hifiasm,
+           AssemblyOutputNormalizer.hifiasmPrimaryContigGFA(
+                in: request.outputDirectory,
+                projectName: request.projectName
+           ) == nil {
+            // hifiasm exits 0 when its input is missing and writes no GFA, but
+            // it writes an (empty) primary-contig GFA for a genuine no-contig run.
+            let detail = Self.failureDetail(
+                tool: request.tool,
+                outputDirectory: request.outputDirectory,
+                stdout: result.stdout,
+                stderr: result.stderr
+            )
+            throw ManagedAssemblyPipelineError.executionFailed(
+                tool: request.tool.displayName,
+                exitCode: result.exitCode,
+                detail: "hifiasm exited successfully but wrote no primary contig graph "
+                    + "(\(request.projectName).bp.p_ctg.gfa). \(detail)"
+            )
+        }
+
         let version = try await detectToolVersion(
             toolName: command.executable,
             environment: command.environment,

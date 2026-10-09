@@ -1,0 +1,17 @@
+##fileformat=VCFv4.0
+##fileDate=<DATE>
+##source=<STORAGE_ROOT>/conda/envs/lofreq/bin/lofreq call --no-default-filter -f <SCRATCH>/in/genome.fasta -o <SCRATCH>/work/lofreq.vcf <SCRATCH>/in/test.paired_end.sorted.bam 
+##reference=<SCRATCH>/in/genome.fasta
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Raw Depth">
+##INFO=<ID=AF,Number=1,Type=Float,Description="Allele Frequency">
+##INFO=<ID=SB,Number=1,Type=Integer,Description="Phred-scaled strand bias at this position">
+##INFO=<ID=DP4,Number=4,Type=Integer,Description="Counts for ref-forward bases, ref-reverse, alt-forward and alt-reverse bases">
+##INFO=<ID=INDEL,Number=0,Type=Flag,Description="Indicates that the variant is an INDEL.">
+##INFO=<ID=CONSVAR,Number=0,Type=Flag,Description="Indicates that the variant is a consensus variant (as opposed to a low frequency variant).">
+##INFO=<ID=HRUN,Number=1,Type=Integer,Description="Homopolymer length to the right of report indel position">
+##FILTER=<ID=min_snvqual_43,Description="Minimum SNV Quality (Phred) 43">
+##FILTER=<ID=min_indelqual_20,Description="Minimum Indel Quality (Phred) 20">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+MT192765.1	15009	.	G	A	71	PASS	DP=2;AF=1.000000;SB=0;DP4=0,0,1,1
+MT192765.1	18807	.	T	C	211	PASS	DP=6;AF=1.000000;SB=0;DP4=0,0,1,5
+MT192765.1	24103	.	A	G	71	PASS	DP=2;AF=1.000000;SB=0;DP4=0,0,1,1

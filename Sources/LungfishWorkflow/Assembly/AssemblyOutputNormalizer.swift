@@ -42,7 +42,8 @@ public enum AssemblyOutputNormalizer {
             scaffoldsPath = nil
             paramsPath = nil
         case .hifiasm:
-            let gfaPath = primaryOutputDirectory.appendingPathComponent("\(request.projectName).bp.p_ctg.gfa")
+            let gfaPath = hifiasmPrimaryContigGFA(in: primaryOutputDirectory, projectName: request.projectName)
+                ?? primaryOutputDirectory.appendingPathComponent("\(request.projectName).bp.p_ctg.gfa")
             let fastaPath = primaryOutputDirectory.appendingPathComponent("contigs.fasta")
             if fm.fileExists(atPath: gfaPath.path), !fm.fileExists(atPath: fastaPath.path) {
                 try GFASegmentFASTAWriter.writePrimaryContigs(from: gfaPath, to: fastaPath)
@@ -86,6 +87,22 @@ public enum AssemblyOutputNormalizer {
             scaffoldsPath: existingURL(scaffoldsPath),
             paramsPath: existingURL(paramsPath)
         )
+    }
+
+    /// The primary-contig GFA hifiasm wrote for `projectName`, or nil when it wrote none.
+    ///
+    /// hifiasm names it `<prefix>.bp.p_ctg.gfa`, or `<prefix>.p_ctg.gfa` when
+    /// `--primary` is given. hifiasm 0.25 writes the file even for an empty or
+    /// truncated FASTQ, so a missing file means the run failed (it exits 0 when
+    /// its input is missing) and an empty file means no contigs.
+    public static func hifiasmPrimaryContigGFA(in directory: URL, projectName: String) -> URL? {
+        for suffix in [".bp.p_ctg.gfa", ".p_ctg.gfa"] {
+            let candidate = directory.appendingPathComponent("\(projectName)\(suffix)")
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return nil
     }
 
     private static func existingURL(_ url: URL?) -> URL? {

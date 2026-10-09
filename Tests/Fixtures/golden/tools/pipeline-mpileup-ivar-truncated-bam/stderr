@@ -1,0 +1,8 @@
+--- stage 1 ---
+[W::bam_hdr_read] EOF marker is absent. The input is probably truncated
+[E::bgzf_read_block] Failed to read BGZF block data at offset 0 expected 19679 bytes; hread returned 9982
+[E::bgzf_read] Read block operation failed with error 4 after 0 of 4 bytes
+[E::bam_hdr_read] Invalid BAM binary header
+[mpileup] fail to read the header of <SCRATCH>/in/truncated.bam
+
+--- stage 2 ---

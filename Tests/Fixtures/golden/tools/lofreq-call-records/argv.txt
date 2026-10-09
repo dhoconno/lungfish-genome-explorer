@@ -1,0 +1,8 @@
+<STORAGE_ROOT>/conda/envs/lofreq/bin/lofreq
+call
+--no-default-filter
+-f
+<SCRATCH>/in/genome.fasta
+-o
+<SCRATCH>/work/lofreq.vcf
+<SCRATCH>/in/test.paired_end.sorted.bam

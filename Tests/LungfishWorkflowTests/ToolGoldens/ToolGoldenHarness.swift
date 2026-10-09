@@ -305,6 +305,7 @@ struct ToolGoldenHarness {
     /// by their path inside the case's golden folder.
     func produceGoldenFiles() async throws -> [String: Data] {
         try stage()
+        var stepFiles: [String: Data] = [:]
         for (index, step) in goldenCase.setup.enumerated() {
             let result = try await execute(step.runner, stages: [step.argv])
             guard result.exitCodes.allSatisfy({ $0 == 0 }) else {
@@ -313,10 +314,18 @@ struct ToolGoldenHarness {
                         + String(decoding: result.stderr, as: UTF8.self)
                 )
             }
+            if let label = step.label {
+                let argvText = result.argv.map { $0.joined(separator: "\n") }.joined(separator: "\n|\n") + "\n"
+                stepFiles["steps/\(label).argv.txt"] = Data(normalize(argvText).utf8)
+                stepFiles["steps/\(label).exit.txt"] = Data(
+                    (result.exitCodes.map(String.init).joined(separator: " ") + "\n").utf8
+                )
+                store(result.stdout, as: "steps/\(label).stdout", into: &stepFiles)
+            }
         }
 
         let raw = try await execute(goldenCase.runner, stages: goldenCase.stages)
-        var files: [String: Data] = [:]
+        var files = stepFiles
         files["case.txt"] = Data(goldenCase.descriptor.utf8)
         let argvText = raw.argv
             .map { $0.joined(separator: "\n") }

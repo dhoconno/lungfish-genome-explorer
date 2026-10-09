@@ -136,6 +136,8 @@ final class ToolOutputGoldenTests: XCTestCase {
     func test_bbtools_bbmerge() async throws { try await check("bbtools-bbmerge") }
     func test_bbtools_reformat_missing_input() async throws { try await check("bbtools-reformat-missing-input") }
     func test_lofreq_call() async throws { try await check("lofreq-call") }
+    func test_lofreq_call_records() async throws { try await check("lofreq-call-records") }
+    func test_lofreq_indelqual_index_call() async throws { try await check("lofreq-indelqual-index-call") }
     func test_lofreq_call_missing_input() async throws { try await check("lofreq-call-missing-input") }
     func test_ivar_trim() async throws { try await check("ivar-trim") }
     func test_ivar_trim_missing_input() async throws { try await check("ivar-trim-missing-input") }
@@ -164,6 +166,7 @@ final class ToolOutputGoldenTests: XCTestCase {
     func test_pigz_compress_to_file() async throws { try await check("pigz-compress-to-file") }
     func test_pigz_missing_input_to_file() async throws { try await check("pigz-missing-input-to-file") }
     func test_samtools_fastq_to_file() async throws { try await check("samtools-fastq-to-file") }
+    func test_pipeline_mpileup_ivar_truncated_bam() async throws { try await check("pipeline-mpileup-ivar-truncated-bam") }
     func test_pipeline_samtools_mpileup_ivar_variants() async throws { try await check("pipeline-samtools-mpileup-ivar-variants") }
     func test_pipeline_bcftools_mpileup_call() async throws { try await check("pipeline-bcftools-mpileup-call") }
     func test_pipeline_samtools_missing_input() async throws { try await check("pipeline-samtools-missing-input") }
@@ -178,6 +181,7 @@ final class ToolOutputGoldenTests: XCTestCase {
     func test_kraken2_viral_paired() async throws { try await check("kraken2-viral-paired") }
     func test_kraken2_missing_database() async throws { try await check("kraken2-missing-database") }
     func test_bracken_viral_species() async throws { try await check("bracken-viral-species") }
+    func test_bracken_missing_kmer_distrib() async throws { try await check("bracken-missing-kmer-distrib") }
     func test_bracken_missing_database() async throws { try await check("bracken-missing-database") }
     func test_deacon_filter_conda() async throws { try await check("deacon-filter-conda") }
     func test_ribodetector_paired_conda() async throws { try await check("ribodetector-paired-conda") }

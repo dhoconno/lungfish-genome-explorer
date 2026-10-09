@@ -1,0 +1,7 @@
+id: lofreq-indelqual-index-call
+tool: lofreq
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.lofreq)
+compares: argv, exit, stdout, steps/indelqual, steps/index, outputs/lofreq.indelqual.bam, outputs/lofreq.indelqual.bam.bai, outputs/lofreq.vcf
+masks: lofreq-file-date

@@ -121,9 +121,13 @@ enum ToolGoldenMask: String, Sendable, CaseIterable {
 
 /// A run through the same runner before the compared run, such as building the
 /// index a later step reads. Its output is not compared but it must exit 0.
+/// A step with a `label` is recorded too, as `steps/<label>.argv.txt`,
+/// `.exit.txt` and `.stdout`, for a case whose earlier stages are part of what
+/// LGE runs (Phase 2.2 lane 5C).
 struct ToolGoldenSetupStep: Sendable {
     let runner: ToolGoldenRunner
     let argv: [String]
+    var label: String? = nil
 }
 
 /// One row of the case table.
@@ -202,6 +206,7 @@ struct ToolGoldenCase: Sendable {
     var comparedItems: [String] {
         var items = ["argv", "exit", "stdout"]
         if compareStderr { items.append("stderr") }
+        items += setup.compactMap { $0.label.map { "steps/\($0)" } }
         items += outputs.map { "outputs/\($0.name)" }
         return items
     }
@@ -266,6 +271,13 @@ enum ToolGoldenFixtures {
             index += 1
         }
         return Data((lines.joined(separator: "\n") + "\n").utf8)
+    }
+
+    /// The first 10,000 bytes of the fixture BAM (19,725 bytes), cut inside a
+    /// BGZF block, so samtools reads some records and then hits a truncated file.
+    static let truncatedBAM = ToolGoldenGeneratedInput(name: "truncated.bam") { _ in
+        let source = ToolGoldenHarness.fixturesRoot.appendingPathComponent(bam)
+        return try Data(contentsOf: source).prefix(10_000)
     }
 
     static let chromSizes = ToolGoldenGeneratedInput(name: "chrom.sizes") { _ in

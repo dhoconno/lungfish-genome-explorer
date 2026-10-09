@@ -731,6 +731,163 @@ final class ManagedAssemblyPipelineTests: XCTestCase {
         }
     }
 
+    // MARK: hifiasm outcome classification (Phase 2.2 lane 5C)
+
+    private func runHifiasmWithFakeTool(
+        tempRoot: URL,
+        hifiasmBody: String,
+        extraArguments: [String] = []
+    ) async throws -> (result: AssemblyResult?, error: Error?, outputDir: URL) {
+        let bundledMicromamba = tempRoot.appendingPathComponent("bundled-micromamba")
+        try writeExecutableScript(
+            at: bundledMicromamba,
+            body: hifiasmMicromambaScript(hifiasmBody: hifiasmBody)
+        )
+        let pipeline = ManagedAssemblyPipeline(
+            condaManager: CondaManager(
+                rootPrefix: tempRoot.appendingPathComponent("conda-root", isDirectory: true),
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "2.0.0" }
+            )
+        )
+        let input = tempRoot.appendingPathComponent("reads.fastq.gz")
+        try Data("@r\nACGT\n+\nIIII\n".utf8).write(to: input)
+        let outputDir = tempRoot.appendingPathComponent("output", isDirectory: true)
+        let request = AssemblyRunRequest(
+            tool: .hifiasm,
+            readType: .pacBioHiFi,
+            inputURLs: [input],
+            projectName: "demo",
+            outputDirectory: outputDir,
+            threads: 2,
+            extraArguments: extraArguments
+        )
+        do {
+            return (try await pipeline.run(request: request), nil, outputDir)
+        } catch {
+            return (nil, error, outputDir)
+        }
+    }
+
+    /// hifiasm exits 0 and writes nothing when its input is missing. That is a
+    /// failure, not "completed with no contigs".
+    func testHifiasmExitZeroWithoutPrimaryGFAIsAnExecutionFailure() async throws {
+        let tempRoot = try makeTempDirectory(prefix: "managed assembly hifiasm missing gfa")
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let outcome = try await runHifiasmWithFakeTool(
+            tempRoot: tempRoot,
+            hifiasmBody: """
+            printf '%s\\n' '[E::main] failed to open file reads.fastq.gz' >&2
+            exit 0
+            """
+        )
+
+        XCTAssertNil(outcome.result, "A missing primary-contig GFA must not produce an assembly result")
+        guard let pipelineError = outcome.error as? ManagedAssemblyPipelineError,
+              case .executionFailed(let tool, _, let detail) = pipelineError else {
+            XCTFail("Expected executionFailed, got \(String(describing: outcome.error))")
+            return
+        }
+        XCTAssertEqual(tool, "Hifiasm")
+        XCTAssertTrue(detail.contains("failed to open file"), "detail was: \(detail)")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: outcome.outputDir.appendingPathComponent("assembly-result.json").path)
+        )
+    }
+
+    /// An empty but present GFA is hifiasm's genuine no-contigs answer.
+    func testHifiasmEmptyPrimaryGFAStillCompletesWithNoContigs() async throws {
+        let tempRoot = try makeTempDirectory(prefix: "managed assembly hifiasm empty gfa")
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let outcome = try await runHifiasmWithFakeTool(
+            tempRoot: tempRoot,
+            hifiasmBody: """
+            : > "$prefix.bp.p_ctg.gfa"
+            exit 0
+            """
+        )
+
+        XCTAssertNil(outcome.error)
+        XCTAssertEqual(outcome.result?.outcome, .completedWithNoContigs)
+    }
+
+    func testHifiasmPresentPrimaryGFAYieldsContigs() async throws {
+        let tempRoot = try makeTempDirectory(prefix: "managed assembly hifiasm gfa")
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let outcome = try await runHifiasmWithFakeTool(
+            tempRoot: tempRoot,
+            hifiasmBody: """
+            printf 'S\\tctg1\\tACGTACGT\\n' > "$prefix.bp.p_ctg.gfa"
+            exit 0
+            """
+        )
+
+        XCTAssertNil(outcome.error)
+        XCTAssertEqual(outcome.result?.outcome, .completed)
+        XCTAssertEqual(outcome.result?.statistics.contigCount, 1)
+    }
+
+    /// `--primary` makes hifiasm write `<prefix>.p_ctg.gfa` instead of `.bp.p_ctg.gfa`.
+    func testHifiasmPrimaryFlagGFANameIsAccepted() async throws {
+        let tempRoot = try makeTempDirectory(prefix: "managed assembly hifiasm primary gfa")
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let outcome = try await runHifiasmWithFakeTool(
+            tempRoot: tempRoot,
+            hifiasmBody: """
+            printf 'S\\tctg1\\tACGTACGT\\n' > "$prefix.p_ctg.gfa"
+            exit 0
+            """,
+            extraArguments: ["--primary"]
+        )
+
+        XCTAssertNil(outcome.error)
+        XCTAssertEqual(outcome.result?.outcome, .completed)
+        XCTAssertEqual(outcome.result?.statistics.contigCount, 1)
+        XCTAssertEqual(outcome.result?.graphPath?.lastPathComponent, "demo.p_ctg.gfa")
+    }
+
+    private func hifiasmMicromambaScript(hifiasmBody: String) -> String {
+        """
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then
+            printf '%s\\n' '2.0.0'
+            exit 0
+        fi
+
+        if [ "$1" != "run" ] || [ "$2" != "-n" ]; then
+            printf '%s\\n' "unexpected micromamba invocation: $*" >&2
+            exit 64
+        fi
+
+        tool="$4"
+        shift 4
+
+        if [ "$tool" != "hifiasm" ]; then
+            printf '%s\\n' "unexpected tool: $tool" >&2
+            exit 65
+        fi
+
+        if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-h" ]; then
+            printf '%s\\n' '0.25.0-r726'
+            exit 0
+        fi
+
+        prefix=""
+        prev=""
+        for arg in "$@"; do
+            if [ "$prev" = "-o" ]; then
+                prefix="$arg"
+            fi
+            prev="$arg"
+        done
+        \(hifiasmBody)
+        """
+    }
+
     private func makeTempDirectory(prefix: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)

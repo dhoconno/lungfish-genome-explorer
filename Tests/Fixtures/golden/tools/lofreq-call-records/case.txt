@@ -1,0 +1,7 @@
+id: lofreq-call-records
+tool: lofreq
+tier: light
+runner: nativeTool
+call: NativeToolRunner.run(.lofreq)
+compares: argv, exit, stdout, outputs/lofreq.vcf
+masks: lofreq-file-date

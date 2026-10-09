@@ -12,7 +12,9 @@ A SwiftPM test resolves the Stable channel storage `~/.lungfish-stable`, which h
 LUNGFISH_STORAGE_ROOT=$HOME/.lungfish swift test --skip-update --build-system swiftbuild --filter ToolOutputGoldenTests
 ```
 
-Each case is one test, named after its case ID with hyphens turned into underscores, so a failure names the tool. A failing case prints a unified diff of every golden file that changed. A case whose tool or database is not installed skips through `ToolAvailability`, and `LUNGFISH_REQUIRE_TOOLS=1` turns those skips into failures. The 108 tests take 25 to 35 seconds on the capture Mac, plus the build.
+Each case is one test, named after its case ID with hyphens turned into underscores, so a failure names the tool. A failing case prints a unified diff of every golden file that changed. The four cases added in lane 5C (`lofreq-call-records`, `lofreq-indelqual-index-call`, `pipeline-mpileup-ivar-truncated-bam`, `bracken-missing-kmer-distrib`) were captured on the Phase 2.2 runners, so they are forward regression guards and not a record of the pre-rewrite behavior. `lofreq-call-records` passes `--no-default-filter` so the VCF holds 3 records. `lofreq-indelqual-index-call` runs the `indelqual --dindel`, `index` and `call --call-indels` sequence of `ViralVariantCallingPipeline` and keeps the default filter, so its VCF has no records. `pipeline-mpileup-ivar-truncated-bam` cuts the fixture BAM to its first 10,000 bytes at test time. samtools exits 1 on the truncated header and ivar still exits 0 with a header-only TSV, so the exit codes are `1 0`. `bracken-missing-kmer-distrib` asks for read length 125, for which the viral database holds no `database125mers.kmer_distrib`. Bracken says so on stdout and exits 0.
+
+A case whose tool or database is not installed skips through `ToolAvailability`, and `LUNGFISH_REQUIRE_TOOLS=1` turns those skips into failures. The 112 tests take 25 to 70 seconds on the capture Mac, plus the build.
 
 `testCaseTableHasUniqueIDsATestPerCaseAndNoStaleGolden` checks that every case has a test method and that every folder here belongs to a case in the table.
 
@@ -34,6 +36,7 @@ Capture runs every case twice, each time in a fresh scratch folder, and writes a
 | `stdout` | The tool's stdout as the runner returned it |
 | `stdout.sha256`, `stdout.summary` | Used instead of `stdout` when it is larger than 32 KiB. The summary gives the byte count, the line count and the first and last lines. |
 | `stderr` | Only for error paths and for version probes. Success runs leave stderr out because it carries progress and timing. |
+| `steps/<label>.argv.txt`, `.exit.txt`, `.stdout` | Only for a case whose setup steps are labeled, such as the two LoFreq setup steps of `lofreq-indelqual-index-call`. The step's argv, exit code and stdout, with the same 32 KiB rule. |
 | `outputs/<name>` | A named output file, with the same 32 KiB rule. A BAM is stored as `<name>.records.sha256` (the SHA-256 and count of its `samtools view --no-PG` records) and `<name>.header` (`samtools view -H --no-PG`). `<name>.absent` records that a failed run left no output. |
 
 The argv each runner records is the one it launches. `NativeToolRunner.run`, `runProcess` and `runWithFileOutput` return their argv in `NativeToolResult.arguments`, and the file output case adds a `>` line and the output path. `runPipeline` and `CondaManager.runTool` do not return an argv, so the suite records the one they build, the resolved tool path plus the stage arguments, and `micromamba run -n <env> <tool>` plus the arguments. `ProcessManager` cases record the executable and arguments of the `WorkflowEngineLaunch` they run. `conda-environment-probe` runs Python inside `micromamba run` and prints the argv the tool received and the environment it got, which guards the conda argv and environment directly.
@@ -58,7 +61,8 @@ Binary outputs are compared as they are. Three masks cover fields that change fr
 | Mask | Cases | What it masks | Why it varies |
 |---|---|---|---|
 | `bracken-program-time` | `bracken-viral-species` | The time after `PROGRAM START TIME` and `PROGRAM END TIME` on stdout, as `<TIMESTAMP>` | Bracken prints the wall-clock start and end of `est_abundance.py` |
-| `lofreq-file-date` | `lofreq-call` | The date in the `##fileDate` header line of the VCF, as `<DATE>` | LoFreq writes the run date into the header |
+| `lofreq-file-date` | `lofreq-call`, `lofreq-call-records`, `lofreq-indelqual-index-call` | The date in the `##fileDate` header line of the VCF, as `<DATE>` | LoFreq writes the run date into the header |
+| `lofreq-call-records` | lofreq | NativeToolRunner.run | light | argv, exit, stdout, lofreq.vcf |
 | `sra-log-timestamp` | `fasterq-dump-unknown-option`, `prefetch-unknown-option` | The date and time that start each stderr line, as `<TIMESTAMP>` | The SRA Toolkit stamps every log line with the UTC time |
 
 Every other source of variation was removed by the argv instead of a mask.
@@ -110,6 +114,7 @@ Once a skipped tool is installed, capture its cases with the filter above and co
 | `bowtie2-align-paired` | bowtie2 | CondaManager.runTool | light | argv, exit, stdout |
 | `bowtie2-build` | bowtie2 | CondaManager.runTool | light | argv, exit, stdout, genome.1.bt2, genome.2.bt2, genome.3.bt2, genome.4.bt2, genome.rev.1.bt2, genome.rev.2.bt2 |
 | `bracken-missing-database` | bracken | CondaManager.runTool | light | argv, exit, stdout, stderr |
+| `bracken-missing-kmer-distrib` | bracken | CondaManager.runTool | light | argv, exit, stdout, stderr, bracken.tsv |
 | `bracken-viral-species` | bracken | CondaManager.runTool | light | argv, exit, stdout, bracken.tsv, bracken.kreport |
 | `bwa-mem2-index` | bwa-mem2 | CondaManager.runTool | light | argv, exit, stdout, genome.0123, genome.amb, genome.ann, genome.bwt.2bit.64, genome.pac |
 | `bwa-mem2-mem-paired` | bwa-mem2 | CondaManager.runTool | light | argv, exit, stdout |
@@ -138,6 +143,7 @@ Once a skipped tool is installed, capture its cases with the filter above and co
 | `kraken2-viral-paired` | kraken2 | CondaManager.runTool | light | argv, exit, stdout, classification.kreport |
 | `lofreq-call` | lofreq | NativeToolRunner.run | light | argv, exit, stdout, lofreq.vcf |
 | `lofreq-call-missing-input` | lofreq | NativeToolRunner.run | light | argv, exit, stdout, stderr |
+| `lofreq-indelqual-index-call` | lofreq | NativeToolRunner.run | light | argv, exit, stdout, steps/indelqual, steps/index, lofreq.indelqual.bam, lofreq.indelqual.bam.bai, lofreq.vcf |
 | `mafft-auto` | mafft | CondaManager.runTool | light | argv, exit, stdout |
 | `medaka-invalid-subcommand` | medaka | NativeToolRunner.run | heavy | argv, exit, stdout, stderr |
 | `medaka-variant-no-arguments` | medaka_variant | NativeToolRunner.run | heavy | argv, exit, stdout, stderr |
@@ -151,6 +157,7 @@ Once a skipped tool is installed, capture its cases with the filter above and co
 | `pigz-compress-to-file` | pigz | NativeToolRunner.runWithFileOutput | light | argv, exit, stdout, reads.fastq.gz |
 | `pigz-missing-input-to-file` | pigz | NativeToolRunner.runWithFileOutput | light | argv, exit, stdout, stderr, reads.fastq.gz |
 | `pipeline-bcftools-mpileup-call` | bcftools \| bcftools | NativeToolRunner.runPipeline | light | argv, exit, stdout |
+| `pipeline-mpileup-ivar-truncated-bam` | samtools \| ivar | NativeToolRunner.runPipeline | light | argv, exit, stdout, stderr, ivar.tsv |
 | `pipeline-samtools-missing-input` | samtools \| samtools | NativeToolRunner.runPipeline | light | argv, exit, stdout, stderr |
 | `pipeline-samtools-mpileup-ivar-variants` | samtools \| ivar | NativeToolRunner.runPipeline | light | argv, exit, stdout, ivar.tsv |
 | `prefetch-unknown-option` | prefetch | NativeToolRunner.run | heavy | argv, exit, stdout, stderr |
