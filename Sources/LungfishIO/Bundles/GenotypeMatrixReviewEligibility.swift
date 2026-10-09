@@ -70,7 +70,8 @@ public enum GenotypeMatrixReviewEligibility {
         }
         if let catalog = result.reviewableRowCatalog,
            let mapping = try? GenotypeCatalogMatrixIdentity.map(
-               catalog, nativeRows: GenotypeCatalogMatrixIdentity.nativeRows(in: result), into: support) {
+               catalog, nativeRows: GenotypeCatalogMatrixIdentity.nativeRows(in: result),
+               referenceMetadata: result.referenceMetadata, into: support) {
             support = mapping.support
         }
         return support

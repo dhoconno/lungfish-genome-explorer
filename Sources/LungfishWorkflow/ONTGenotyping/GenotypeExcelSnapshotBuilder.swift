@@ -152,7 +152,7 @@ public enum GenotypeExcelSnapshotBuilder {
             do {
                 mapping = try GenotypeCatalogMatrixIdentity.map(catalog,
                     nativeRows: evidenceRows.map { .init(locus: $0.locus, genotype: $0.genotype, stableClusterID: $0.stable) },
-                    into: raw)
+                    referenceMetadata: result.referenceMetadata, into: raw)
             } catch let refusal as GenotypeCatalogMatrixIdentity.Refusal {
                 throw CaptureError.incoherent(refusal.message)
             }

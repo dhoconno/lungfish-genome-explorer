@@ -12,11 +12,18 @@ import Foundation
 /// displayed identity, a call's locus group and genotype plus a candidate's
 /// stable cluster ID. A catalog row names the native row whose canonical locus
 /// and stable ID equal its own and whose genotype equals its call ID or its
-/// display name, or whose allele name equals its display name. A row that
-/// names no native row stands alone under its own locus and display name, and
-/// later rows can name it. A row that names two native rows is ambiguous, and
-/// a catalog value that differs from an observed value of the same cell is a
-/// disagreement. Both refuse the whole catalog.
+/// display name, or whose allele name equals its display name. A reference
+/// row that names nothing that way names the one native row whose reference
+/// record, the bundle's reference metadata at its allele field, carries the
+/// row's display name as its allele, under that allele's own locus. Full-length
+/// calls carry the reference sequence ID, an accession such as NHP01222 that
+/// parses to the pseudo-locus MHC-NHP01222, so this fallback is keyed by the
+/// allele's locus and never by the native row's (decision D4, finding N9).
+/// When two native rows carry the allele the row stands alone, with no
+/// refusal. A row that names no native row stands alone under its own locus
+/// and display name, and later rows can name it. A row that names two native
+/// rows is ambiguous, and a catalog value that differs from an observed value
+/// of the same cell is a disagreement. Both refuse the whole catalog.
 public enum GenotypeCatalogMatrixIdentity {
     public typealias Target = GenotypeAnnotationSidecar.MatrixTarget
     public typealias Row = GenotypeReviewableRowCatalog.Row
@@ -114,12 +121,16 @@ public enum GenotypeCatalogMatrixIdentity {
     /// plus the rows earlier catalog rows added, then its complete-roster
     /// support is written into `support`. The native rows are indexed once,
     /// so a reference panel of thousands of rows maps in a few milliseconds.
+    /// `referenceMetadata` is the bundle's reference metadata, whose allele
+    /// field names the allele of each reference sequence ID. Both callers
+    /// pass it, so the matrix and the workbook name the same native rows.
     public static func map(
         _ catalog: GenotypeReviewableRowCatalog,
         nativeRows: [NativeRow],
+        referenceMetadata: ONTGenotypeReferenceMetadata?,
         into support: [Target: Int]
     ) throws(Refusal) -> Mapping {
-        var index = NativeRowIndex(nativeRows)
+        var index = NativeRowIndex(nativeRows, referenceMetadata: referenceMetadata)
         var support = support
         support.reserveCapacity(support.count + catalog.rows.count * catalog.samples.count)
         var resolutions: [Resolution] = []
@@ -138,9 +149,14 @@ public enum GenotypeCatalogMatrixIdentity {
     /// Names the native row a catalog row maps onto, or none. A catalog row
     /// names the native row whose canonical locus and stable ID equal its own
     /// and whose genotype equals its call ID or display name, or whose allele
-    /// name equals its display name.
-    public static func resolve(_ row: Row, among nativeRows: [NativeRow]) throws(Refusal) -> Resolution {
-        try resolve(row, in: NativeRowIndex(nativeRows))
+    /// name equals its display name, and otherwise the one native row whose
+    /// reference record carries its display name as the allele.
+    public static func resolve(
+        _ row: Row,
+        among nativeRows: [NativeRow],
+        referenceMetadata: ONTGenotypeReferenceMetadata? = nil
+    ) throws(Refusal) -> Resolution {
+        try resolve(row, in: NativeRowIndex(nativeRows, referenceMetadata: referenceMetadata))
     }
 
     private static func resolve(_ row: Row, in index: NativeRowIndex) throws(Refusal) -> Resolution {
@@ -152,8 +168,8 @@ public enum GenotypeCatalogMatrixIdentity {
     }
 
     /// The native rows keyed the way the match predicate reads them, so one
-    /// catalog row resolves through three lookups instead of a scan that
-    /// canonicalises every native locus again.
+    /// catalog row resolves through three lookups and one fallback instead of
+    /// a scan that canonicalises every native locus again.
     private struct NativeRowIndex {
         private struct Key: Hashable {
             let canonicalLocus: String
@@ -166,8 +182,16 @@ public enum GenotypeCatalogMatrixIdentity {
         private var byGenotype: [Key: [Int]] = [:]
         /// Row positions by canonical locus, stable ID and allele name.
         private var byAlleleName: [Key: [Int]] = [:]
+        /// Known row positions by the allele the row's reference record
+        /// carries, under that allele's own canonical locus (D4). Read only
+        /// when the three lookups above find nothing.
+        private var byReferenceAllele: [Key: [Int]] = [:]
+        private let referenceRecords: [String: [String: String]]
+        private let alleleFieldKey: String?
 
-        init(_ rows: [NativeRow]) {
+        init(_ rows: [NativeRow], referenceMetadata: ONTGenotypeReferenceMetadata?) {
+            referenceRecords = referenceMetadata?.recordsBySequenceName ?? [:]
+            alleleFieldKey = referenceMetadata?.alleleFieldKey
             self.rows.reserveCapacity(rows.count)
             for row in rows { append(row) }
         }
@@ -181,15 +205,48 @@ public enum GenotypeCatalogMatrixIdentity {
             byAlleleName[Key(canonicalLocus: locus, stableClusterID: row.stableClusterID,
                              name: MHCReferenceGenotypeDisplay.alleleName(for: row.genotype)), default: []]
                 .append(position)
+            if row.stableClusterID == nil, let allele = referenceAllele(for: row.genotype) {
+                byReferenceAllele[Key(canonicalLocus: Self.canonicalLocus(ofAllele: allele), stableClusterID: nil,
+                                      name: allele), default: []]
+                    .append(position)
+            }
         }
 
-        /// Every native row the catalog row names, in native order.
+        /// Every native row the catalog row names, in native order. The
+        /// record-allele fallback names a row only when nothing else did and
+        /// exactly one known row carries the allele, so a shared allele name
+        /// leaves the row standing alone instead of refusing.
         func matches(for row: Row) -> [NativeRow] {
             var positions = Set<Int>()
             positions.formUnion(byGenotype[Key(canonicalLocus: row.locus, stableClusterID: row.stableID, name: row.callID)] ?? [])
             positions.formUnion(byGenotype[Key(canonicalLocus: row.locus, stableClusterID: row.stableID, name: row.displayName)] ?? [])
             positions.formUnion(byAlleleName[Key(canonicalLocus: row.locus, stableClusterID: row.stableID, name: row.displayName)] ?? [])
+            if positions.isEmpty,
+               let carriers = byReferenceAllele[Key(canonicalLocus: row.locus, stableClusterID: row.stableID, name: row.displayName)],
+               carriers.count == 1 {
+                positions.formUnion(carriers)
+            }
             return positions.sorted().map { rows[$0] }
+        }
+
+        /// The allele the reference record of a known genotype names, or nil
+        /// without a record store, an allele field or a value.
+        private func referenceAllele(for genotype: String) -> String? {
+            guard let alleleFieldKey,
+                  let value = referenceRecords[genotype]?[alleleFieldKey] else { return nil }
+            let allele = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return allele.isEmpty ? nil : allele
+        }
+
+        /// The canonical locus a call whose genotype is the allele name would
+        /// be grouped under, the locus the catalog files that allele under.
+        private static func canonicalLocus(ofAllele allele: String) -> String {
+            let asGenotype = ONTGenotypeCall(
+                sample: "", genotype: allele, passedAlignments: 0, passedUniqueReads: 0,
+                sampleTotalReads: nil, sampleUniqueRetainedReads: nil, sampleUniqueRetainedPercent: nil,
+                overallInputReads: nil, overallUniqueRetainedReads: nil, overallUniqueRetainedPercent: nil
+            )
+            return GenotypeHaplotypeLocusResolver.canonicalLocusName(asGenotype.locusGroup)
         }
     }
 

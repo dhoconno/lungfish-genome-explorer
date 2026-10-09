@@ -1,9 +1,10 @@
 import XCTest
+import LungfishCore
 import LungfishTestSupport
 @testable import LungfishIO
 
 /// The catalog-to-matrix identity mapping the matrix UI and the Excel builder
-/// share (Phase 2.3 finding S1).
+/// share (Phase 2.3 finding S1, decision D4).
 final class GenotypeCatalogMatrixIdentityTests: XCTestCase {
     private typealias Identity = GenotypeCatalogMatrixIdentity
     private typealias Target = GenotypeAnnotationSidecar.MatrixTarget
@@ -18,6 +19,18 @@ final class GenotypeCatalogMatrixIdentityTests: XCTestCase {
     ) -> GenotypeReviewableRowCatalog.Row {
         .init(kind: kind, callID: callID, displayName: displayName, locus: locus, stableID: stableID,
               section: kind.rawValue, sortKey: callID, supportBySample: support)
+    }
+
+    /// GenBank-style reference metadata whose allele field names the allele
+    /// of each reference sequence ID, the shape a `.lungfishref` built from
+    /// IPD-MHC or GenBank records has.
+    private func metadata(_ alleleBySequenceID: [String: String]) -> ONTGenotypeReferenceMetadata {
+        .init(
+            fields: [GenBankRecordDatabase.FieldDefinition(
+                key: "feature.allele", displayTitle: "Allele", valueType: "text", sourceCategory: "feature", preferredOrder: 0)],
+            recordsBySequenceName: alleleBySequenceID.mapValues { ["feature.allele": $0] },
+            alleleFieldKey: "feature.allele"
+        )
     }
 
     func testARowNamesTheNativeRowByCallIDDisplayNameOrAlleleName() throws {
@@ -47,7 +60,7 @@ final class GenotypeCatalogMatrixIdentityTests: XCTestCase {
             row(callID: "reference:MHC-B:Mafa-B*099:01", displayName: "Mafa-B*099:01", locus: "MHC-B", support: ["S1": 0, "S2": 0]),
             row(callID: "Mafa-B*099:01", displayName: "Mafa-B*099:01", locus: "MHC-B", support: ["S1": 0, "S2": 0]),
         ])
-        let mapping = try Identity.map(catalog, nativeRows: [], into: [:])
+        let mapping = try Identity.map(catalog, nativeRows: [], referenceMetadata: nil, into: [:])
         let standalone = Identity.NativeRow(locus: "MHC-B", genotype: "Mafa-B*099:01", stableClusterID: nil)
         XCTAssertNil(mapping.resolutions[0].native)
         XCTAssertEqual(mapping.resolutions[0].matrixRow, standalone)
@@ -70,7 +83,8 @@ final class GenotypeCatalogMatrixIdentityTests: XCTestCase {
         let cell = Target.cell(locus: "MHC-A", genotype: "01_A", sample: "S1")
         let observed: [Target: Int] = [cell: 7]
         let disagreeing = row(callID: "reference:MHC-A:01_A", displayName: "01_A", support: ["S1": 5, "S2": 0])
-        XCTAssertThrowsError(try Identity.map(.init(samples: ["S1", "S2"], rows: [disagreeing]), nativeRows: [one], into: observed)) { error in
+        XCTAssertThrowsError(try Identity.map(.init(samples: ["S1", "S2"], rows: [disagreeing]), nativeRows: [one],
+                                              referenceMetadata: nil, into: observed)) { error in
             XCTAssertEqual(error as? Identity.Refusal, .supportDisagreement(target: cell, observed: 7, catalog: 5))
             XCTAssertEqual((error as? Identity.Refusal)?.message, "catalog support disagrees with captured observations")
         }
@@ -80,6 +94,91 @@ final class GenotypeCatalogMatrixIdentityTests: XCTestCase {
         let agreeing = row(callID: "reference:MHC-A:01_A", displayName: "01_A", support: ["S1": 7, "S2": 0])
         XCTAssertNoThrow(try Identity.merge(Identity.Resolution(row: agreeing, native: one), into: &support))
         XCTAssertEqual(support, [cell: 7, .cell(locus: "MHC-A", genotype: "01_A", sample: "S2"): 0])
+    }
+
+    // MARK: Accession-named native rows (Phase 2.3 decision D4)
+
+    /// A full-length call carries its reference sequence ID, here the IPD
+    /// accession NHP01222, which parses to the pseudo-locus MHC-NHP01222
+    /// (finding N9). The catalog names the same allele Mafa-A1*001:01 under
+    /// MHC-A, so no lookup by the native locus and a name can meet the row.
+    /// The row names the native row through the allele its reference record
+    /// carries, keyed by that allele's own locus, and its zero lands on the
+    /// accession row where Mark False Negative reads it.
+    func testAReferenceRowNamesTheAccessionRowThroughItsRecordAllele() throws {
+        let result = GenotypeTestFixtures.makeResult(
+            calls: [GenotypeTestFixtures.makeCall(sample: "S1", genotype: "NHP01222", reads: 15)],
+            referenceMetadata: metadata(["NHP01222": "Mafa-A1*001:01"]),
+            reviewableRowCatalog: .init(samples: ["S1", "S2"], rows: [
+                row(callID: "reference:MHC-A:Mafa-A1*001:01", displayName: "Mafa-A1*001:01", support: ["S1": 15, "S2": 0]),
+            ])
+        )
+        let accession = Identity.NativeRow(locus: "MHC-NHP01222", genotype: "NHP01222", stableClusterID: nil)
+        XCTAssertEqual(Identity.nativeRows(in: result), [accession], "the native row sits at the accession's pseudo-locus")
+        let catalog = try XCTUnwrap(result.reviewableRowCatalog)
+        let mapping = try Identity.map(catalog, nativeRows: [accession], referenceMetadata: result.referenceMetadata, into: [:])
+        XCTAssertEqual(mapping.resolutions.map(\.native), [accession])
+        XCTAssertNil(try Identity.resolve(catalog.rows[0], among: [accession]).native,
+                     "without the reference metadata the row stands alone, as before")
+
+        // Both callers pass the bundle's reference metadata, so the matrix
+        // reads the same identity the workbook writes.
+        let support = GenotypeMatrixReviewEligibility.rawSupport(in: result)
+        let zero = Target.cell(locus: "MHC-NHP01222", genotype: "NHP01222", sample: "S2")
+        XCTAssertEqual(mapping.resolutions[0].target(sample: "S2"), zero)
+        XCTAssertEqual(support, [
+            .cell(locus: "MHC-NHP01222", genotype: "NHP01222", sample: "S1"): 15,
+            zero: 0,
+        ], "the catalog's zero is attested on the accession row and no row stands alone under the allele name")
+        XCTAssertTrue(GenotypeMatrixReviewEligibility.permits(.falseNegative, rawSupport: support[zero]))
+    }
+
+    /// Two sequence IDs that carry one allele name, for example a genomic and
+    /// a cDNA record, sum into one catalog row that equals neither native row.
+    /// The row stands alone as before and nothing refuses, so the matrix keeps
+    /// its catalog zeros and the Excel export keeps working.
+    func testTwoSequenceIDsSharingAnAlleleNameLeaveTheRowStandingAlone() {
+        let result = GenotypeTestFixtures.makeResult(
+            calls: [
+                GenotypeTestFixtures.makeCall(sample: "S1", genotype: "NHP01222", reads: 15),
+                GenotypeTestFixtures.makeCall(sample: "S2", genotype: "NHP01223", reads: 9),
+            ],
+            referenceMetadata: metadata(["NHP01222": "Mafa-A1*001:01", "NHP01223": "Mafa-A1*001:01"]),
+            reviewableRowCatalog: .init(samples: ["S1", "S2"], rows: [
+                row(callID: "reference:MHC-A:Mafa-A1*001:01", displayName: "Mafa-A1*001:01", support: ["S1": 15, "S2": 9]),
+            ])
+        )
+        XCTAssertNoThrow(try Identity.map(
+            result.reviewableRowCatalog!, nativeRows: Identity.nativeRows(in: result),
+            referenceMetadata: result.referenceMetadata, into: [:]))
+        XCTAssertEqual(GenotypeMatrixReviewEligibility.rawSupport(in: result), [
+            .cell(locus: "MHC-NHP01222", genotype: "NHP01222", sample: "S1"): 15,
+            .cell(locus: "MHC-NHP01223", genotype: "NHP01223", sample: "S2"): 9,
+            .cell(locus: "MHC-A", genotype: "Mafa-A1*001:01", sample: "S1"): 15,
+            .cell(locus: "MHC-A", genotype: "Mafa-A1*001:01", sample: "S2"): 9,
+        ])
+    }
+
+    /// A row that names a native row by its display name keeps that match.
+    /// The record-allele fallback runs only when nothing else matched, so an
+    /// accession row whose record carries the same allele does not make the
+    /// row ambiguous.
+    func testARowThatMatchesByNameKeepsItsMatchBesideAnAccessionAlias() {
+        let result = GenotypeTestFixtures.makeResult(
+            calls: [
+                GenotypeTestFixtures.makeCall(sample: "S1", genotype: "Mafa-A1*001:01", reads: 12),
+                GenotypeTestFixtures.makeCall(sample: "S2", genotype: "NHP01222", reads: 15),
+            ],
+            referenceMetadata: metadata(["NHP01222": "Mafa-A1*001:01"]),
+            reviewableRowCatalog: .init(samples: ["S1", "S2"], rows: [
+                row(callID: "reference:MHC-A:Mafa-A1*001:01", displayName: "Mafa-A1*001:01", support: ["S1": 12, "S2": 0]),
+            ])
+        )
+        XCTAssertEqual(GenotypeMatrixReviewEligibility.rawSupport(in: result), [
+            .cell(locus: "MHC-A", genotype: "Mafa-A1*001:01", sample: "S1"): 12,
+            .cell(locus: "MHC-A", genotype: "Mafa-A1*001:01", sample: "S2"): 0,
+            .cell(locus: "MHC-NHP01222", genotype: "NHP01222", sample: "S2"): 15,
+        ])
     }
 
     /// The identity set the matrix maps against equals the rows of the
@@ -184,7 +283,9 @@ final class GenotypeCatalogMatrixIdentityTests: XCTestCase {
         let nativeRows = GenotypeCatalogMatrixIdentity.nativeRows(in: result)
         let nativeOnly = GenotypeMatrixReviewEligibility.rawSupport(in: GenotypeTestFixtures.makeResult(calls: calls))
         let nativeRowsOnly = medianMilliseconds { _ = GenotypeCatalogMatrixIdentity.nativeRows(in: result) }
-        let mapOnly = medianMilliseconds { _ = try? GenotypeCatalogMatrixIdentity.map(catalog, nativeRows: nativeRows, into: nativeOnly) }
+        let mapOnly = medianMilliseconds {
+            _ = try? GenotypeCatalogMatrixIdentity.map(catalog, nativeRows: nativeRows, referenceMetadata: nil, into: nativeOnly)
+        }
         let floor = medianMilliseconds {
             var cells = nativeOnly
             for row in catalog.rows {

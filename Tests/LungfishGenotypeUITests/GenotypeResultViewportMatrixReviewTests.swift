@@ -1936,4 +1936,74 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         }
     }
 
+    /// Phase 2.3 decision D4. A full-length call carries its reference
+    /// sequence ID, here the IPD accession NHP01222, while the catalog names
+    /// the same allele by its IPD name Mafa-A1*001:01 under MHC-A. The
+    /// accession parses to the pseudo-locus MHC-NHP01222 (finding N9), so no
+    /// lookup by the native locus and a name could meet the catalog row, and
+    /// its attested zeros reached the workbook as a second row for the same
+    /// allele but never the matrix. The shared mapping names the native row
+    /// through the allele its reference record carries, so Mark False
+    /// Negative is enabled on the accession row's zero, the store accepts the
+    /// review, it is drawn, and the workbook lists the allele once.
+    func testAccessionNamedCatalogZeroTakesAFalseNegativeThroughTheRecordAllele() throws {
+        let root = try TestTempDirectory.make(prefix: "AccessionCatalogZero")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let accession = "NHP01222"
+        let allele = "Mafa-A1*001:01"
+        func cell(_ sample: String) -> GenotypeAnnotationSidecar.MatrixTarget {
+            .cell(locus: "MHC-NHP01222", genotype: accession, sample: sample)
+        }
+        let catalog = GenotypeReviewableRowCatalog(samples: ["S1", "S2", "S3"], rows: [
+            .init(kind: .reference, callID: "reference:MHC-A:\(allele)", displayName: allele, locus: "MHC-A",
+                  stableID: nil, section: "reference", sortKey: "1", supportBySample: ["S1": 0, "S2": 0, "S3": 15]),
+        ])
+        try GenotypeAnnotationSidecar.empty(generatedAt: "2026-10-09T00:00:00Z").encoded()
+            .write(to: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename))
+        let calls = [makeCall(sample: "S3", genotype: accession, reads: 15)]
+        let metadata = ONTGenotypeReferenceMetadata(
+            fields: [GenBankRecordDatabase.FieldDefinition(
+                key: "feature.allele", displayTitle: "Allele", valueType: "text", sourceCategory: "feature", preferredOrder: 0)],
+            recordsBySequenceName: [accession: ["feature.allele": allele]],
+            alleleFieldKey: "feature.allele"
+        )
+        let result = makeResult(
+            bundleURL: bundleURL,
+            samples: GenotypeCharacterizationFixture.sampleResults(for: calls, order: ["S1", "S2", "S3"]),
+            calls: calls,
+            referenceMetadata: metadata,
+            reviewableRowCatalog: catalog
+        )
+        XCTAssertEqual(result.calls.map(\.locusGroup), ["MHC-NHP01222"], "an accession parses to its own pseudo-locus")
+        try ONTGenotypeResultBundle.writeManifest(result.manifest, to: bundleURL)
+        let controller = makeManualHaplotypeGuardedController()
+        _ = controller.view
+        controller.configure(result: result)
+
+        controller.testingShowMatrixTargetSelection([cell("S1")])
+        let capability = controller.testingMatrixReviewCapability
+        XCTAssertEqual(capability.support, .init(supportedCount: 0, unsupportedCount: 1, unknownCount: 0))
+        XCTAssertEqual(capability.reviewState, .none)
+        XCTAssertTrue(capability.falseNegative.isEnabled, "the catalog's zero is attested on the accession row")
+        XCTAssertFalse(capability.falsePositive.isEnabled)
+        XCTAssertEqual(controller.testingComparisonMatrixReviewCapability, capability)
+        controller.applyMatrixReview(.init(targets: [cell("S1")], intent: .set(.falseNegative)))
+        let persisted = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
+        XCTAssertEqual(persisted.matrixReviews.map(\.target), [cell("S1")], "the store accepts the write")
+        XCTAssertEqual(controller.testingCellValue(genotype: accession, sample: "S1"), "—", "the false negative is drawn")
+        XCTAssertEqual(controller.testingCellValue(genotype: accession, sample: "S3"), "15")
+
+        let snapshot = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self,
+            from: XCTUnwrap(controller.captureExcelExportSnapshot().excelSnapshotData))
+        XCTAssertEqual(snapshot.allMatrix.rows.map(\.target.genotype), [accession], "the allele appears once, on the accession row")
+        let cells = Dictionary(uniqueKeysWithValues: try XCTUnwrap(snapshot.allMatrix.rows.first).cells.map { ($0.sampleID, $0) })
+        XCTAssertEqual(cells["S1"]?.rawSupport, 0)
+        XCTAssertEqual(cells["S1"]?.review, "false-negative")
+        XCTAssertEqual(cells["S2"]?.rawSupport, 0)
+        XCTAssertEqual(cells["S2"]?.reviewEligible, true)
+        XCTAssertEqual(cells["S3"]?.rawSupport, 15)
+    }
+
 }
