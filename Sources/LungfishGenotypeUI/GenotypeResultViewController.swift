@@ -17,41 +17,6 @@ public struct GenotypeResultDesiredConfigurationAuthority:
     }
 }
 
-struct GenotypeManualHaplotypeMultiSamplePresentation: Equatable {
-    static let maximumVisibleSamples = 12
-
-    let visibleSamples: [String]
-    let omittedSampleCount: Int
-
-    init(samples: [String]) {
-        visibleSamples = Array(
-            samples.prefix(Self.maximumVisibleSamples)
-        )
-        omittedSampleCount = max(0, samples.count - visibleSamples.count)
-    }
-
-    var omissionSummary: String? {
-        guard omittedSampleCount > 0 else { return nil }
-        let noun = omittedSampleCount == 1 ? "sample" : "samples"
-        return
-            "\(omittedSampleCount) additional selected \(noun) "
-            + (omittedSampleCount == 1 ? "is" : "are")
-            + " not shown."
-    }
-}
-
-@MainActor
-protocol GenotypeMatrixAnnotationRetryCancellation: AnyObject {
-    func cancel()
-}
-
-@MainActor
-protocol GenotypeMatrixAnnotationRetryScheduling: AnyObject {
-    func schedule(
-        _ action: @escaping @MainActor () -> Void
-    ) -> GenotypeMatrixAnnotationRetryCancellation
-}
-
 @MainActor
 private final class DelayedGenotypeMatrixAnnotationRetryScheduler:
     GenotypeMatrixAnnotationRetryScheduling
@@ -88,31 +53,6 @@ private final class DelayedGenotypeMatrixAnnotationRetryScheduler:
     ) -> GenotypeMatrixAnnotationRetryCancellation {
         Cancellation(delayNanoseconds: delayNanoseconds, action: action)
     }
-}
-
-public enum GenotypeAIHaplotypingUIMode: String, CaseIterable, Sendable {
-    case aiDiscovery
-    case aiRefinement
-
-    public var displayName: String {
-        switch self {
-        case .aiDiscovery: return "AI Discovery"
-        case .aiRefinement: return "AI Refinement"
-        }
-    }
-}
-
-public struct GenotypeAIHaplotypingUIRequest: Equatable, Sendable {
-    public let mode: GenotypeAIHaplotypingUIMode
-
-    public init(mode: GenotypeAIHaplotypingUIMode) {
-        self.mode = mode
-    }
-}
-
-struct GenotypeCandidateSelectionCallbackCounts: Equatable {
-    let known: Int
-    let candidate: Int
 }
 
 struct GenotypeKnownSelectionDiagnostics: Equatable {
