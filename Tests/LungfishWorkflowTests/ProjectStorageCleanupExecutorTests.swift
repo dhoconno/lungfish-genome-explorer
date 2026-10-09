@@ -4719,7 +4719,10 @@ private final class TwoPartyBarrier: @unchecked Sendable {
             semaphore.signal()
             semaphore.signal()
         }
-        return semaphore.wait(timeout: .now() + 2) == .success
+        // The other party reaches the barrier after its own file system
+        // work, so allow 30 s for the parallel unit tier. The wait ends as
+        // soon as it arrives.
+        return semaphore.wait(timeout: .now() + 30) == .success
     }
 
     var arrivals: Int {

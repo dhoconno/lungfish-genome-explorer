@@ -289,7 +289,9 @@ final class MappingSummaryBuilderTests: XCTestCase {
             // termination below.
         }
 
-        let terminationDeadline = Date().addingTimeInterval(5)
+        // Up to 30 s for the parallel unit tier, still far short of the stub's
+        // 300 s sleep. The loop ends as soon as the process is gone.
+        let terminationDeadline = Date().addingTimeInterval(30)
         var stillRunning = ProcessTreeTerminator.processExists(pid: pid)
         while stillRunning, Date() < terminationDeadline {
             try await Task.sleep(nanoseconds: 50_000_000)
@@ -346,12 +348,13 @@ final class MappingSummaryBuilderTests: XCTestCase {
 
         let startedPIDs = try await waitForPIDs(
             at: [viewPIDFile, viewChildPIDFile, coveragePIDFile],
-            timeout: 10
+            timeout: 30
         )
         XCTAssertEqual(startedPIDs.count, 3, "expected both pipeline roots and the view child to start")
 
         task.cancel()
-        let terminationDeadline = Date().addingTimeInterval(5)
+        // Room for the parallel unit tier, far short of the 300 s sleep.
+        let terminationDeadline = Date().addingTimeInterval(30)
         while startedPIDs.contains(where: ProcessTreeTerminator.processExists), Date() < terminationDeadline {
             try await Task.sleep(nanoseconds: 50_000_000)
         }

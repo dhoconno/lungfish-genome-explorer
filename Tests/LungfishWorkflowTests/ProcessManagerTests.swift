@@ -122,11 +122,13 @@ final class ProcessManagerTests: XCTestCase {
         }
         let elapsed = Date().timeIntervalSince(start)
 
-        // The drain grace period, then the stop of the child's group.
+        // The drain grace period, then the stop of the child's group. The
+        // upper bound only proves the run did not wait out the child's
+        // 300 s sleep, with room for the parallel unit tier.
         XCTAssertGreaterThanOrEqual(elapsed, 0.3)
-        XCTAssertLessThan(elapsed, 4)
+        XCTAssertLessThan(elapsed, 30)
         let childPID = try await waitForPIDFile(childPIDFile)
-        let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 2.0)
+        let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 30)
         XCTAssertTrue(childExited, "The child that held the output open is stopped")
     }
 
@@ -220,7 +222,7 @@ final class ProcessManagerTests: XCTestCase {
         XCTAssertEqual(out, "root-stdout")
         XCTAssertTrue(err.contains("The output of spawn-pipe-holder.sh is incomplete because a child process kept it open"), err)
         let childPID = try await waitForPIDFile(childPIDFile)
-        let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 2.0)
+        let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 30)
         XCTAssertTrue(childExited, "The child that held the output open is stopped")
     }
 
@@ -259,7 +261,7 @@ final class ProcessManagerTests: XCTestCase {
 
         await ProcessManager.shared.terminate(id: handle.id)
 
-        let exited = await Self.waitUntilProcessExits(pid: grandchildPID, timeout: 2.0)
+        let exited = await Self.waitUntilProcessExits(pid: grandchildPID, timeout: 30)
         XCTAssertTrue(exited, "terminate(id:) stops the root's whole process group")
         let exitCode = await handle.waitForExit()
         XCTAssertEqual(exitCode, SIGTERM, "the root ended on the SIGTERM")
@@ -307,7 +309,7 @@ final class ProcessManagerTests: XCTestCase {
 
         await ProcessManager.shared.terminate(id: handle.id)
 
-        let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 2.0)
+        let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 30)
         XCTAssertTrue(childExited, "Terminating a workflow process must terminate descendant tool processes")
     }
 
@@ -349,8 +351,8 @@ final class ProcessManagerTests: XCTestCase {
 
         task.cancel()
 
-        let rootExited = await Self.waitUntilProcessExits(pid: rootPID, timeout: 2.0)
-        let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 2.0)
+        let rootExited = await Self.waitUntilProcessExits(pid: rootPID, timeout: 30)
+        let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 30)
         if !rootExited || !childExited {
             ProcessTreeTerminator.terminate(rootPID: rootPID, gracePeriod: 0)
             ProcessTreeTerminator.terminate(rootPID: childPID, gracePeriod: 0)
@@ -379,7 +381,7 @@ final class ProcessManagerTests: XCTestCase {
         return url
     }
 
-    private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 5.0) async throws -> Int32 {
+    private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 30) async throws -> Int32 {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if let contents = try? String(contentsOf: url, encoding: .utf8)

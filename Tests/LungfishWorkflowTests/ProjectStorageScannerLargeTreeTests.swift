@@ -897,14 +897,14 @@ final class ProjectStorageScannerLargeTreeTests: XCTestCase {
         )
         var cadenceErrors: [ProcessMemorySampler.SamplerError] = []
         do {
-            try invalidCadence.arm(timeout: 1)
-            try invalidCadence.requestTerminalSampleAndWait(timeout: 1)
+            try invalidCadence.arm()
+            try invalidCadence.requestTerminalSampleAndWait()
         } catch let error as ProcessMemorySampler.SamplerError {
             cadenceErrors.append(error)
         }
         invalidCadence.stop()
         do {
-            try invalidCadence.join(timeout: 1)
+            try invalidCadence.join()
         } catch let error as ProcessMemorySampler.SamplerError {
             cadenceErrors.append(error)
         }
@@ -953,13 +953,13 @@ final class ProjectStorageScannerLargeTreeTests: XCTestCase {
             waitUntil: { _ in true },
             wake: {}
         ))
-        XCTAssertThrowsError(try failing.arm(timeout: 1)) {
+        XCTAssertThrowsError(try failing.arm()) {
             guard case ProcessMemorySampler.SamplerError.sampleFailed = $0
             else {
                 return XCTFail("Expected a first-sample failure, got \($0)")
             }
         }
-        XCTAssertThrowsError(try failing.join(timeout: 1)) {
+        XCTAssertThrowsError(try failing.join()) {
             guard case ProcessMemorySampler.SamplerError.sampleFailed = $0
             else {
                 return XCTFail("Expected a join failure, got \($0)")
@@ -1343,9 +1343,11 @@ private final class StorageBlockingDeadlineController: @unchecked Sendable {
         semaphore.signal()
     }
 
+    /// The 5 s default leaves room for the parallel unit tier and returns as
+    /// soon as the sampler thread reaches the wait.
     func waitForWaitCount(
         _ expected: Int,
-        timeout: TimeInterval = 1
+        timeout: TimeInterval = 5
     ) -> Bool {
         condition.lock()
         defer { condition.unlock() }

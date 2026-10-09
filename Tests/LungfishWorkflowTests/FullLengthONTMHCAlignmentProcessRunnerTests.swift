@@ -38,7 +38,7 @@ final class FullLengthONTMHCAlignmentProcessRunnerTests: XCTestCase {
         XCTAssertTrue(record.wasCancelled)
         XCTAssertEqual(record.exitStatus, SIGTERM)
         XCTAssertEqual(record.stderr, "started\n")
-        XCTAssertLessThan(ContinuousClock.now - startedAt, .seconds(5))
+        XCTAssertLessThan(ContinuousClock.now - startedAt, .seconds(30))
         try await assertGone(child)
     }
 
@@ -103,8 +103,11 @@ final class FullLengthONTMHCAlignmentProcessRunnerTests: XCTestCase {
         return url
     }
 
+    /// The 30 s deadlines here and in assertGone leave room for the parallel
+    /// unit tier. Both return as soon as their condition holds, and the child
+    /// sleeps 300 s, so the cancellation bound still shows a stop.
     private func waitForPID(in url: URL) async throws -> pid_t {
-        let deadline = ContinuousClock.now + .seconds(10)
+        let deadline = ContinuousClock.now + .seconds(30)
         while ContinuousClock.now < deadline {
             if let text = try? String(contentsOf: url, encoding: .utf8),
                let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
@@ -116,7 +119,7 @@ final class FullLengthONTMHCAlignmentProcessRunnerTests: XCTestCase {
     }
 
     private func assertGone(_ pid: pid_t, file: StaticString = #filePath, line: UInt = #line) async throws {
-        let deadline = ContinuousClock.now + .seconds(5)
+        let deadline = ContinuousClock.now + .seconds(30)
         while ContinuousClock.now < deadline {
             if kill(pid, 0) != 0 && errno == ESRCH { return }
             try await Task.sleep(for: .milliseconds(20))

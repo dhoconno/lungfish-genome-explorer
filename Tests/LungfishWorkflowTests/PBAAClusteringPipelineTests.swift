@@ -194,8 +194,9 @@ final class PBAAClusteringPipelineTests: XCTestCase {
         }
 
         // The process must be terminated promptly (well under its 300s sleep),
-        // proving the Task cancellation was wired to the child process.
-        let terminationDeadline = Date().addingTimeInterval(5)
+        // proving the Task cancellation was wired to the child process. The
+        // 30 s deadline leaves room for the parallel unit tier.
+        let terminationDeadline = Date().addingTimeInterval(30)
         var stillRunning = ProcessTreeTerminator.processExists(pid: pid)
         while stillRunning, Date() < terminationDeadline {
             try await Task.sleep(nanoseconds: 50_000_000)
@@ -244,7 +245,7 @@ final class PBAAClusteringPipelineTests: XCTestCase {
         func pid(_ url: URL) -> Int32? {
             (try? String(contentsOf: url, encoding: .utf8)).flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
         }
-        let started = await waitUntil(timeout: .seconds(10)) { pid(enginePIDFile) != nil && pid(javaPIDFile) != nil }
+        let started = await waitUntil(timeout: .seconds(30)) { pid(enginePIDFile) != nil && pid(javaPIDFile) != nil }
         let pids = [pid(enginePIDFile), pid(javaPIDFile)].compactMap { $0 }
         XCTAssertTrue(started)
         XCTAssertEqual(pids.count, 2)
@@ -256,7 +257,7 @@ final class PBAAClusteringPipelineTests: XCTestCase {
         } catch {
             XCTAssertTrue(error is CancellationError, "\(error)")
         }
-        let stopped = await waitUntil(timeout: .seconds(5)) {
+        let stopped = await waitUntil(timeout: .seconds(30)) {
             pids.allSatisfy { !ProcessTreeTerminator.processExists(pid: $0) }
         }
         XCTAssertTrue(stopped, "the stand-in Nextflow and its JVM child are stopped")

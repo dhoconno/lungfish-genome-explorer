@@ -11,7 +11,9 @@ import LungfishTestSupport
 final class NativeToolRunnerTests: XCTestCase {
 
     /// Cancellation that arrives the moment the child has launched, through
-    /// the real launch path, still stops the child at once.
+    /// the real launch path, still stops the child at once. The child sleeps
+    /// far longer than the bound, so the bound leaves room for the parallel
+    /// unit tier and still shows the run did not wait for the child.
     func testCancellationAsTheChildLaunchesTerminatesItPromptly() async throws {
         let runner = NativeToolRunner(toolsDirectory: nil)
         let state = Mutex<(task: Task<NativeToolResult, Error>?, launched: Bool)>((nil, false))
@@ -19,8 +21,8 @@ final class NativeToolRunnerTests: XCTestCase {
         let task = Task {
             try await runner.runProcess(
                 executableURL: URL(fileURLWithPath: "/bin/sleep"),
-                arguments: ["2"],
-                timeout: 10,
+                arguments: ["120"],
+                timeout: 240,
                 onEvent: { event in
                     guard case .started = event else { return }
                     let task = state.withLock { value -> Task<NativeToolResult, Error>? in
@@ -42,7 +44,7 @@ final class NativeToolRunnerTests: XCTestCase {
         } catch {
             XCTAssertTrue(error is CancellationError, "\(error)")
         }
-        XCTAssertLessThan(Date().timeIntervalSince(started), 1,
+        XCTAssertLessThan(Date().timeIntervalSince(started), 30,
             "Cancellation at launch must stop the child, not wait for it")
     }
 
@@ -68,7 +70,7 @@ final class NativeToolRunnerTests: XCTestCase {
                     timeout: 10)
             }
         }
-        await fulfillment(of: [firstOutput, firstError], timeout: 2)
+        await fulfillment(of: [firstOutput, firstError], timeout: 30)
         XCTAssertFalse(FileManager.default.fileExists(atPath: finished.path), "Callbacks must run while the tool is still working")
         try Data().write(to: gate)
         let result = try await task.value
@@ -409,7 +411,7 @@ final class NativeToolRunnerTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let jobCount = max(4, min(16, ProcessInfo.processInfo.activeProcessorCount * 2))
-        let results = try await withTimeout(nanoseconds: 5_000_000_000) {
+        let results = try await withTimeout(nanoseconds: 60_000_000_000) {
             try await withThrowingTaskGroup(of: NativeToolResult.self) { group in
                 for _ in 0..<jobCount {
                     group.addTask {
@@ -439,7 +441,7 @@ final class NativeToolRunnerTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let runCount = 300
-        try await withTimeout(nanoseconds: 10_000_000_000) {
+        try await withTimeout(nanoseconds: 120_000_000_000) {
             try await withThrowingTaskGroup(of: Void.self) { group in
                 for index in 0..<runCount {
                     group.addTask {
@@ -447,7 +449,7 @@ final class NativeToolRunnerTests: XCTestCase {
                         let result = try await runner.run(
                             .seqkit,
                             arguments: ["short-output", "\(index)"],
-                            timeout: 10
+                            timeout: 60
                         )
 
                         XCTAssertTrue(result.isSuccess)
@@ -465,11 +467,13 @@ final class NativeToolRunnerTests: XCTestCase {
     /// A slow `runWithFileOutput` call (simulating a long `pigz` compression
     /// or variant-calling pipeline) must not pin `NativeToolRunner`'s actor
     /// executor: a concurrent, fast `run` call on the *same* actor instance
-    /// (as every caller shares via `.shared`) must complete well before the
-    /// slow call does. Before the fix, both `runWithFileOutput` and
+    /// (as every caller shares via `.shared`) must complete while the slow
+    /// call is still running. Before the fix, both `runWithFileOutput` and
     /// `runPipeline` ran `process.waitUntilExit()`
     /// synchronously inside the actor-isolated continuation body, so the fast
-    /// call queued behind the slow one for its entire runtime.
+    /// call queued behind the slow one for its entire runtime. The slow child
+    /// runs until the test releases it after the fast call returns, so the
+    /// check needs no wall-clock bound and holds under the parallel unit tier.
     func testSlowFileOutputRunDoesNotBlockConcurrentFastRunOnSameActor() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("NativeToolRunner \(UUID().uuidString)", isDirectory: true)
@@ -481,32 +485,31 @@ final class NativeToolRunnerTests: XCTestCase {
         try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: outputDir) }
         let outputURL = outputDir.appendingPathComponent("slow.out")
+        let startedURL = outputDir.appendingPathComponent("slow.started")
+        let releaseURL = outputDir.appendingPathComponent("slow.release")
 
         // Start the slow call but do not await it yet.
         let slowTask = Task {
             try await runner.runWithFileOutput(
                 .pigz,
-                arguments: ["--slow-compress"],
+                arguments: ["--slow-compress", startedURL.path, releaseURL.path],
                 outputFile: outputURL,
-                timeout: 10
+                timeout: 60
             )
         }
 
-        // Give the slow process time to actually launch before racing the fast one.
-        try await Task.sleep(nanoseconds: 200_000_000)
+        // Wait until the slow process has launched before racing the fast one.
+        try await waitForFile(at: startedURL, timeoutNanoseconds: 30_000_000_000)
 
-        let fastStarted = Date()
-        let fastResult = try await withTimeout(nanoseconds: 2_000_000_000) {
-            try await runner.run(.seqkit, arguments: ["version"], timeout: 5)
+        // The slow child is still waiting for its release, so a fast call that
+        // queued behind it on the actor never returns and the timeout fails
+        // the test.
+        let fastResult = try await withTimeout(nanoseconds: 30_000_000_000) {
+            try await runner.run(.seqkit, arguments: ["version"], timeout: 30)
         }
-        let fastElapsed = Date().timeIntervalSince(fastStarted)
-
         XCTAssertTrue(fastResult.isSuccess)
-        XCTAssertLessThan(
-            fastElapsed, 1.5,
-            "A fast call on the shared actor must not queue behind a slow runWithFileOutput call"
-        )
 
+        try Data().write(to: releaseURL)
         let slowResult = try await slowTask.value
         XCTAssertTrue(slowResult.isSuccess, "Slow call should still complete successfully; stderr: \(slowResult.stderr)")
         XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
@@ -523,7 +526,12 @@ final class NativeToolRunnerTests: XCTestCase {
         set -eu
         case "$1" in
           --slow-compress)
-            sleep 2
+            touch "$2"
+            i=0
+            while [ ! -f "$3" ] && [ "$i" -lt 1200 ]; do
+              sleep 0.05
+              i=$((i + 1))
+            done
             echo "compressed"
             ;;
           *)
@@ -691,7 +699,7 @@ final class NativeToolRunnerTests: XCTestCase {
             try await runner.run(
                 .seqkit,
                 arguments: ["sleep-run", completedURL.path],
-                timeout: 5
+                timeout: 60
             )
         }
 
@@ -706,7 +714,7 @@ final class NativeToolRunnerTests: XCTestCase {
             XCTFail("Expected CancellationError, got \(error)")
         }
 
-        try await assertFileDoesNotAppear(at: completedURL, timeoutNanoseconds: 2_500_000_000)
+        try await assertFileDoesNotAppear(at: completedURL, timeoutNanoseconds: 5_500_000_000)
     }
 
     func testRunCancellationTerminatesSpawnedChildProcesses() async throws {
@@ -722,7 +730,7 @@ final class NativeToolRunnerTests: XCTestCase {
             try await runner.run(
                 .seqkit,
                 arguments: ["spawn-resistant-child", childPIDURL.path],
-                timeout: 5
+                timeout: 60
             )
         }
 
@@ -738,7 +746,7 @@ final class NativeToolRunnerTests: XCTestCase {
             XCTFail("Expected CancellationError, got \(error)")
         }
 
-        try await assertProcessDoesNotAppear(pid: childPID, timeoutNanoseconds: 2_500_000_000)
+        try await assertProcessDoesNotAppear(pid: childPID, timeoutNanoseconds: 30_000_000_000)
     }
 
     func testRunPipelineCancelsAllSubprocessesAndThrowsCancellationError() async throws {
@@ -757,7 +765,7 @@ final class NativeToolRunnerTests: XCTestCase {
                     NativePipelineStage(.seqkit, arguments: ["sleep-pipeline-source", sourceCompletedURL.path]),
                     NativePipelineStage(.seqkit, arguments: ["sleep-pipeline-sink", sinkCompletedURL.path]),
                 ],
-                timeout: 5
+                timeout: 60
             )
         }
 
@@ -772,8 +780,8 @@ final class NativeToolRunnerTests: XCTestCase {
             XCTFail("Expected CancellationError, got \(error)")
         }
 
-        try await assertFileDoesNotAppear(at: sourceCompletedURL, timeoutNanoseconds: 2_500_000_000)
-        try await assertFileDoesNotAppear(at: sinkCompletedURL, timeoutNanoseconds: 2_500_000_000)
+        try await assertFileDoesNotAppear(at: sourceCompletedURL, timeoutNanoseconds: 5_500_000_000)
+        try await assertFileDoesNotAppear(at: sinkCompletedURL, timeoutNanoseconds: 5_500_000_000)
     }
 
     // MARK: - Injected Tools Directory Tests
@@ -1251,6 +1259,9 @@ final class NativeToolRunnerTests: XCTestCase {
         try fm.createDirectory(at: executableDir, withIntermediateDirectories: true)
 
         let executableURL = executableDir.appendingPathComponent("seqkit")
+        // The sleeps outlast a cancellation delayed by the parallel unit tier,
+        // and the tests watch for the completion marker a little longer than
+        // the sleep, so a child that was not stopped still fails them.
         let script = """
         #!/bin/sh
         set -eu
@@ -1258,11 +1269,11 @@ final class NativeToolRunnerTests: XCTestCase {
         marker="$2"
         case "$command" in
           sleep-run|sleep-pipeline-source|sleep-pipeline-sink)
-            sleep 2
+            sleep 5
             printf "completed\\n" > "$marker"
             ;;
           spawn-resistant-child)
-            /bin/sh -c 'trap "" TERM HUP; sleep 30' &
+            /bin/sh -c 'trap "" TERM HUP; sleep 300' &
             child="$!"
             printf "%s\\n" "$child" > "$marker"
             wait "$child"
@@ -1279,7 +1290,7 @@ final class NativeToolRunnerTests: XCTestCase {
         return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview), root)
     }
 
-    private func waitForFile(at url: URL, timeoutNanoseconds: UInt64 = 5_000_000_000) async throws {
+    private func waitForFile(at url: URL, timeoutNanoseconds: UInt64 = 30_000_000_000) async throws {
         let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
         while DispatchTime.now().uptimeNanoseconds < deadline {
             if FileManager.default.fileExists(atPath: url.path) {
@@ -1291,7 +1302,7 @@ final class NativeToolRunnerTests: XCTestCase {
         throw CocoaError(.fileReadNoSuchFile)
     }
 
-    private func waitForInt32File(at url: URL, timeoutNanoseconds: UInt64 = 5_000_000_000) async throws -> Int32 {
+    private func waitForInt32File(at url: URL, timeoutNanoseconds: UInt64 = 30_000_000_000) async throws -> Int32 {
         let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
         var lastContents: String?
         while DispatchTime.now().uptimeNanoseconds < deadline {

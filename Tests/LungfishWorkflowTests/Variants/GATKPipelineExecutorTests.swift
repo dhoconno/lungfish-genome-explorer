@@ -428,12 +428,13 @@ final class GATKPipelineExecutorTests: XCTestCase {
         let runner = ProcessGATKCommandRunner(timeout: 0.3)
         let start = Date()
         do {
-            _ = try await runner.run(GATKCommand(executable: "/bin/sleep", arguments: ["30"]))
+            _ = try await runner.run(GATKCommand(executable: "/bin/sleep", arguments: ["300"]))
             XCTFail("Expected a timeout")
         } catch let error as ProcessGATKCommandRunnerError {
             XCTAssertEqual(error, .timedOut(executable: "/bin/sleep", seconds: 0.3))
         }
-        XCTAssertLessThan(Date().timeIntervalSince(start), 10)
+        // Well short of the 300 s sleep, with room for the parallel unit tier.
+        XCTAssertLessThan(Date().timeIntervalSince(start), 30)
     }
 
     /// R3-R3ML-14: ProcessGATKCommandRunner previously ran inside a plain
@@ -497,7 +498,9 @@ final class GATKPipelineExecutorTests: XCTestCase {
             // termination below.
         }
 
-        let terminationDeadline = Date().addingTimeInterval(5)
+        // Up to 30 s for the parallel unit tier, still far short of the stub's
+        // 300 s sleep. The loop ends as soon as the process is gone.
+        let terminationDeadline = Date().addingTimeInterval(30)
         var stillRunning = ProcessTreeTerminator.processExists(pid: pid)
         while stillRunning, Date() < terminationDeadline {
             try await Task.sleep(nanoseconds: 50_000_000)

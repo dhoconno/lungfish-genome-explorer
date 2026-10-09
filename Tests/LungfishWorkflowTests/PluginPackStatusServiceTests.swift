@@ -1,4 +1,5 @@
 import CryptoKit
+import LungfishTestSupport
 import XCTest
 @testable import LungfishWorkflow
 
@@ -493,17 +494,14 @@ final class PluginPackStatusServiceTests: XCTestCase {
         let secondService = PluginPackStatusService(
             condaManager: manager,
             databaseInstalledCheck: { _ in
-                try? await Task.sleep(for: .milliseconds(500))
+                XCTFail("a snapshot within its TTL must be reused, not re-evaluated")
                 return false
             },
             cacheLifetime: 60
         )
 
-        let started = Date()
         _ = await secondService.visibleStatuses()
-        let elapsed = Date().timeIntervalSince(started)
 
-        XCTAssertLessThan(elapsed, 1.0)
         let calls = await recorder.recordedCalls()
         XCTAssertEqual(calls.sorted(), ["deacon-panhuman", "deacon-ribokmers"], "each database check runs once; concurrent evaluation makes the order arbitrary")
     }
@@ -560,9 +558,14 @@ final class PluginPackStatusServiceTests: XCTestCase {
     func testStatusForPackEvaluatesToolRequirementsConcurrentlyWithOrderPreservingResults() async throws {
         actor DelayRecorder {
             var callOrder: [String] = []
+            var overlapped: Set<String> = []
 
             func recordStart(_ databaseID: String) {
                 callOrder.append(databaseID)
+            }
+
+            func recordOverlap(_ databaseID: String) {
+                overlapped.insert(databaseID)
             }
 
             func recordedCallOrder() -> [String] { callOrder }
@@ -575,11 +578,11 @@ final class PluginPackStatusServiceTests: XCTestCase {
             bundledMicromambaVersionProvider: { nil }
         )
 
-        // Three stub tool requirements with staggered artificial delays. A serial
-        // await-per-tool loop would take slow(300ms) + medium(150ms) + fast(20ms) =
-        // ~470ms and would start "medium" only after "slow" finishes. A concurrent
-        // (bounded TaskGroup) implementation starts all three close together and
-        // finishes in roughly max(300, 150, 20) =~ 300ms.
+        // Three stub tool requirements with staggered artificial delays, so they
+        // finish out of requirement order. A serial await-per-tool loop would
+        // start "medium" only after "slow" finishes. A concurrent (bounded
+        // TaskGroup) implementation starts all three together, so each check
+        // sees the other two start before it sleeps.
         let pack = PluginPack(
             id: "concurrency-parity",
             name: "Concurrency Parity",
@@ -609,6 +612,14 @@ final class PluginPackStatusServiceTests: XCTestCase {
             condaManager: manager,
             databaseInstalledCheck: { databaseID in
                 await recorder.recordStart(databaseID)
+                // A serial loop never starts the next check while this one
+                // waits, so the wait times out and the check is not recorded
+                // as overlapping. The 30 s timeout leaves room for the parallel
+                // unit tier and returns as soon as all three have started.
+                let allStarted = await waitUntil(timeout: .seconds(30)) {
+                    await recorder.recordedCallOrder().count >= 3
+                }
+                if allStarted { await recorder.recordOverlap(databaseID) }
                 if let delay = delaysMilliseconds[databaseID] {
                     try? await Task.sleep(for: .milliseconds(delay))
                 }
@@ -617,9 +628,7 @@ final class PluginPackStatusServiceTests: XCTestCase {
             cacheLifetime: 60
         )
 
-        let started = Date()
         let status = await service.status(for: pack)
-        let elapsed = Date().timeIntervalSince(started)
 
         // Order-preserving: results must come back in requirement order regardless
         // of which subprocess/check finished first.
@@ -631,9 +640,10 @@ final class PluginPackStatusServiceTests: XCTestCase {
         )
         XCTAssertEqual(status.state, .needsInstall)
 
-        // Concurrency evidence: total wall-clock time is close to the slowest single
-        // check (300ms), not the sum of all three (470ms).
-        XCTAssertLessThan(elapsed, 0.45)
+        // Concurrency evidence: every check was running while the others
+        // started, with no wall-clock bound that load could break.
+        let overlapped = await recorder.overlapped
+        XCTAssertEqual(overlapped, Set(delaysMilliseconds.keys))
 
         // All three checks must have been started before any had a chance to
         // naturally complete serially, i.e. they were dispatched concurrently.
@@ -1002,17 +1012,14 @@ final class PluginPackStatusServiceTests: XCTestCase {
         let secondService = PluginPackStatusService(
             condaManager: manager,
             databaseInstalledCheck: { _ in
-                try? await Task.sleep(for: .milliseconds(500))
+                XCTFail("a snapshot within its TTL must be reused, not re-evaluated")
                 return false
             },
             cacheLifetime: 60
         )
 
-        let started = Date()
         _ = await secondService.status(for: .requiredSetupPack)
-        let elapsed = Date().timeIntervalSince(started)
 
-        XCTAssertLessThan(elapsed, 1.0)
         let calls = await recorder.recordedCalls()
         XCTAssertEqual(calls.sorted(), ["deacon-panhuman", "deacon-ribokmers"], "each database check runs once; concurrent evaluation makes the order arbitrary")
     }

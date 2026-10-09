@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishWorkflow
 import LungfishIO
+import LungfishTestSupport
 
 private final class FASTQBatchImporterEventCollector: @unchecked Sendable {
     private let lock = NSLock()
@@ -668,8 +669,13 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertEqual(result.failed, 0)
         XCTAssertTrue(result.errors.isEmpty)
 
-        // Give actor tasks a moment to flush
-        try await Task.sleep(nanoseconds: 10_000_000)
+        // The log handler adds events from unstructured tasks, so wait until
+        // every skip has landed rather than for a fixed moment.
+        await waitUntil {
+            await collector.events.filter {
+                if case .sampleSkip = $0 { return true } else { return false }
+            }.count >= sampleNames.count
+        }
         let logEvents = await collector.events
         let skipEvents = logEvents.compactMap { event -> String? in
             if case .sampleSkip(let sample, _) = event { return sample } else { return nil }

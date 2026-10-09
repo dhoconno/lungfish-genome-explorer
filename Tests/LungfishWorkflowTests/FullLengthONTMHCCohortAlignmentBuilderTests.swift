@@ -802,15 +802,18 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         let releaseURL = rootURL.appendingPathComponent(".child-lock-release", isDirectory: true)
         try FileManager.default.createDirectory(at: releaseURL, withIntermediateDirectories: false)
 
+        XCTAssertThrowsError(try holder.release())
+
+        // The cleanup runs only after the release attempt. A timer that fired
+        // first under the parallel unit tier would replace the directory with
+        // the sentinel and let the release succeed.
         let cleanupCompleted = expectation(description: "release sentinel cleanup")
-        DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(250)) {
+        DispatchQueue.global().async {
             try? FileManager.default.removeItem(at: releaseURL)
             _ = FileManager.default.createFile(atPath: releaseURL.path, contents: Data())
             cleanupCompleted.fulfill()
         }
-
-        XCTAssertThrowsError(try holder.release())
-        wait(for: [cleanupCompleted], timeout: 1)
+        wait(for: [cleanupCompleted], timeout: 5)
     }
 
     func testCancellationTerminatesChildRetainsDiagnosticsAndNeverPublishes() async throws {
@@ -1289,7 +1292,8 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
     sleep_selector=''
     [ -f "$tool_dir/sleep-command" ] && sleep_selector=$(cat "$tool_dir/sleep-command")
     if [ "$sleep_selector" = "$command" ] || { [ "$sleep_selector" = "final-view" ] && [ "$command" = "view" ] && [ "${2:-}" = "-h" ]; }; then
-      printf '%s\n' "$$" > "$tool_dir/sleeping-child.pid"
+      printf '%s\n' "$$" > "$tool_dir/sleeping-child.pid.partial"
+      mv "$tool_dir/sleeping-child.pid.partial" "$tool_dir/sleeping-child.pid"
       exec /bin/sleep 30
     fi
     if [ -f "$tool_dir/fail-command" ] && [ "$(cat "$tool_dir/fail-command")" = "$command" ]; then
@@ -1558,7 +1562,9 @@ private final class CrossProcessPublicationLockHolder {
             processDidExit.signal()
         }
         try process.run()
-        for _ in 0..<500 where !FileManager.default.fileExists(atPath: readyURL.path) {
+        // Up to 30 s for perl to start and take the lock, with room for the
+        // parallel unit tier.
+        for _ in 0..<3_000 where !FileManager.default.fileExists(atPath: readyURL.path) {
             guard process.isRunning else { break }
             usleep(10_000)
         }
@@ -1575,7 +1581,7 @@ private final class CrossProcessPublicationLockHolder {
             terminateChild()
             throw ReleaseError.couldNotCreateSentinel(releaseURL)
         }
-        guard waitForChildToExit(timeout: .now() + 1) else {
+        guard waitForChildToExit(timeout: .now() + 30) else {
             terminateChild()
             throw ReleaseError.childDidNotExit(process.processIdentifier)
         }
@@ -1623,12 +1629,15 @@ private func XCTAssertThrowsErrorAsync(
     } catch {}
 }
 
+/// Waits up to 30 s, which leaves room for the parallel unit tier, and
+/// returns as soon as the file exists. Writers rename the file into place, so
+/// it is complete once it exists.
 private func waitForFile(
     _ url: URL,
     file: StaticString = #filePath,
     line: UInt = #line
 ) async throws {
-    for _ in 0..<200 {
+    for _ in 0..<3_000 {
         if FileManager.default.fileExists(atPath: url.path) { return }
         try await Task.sleep(for: .milliseconds(10))
     }

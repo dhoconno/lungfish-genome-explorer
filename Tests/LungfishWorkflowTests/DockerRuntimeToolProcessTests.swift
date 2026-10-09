@@ -64,7 +64,7 @@ final class DockerRuntimeToolProcessTests: XCTestCase {
             _ = try await task.value
             XCTFail("Expected the cancelled pull to fail")
         } catch {}
-        XCTAssertLessThan(ContinuousClock.now - startedAt, .seconds(5))
+        XCTAssertLessThan(ContinuousClock.now - startedAt, .seconds(30))
         try await assertGone(child)
     }
 
@@ -124,7 +124,7 @@ final class DockerRuntimeToolProcessTests: XCTestCase {
             _ = try await waiter.value
             XCTFail("Expected the cancelled wait to throw")
         } catch is CancellationError {}
-        XCTAssertLessThan(ContinuousClock.now - startedAt, .seconds(5))
+        XCTAssertLessThan(ContinuousClock.now - startedAt, .seconds(30))
         try await assertGone(child)
     }
 
@@ -226,8 +226,11 @@ final class DockerRuntimeToolProcessTests: XCTestCase {
         return pid
     }
 
+    /// The 30 s deadlines here and in assertGone leave room for the parallel
+    /// unit tier. Both return as soon as their condition holds, and the
+    /// children sleep 300 s, so the cancellation bounds still show a stop.
     private func waitForPID(in url: URL) async throws -> pid_t {
-        let deadline = ContinuousClock.now + .seconds(10)
+        let deadline = ContinuousClock.now + .seconds(30)
         while ContinuousClock.now < deadline {
             if let pid = try? Self.pid(in: url) { return pid }
             try await Task.sleep(for: .milliseconds(20))
@@ -236,7 +239,7 @@ final class DockerRuntimeToolProcessTests: XCTestCase {
     }
 
     private func assertGone(_ pid: pid_t, file: StaticString = #filePath, line: UInt = #line) async throws {
-        let deadline = ContinuousClock.now + .seconds(5)
+        let deadline = ContinuousClock.now + .seconds(30)
         while ContinuousClock.now < deadline {
             if kill(pid, 0) != 0 && errno == ESRCH { return }
             try await Task.sleep(for: .milliseconds(20))

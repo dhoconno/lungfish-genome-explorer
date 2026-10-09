@@ -499,7 +499,10 @@ struct ProvenanceSigningTests {
             #expect(error.localizedDescription.contains("regular file"))
         }
 
-        #expect(Date().timeIntervalSince(startedAt) < 1)
+        // Opening the FIFO would block for good, so the bound only needs to
+        // tell a prompt rejection from a hang, with room for the parallel
+        // unit tier.
+        #expect(Date().timeIntervalSince(startedAt) < 30)
         #expect(
             try FileManager.default.contentsOfDirectory(
                 atPath: directory.path

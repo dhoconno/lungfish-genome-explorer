@@ -34,7 +34,7 @@ final class Primer3DesignPipelineTests: XCTestCase {
             }) { try await pipeline.run(request: request) }
             XCTFail("Expected preparation failure")
         } catch { XCTAssertEqual(error.localizedDescription, "Runtime preparation failed") }
-        await fulfillment(of: [observed], timeout: 1)
+        await fulfillment(of: [observed], timeout: 5)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), [])
     }
 

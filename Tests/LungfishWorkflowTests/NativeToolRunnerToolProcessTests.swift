@@ -31,7 +31,7 @@ final class NativeToolRunnerToolProcessTests: XCTestCase {
         do {
             _ = try await runner.runProcess(
                 executableURL: URL(fileURLWithPath: "/bin/sh"),
-                arguments: ["-c", "printf 'head\\n'; sleep 30 & echo $! > \"$1\"; exit 0", "lingering", pidFile.path],
+                arguments: ["-c", "printf 'head\\n'; sleep 300 & echo $! > \"$1\"; exit 0", "lingering", pidFile.path],
                 timeout: 20,
                 toolName: "lingering"
             )
@@ -84,7 +84,7 @@ final class NativeToolRunnerToolProcessTests: XCTestCase {
         try fixture.install(environment: "bbtools", executable: "reformat.sh", script: """
         #!/bin/sh
         # A helper the "JVM" starts in the background, deaf to SIGTERM.
-        /bin/sh -c 'trap "" TERM HUP; echo $$ > "$1/helper"; exec sleep 30' helper "$1" &
+        /bin/sh -c 'trap "" TERM HUP; echo $$ > "$1/helper"; exec sleep 300' helper "$1" &
         # The "JVM" itself, in the foreground as `eval $CMD` runs it.
         /bin/sh -c 'trap "" TERM HUP; echo $$ > "$1/java"; while :; do sleep 1; done' java "$1"
         """)
@@ -228,8 +228,11 @@ final class NativeToolRunnerToolProcessTests: XCTestCase {
 
     // MARK: Helpers
 
+    /// The 30 s deadlines here and in assertProcessEnds leave room for the
+    /// parallel unit tier and return as soon as their condition holds. The
+    /// children they watch sleep 300 s, so a natural exit cannot pass.
     private func waitForPID(_ url: URL) async throws -> Int32 {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
         while ContinuousClock.now < deadline {
             if let text = try? String(contentsOf: url, encoding: .utf8),
                let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
@@ -242,7 +245,7 @@ final class NativeToolRunnerToolProcessTests: XCTestCase {
     }
 
     private func assertProcessEnds(_ pid: Int32, file: StaticString = #filePath, line: UInt = #line) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
         while ContinuousClock.now < deadline {
             if kill(pid, 0) != 0 && errno == ESRCH { return }
             try await Task.sleep(for: .milliseconds(25))

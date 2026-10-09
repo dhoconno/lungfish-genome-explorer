@@ -208,7 +208,7 @@ final class PrimalScheme3PublicationTests: XCTestCase {
     } catch {
       XCTAssertEqual(error.localizedDescription, "managed runtime fixture")
     }
-    await fulfillment(of: [observed], timeout: 1)
+    await fulfillment(of: [observed], timeout: 5)
     XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
   }
 

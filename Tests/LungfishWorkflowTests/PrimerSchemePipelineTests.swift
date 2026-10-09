@@ -448,7 +448,7 @@ final class PrimerSchemePipelineTests: XCTestCase {
             throw XCTSkip("unreachable")
         }
         let task = Task { try await pipeline.run(request: fixture.request(options: fixture.tiledOptions)) }
-        await fulfillment(of: [started], timeout: 2)
+        await fulfillment(of: [started], timeout: 30)
         task.cancel()
         do {
             _ = try await task.value

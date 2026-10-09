@@ -742,7 +742,7 @@ final class ManagedMappingPipelineTests: XCTestCase {
             environment: "mapper",
             workingDirectory: fixture.root,
             stdoutURL: stdoutURL,
-            timeout: 2
+            timeout: 30
         )
 
         XCTAssertEqual(result.exitCode, 0)
@@ -763,7 +763,7 @@ final class ManagedMappingPipelineTests: XCTestCase {
                 environment: "mapper",
                 workingDirectory: fixture.root,
                 stdoutURL: stdoutURL,
-                timeout: 10
+                timeout: 120
             )
         }
         try await waitForFile(readyURL)
@@ -834,7 +834,8 @@ final class ManagedMappingPipelineTests: XCTestCase {
         let pidText = try String(contentsOf: childPIDURL, encoding: .utf8)
         let childPID = try XCTUnwrap(Int32(pidText.trimmingCharacters(in: .whitespacesAndNewlines)))
         defer { ProcessTreeTerminator.terminate(rootPID: childPID, gracePeriod: 0) }
-        let deadline = Date().addingTimeInterval(5)
+        // Room for the parallel unit tier, short of the child's 60 s sleep.
+        let deadline = Date().addingTimeInterval(30)
         while ProcessTreeTerminator.processExists(pid: childPID), Date() < deadline {
             try await Task.sleep(nanoseconds: 25_000_000)
         }
@@ -970,7 +971,7 @@ private struct StreamingCondaFixture {
               ;;
             ready)
               touch "$2"
-              sleep 30
+              sleep 300
               ;;
             big)
               i=0
@@ -997,7 +998,9 @@ private struct StreamingCondaFixture {
     }
 }
 
-private func waitForFile(_ url: URL, timeout: TimeInterval = 2) async throws {
+/// The 30 s default leaves room for the parallel unit tier, and the wait
+/// returns as soon as the file exists.
+private func waitForFile(_ url: URL, timeout: TimeInterval = 30) async throws {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if FileManager.default.fileExists(atPath: url.path) {

@@ -715,7 +715,7 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         let event = try waitForEvent(
             prefix: "mapping.display.succeeded tool=minimap2",
             in: eventLogURL,
-            timeout: 20
+            timeout: 60
         )
         XCTAssertEqual(event, "mapping.display.succeeded tool=minimap2 contigs=0")
     }

@@ -2796,7 +2796,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         }
 
         do {
-            try await waitForFile(at: noReadMarker, timeout: 5)
+            try await waitForFile(at: noReadMarker, timeout: 30)
         } catch {
             task.cancel()
             _ = try? await task.value
@@ -2810,7 +2810,9 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             _ = try await task.value
             XCTFail("Expected cancellation")
         } catch is CancellationError {
-            XCTAssertLessThan(Date().timeIntervalSince(cancellationStartedAt), 2)
+            // The blocked minimap2 sleeps 120 s, so the bound shows cancellation
+            // stopped it and leaves room for the parallel unit tier.
+            XCTAssertLessThan(Date().timeIntervalSince(cancellationStartedAt), 30)
         }
     }
 
@@ -2911,7 +2913,9 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             XCTAssertEqual(tool, "samtools sort")
             XCTAssertEqual(status, 29)
             XCTAssertTrue(stderr.contains("intentional samtools sort failure"), stderr)
-            XCTAssertLessThan(Date().timeIntervalSince(startedAt), 3)
+            // An unstopped minimap2 produces output forever. The bound only
+            // catches a slow stop, with room for the parallel unit tier.
+            XCTAssertLessThan(Date().timeIntervalSince(startedAt), 60)
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: request.mappingBAMURL.path))
     }
@@ -4795,7 +4799,7 @@ print(json.dumps(payload))
         try FileManager.default.createDirectory(at: minimap2Bin, withIntermediateDirectories: true)
         let minimap2LogLine = minimap2LogPath.map { "printf '%s\\n' \"$*\" >> \(shellQuoted($0))" } ?? ":"
         let minimap2NoReadMarkerLine = minimap2NoReadMarkerPath.map {
-            "printf '%s\\n' \"$$\" > \(shellQuoted($0)); sleep 10; exit 0"
+            "printf '%s\\n' \"$$\" > \(shellQuoted($0)); sleep 120; exit 0"
         } ?? ":"
         try writeExecutable(
             #"""

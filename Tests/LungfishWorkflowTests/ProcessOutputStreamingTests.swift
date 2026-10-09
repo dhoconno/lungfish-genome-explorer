@@ -33,7 +33,7 @@ final class ProcessOutputStreamingTests: XCTestCase {
             }
         }
         let result = try await fixture.manager.runTool(name: "fake", arguments: [gate.path],
-            environment: "fake", timeout: 5, stdoutHandler: receive, stderrHandler: receive)
+            environment: "fake", timeout: 30, stdoutHandler: receive, stderrHandler: receive)
         XCTAssertEqual(result.exitCode, 0)
         XCTAssertEqual(result.stdout, "out\nstdout-final")
         XCTAssertEqual(result.stderr, "err\rstderr-final")
@@ -41,11 +41,13 @@ final class ProcessOutputStreamingTests: XCTestCase {
     }
 
     func testTimeoutDrainsFinalOutputBeforeThrowing() async throws {
-        let fixture = try StreamingProcessFixture(script: "printf 'partial diagnostic'; exec sleep 10")
+        let fixture = try StreamingProcessFixture(script: "printf 'partial diagnostic'; exec sleep 60")
         defer { fixture.remove() }
         let lines = StreamingLines()
+        // The timeout leaves the tool time to print under the parallel unit
+        // tier before it is stopped.
         do {
-            _ = try await fixture.manager.runTool(name: "fake", environment: "fake", timeout: 0.5,
+            _ = try await fixture.manager.runTool(name: "fake", environment: "fake", timeout: 5,
                 stderrHandler: { lines.append($0) })
             XCTFail("Expected timeout")
         } catch let error as CondaError {

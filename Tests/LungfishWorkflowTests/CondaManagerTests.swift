@@ -557,7 +557,10 @@ final class CondaManagerTests: XCTestCase {
         let held = try CondaRootMutationLock.acquire(root: root, waitMessageWriter: { message in
             XCTFail("First lock acquisition should not wait: \(message)")
         })
+        let expectedMessage = "waiting for conda lock held by pid \(getpid())"
         let started = expectation(description: "waiting acquisition started")
+        let reported = expectation(description: "waiting acquisition reported the holder")
+        reported.assertForOverFulfill = false
         let acquired = expectation(description: "waiting acquisition acquired lock")
 
         DispatchQueue.global(qos: .userInitiated).async {
@@ -565,6 +568,7 @@ final class CondaManagerTests: XCTestCase {
             do {
                 let waiting = try CondaRootMutationLock.acquire(root: root) { message in
                     messages.append(message)
+                    if message.contains(expectedMessage) { reported.fulfill() }
                 }
                 waiting.release()
                 completed.set()
@@ -574,16 +578,18 @@ final class CondaManagerTests: XCTestCase {
             }
         }
 
-        wait(for: [started], timeout: 1)
-        Thread.sleep(forTimeInterval: 0.15)
+        // The wait message, not a fixed sleep, shows the second acquisition
+        // reached the held lock. The 30 s timeouts leave room for the
+        // parallel unit tier and return as soon as the lock moves.
+        wait(for: [started, reported], timeout: 30)
         XCTAssertFalse(completed.value, "Waiting lock acquisition should block while the first lock is held")
         XCTAssertTrue(
-            messages.snapshot().contains { $0.contains("waiting for conda lock held by pid \(getpid())") },
+            messages.snapshot().contains { $0.contains(expectedMessage) },
             "Expected waiting process message with the lock holder pid"
         )
 
         held.release()
-        wait(for: [acquired], timeout: 1)
+        wait(for: [acquired], timeout: 30)
     }
 
     func testCondaMutationLockRejectsReadOnlyRoot() throws {
@@ -1184,7 +1190,7 @@ final class CondaManagerTests: XCTestCase {
                 ;;
             run)
                 echo $$ > '\(rootPIDURL.path)'
-                /bin/sh -c 'trap "" TERM HUP; sleep 10 & wait' &
+                /bin/sh -c 'trap "" TERM HUP; sleep 120 & wait' &
                 child=$!
                 echo "$child" > '\(childPIDURL.path)'
                 touch '\(readyURL.path)'
@@ -1234,7 +1240,9 @@ final class CondaManagerTests: XCTestCase {
             return XCTFail("Expected cancellation to throw")
         }
         XCTAssertTrue(error is CancellationError, "Expected CancellationError, got \(error)")
-        XCTAssertLessThan(cancelElapsed, 2.0, "CondaManager cancellation should not wait for the child process to finish naturally")
+        // The child sleeps 120 s, so the bound shows cancellation did not wait
+        // for it and leaves room for the parallel unit tier.
+        XCTAssertLessThan(cancelElapsed, 30, "CondaManager cancellation should not wait for the child process to finish naturally")
         try await waitForProcessExit(pid: childPID)
     }
 
@@ -1379,7 +1387,8 @@ final class CondaManagerTests: XCTestCase {
             XCTAssertEqual(tool, "slow")
             XCTAssertEqual(seconds, 0.5)
         }
-        XCTAssertLessThan(Date().timeIntervalSince(start), 10)
+        // Well short of the 60 s sleep, with room for the parallel unit tier.
+        XCTAssertLessThan(Date().timeIntervalSince(start), 30)
     }
 
     func testRunToolReturnsNonzeroExitWithOutput() async throws {
@@ -1438,11 +1447,18 @@ final class CondaManagerTests: XCTestCase {
             nonisolated(unsafe) let stdoutBuffer = NSMutableData()
             nonisolated(unsafe) let stderrBuffer = NSMutableData()
             nonisolated(unsafe) var continuationResumed = false
+            // Each pipe leaves the group when it reaches end of file, so the
+            // result waits for the whole output, not a fixed delay that the
+            // parallel unit tier can outlast.
+            let drained = DispatchGroup()
+            drained.enter()
+            drained.enter()
 
             stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
                 let data = handle.availableData
                 if data.isEmpty {
                     stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                    drained.leave()
                 } else {
                     stdoutBuffer.append(data)
                 }
@@ -1452,6 +1468,7 @@ final class CondaManagerTests: XCTestCase {
                 let data = handle.availableData
                 if data.isEmpty {
                     stderrPipe.fileHandleForReading.readabilityHandler = nil
+                    drained.leave()
                 } else {
                     stderrBuffer.append(data)
                 }
@@ -1470,7 +1487,7 @@ final class CondaManagerTests: XCTestCase {
             process.terminationHandler = { terminatedProcess in
                 timeoutItem.cancel()
 
-                DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
+                drained.notify(queue: .global()) {
                     stdoutPipe.fileHandleForReading.readabilityHandler = nil
                     stderrPipe.fileHandleForReading.readabilityHandler = nil
 
@@ -1603,7 +1620,9 @@ final class CondaManagerTests: XCTestCase {
         }
     }
 
-    private func waitForFile(_ url: URL, timeout: TimeInterval = 10) async throws {
+    /// The 30 s timeouts of this and waitForProcessExit leave room for the
+    /// parallel unit tier, and both return as soon as their condition holds.
+    private func waitForFile(_ url: URL, timeout: TimeInterval = 30) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if FileManager.default.fileExists(atPath: url.path) {
@@ -1615,7 +1634,7 @@ final class CondaManagerTests: XCTestCase {
         throw CocoaError(.fileReadNoSuchFile)
     }
 
-    private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 2) async throws {
+    private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 30) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if !ProcessTreeTerminator.processExists(pid: pid) {

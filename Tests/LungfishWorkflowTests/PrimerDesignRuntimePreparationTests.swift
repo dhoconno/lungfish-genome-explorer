@@ -69,7 +69,7 @@ final class PrimerDesignRuntimePreparationTests: XCTestCase {
         }
         for await _ in waiting.stream { break }
         task.cancel()
-        await fulfillment(of: [cancelled], timeout: 2)
+        await fulfillment(of: [cancelled], timeout: 30)
         held.release()
         await task.value
         let subsequent = try await CondaEnvironmentMutationLock.acquireCancellable(root: root, environment: "primalscheme3")

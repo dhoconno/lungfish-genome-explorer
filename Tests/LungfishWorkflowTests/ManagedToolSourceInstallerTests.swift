@@ -1,6 +1,7 @@
 import XCTest
 import CryptoKit
 import Darwin
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class ManagedToolSourceInstallerTests: XCTestCase {
@@ -264,23 +265,27 @@ final class ManagedToolSourceInstallerTests: XCTestCase {
             executable: URL(fileURLWithPath: "/bin/sh"),
             arguments: [
                 "-c",
-                "sleep 30 & child=$!; printf '%s' \"$child\" > \"$1\"; wait \"$child\"",
+                "sleep 300 & child=$!; printf '%s' \"$child\" > \"$1\"; wait \"$child\"",
                 "managed-tool-child",
                 childPIDFile.path,
             ]
         )
 
-        let task = Task { try await ManagedToolSourceInstaller.run(invocation, timeout: 30) }
-        for _ in 0..<20 where !FileManager.default.fileExists(atPath: childPIDFile.path) {
-            try await Task.sleep(nanoseconds: 50_000_000)
+        let task = Task { try await ManagedToolSourceInstaller.run(invocation, timeout: 120) }
+        // The shell creates the file before it writes the PID, so wait for a
+        // PID, not the file. The 30 s waits leave room for the parallel unit
+        // tier, return as soon as their condition holds, and stay far short
+        // of the child's 300 s sleep.
+        func writtenChildPID() -> Int32? {
+            (try? String(contentsOf: childPIDFile, encoding: .utf8))
+                .flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
         }
-        let childPID = try XCTUnwrap(Int32(String(contentsOf: childPIDFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+        await waitUntil(timeout: .seconds(30)) { writtenChildPID() != nil }
+        let childPID = try XCTUnwrap(writtenChildPID())
         task.cancel()
         await XCTAssertThrowsErrorAsync { _ = try await task.value }
 
-        for _ in 0..<20 where kill(childPID, 0) == 0 {
-            try await Task.sleep(nanoseconds: 100_000_000)
-        }
+        await waitUntil(timeout: .seconds(30)) { kill(childPID, 0) != 0 }
         XCTAssertNotEqual(kill(childPID, 0), 0)
     }
 
