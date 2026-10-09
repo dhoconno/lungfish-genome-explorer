@@ -31,7 +31,7 @@ LungfishCore, SystemPackage, AsyncAlgorithms, SQLite3 and system frameworks. Nev
 
 - An analysis folder from `AnalysesFolder.createAnalysisDirectory` (line 151) stays hidden until `markAnalysisComplete` (line 268). A failed run calls `discardFailedAnalysisDirectory` (line 486).
 - `AnalysesFolder.knownTools` (line 26) and `displayName` (line 82) decide whether the sidebar recognises a tool folder.
-- Streaming readers pull per demand with `AsyncThrowingStream(unfolding:)` (FASTQReader.swift line 76). An unbounded producer task is a memory bomb (memory file known-issues.md).
+- Streaming readers pull per demand with `AsyncThrowingStream(unfolding:)` (FASTQReader.swift line 76). An unbounded producer task is a memory bomb (memory file known-issues.md). The viewer's samtools reads in `AlignmentDataProvider` and the gzip decompression of a VCF in `VariantDatabase+RegionExtraction.swift` run on `ToolProcess` in LungfishCore with `stdout: .stream`, so the reader gets raw bytes at its own pace and a cancel stops the whole tree. Neither creates a `Process()`, and a new tool run in this module uses the same primitive (docs/contracts/RUNNING-A-TOOL.md).
 - Genotype workbook and matrix exports stay byte-identical across any refactor (REVIEW.md R6).
 - A tree manifest's `supportLabels` name the tests behind "a/b[/c]" node labels in IQ-TREE's order, and normalisation splits the label against them. Without labels the old single-value guess is kept. Derived trees pass the inference summary explicitly. Reroot clears the outgroup, extract passes none and relabel keeps it. Line numbers for the IQ-TREE rows above were checked at commit 58370dd8e.
 

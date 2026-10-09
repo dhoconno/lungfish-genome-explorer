@@ -16,6 +16,7 @@ LungfishCore, LungfishIO, LungfishWorkflow, AppKit, SwiftUI and Combine. Never L
 |---|---|---|
 | Register the operation and take bundle locks | `OperationCenter.begin` | Sources/LungfishKit/OperationCenter.swift line 602 |
 | Report from operation code through a type tests can replace | `OperationReporting` | Sources/LungfishKit/OperationReporting.swift line 26 |
+| Build the one `lungfish-cli` spec and map its outcome | `CLIProcessLauncher` | Sources/LungfishKit/CLIProcessLauncher.swift |
 | Spawn `lungfish-cli` and decode its event stream | `CLISubprocessTransport.run` | Sources/LungfishKit/CLISubprocessTransport.swift line 94 |
 | Map each `CLIEvent` onto the operation row | `OperationCenterCLIBridge` | Sources/LungfishApp/Services/OperationCenterCLIBridge.swift line 20 |
 | Find the CLI binary | `CLIBinaryLocator` | Sources/LungfishKit/CLIBinaryLocator.swift line 17 |
@@ -52,4 +53,4 @@ Target LungfishKitTests in Tests/LungfishKitTests (OperationCenter suites, row a
 | Bundle import after completion runs through a closure AppDelegate sets once | `onBundleReady`, OperationCenter.swift lines 436 to 438 (R4) |
 | The file named ResultViewportController.swift holds no viewport protocol, only export and BLAST request types | Sources/LungfishKit/ResultViewportController.swift lines 15 and 40 (R1) |
 | A test that fails an operation writes a report into the user's real logs unless it gives the center a store rooted in a temporary directory | `OperationCenter.failureReportStore` and `OperationFailureReportStore(directory:)` in Sources/LungfishKit/OperationFailureReportStore.swift. The temporary store is `OperationFailureReportStore.temporaryForTesting()` (R10) |
-| Process() is created directly | CLISubprocessTransport.swift, LungfishCLIRunner.swift and CLIBinaryLocator.swift (R7) |
+| `Process()` is still created directly in `CLIBinaryLocator`, which probes for the CLI binary. Everything that runs `lungfish-cli` goes through `CLIProcessLauncher` (the one spec and the one outcome mapping) and `CLIRunCancellation` (which stores the `ToolProcessRun` and cancels it from any thread), and `CLISubprocessTransport` and `LungfishCLIRunner` call them. A new CLI runner uses the launcher and never creates a `Process()`, because `scripts/ratchets/process-spawn.sh` counts them | Sources/LungfishKit/CLIBinaryLocator.swift, Sources/LungfishKit/CLIProcessLauncher.swift, Sources/LungfishKit/CLIRunCancellation.swift, docs/contracts/RUNNING-A-TOOL.md (R7) |

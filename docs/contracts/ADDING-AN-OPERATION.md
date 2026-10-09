@@ -127,7 +127,7 @@ A new operation named Foo that writes an `Analyses/` folder touches these places
 | Layer | File |
 |---|---|
 | Request type and service | new `FooRequest` and `FooPipeline` types in a domain folder under `Sources/LungfishWorkflow/` (see "Where a new domain goes" below) |
-| Tool availability | the lock manifest `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`, and either a `NativeTool` case in `Sources/LungfishWorkflow/Native/NativeToolRunner.swift` or a conda environment run through `Sources/LungfishWorkflow/Conda/CondaManager.swift` (Phase 2 replaces both with one tool descriptor) |
+| Tool availability | the lock manifest `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`, and either a `NativeTool` case in `Sources/LungfishWorkflow/Native/NativeToolRunner.swift` or a conda environment run through `Sources/LungfishWorkflow/Conda/CondaManager.swift` (Phase 2 replaces both with one tool descriptor). Both launch through `ToolProcess`, and `docs/contracts/RUNNING-A-TOOL.md` says which entry point to use, how cancellation works and how to pin the tool with a golden |
 | Provenance policy | the CLI command and any `NativeTool` case in `Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift` (Rule 11) |
 | CLI command | a new `FooCommand` in `Sources/LungfishCLI/Commands/`, registered in `Sources/LungfishCLI/LungfishCLI.swift` |
 | Operation type | a case in `OperationType` in `Sources/LungfishKit/OperationCenter.swift` if none fits |

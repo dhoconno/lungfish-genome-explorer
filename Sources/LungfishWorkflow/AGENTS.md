@@ -1,6 +1,6 @@
 # LungfishWorkflow
 
-Line numbers were checked at commit a0eec8b32. When a line has moved, search for the named symbol.
+Line numbers were checked at commit a0eec8b32, and the tool-runner rows name symbols instead. When a line has moved, search for the named symbol.
 
 ## Purpose
 
@@ -32,9 +32,11 @@ Add to these. Never write a second copy in the CLI or the app.
 | Virtual FASTQ materialization | `FASTQCLIMaterializer` | Sources/LungfishWorkflow/Extraction/FASTQCLIMaterializer.swift line 26 |
 | Multiple sequence alignment | `MAFFTAlignmentPipeline` | Sources/LungfishWorkflow/MSA/MAFFTAlignmentPipeline.swift line 93 |
 | Viral variant calling | `ViralVariantCallingPipeline` | Sources/LungfishWorkflow/Variants/ViralVariantCallingPipeline.swift line 8 |
-| Native tool runs | `NativeToolRunner` | Sources/LungfishWorkflow/Native/NativeToolRunner.swift line 648 |
+| Native tool runs, an adapter on `ToolProcess` (the `run`, `runProcess`, `runWithFileOutput` and `runPipeline` methods, translated in `NativeToolProcessAdapter`) | `NativeToolRunner` | Sources/LungfishWorkflow/Native/NativeToolRunner.swift, Native/NativeToolRunner+ToolProcess.swift |
 | Process tree termination and output line framing, moved out of Native in Phase 2.2 | `ProcessTreeTerminator`, `ProcessOutputLineFramer` | Sources/LungfishCore/Process/ |
-| Conda environment tool runs | `CondaManager.runTool` | Sources/LungfishWorkflow/Conda/CondaManager.swift line 1112 |
+| Conda environment tool runs, an adapter on `ToolProcess`, with the shared timeout, line and termination helpers in `CondaFamilyProcess` | `CondaManager.runTool` | Sources/LungfishWorkflow/Conda/CondaManager.swift |
+| Long-running engine processes (Nextflow, Snakemake) with live line streams, an adapter on `ToolProcess` | `ProcessManager.spawn`, `ProcessManager.runAndWait` | Sources/LungfishWorkflow/ProcessManager.swift |
+| How to pick between these and `ToolProcess` itself | `docs/contracts/RUNNING-A-TOOL.md` | Sources/LungfishCore/Process/ToolProcess.swift |
 | Nextflow launch environment | `WorkflowEngineLaunch.resolve` | Sources/LungfishWorkflow/WorkflowEngineLaunch.swift line 56 |
 | CLI progress events | `CLIEvent` | Sources/LungfishWorkflow/CLIEvents/CLIEvent.swift line 19 |
 
@@ -63,13 +65,13 @@ Target LungfishWorkflowTests in Tests/LungfishWorkflowTests, with subfolders tha
 | Trap | Evidence |
 |---|---|
 | Every Nextflow start takes its executable and environment from `WorkflowEngineLaunch`. It puts the managed engine's bin first on PATH, sets JAVA_HOME to the engine's bundled JDK and sets NXF_HOME for the app channel. A start needs the managed engine (`resolveManaged`), so a Nextflow found on PATH never runs. A caller adds its own settings with `overridingEnvironment` and never builds a second environment, as TaxTriage does for its micromamba root and conda profile. Hand-built environments once left out JAVA_HOME, and Nextflow then fails on a Mac without a system JDK | WorkflowEngineLaunch.swift, `buildLaunchEnvironment` in TaxTriage/TaxTriagePipeline.swift, `nextflowLaunch` in PBAA/PBAAClusteringPipeline.swift and Engines/NextflowRunner.swift, `getEngineVersion` in WorkflowRunner.swift (R7) |
-| `CondaManager.runTool` has a 3600 s default timeout and different PATH rules from `NativeToolRunner` | Conda/CondaManager.swift line 1118 (R2, R17) |
+| `CondaManager.runTool` has a 3600 s default timeout and different PATH rules from `NativeToolRunner` | `runTool` in Conda/CondaManager.swift (R2, R17) |
 | Shelling out to a tool macOS does not ship | Bundles/ReferenceSourcePreparer.swift line 227 runs `zstd` (R7) |
 | Mapper indexes are rebuilt per run inside the output folder | Mapping/ManagedMappingPipeline.swift lines 521 to 539 (R17) |
 | Provenance still emits a legacy run inside the envelope | Provenance/ProvenanceEnvelope.swift lines 44, 45, 76 and 102 (R8) |
 | `IngestionPlatform` (`illumina`, `ont`, `pacbio`, `ultima`) is the recipe platform. Recipe files spell their `platforms` with it, and `IngestionPlatform(importing:)` maps Element, MGI and Unknown to `illumina` for recipe filtering only. The import takes `ImportPlatformRequest` (`auto`, the default, or a given `SequencingPlatform`) and records the canonical spelling in the sidecar and `importCLIValue` (`ont`) in provenance and replay commands. Never pass `IngestionPlatform(importing:)` to `--platform` | Recipes/IngestionPlatform.swift, Ingestion/ImportPlatformRequest.swift, Ingestion/FASTQBatchImporter+Platform.swift, Tests/LungfishWorkflowTests/Recipes/WorkflowPlatformPinTests.swift (R15) |
 | The platform and read class choose defaults and never gate a run. Mapping and assembly read-class mismatches, mixed read classes and unknown read classes are warnings (`MappingCompatibilityState.warning`, `AssemblyReadTypeDecision.warnings`), and reads of unknown platform take long-read or short-read defaults from their length. Only a combination the tool cannot run stays `.blocked`, such as a minimap2 preset for Bowtie2 or BBMap reads over its 500 or 6,000 base limit (BBMap splits longer reads into renamed pieces). Adding a refusal tied to platform needs an owner ruling | Mapping/MappingCompatibility.swift, Assembly/AssemblyCompatibility.swift, PlatformInference+Defaults.swift in LungfishIO (owner ruling on ruling 1, Phase 1.5) |
-| A new `NativeTool` case without a `nativeToolPolicies` entry makes every run of it throw `missingProvenancePolicy` | Provenance/ScientificProvenancePolicy.swift line 208, Native/NativeToolRunner.swift line 1145 |
+| A new `NativeTool` case without a `nativeToolPolicies` entry makes every run of it throw `missingProvenancePolicy` | `nativeToolPolicies` in Provenance/ScientificProvenancePolicy.swift, `missingProvenancePolicy` in Native/NativeToolRunner.swift |
 | Time every provenance run and step with `ProvenanceRunClock` from LungfishCore. It keeps the wall-clock start and measures the run on `ContinuousClock`, so the end is the start plus the elapsed time and the wall time is never negative. Two `Date()` calls let an NTP correction or a manual clock change put the end before the start, and `ProvenanceRunBuilder.complete` then throws `invalidTimeRange` for a run that succeeded. A 63 ms step failed a Delete Annotation that way on 2026-10-07. The builder's time-range check and the `wallTimeSeconds >= 0` checks on records read from disk stay strict, because they catch corrupt records. A test steps the wall clock in the middle of a run with `SteppedTimeSource` from LungfishTestSupport and never sleeps | Sources/LungfishCore/ProvenanceRunClock.swift, Provenance/ProvenanceRunBuilder.swift, Tests/LungfishWorkflowTests/SequenceAnnotationProvenanceClockStepTests.swift |
 | Install paths with spaces break samtools and ivar pipes, so conda lives under ~/.lungfish/conda | memory file project_conda_plugins.md |
 | nf-core/viralrecon 3.0.0 accepts `--gff` only as `.gff` or `.gff.gz`, so a reference bundle's `genome/genes.gff3` fails parameter validation 20 s into a run. `lungfish-cli workflow run nf-core/viralrecon`, and no other workflow, copies the annotation to `inputs/reference/genes.gff` in the run bundle with its bytes unchanged and records `stagedAnnotation` in provenance. `additional_annotation` has the same rule and is not staged | ViralRecon/ViralReconAnnotationStaging.swift, `NFCoreLaunchStaging.stageAnnotation` in Sources/LungfishCLI/Commands/NFCoreLaunchStaging.swift |

@@ -14,6 +14,7 @@ This is the entry point for any agent working in the Lungfish Genome Explorer (L
 | [docs/contracts/CLI-EQUIVALENCE.md](docs/contracts/CLI-EQUIVALENCE.md) | What "every operation has a `lungfish-cli` equivalent" means, how a recorded command is tested and replayed, and how parity gaps are pinned and counted |
 | [docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md](docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md) | The leaf-module recipe for a new result viewer and every App touch point it needs today |
 | [docs/contracts/analysis-surface-checklist.md](docs/contracts/analysis-surface-checklist.md) | A copyable checklist to tick per surface |
+| [docs/contracts/RUNNING-A-TOOL.md](docs/contracts/RUNNING-A-TOOL.md) | Which entry point launches a tool, what `ToolProcess` guarantees for output, cancellation and limits, how the CLI handles signals, and how to pin a tool with a golden |
 | [docs/contracts/CONCURRENCY-PLAYBOOK.md](docs/contracts/CONCURRENCY-PLAYBOOK.md) | MainActor dispatch, progress callbacks, generation counters and the ratcheted escape hatches |
 | [docs/contracts/EXTERNAL-VOLUMES.md](docs/contracts/EXTERNAL-VOLUMES.md) | What differs when a project lives on an ExFAT external drive, the portable helpers, how to test on a real ExFAT image and the volume-portability ratchet |
 | [docs/contracts/VERIFICATION-ORDER.md](docs/contracts/VERIFICATION-ORDER.md) | In what order a session runs targeted tests, the unit tier, replay, golden comparisons, the GUI walk and the release, and which evidence carries forward so nothing runs twice |
@@ -47,9 +48,9 @@ LungfishCLI sits beside the UI stack and imports only Core, IO and Workflow. Lun
 
 | Looking for | Start at |
 |---|---|
-| Tool execution and pinned tool versions | `Sources/LungfishWorkflow/Native/NativeToolRunner.swift`, `Sources/LungfishWorkflow/Conda/CondaManager.swift`, `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json` |
+| Tool execution and pinned tool versions | `Sources/LungfishCore/Process/ToolProcess.swift` (the one primitive, see `docs/contracts/RUNNING-A-TOOL.md`), its adapters `Sources/LungfishWorkflow/Native/NativeToolRunner.swift`, `Sources/LungfishWorkflow/Conda/CondaManager.swift` and `Sources/LungfishWorkflow/ProcessManager.swift`, and `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json` |
 | Operations panel and bundle locks | `Sources/LungfishKit/OperationCenter.swift` |
-| Running `lungfish-cli` from the app | `Sources/LungfishKit/CLISubprocessTransport.swift` and `Sources/LungfishApp/Services/OperationCenterCLIBridge.swift` |
+| Running `lungfish-cli` from the app | `Sources/LungfishKit/CLIProcessLauncher.swift`, `Sources/LungfishKit/CLISubprocessTransport.swift` and `Sources/LungfishApp/Services/OperationCenterCLIBridge.swift` |
 | FASTQ operations dialog execution | `Sources/LungfishApp/Services/FASTQOperationExecutionService.swift`, with `FASTQOperationPlanner`, `FASTQOperationCLIInvocationBuilder` and `FASTQOperationOutputImporter` beside it |
 | CLI commands | `Sources/LungfishCLI/Commands`, registered in `Sources/LungfishCLI/LungfishCLI.swift` |
 | CLI progress events | `Sources/LungfishWorkflow/CLIEvents/CLIEvent.swift` |
@@ -73,6 +74,7 @@ These rules are not optional. Each one exists because breaking it caused a shipp
 | Materialize virtual FASTQ first | A virtual FASTQ bundle holds only `preview.fastq`. Materialize it with `FASTQCLIMaterializer` before any classifier or mapper runs. |
 | Provenance policy registered | A new top-level CLI command needs an entry in `Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift` or `ScientificCLIProvenanceCoverageTests` fails. A new `NativeTool` case without a `nativeToolPolicies` entry makes `NativeToolRunner` throw `missingProvenancePolicy`. |
 | Projects live on ExFAT too | Most external SSDs ship as ExFAT, where `RENAME_EXCL`, `RENAME_SWAP`, `clonefile` and hard links fail with `ENOTSUP`. Every rename with a flag goes through `PortableRename` (raw calls are banned by `scripts/ratchets/volume-portability.sh`), and every file-system change follows `docs/contracts/EXTERNAL-VOLUMES.md`. |
+| Launch tools through ToolProcess | Start every external program through `ToolProcess` or one of its adapters and never create a `Process()` or call `.terminate()` outside `Sources/LungfishCore/Process/`. `docs/contracts/RUNNING-A-TOOL.md` picks the entry point and `scripts/ratchets/process-spawn.sh` counts the violations. |
 | Viral Recon binds `.lungfishref` | The Viral Recon viewport binds a `.lungfishref` bundle whose manifest registers the BAM. It never opens a loose BAM. |
 
 One more habit matters. Call both `OperationCenter.shared.update` and `OperationCenter.shared.log` from a running operation, because only logged lines persist in the row history.
