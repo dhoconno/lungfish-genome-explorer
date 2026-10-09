@@ -1,0 +1,7 @@
+<STORAGE_ROOT>/conda/bin/micromamba
+run
+-n
+freyja
+freyja
+variants
+<SCRATCH>/in/missing.bam

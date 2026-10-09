@@ -1,0 +1,6 @@
+id: whatshap-version
+tool: whatshap
+tier: heavy
+runner: nativeTool
+call: NativeToolRunner.run(.whatshap)
+compares: argv, exit, stdout, stderr

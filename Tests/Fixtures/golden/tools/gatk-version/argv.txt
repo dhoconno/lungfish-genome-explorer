@@ -1,0 +1,6 @@
+<STORAGE_ROOT>/conda/bin/micromamba
+run
+-n
+gatk-core
+gatk
+--version

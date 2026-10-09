@@ -1,0 +1,6 @@
+id: freyja-conda-error
+tool: freyja
+tier: heavy
+runner: conda
+call: CondaManager.runTool(name: freyja, environment: freyja)
+compares: argv, exit, stdout, stderr

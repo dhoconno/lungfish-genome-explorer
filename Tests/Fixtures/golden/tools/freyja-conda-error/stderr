@@ -1,0 +1,4 @@
+Usage: freyja variants [OPTIONS] BAMFILE
+Try 'freyja variants --help' for help.
+
+Error: Invalid value for 'BAMFILE': Path '<SCRATCH>/in/missing.bam' does not exist.

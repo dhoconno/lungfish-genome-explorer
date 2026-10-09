@@ -1,0 +1,3 @@
+WARNING: Ignoring --row-limit as heuristic is not used as algorithm.
+This is WhatsHap 2.3 running under Python 3.11.17
+ERROR: whatshap error: [Errno 2] No such file or directory: '<SCRATCH>/in/missing.bam'

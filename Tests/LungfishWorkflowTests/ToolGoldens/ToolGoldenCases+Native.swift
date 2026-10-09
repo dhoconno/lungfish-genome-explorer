@@ -225,7 +225,6 @@ extension ToolGoldenCase {
               argv: ["--version"], compareStderr: true),
         .init("prefetch-unknown-option", tool: "prefetch", runner: .nativeTool(.prefetch), tier: .heavy,
               argv: ["--no-such-option"], compareStderr: true, masks: [.sraLogTimestamp]),
-        // Not installed on the capture Mac: these skip through ToolAvailability.
         .init("whatshap-version", tool: "whatshap", runner: .nativeTool(.whatshap), tier: .heavy,
               argv: ["--version"], compareStderr: true),
         .init("freyja-version", tool: "freyja", runner: .nativeTool(.freyja), tier: .heavy,

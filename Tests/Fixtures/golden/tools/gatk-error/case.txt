@@ -1,0 +1,6 @@
+id: gatk-error
+tool: GATK
+tier: heavy
+runner: conda
+call: CondaManager.runTool(name: gatk, environment: gatk-core)
+compares: argv, exit, stdout, stderr

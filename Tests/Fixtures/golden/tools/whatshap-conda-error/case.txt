@@ -1,0 +1,6 @@
+id: whatshap-conda-error
+tool: whatshap
+tier: heavy
+runner: conda
+call: CondaManager.runTool(name: whatshap, environment: phasing)
+compares: argv, exit, stdout, stderr

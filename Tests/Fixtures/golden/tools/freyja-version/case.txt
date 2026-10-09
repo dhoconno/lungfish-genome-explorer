@@ -1,0 +1,6 @@
+id: freyja-version
+tool: freyja
+tier: heavy
+runner: nativeTool
+call: NativeToolRunner.run(.freyja)
+compares: argv, exit, stdout, stderr

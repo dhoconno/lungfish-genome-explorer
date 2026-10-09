@@ -1,0 +1,8 @@
+<STORAGE_ROOT>/conda/bin/micromamba
+run
+-n
+phasing
+whatshap
+phase
+<SCRATCH>/in/missing.vcf
+<SCRATCH>/in/missing.bam

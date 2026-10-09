@@ -2,7 +2,7 @@
 
 These goldens hold the stdout, exit code and named outputs of every external tool the Lungfish Genome Explorer (LGE) runs, each run through the LGE runner that serves the tool today. They are the entry criterion for Phase 2 of the architecture program (review finding R7, Phase 2.2 lane 1B). Phase 2 rewrites `NativeToolRunner`, `CondaManager.runTool` and `ProcessManager` on one `ToolProcess` primitive, and these files must stay byte for byte the same across that rewrite. A truncated samtools or bcftools stream, a lost exit code or a changed argv shows up here as a diff.
 
-They were captured on main at 9f6dd500e with the managed tools of dependency set 2026.2 in `~/.lungfish`. The suite is `ToolOutputGoldenTests` in `Tests/LungfishWorkflowTests/ToolGoldens`, with the case table in `ToolGoldenCases+Native.swift` and `ToolGoldenCases+Conda.swift`.
+They were captured on main at 9f6dd500e with the managed tools of dependency set 2026.2 in `~/.lungfish`. The eight GATK, WhatsHap and Freyja cases were added on 2026-10-09 from the experimental `gatk-core`, `phasing` and `wastewater-surveillance` packs, installed on the Mac Studio at the builds the tool lock pins (GATK 4.6.2.0, WhatsHap 2.3, Freyja 2.0.3). The suite is `ToolOutputGoldenTests` in `Tests/LungfishWorkflowTests/ToolGoldens`, with the case table in `ToolGoldenCases+Native.swift` and `ToolGoldenCases+Conda.swift`.
 
 ## Running the compare
 
@@ -87,7 +87,6 @@ Some values are the same in every run on the capture Mac but would differ on ano
 
 | Tool | Why |
 |---|---|
-| GATK (`gatk-core`), whatshap (`phasing`), freyja | Run through `CondaManager.runTool` and, for whatshap and freyja, `NativeToolRunner.run`. Not installed on the capture Mac, so their cases skip and have no golden folder yet. |
 | IQ-TREE | `lungfish-cli tree infer iqtree` launches it with its own `Process`, outside the three runners Phase 2 rewrites |
 
 Once a skipped tool is installed, capture its cases with the filter above and commit the new folders.
@@ -133,8 +132,13 @@ Once a skipped tool is installed, capture its cases with the filter above and co
 | `fasterq-dump-version` | fasterq-dump | NativeToolRunner.run | heavy | argv, exit, stdout, stderr |
 | `fastp-missing-input` | fastp | NativeToolRunner.run | light | argv, exit, stdout, stderr |
 | `fastp-paired` | fastp | NativeToolRunner.run | light | argv, exit, stdout, trimmed_1.fq.gz, trimmed_2.fq.gz, fastp.json |
+| `freyja-conda-error` | freyja | CondaManager.runTool | heavy | argv, exit, stdout, stderr |
+| `freyja-conda-version` | freyja | CondaManager.runTool | heavy | argv, exit, stdout, stderr |
+| `freyja-version` | freyja | NativeToolRunner.run | heavy | argv, exit, stdout, stderr |
 | `flye-error` | Flye | CondaManager.runTool | heavy | argv, exit, stdout, stderr |
 | `flye-version` | Flye | CondaManager.runTool | heavy | argv, exit, stdout, stderr |
+| `gatk-error` | GATK | CondaManager.runTool | heavy | argv, exit, stdout, stderr |
+| `gatk-version` | GATK | CondaManager.runTool | heavy | argv, exit, stdout, stderr |
 | `hifiasm-error` | hifiasm | CondaManager.runTool | heavy | argv, exit, stdout, stderr |
 | `hifiasm-version` | hifiasm | CondaManager.runTool | heavy | argv, exit, stdout, stderr |
 | `ivar-trim` | ivar | NativeToolRunner.run | light | argv, exit, stdout, trimmed.bam |
@@ -194,3 +198,6 @@ Once a skipped tool is installed, capture its cases with the filter above and co
 | `trim-galore-single` | trim_galore | NativeToolRunner.run | light | argv, exit, stdout, test_1_trimmed.fq |
 | `vsearch-fastx-uniques` | vsearch | NativeToolRunner.run | light | argv, exit, stdout, uniques.fasta |
 | `vsearch-missing-input` | vsearch | NativeToolRunner.run | light | argv, exit, stdout, stderr |
+| `whatshap-conda-error` | whatshap | CondaManager.runTool | heavy | argv, exit, stdout, stderr |
+| `whatshap-conda-version` | whatshap | CondaManager.runTool | heavy | argv, exit, stdout, stderr |
+| `whatshap-version` | whatshap | NativeToolRunner.run | heavy | argv, exit, stdout, stderr |
