@@ -17,7 +17,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
 | LungfishCore | library | Sources/LungfishCore | 157 | 42727 | 318 | none |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | 5588 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 59 | 51261 | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
+| LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 124 | 51556 | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 384 | 101236 | 638 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 81 | 18352 | 146 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 5 | 4039 | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -794,7 +794,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishGenotypeUI
-- Swift files. 59, lines 51261
+- Swift files. 124, lines 51556
 - Depends on. LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow
 - External products. none
 - Used by. LungfishApp
@@ -802,64 +802,64 @@ None.
 
 ### Public types
 
-- `GenotypeAIHaplotypingUIMode` enum, `Sources/LungfishGenotypeUI/GenotypeResultViewController.swift:93`
-- `GenotypeAIHaplotypingUIRequest` struct, `Sources/LungfishGenotypeUI/GenotypeResultViewController.swift:105`
-- `GenotypeAnnotationStore` class, `Sources/LungfishGenotypeUI/GenotypeAnnotationStore.swift:193`
+- `GenotypeAIHaplotypingUIMode` enum, `Sources/LungfishGenotypeUI/GenotypeAIHaplotypingUIMode.swift:9`
+- `GenotypeAIHaplotypingUIRequest` struct, `Sources/LungfishGenotypeUI/GenotypeAIHaplotypingUIRequest.swift:9`
+- `GenotypeAnnotationStore` class, `Sources/LungfishGenotypeUI/GenotypeAnnotationStore.swift:21`
 - `GenotypeCandidateEvidenceSection` struct, `Sources/LungfishGenotypeUI/GenotypeCandidateEvidenceSection.swift:7`
 - `GenotypeExcelExportEvent` enum, `Sources/LungfishGenotypeUI/GenotypeExcelExportSessionState.swift:9`
 - `GenotypeExcelExportPresentation` struct, `Sources/LungfishGenotypeUI/GenotypeExcelExportSessionState.swift:3`
 - `GenotypeExcelExportSessionState` class, `Sources/LungfishGenotypeUI/GenotypeExcelExportSessionState.swift:16`
 - `GenotypeHaplotypeDefinitionEditor` struct, `Sources/LungfishGenotypeUI/GenotypeHaplotypeDefinitionEditor.swift:18`
-- `GenotypeManualHaplotypeBandDisclosureStore` class, `Sources/LungfishGenotypeUI/GenotypeManualHaplotypeAssignmentBand.swift:8`
+- `GenotypeManualHaplotypeBandDisclosureStore` class, `Sources/LungfishGenotypeUI/GenotypeManualHaplotypeBandDisclosureStore.swift:8`
 - `GenotypeManualHaplotypeDraftCoordinator` class, `Sources/LungfishGenotypeUI/GenotypeManualHaplotypeDraftCoordinator.swift:14`
 - `GenotypeManualHaplotypeDraftDecision` enum, `Sources/LungfishGenotypeUI/GenotypeManualHaplotypeDraftCoordinator.swift:3`
 - `GenotypeManualHaplotypeEligibility` enum, `Sources/LungfishGenotypeUI/GenotypeManualHaplotypeEligibility.swift:4`
 - `GenotypeManualHaplotypeTransitionMutationCoordinator` class, `Sources/LungfishGenotypeUI/GenotypeManualHaplotypeDraftCoordinator.swift:318`
-- `GenotypeMatrixAnnotationCommandError` enum, `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:832`
+- `GenotypeMatrixAnnotationCommandError` enum, `Sources/LungfishGenotypeUI/GenotypeMatrixAnnotationCommandError.swift:6`
 - `GenotypeMatrixAnnotationSection` struct, `Sources/LungfishGenotypeUI/GenotypeMatrixAnnotationSection.swift:6`
 - `GenotypeMatrixCommandAvailability` enum, `Sources/LungfishGenotypeUI/GenotypeMatrixReviewCapability.swift:69`
-- `GenotypeMatrixCommentCardState` struct, `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:745`
-- `GenotypeMatrixCommentEditRequest` struct, `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:688`
-- `GenotypeMatrixCommentRequest` typealias, `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:844`
-- `GenotypeMatrixCommentScope` enum, `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:725`
+- `GenotypeMatrixCommentCardState` struct, `Sources/LungfishGenotypeUI/GenotypeMatrixCommentCardState.swift:6`
+- `GenotypeMatrixCommentEditRequest` struct, `Sources/LungfishGenotypeUI/GenotypeMatrixCommentEditRequest.swift:6`
+- `GenotypeMatrixCommentRequest` typealias, `Sources/LungfishGenotypeUI/GenotypeMatrixCommentEditRequest.swift:44`
+- `GenotypeMatrixCommentScope` enum, `Sources/LungfishGenotypeUI/GenotypeMatrixCommentScope.swift:6`
 - `GenotypeMatrixEvidenceIndex` struct, `Sources/LungfishGenotypeUI/GenotypeMatrixReviewCapability.swift:4`
-- `GenotypeMatrixPaletteTarget` enum, `Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift:12`
+- `GenotypeMatrixPaletteTarget` enum, `Sources/LungfishGenotypeUI/GenotypeMatrixPaletteTarget.swift:7`
 - `GenotypeMatrixReviewCapability` enum, `Sources/LungfishGenotypeUI/GenotypeMatrixReviewCapability.swift:121`
 - `GenotypeMatrixReviewCapabilityState` struct, `Sources/LungfishGenotypeUI/GenotypeMatrixReviewCapability.swift:83`
-- `GenotypeMatrixReviewMenuActions` protocol, `Sources/LungfishGenotypeUI/GenotypeComparisonMatrixView.swift:150`
-- `GenotypeMatrixReviewMutationError` enum, `Sources/LungfishGenotypeUI/GenotypeAnnotationStore.swift:19`
-- `GenotypeMatrixReviewRequest` struct, `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:670`
+- `GenotypeMatrixReviewMenuActions` protocol, `Sources/LungfishGenotypeUI/GenotypeMatrixReviewMenuActions.swift:13`
+- `GenotypeMatrixReviewMutationError` enum, `Sources/LungfishGenotypeUI/GenotypeMatrixReviewMutationError.swift:8`
+- `GenotypeMatrixReviewRequest` struct, `Sources/LungfishGenotypeUI/GenotypeMatrixReviewRequest.swift:6`
 - `GenotypeMatrixSelectionShape` enum, `Sources/LungfishGenotypeUI/GenotypeMatrixReviewCapability.swift:39`
-- `GenotypeMatrixStyleField` enum, `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:645`
-- `GenotypeMatrixStyleRequest` struct, `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:654`
+- `GenotypeMatrixStyleField` enum, `Sources/LungfishGenotypeUI/GenotypeMatrixStyleField.swift:6`
+- `GenotypeMatrixStyleRequest` struct, `Sources/LungfishGenotypeUI/GenotypeMatrixStyleRequest.swift:6`
 - `GenotypeMatrixSupportSummary` struct, `Sources/LungfishGenotypeUI/GenotypeMatrixReviewCapability.swift:47`
 - `GenotypeMatrixValueState` enum, `Sources/LungfishGenotypeUI/GenotypeMatrixReviewCapability.swift:63`
 - `GenotypeMatrixVisibilityCapabilitySnapshot` struct, `Sources/LungfishGenotypeUI/GenotypeMatrixVisibilityState.swift:235`
 - `GenotypeMatrixVisibilityCommand` enum, `Sources/LungfishGenotypeUI/GenotypeMatrixVisibilityState.swift:4`
 - `GenotypeMatrixVisibilitySelectionShape` enum, `Sources/LungfishGenotypeUI/GenotypeMatrixVisibilityState.swift:118`
 - `GenotypeResultArtifactRow` struct, `Sources/LungfishGenotypeUI/GenotypeResultDocumentSection.swift:8`
-- `GenotypeResultCellColorMode` enum, `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:83`
+- `GenotypeResultCellColorMode` enum, `Sources/LungfishGenotypeUI/GenotypeResultCellColorMode.swift:6`
 - `GenotypeResultDesiredConfigurationAuthority` struct, `Sources/LungfishGenotypeUI/GenotypeResultViewController.swift:9`
-- `GenotypeResultDisplaySection` struct, `Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift:1360`
-- `GenotypeResultDisplaySectionViewModel` class, `Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift:30`
-- `GenotypeResultDisplayState` struct, `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:103`
+- `GenotypeResultDisplaySection` struct, `Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift:65`
+- `GenotypeResultDisplaySectionViewModel` class, `Sources/LungfishGenotypeUI/GenotypeResultDisplaySectionViewModel.swift:9`
+- `GenotypeResultDisplayState` struct, `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:6`
 - `GenotypeResultDocumentSection` struct, `Sources/LungfishGenotypeUI/GenotypeResultDocumentSection.swift:176`
 - `GenotypeResultDocumentState` struct, `Sources/LungfishGenotypeUI/GenotypeResultDocumentSection.swift:18`
-- `GenotypeResultHighlightChannel` enum, `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:886`
-- `GenotypeResultHighlightRequest` struct, `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:934`
-- `GenotypeResultHighlightScope` enum, `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:869`
-- `GenotypeResultHighlightStyle` struct, `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:900`
-- `GenotypeResultHighlightTarget` struct, `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:846`
-- `GenotypeResultPanelLayout` enum, `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:6`
+- `GenotypeResultHighlightChannel` enum, `Sources/LungfishGenotypeUI/GenotypeResultHighlightChannel.swift:6`
+- `GenotypeResultHighlightRequest` struct, `Sources/LungfishGenotypeUI/GenotypeResultHighlightRequest.swift:6`
+- `GenotypeResultHighlightScope` enum, `Sources/LungfishGenotypeUI/GenotypeResultHighlightScope.swift:6`
+- `GenotypeResultHighlightStyle` struct, `Sources/LungfishGenotypeUI/GenotypeResultHighlightStyle.swift:6`
+- `GenotypeResultHighlightTarget` struct, `Sources/LungfishGenotypeUI/GenotypeResultHighlightTarget.swift:6`
+- `GenotypeResultPanelLayout` enum, `Sources/LungfishGenotypeUI/GenotypeResultPanelLayout.swift:6`
 - `GenotypeResultPresentationPolicy` struct, `Sources/LungfishGenotypeUI/GenotypeResultPresentationPolicy.swift:7`
 - `GenotypeResultSelectionState` struct, `Sources/LungfishGenotypeUI/GenotypeResultSelectionState.swift:8`
-- `GenotypeResultViewController` class, `Sources/LungfishGenotypeUI/GenotypeResultViewController.swift:138`
-- `GenotypeResultViewportLens` enum, `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:45`
+- `GenotypeResultViewController` class, `Sources/LungfishGenotypeUI/GenotypeResultViewController.swift:78`
+- `GenotypeResultViewportLens` enum, `Sources/LungfishGenotypeUI/GenotypeResultViewportLens.swift:6`
 - `GenotypeSampleCurationWorkbenchView` class, `Sources/LungfishGenotypeUI/GenotypeSampleCurationWorkbenchView.swift:300`
 - `GenotypeSmartCohortSection` struct, `Sources/LungfishGenotypeUI/GenotypeSmartCohortSection.swift:15`
-- `GenotypeSummaryViewMode` enum, `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:71`
-- `ManualHaplotypeReplacementError` enum, `Sources/LungfishGenotypeUI/GenotypeAnnotationStore.swift:42`
-- `ManualHaplotypeReplacementResult` struct, `Sources/LungfishGenotypeUI/GenotypeAnnotationStore.swift:86`
+- `GenotypeSummaryViewMode` enum, `Sources/LungfishGenotypeUI/GenotypeSummaryViewMode.swift:6`
+- `ManualHaplotypeReplacementError` enum, `Sources/LungfishGenotypeUI/ManualHaplotypeReplacementError.swift:8`
+- `ManualHaplotypeReplacementResult` struct, `Sources/LungfishGenotypeUI/ManualHaplotypeReplacementResult.swift:8`
 
 ## LungfishIO
 
