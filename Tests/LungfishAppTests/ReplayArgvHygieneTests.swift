@@ -30,14 +30,18 @@ final class ReplayArgvHygieneTests: XCTestCase {
             "Resolved repo root \(repoRoot.path) does not contain Package.swift"
         )
 
-        let sources = [
-            "Sources/LungfishGenotypeUI/GenotypeAnnotationStore.swift",
-            "Sources/LungfishGenotypeUI/GenotypeResultViewController.swift",
-            "Sources/LungfishApp/Views/WorkflowOperations/HaplotypeDefinitionManagerWindowController.swift",
+        // The genotype side reads every file of the LungfishGenotypeUI module, so the rule
+        // keeps covering provenance code that moves into a new file. The App file is read alone.
+        let haplotypeManagerPath =
+            "Sources/LungfishApp/Views/WorkflowOperations/HaplotypeDefinitionManagerWindowController.swift"
+        let sources: [(rel: String, text: String)] = [
+            ("Sources/LungfishGenotypeUI", try combinedGenotypeUISource()),
+            (
+                haplotypeManagerPath,
+                try readRepositorySource(repoRoot.appendingPathComponent(haplotypeManagerPath))
+            ),
         ]
-        for rel in sources {
-            let url = repoRoot.appendingPathComponent(rel)
-            let text = try readRepositorySource(url)
+        for (rel, text) in sources {
             XCTAssertFalse(
                 text.contains("\"lungfish-gui\""),
                 "\(rel) still has a lungfish-gui replay argv"

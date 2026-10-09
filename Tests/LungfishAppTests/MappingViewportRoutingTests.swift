@@ -1266,9 +1266,9 @@ final class MappingViewportRoutingTests: XCTestCase {
         let sidecarUpdateBody = String(sidecarUpdateTail[..<nextMethod.lowerBound])
         XCTAssertFalse(sidecarUpdateBody.contains("ONTGenotypeResultBundle.loadResult"))
 
-        let viewportSource = try loadSource(
-            at: "Sources/LungfishGenotypeUI/GenotypeResultViewController.swift"
-        )
+        // Read every file of the module, so a loader call cannot hide in a file
+        // that viewport code moves into.
+        let viewportSource = try combinedGenotypeUISource()
         // The removed current-workbook updater was the viewport\'s only loader.
         // Capture now consumes its in-memory result; async loading remains at the service boundary.
         XCTAssertFalse(viewportSource.contains("ONTGenotypeResultBundle.loadResultAsync("))

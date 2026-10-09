@@ -2,6 +2,7 @@ import XCTest
 import ViewInspector
 @testable import LungfishApp
 @testable import LungfishCore
+import LungfishTestSupport
 import SwiftUI
 
 @MainActor
@@ -354,15 +355,14 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
             contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift"),
             encoding: .utf8
         )
-        let genotypeControllerSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultViewController.swift"),
-            encoding: .utf8
-        )
+        // Read every file of the module, so the author rule keeps covering code
+        // that moves out of the controller.
+        let genotypeUISource = try combinedGenotypeUISource()
         XCTAssertTrue(inspectorControllerSource.contains("resolvedAnalystIdentity()"))
-        XCTAssertTrue(genotypeControllerSource.contains("annotationAuthorProvider"))
-        XCTAssertTrue(genotypeControllerSource.contains("annotationAuthorProvider: () -> String = { NSUserName() }"))
-        XCTAssertTrue(genotypeControllerSource.contains("author: annotationAuthorProvider()"))
-        XCTAssertFalse(genotypeControllerSource.contains("author: NSUserName()"))
+        XCTAssertTrue(genotypeUISource.contains("annotationAuthorProvider"))
+        XCTAssertTrue(genotypeUISource.contains("annotationAuthorProvider: () -> String = { NSUserName() }"))
+        XCTAssertTrue(genotypeUISource.contains("author: annotationAuthorProvider()"))
+        XCTAssertFalse(genotypeUISource.contains("author: NSUserName()"))
         XCTAssertFalse(inspectorControllerSource.contains("NSUserName()"))
     }
 
