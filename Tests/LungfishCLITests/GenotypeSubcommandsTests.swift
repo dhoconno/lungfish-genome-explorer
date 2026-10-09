@@ -1760,7 +1760,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
         sidecar.settings.activeHaplotypeDefinitionSetID = definition.id
         let result = activeDefinitionResult(bundleURL: bundleURL)
 
-        let matrix = GenotypeXlsxWorkbookWriter.MatrixBuilder.build(from: result, sidecar: sidecar)
+        let matrix = try GenotypeXlsxWorkbookWriter.MatrixBuilder.build(from: result, sidecar: sidecar)
 
         XCTAssertEqual(matrix.loci, ["MHC-B"])
         XCTAssertEqual(matrix.rows.first?.cells.first?.label, "NewB")

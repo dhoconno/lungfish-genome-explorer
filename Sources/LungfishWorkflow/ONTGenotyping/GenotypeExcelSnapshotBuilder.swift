@@ -104,10 +104,7 @@ public enum GenotypeExcelSnapshotBuilder {
         if let definition = authority.definitionSet { captured["definition.json"] = try encoder.encode(definition) }
         if let allProjection { captured["all-projection.json"] = try encoder.encode(allProjection) }
         if let filteredProjection { captured["filtered-projection.json"] = try encoder.encode(filteredProjection) }
-        let sampleNames = unique(result.samples.map(\.sample) + result.calls.map(\.sample)
-            + (result.reviewableRowCatalog?.samples ?? []) + (result.mhcCandidates?.observations.map(\.sampleID) ?? [])
-            + (result.mhcUnnameableClusters?.observations.map(\.sampleID) ?? [])
-            + (authority.analysis?.samples.map(\.sample) ?? []))
+        let sampleNames = logicalSampleRoster(result: result, authority: authority)
         let effectiveReferenceMetadata = MHCReferenceGenotypeDisplay.effectiveReferenceMetadata(
             storedMetadata: result.referenceMetadata,
             genotypes: result.calls.map(\.genotype)
@@ -462,6 +459,26 @@ public enum GenotypeExcelSnapshotBuilder {
         return .init(generatedAt: generatedAt, sourceRevision: revision, allMatrix: all, filteredMatrix: filtered,
             calls: callCapture.calls, colors: callCapture.colors, hasHaplotypeContent: !callCapture.calls.isEmpty,
             metadata: metadata, capturedScientificInputs: captured)
+    }
+
+    /// The Haplotype Calls rows the workbook reports for a bundle, resolved
+    /// once here for every export container. `genotype export` builds its CSV
+    /// and TSV matrix from these rows, so the delimited formats cannot drift
+    /// from the xlsx format (finding SF2). The roster is the one `capture`
+    /// uses, so a genotype-only result lists its manual assignments the same
+    /// way in both.
+    public static func effectiveCalls(result: ONTGenotypeResultBundleData, sidecar: GenotypeAnnotationSidecar,
+                                      authority: CapturedAuthority) throws -> [GenotypeWorkbookPresentation.Call] {
+        try calls(result: result, sidecar: sidecar, authority: authority,
+                  samples: logicalSampleRoster(result: result, authority: authority)).calls
+    }
+
+    /// Every sample any scientific input names, in first-seen order.
+    private static func logicalSampleRoster(result: ONTGenotypeResultBundleData, authority: CapturedAuthority) -> [String] {
+        unique(result.samples.map(\.sample) + result.calls.map(\.sample)
+            + (result.reviewableRowCatalog?.samples ?? []) + (result.mhcCandidates?.observations.map(\.sampleID) ?? [])
+            + (result.mhcUnnameableClusters?.observations.map(\.sampleID) ?? [])
+            + (authority.analysis?.samples.map(\.sample) ?? []))
     }
 
     private static func resolvedStyle(_ target: GenotypeAnnotationSidecar.MatrixTarget,

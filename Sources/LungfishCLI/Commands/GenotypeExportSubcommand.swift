@@ -363,7 +363,7 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
             }
         } else {
             // No projection: export the full-bundle matrix.
-            let matrix = makeMatrix(result: loadedResult, sidecar: sidecar)
+            let matrix = try makeMatrix(result: loadedResult, sidecar: sidecar)
             resolvedColumns = matrix.rows.map(\.sample)
             switch format {
             case .csv:
@@ -639,11 +639,11 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
     private func makeMatrix(
         result: ONTGenotypeResultBundleData?,
         sidecar: GenotypeAnnotationSidecar
-    ) -> GenotypeXlsxWorkbookWriter.Matrix {
+    ) throws -> GenotypeXlsxWorkbookWriter.Matrix {
         guard let result else {
             return GenotypeXlsxWorkbookWriter.Matrix(loci: [], rows: [])
         }
-        let full = GenotypeXlsxWorkbookWriter.MatrixBuilder.build(from: result, sidecar: sidecar)
+        let full = try GenotypeXlsxWorkbookWriter.MatrixBuilder.build(from: result, sidecar: sidecar)
         guard !samples.isEmpty else { return full }
         let allowed = Set(samples)
         return GenotypeXlsxWorkbookWriter.Matrix(

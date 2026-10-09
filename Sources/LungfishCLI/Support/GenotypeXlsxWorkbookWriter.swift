@@ -1,6 +1,7 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 /// Legacy name retained only for the CSV/TSV data-shaping helpers used by
 /// `genotype export`. XLSX publication is exclusively owned by
@@ -31,47 +32,54 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         let rows: [MatrixRow]
     }
 
-    /// Delimiter exports intentionally retain their historical fallback from
-    /// genotype tokens. This builder is never consumed by an XLSX route.
+    /// Delimiter exports take their haplotype calls from the workbook's own
+    /// resolution, so an analyst override or, under legacy precedence, a
+    /// manual assignment reaches CSV and TSV exactly as it reaches the
+    /// Haplotype Calls sheet (finding SF2). A result without an analysis keeps
+    /// its historical allele-token table, which the user manual documents.
+    /// This builder is never consumed by an XLSX route.
     enum MatrixBuilder {
         static func build(
             from result: ONTGenotypeResultBundleData,
-            sidecar: GenotypeAnnotationSidecar? = nil
-        ) -> Matrix {
-            if let analysis = GenotypeActiveHaplotypeAnalysisResolver.activeAnalysis(
+            sidecar: GenotypeAnnotationSidecar
+        ) throws -> Matrix {
+            guard let analysis = GenotypeActiveHaplotypeAnalysisResolver.activeAnalysis(
                 for: result,
                 sidecar: sidecar
-            ) {
-                return buildFromAnalysis(analysis)
+            ) else {
+                return buildFromCalls(samples: result.samples)
             }
-            return buildFromCalls(samples: result.samples)
+            let calls = try GenotypeExcelSnapshotBuilder.effectiveCalls(
+                result: result,
+                sidecar: sidecar,
+                authority: .init(analysis: analysis)
+            )
+            return buildFromEffectiveCalls(calls, sampleOrder: analysis.samples.map(\.sample))
         }
 
-        private static func buildFromAnalysis(
-            _ analysis: GenotypeHaplotypeAnalysis
+        /// One row per analysis sample and two cells per locus, each the
+        /// workbook's Effective H1 or Effective H2 verbatim. An analyst's
+        /// explicit absent second haplotype is therefore "-" here as it is
+        /// there, and only an empty value is an empty cell.
+        private static func buildFromEffectiveCalls(
+            _ calls: [GenotypeWorkbookPresentation.Call],
+            sampleOrder: [String]
         ) -> Matrix {
-            let loci = orderedLoci(analysis.samples.flatMap { $0.calls.map(\.locus) })
-            let rows = analysis.samples.map { sample -> MatrixRow in
-                let calls = Dictionary(
-                    uniqueKeysWithValues: sample.calls.map { ($0.locus, $0) }
-                )
+            let loci = orderedLoci(calls.map(\.locus))
+            var callsBySample: [String: [String: GenotypeWorkbookPresentation.Call]] = [:]
+            for call in calls {
+                callsBySample[call.sampleID, default: [:]][call.locus] = call
+            }
+            let rows = sampleOrder.map { sample -> MatrixRow in
                 var cells: [MatrixCell] = []
                 for locus in loci {
-                    guard let call = calls[locus] else {
+                    guard let call = callsBySample[sample]?[locus] else {
                         cells += [.absent, .absent]
                         continue
                     }
-                    // Same homozygous convention as the workbook's Effective
-                    // H2 and the LabKey export: one matched haplotype fills
-                    // both columns instead of leaving H2 blank.
-                    let secondHaplotype = GenotypeEffectiveCallAuthority.normalizedSecondHaplotype(
-                        first: call.haplotype1,
-                        second: call.haplotype2,
-                        status: call.status
-                    )
-                    cells += [cell(for: call.haplotype1), cell(for: secondHaplotype)]
+                    cells += [effectiveCell(for: call.h1.effective), effectiveCell(for: call.h2.effective)]
                 }
-                return .init(sample: sample.sample, cells: cells)
+                return .init(sample: sample, cells: cells)
             }
             return .init(loci: loci, rows: rows)
         }
@@ -100,12 +108,18 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
             return .init(loci: loci, rows: rows)
         }
 
+        /// The genotype-only table keeps its historical reading of "-" as an
+        /// empty cell.
         private static func cell(for name: String) -> MatrixCell {
-            if name.isEmpty || name == "-" { return .absent }
-            if name.hasPrefix("ERR:") { return .error(name) }
+            name == "-" ? .absent : effectiveCell(for: name)
+        }
+
+        private static func effectiveCell(for value: String) -> MatrixCell {
+            if value.isEmpty { return .absent }
+            if value.hasPrefix("ERR:") { return .error(value) }
             return .haplotype(
-                name,
-                HaplotypeColorToken.assigned(forName: name).canonicalIndex
+                value,
+                HaplotypeColorToken.assigned(forName: value).canonicalIndex
             )
         }
 
