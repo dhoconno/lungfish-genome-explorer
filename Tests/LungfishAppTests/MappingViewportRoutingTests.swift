@@ -77,7 +77,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         var panels = 0
         var exports = 0
         controller.excelSavePanelPresenter = { _, _, completion in panels += 1; save = completion }
-        controller.viewportExportRunner = { _, _, _ in exports += 1 }
+        controller.viewportExportRunner = { _, _ in exports += 1 }
         action()
         XCTAssertEqual(panels, 1)
         split.viewerController.hideGenotypeResultView()
@@ -106,7 +106,7 @@ final class MappingViewportRoutingTests: XCTestCase {
                 routedEvent?(event)
             }
             controller.excelSavePanelPresenter = { _, _, completion in completion(root.appendingPathComponent("late.xlsx")) }
-            controller.viewportExportRunner = { _, _, _ in
+            controller.viewportExportRunner = { _, _ in
                 try await gate.wait()
                 if fails { throw NSError(domain: "Delayed export failed", code: 1) }
             }

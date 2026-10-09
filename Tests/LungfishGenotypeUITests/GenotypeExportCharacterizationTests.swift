@@ -29,7 +29,6 @@ private final class ExportFlowRecorder {
     var events: [String] = []
     var panelRecords: [String] = []
     var runnerCaptures: [Data] = []
-    var runnerFormats: [GenotypeViewportExportFormat] = []
 
     func record(_ event: GenotypeExcelExportEvent, maskedBy canonicalizer: GenotypeCharacterizationCanonicalizer) {
         switch event {
@@ -161,7 +160,7 @@ final class GenotypeExportCharacterizationTests: GenotypeResultViewportTestCase 
         }
         controller.onExcelExportEvent = { event in recorder.record(event, maskedBy: masker) }
         let panelOpenedAt = Date()
-        controller.viewportExportRunner = { snapshot, format, _ in
+        controller.viewportExportRunner = { snapshot, _ in
             let canonicalizer = GenotypeCharacterizationCanonicalizer(
                 root: root,
                 generatedAtWindow: GenotypeCharacterizationCanonicalizer.window(from: panelOpenedAt, to: Date())
@@ -169,7 +168,6 @@ final class GenotypeExportCharacterizationTests: GenotypeResultViewportTestCase 
             let capture = try canonicalizer.encode(snapshot)
             await MainActor.run {
                 recorder.runnerCaptures.append(capture)
-                recorder.runnerFormats.append(format)
             }
         }
         let state = controller.testingDisplayState
@@ -192,7 +190,6 @@ final class GenotypeExportCharacterizationTests: GenotypeResultViewportTestCase 
         try XCTUnwrap(save)(root.appendingPathComponent("out.xlsx"))
         await waitUntil { recorder.events.count == 2 }
         XCTAssertEqual(recorder.events, ["started", "succeeded <ROOT>/out.xlsx"])
-        XCTAssertEqual(recorder.runnerFormats, [.excel])
         XCTAssertEqual(recorder.runnerCaptures.count, 1)
         let runnerCapture = try XCTUnwrap(recorder.runnerCaptures.first)
         XCTAssertEqual(

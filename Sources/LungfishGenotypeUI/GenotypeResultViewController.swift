@@ -541,7 +541,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     var excelSavePanelPresenter: (NSSavePanel, NSWindow, @escaping (URL?) -> Void) -> Void = { panel, window, completion in
         panel.beginSheetModal(for: window) { response in completion(response == .OK ? panel.url : nil) }
     }
-    var viewportExportRunner: (GenotypeViewportExportSnapshot, GenotypeViewportExportFormat, URL) async throws -> Void = { snapshot, _, url in
+    var viewportExportRunner: (GenotypeViewportExportSnapshot, URL) async throws -> Void = { snapshot, url in
         _ = try await GenotypeViewportExportService().exportExcel(snapshot: snapshot, to: url)
     }
     private lazy var viewportExportCoordinator = GenotypeViewportExportCoordinator(host: self)

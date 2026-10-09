@@ -82,7 +82,7 @@ final class GenotypeViewportExportCoordinatorLifetimeTests: GenotypeResultViewpo
             let controller = makeConfiguredController(root: root, recorder: recorder)
             weakController = controller
             controller.excelSavePanelPresenter = { _, _, completion in recorder.savePanelCompletion = completion }
-            controller.viewportExportRunner = { _, _, _ in
+            controller.viewportExportRunner = { _, _ in
                 await MainActor.run { recorder.runnerCalls += 1 }
             }
             controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
@@ -115,7 +115,7 @@ final class GenotypeViewportExportCoordinatorLifetimeTests: GenotypeResultViewpo
             controller.excelSavePanelPresenter = { _, _, completion in
                 completion(root.appendingPathComponent("late.xlsx"))
             }
-            controller.viewportExportRunner = { _, _, _ in
+            controller.viewportExportRunner = { _, _ in
                 await MainActor.run { recorder.runnerCalls += 1 }
                 await gate.wait()
                 await MainActor.run { recorder.runnerReturned = true }

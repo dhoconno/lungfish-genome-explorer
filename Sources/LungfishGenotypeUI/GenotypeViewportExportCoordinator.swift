@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import UniformTypeIdentifiers
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
@@ -54,7 +55,7 @@ final class GenotypeViewportExportCoordinator {
                 let settled = try settleDisplayState?() ?? expectedDisplayState
                 guard self.displayState == settled, originStillCurrent(), self.ownsDesiredResultConfiguration(authority) else { return }
                 let snapshot = try self.captureExcelExportSnapshot()
-                self.presentViewExportPanel(format: .excel, filenameSuffix: "genotype", capturedSnapshot: snapshot,
+                self.presentViewExportPanel(filenameSuffix: "genotype", capturedSnapshot: snapshot,
                     originStillCurrent: originStillCurrent)
             } catch {
                 self.publishExcelExportEvent(.failed(error.localizedDescription))
@@ -153,7 +154,6 @@ final class GenotypeViewportExportCoordinator {
     /// and runs the export task with that capture, so a view change while the
     /// panel is up never reaches the workbook.
     private func presentViewExportPanel(
-        format: GenotypeViewportExportFormat,
         filenameSuffix: String,
         capturedSnapshot snapshot: GenotypeViewportExportSnapshot,
         originStillCurrent: @escaping () -> Bool = { true }
@@ -165,8 +165,8 @@ final class GenotypeViewportExportCoordinator {
         panel.title = "Export Genotype View"
         panel.message = "Export Genotype View"
         let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        panel.nameFieldStringValue = "\(result.manifest.outputName)-\(filenameSuffix)-\(timestamp).\(format.fileExtension)"
-        panel.allowedContentTypes = [format.contentType]
+        panel.nameFieldStringValue = "\(result.manifest.outputName)-\(filenameSuffix)-\(timestamp).xlsx"
+        panel.allowedContentTypes = [UTType(filenameExtension: "xlsx") ?? .data]
         panel.canCreateDirectories = true
         panel.prompt = "Export"
         excelSavePanelPresenter(panel, view.window ?? NSApp.keyWindow ?? NSWindow()) { [weak self] url in
@@ -178,7 +178,7 @@ final class GenotypeViewportExportCoordinator {
             let export = self.viewportExportRunner
             Task { [weak self] in
                 do {
-                    try await export(snapshot, format, outputURL)
+                    try await export(snapshot, outputURL)
                     await MainActor.run {
                         guard let self, originStillCurrent(), self.representedBundleURL == origin,
                               self.ownsDesiredResultConfiguration(authority) else { return }
@@ -293,7 +293,7 @@ private extension GenotypeViewportExportCoordinator {
     var representedBundleURL: URL? { host.representedBundleURL }
     var desiredResultConfigurationAuthority: GenotypeResultDesiredConfigurationAuthority { host.desiredResultConfigurationAuthority }
     var excelSavePanelPresenter: (NSSavePanel, NSWindow, @escaping (URL?) -> Void) -> Void { host.excelSavePanelPresenter }
-    var viewportExportRunner: (GenotypeViewportExportSnapshot, GenotypeViewportExportFormat, URL) async throws -> Void { host.viewportExportRunner }
+    var viewportExportRunner: (GenotypeViewportExportSnapshot, URL) async throws -> Void { host.viewportExportRunner }
     var onExcelExportEvent: ((GenotypeExcelExportEvent) -> Void)? { host.onExcelExportEvent }
 
     func activeHaplotypeAnalysis() -> GenotypeHaplotypeAnalysis? { host.activeHaplotypeAnalysis() }

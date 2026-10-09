@@ -251,9 +251,8 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         var save: ((URL?) -> Void)?
         controller.excelSavePanelPresenter = { _, _, completion in save = completion }
         let exported = expectation(description: "frozen scientific capture delivered")
-        controller.viewportExportRunner = { snapshot, format, _ in
+        controller.viewportExportRunner = { snapshot, _ in
             defer { exported.fulfill() }
-            XCTAssertEqual(format, .excel)
             let bytes = try XCTUnwrap(snapshot.excelSnapshotData)
             let capture = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: bytes)
             XCTAssertEqual(capture.allMatrix.samples.map(\.name), ["AnimalA", "AnimalB"])
@@ -404,7 +403,7 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         var exports = 0
         var events = 0
         controller.excelSavePanelPresenter = { _, _, completion in save = completion }
-        controller.viewportExportRunner = { _, _, _ in exports += 1 }
+        controller.viewportExportRunner = { _, _ in exports += 1 }
         controller.onExcelExportEvent = { _ in events += 1 }
         controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
         let next = root.appendingPathComponent("next", isDirectory: true)
@@ -428,7 +427,7 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         ]))
         var panels = 0
         controller.excelSavePanelPresenter = { _, _, completion in panels += 1; completion(nil) }
-        controller.viewportExportRunner = { _, _, _ in XCTFail("Cancellation launched export") }
+        controller.viewportExportRunner = { _, _ in XCTFail("Cancellation launched export") }
         controller.onExcelExportEvent = { _ in XCTFail("Cancellation changed export state") }
         controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
         XCTAssertEqual(panels, 1)
@@ -522,7 +521,7 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         var save: ((URL?) -> Void)?
         var active = true
         controller.excelSavePanelPresenter = { _, _, completion in save = completion }
-        controller.viewportExportRunner = { _, _, _ in XCTFail("Obsolete controller launched export") }
+        controller.viewportExportRunner = { _, _ in XCTFail("Obsolete controller launched export") }
         controller.onExcelExportEvent = { _ in XCTFail("Obsolete controller changed Inspector state") }
         controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState, originStillCurrent: { active })
         active = false
@@ -644,7 +643,7 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         controller.testingSetManualHaplotypeDraftDecisionProvider { _ in .save }
         controller.excelSavePanelPresenter = { _, _, completion in completion(root.appendingPathComponent("snapshot.xlsx")) }
         let exported = expectation(description: "native final keystroke exported")
-        controller.viewportExportRunner = { snapshot, _, _ in
+        controller.viewportExportRunner = { snapshot, _ in
             defer { exported.fulfill() }
             let scientific = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: XCTUnwrap(snapshot.excelSnapshotData))
             XCTAssertEqual(scientific.calls.first?.h1.effective, "Native H1")

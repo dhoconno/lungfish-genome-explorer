@@ -3,17 +3,6 @@ import LungfishKit
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
-import UniformTypeIdentifiers
-
-/// The one container format of the GUI genotype export. CSV and TSV belong to
-/// `lungfish-cli genotype export`, which has owned them since 24fe49f05.
-enum GenotypeViewportExportFormat: String, Sendable {
-    case excel
-
-    var fileExtension: String { "xlsx" }
-
-    var contentType: UTType { UTType(filenameExtension: "xlsx") ?? .data }
-}
 
 struct GenotypeViewportExportResult: Equatable {
     let outputURL: URL
