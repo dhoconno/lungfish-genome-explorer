@@ -976,7 +976,7 @@ extension AppDelegate {
                         }
                     }
                     do {
-                        try LungfishCLIRunner.buildClassifierDatabase(tool: "esviritu", resultURL: esvBatchRoot, force: true)
+                        try await LungfishCLIRunner.buildClassifierDatabase(tool: "esviritu", resultURL: esvBatchRoot, force: true)
                     } catch {
                         dbBuildErrorDescription = error.localizedDescription
                         appDelegateLogger.warning(
@@ -1385,7 +1385,7 @@ extension AppDelegate {
                     }
                     do {
                         let successfulSampleDirectories = successfulResults.map { $0.config.outputDirectory }
-                        try LungfishCLIRunner.buildClassifierDatabase(
+                        try await LungfishCLIRunner.buildClassifierDatabase(
                             tool: "kraken2",
                             resultURL: batchRoot,
                             force: true,
@@ -1825,7 +1825,7 @@ extension AppDelegate {
                         }
                     }
                     do {
-                        try LungfishCLIRunner.buildClassifierDatabase(tool: "esviritu", resultURL: batchRoot, force: true)
+                        try await LungfishCLIRunner.buildClassifierDatabase(tool: "esviritu", resultURL: batchRoot, force: true)
                     } catch {
                         dbBuildErrorDescription = error.localizedDescription
                         appDelegateLogger.warning(
@@ -2018,7 +2018,7 @@ extension AppDelegate {
                         }
                     }
                     do {
-                        try LungfishCLIRunner.buildClassifierDatabase(tool: "taxtriage", resultURL: result.outputDirectory, force: true)
+                        try await LungfishCLIRunner.buildClassifierDatabase(tool: "taxtriage", resultURL: result.outputDirectory, force: true)
                     } catch {
                         dbBuildErrorDescription = error.localizedDescription
                         appDelegateLogger.warning(

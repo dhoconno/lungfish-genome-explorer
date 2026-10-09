@@ -221,7 +221,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         XCTAssertEqual(capturedSidecar.matrixReviews.first?.target, reviewTarget)
     }
 
-    func testExportShellsGenotypeExportCLIWithProjectionAndVisibleSamples() throws {
+    func testExportShellsGenotypeExportCLIWithProjectionAndVisibleSamples() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let sourceBundle = try makeBundle(in: root, named: "barcode05-mhc.lungfishgenotype")
@@ -254,7 +254,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
             ]
         )
 
-        let result = try GenotypeViewportExportService(runner: runner).export(
+        let result = try await GenotypeViewportExportService(runner: runner).export(
             snapshot: snapshot,
             format: .csv,
             to: outputURL
@@ -316,7 +316,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         XCTAssertTrue(inputPaths.contains(projectionPath))
     }
 
-    func testExportFailsWhenCLIOmitsProvenanceSidecar() throws {
+    func testExportFailsWhenCLIOmitsProvenanceSidecar() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let sourceBundle = try makeBundle(in: root, named: "test.lungfishgenotype")
@@ -342,8 +342,8 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
             ]
         )
 
-        XCTAssertThrowsError(
-            try GenotypeViewportExportService(runner: runner).export(
+        await assertThrowsAsync(
+            try await GenotypeViewportExportService(runner: runner).export(
                 snapshot: snapshot,
                 format: .csv,
                 to: outputURL
@@ -351,7 +351,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         )
     }
 
-    func testExportRejectsProvenanceStampedByGUIToolName() throws {
+    func testExportRejectsProvenanceStampedByGUIToolName() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let sourceBundle = try makeBundle(in: root, named: "test.lungfishgenotype")
@@ -383,8 +383,8 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
             ]
         )
 
-        XCTAssertThrowsError(
-            try GenotypeViewportExportService(runner: runner).export(
+        await assertThrowsAsync(
+            try await GenotypeViewportExportService(runner: runner).export(
                 snapshot: snapshot,
                 format: .csv,
                 to: outputURL
@@ -392,7 +392,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         )
     }
 
-    func testExportPassesAnnotationSidecarAndRequiresItInProvenance() throws {
+    func testExportPassesAnnotationSidecarAndRequiresItInProvenance() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let sourceBundle = try makeBundle(in: root, named: "test.lungfishgenotype")
@@ -425,7 +425,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
             annotationSidecarURL: sidecarURL
         )
 
-        let result = try GenotypeViewportExportService(runner: runner).export(
+        let result = try await GenotypeViewportExportService(runner: runner).export(
             snapshot: snapshot,
             format: .csv,
             to: outputURL
@@ -438,7 +438,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         XCTAssertTrue(inputPaths.contains(sidecarURL.path))
     }
 
-    func testExportRejectsAnnotationSidecarProvenanceWhenSidecarInputIsMissing() throws {
+    func testExportRejectsAnnotationSidecarProvenanceWhenSidecarInputIsMissing() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let sourceBundle = try makeBundle(in: root, named: "test.lungfishgenotype")
@@ -471,8 +471,8 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
             annotationSidecarURL: sidecarURL
         )
 
-        XCTAssertThrowsError(
-            try GenotypeViewportExportService(runner: runner).export(
+        await assertThrowsAsync(
+            try await GenotypeViewportExportService(runner: runner).export(
                 snapshot: snapshot,
                 format: .csv,
                 to: outputURL
@@ -480,7 +480,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         )
     }
 
-    func testFailedOverwriteRestoresExistingOutputProvenanceAndProjection() throws {
+    func testFailedOverwriteRestoresExistingOutputProvenanceAndProjection() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let sourceBundle = try makeBundle(in: root, named: "test.lungfishgenotype")
@@ -517,8 +517,8 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
             writesOutput: true,
             writesProvenance: false
         )
-        XCTAssertThrowsError(
-            try GenotypeViewportExportService(runner: runner).export(
+        await assertThrowsAsync(
+            try await GenotypeViewportExportService(runner: runner).export(
                 snapshot: snapshot,
                 format: .csv,
                 to: outputURL
@@ -530,7 +530,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: projectionURL), priorProjection)
     }
 
-    func testProjectionPadsRaggedRowsToColumnCount() throws {
+    func testProjectionPadsRaggedRowsToColumnCount() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let sourceBundle = try makeBundle(in: root, named: "test.lungfishgenotype")
@@ -557,7 +557,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
             ]
         )
 
-        _ = try GenotypeViewportExportService(runner: runner).export(
+        _ = try await GenotypeViewportExportService(runner: runner).export(
             snapshot: snapshot,
             format: .csv,
             to: outputURL
@@ -684,6 +684,21 @@ out=dict(sheets=wb.sheetnames,call=[str(calls.cell(2,headers[f]).value or '') fo
  formulaCount=sum(c.data_type=='f' for s in wb for row in s for c in row))
 print(json.dumps(out))
 """#
+
+    /// XCTAssertThrowsError takes no async expression.
+    private func assertThrowsAsync<T>(
+        _ expression: @autoclosure () async throws -> T,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ check: (Error) -> Void = { _ in }
+    ) async {
+        do {
+            _ = try await expression()
+            XCTFail("expected an error", file: file, line: line)
+        } catch {
+            check(error)
+        }
+    }
 }
 
 private extension Array where Element == String {

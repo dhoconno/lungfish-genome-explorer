@@ -62,12 +62,12 @@ struct GenotypeViewportExportResult: Equatable {
 /// Seam over the `lungfish-cli` subprocess so tests can record the argv and the
 /// view-projection JSON the GUI hands the CLI without launching a process.
 protocol GenotypeViewportExportRunning {
-    func run(arguments: [String]) throws -> LungfishCLIRunner.Output
+    func run(arguments: [String]) async throws -> LungfishCLIRunner.Output
 }
 
 struct DefaultGenotypeViewportExportRunner: GenotypeViewportExportRunning {
-    func run(arguments: [String]) throws -> LungfishCLIRunner.Output {
-        try LungfishCLIRunner.run(arguments: arguments)
+    func run(arguments: [String]) async throws -> LungfishCLIRunner.Output {
+        try await LungfishCLIRunner.run(arguments: arguments)
     }
 }
 
@@ -133,7 +133,7 @@ struct GenotypeViewportExportService {
         snapshot: GenotypeViewportExportSnapshot,
         format: GenotypeViewportExportFormat,
         to outputURL: URL
-    ) throws -> GenotypeViewportExportResult {
+    ) async throws -> GenotypeViewportExportResult {
         guard format == .csv || format == .tsv else {
             throw GenotypeExcelSnapshotBuilder.CaptureError.incoherent("Use the immutable Excel capture export")
         }
@@ -194,7 +194,7 @@ struct GenotypeViewportExportService {
                     options: .atomic
                 )
             }
-            _ = try runner.run(arguments: arguments)
+            _ = try await runner.run(arguments: arguments)
             guard fileManager.fileExists(atPath: standardizedOutputURL.path) else {
                 throw GenotypeViewportExportError.missingOutput(standardizedOutputURL.path)
             }

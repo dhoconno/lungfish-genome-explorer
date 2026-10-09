@@ -14,12 +14,12 @@ final class ViralReconReferenceAcquisitionTests: XCTestCase {
         try? FileManager.default.removeItem(at: projectURL)
     }
 
-    func testUsesExistingBundleWithoutDownloading() throws {
+    func testUsesExistingBundleWithoutDownloading() async throws {
         let expected = ViralReconReferenceCatalog.bundleURL(inProject: projectURL)
         try FileManager.default.createDirectory(at: expected, withIntermediateDirectories: true)
         var downloadCalls = 0
 
-        let outcome = try ViralReconReferenceAcquisition.acquire(
+        let outcome = try await ViralReconReferenceAcquisition.acquire(
             projectURL: projectURL,
             downloader: { _, _ in downloadCalls += 1 }
         )
@@ -28,11 +28,11 @@ final class ViralReconReferenceAcquisitionTests: XCTestCase {
         XCTAssertEqual(downloadCalls, 0)
     }
 
-    func testDownloadsWhenAbsent() throws {
+    func testDownloadsWhenAbsent() async throws {
         let expected = ViralReconReferenceCatalog.bundleURL(inProject: projectURL)
         var requested: [String] = []
 
-        let outcome = try ViralReconReferenceAcquisition.acquire(
+        let outcome = try await ViralReconReferenceAcquisition.acquire(
             projectURL: projectURL,
             downloader: { accession, destination in
                 requested.append(accession)
@@ -49,14 +49,14 @@ final class ViralReconReferenceAcquisitionTests: XCTestCase {
 
     // A project holding only the equivalent accession must still download the
     // canonical one. Substituting it would leave the primer BED unmatched.
-    func testEquivalentAccessionBundleIsNotSubstituted() throws {
+    func testEquivalentAccessionBundleIsNotSubstituted() async throws {
         let equivalent = projectURL
             .appendingPathComponent("Downloads", isDirectory: true)
             .appendingPathComponent("NC_045512.lungfishref", isDirectory: true)
         try FileManager.default.createDirectory(at: equivalent, withIntermediateDirectories: true)
         var downloadCalls = 0
 
-        let outcome = try ViralReconReferenceAcquisition.acquire(
+        let outcome = try await ViralReconReferenceAcquisition.acquire(
             projectURL: projectURL,
             downloader: { _, destination in
                 downloadCalls += 1
@@ -71,9 +71,9 @@ final class ViralReconReferenceAcquisitionTests: XCTestCase {
         XCTAssertEqual(outcome, .downloaded(ViralReconReferenceCatalog.bundleURL(inProject: projectURL)))
     }
 
-    func testDownloaderThatProducesNoBundleThrows() throws {
-        XCTAssertThrowsError(
-            try ViralReconReferenceAcquisition.acquire(
+    func testDownloaderThatProducesNoBundleThrows() async throws {
+        await assertThrowsAsync(
+            try await ViralReconReferenceAcquisition.acquire(
                 projectURL: projectURL,
                 downloader: { _, _ in }
             )
@@ -88,9 +88,9 @@ final class ViralReconReferenceAcquisitionTests: XCTestCase {
     // name. The bundle exists and is named correctly, so an existence check
     // passes while every primer BED line fails to match. Verified against NCBI
     // on 2026-09-02.
-    func testDownloadedBundleCarryingTheEquivalentSequenceNameIsRejected() throws {
-        XCTAssertThrowsError(
-            try ViralReconReferenceAcquisition.acquire(
+    func testDownloadedBundleCarryingTheEquivalentSequenceNameIsRejected() async throws {
+        await assertThrowsAsync(
+            try await ViralReconReferenceAcquisition.acquire(
                 projectURL: projectURL,
                 downloader: { _, destination in
                     try Self.writeBundle(at: destination.appendingPathComponent(
@@ -105,8 +105,8 @@ final class ViralReconReferenceAcquisitionTests: XCTestCase {
         }
     }
 
-    func testDownloadedBundleCarryingTheCanonicalSequenceNameIsAccepted() throws {
-        let outcome = try ViralReconReferenceAcquisition.acquire(
+    func testDownloadedBundleCarryingTheCanonicalSequenceNameIsAccepted() async throws {
+        let outcome = try await ViralReconReferenceAcquisition.acquire(
             projectURL: projectURL,
             downloader: { _, destination in
                 try Self.writeBundle(at: destination.appendingPathComponent(
@@ -120,13 +120,13 @@ final class ViralReconReferenceAcquisitionTests: XCTestCase {
 
     // Found capturing on 9.58: a project that imported MN908947.3 into
     // Reference Sequences got a second copy downloaded into Downloads.
-    func testReusesTheCanonicalBundleInReferenceSequences() throws {
+    func testReusesTheCanonicalBundleInReferenceSequences() async throws {
         let existing = referenceSequencesURL.appendingPathComponent(
             ViralReconReferenceCatalog.bundleFilename, isDirectory: true)
         try Self.writeBundle(at: existing, sequenceName: "MN908947.3")
         var downloadCalls = 0
 
-        let outcome = try ViralReconReferenceAcquisition.acquire(
+        let outcome = try await ViralReconReferenceAcquisition.acquire(
             projectURL: projectURL,
             downloader: { _, _ in downloadCalls += 1 }
         )
@@ -137,18 +137,18 @@ final class ViralReconReferenceAcquisitionTests: XCTestCase {
             atPath: ViralReconReferenceCatalog.bundleURL(inProject: projectURL).path))
     }
 
-    func testReusesARenamedReferenceSequencesBundleOnlyWhenItHoldsMN908947_3() throws {
+    func testReusesARenamedReferenceSequencesBundleOnlyWhenItHoldsMN908947_3() async throws {
         let renamed = referenceSequencesURL.appendingPathComponent(
             "SARS-CoV-2 Wuhan-Hu-1.lungfishref", isDirectory: true)
         try Self.writeBundle(at: renamed, sequenceName: "MN908947.3")
 
-        let outcome = try ViralReconReferenceAcquisition.acquire(
+        let outcome = try await ViralReconReferenceAcquisition.acquire(
             projectURL: projectURL, downloader: { _, _ in XCTFail("must not download") })
 
         XCTAssertEqual(outcome, .alreadyPresent(renamed))
     }
 
-    func testReferenceSequencesBundleHoldingTheEquivalentAccessionIsNotSubstituted() throws {
+    func testReferenceSequencesBundleHoldingTheEquivalentAccessionIsNotSubstituted() async throws {
         try Self.writeBundle(
             at: referenceSequencesURL.appendingPathComponent("NC_045512.2.lungfishref", isDirectory: true),
             sequenceName: "NC_045512.2")
@@ -159,7 +159,7 @@ final class ViralReconReferenceAcquisitionTests: XCTestCase {
             sequenceName: "NC_045512.2")
         var downloadCalls = 0
 
-        let outcome = try ViralReconReferenceAcquisition.acquire(
+        let outcome = try await ViralReconReferenceAcquisition.acquire(
             projectURL: projectURL,
             downloader: { _, destination in
                 downloadCalls += 1
@@ -177,13 +177,13 @@ final class ViralReconReferenceAcquisitionTests: XCTestCase {
     // genome` still substituted NC_045512.2 kept that bundle forever. It was
     // reused without reading its index, so primer staging failed every BED
     // line and the wizard showed "StageError error 1".
-    func testStaleDownloadedBundleHoldingTheEquivalentSequenceIsReplaced() throws {
+    func testStaleDownloadedBundleHoldingTheEquivalentSequenceIsReplaced() async throws {
         let downloaded = ViralReconReferenceCatalog.bundleURL(inProject: projectURL)
         try Self.writeBundle(at: downloaded, sequenceName: "NC_045512.2")
         XCTAssertNil(ViralReconReferenceCatalog.existingBundleURL(inProject: projectURL))
         var downloadCalls = 0
 
-        let outcome = try ViralReconReferenceAcquisition.acquire(
+        let outcome = try await ViralReconReferenceAcquisition.acquire(
             projectURL: projectURL,
             downloader: { _, destination in
                 downloadCalls += 1
@@ -197,6 +197,21 @@ final class ViralReconReferenceAcquisitionTests: XCTestCase {
         XCTAssertEqual(downloadCalls, 1)
         XCTAssertEqual(
             ViralReconReferenceAcquisition.sequenceIdentifier(inBundleAt: downloaded), "MN908947.3")
+    }
+
+    /// XCTAssertThrowsError takes no async expression.
+    private func assertThrowsAsync<T>(
+        _ expression: @autoclosure () async throws -> T,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ check: (Error) -> Void
+    ) async {
+        do {
+            _ = try await expression()
+            XCTFail("expected an error", file: file, line: line)
+        } catch {
+            check(error)
+        }
     }
 
     private var referenceSequencesURL: URL {

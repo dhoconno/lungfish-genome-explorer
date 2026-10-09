@@ -273,6 +273,24 @@ final class ToolProcessTests: XCTestCase {
         XCTAssertEqual(result.stderrText, "β\r\n\nnext\rfinal")
     }
 
+    /// A line over the default 64 KB arrives in pieces unless the spec raises
+    /// its line limit, which a stream of JSON events needs.
+    func testTheSpecsLineLimitDecidesWhereALongLineIsCut() async throws {
+        let script = "/usr/bin/head -c 200000 /dev/zero | /usr/bin/tr '\\0' 'x'; echo"
+        let defaultLines = ToolProcessEventLog()
+        _ = try await ToolProcess.run(Fixtures.shell(script, stdout: .capture(limit: 0))) { defaultLines.append($0) }
+        let pieces = defaultLines.lines(.stdout).filter { !$0.isEmpty }
+        XCTAssertGreaterThan(pieces.count, 1)
+        XCTAssertTrue(pieces.allSatisfy { $0.utf8.count <= ProcessOutputLineFramer.defaultMaxLineBytes })
+        XCTAssertEqual(pieces.reduce(0) { $0 + $1.utf8.count }, 200_000)
+
+        var spec = Fixtures.shell(script, stdout: .capture(limit: 0))
+        spec.maxLineBytes = 1 << 20
+        let wideLines = ToolProcessEventLog()
+        _ = try await ToolProcess.run(spec) { wideLines.append($0) }
+        XCTAssertEqual(wideLines.lines(.stdout).filter { !$0.isEmpty }.map(\.utf8.count), [200_000])
+    }
+
     // MARK: - Lingering descendants
 
     /// A background grandchild inherits stdout and keeps it open for 30 s.

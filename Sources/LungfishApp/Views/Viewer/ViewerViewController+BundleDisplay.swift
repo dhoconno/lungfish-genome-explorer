@@ -822,7 +822,7 @@ extension ViewerViewController {
 
             Task.detached { [weak self] in
                 do {
-                    let output = try LungfishCLIRunner.run(arguments: arguments, cancellation: cancellation)
+                    let output = try await LungfishCLIRunner.run(arguments: arguments, cancellation: cancellation)
                     guard let newBundleURL = FASTASelectionReferenceBundleCLI.bundleURL(from: output.stdout) else {
                         throw LungfishCLIRunner.RunError.invalidInvocation(
                             "The sequence-extraction command completed without reporting its bundle path."

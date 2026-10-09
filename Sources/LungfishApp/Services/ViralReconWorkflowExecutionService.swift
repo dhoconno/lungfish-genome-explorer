@@ -58,7 +58,7 @@ final class ViralReconWorkflowExecutionService {
 
         try FileManager.default.createDirectory(at: bundleRoot, withIntermediateDirectories: true)
         let bundleURL = try availableBundleURL(in: bundleRoot)
-        let referencedRequest = try acquireReference(for: request, projectURL: projectURL)
+        let referencedRequest = try await acquireReference(for: request, projectURL: projectURL)
         let persistedRequest = try persistGeneratedInputs(from: referencedRequest, in: bundleURL)
         try writeRunBundle(for: persistedRequest, to: bundleURL)
 
@@ -274,13 +274,13 @@ final class ViralReconWorkflowExecutionService {
     private func acquireReference(
         for request: ViralReconRunRequest,
         projectURL: URL?
-    ) throws -> ViralReconRunRequest {
+    ) async throws -> ViralReconRunRequest {
         guard case .genome = request.reference, let projectURL else {
             acquisitionSummary = nil
             return request
         }
 
-        let outcome = try ViralReconReferenceAcquisition.acquire(
+        let outcome = try await ViralReconReferenceAcquisition.acquire(
             projectURL: projectURL,
             downloader: referenceDownloader
         )

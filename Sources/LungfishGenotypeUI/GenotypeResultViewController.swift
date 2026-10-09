@@ -607,7 +607,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             return
         }
         _ = try await Task.detached {
-            try GenotypeViewportExportService().export(snapshot: snapshot, format: format, to: url)
+            try await GenotypeViewportExportService().export(snapshot: snapshot, format: format, to: url)
         }.value
     }
     private var resultConfigurationGeneration: UInt64 = 0

@@ -59,7 +59,7 @@ extension ViewerViewController {
                             at: exportURL.deletingLastPathComponent(),
                             withIntermediateDirectories: true
                         )
-                        _ = try LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)
+                        _ = try await LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)
                         try Self.verifyTwelveSBlastPreparationProvenance(
                             sidecarURL: exportURL.appendingPathExtension("lungfish-provenance.json"),
                             outputURL: exportURL

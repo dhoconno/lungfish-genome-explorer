@@ -66,6 +66,11 @@ public struct ToolProcessSpec: Sendable {
     /// exits. A background descendant that inherited a pipe can hold it open
     /// long after the process exits, and the run must not wait for it.
     public var drainGracePeriod: Duration
+    /// The longest line, in bytes, that a captured stream delivers as one
+    /// ``ToolProcessEvent/output(stream:line:)`` event. A longer line arrives
+    /// in pieces of at most this many bytes. Raise it for a stream of
+    /// structured lines, such as JSON events, that must not be cut.
+    public var maxLineBytes: Int
     /// A short name for logs and errors.
     public var label: String
 
@@ -81,6 +86,7 @@ public struct ToolProcessSpec: Sendable {
         idleTimeout: Duration? = nil,
         terminationGracePeriod: Duration = .milliseconds(500),
         drainGracePeriod: Duration = .seconds(2),
+        maxLineBytes: Int = ProcessOutputLineFramer.defaultMaxLineBytes,
         label: String? = nil
     ) {
         self.executableURL = executableURL
@@ -94,6 +100,7 @@ public struct ToolProcessSpec: Sendable {
         self.idleTimeout = idleTimeout
         self.terminationGracePeriod = terminationGracePeriod
         self.drainGracePeriod = drainGracePeriod
+        self.maxLineBytes = maxLineBytes
         self.label = label ?? executableURL.lastPathComponent
     }
 

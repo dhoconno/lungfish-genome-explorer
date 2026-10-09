@@ -712,7 +712,7 @@ extension AppDelegate {
             let cliCancellation = LungfishCLIRunner.CancellationHandle()
             let task = Task.detached { [weak self] in
                 do {
-                    let output = try SequenceAnnotationOperationRunner.run(
+                    let output = try await SequenceAnnotationOperationRunner.run(
                         request,
                         cancellation: cliCancellation
                     )

@@ -221,29 +221,17 @@ struct RunSubcommand: AsyncParsableCommand {
         let isNextflow = workflowURL.pathExtension == "nf" || workflow.contains("nf-core") || isViralReconWorkflow
         let isSnakemake = workflowURL.lastPathComponent.lowercased().contains("snakefile")
 
-        if workflow.contains("nf-core") || isViralReconWorkflow {
-            try await runNFCoreWorkflow(
-                workflowParams: workflowParams,
-                formatter: formatter
-            )
-            return
-        }
-
-        if !globalOptions.quiet {
-            let engine = isNextflow ? "Nextflow" : (isSnakemake ? "Snakemake" : "Unknown")
-            print(formatter.info("Detected workflow engine: \(engine)"))
-            print(formatter.info("Starting workflow execution..."))
-        }
-
-        try await runLocalWorkflow(
+        // SIGTERM (the window's Cancel) cancels the run. See the extension.
+        try await launchCancellingOnSIGTERM(
             workflowParams: workflowParams,
+            isViralRecon: isViralReconWorkflow,
             isNextflow: isNextflow,
             isSnakemake: isSnakemake,
             formatter: formatter
         )
     }
 
-    private func runLocalWorkflow(
+    func runLocalWorkflow(
         workflowParams: [String: String],
         isNextflow: Bool,
         isSnakemake: Bool,
@@ -412,7 +400,7 @@ struct RunSubcommand: AsyncParsableCommand {
         print(runBundleURL.path)
     }
 
-    private func runNFCoreWorkflow(
+    func runNFCoreWorkflow(
         workflowParams: [String: String],
         formatter: TerminalFormatter
     ) async throws {

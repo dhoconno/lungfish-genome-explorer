@@ -72,12 +72,12 @@ struct TwelveSAmpliconResultExportResult: Equatable {
 }
 
 protocol TwelveSAmpliconResultExportRunning {
-    func run(arguments: [String]) throws -> LungfishCLIRunner.Output
+    func run(arguments: [String]) async throws -> LungfishCLIRunner.Output
 }
 
 struct DefaultTwelveSAmpliconResultExportRunner: TwelveSAmpliconResultExportRunning {
-    func run(arguments: [String]) throws -> LungfishCLIRunner.Output {
-        try LungfishCLIRunner.run(arguments: arguments)
+    func run(arguments: [String]) async throws -> LungfishCLIRunner.Output {
+        try await LungfishCLIRunner.run(arguments: arguments)
     }
 }
 
@@ -97,7 +97,7 @@ struct TwelveSAmpliconResultExportService {
         snapshot: TwelveSAmpliconResultExportSnapshot,
         format: TwelveSAmpliconResultExportFormat,
         to outputURL: URL
-    ) throws -> TwelveSAmpliconResultExportResult {
+    ) async throws -> TwelveSAmpliconResultExportResult {
         try fileManager.createDirectory(
             at: outputURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -138,7 +138,7 @@ struct TwelveSAmpliconResultExportService {
         arguments.append("--force")
 
         do {
-            _ = try runner.run(arguments: arguments)
+            _ = try await runner.run(arguments: arguments)
             guard fileManager.fileExists(atPath: standardizedOutputURL.path) else {
                 throw TwelveSAmpliconResultExportError.missingOutput(standardizedOutputURL.path)
             }

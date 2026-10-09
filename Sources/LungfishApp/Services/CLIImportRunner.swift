@@ -55,13 +55,11 @@ public enum CLIImportEvent: Sendable {
 /// and forwarding them to ``OperationCenter`` for the Operations Panel display.
 public actor CLIImportRunner {
 
-    /// The running CLI process, stored for cancellation support.
-    private var process: Process?
-
     /// Non-actor-isolated handle to the running process, used by ``cancel()``
-    /// so termination never has to wait for the actor's executor (see
-    /// ``CLIImportProcessBox``).
-    private let processBox = CLIImportProcessBox()
+    /// so termination never has to wait for the actor's executor. It also
+    /// remembers a cancel that arrives before the launch, so the CLI is then
+    /// never launched.
+    private let cancellation = CLIRunCancellation(cleanupGrace: .seconds(CLIImportRunner.cleanupGrace))
 
     // MARK: - Static: Binary Resolution
 
@@ -327,26 +325,6 @@ public actor CLIImportRunner {
 
         logger.info("Launching CLI: \(binaryURL.path, privacy: .public) \(arguments.joined(separator: " "), privacy: .public)")
 
-        let proc = Process()
-        proc.environment = ManagedStorageConfigStore().subprocessEnvironment()
-        proc.executableURL = binaryURL
-        proc.arguments = arguments
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        proc.standardOutput = stdoutPipe
-        proc.standardError = stderrPipe
-
-        self.process = proc
-        NativeProcessRegistry.shared.register(proc)
-        defer {
-            NativeProcessRegistry.shared.unregister(proc)
-            processBox.clear(proc)
-            if self.process === proc {
-                self.process = nil
-            }
-        }
-
         // Update status before launching so the user sees we're past the slot wait
         let opID = operationID
         DispatchQueue.main.async {
@@ -359,350 +337,227 @@ public actor CLIImportRunner {
             }
         }
 
-        await withTaskCancellationHandler {
-            // Stream stdout line-by-line for real-time progress updates.
-            // We use readabilityHandler on a GCD dispatch source so events
-            // reach OperationCenter as the CLI emits them, not after exit.
-            let stdoutHandle = stdoutPipe.fileHandleForReading
-            let stderrHandle = stderrPipe.fileHandleForReading
-            let stdoutHandlerGroup = DispatchGroup()
-            let stderrHandlerGroup = DispatchGroup()
+        // Mutable state shared across the @Sendable event callback.
+        final class StreamState: @unchecked Sendable {
+            var totalSamples = 1
+            var lastSampleFailure: String?
+        }
+        let state = OSAllocatedUnfairLock(initialState: StreamState())
 
-            // Mutable state shared across the @Sendable readabilityHandler callback.
-            final class StreamState: @unchecked Sendable {
-                var stdoutBuffer = Data()
-                var stderrBuffer = Data()
-                var totalSamples = 1
-                var lastSampleFailure: String?
-            }
-            let state = OSAllocatedUnfairLock(initialState: StreamState())
-
-            @Sendable func handleStdoutLine(_ lineStr: String) {
-                do {
-                    guard let event = try Self.parseEvent(from: lineStr) else { return }
-
-                    switch event {
-                    case let .importStart(sampleCount, _):
-                        state.withLock { $0.totalSamples = max(sampleCount, 1) }
-
-                    case let .sampleStart(sample, index, total, _, _):
-                        let currentTotal = state.withLock { current -> Int in
-                            current.totalSamples = max(total, 1)
-                            return current.totalSamples
-                        }
-                        let progress = Double(index) / Double(currentTotal)
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                _ = OperationCenter.shared.update(
-                                    id: opID,
-                                    progress: progress * 0.05,
-                                    detail: "Importing \(sample) (\(index + 1)/\(currentTotal))"
-                                )
-                            }
-                        }
-
-                    case let .stepStart(sample, step, stepIndex, totalSteps):
-                        // stepIndex is 1-based from the CLI
-                        let fraction = Double(stepIndex) / Double(max(1, totalSteps))
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                _ = OperationCenter.shared.update(
-                                    id: opID,
-                                    progress: fraction * 0.80,
-                                    detail: "\(sample): \(step)"
-                                )
-                                OperationCenter.shared.log(
-                                    id: opID,
-                                    level: .info,
-                                    message: "\(sample) — step \(stepIndex)/\(totalSteps): \(step)"
-                                )
-                            }
-                        }
-
-                    case let .stepComplete(sample, step, durationSeconds):
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                OperationCenter.shared.log(
-                                    id: opID,
-                                    level: .info,
-                                    message: "\(sample) — \(step) completed (\(String(format: "%.1f", durationSeconds))s)"
-                                )
-                            }
-                        }
-
-                    case let .notice(sample, message):
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                OperationCenter.shared.log(
-                                    id: opID,
-                                    level: .warning,
-                                    message: Self.noticeLine(sample: sample, message: message)
-                                )
-                            }
-                        }
-
-                    case let .recipeReadDelta(sample, label, inputReads, outputReads, _, _):
-                        let summary = RecipeAppliedInfo.ReadDeltaSummary(
-                            inputReads: inputReads,
-                            outputReads: outputReads
-                        )
-                        let message = RecipeAppliedInfo.readDeltaLogLine(label, summary)
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                OperationCenter.shared.log(
-                                    id: opID,
-                                    level: .info,
-                                    message: "\(sample) — \(message)"
-                                )
-                            }
-                        }
-
-                    case let .sampleComplete(sample, bundle, _, _, _):
-                        let bundleURL = projectDirectory
-                            .appendingPathComponent("Imports")
-                            .appendingPathComponent(bundle)
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                OperationCenter.shared.log(
-                                    id: opID,
-                                    level: .info,
-                                    message: "\(sample) — bundle created"
-                                )
-                            }
-                        }
-                        onBundleCreated(bundleURL)
-
-                    case let .sampleSkip(sample, reason):
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                OperationCenter.shared.log(
-                                    id: opID,
-                                    level: .warning,
-                                    message: "\(sample) skipped: \(reason)"
-                                )
-                            }
-                        }
-
-                    case let .sampleFailed(sample, error):
-                        let failureSummary = "\(sample): \(error)"
-                        state.withLock { $0.lastSampleFailure = failureSummary }
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                OperationCenter.shared.log(
-                                    id: opID,
-                                    level: .error,
-                                    message: "\(sample) failed: \(error)"
-                                )
-                            }
-                        }
-                        onError(failureSummary)
-
-                    case let .importComplete(completed, skipped, failed, totalDurationSeconds):
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                OperationCenter.shared.log(
-                                    id: opID,
-                                    level: .info,
-                                    message: "Import complete — \(completed) done, \(skipped) skipped, \(failed) failed (\(String(format: "%.1f", totalDurationSeconds))s)"
-                                )
-                            }
-                        }
-                    }
-                } catch {
-                    logger.warning("Failed to parse CLI event: \(error.localizedDescription, privacy: .public)")
-                }
-            }
-
-            @Sendable func consumeStdout(_ chunk: Data) {
-                guard !chunk.isEmpty else { return }
-                let lines = state.withLock { current -> [String] in
-                    current.stdoutBuffer.append(chunk)
-                    var parsed: [String] = []
-                    while let newlineRange = current.stdoutBuffer.range(of: Data("\n".utf8)) {
-                        let lineData = current.stdoutBuffer.subdata(
-                            in: current.stdoutBuffer.startIndex..<newlineRange.lowerBound
-                        )
-                        current.stdoutBuffer.removeSubrange(current.stdoutBuffer.startIndex..<newlineRange.upperBound)
-                        guard let line = String(data: lineData, encoding: .utf8),
-                              !line.isEmpty else { continue }
-                        parsed.append(line)
-                    }
-                    return parsed
-                }
-                for line in lines {
-                    handleStdoutLine(line)
-                }
-            }
-
-            @Sendable func consumeStderr(_ chunk: Data) {
-                guard !chunk.isEmpty else { return }
-                state.withLock { $0.stderrBuffer.append(chunk) }
-            }
-
-            @Sendable func finishStdout() {
-                let trailing = state.withLock { current -> String? in
-                    guard !current.stdoutBuffer.isEmpty else { return nil }
-                    let lineData = current.stdoutBuffer
-                    current.stdoutBuffer.removeAll(keepingCapacity: false)
-                    return String(data: lineData, encoding: .utf8)
-                }
-                if let trailing, !trailing.isEmpty {
-                    handleStdoutLine(trailing)
-                }
-            }
-
-            func drainStreamHandlers() {
-                stdoutHandlerGroup.wait()
-                stderrHandlerGroup.wait()
-            }
-
-            // Collect stderr in background to avoid pipe deadlock
-            stderrHandle.readabilityHandler = { handle in
-                stderrHandlerGroup.enter()
-                defer { stderrHandlerGroup.leave() }
-                let chunk = handle.availableData
-                consumeStderr(chunk)
-            }
-
-            // Process stdout lines as they arrive
-            stdoutHandle.readabilityHandler = { handle in
-                stdoutHandlerGroup.enter()
-                defer { stdoutHandlerGroup.leave() }
-                let chunk = handle.availableData
-                consumeStdout(chunk)
-            }
-
-            let exitCompletion = CLIImportExitCompletion()
-            proc.terminationHandler = { terminatedProcess in
-                exitCompletion.complete(exitStatus: terminatedProcess.terminationStatus)
-            }
-
+        @Sendable func handleStdoutLine(_ lineStr: String) {
             do {
-                guard try processBox.launch(proc) else {
-                    // A cancel came before the launch, so nothing ran. The
-                    // caller ends the operation as cancelled.
-                    proc.terminationHandler = nil
-                    stdoutHandle.readabilityHandler = nil
-                    stderrHandle.readabilityHandler = nil
-                    drainStreamHandlers()
-                    logger.info("CLI import cancelled before launch")
-                    onError("Import cancelled before it started")
-                    return
-                }
-            } catch {
-                proc.terminationHandler = nil
-                stdoutHandle.readabilityHandler = nil
-                stderrHandle.readabilityHandler = nil
-                drainStreamHandlers()
-                let msg = "Failed to launch CLI process: \(error.localizedDescription)"
-                logger.error("\(msg, privacy: .public)")
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(id: opID, detail: msg, errorMessage: msg)
+                guard let event = try Self.parseEvent(from: lineStr) else { return }
+
+                switch event {
+                case let .importStart(sampleCount, _):
+                    state.withLock { $0.totalSamples = max(sampleCount, 1) }
+
+                case let .sampleStart(sample, index, total, _, _):
+                    let currentTotal = state.withLock { current -> Int in
+                        current.totalSamples = max(total, 1)
+                        return current.totalSamples
                     }
-                }
-                onError(msg)
-                return
-            }
-
-            // Wait for exit via the termination handler rather than the
-            // blocking `proc.waitUntilExit()`. This method runs on the
-            // `CLIImportRunner` actor; a blocking, non-suspending wait here
-            // would occupy the actor's executor for the whole subprocess
-            // lifetime, and `cancel()` (also an actor method) could never
-            // run concurrently to kill it — a deadlock.
-            let exitStatus = await exitCompletion.wait()
-            proc.terminationHandler = nil
-            stdoutHandle.readabilityHandler = nil
-            stderrHandle.readabilityHandler = nil
-            drainStreamHandlers()
-            consumeStdout(Self.readAvailableDataNonBlocking(from: stdoutHandle))
-            consumeStderr(Self.readAvailableDataNonBlocking(from: stderrHandle))
-            finishStdout()
-
-            // Handle non-zero exit
-            if exitStatus != 0 {
-                let snapshot = state.withLock { current in
-                    (
-                        stderr: String(data: current.stderrBuffer, encoding: .utf8) ?? "",
-                        lastSampleFailure: current.lastSampleFailure
-                    )
-                }
-                let stderrOutput = snapshot.stderr
-                let trimmedStderr = stderrOutput.trimmingCharacters(in: .whitespacesAndNewlines)
-                let exitSummary = "CLI exited with status \(exitStatus)"
-                let msg = snapshot.lastSampleFailure ?? exitSummary
-                let detailParts = [exitSummary, trimmedStderr]
-                    .filter { !$0.isEmpty }
-                let errorDetail = detailParts.isEmpty ? nil : detailParts.joined(separator: "\n\n")
-                logger.error("\(exitSummary, privacy: .public): \(stderrOutput, privacy: .public)")
-                // After a cancel the caller ends the operation, once its own
-                // cleanup has run, so the row is not ended here first.
-                if !processBox.isCancelled {
+                    let progress = Double(index) / Double(currentTotal)
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.fail(
+                            _ = OperationCenter.shared.update(
                                 id: opID,
-                                detail: msg,
-                                errorMessage: msg,
-                                errorDetail: errorDetail
+                                progress: progress * 0.05,
+                                detail: "Importing \(sample) (\(index + 1)/\(currentTotal))"
+                            )
+                        }
+                    }
+
+                case let .stepStart(sample, step, stepIndex, totalSteps):
+                    // stepIndex is 1-based from the CLI
+                    let fraction = Double(stepIndex) / Double(max(1, totalSteps))
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            _ = OperationCenter.shared.update(
+                                id: opID,
+                                progress: fraction * 0.80,
+                                detail: "\(sample): \(step)"
+                            )
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .info,
+                                message: "\(sample) — step \(stepIndex)/\(totalSteps): \(step)"
+                            )
+                        }
+                    }
+
+                case let .stepComplete(sample, step, durationSeconds):
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .info,
+                                message: "\(sample) — \(step) completed (\(String(format: "%.1f", durationSeconds))s)"
+                            )
+                        }
+                    }
+
+                case let .notice(sample, message):
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .warning,
+                                message: Self.noticeLine(sample: sample, message: message)
+                            )
+                        }
+                    }
+
+                case let .recipeReadDelta(sample, label, inputReads, outputReads, _, _):
+                    let summary = RecipeAppliedInfo.ReadDeltaSummary(
+                        inputReads: inputReads,
+                        outputReads: outputReads
+                    )
+                    let message = RecipeAppliedInfo.readDeltaLogLine(label, summary)
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .info,
+                                message: "\(sample) — \(message)"
+                            )
+                        }
+                    }
+
+                case let .sampleComplete(sample, bundle, _, _, _):
+                    let bundleURL = projectDirectory
+                        .appendingPathComponent("Imports")
+                        .appendingPathComponent(bundle)
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .info,
+                                message: "\(sample) — bundle created"
+                            )
+                        }
+                    }
+                    onBundleCreated(bundleURL)
+
+                case let .sampleSkip(sample, reason):
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .warning,
+                                message: "\(sample) skipped: \(reason)"
+                            )
+                        }
+                    }
+
+                case let .sampleFailed(sample, error):
+                    let failureSummary = "\(sample): \(error)"
+                    state.withLock { $0.lastSampleFailure = failureSummary }
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .error,
+                                message: "\(sample) failed: \(error)"
+                            )
+                        }
+                    }
+                    onError(failureSummary)
+
+                case let .importComplete(completed, skipped, failed, totalDurationSeconds):
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .info,
+                                message: "Import complete — \(completed) done, \(skipped) skipped, \(failed) failed (\(String(format: "%.1f", totalDurationSeconds))s)"
                             )
                         }
                     }
                 }
-                onError(msg)
-            }
-        } onCancel: {
-            // `cancel()` is `nonisolated`, so this runs immediately without
-            // hopping through `Task { await self.cancel() }` or waiting for
-            // actor access — see ``cancel()`` for why that matters.
-            self.cancel()
-        }
-    }
-
-    /// Reads bytes currently available from a pipe without waiting for EOF.
-    ///
-    /// Some wrapped tools can leave descendants alive with inherited stdout/stderr
-    /// descriptors after `lungfish-cli` exits. Waiting for EOF in that case keeps
-    /// the GUI import slot open even though the parent CLI command has finished.
-    private nonisolated static func readAvailableDataNonBlocking(from handle: FileHandle) -> Data {
-        let fd = handle.fileDescriptor
-        let originalFlags = fcntl(fd, F_GETFL)
-        if originalFlags >= 0 {
-            _ = fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK)
-        }
-        defer {
-            if originalFlags >= 0 {
-                _ = fcntl(fd, F_SETFL, originalFlags)
+            } catch {
+                logger.warning("Failed to parse CLI event: \(error.localizedDescription, privacy: .public)")
             }
         }
 
-        var output = Data()
-        var buffer = [UInt8](repeating: 0, count: 16 * 1024)
-        while true {
-            let byteCount = buffer.withUnsafeMutableBytes { rawBuffer -> Int in
-                guard let baseAddress = rawBuffer.baseAddress else { return 0 }
-                return Darwin.read(fd, baseAddress, rawBuffer.count)
-            }
-
-            if byteCount > 0 {
-                output.append(contentsOf: buffer.prefix(byteCount))
-                continue
-            }
-
-            if byteCount == 0 {
-                break
-            }
-
-            if errno == EINTR {
-                continue
-            }
-            if errno == EAGAIN || errno == EWOULDBLOCK {
-                break
-            }
-            break
+        // The output is read until end of file as the CLI writes it, so events
+        // reach OperationCenter as the CLI emits them, not after exit. A cancel
+        // gives the CLI `cleanupGrace` after SIGTERM to remove its staging
+        // folders (see ``CLIRunCancellation``). A tool the CLI started that
+        // keeps the output open after the CLI exits is stopped half a second
+        // later, so it cannot hold the import slot.
+        let spec = ToolProcessSpec(
+            executableURL: binaryURL,
+            arguments: arguments,
+            environment: ManagedStorageConfigStore().subprocessEnvironment(),
+            stdout: .capture(limit: 0),
+            stderr: .capture(),
+            terminationGracePeriod: .zero,
+            drainGracePeriod: .milliseconds(500),
+            label: "lungfish-cli"
+        )
+        let outcome = await cancellation.run(spec) { event in
+            guard case .output(.stdout, let line) = event, !line.isEmpty else { return }
+            handleStdoutLine(line)
         }
-        return output
+
+        let result: ToolProcessResult
+        switch outcome.result {
+        case .success(let finished):
+            result = finished
+        case .failure(.cancelled(let results)), .failure(.timedOut(_, let results)):
+            guard let ended = results.first else {
+                // A cancel came before the launch, so nothing ran. The
+                // caller ends the operation as cancelled.
+                logger.info("CLI import cancelled before launch")
+                onError("Import cancelled before it started")
+                return
+            }
+            result = ended
+        case .failure(let error):
+            let msg = "Failed to launch CLI process: \(error.cliLaunchFailureReason)"
+            logger.error("\(msg, privacy: .public)")
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    _ = OperationCenter.shared.fail(id: opID, detail: msg, errorMessage: msg)
+                }
+            }
+            onError(msg)
+            return
+        }
+
+        // Handle a non-zero exit, or an exit whose output a lingering child
+        // process cut short.
+        let exitStatus = result.status
+        let incompleteNote = result.cliIncompleteOutputNote
+        if exitStatus != 0 || incompleteNote != nil {
+            let snapshot = state.withLock { current in current.lastSampleFailure }
+            let stderrOutput = result.cliStderrText
+            let trimmedStderr = stderrOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+            let exitSummary = exitStatus != 0 ? "CLI exited with status \(exitStatus)" : (incompleteNote ?? "")
+            let msg = snapshot ?? exitSummary
+            var detailParts = [exitSummary]
+            if exitStatus != 0, let incompleteNote { detailParts.append(incompleteNote) }
+            detailParts.append(trimmedStderr)
+            detailParts = detailParts.filter { !$0.isEmpty }
+            let errorDetail = detailParts.isEmpty ? nil : detailParts.joined(separator: "\n\n")
+            logger.error("\(exitSummary, privacy: .public): \(stderrOutput, privacy: .public)")
+            // After a cancel the caller ends the operation, once its own
+            // cleanup has run, so the row is not ended here first.
+            if !outcome.cancelRequested {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        _ = OperationCenter.shared.fail(
+                            id: opID,
+                            detail: msg,
+                            errorMessage: msg,
+                            errorDetail: errorDetail
+                        )
+                    }
+                }
+            }
+            onError(msg)
+        }
     }
 
     // MARK: - Instance: Cancel
@@ -716,13 +571,14 @@ public actor CLIImportRunner {
     /// from launching when the cancel comes first.
     ///
     /// Deliberately `nonisolated`: it must be callable — and must complete —
-    /// even while `run()` holds the actor executor awaiting other work.
-    /// Termination goes through ``processBox`` rather than the actor-isolated
-    /// `process` property so cancellation never has to wait in line behind
-    /// the very operation it is trying to stop. It returns at once. The
-    /// process tree is stopped on a background queue.
+    /// even while `run()` is suspended awaiting the process. It goes through
+    /// ``cancellation`` rather than actor-isolated state, so cancellation
+    /// never has to wait in line behind the very operation it is trying to
+    /// stop. It returns at once. The CLI and its descendants get SIGTERM, and
+    /// the CLI has ``cleanupGrace`` seconds to clean up and exit. ToolProcess
+    /// then kills whatever is left.
     public nonisolated func cancel() {
         logger.info("Terminating CLI process tree")
-        processBox.cancel(cleanupGrace: Self.cleanupGrace)
+        cancellation.cancel()
     }
 }

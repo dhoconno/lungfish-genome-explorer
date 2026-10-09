@@ -16,29 +16,18 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "LungfishCLIR
 /// via a subprocess keeps the logic in one place and avoids pulling large
 /// parsing/SQL code into the GUI target.
 public enum LungfishCLIRunner {
-    public final class CancellationHandle: @unchecked Sendable {
-        private let handle = NativeProcessCancellationHandle()
+    /// Cancels a ``run(arguments:executableURL:cancellation:)`` call from any
+    /// thread, before it starts, while it runs or never.
+    ///
+    /// ``cancel()`` returns at once. ToolProcess stops the CLI's process group
+    /// and its descendants, and the run then throws ``RunError/cancelled``.
+    public final class CancellationHandle: Sendable {
+        fileprivate let cancellation = CLIRunCancellation()
 
         public init() {}
 
         public func cancel() {
-            handle.terminateProcessTree(gracePeriod: 0)
-        }
-
-        fileprivate func store(_ process: Process) {
-            handle.store(process)
-        }
-
-        fileprivate func clear(_ process: Process) {
-            handle.clear(process)
-        }
-
-        fileprivate func terminateIfRequested(gracePeriod: TimeInterval = 0.5) {
-            handle.terminateIfRequested(gracePeriod: gracePeriod)
-        }
-
-        fileprivate var isCancellationRequested: Bool {
-            handle.isTerminationRequested
+            cancellation.cancel()
         }
     }
 
@@ -105,6 +94,12 @@ public enum LungfishCLIRunner {
 
     /// Runs the CLI with the supplied arguments and captures stdout/stderr.
     ///
+    /// The call suspends until the CLI has exited and its output is drained,
+    /// so it holds no thread while it waits. The process runs on
+    /// ``ToolProcess``, which reads both pipes until end of file and stops the
+    /// whole process tree when the calling task or the `cancellation` handle
+    /// is cancelled.
+    ///
     /// - Parameter arguments: Arguments passed to `lungfish-cli`.
     /// - Returns: The process output and termination status.
     /// - Throws: ``RunError`` on missing CLI, launch failure, or non-zero exit.
@@ -112,7 +107,7 @@ public enum LungfishCLIRunner {
         arguments: [String],
         executableURL: URL? = nil,
         cancellation: CancellationHandle? = nil
-    ) throws -> Output {
+    ) async throws -> Output {
         guard let cliURL = executableURL ?? findCLI() else {
             let execDir = Bundle.main.executableURL?.deletingLastPathComponent().path ?? "<nil>"
             let bundleDir = Bundle.main.bundleURL.path
@@ -122,71 +117,56 @@ public enum LungfishCLIRunner {
             throw RunError.cliNotFound
         }
 
-        let process = Process()
-        process.environment = ManagedStorageConfigStore().subprocessEnvironment()
-        process.executableURL = cliURL
-        process.arguments = arguments
-        cancellation?.store(process)
+        let spec = ToolProcessSpec(
+            executableURL: cliURL,
+            arguments: arguments,
+            environment: ManagedStorageConfigStore().subprocessEnvironment(),
+            terminationGracePeriod: .zero,
+            label: "lungfish-cli"
+        )
+        let outcome = await (cancellation?.cancellation ?? CLIRunCancellation()).run(spec)
 
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        let outputGroup = DispatchGroup()
-        let stdoutCapture = OutputCapture()
-        let stderrCapture = OutputCapture()
-
-        outputGroup.enter()
-        DispatchQueue(label: "com.lungfish.app.cli-runner-stdout", qos: .userInitiated).async {
-            stdoutCapture.data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            outputGroup.leave()
-        }
-
-        outputGroup.enter()
-        DispatchQueue(label: "com.lungfish.app.cli-runner-stderr", qos: .userInitiated).async {
-            stderrCapture.data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            outputGroup.leave()
-        }
-
-        do {
-            try process.run()
-            cancellation?.terminateIfRequested(gracePeriod: 0)
-        } catch {
-            stdoutPipe.fileHandleForWriting.closeFile()
-            stderrPipe.fileHandleForWriting.closeFile()
-            outputGroup.wait()
-            cancellation?.clear(process)
+        let result: ToolProcessResult
+        switch outcome.result {
+        case .success(let finished):
+            result = finished
+        case .failure(.cancelled):
+            throw RunError.cancelled
+        case .failure(let error):
             logger.error("run: Failed to launch CLI: \(error.localizedDescription, privacy: .public)")
-            throw RunError.launchFailed(error.localizedDescription)
+            throw RunError.launchFailed(error.cliLaunchFailureReason)
         }
 
-        process.waitUntilExit()
-        let cancellationRequested = cancellation?.isCancellationRequested == true
-        cancellation?.clear(process)
-        outputGroup.wait()
-
-        let stdoutText = String(data: stdoutCapture.data, encoding: .utf8) ?? ""
-        let stderrText = String(data: stderrCapture.data, encoding: .utf8) ?? ""
-
-        if cancellationRequested {
+        if outcome.cancelRequested || result.stop == .cancelled {
             throw RunError.cancelled
         }
 
-        if process.terminationStatus != 0 {
-            logger.error(
-                "run: CLI exited with status \(process.terminationStatus, privacy: .public): \(stderrText, privacy: .public)"
+        let stdoutText = result.cliStdoutText
+        let stderrText = result.cliStderrText
+
+        if let incomplete = result.cliIncompleteOutputNote {
+            logger.error("run: \(incomplete, privacy: .public)")
+            throw RunError.nonZeroExit(
+                status: result.status,
+                stderr: [stderrText, incomplete].filter { !$0.isEmpty }.joined(separator: "\n")
             )
-            throw RunError.nonZeroExit(status: process.terminationStatus, stderr: stderrText)
         }
 
-        return Output(stdout: stdoutText, stderr: stderrText, status: process.terminationStatus)
+        if result.status != 0 {
+            logger.error(
+                "run: CLI exited with status \(result.status, privacy: .public): \(stderrText, privacy: .public)"
+            )
+            throw RunError.nonZeroExit(status: result.status, stderr: stderrText)
+        }
+
+        return Output(stdout: stdoutText, stderr: stderrText, status: result.status)
     }
 
-    /// Runs `lungfish-cli build-db <tool> <resultDir>` synchronously.
+    /// Runs `lungfish-cli build-db <tool> <resultDir>` and waits for it.
     ///
-    /// Intended to be called from a background `Task.detached` context at the
-    /// end of a batch pipeline so the SQLite database is present on disk before
-    /// the user opens the batch in the sidebar.
+    /// Intended to be called from a background task at the end of a batch
+    /// pipeline so the SQLite database is present on disk before the user
+    /// opens the batch in the sidebar.
     ///
     /// - Parameters:
     ///   - tool: Classifier tool name (`kraken2`, `esviritu`, `taxtriage`).
@@ -199,7 +179,7 @@ public enum LungfishCLIRunner {
         resultURL: URL,
         force: Bool = false,
         sampleDirectories: [URL] = []
-    ) throws {
+    ) async throws {
         if !sampleDirectories.isEmpty && tool != "kraken2" {
             throw RunError.invalidInvocation("Explicit sample directories are only supported for Kraken2 database builds.")
         }
@@ -224,15 +204,11 @@ public enum LungfishCLIRunner {
             arguments += ["--sample-dir", sampleDirectory.standardizedFileURL.path]
         }
 
-        let output = try run(arguments: arguments)
+        let output = try await run(arguments: arguments)
         if !output.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             logger.info("buildClassifierDatabase: CLI stdout: \(output.stdout, privacy: .public)")
         }
 
         logger.info("buildClassifierDatabase: Build succeeded for \(tool, privacy: .public)")
     }
-}
-
-private final class OutputCapture: @unchecked Sendable {
-    var data = Data()
 }

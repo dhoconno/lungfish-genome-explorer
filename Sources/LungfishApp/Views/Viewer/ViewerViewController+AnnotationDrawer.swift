@@ -528,7 +528,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             let cliCancellation = LungfishCLIRunner.CancellationHandle()
             let task = Task.detached { [weak self] in
                 do {
-                    let output = try LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)
+                    let output = try await LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)
                     DispatchQueue.main.async { MainActor.assumeIsolated {
                         if !output.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             OperationCenter.shared.log(id: opID, level: .info, message: output.stdout)
@@ -625,7 +625,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             let cliCancellation = LungfishCLIRunner.CancellationHandle()
             let task = Task.detached { [weak self] in
                 do {
-                    let output = try LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)
+                    let output = try await LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)
                     DispatchQueue.main.async { MainActor.assumeIsolated {
                         if !output.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             OperationCenter.shared.log(id: opID, level: .info, message: output.stdout)

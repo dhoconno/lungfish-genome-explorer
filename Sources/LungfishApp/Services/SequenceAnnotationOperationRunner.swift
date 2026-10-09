@@ -116,8 +116,8 @@ enum SequenceAnnotationOperationRunner {
         _ request: SequenceAnnotationOperationRequest,
         cliURLOverride: URL? = nil,
         cancellation: LungfishCLIRunner.CancellationHandle? = nil
-    ) throws -> LungfishCLIRunner.Output {
-        try LungfishCLIRunner.run(
+    ) async throws -> LungfishCLIRunner.Output {
+        try await LungfishCLIRunner.run(
             arguments: commandArguments(for: request),
             executableURL: cliURLOverride,
             cancellation: cancellation

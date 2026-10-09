@@ -5,14 +5,14 @@ import LungfishIO
 import LungfishWorkflow
 
 final class TwelveSAmpliconResultExportTests: XCTestCase {
-    func testCSVExportInvokesCLIWithVisibleFiltersAndRequiresProvenance() throws {
+    func testCSVExportInvokesCLIWithVisibleFiltersAndRequiresProvenance() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let outputURL = root.appendingPathComponent("hilo-12s.csv")
         let runner = StubTwelveSExportCLIRunner(writesOutput: true, writesProvenance: true)
         let snapshot = try makeSnapshot(in: root)
 
-        let result = try TwelveSAmpliconResultExportService(runner: runner).export(
+        let result = try await TwelveSAmpliconResultExportService(runner: runner).export(
             snapshot: snapshot,
             format: .csv,
             to: outputURL
@@ -38,14 +38,14 @@ final class TwelveSAmpliconResultExportTests: XCTestCase {
         XCTAssertTrue(arguments.contains("--force"))
     }
 
-    func testExportFailsIfCLIOmitsProvenanceSidecar() throws {
+    func testExportFailsIfCLIOmitsProvenanceSidecar() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let outputURL = root.appendingPathComponent("hilo-12s.tsv")
         let runner = StubTwelveSExportCLIRunner(writesOutput: true, writesProvenance: false)
 
-        XCTAssertThrowsError(
-            try TwelveSAmpliconResultExportService(runner: runner).export(
+        await assertThrowsAsync(
+            try await TwelveSAmpliconResultExportService(runner: runner).export(
                 snapshot: makeSnapshot(in: root),
                 format: .tsv,
                 to: outputURL
@@ -97,6 +97,21 @@ final class TwelveSAmpliconResultExportTests: XCTestCase {
             )
         }
         return arguments[arguments.index(after: index)]
+    }
+
+    /// XCTAssertThrowsError takes no async expression.
+    private func assertThrowsAsync<T>(
+        _ expression: @autoclosure () async throws -> T,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ check: (Error) -> Void = { _ in }
+    ) async {
+        do {
+            _ = try await expression()
+            XCTFail("expected an error", file: file, line: line)
+        } catch {
+            check(error)
+        }
     }
 }
 

@@ -289,6 +289,7 @@ final class ToolProcessExecution: Sendable {
                 stream: capture.stream,
                 fd: capture.fd,
                 limit: capture.limit,
+                maxLineBytes: spec.maxLineBytes,
                 queue: queue,
                 onLine: onLine,
                 onActivity: { [weak self] in self?.recordActivity() },

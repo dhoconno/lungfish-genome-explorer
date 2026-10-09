@@ -2409,7 +2409,7 @@ public class ViewerViewController: NSViewController {
             OperationCenter.shared.setCancelCallback(for: operationID) { cancellation.cancel() }
             Task.detached { [weak self] in
                 do {
-                    let output = try LungfishCLIRunner.run(arguments: arguments, cancellation: cancellation)
+                    let output = try await LungfishCLIRunner.run(arguments: arguments, cancellation: cancellation)
                     guard let bundleURL = FASTASelectionReferenceBundleCLI.bundleURL(from: output.stdout) else {
                         throw LungfishCLIRunner.RunError.invalidInvocation(
                             "The reference-bundle command completed without reporting its bundle path."

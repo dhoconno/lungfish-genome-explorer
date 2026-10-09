@@ -702,7 +702,7 @@ extension MainSplitViewController {
                     tool: cliTool,
                     resultURL: resultURL
                 )
-                try LungfishCLIRunner.buildClassifierDatabase(
+                try await LungfishCLIRunner.buildClassifierDatabase(
                     tool: cliTool,
                     resultURL: resultURL,
                     force: true,

@@ -38,13 +38,14 @@ public enum ViralReconReferenceAcquisition {
     }
 
     /// Downloads `accession` into `destinationDirectory`.
-    public typealias Downloader = (_ accession: String, _ destinationDirectory: URL) throws -> Void
+    public typealias Downloader = (_ accession: String, _ destinationDirectory: URL) async throws -> Void
 
     public static func acquire(
         projectURL: URL,
         downloader: Downloader,
-        fileManager: FileManager = .default
-    ) throws -> Outcome {
+        fileManager: FileManager = .default,
+        isolation: isolated (any Actor)? = #isolation
+    ) async throws -> Outcome {
         if let existing = ViralReconReferenceCatalog.existingBundleURL(
             inProject: projectURL, fileManager: fileManager
         ) {
@@ -60,7 +61,7 @@ public enum ViralReconReferenceAcquisition {
         if fileManager.fileExists(atPath: bundleURL.path) {
             try fileManager.trashItem(at: bundleURL, resultingItemURL: nil)
         }
-        try downloader(ViralReconReferenceCatalog.canonicalAccession, downloadsURL)
+        try await downloader(ViralReconReferenceCatalog.canonicalAccession, downloadsURL)
 
         guard fileManager.fileExists(atPath: bundleURL.path) else {
             throw AcquisitionError.downloadProducedNoBundle(

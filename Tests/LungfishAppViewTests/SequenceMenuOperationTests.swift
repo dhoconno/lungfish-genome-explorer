@@ -194,7 +194,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         )
         let cancellation = LungfishCLIRunner.CancellationHandle()
         let task = Task.detached {
-            try SequenceAnnotationOperationRunner.run(
+            try await SequenceAnnotationOperationRunner.run(
                 request,
                 cliURLOverride: fakeCLI,
                 cancellation: cancellation

@@ -116,6 +116,7 @@ final class ToolProcessStreamDrain: Sendable {
         stream: ToolProcessStream,
         fd: Int32,
         limit: Int?,
+        maxLineBytes: Int,
         queue: DispatchQueue,
         onLine: (@Sendable (ToolProcessStream, String) -> Void)?,
         onActivity: @escaping @Sendable () -> Void,
@@ -127,7 +128,7 @@ final class ToolProcessStreamDrain: Sendable {
         self.limit = limit
         self.source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
         var initial = DrainState()
-        initial.framer = onLine == nil ? nil : ProcessOutputLineFramer()
+        initial.framer = onLine == nil ? nil : ProcessOutputLineFramer(maxLineBytes: maxLineBytes)
         self.state = Mutex(initial)
         self.onLine = onLine
         self.onActivity = onActivity

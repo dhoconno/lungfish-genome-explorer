@@ -944,7 +944,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
             Task { [weak self] in
                 do {
                     _ = try await Task.detached {
-                        try TwelveSAmpliconResultExportService().export(
+                        try await TwelveSAmpliconResultExportService().export(
                             snapshot: snapshot,
                             format: format,
                             to: outputURL

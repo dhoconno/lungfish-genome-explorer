@@ -2794,7 +2794,7 @@ extension AppDelegate {
                 at: outputURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            let cliOutput = try LungfishCLIRunner.run(arguments: Self.referenceBundleSequenceExportCLIArguments(
+            let cliOutput = try await LungfishCLIRunner.run(arguments: Self.referenceBundleSequenceExportCLIArguments(
                 bundleURL: bundleURL,
                 outputURL: outputURL,
                 format: format

@@ -1,4 +1,4 @@
-// CLISubprocessTransport.swift — One `Process()` implementation for streaming `lungfish-cli --json-events`.
+// CLISubprocessTransport.swift — One ToolProcess implementation for streaming `lungfish-cli --json-events`.
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -24,7 +24,8 @@ private let transportLogger = Logger(subsystem: LogSubsystem.app, category: "CLI
 ///
 /// Cancellation mirrors the pre-existing per-runner contract exercised by
 /// `CLIEventRunnerCancellationTests`: `cancel()` is `nonisolated` and returns
-/// immediately (it only signals `NativeProcessCancellationHandle`), never
+/// immediately (it only records the request in `CLIRunCancellation`, which
+/// cancels the task that runs the ToolProcess), never
 /// blocking on the actor's in-flight `run`.
 public actor CLISubprocessTransport {
     public enum RunError: Error, LocalizedError, Sendable, Equatable {
@@ -65,18 +66,24 @@ public actor CLISubprocessTransport {
     }
 
     private let cliURLOverride: URL?
-    private let cancellationHandle = NativeProcessCancellationHandle()
+    private let cancellation = CLIRunCancellation()
     private let eventDecoder = CLIEventLineDecoder()
 
     public init(cliURLOverride: URL? = nil) {
         self.cliURLOverride = cliURLOverride
     }
 
-    /// Signals process-tree termination. Safe to call from any thread; never
-    /// blocks on `run`'s actor isolation.
+    /// Cancels the run, whether it is running or about to start. Safe to call
+    /// from any thread; never blocks on `run`'s actor isolation. The process
+    /// tree is stopped by ``ToolProcess`` once the run's task sees the cancel.
     public nonisolated func cancel() {
-        cancellationHandle.requestProcessTreeTermination(gracePeriod: 0)
+        cancellation.cancel()
     }
+
+    /// The longest event line the transport decodes whole. ToolProcess cuts a
+    /// longer line into pieces, and a `complete` event that lists thousands of
+    /// outputs can pass the 64 KB default.
+    private static let maxEventLineBytes = 16 * 1024 * 1024
 
     /// Launches `lungfish-cli` with `arguments`, streams decoded `CLIEvent`s
     /// to `onEvent` as they arrive (already hopped to the main actor — see
@@ -103,34 +110,17 @@ public actor CLISubprocessTransport {
             throw RunError.cliNotFound
         }
 
-        let proc = Process()
-        proc.environment = ManagedStorageConfigStore().subprocessEnvironment()
-        proc.executableURL = binaryURL
-        proc.arguments = arguments
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        proc.standardOutput = stdoutPipe
-        proc.standardError = stderrPipe
-        cancellationHandle.store(proc)
-
         final class StreamState: @unchecked Sendable {
-            var stdoutBuffer = Data()
-            var stderrBuffer = Data()
             var outputs: [String] = []
             var completeMessage: String?
             var failed: (message: String, detail: String?)?
         }
 
         let state = OSAllocatedUnfairLock(initialState: StreamState())
-        let stdoutHandle = stdoutPipe.fileHandleForReading
-        let stderrHandle = stderrPipe.fileHandleForReading
-        let stdoutHandlerGroup = DispatchGroup()
-        let stderrHandlerGroup = DispatchGroup()
         let decoder = eventDecoder
 
-        @Sendable func handleLine(_ data: Data) {
-            guard let line = String(data: data, encoding: .utf8),
-                  !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        @Sendable func handleLine(_ line: String) {
+            guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return
             }
             let event: CLIEvent?
@@ -155,94 +145,52 @@ public actor CLISubprocessTransport {
             }
         }
 
-        @Sendable func consumeStdout(_ data: Data) {
-            guard !data.isEmpty else { return }
-            let lines = state.withLock { current -> [Data] in
-                current.stdoutBuffer.append(data)
-                var parsed: [Data] = []
-                while let newlineIndex = current.stdoutBuffer.firstIndex(of: 0x0A) {
-                    let line = Data(current.stdoutBuffer.prefix(upTo: newlineIndex))
-                    current.stdoutBuffer.removeSubrange(...newlineIndex)
-                    parsed.append(line)
-                }
-                return parsed
-            }
-            for line in lines {
-                handleLine(line)
-            }
+        let spec = ToolProcessSpec(
+            executableURL: binaryURL,
+            arguments: arguments,
+            environment: ManagedStorageConfigStore().subprocessEnvironment(),
+            stdout: .capture(limit: 0),
+            stderr: .capture(),
+            terminationGracePeriod: .zero,
+            maxLineBytes: Self.maxEventLineBytes,
+            label: "lungfish-cli"
+        )
+        let outcome = await cancellation.run(spec) { event in
+            guard case .output(.stdout, let line) = event else { return }
+            handleLine(line)
         }
 
-        @Sendable func consumeStderr(_ data: Data) {
-            guard !data.isEmpty else { return }
-            state.withLock { $0.stderrBuffer.append(data) }
+        let result: ToolProcessResult
+        switch outcome.result {
+        case .success(let finished):
+            result = finished
+        case .failure(.cancelled):
+            throw CancellationError()
+        case .failure(let error):
+            throw RunError.launchFailed(error.cliLaunchFailureReason)
         }
 
-        func drainStreamHandlers() {
-            stdoutHandlerGroup.wait()
-            stderrHandlerGroup.wait()
+        let operationCancelled = await isCancelled()
+        if outcome.cancelRequested || result.stop == .cancelled || operationCancelled {
+            throw CancellationError()
         }
-
-        stdoutHandle.readabilityHandler = { handle in
-            stdoutHandlerGroup.enter()
-            defer { stdoutHandlerGroup.leave() }
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            consumeStdout(chunk)
-        }
-        stderrHandle.readabilityHandler = { handle in
-            stderrHandlerGroup.enter()
-            defer { stderrHandlerGroup.leave() }
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            consumeStderr(chunk)
-        }
-
-        do {
-            try proc.run()
-            cancellationHandle.terminateIfRequested()
-        } catch {
-            stdoutHandle.readabilityHandler = nil
-            stderrHandle.readabilityHandler = nil
-            drainStreamHandlers()
-            cancellationHandle.clear(proc)
-            throw RunError.launchFailed(error.localizedDescription)
-        }
-
-        proc.waitUntilExit()
-        stdoutHandle.readabilityHandler = nil
-        stderrHandle.readabilityHandler = nil
-        drainStreamHandlers()
-        consumeStdout(stdoutHandle.readDataToEndOfFile())
-        consumeStderr(stderrHandle.readDataToEndOfFile())
-        drainStreamHandlers()
-        if let trailing = state.withLock({ current -> Data? in
-            guard !current.stdoutBuffer.isEmpty else { return nil }
-            defer { current.stdoutBuffer.removeAll(keepingCapacity: false) }
-            return current.stdoutBuffer
-        }) {
-            handleLine(trailing)
-        }
-        let processWasCancelled = cancellationHandle.isTerminationRequested
-        cancellationHandle.clear(proc)
 
         let snapshot = state.withLock { current in
             (
-                stderr: String(data: current.stderrBuffer, encoding: .utf8) ?? "",
                 outputs: current.outputs,
                 completeMessage: current.completeMessage,
                 failed: current.failed
             )
         }
-
-        let operationCancelled = await isCancelled()
-        if processWasCancelled || operationCancelled {
-            throw CancellationError()
-        }
         if let failed = snapshot.failed {
             throw RunError.failedEvent(message: failed.message, detail: failed.detail)
         }
-        if proc.terminationStatus != 0 {
-            throw RunError.nonZeroExit(status: proc.terminationStatus, stderr: snapshot.stderr)
+        if let incomplete = result.cliIncompleteOutputNote {
+            transportLogger.error("\(incomplete, privacy: .public)")
+            throw RunError.nonZeroExit(status: result.status, stderr: [result.cliStderrText, incomplete].filter { !$0.isEmpty }.joined(separator: "\n"))
+        }
+        if result.status != 0 {
+            throw RunError.nonZeroExit(status: result.status, stderr: result.cliStderrText)
         }
         guard !snapshot.outputs.isEmpty else {
             throw RunError.missingCompletion

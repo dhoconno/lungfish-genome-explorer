@@ -62,7 +62,7 @@ actor CLINativeBundleImportRunner {
     }
 
     private let cliURLOverride: URL?
-    private let cancellationHandle = NativeProcessCancellationHandle()
+    private let cancellation = CLIRunCancellation()
 
     init(cliURLOverride: URL? = nil) {
         self.cliURLOverride = cliURLOverride
@@ -116,34 +116,17 @@ actor CLINativeBundleImportRunner {
             throw RunError.cliNotFound
         }
 
-        let proc = Process()
-        proc.environment = ManagedStorageConfigStore().subprocessEnvironment()
-        proc.executableURL = binaryURL
-        proc.arguments = arguments
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        proc.standardOutput = stdoutPipe
-        proc.standardError = stderrPipe
-        cancellationHandle.store(proc)
-
         final class StreamState: @unchecked Sendable {
-            var stdoutBuffer = Data()
-            var stderrBuffer = Data()
             var bundlePath: String?
             var warningCount = 0
             var failedMessage: String?
         }
 
         let state = OSAllocatedUnfairLock(initialState: StreamState())
-        let stdoutHandle = stdoutPipe.fileHandleForReading
-        let stderrHandle = stderrPipe.fileHandleForReading
-        let stdoutHandlerGroup = DispatchGroup()
-        let stderrHandlerGroup = DispatchGroup()
         let opID = operationID
 
-        @Sendable func handleLine(_ data: Data) {
-            guard let line = String(data: data, encoding: .utf8),
-                  !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        @Sendable func handleLine(_ line: String) {
+            guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return
             }
             do {
@@ -187,85 +170,40 @@ actor CLINativeBundleImportRunner {
             }
         }
 
-        @Sendable func consumeStdout(_ data: Data) {
-            guard !data.isEmpty else { return }
-            let lines = state.withLock { current -> [Data] in
-                current.stdoutBuffer.append(data)
-                var parsed: [Data] = []
-                while let newlineIndex = current.stdoutBuffer.firstIndex(of: 0x0A) {
-                    let line = Data(current.stdoutBuffer.prefix(upTo: newlineIndex))
-                    current.stdoutBuffer.removeSubrange(...newlineIndex)
-                    parsed.append(line)
-                }
-                return parsed
-            }
-            for line in lines {
-                handleLine(line)
-            }
-        }
-
-        @Sendable func consumeStderr(_ data: Data) {
-            guard !data.isEmpty else { return }
-            state.withLock { $0.stderrBuffer.append(data) }
-        }
-
-        func drainStreamHandlers() {
-            stdoutHandlerGroup.wait()
-            stderrHandlerGroup.wait()
-        }
-
-        stdoutHandle.readabilityHandler = { handle in
-            stdoutHandlerGroup.enter()
-            defer { stdoutHandlerGroup.leave() }
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            consumeStdout(chunk)
-        }
-        stderrHandle.readabilityHandler = { handle in
-            stderrHandlerGroup.enter()
-            defer { stderrHandlerGroup.leave() }
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            consumeStderr(chunk)
-        }
-
         await performCLIOperationCenterUpdate {
             _ = OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Launching lungfish-cli...")
         }
 
-        do {
-            try proc.run()
-            cancellationHandle.terminateIfRequested()
-        } catch {
-            stdoutHandle.readabilityHandler = nil
-            stderrHandle.readabilityHandler = nil
-            drainStreamHandlers()
-            cancellationHandle.clear(proc)
-            await failOperation(opID, detail: error.localizedDescription)
-            throw RunError.launchFailed(error.localizedDescription)
+        let spec = ToolProcessSpec(
+            executableURL: binaryURL,
+            arguments: arguments,
+            environment: ManagedStorageConfigStore().subprocessEnvironment(),
+            stdout: .capture(limit: 0),
+            stderr: .capture(),
+            terminationGracePeriod: .zero,
+            label: "lungfish-cli"
+        )
+        let outcome = await cancellation.run(spec) { event in
+            guard case .output(.stdout, let line) = event else { return }
+            handleLine(line)
         }
 
-        proc.waitUntilExit()
-        stdoutHandle.readabilityHandler = nil
-        stderrHandle.readabilityHandler = nil
-        drainStreamHandlers()
-        consumeStdout(stdoutHandle.readDataToEndOfFile())
-        consumeStderr(stderrHandle.readDataToEndOfFile())
-        drainStreamHandlers()
-        if let trailing = state.withLock({ current -> Data? in
-            guard !current.stdoutBuffer.isEmpty else { return nil }
-            defer { current.stdoutBuffer.removeAll(keepingCapacity: false) }
-            return current.stdoutBuffer
-        }) {
-            handleLine(trailing)
+        let result: ToolProcessResult
+        switch outcome.result {
+        case .success(let finished):
+            result = finished
+        case .failure(.cancelled):
+            throw CancellationError()
+        case .failure(let error):
+            let reason = error.cliLaunchFailureReason
+            await failOperation(opID, detail: reason)
+            throw RunError.launchFailed(reason)
         }
-        let wasCancelled = cancellationHandle.isTerminationRequested
-        cancellationHandle.clear(proc)
-        if wasCancelled { throw CancellationError() }
+
+        if outcome.cancelRequested || result.stop == .cancelled { throw CancellationError() }
 
         let snapshot = state.withLock { current in
             (
-                stderr: String(data: current.stderrBuffer, encoding: .utf8) ?? "",
                 bundlePath: current.bundlePath,
                 warningCount: current.warningCount,
                 failedMessage: current.failedMessage
@@ -275,8 +213,15 @@ actor CLINativeBundleImportRunner {
         if let failedMessage = snapshot.failedMessage {
             throw RunError.failedEvent(failedMessage)
         }
-        if proc.terminationStatus != 0 {
-            throw RunError.nonZeroExit(status: proc.terminationStatus, stderr: snapshot.stderr)
+        if let incomplete = result.cliIncompleteOutputNote {
+            nativeBundleImportLogger.error("\(incomplete, privacy: .public)")
+            throw RunError.nonZeroExit(
+                status: result.status,
+                stderr: [result.cliStderrText, incomplete].filter { !$0.isEmpty }.joined(separator: "\n")
+            )
+        }
+        if result.status != 0 {
+            throw RunError.nonZeroExit(status: result.status, stderr: result.cliStderrText)
         }
         guard let bundlePath = snapshot.bundlePath,
               !bundlePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -290,7 +235,7 @@ actor CLINativeBundleImportRunner {
     }
 
     nonisolated func cancel() {
-        cancellationHandle.requestProcessTreeTermination(gracePeriod: 0)
+        cancellation.cancel()
     }
 
     @MainActor

@@ -64,7 +64,7 @@ enum GenotypeThreeSheetCohortAcceptance {
             ),
             "Inject the swiftbuild lungfish-cli path or build it beside the test bundle"
         )
-        let version = try LungfishCLIRunner.run(arguments: ["--version"], executableURL: cli)
+        let version = try await LungfishCLIRunner.run(arguments: ["--version"], executableURL: cli)
         XCTAssertEqual(version.status, 0)
         try JSONSerialization.data(withJSONObject: ["executable": cli.path, "version": version.stdout,
             "sha256": ProvenanceFileHasher.sha256(of: cli)], options: [.sortedKeys]).write(to: root.appendingPathComponent("cli-witness.json"))

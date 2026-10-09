@@ -22,7 +22,7 @@ enum ViralReconReferenceDownloader {
 
     static func live() -> ViralReconReferenceAcquisition.Downloader {
         { accession, destinationDirectory in
-            _ = try LungfishCLIRunner.run(
+            _ = try await LungfishCLIRunner.run(
                 arguments: arguments(accession: accession,
                                      destinationDirectory: destinationDirectory))
         }

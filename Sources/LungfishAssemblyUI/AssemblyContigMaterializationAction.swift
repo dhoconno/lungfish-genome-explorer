@@ -31,9 +31,7 @@ final class AssemblyContigMaterializationAction {
 
     var pasteboard: PasteboardWriting = DefaultPasteboard()
     var runner: Runner = { arguments in
-        try await Task.detached(priority: .userInitiated) {
-            try LungfishCLIRunner.run(arguments: arguments)
-        }.value
+        try await LungfishCLIRunner.run(arguments: arguments)
     }
 
     func copyFASTA(result: AssemblyResult, selectedContigs: [String]) async throws {
