@@ -166,7 +166,7 @@ final class WorkflowLibraryTests: XCTestCase {
 
         store.setWorkflow(.ontGenotyping, enabled: false)
 
-        wait(for: [expectation], timeout: 1)
+        wait(for: [expectation], timeout: 5)
     }
 
     func testWorkflowFeatureAvailabilityFollowsEnabledSpecializedAndUserWorkflows() throws {
@@ -503,7 +503,9 @@ final class WorkflowLibraryTests: XCTestCase {
             spinMainRunLoop(seconds: 0.2)
         }
 
-        spinMainRunLoop(seconds: 0.5)
+        // A longer settle leaves room for the parallel unit tier. A library
+        // that never settles still lays out during the measured second.
+        spinMainRunLoop(seconds: 2.0)
         host.layoutCount = 0
         let cpuBefore = currentThreadCPUSeconds()
         spinMainRunLoop(seconds: 1.0)

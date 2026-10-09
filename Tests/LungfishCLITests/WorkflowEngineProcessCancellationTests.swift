@@ -59,7 +59,9 @@ final class WorkflowEngineProcessCancellationTests: XCTestCase {
         return Int32(text.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
-    private func waitForPID(_ url: URL, timeout: Duration = .seconds(10)) async throws -> Int32 {
+    /// The 30 s waits here and in assertStopped leave room for the parallel
+    /// unit tier and return as soon as their condition holds.
+    private func waitForPID(_ url: URL, timeout: Duration = .seconds(30)) async throws -> Int32 {
         var pid: Int32?
         await waitUntil(timeout: timeout, pollInterval: .milliseconds(20)) {
             pid = readPID(url)
@@ -69,7 +71,7 @@ final class WorkflowEngineProcessCancellationTests: XCTestCase {
     }
 
     private func assertStopped(_ pids: [Int32], file: StaticString = #filePath, line: UInt = #line) async {
-        let stopped = await waitUntil(timeout: .seconds(5)) {
+        let stopped = await waitUntil(timeout: .seconds(30)) {
             pids.allSatisfy { !ProcessTreeTerminator.processExists(pid: $0) }
         }
         XCTAssertTrue(stopped, "still running: \(pids.filter { ProcessTreeTerminator.processExists(pid: $0) })", file: file, line: line)

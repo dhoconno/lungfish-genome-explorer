@@ -295,7 +295,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         let libraryStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
 
         libraryStore.setWorkflow(.ontGenotyping, enabled: false)
-        waitForMainQueue()
+        runMainRunLoop(until: { state.workflowAvailabilityRevision > initialRevision })
 
         XCTAssertGreaterThan(state.workflowAvailabilityRevision, initialRevision)
     }
@@ -594,7 +594,8 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         )
         XCTAssertEqual(state.pendingToolID, toolID)
 
-        for _ in 0..<400 where state.selectedToolID != toolID {
+        // Up to 30 s for package validation under the parallel unit tier.
+        for _ in 0..<1_200 where state.selectedToolID != toolID {
             try await Task.sleep(for: .milliseconds(25))
         }
         XCTAssertEqual(state.selectedToolID, toolID)
@@ -619,7 +620,8 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(state.pendingToolID, toolID)
         state.outputName = "my-hello-run"
 
-        for _ in 0..<400 where state.selectedToolID != toolID {
+        // Up to 30 s for package validation under the parallel unit tier.
+        for _ in 0..<1_200 where state.selectedToolID != toolID {
             try await Task.sleep(for: .milliseconds(25))
         }
         XCTAssertEqual(state.selectedToolID, toolID)
@@ -2250,19 +2252,27 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             .deletingLastPathComponent()
     }
 
-    private func waitForMainQueue() {
-        RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+    /// Runs the main run loop until `condition` holds or 5 s pass, which
+    /// leaves room for the parallel unit tier. It returns as soon as the
+    /// condition holds.
+    private func runMainRunLoop(until condition: () -> Bool, timeout: TimeInterval = 5) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() && Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        }
     }
 
+    /// Discovery and package validation read the file system, so these waits
+    /// allow 30 s for the parallel unit tier and return as soon as they finish.
     private func waitForProjectDiscovery(_ state: WorkflowOperationDialogState) async throws {
-        let deadline = Date().addingTimeInterval(10)
+        let deadline = Date().addingTimeInterval(30)
         while state.isDiscoveringProjectResources && Date() < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
     }
 
     private func waitForWorkflowPackageTool(_ state: WorkflowOperationDialogState, id: String) async throws {
-        let deadline = Date().addingTimeInterval(10)
+        let deadline = Date().addingTimeInterval(30)
         while !state.tools.contains(where: { $0.id == id }) && Date() < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }

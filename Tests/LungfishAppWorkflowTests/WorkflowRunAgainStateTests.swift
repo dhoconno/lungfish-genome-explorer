@@ -53,7 +53,7 @@ final class WorkflowRunAgainStateTests: XCTestCase {
                 return runtime
             })
         }
-        await fulfillment(of: [entered], timeout: 5)
+        await fulfillment(of: [entered], timeout: 30)
         XCTAssertTrue(fixture.state.isCheckingReplay)
         fixture.state.setReads([])
         await fixture.state.checkReplayConfiguration(runtimeResolver: { _ in runtime })
@@ -150,8 +150,14 @@ final class WorkflowRunAgainStateTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         try FileManager.default.removeItem(at: fixture.configuration.identity.packageURL)
         try fixture.state.restoreReplayConfiguration(fixture.configuration, sourceBundleURL: fixture.runBundle)
+        let revision = fixture.state.workflowAvailabilityRevision
         fixture.state.refreshWorkflowAvailability()
-        try await Task.sleep(for: .milliseconds(150))
+        // The refresh bumps the revision at once and again when the background
+        // package validation lands. Wait for the second bump, not a fixed
+        // moment, with up to 30 s for the parallel unit tier.
+        for _ in 0..<1_200 where fixture.state.workflowAvailabilityRevision < revision + 2 {
+            try await Task.sleep(for: .milliseconds(25))
+        }
         XCTAssertEqual(fixture.state.selectedToolID, "package.invented-repeat")
         XCTAssertEqual(fixture.state.replaySourceBundleURL?.path, fixture.runBundle.path)
         XCTAssertFalse(fixture.state.isRunEnabled)

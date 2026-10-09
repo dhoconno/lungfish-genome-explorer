@@ -616,7 +616,7 @@ final class CLIExitCodeProcessTests: XCTestCase {
 
         let result = try await run.result()
         XCTAssertEqual(result.termination, .signaled(signal: signalNumber), result.stderrText, file: file, line: line)
-        let stopped = await waitUntil(timeout: .seconds(5)) {
+        let stopped = await waitUntil(timeout: .seconds(30)) {
             !ProcessTreeTerminator.processExists(pid: toolPID) && !ProcessTreeTerminator.processExists(pid: childPID)
         }
         XCTAssertTrue(stopped, "the tool and its child are stopped", file: file, line: line)

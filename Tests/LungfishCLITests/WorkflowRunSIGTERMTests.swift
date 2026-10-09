@@ -52,7 +52,7 @@ final class WorkflowRunSIGTERMTests: XCTestCase {
 
     private func waitForPID(_ url: URL) async throws -> Int32 {
         var pid: Int32?
-        await waitUntil(timeout: .seconds(10), pollInterval: .milliseconds(20)) {
+        await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(20)) {
             pid = readPID(url)
             return pid != nil
         }
@@ -114,7 +114,7 @@ final class WorkflowRunSIGTERMTests: XCTestCase {
         let error = await run.value
         let exit = try XCTUnwrap(error as? ExitCode, "\(String(describing: error))")
         XCTAssertEqual(exit.rawValue, CLIExitCode.cancelled.rawValue)
-        let stopped = await waitUntil(timeout: .seconds(5)) {
+        let stopped = await waitUntil(timeout: .seconds(30)) {
             !ProcessTreeTerminator.processExists(pid: enginePID) && !ProcessTreeTerminator.processExists(pid: javaPID)
         }
         XCTAssertTrue(stopped, "the engine and its JVM child are stopped")

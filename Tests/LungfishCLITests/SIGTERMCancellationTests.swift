@@ -27,7 +27,7 @@ final class SIGTERMCancellationTests: XCTestCase {
         // Sent to this test process. Without the handler it would end it.
         kill(getpid(), SIGTERM)
 
-        let cancelled = await waitUntil(timeout: .seconds(5)) { task.isCancelled }
+        let cancelled = await waitUntil(timeout: .seconds(30)) { task.isCancelled }
         XCTAssertTrue(cancelled, "SIGTERM cancels the task")
     }
 
@@ -40,7 +40,7 @@ final class SIGTERMCancellationTests: XCTestCase {
         defer { termination.end() }
 
         kill(getpid(), SIGTERM)
-        let caught = await waitUntil(timeout: .seconds(5)) { target.cancelRequested }
+        let caught = await waitUntil(timeout: .seconds(30)) { target.cancelRequested }
         XCTAssertTrue(caught, "the SIGTERM is caught before the task exists")
 
         let task = Task<Bool, Never> {
@@ -66,7 +66,7 @@ final class SIGTERMCancellationTests: XCTestCase {
         }
         defer { termination.end() }
 
-        let cancelled = await waitUntil(timeout: .seconds(5)) { task.isCancelled }
+        let cancelled = await waitUntil(timeout: .seconds(30)) { task.isCancelled }
         XCTAssertTrue(cancelled, "a SIGTERM caught before the source listens still cancels")
     }
 
@@ -82,7 +82,7 @@ final class SIGTERMCancellationTests: XCTestCase {
         defer { if tool.isRunning { kill(tool.processIdentifier, SIGKILL) } }
         tool.terminate()
 
-        let stopped = await waitUntil(timeout: .seconds(10)) { !tool.isRunning }
+        let stopped = await waitUntil(timeout: .seconds(30)) { !tool.isRunning }
         XCTAssertTrue(stopped, "a caught SIGTERM goes back to its default action in a launched tool")
         XCTAssertEqual(tool.terminationReason, .uncaughtSignal)
     }

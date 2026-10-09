@@ -51,12 +51,12 @@ extension ImportFastqE2ETests {
         guard listening else { return }
 
         kill(child.processIdentifier, SIGTERM)
-        let sawCancel = await waitUntil(timeout: .seconds(10)) { FileManager.default.fileExists(atPath: cancelled) }
+        let sawCancel = await waitUntil(timeout: .seconds(30)) { FileManager.default.fileExists(atPath: cancelled) }
         XCTAssertTrue(sawCancel, "the first SIGTERM cancels")
         XCTAssertTrue(child.isRunning, "the first SIGTERM does not end the process")
 
         kill(child.processIdentifier, SIGTERM)
-        let ended = await waitUntil(timeout: .seconds(10)) { !child.isRunning }
+        let ended = await waitUntil(timeout: .seconds(30)) { !child.isRunning }
         XCTAssertTrue(ended, "the second SIGTERM ends the process")
         guard ended else { return }
         XCTAssertEqual(child.terminationReason, .uncaughtSignal)
@@ -76,6 +76,6 @@ extension ImportFastqE2ETests {
         defer { termination.end() }
         FileManager.default.createFile(atPath: folder.appendingPathComponent("ready").path, contents: Data())
         // The parent ends this process. The ceiling only bounds an orphan.
-        try? await Task.sleep(for: .seconds(60))
+        try? await Task.sleep(for: .seconds(120))
     }
 }

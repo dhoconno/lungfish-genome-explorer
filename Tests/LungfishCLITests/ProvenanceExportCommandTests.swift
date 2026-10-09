@@ -1208,7 +1208,9 @@ final class ProvenanceExportCommandTests: XCTestCase {
                 to: directory.appendingPathComponent("copy-\(format.cliToken)"), sourceSidecarURL: nil)
             if FileManager.default.fileExists(atPath: staging.path) { try FileManager.default.removeItem(at: staging) }
             let executable = try (format == .shell ? URL(fileURLWithPath: "/bin/bash") : requireExecutable(named: "python3"))
-            let result = try runExternalCommand(executable, arguments: [bundle.primaryArtifactURL.path], workingDirectory: directory, timeout: .seconds(5))
+            // The default timeout leaves room for python3 to start under the
+            // parallel unit tier.
+            let result = try runExternalCommand(executable, arguments: [bundle.primaryArtifactURL.path], workingDirectory: directory)
             XCTAssertEqual(result.exitStatus, 0, result.diagnostics)
             XCTAssertEqual(try? Data(contentsOf: destination), expected)
         }

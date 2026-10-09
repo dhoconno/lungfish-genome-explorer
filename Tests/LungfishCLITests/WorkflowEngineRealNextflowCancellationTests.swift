@@ -33,7 +33,7 @@ final class WorkflowEngineRealNextflowCancellationTests: XCTestCase {
     }
 
     private func assertStopped(_ pids: [Int32], file: StaticString = #filePath, line: UInt = #line) async {
-        let stopped = await waitUntil(timeout: .seconds(5)) {
+        let stopped = await waitUntil(timeout: .seconds(30)) {
             pids.allSatisfy { !ProcessTreeTerminator.processExists(pid: $0) }
         }
         XCTAssertTrue(stopped, "still running: \(pids.filter { ProcessTreeTerminator.processExists(pid: $0) })", file: file, line: line)
