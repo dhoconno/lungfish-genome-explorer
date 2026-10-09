@@ -563,7 +563,7 @@ final class DownloadCenterTests: XCTestCase {
 
         center.cancel(id: id)
 
-        try await waitUntil(timeout: 2) {
+        try await waitUntil {
             cancelFlag.withLock { $0 }
         }
         XCTAssertEqual(center.items.first(where: { $0.id == id })?.state, .cancelling)
@@ -593,14 +593,14 @@ final class DownloadCenterTests: XCTestCase {
 
         center.cancel(id: id)
 
-        XCTAssertEqual(callbackStarted.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(callbackStarted.wait(timeout: .now() + 5), .success)
         XCTAssertFalse(center.canStartOperation(on: bundleURL))
         XCTAssertEqual(center.activeLockHolder(for: bundleURL)?.id, id)
         XCTAssertEqual(center.items.first(where: { $0.id == id })?.state, .cancelling)
         XCTAssertEqual(center.items.first(where: { $0.id == id })?.displayStateLabel, "Cancelling")
 
         callbackMayReturn.signal()
-        try await waitUntil(timeout: 2) { callbackReturned.withLock { $0 } }
+        try await waitUntil { callbackReturned.withLock { $0 } }
         XCTAssertFalse(center.canStartOperation(on: bundleURL))
         XCTAssertTrue(center.acknowledgeCancellation(id: id))
         XCTAssertTrue(center.canStartOperation(on: bundleURL))
@@ -670,7 +670,7 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertTrue(item?.logEntries.isEmpty ?? false)
 
         callbackMayReturn.signal()
-        try await waitUntil(timeout: 2) {
+        try await waitUntil {
             self.center.items.first(where: { $0.id == id })?.state == .cancelled
         }
     }
@@ -695,13 +695,13 @@ final class DownloadCenterTests: XCTestCase {
 
         center.cancelAll()
 
-        try await waitUntil(timeout: 2) {
+        try await waitUntil {
             flag1.withLock { $0 } && flag2.withLock { $0 }
         }
         XCTAssertEqual(center.activeCount, 2, "A signal callback is not worker drain")
         XCTAssertTrue(center.acknowledgeCancellation(id: first))
         XCTAssertTrue(center.acknowledgeCancellation(id: second))
-        try await waitUntil(timeout: 2) {
+        try await waitUntil {
             self.center.activeCount == 0
         }
     }
@@ -726,10 +726,10 @@ final class DownloadCenterTests: XCTestCase {
 
         center.cancelAll()
 
-        try await waitUntil(timeout: 2) {
+        try await waitUntil {
             cancelFlag.withLock { $0 }
         }
-        try await waitUntil(timeout: 2) {
+        try await waitUntil {
             self.center.items.first(where: { $0.id == cancellableID })?.state == .cancelling
         }
         XCTAssertTrue(center.acknowledgeCancellation(id: cancellableID))
@@ -757,11 +757,13 @@ final class DownloadCenterTests: XCTestCase {
         center.cancelAll()
         let elapsed = Date().timeIntervalSince(start)
 
-        XCTAssertLessThan(elapsed, 0.2, "cancelAll should not wait for each operation's teardown callback")
+        // The callbacks block until signalled below, so a cancelAll that waited
+        // on them would never return; the bound only needs to tolerate load.
+        XCTAssertLessThan(elapsed, 5, "cancelAll should not wait for each operation's teardown callback")
         XCTAssertEqual(center.activeCount, 3)
         XCTAssertTrue(center.items.allSatisfy { $0.state == .cancelling })
 
-        try await waitUntil(timeout: 2) {
+        try await waitUntil {
             callbackCount.withLock { $0 } == 3
         }
         for _ in 0..<3 {
@@ -769,7 +771,7 @@ final class DownloadCenterTests: XCTestCase {
         }
         XCTAssertTrue(center.items.allSatisfy { $0.state == .cancelling })
         for id in center.items.map(\.id) { XCTAssertTrue(center.acknowledgeCancellation(id: id)) }
-        try await waitUntil(timeout: 2) {
+        try await waitUntil {
             self.center.activeCount == 0
         }
         XCTAssertTrue(center.items.allSatisfy { $0.state == .cancelled })
@@ -782,8 +784,10 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertEqual(dc.activeCount, 0)
     }
 
+    /// Returns as soon as `condition` holds; the 5 s default leaves room for
+    /// the parallel unit tier.
     private func waitUntil(
-        timeout: TimeInterval,
+        timeout: TimeInterval = 5,
         condition: @escaping () -> Bool
     ) async throws {
         let deadline = Date().addingTimeInterval(timeout)

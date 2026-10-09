@@ -38,8 +38,10 @@ final class CLIVariantCallingRunnerTests: XCTestCase {
 
         await runner.cancel()
 
-        let rootExited = await waitUntilProcessExits(pid: rootPID, timeout: 2.0)
-        let childExited = await waitUntilProcessExits(pid: childPID, timeout: 2.0)
+        // Both loops never end on their own, so the 30 s waits leave room for
+        // the parallel unit tier without hiding a missed kill.
+        let rootExited = await waitUntilProcessExits(pid: rootPID, timeout: 30)
+        let childExited = await waitUntilProcessExits(pid: childPID, timeout: 30)
         XCTAssertTrue(rootExited, "Cancelling the variant runner must terminate the CLI root process")
         XCTAssertTrue(childExited, "Cancelling the variant runner must terminate descendant tool processes")
 
@@ -185,7 +187,7 @@ final class CLIVariantCallingRunnerTests: XCTestCase {
         "'\(path.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
-    private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 5.0) async throws -> Int32 {
+    private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 30) async throws -> Int32 {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if let contents = try? String(contentsOf: url, encoding: .utf8)

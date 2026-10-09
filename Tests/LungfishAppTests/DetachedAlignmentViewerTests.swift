@@ -831,11 +831,13 @@ private func waitForDetachedSource(
     }
 }
 
+/// The monitor reacts to a file-system event, so the 30 s default leaves room
+/// for the parallel unit tier; the wait ends as soon as the event lands.
 @MainActor
 private func waitForDetachedEvidenceMonitorEvent(
     after count: Int,
     in controller: ClassifierAlignmentEvidenceViewportController,
-    timeout: Duration = .seconds(5)
+    timeout: Duration = .seconds(30)
 ) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while controller.viewer.viewerView.testDetachedEvidenceMonitorEventCount <= count,

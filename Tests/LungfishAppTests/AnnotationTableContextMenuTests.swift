@@ -680,7 +680,7 @@ final class AnnotationTableContextMenuTests: XCTestCase {
 
         let item = invokeMenuItem(titled: "Copy Translation as FASTA", on: drawer)
         XCTAssertNotNil(item)
-        waitForExpectations(timeout: 1.0)
+        waitForExpectations(timeout: 5)
     }
 
     func testCopyTranslationAsFASTAUsesRobustTypeParsingWithoutDatabaseRecord() throws {
@@ -713,7 +713,7 @@ final class AnnotationTableContextMenuTests: XCTestCase {
 
         let item = invokeMenuItem(titled: "Copy Translation as FASTA", on: drawer)
         XCTAssertNotNil(item)
-        waitForExpectations(timeout: 1.0)
+        waitForExpectations(timeout: 5)
     }
 
     func testAnnotationContextMenuSupportsMultiSelectExtractionAndDeletion() throws {

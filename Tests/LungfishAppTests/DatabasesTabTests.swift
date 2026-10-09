@@ -529,7 +529,7 @@ final class DatabasesTabTests: XCTestCase {
 
         let exp = expectation(forNotification: .managedResourcesDidChange, object: nil)
         AppSettings.shared.databaseStorageURL = tempDir.appendingPathComponent("db-storage-change")
-        wait(for: [exp], timeout: 1.0)
+        wait(for: [exp], timeout: 5)
     }
 
     // MARK: - Database Collection Tests

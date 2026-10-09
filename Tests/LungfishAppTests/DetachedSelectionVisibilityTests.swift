@@ -106,7 +106,9 @@ final class DetachedSelectionVisibilityTests: XCTestCase {
         viewer.displayDetachedAlignment(source)
         let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
         viewer.viewerView.fetchDetachedReads(source: source, region: region)
-        for _ in 0..<250 where viewer.viewerView.testCachedAlignedReads.count != 1 {
+        // The fetch runs the samtools script, so allow 30 s for the parallel
+        // unit tier; the loop ends as soon as the read lands.
+        for _ in 0..<3_000 where viewer.viewerView.testCachedAlignedReads.count != 1 {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         return (viewer, source, region)

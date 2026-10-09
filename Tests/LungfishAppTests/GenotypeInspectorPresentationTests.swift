@@ -44,6 +44,12 @@ final class GenotypeInspectorPresentationTests: XCTestCase {
         let mounted = mount(model: model, width: 420, height: 1_400)
         defer { mounted.window.close() }
         try await settle(mounted.host)
+        // SwiftUI can take longer than the settle delay to build the wells
+        // under the parallel unit tier, so wait for them before asserting.
+        await waitUntil {
+            mounted.host.layoutSubtreeIfNeeded()
+            return self.descendantViews(of: mounted.host).contains { $0 is NSColorWell }
+        }
 
         let colorWells = descendantViews(of: mounted.host).compactMap { $0 as? NSColorWell }
         XCTAssertEqual(colorWells.count, 3)

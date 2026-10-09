@@ -797,10 +797,12 @@ final class DatabaseBrowserViewModelTests: XCTestCase {
     }
 }
 
+/// Returns as soon as the search settles; the 10 s default leaves room for the
+/// parallel unit tier.
 @MainActor
 private func waitForSearchResults(
     in viewModel: DatabaseBrowserViewModel,
-    timeout: TimeInterval = 2.0
+    timeout: TimeInterval = 10
 ) async throws {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {

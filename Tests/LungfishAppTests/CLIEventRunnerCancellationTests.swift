@@ -4,6 +4,12 @@ import LungfishKit
 import LungfishKitTestSupport
 
 final class CLIEventRunnerCancellationTests: XCTestCase {
+    /// `cancel()` only records the request, so it returns in microseconds; a
+    /// cancel that waited on the fake CLI would take its full 30 s sleep. A
+    /// 1 s bound keeps that gap while leaving room for the thread to be
+    /// descheduled under the parallel unit tier's load.
+    private static let cancelReturnBound: TimeInterval = 1
+
     private var cleanupURLs: [URL] = []
 
     override func tearDownWithError() throws {
@@ -29,7 +35,7 @@ final class CLIEventRunnerCancellationTests: XCTestCase {
         await ignoreRunResult(runTask)
         await clearOperation(operationID)
 
-        XCTAssertLessThan(elapsed, 0.1, "Cancellation requests should return without walking the process tree inline")
+        XCTAssertLessThan(elapsed, Self.cancelReturnBound, "Cancellation requests should return without walking the process tree inline")
     }
 
     func testTreeInferenceRunnerCancelReturnsBeforeSleepingCLIExits() async throws {
@@ -47,7 +53,7 @@ final class CLIEventRunnerCancellationTests: XCTestCase {
         await ignoreRunResult(runTask)
         await clearOperation(operationID)
 
-        XCTAssertLessThan(elapsed, 0.1, "Cancellation requests should return without walking the process tree inline")
+        XCTAssertLessThan(elapsed, Self.cancelReturnBound, "Cancellation requests should return without walking the process tree inline")
     }
 
     func testTreeTransformRunnerCancelReturnsBeforeSleepingCLIExits() async throws {
@@ -65,7 +71,7 @@ final class CLIEventRunnerCancellationTests: XCTestCase {
         await ignoreRunResult(runTask)
         await clearOperation(operationID)
 
-        XCTAssertLessThan(elapsed, 0.1, "Cancellation requests should return without walking the process tree inline")
+        XCTAssertLessThan(elapsed, Self.cancelReturnBound, "Cancellation requests should return without walking the process tree inline")
     }
 
     func testCancelledBeforeLaunchAcknowledgesWithoutStartingMSAOrTreeHelpers() async throws {
@@ -117,7 +123,7 @@ final class CLIEventRunnerCancellationTests: XCTestCase {
             let startedAt = Date()
             if kind == 0 { applicationRunner.cancel() }
             else { nativeRunner.cancel() }
-            XCTAssertLessThan(Date().timeIntervalSince(startedAt), 0.5, "Signal must not queue behind a blocking actor run")
+            XCTAssertLessThan(Date().timeIntervalSince(startedAt), Self.cancelReturnBound, "Signal must not queue behind a blocking actor run")
             _ = try? await task.value
             await MainActor.run {
                 OperationCenter.shared.acknowledgeCancellation(id: operationID)

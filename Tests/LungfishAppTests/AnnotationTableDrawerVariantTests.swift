@@ -527,7 +527,9 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
     /// Switches drawer to the variants tab and waits for the async variant query to complete.
     /// The variant query dispatches to a background thread and delivers results via
     /// `DispatchQueue.main.async`, so we need to drain the run loop to receive the results.
-    private func switchToVariantsAndWait(_ drawer: AnnotationTableDrawerView, timeout: TimeInterval = 2.0) {
+    /// The wait ends as soon as the query does; the 10 s timeout leaves room for the
+    /// parallel unit tier.
+    private func switchToVariantsAndWait(_ drawer: AnnotationTableDrawerView, timeout: TimeInterval = 10) {
         drawer.switchToTab(.variants)
         let deadline = Date().addingTimeInterval(timeout)
         // Wait until the async variant query finishes (isVariantQuerying becomes false)
@@ -539,7 +541,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     private func waitForDisplayedAnnotations(
         _ drawer: AnnotationTableDrawerView,
-        timeout: TimeInterval = 2.0,
+        timeout: TimeInterval = 10,
         matching predicate: () -> Bool
     ) {
         let deadline = Date().addingTimeInterval(timeout)
@@ -599,7 +601,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         drawer.switchToTab(.variants)
         drawer.switchToTab(.annotations)
 
-        let deadline = Date().addingTimeInterval(2.0)
+        let deadline = Date().addingTimeInterval(10)
         while drawer.isVariantQuerying && Date() < deadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         }
@@ -648,7 +650,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         drawer.debugSetViewportRegion(chromosome: "chr1", start: 240, end: 280)
         drawer.debugRefreshDisplayedAnnotations()
 
-        let deadline = Date().addingTimeInterval(1.0)
+        let deadline = Date().addingTimeInterval(10)
         while drawer.isVariantQuerying && Date() < deadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         }
@@ -1285,7 +1287,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         """
 
         let drawer = try createDrawerWithAnnotationsAndVariants(vcfContent: vcfContent)
-        switchToVariantsAndWait(drawer, timeout: 0.5)
+        switchToVariantsAndWait(drawer)
         XCTAssertTrue(drawer.displayedAnnotations.isEmpty, "Empty VCF should produce no variants")
     }
 

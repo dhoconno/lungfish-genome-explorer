@@ -36,7 +36,8 @@ final class FASTQImportSlotCoordinatorTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
-        for _ in 0..<100 {
+        // At least 5 s for the parallel unit tier; returns once the import queues.
+        for _ in 0..<500 {
             if await coordinator.testingSnapshot().waitingImports == 1 {
                 return
             }

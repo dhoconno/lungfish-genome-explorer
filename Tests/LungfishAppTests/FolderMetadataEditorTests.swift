@@ -157,7 +157,7 @@ final class FolderMetadataEditorTests: XCTestCase {
             userInfo: ["folderURL": expectedFolderURL!]
         )
 
-        wait(for: [expectation], timeout: 2.0)
+        wait(for: [expectation], timeout: 5)
         NotificationCenter.default.removeObserver(observer)
     }
 }

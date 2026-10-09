@@ -97,7 +97,9 @@ final class DatabaseSearchDialogStateTests: XCTestCase {
         viewModel.organismFilter = "Neoceratodus"
 
         await backend.complete("query-A", accession: "A")
-        try await Task.sleep(nanoseconds: 50_000_000)
+        // The stale completion must reset the search state, which a fixed
+        // 50 ms sleep may not cover under the parallel unit tier.
+        await waitUntil { !viewModel.isSearching && !viewModel.testingHasCurrentSearchTask }
 
         XCTAssertTrue(viewModel.results.isEmpty)
         XCTAssertNil(viewModel.errorMessage)
@@ -288,7 +290,9 @@ final class DatabaseSearchDialogStateTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
-        let deadline = Date().addingTimeInterval(2)
+        // Returns as soon as the search completes; 10 s leaves room for the
+        // parallel unit tier.
+        let deadline = Date().addingTimeInterval(10)
         while Date() < deadline {
             if case .complete = viewModel.searchPhase {
                 return
@@ -304,7 +308,7 @@ final class DatabaseSearchDialogStateTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
-        let deadline = Date().addingTimeInterval(3)
+        let deadline = Date().addingTimeInterval(10)
         while Date() < deadline {
             if viewModel.results.count == count {
                 return

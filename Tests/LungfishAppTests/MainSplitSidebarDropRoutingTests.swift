@@ -197,6 +197,18 @@ final class MainSplitSidebarDropRoutingTests: XCTestCase {
             .appendingPathComponent("Reference allele databases", isDirectory: true)
             .appendingPathComponent("Example.lungfishmhcref", isDirectory: true)
         try await Self.waitUntilFileExists(installedBundleURL)
+        // The bundle directory appears before the copy finishes, and the copy's
+        // completion then removes the extraction directory. Wait for that
+        // cleanup so the checks below see the settled import.
+        let projectTempURL = projectURL.appendingPathComponent(".tmp", isDirectory: true)
+        func extractionDirectoryRemains() -> Bool {
+            let children = (try? FileManager.default.contentsOfDirectory(
+                at: projectTempURL,
+                includingPropertiesForKeys: nil
+            )) ?? []
+            return children.contains { $0.lastPathComponent.hasPrefix("sidebar-zip-import-") }
+        }
+        await waitUntil(timeoutNanoseconds: 30_000_000_000) { !extractionDirectoryRemains() }
 
         XCTAssertTrue(MHCAmpliconReferenceBundle.isBundleURL(installedBundleURL))
         XCTAssertTrue(FileManager.default.fileExists(atPath: archiveURL.path), "The user's original ZIP must remain in place.")
@@ -205,13 +217,8 @@ final class MainSplitSidebarDropRoutingTests: XCTestCase {
             "The ZIP wrapper must not be copied into the project as the imported object."
         )
 
-        let projectTempURL = projectURL.appendingPathComponent(".tmp", isDirectory: true)
-        let tempChildren = (try? FileManager.default.contentsOfDirectory(
-            at: projectTempURL,
-            includingPropertiesForKeys: nil
-        )) ?? []
         XCTAssertFalse(
-            tempChildren.contains { $0.lastPathComponent.hasPrefix("sidebar-zip-import-") },
+            extractionDirectoryRemains(),
             "Temporary ZIP extraction directories should be removed after import consumes the bundle."
         )
     }
@@ -244,9 +251,11 @@ final class MainSplitSidebarDropRoutingTests: XCTestCase {
         XCTAssertEqual(process.terminationStatus, 0)
     }
 
+    /// Returns as soon as `url` exists. The import extracts the ZIP with a
+    /// subprocess, so 30 s leaves room for the parallel unit tier.
     private static func waitUntilFileExists(
         _ url: URL,
-        timeout: TimeInterval = 4,
+        timeout: TimeInterval = 30,
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {

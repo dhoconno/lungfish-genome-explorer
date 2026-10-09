@@ -26,7 +26,7 @@ final class AnnotationSectionViewModelTests: XCTestCase {
         }
 
         viewModel.notifySettingsChanged()
-        wait(for: [expectation], timeout: 0.2)
+        wait(for: [expectation], timeout: 5)
     }
 
     func testNotifyFilterChangedPostsFallbackNotificationWhenCallbackMissing() {
@@ -44,7 +44,7 @@ final class AnnotationSectionViewModelTests: XCTestCase {
         }
 
         viewModel.notifyFilterChanged()
-        wait(for: [expectation], timeout: 0.2)
+        wait(for: [expectation], timeout: 5)
     }
 
     func testToggleTypeInvokesOnFilterChangedCallbackWhenAvailable() {

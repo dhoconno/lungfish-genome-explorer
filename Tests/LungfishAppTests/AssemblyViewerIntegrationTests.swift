@@ -36,7 +36,7 @@ final class AssemblyViewerIntegrationTests: XCTestCase {
         try await vc.testSelectContig(named: "contig_7")
         vc.testTriggerBlast()
 
-        await fulfillment(of: [exp], timeout: 2.0)
+        await fulfillment(of: [exp], timeout: 5)
     }
 
     func testViewerDisplayAssemblyResultHostsAssemblyController() throws {

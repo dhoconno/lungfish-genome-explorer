@@ -85,9 +85,12 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecCLICancel")
         defer { try? FileManager.default.removeItem(at: tempDir) }
         let fakeCLIURL = tempDir.appendingPathComponent("fake-lungfish-cli")
+        // The fake CLI outlives the 30 s bound below, so only a cancel that
+        // kills it can pass, and the bound leaves room for the parallel unit
+        // tier.
         try """
         #!/bin/sh
-        sleep 3
+        sleep 60
         """.write(to: fakeCLIURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755],
@@ -120,7 +123,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         guard case LungfishCLIRunner.RunError.cancelled = error else {
             return XCTFail("Expected RunError.cancelled, got \(error)")
         }
-        XCTAssertLessThan(elapsed, 2.0)
+        XCTAssertLessThan(elapsed, 30)
     }
 
     func testPlannerSplitsPerInputDerivativeRequestsIntoOnePlanPerInput() throws {

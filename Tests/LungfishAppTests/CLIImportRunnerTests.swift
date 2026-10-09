@@ -538,7 +538,7 @@ final class CLIImportRunnerTests: XCTestCase {
 
         await runner.cancel()
 
-        let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 10.0)
+        let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 30)
         XCTAssertTrue(childExited, "Cancelling the CLI import must terminate child tool processes, not only lungfish-cli")
 
         if !childExited {
@@ -617,7 +617,7 @@ final class CLIImportRunnerTests: XCTestCase {
         let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")
         let script = """
         #!/bin/sh
-        /bin/sh -c 'echo $$ > "$LUNGFISH_TEST_CHILD_PID_FILE"; sleep 5' &
+        /bin/sh -c 'echo $$ > "$LUNGFISH_TEST_CHILD_PID_FILE"; sleep 60' &
         echo '{"event":"importStart","sampleCount":1,"recipeName":"test"}'
         echo '{"event":"sampleStart","sample":"Sample1","index":0,"total":1,"r1":"Sample1_R1.fastq.gz"}'
         echo '{"event":"stepStart","sample":"Sample1","step":"Compute statistics","stepIndex":1,"totalSteps":1}'
@@ -679,7 +679,10 @@ final class CLIImportRunnerTests: XCTestCase {
             }
         }
 
-        let returnedBeforeTimeout = await completion.waitUntilCompleted(timeout: 1.0)
+        // The descendant holds stdout for 60 s. A runner that waited for EOF
+        // would miss this 30 s window, which leaves room for the parallel unit
+        // tier, and the wait returns as soon as the run does.
+        let returnedBeforeTimeout = await completion.waitUntilCompleted(timeout: 30)
         if !returnedBeforeTimeout {
             await runner.cancel()
             if Self.isProcessRunning(pid: childPID) {

@@ -12,7 +12,9 @@ import LungfishTestSupport
 @MainActor
 final class MappingViewportRoutingTests: XCTestCase {
     /// Every request owns a continuation and a deadline. A second request can
-    /// never replace the first waiter (including removal-triggered sync).
+    /// never replace the first waiter (including removal-triggered sync). The
+    /// deadline only stops a hang; at 30 s it cannot fire before the test's
+    /// release under the parallel unit tier's load.
     @MainActor private final class ExcelAwaitGate {
         private var pending: [Int: CheckedContinuation<Void, Error>] = [:]
         private(set) var count = 0
@@ -22,7 +24,7 @@ final class MappingViewportRoutingTests: XCTestCase {
             try await withCheckedThrowingContinuation { continuation in
                 pending[id] = continuation
                 Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    try? await Task.sleep(nanoseconds: 30_000_000_000)
                     self.pending.removeValue(forKey: id)?.resume(throwing: NSError(domain: "Excel test gate timed out", code: id))
                 }
             }
@@ -1587,8 +1589,10 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
     }
 
+    /// Returns as soon as `predicate` holds; the 5 s default leaves room for
+    /// the parallel unit tier.
     private func eventually(
-        timeout: TimeInterval = 2,
+        timeout: TimeInterval = 5,
         _ predicate: @escaping @MainActor () -> Bool
     ) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)

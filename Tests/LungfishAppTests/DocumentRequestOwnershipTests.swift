@@ -25,10 +25,10 @@ final class DocumentRequestOwnershipTests: XCTestCase {
         loader.started[b] = startedB
         split.loadExternalDocument(at: a)
         let taskA = try XCTUnwrap(split.externalDocumentLoadTask)
-        await fulfillment(of: [startedA], timeout: 3)
+        await fulfillment(of: [startedA], timeout: 5)
         split.loadExternalDocument(at: b)
         let taskB = try XCTUnwrap(split.externalDocumentLoadTask)
-        await fulfillment(of: [startedB], timeout: 3)
+        await fulfillment(of: [startedB], timeout: 5)
         let progress = try XCTUnwrap(findProgress(in: split.viewerController.view))
         XCTAssertFalse(progress.isHidden)
         loader.fail(a)
@@ -142,7 +142,7 @@ final class DocumentRequestOwnershipTests: XCTestCase {
                 canPublish: { true }, publish: { probe.documents.append($0.id) },
                 failure: { _ in probe.errors += 1 }, loading: { probe.loading.append($0) })
         }
-        await fulfillment(of: [started], timeout: 3)
+        await fulfillment(of: [started], timeout: 5)
         session.closeProject()
         loader.fail(url)
         await task.value
@@ -166,7 +166,7 @@ final class DocumentRequestOwnershipTests: XCTestCase {
                 canPublish: { true }, publish: { probe.documents.append($0.id) },
                 failure: { _ in probe.errors += 1 }, loading: { probe.loading.append($0) })
         }
-        await fulfillment(of: [started], timeout: 3)
+        await fulfillment(of: [started], timeout: 5)
         DocumentManager.shared.mirrorProjectSession(second)
         let document = try inventedDocument(at: url)
         loader.finish(url, document: document)

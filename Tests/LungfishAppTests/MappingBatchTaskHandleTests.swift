@@ -39,9 +39,10 @@ final class MappingBatchTaskHandleTests: XCTestCase {
         XCTAssertTrue(cancelRequestedBeforeAssign)
 
         let task = Task<Void, Never> {
-            // Give the runtime a chance to observe cancellation if it were
-            // (incorrectly) never requested.
-            try? await Task.sleep(nanoseconds: 1_000_000)
+            // The sleep ends as soon as the task is cancelled. A 1 ms sleep
+            // could end before setTask landed under the parallel unit tier's
+            // load; 30 s only runs out if cancellation never comes.
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
             await observer.markObserved(Task.isCancelled)
         }
 
@@ -67,7 +68,8 @@ final class MappingBatchTaskHandleTests: XCTestCase {
         let observer = CancellationObserver()
 
         let task = Task<Void, Never> {
-            try? await Task.sleep(nanoseconds: 1_000_000)
+            // Ends as soon as cancelStoredTask lands; see the test above.
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
             await observer.markObserved(Task.isCancelled)
         }
 

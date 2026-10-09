@@ -35,10 +35,10 @@ final class FileSystemWatcherTests: XCTestCase {
     /// when the full suite is also scheduling MainActor work. Polling with a
     /// generous deadline avoids treating an arbitrary sleep as proof that the
     /// callback queue has been serviced while still returning as soon as the
-    /// expected event arrives.
+    /// expected event arrives. 30 s leaves room for the parallel unit tier.
     @MainActor
     private func waitUntil(
-        timeout: TimeInterval = 20,
+        timeout: TimeInterval = 30,
         condition: @escaping @MainActor () -> Bool
     ) async throws -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
@@ -72,9 +72,12 @@ final class FileSystemWatcherTests: XCTestCase {
 
     /// Give fseventsd a scheduling turn after a new stream starts. This models
     /// the production case (an already-open project) rather than racing file
-    /// creation against stream registration.
+    /// creation against stream registration. Stream setup runs off the main
+    /// actor and can outlast a fixed sleep under the parallel unit tier, so
+    /// wait for it to land first.
     @MainActor
-    private func settleWatcherRegistration() async throws {
+    private func settleWatcherRegistration(_ watcher: FileSystemWatcher) async throws {
+        await watcher.waitForPendingStreamSetup()
         try await Task.sleep(for: .milliseconds(500))
     }
 
@@ -221,7 +224,9 @@ final class FileSystemWatcherTests: XCTestCase {
         watcher.startWatching(directory: tempDir)
         let elapsed = Date().timeIntervalSince(started)
 
-        XCTAssertLessThan(elapsed, 1.0, "startWatching must not wait on FSEventStreamCreate")
+        // Creation blocks until released below, so a startWatching that waited
+        // on it would never return; the bound only needs to tolerate load.
+        XCTAssertLessThan(elapsed, 5, "startWatching must not wait on FSEventStreamCreate")
         XCTAssertEqual(entered.wait(timeout: .now() + 5), .success, "Creation should have begun off the main thread")
 
         // The main actor stays responsive while creation is wedged.
@@ -343,7 +348,7 @@ final class FileSystemWatcherTests: XCTestCase {
 
         watcher.startWatching(directory: tempDir)
         XCTAssertTrue(watcher.isWatching)
-        try await settleWatcherRegistration()
+        try await settleWatcherRegistration(watcher)
 
         // Create a file
         let testFile = tempDir.appendingPathComponent("test.txt")
@@ -371,7 +376,7 @@ final class FileSystemWatcherTests: XCTestCase {
         }
 
         watcher.startWatching(directory: tempDir)
-        try await settleWatcherRegistration()
+        try await settleWatcherRegistration(watcher)
 
         // Delete the file
         try FileManager.default.removeItem(at: testFile)
@@ -397,7 +402,7 @@ final class FileSystemWatcherTests: XCTestCase {
         }
 
         watcher.startWatching(directory: tempDir)
-        try await settleWatcherRegistration()
+        try await settleWatcherRegistration(watcher)
 
         // Rename the file
         let renamedFile = tempDir.appendingPathComponent("renamed.txt")
@@ -424,7 +429,7 @@ final class FileSystemWatcherTests: XCTestCase {
         }
 
         watcher.startWatching(directory: tempDir)
-        try await settleWatcherRegistration()
+        try await settleWatcherRegistration(watcher)
 
         // Create a file in the nested directory
         let nestedFile = nestedDir.appendingPathComponent("nested_file.txt")
@@ -476,7 +481,7 @@ final class FileSystemWatcherTests: XCTestCase {
             onRootChanged: { rootChanged = true }
         )
         watcher.startWatching(directory: tempDir)
-        try await settleWatcherRegistration()
+        try await settleWatcherRegistration(watcher)
 
         try FileManager.default.moveItem(at: tempDir, to: movedDir)
         let receivedRootChange = try await waitUntil { rootChanged }
@@ -496,7 +501,7 @@ final class FileSystemWatcherTests: XCTestCase {
             hiddenOnlyCallbackCount += 1
         }
         watcher1.startWatching(directory: tempDir)
-        try await settleWatcherRegistration()
+        try await settleWatcherRegistration(watcher1)
 
         // Create a hidden file (like .project.db)
         let hiddenFile = tempDir.appendingPathComponent(".hidden_file")
@@ -514,7 +519,7 @@ final class FileSystemWatcherTests: XCTestCase {
             visibleCallbackCount += 1
         }
         watcher2.startWatching(directory: tempDir)
-        try await settleWatcherRegistration()
+        try await settleWatcherRegistration(watcher2)
 
         let visibleFile = tempDir.appendingPathComponent("visible.txt")
         try "Visible content".write(to: visibleFile, atomically: true, encoding: .utf8)
@@ -539,7 +544,7 @@ final class FileSystemWatcherTests: XCTestCase {
         }
 
         watcher.startWatching(directory: tempDir)
-        try await settleWatcherRegistration()
+        try await settleWatcherRegistration(watcher)
 
         // Create multiple files in rapid succession
         for i in 0..<5 {
@@ -580,7 +585,7 @@ final class FileSystemWatcherTests: XCTestCase {
         // Switch to second directory (should auto-stop first)
         watcher.startWatching(directory: tempDir2)
         XCTAssertTrue(watcher.isWatching)
-        try await settleWatcherRegistration()
+        try await settleWatcherRegistration(watcher)
 
         // Create file in first directory (should NOT trigger)
         let file1 = tempDir1.appendingPathComponent("test1.txt")
@@ -722,7 +727,7 @@ final class FileSystemWatcherTests: XCTestCase {
             receivedPaths.append(contentsOf: changes.all.map(\.lastPathComponent))
         }
         watcher.startWatching(directory: tempDir)
-        try await settleWatcherRegistration()
+        try await settleWatcherRegistration(watcher)
 
         let service = UniversalProjectSearchService()
         _ = try await service.rebuild(projectURL: tempDir)

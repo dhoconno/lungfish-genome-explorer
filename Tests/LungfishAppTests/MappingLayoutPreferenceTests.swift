@@ -41,7 +41,7 @@ final class MappingLayoutPreferenceTests: XCTestCase {
             notificationCenter: center
         )
 
-        wait(for: [exp], timeout: 0.2)
+        wait(for: [exp], timeout: 5)
         XCTAssertEqual(
             defaults.string(forKey: MappingPanelLayout.defaultsKey),
             MappingPanelLayout.stacked.rawValue

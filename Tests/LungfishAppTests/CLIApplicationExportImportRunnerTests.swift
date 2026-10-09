@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 
 final class CLIApplicationExportImportRunnerTests: XCTestCase {
     private var temporaryURLs: [URL] = []
@@ -101,7 +102,13 @@ final class CLIApplicationExportImportRunnerTests: XCTestCase {
         let result = try await CLIApplicationExportImportRunner(cliURLOverride: fakeCLI)
             .run(arguments: [], operationID: opID)
 
-        try await Task.sleep(nanoseconds: 50_000_000)
+        // The event glue hops to the main queue; wait for the row to catch up
+        // instead of sleeping a fixed 50 ms.
+        await waitUntil {
+            await MainActor.run {
+                OperationCenter.shared.items.first { $0.id == opID }?.logEntries.contains { $0.message == "reports/summary.tsv was preserved" } == true
+            }
+        }
         let item = await MainActor.run {
             OperationCenter.shared.items.first { $0.id == opID }
         }

@@ -61,12 +61,12 @@ final class CLIImportRunnerCancelTests: XCTestCase {
         """)
         let row = await beginRow()
         let run = startRun(row: row)
-        let launched = await waitUntil(timeout: .seconds(10)) { FileManager.default.fileExists(atPath: marker.path) }
+        let launched = await waitUntil(timeout: .seconds(30)) { FileManager.default.fileExists(atPath: marker.path) }
         XCTAssertTrue(launched)
 
         run.task.cancel()
 
-        let ended = await waitUntil(timeout: .seconds(10)) { run.finished.values.count == 1 }
+        let ended = await waitUntil(timeout: .seconds(30)) { run.finished.values.count == 1 }
         XCTAssertTrue(ended, "the run returns after the cancel")
         let state = await MainActor.run { OperationCenter.shared.items.first { $0.id == row }?.state }
         XCTAssertEqual(state, .running, "the runner does not fail the row before the caller cleans up")
@@ -87,12 +87,12 @@ final class CLIImportRunnerCancelTests: XCTestCase {
         """)
         let row = await beginRow()
         let run = startRun(row: row)
-        let launched = await waitUntil(timeout: .seconds(10)) { FileManager.default.fileExists(atPath: marker.path) }
+        let launched = await waitUntil(timeout: .seconds(30)) { FileManager.default.fileExists(atPath: marker.path) }
         XCTAssertTrue(launched)
 
         run.task.cancel()
 
-        let ended = await waitUntil(timeout: .seconds(15)) { run.finished.values.count == 1 }
+        let ended = await waitUntil(timeout: .seconds(30)) { run.finished.values.count == 1 }
         XCTAssertTrue(ended, "the run returns after the CLI exits")
         XCTAssertFalse(FileManager.default.fileExists(atPath: staging.path), "the CLI's own cleanup ran")
     }

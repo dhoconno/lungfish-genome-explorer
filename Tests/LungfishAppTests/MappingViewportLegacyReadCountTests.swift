@@ -70,8 +70,8 @@ final class MappingViewportLegacyReadCountTests: XCTestCase {
 
         controller.configureForTesting(result: result)
 
-        await fulfillment(of: [builderCalled], timeout: 2)
-        try await waitUntil {
+        await fulfillment(of: [builderCalled], timeout: 5)
+        await waitUntil {
             controller.testSummaryText == "Legacy minimap2 — 25 / 5,633,919 reads mapped (0.0%)"
         }
         let firstSegment = try XCTUnwrap(
@@ -141,19 +141,5 @@ final class MappingViewportLegacyReadCountTests: XCTestCase {
             bundleURL.appendingPathComponent(BundleManifest.filename),
             databaseURL
         )
-    }
-
-    private func waitUntil(
-        timeout: TimeInterval = 2,
-        predicate: @MainActor @escaping () -> Bool
-    ) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !predicate() {
-            if Date() >= deadline {
-                XCTFail("Timed out waiting for condition")
-                return
-            }
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
     }
 }

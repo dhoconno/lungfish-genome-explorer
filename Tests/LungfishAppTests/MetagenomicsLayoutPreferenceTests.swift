@@ -38,7 +38,7 @@ final class MetagenomicsLayoutPreferenceTests: XCTestCase {
             notificationCenter: center
         )
 
-        wait(for: [exp], timeout: 0.2)
+        wait(for: [exp], timeout: 5)
         XCTAssertEqual(
             defaults.string(forKey: MetagenomicsPanelLayout.defaultsKey),
             MetagenomicsPanelLayout.stacked.rawValue

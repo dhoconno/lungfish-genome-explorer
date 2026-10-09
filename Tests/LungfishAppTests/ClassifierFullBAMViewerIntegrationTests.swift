@@ -148,7 +148,9 @@ final class ClassifierFullBAMViewerIntegrationTests: XCTestCase {
         let controller = ClassifierAlignmentEvidenceViewportController()
 
         controller.display(request)
-        for _ in 0..<500 where controller.status == .loading {
+        // These waits run samtools, so they allow 30 s for the parallel unit
+        // tier and still end as soon as the work lands.
+        for _ in 0..<3_000 where controller.status == .loading {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTAssertEqual(controller.status, .available(referenceStrength: "not provided", reason: nil))
@@ -180,12 +182,12 @@ final class ClassifierFullBAMViewerIntegrationTests: XCTestCase {
         try await actionContext.validateCurrentSnapshots()
 
         let region = GenomicRegion(chromosome: "synthetic-track-A", start: 0, end: 120)
-        for _ in 0..<500 where !controller.viewer.viewerView.detachedEvidenceIsCurrent(source) {
+        for _ in 0..<3_000 where !controller.viewer.viewerView.detachedEvidenceIsCurrent(source) {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTAssertTrue(controller.viewer.viewerView.detachedEvidenceIsCurrent(source))
         controller.viewer.viewerView.fetchDetachedReads(source: source, region: region)
-        for _ in 0..<500 where controller.viewer.viewerView.testIsFetchingReads
+        for _ in 0..<3_000 where controller.viewer.viewerView.testIsFetchingReads
             || controller.viewer.viewerView.testCachedAlignedReads.count != 2 {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
@@ -196,7 +198,7 @@ final class ClassifierFullBAMViewerIntegrationTests: XCTestCase {
         XCTAssertNil(controller.viewer.viewerView.testDetachedEvidenceFetchMessage)
 
         controller.viewer.viewerView.fetchDetachedDepth(source: source, region: region)
-        for _ in 0..<500 where controller.viewer.viewerView.testIsFetchingDepth
+        for _ in 0..<3_000 where controller.viewer.viewerView.testIsFetchingDepth
             || controller.viewer.viewerView.testCachedDepthPoints.isEmpty {
             try await Task.sleep(nanoseconds: 10_000_000)
         }

@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 import LungfishWorkflow
 import LungfishKit
+import LungfishTestSupport
 @testable import LungfishApp
 
 final class AssemblyLiveProgressTests: XCTestCase {
@@ -74,7 +75,7 @@ final class AssemblyLiveProgressTests: XCTestCase {
         #!/bin/sh
         printf '%s' '{"event":"log","level":"warning","message":"final diagnostic"}' >&2
         touch ready
-        exec sleep 5
+        exec sleep 30
         """.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
         let recorder = AssemblyLiveLogRecorder()
@@ -86,9 +87,9 @@ final class AssemblyLiveProgressTests: XCTestCase {
                 progress: { _, _ in }
             )
         }
-        for _ in 0..<100 where !FileManager.default.fileExists(atPath: ready.path) {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        // The wait returns once the script is ready. The 30 s child sleep keeps
+        // it running until the cancel, even under the parallel unit tier.
+        await waitUntil(timeout: .seconds(30)) { FileManager.default.fileExists(atPath: ready.path) }
         task.cancel()
         XCTAssertTrue(FileManager.default.fileExists(atPath: ready.path))
         do { _ = try await task.value; XCTFail("Expected cancellation") }
@@ -118,7 +119,7 @@ final class AssemblyLiveProgressTests: XCTestCase {
         #!/bin/sh
         printf '%s\\n' '{"event":"log","level":"info","message":"Building graph"}' >&2
         attempts=0
-        while [ ! -f acknowledged ] && [ "$attempts" -lt 100 ]; do
+        while [ ! -f acknowledged ] && [ "$attempts" -lt 1500 ]; do
           sleep 0.02
           attempts=$((attempts + 1))
         done
@@ -137,7 +138,7 @@ final class AssemblyLiveProgressTests: XCTestCase {
                 if message == "Final line" { finalLine.fulfill() }
             }
         )
-        await fulfillment(of: [finalLine], timeout: 1)
+        await fulfillment(of: [finalLine], timeout: 5)
     }
 }
 

@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 
 final class CLIMSAActionRunnerTests: XCTestCase {
     private var cleanupURLs: [URL] = []
@@ -40,7 +41,13 @@ final class CLIMSAActionRunnerTests: XCTestCase {
         let result = try await CLIMSAActionRunner(cliURLOverride: fakeCLI)
             .run(arguments: ["msa", "export"], operationID: opID)
 
-        try await Task.sleep(nanoseconds: 50_000_000)
+        // The event glue hops to the main queue; wait for the row to catch up
+        // instead of sleeping a fixed 50 ms.
+        await waitUntil {
+            await MainActor.run {
+                OperationCenter.shared.items.first { $0.id == opID }?.logEntries.contains { $0.message == "Annotations are not represented in FASTA." } == true
+            }
+        }
         let item = await MainActor.run {
             OperationCenter.shared.items.first { $0.id == opID }
         }
@@ -84,7 +91,13 @@ final class CLIMSAActionRunnerTests: XCTestCase {
         let result = try await CLIMSAActionRunner(cliURLOverride: fakeCLI)
             .run(arguments: ["msa", "extract"], operationID: opID)
 
-        try await Task.sleep(nanoseconds: 50_000_000)
+        // The event glue hops to the main queue; wait for the row to catch up
+        // instead of sleeping a fixed 50 ms.
+        await waitUntil {
+            await MainActor.run {
+                OperationCenter.shared.items.first { $0.id == opID }?.state == .completed
+            }
+        }
         let item = await MainActor.run {
             OperationCenter.shared.items.first { $0.id == opID }
         }

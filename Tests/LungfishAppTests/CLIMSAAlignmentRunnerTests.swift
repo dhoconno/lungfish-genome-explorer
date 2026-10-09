@@ -4,6 +4,7 @@ import LungfishCore
 @testable import LungfishWorkflow
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 
 final class CLIMSAAlignmentRunnerTests: XCTestCase {
     private var cleanupURLs: [URL] = []
@@ -124,7 +125,13 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
         let result = try await CLIMSAAlignmentRunner(cliURLOverride: fakeCLI)
             .run(arguments: [], operationID: opID)
 
-        try await Task.sleep(nanoseconds: 50_000_000)
+        // The event glue hops to the main queue; wait for the row to catch up
+        // instead of sleeping a fixed 50 ms.
+        await waitUntil {
+            await MainActor.run {
+                OperationCenter.shared.items.first { $0.id == opID }?.logEntries.contains { $0.message == "Duplicate row names were rewritten." } == true
+            }
+        }
         let item = await MainActor.run {
             OperationCenter.shared.items.first { $0.id == opID }
         }
@@ -146,7 +153,9 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
         let readyURL = tempDir.appendingPathComponent("ready")
         let rootPIDURL = tempDir.appendingPathComponent("root.pid")
         let childPIDURL = tempDir.appendingPathComponent("child.pid")
-        let childNaturalCompletionSeconds = 3.0
+        // The child outlives every wait below, so only a real kill can end it
+        // in time, and the waits leave room for the parallel unit tier.
+        let childNaturalCompletionSeconds = 60.0
         let script = """
         #!/bin/sh
         echo $$ > '\(rootPIDURL.path)'
@@ -210,7 +219,7 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
             .deletingLastPathComponent()
     }
 
-    private func waitForFile(_ url: URL, timeout: TimeInterval = 5) async throws {
+    private func waitForFile(_ url: URL, timeout: TimeInterval = 30) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if FileManager.default.fileExists(atPath: url.path) {
@@ -221,7 +230,7 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
         XCTFail("Timed out waiting for \(url.path)")
     }
 
-    private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 2) async throws {
+    private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 30) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if !ProcessTreeTerminator.processExists(pid: pid) {

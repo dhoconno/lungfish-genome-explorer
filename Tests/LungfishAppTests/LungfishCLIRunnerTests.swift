@@ -96,7 +96,7 @@ final class LungfishCLIRunnerTests: XCTestCase {
         let cancellation = LungfishCLIRunner.CancellationHandle()
         let box = run(cli, cancellation: cancellation)
         var grandchild: Int32?
-        let started = await waitUntil(timeout: .seconds(10)) {
+        let started = await waitUntil(timeout: .seconds(30)) {
             grandchild = (try? String(contentsOf: grandchildPIDFile, encoding: .utf8))
                 .flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
             return grandchild != nil
@@ -107,12 +107,12 @@ final class LungfishCLIRunnerTests: XCTestCase {
 
         cancellation.cancel()
 
-        let finished = await waitUntil(timeout: .seconds(10)) { box.value != nil }
+        let finished = await waitUntil(timeout: .seconds(30)) { box.value != nil }
         XCTAssertTrue(finished)
         guard case .failure(let error)? = box.value, case LungfishCLIRunner.RunError.cancelled = error else {
             return XCTFail("\(String(describing: box.value))")
         }
-        let gone = await waitUntil(timeout: .seconds(10)) { !ProcessTreeTerminator.processExists(pid: pid) }
+        let gone = await waitUntil(timeout: .seconds(30)) { !ProcessTreeTerminator.processExists(pid: pid) }
         XCTAssertTrue(gone, "the grandchild is stopped")
     }
 

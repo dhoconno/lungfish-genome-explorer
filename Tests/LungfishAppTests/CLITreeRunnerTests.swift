@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 import LungfishWorkflow
 
 /// Replaces `CLITreeInferenceRunnerTests` and `CLITreeTransformRunnerTests`,
@@ -64,7 +65,13 @@ final class CLITreeRunnerTests: XCTestCase {
             let result = try await CLITreeRunner(label: fixture.label, cliURLOverride: fakeCLI)
                 .run(arguments: fixture.arguments, operationID: opID)
 
-            try await Task.sleep(nanoseconds: 50_000_000)
+            // The event glue hops to the main queue; wait for the row to catch up
+            // instead of sleeping a fixed 50 ms.
+            await waitUntil {
+                await MainActor.run {
+                    OperationCenter.shared.items.first { $0.id == opID }?.state == .completed
+                }
+            }
             let item = await MainActor.run {
                 OperationCenter.shared.items.first { $0.id == opID }
             }
@@ -115,7 +122,13 @@ final class CLITreeRunnerTests: XCTestCase {
                 // expected
             }
 
-            try await Task.sleep(nanoseconds: 50_000_000)
+            // The event glue hops to the main queue; wait for the row to catch up
+            // instead of sleeping a fixed 50 ms.
+            await waitUntil {
+                await MainActor.run {
+                    OperationCenter.shared.items.first { $0.id == opID }?.state == .failed
+                }
+            }
             let item = await MainActor.run {
                 OperationCenter.shared.items.first { $0.id == opID }
             }

@@ -34,7 +34,7 @@ final class MSAViewerChromeRoutingTests: XCTestCase {
         let split = MainSplitViewController()
         split.loadViewIfNeeded()
         split.displayMultipleSequenceAlignmentBundleFromSidebar(at: bundle.url)
-        for _ in 0..<200 where split.viewerController.multipleSequenceAlignmentViewController == nil {
+        for _ in 0..<1_000 where split.viewerController.multipleSequenceAlignmentViewController == nil {
             try await Task.sleep(for: .milliseconds(10))
         }
         let controller = try XCTUnwrap(split.viewerController.multipleSequenceAlignmentViewController)
@@ -55,7 +55,7 @@ final class MSAViewerChromeRoutingTests: XCTestCase {
         let split = MainSplitViewController()
         split.loadViewIfNeeded()
         split.displayMultipleSequenceAlignmentBundleFromSidebar(at: bundle.url)
-        for _ in 0..<200 where split.viewerController.multipleSequenceAlignmentViewController == nil {
+        for _ in 0..<1_000 where split.viewerController.multipleSequenceAlignmentViewController == nil {
             try await Task.sleep(for: .milliseconds(10))
         }
         let controller = try XCTUnwrap(split.viewerController.multipleSequenceAlignmentViewController)
