@@ -4,36 +4,35 @@ import LungfishIO
 import LungfishTestSupport
 
 final class GenotypeMatrixBaseProjectionTests: XCTestCase {
-    func testBaseProjectionPreservesOccurrenceSupportAndZeroVersusMissingRetainedDenominators() {
-        let duplicateLow = makeCall(
-            sample: "S1",
-            genotype: "Mafa-A1*001:01",
-            reads: 4,
-            retainedReads: 0
-        )
-        let duplicateHigh = makeCall(
-            sample: "S1",
-            genotype: "Mafa-A1*001:01",
-            reads: 16,
-            retainedReads: nil
-        )
+    /// Decision D5b of the Phase 2.3 follow-up. Two rows for one animal and
+    /// allele collapse to the highest-read row when the result is built, so
+    /// the projection sees one occurrence whose support, denominators and
+    /// threshold decisions all come from that row. A zero retained
+    /// denominator stays distinct from a missing one.
+    func testBaseProjectionReadsOneCollapsedOccurrenceAndKeepsZeroVersusMissingRetainedDenominators() {
+        let result = GenotypeTestFixtures.makeResult(calls: [
+            makeCall(sample: "S1", genotype: "Mafa-A1*001:01", reads: 4, retainedReads: 40),
+            makeCall(sample: "S1", genotype: "Mafa-A1*001:01", reads: 16, retainedReads: nil),
+            makeCall(sample: "S1", genotype: "Mafa-A1*002:01", reads: 20, retainedReads: 0),
+        ])
         let projection = GenotypeMatrixBaseProjection(
-            calls: [duplicateLow, duplicateHigh],
-            samples: [],
+            calls: result.calls,
+            samples: result.samples,
             candidateDocument: nil,
             logicalSampleNames: ["S1"],
             candidateSettings: .default
         )
 
         XCTAssertEqual(projection.knownOccurrences.count, 2)
-        XCTAssertEqual(projection.knownOccurrences.map(\.support.passedUniqueReads), [4, 16])
-        XCTAssertEqual(projection.knownOccurrences[0].sampleRetainedDenominator, 0)
-        XCTAssertNil(projection.knownOccurrences[1].sampleRetainedDenominator)
-        XCTAssertEqual(projection.knownOccurrences.map(\.viewedLocusDenominator), [20, 20])
+        XCTAssertEqual(projection.knownOccurrences.map(\.support.passedUniqueReads), [16, 20])
+        XCTAssertNil(projection.knownOccurrences[0].sampleRetainedDenominator, "the kept 16-read row carries no retained count")
+        XCTAssertEqual(projection.knownOccurrences[1].sampleRetainedDenominator, 0)
+        XCTAssertEqual(projection.knownOccurrences.map(\.viewedLocusDenominator), [36, 36], "16 plus 20, the 4-read row is gone")
 
         let unfiltered = projection.derive(.unfiltered)
         let row = unfiltered.rows.first { $0.genotype == "Mafa-A1*001:01" }
-        XCTAssertEqual(row?.sampleSupport.map(\.passedUniqueReads), [16, 4])
+        XCTAssertEqual(row?.sampleSupport.map(\.passedUniqueReads), [16])
+        XCTAssertEqual(row?.sampleCount, 1, "the Samples column counts the animal once")
         XCTAssertEqual(unfiltered.hiddenCellCount, 0)
 
         let readFiltered = projection.derive(.init(matrixMinimumReads: 10))
@@ -42,7 +41,45 @@ final class GenotypeMatrixBaseProjectionTests: XCTestCase {
                 .sampleSupport.map(\.passedUniqueReads),
             [16]
         )
-        XCTAssertEqual(readFiltered.hiddenCellCount, 1)
+        XCTAssertEqual(readFiltered.hiddenCellCount, 0, "no hidden 4-read occurrence remains")
+    }
+
+    /// The matrix-projection fixture's duplicate pair (AnimalA, reads 17 and
+    /// 91). The heatmap fraction and the threshold decision come from the
+    /// 91-read row, the Samples column counts the animal once and the locus
+    /// total is 91, not 108.
+    func testDuplicatePairHeatmapFractionThresholdAndLocusTotalReadTheKeptRow() throws {
+        let genotype = "03_Mafa_B_075_01"
+        let result = GenotypeTestFixtures.makeResult(
+            samples: [makeSample("AnimalA", retainedReads: 120), makeSample("AnimalB", retainedReads: 40)],
+            calls: [
+                makeCall(sample: "AnimalA", genotype: genotype, reads: 17, retainedReads: nil),
+                makeCall(sample: "AnimalB", genotype: genotype, reads: 40, retainedReads: nil),
+                makeCall(sample: "AnimalA", genotype: genotype, reads: 91, retainedReads: nil),
+            ]
+        )
+        XCTAssertEqual(result.calls.map(\.passedUniqueReads), [91, 40], "the kept row takes the first row's position")
+        let projection = GenotypeMatrixBaseProjection(
+            calls: result.calls,
+            samples: result.samples,
+            candidateDocument: nil,
+            logicalSampleNames: ["AnimalA", "AnimalB"],
+            candidateSettings: .default
+        )
+        let cell = GenotypeMatrixBaseProjection.CellIdentity(
+            locus: "MHC-B", genotype: genotype, sample: "AnimalA", stableClusterID: nil
+        )
+        XCTAssertEqual(try XCTUnwrap(projection.supportFractions(for: .viewedLocus)[cell]), 1, accuracy: 1e-12)
+        XCTAssertEqual(try XCTUnwrap(projection.supportFractions(for: .sampleRetained)[cell]), 91.0 / 120.0, accuracy: 1e-12)
+        XCTAssertEqual(projection.knownOccurrences.first?.viewedLocusDenominator, 91)
+
+        // 17 of 120 retained reads would fail 20 percent, and 91 of 120 passes it.
+        let thresholded = projection.derive(.init(matrixMinimumPercent: 20, matrixDenominator: .sampleRetained))
+        let row = try XCTUnwrap(thresholded.rows.first { $0.genotype == genotype })
+        XCTAssertEqual(row.sampleSupport.map(\.passedUniqueReads), [91, 40])
+        XCTAssertEqual(row.sampleCount, 2, "AnimalA counts once beside AnimalB")
+        XCTAssertEqual(row.totalUniqueReads, 131, "91 plus 40, never 17 plus 91 plus 40")
+        XCTAssertEqual(thresholded.hiddenCellCount, 0)
     }
 
     func testDerivedProjectionMatchesLegacyOccurrenceFilteringForBothDenominators() {

@@ -277,6 +277,23 @@ final class GenotypeLocusDenominatorTests: XCTestCase {
         XCTAssertEqual(result.hiddenSupportCallCount(minimumSupportPercent: 5, denominator: .viewedLocus), 0)
     }
 
+    // MARK: D5b, one occurrence per animal, locus and allele
+
+    /// Two rows for one animal and allele collapse to the highest-read row
+    /// when the result is built, so the locus total counts that row once. The
+    /// matrix-projection fixture's pair (reads 17 and 91) gives 91, not 108.
+    func testADuplicateRowPairCountsItsKeptRowOnceInTheLocusTotal() throws {
+        let result = GenotypeTestFixtures.makeResult(calls: [
+            Self.call("AnimalA", "03_Mafa_B_075_01", 17),
+            Self.call("AnimalA", "03_Mafa_B_075_01", 91),
+        ])
+        XCTAssertEqual(result.calls.map(\.passedUniqueReads), [91])
+        let kept = try XCTUnwrap(result.calls.first)
+        let denominator = GenotypeLocusDenominator(result: result)
+        XCTAssertEqual(denominator.total(for: kept), 91, "the kept row counts once, the rows are never summed")
+        XCTAssertEqual(try XCTUnwrap(denominator.fraction(for: kept)), 1, accuracy: 1e-12)
+    }
+
     // MARK: D3, the basis a result's locus totals count
 
     private static func candidateDeclaration() -> ONTMHCCandidateArtifactManifest {

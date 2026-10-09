@@ -386,7 +386,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -1054,11 +1054,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -1103,13 +1103,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -1757,11 +1757,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -1806,13 +1806,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -1962,9 +1962,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         },
         {
           "genotype" : "04_Mafa_B_082_01",
@@ -2348,7 +2348,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -2945,11 +2945,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -2994,13 +2994,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           }
         ],
         "sampleNames" : [
@@ -3567,11 +3567,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -3616,13 +3616,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -3772,9 +3772,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         }
       ],
       "visibleSampleNames" : [
@@ -4148,7 +4148,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -4813,11 +4813,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -4862,13 +4862,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -5516,11 +5516,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -5565,13 +5565,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -5721,9 +5721,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         },
         {
           "genotype" : "04_Mafa_B_082_01",
@@ -6107,7 +6107,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -6771,11 +6771,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -6820,13 +6820,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -7474,11 +7474,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -7523,13 +7523,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -7679,9 +7679,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         },
         {
           "genotype" : "04_Mafa_B_082_01",
@@ -7997,7 +7997,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -8515,11 +8515,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -8564,13 +8564,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           }
         ],
         "sampleNames" : [
@@ -9137,11 +9137,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -9186,13 +9186,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -9332,9 +9332,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         }
       ],
       "visibleSampleNames" : [
@@ -9708,7 +9708,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -10550,7 +10550,7 @@
         "14"
       ],
       "summary" : {
-        "hiddenCells" : 4,
+        "hiddenCells" : 3,
         "totalRows" : 7,
         "visibleRows" : 7
       },
@@ -11076,11 +11076,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -11125,13 +11125,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -11599,7 +11599,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.141667"
+          "supportFraction" : "0.758333"
         },
         {
           "cellText" : "40",
@@ -12210,7 +12210,7 @@
         "14"
       ],
       "summary" : {
-        "hiddenCells" : 7,
+        "hiddenCells" : 6,
         "totalRows" : 7,
         "visibleRows" : 5
       },
@@ -12736,11 +12736,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -12785,13 +12785,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -13307,7 +13307,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -13975,11 +13975,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -14024,13 +14024,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -14678,11 +14678,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -14727,13 +14727,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -14883,9 +14883,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         },
         {
           "genotype" : "04_Mafa_B_082_01",
@@ -15133,7 +15133,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -15568,11 +15568,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -15617,13 +15617,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           }
         ],
         "sampleNames" : [
@@ -16190,11 +16190,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -16239,13 +16239,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -16375,9 +16375,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         }
       ],
       "visibleSampleNames" : [
@@ -16411,7 +16411,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -16668,11 +16668,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -16717,13 +16717,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -17371,11 +17371,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -17420,13 +17420,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -17526,9 +17526,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         },
         {
           "genotype" : "04_Mafa_B_082_01",
@@ -17926,11 +17926,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -17954,12 +17954,12 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           }
         ],
         "sampleNames" : [
@@ -18517,11 +18517,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -18566,13 +18566,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -18702,9 +18702,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         }
       ],
       "visibleSampleNames" : [
@@ -18871,7 +18871,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -19293,11 +19293,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -19342,13 +19342,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -19996,11 +19996,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -20045,13 +20045,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -20171,9 +20171,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         },
         {
           "genotype" : "04_Mafa_B_082_01",
@@ -20557,7 +20557,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -21225,11 +21225,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -21274,13 +21274,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -21928,11 +21928,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -21977,13 +21977,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -22133,9 +22133,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         },
         {
           "genotype" : "04_Mafa_B_082_01",
@@ -22433,7 +22433,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -22974,11 +22974,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -23016,13 +23016,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           }
         ],
         "sampleNames" : [
@@ -23586,11 +23586,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -23635,13 +23635,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -23791,9 +23791,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         }
       ],
       "visibleSampleNames" : [
@@ -24029,7 +24029,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -24495,11 +24495,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -24537,13 +24537,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           }
         ],
         "sampleNames" : [
@@ -25107,11 +25107,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -25156,13 +25156,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -25302,9 +25302,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         }
       ],
       "visibleSampleNames" : [
@@ -25489,7 +25489,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -25881,11 +25881,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -25923,13 +25923,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           }
         ],
         "sampleNames" : [
@@ -26493,11 +26493,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -26542,13 +26542,13 @@
               "borderColor" : null,
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -26678,9 +26678,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         }
       ],
       "visibleSampleNames" : [
@@ -26865,7 +26865,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -27260,11 +27260,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -27302,13 +27302,13 @@
               "borderColor" : "#00FF00FF",
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           }
         ],
         "sampleNames" : [
@@ -27875,11 +27875,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -27924,13 +27924,13 @@
               "borderColor" : "#00FF00FF",
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -28060,9 +28060,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         }
       ],
       "visibleSampleNames" : [
@@ -28094,7 +28094,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -28415,11 +28415,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -28457,13 +28457,13 @@
               "borderColor" : "#00FF00FF",
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -29257,11 +29257,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -29306,13 +29306,13 @@
               "borderColor" : "#00FF00FF",
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -29412,9 +29412,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         },
         {
           "genotype" : "Mafa-A1*nov-01",
@@ -29476,7 +29476,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -29797,11 +29797,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -29839,13 +29839,13 @@
               "borderColor" : "#00FF00FF",
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -30643,11 +30643,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -30692,13 +30692,13 @@
               "borderColor" : "#00FF00FF",
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -30801,9 +30801,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         },
         {
           "genotype" : "Mafa-A1*nov-01",
@@ -30865,7 +30865,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -31186,11 +31186,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -31228,13 +31228,13 @@
               "borderColor" : "#00FF00FF",
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -32028,11 +32028,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -32077,13 +32077,13 @@
               "borderColor" : "#00FF00FF",
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -32183,9 +32183,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         },
         {
           "genotype" : "Mafa-A1*nov-01",
@@ -32247,7 +32247,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -32568,11 +32568,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -32610,13 +32610,13 @@
               "borderColor" : "#00FF00FF",
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -33410,11 +33410,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -33459,13 +33459,13 @@
               "borderColor" : "#00FF00FF",
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -33565,9 +33565,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         },
         {
           "genotype" : "Mafa-A1*nov-01",
@@ -34404,11 +34404,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -34453,13 +34453,13 @@
               "borderColor" : "#00FF00FF",
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -34593,7 +34593,7 @@
           "row" : "known:MHC-B:03_Mafa_B_075_01",
           "sample" : "AnimalA",
           "semanticText" : "91",
-          "supportFraction" : "0.157407"
+          "supportFraction" : "1.000000"
         },
         {
           "cellText" : "40",
@@ -34914,11 +34914,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -34956,13 +34956,13 @@
               "borderColor" : "#00FF00FF",
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -35756,11 +35756,11 @@
                 "text" : "MHC-B"
               },
               {
-                "integer" : 3,
+                "integer" : 2,
                 "key" : "standard.samples"
               },
               {
-                "integer" : 148,
+                "integer" : 131,
                 "key" : "standard.totalUniqueReads"
               }
             ],
@@ -35805,13 +35805,13 @@
               "borderColor" : "#00FF00FF",
               "fillColor" : null
             },
-            "sampleCount" : 3,
+            "sampleCount" : 2,
             "sampleReads" : {
               "AnimalA" : 91,
               "AnimalB" : 40
             },
             "stableClusterID" : null,
-            "totalUniqueReads" : 148
+            "totalUniqueReads" : 131
           },
           {
             "cellStyles" : {
@@ -35911,9 +35911,9 @@
           "isIncompleteReferenceSpanCandidate" : false,
           "locus" : "MHC-B",
           "population" : "known",
-          "sampleCount" : 3,
+          "sampleCount" : 2,
           "stableClusterID" : null,
-          "totalUniqueReads" : 148
+          "totalUniqueReads" : 131
         },
         {
           "genotype" : "Mafa-A1*nov-01",

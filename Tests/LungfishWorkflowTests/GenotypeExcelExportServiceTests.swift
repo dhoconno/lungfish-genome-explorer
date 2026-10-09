@@ -717,19 +717,31 @@ print(json.dumps(result))
             allProjection: nil, filteredProjection: projection, generatedAt: "2026-09-12T12:00:00Z"))
     }
 
-    func testNativeDuplicateOccurrenceAndDenominatorsSurviveCapture() throws {
+    /// Decision D5b of the Phase 2.3 follow-up. Two rows for one animal and
+    /// allele collapse to the highest-read row when the result is built, so
+    /// the capture holds one occurrence. The All sheet shows it, the Filtered
+    /// sheet decides on it alone (16 of 1,000 fails a 5 percent threshold, and
+    /// no 4-read occurrence remains to pass) and the retained result.json
+    /// records the collapse.
+    func testNativeDuplicateOccurrenceCollapsesToTheHighestReadRowBeforeCapture() throws {
         let result = GenotypeTestFixtures.makeResult(calls: [
             GenotypeTestFixtures.makeCall(sample: "S1", genotype: "Mafa-A*001", reads: 4, retainedReads: 40),
             GenotypeTestFixtures.makeCall(sample: "S1", genotype: "Mafa-A*001", reads: 16, retainedReads: 1000),
         ])
+        XCTAssertEqual(result.calls.map(\.passedUniqueReads), [16])
+        XCTAssertEqual(result.integrityWarnings.map(\.code), [.duplicateCallRowsCollapsed])
         let snapshot = try GenotypeExcelSnapshotBuilder.capture(result: result, sidecar: .empty(generatedAt: timestamp),
             allProjection: nil, filteredProjection: nil, generatedAt: timestamp,
             authority: .init(analysis: nil), filter: .init(matrixMinimumPercent: 5, matrixDenominator: .sampleRetained))
-        // Native cells use the highest retained occurrence. Filtering is per
-        // occurrence: 4/40 passes 5%; 16/1000 fails. Review raw remains 16.
         XCTAssertEqual(snapshot.allMatrix.rows.first?.cells.first?.displayValue, 16)
         XCTAssertEqual(snapshot.allMatrix.rows.first?.cells.first?.rawSupport, 16)
-        XCTAssertEqual(snapshot.filteredMatrix.rows.first?.cells.first?.displayValue, 4)
+        XCTAssertNil(snapshot.filteredMatrix.rows.first?.cells.first?.displayValue)
+        let captured = try JSONDecoder().decode(
+            ONTGenotypeResultBundleData.self,
+            from: XCTUnwrap(snapshot.capturedScientificInputs?["result.json"])
+        )
+        XCTAssertEqual(captured.calls.map(\.passedUniqueReads), [16])
+        XCTAssertEqual(captured.integrityWarnings.map(\.code), [.duplicateCallRowsCollapsed])
     }
 
     func testCatalogIdentityExactZeroDuplicateLabelsAndStyleClearing() throws {

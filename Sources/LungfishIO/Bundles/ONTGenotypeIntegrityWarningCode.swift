@@ -20,4 +20,7 @@ public enum ONTGenotypeIntegrityWarningCode: String, Codable, Equatable, Sendabl
     case candidateArtifactDuplicateFASTARecord = "candidate-artifact-duplicate-fasta-record"
     case candidateArtifactExtraFASTARecord = "candidate-artifact-extra-fasta-record"
     case candidateArtifactSequenceChecksumMismatch = "candidate-artifact-sequence-checksum-mismatch"
+    /// Duplicate long-summary rows for one animal, locus and allele were
+    /// collapsed to one occurrence when the result was built (D5b).
+    case duplicateCallRowsCollapsed = "duplicate-call-rows-collapsed"
 }

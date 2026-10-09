@@ -297,7 +297,14 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(captured.filteredMatrix.rows[0].cells[0].displayValue, 9)
     }
 
-    func testDuplicateOccurrencesCaptureNativeSelectionAndRenderLiteralWorkbooks() async throws {
+    /// Decision D5b of the Phase 2.3 follow-up. Two rows for one animal and
+    /// allele collapse to the highest-read row when the result is built. The
+    /// matrix, the frozen capture, the retained result.json and the rendered
+    /// workbook then all read that one row. At a 5 percent threshold on
+    /// sample-retained reads the kept row (16 of 1,000) is hidden alike in the
+    /// window and on the Filtered sheet, and no 4-read occurrence remains to
+    /// show a value the All sheet does not.
+    func testDuplicateOccurrencesCollapseBeforeNativeSelectionCaptureAndLiteralWorkbooks() async throws {
         let root = try TestTempDirectory.make(prefix: "ExcelDuplicateOccurrences")
         defer { TestTempDirectory.cleanup(root) }
         let genotype = "Mafa-A*001"
@@ -305,6 +312,7 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
             GenotypeTestFixtures.makeCall(sample: "S1", genotype: genotype, reads: 4, retainedReads: 40),
             GenotypeTestFixtures.makeCall(sample: "S1", genotype: genotype, reads: 16, retainedReads: 1000),
         ])
+        XCTAssertEqual(result.calls.map(\.passedUniqueReads), [16])
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: result)
@@ -313,28 +321,26 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         state.matrixMinimumPercent = 5
         state.matrixPercentDenominator = .sampleRetained
         controller.testingApplyDisplayStateImmediately(state)
-        let thresholdNative = try XCTUnwrap(
-            controller.testingComparisonMatrix.testingSemanticCellState(genotype: genotype, sample: "S1")
+        XCTAssertNil(
+            controller.testingComparisonMatrix.testingSemanticCellState(genotype: genotype, sample: "S1"),
+            "16 of 1,000 fails 5 percent, and no 4-read occurrence remains to pass it"
         )
-        XCTAssertEqual(thresholdNative.text.value, "4")
-        XCTAssertEqual(thresholdNative.evidenceReads, 4)
         let thresholdCapture = try controller.captureExcelExportSnapshot()
         let thresholdSnapshot = try JSONDecoder().decode(
             GenotypeWorkbookPresentation.Snapshot.self,
             from: XCTUnwrap(thresholdCapture.excelSnapshotData)
         )
         let thresholdAll = try XCTUnwrap(thresholdSnapshot.allMatrix.rows.first?.cells.first)
-        let thresholdFiltered = try XCTUnwrap(thresholdSnapshot.filteredMatrix.rows.first?.cells.first)
         XCTAssertEqual(thresholdAll.displayValue, 16)
         XCTAssertEqual(thresholdAll.rawSupport, 16)
-        XCTAssertEqual(thresholdFiltered.displayValue, 4)
-        XCTAssertEqual(thresholdFiltered.rawSupport, 16)
+        XCTAssertTrue(thresholdSnapshot.filteredMatrix.rows.isEmpty, "the Filtered sheet shows the kept row or nothing")
         let capturedResult = try JSONDecoder().decode(
             ONTGenotypeResultBundleData.self,
             from: XCTUnwrap(thresholdSnapshot.capturedScientificInputs?["result.json"])
         )
-        XCTAssertEqual(capturedResult.calls.map(\.passedUniqueReads), [4, 16])
-        XCTAssertEqual(capturedResult.calls.map(\.sampleUniqueRetainedReads), [40, 1000])
+        XCTAssertEqual(capturedResult.calls.map(\.passedUniqueReads), [16])
+        XCTAssertEqual(capturedResult.calls.map(\.sampleUniqueRetainedReads), [1000])
+        XCTAssertEqual(capturedResult.integrityWarnings.map(\.code), [.duplicateCallRowsCollapsed])
 
         let thresholdOutput = root.appendingPathComponent("threshold.xlsx")
         _ = try await GenotypeExcelExportService(pythonExecutableURL: openpyxlPython).export(
@@ -342,8 +348,8 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
             outputURL: thresholdOutput,
             provenance: .init(toolVersion: "test", argv: ["Lungfish", "genotype.export.excel"])
         )
-        XCTAssertEqual(try workbookLiteral(thresholdOutput, sheet: "Genotype Matrix - All", genotype: genotype), 16)
-        XCTAssertEqual(try workbookLiteral(thresholdOutput, sheet: "Genotype Matrix - Filtered", genotype: genotype), 4)
+        XCTAssertEqual(try workbookLiterals(thresholdOutput, sheet: "Genotype Matrix - All", genotype: genotype), [16])
+        XCTAssertEqual(try workbookLiterals(thresholdOutput, sheet: "Genotype Matrix - Filtered", genotype: genotype), [])
 
         state.matrixMinimumPercent = 0
         controller.testingApplyDisplayStateImmediately(state)
@@ -365,8 +371,8 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
             outputURL: unfilteredOutput,
             provenance: .init(toolVersion: "test", argv: ["Lungfish", "genotype.export.excel"])
         )
-        XCTAssertEqual(try workbookLiteral(unfilteredOutput, sheet: "Genotype Matrix - All", genotype: genotype), 16)
-        XCTAssertEqual(try workbookLiteral(unfilteredOutput, sheet: "Genotype Matrix - Filtered", genotype: genotype), 16)
+        XCTAssertEqual(try workbookLiterals(unfilteredOutput, sheet: "Genotype Matrix - All", genotype: genotype), [16])
+        XCTAssertEqual(try workbookLiterals(unfilteredOutput, sheet: "Genotype Matrix - Filtered", genotype: genotype), [16])
     }
 
     func testExportActionPresentsOneSavePanelWithoutRoleChoice() throws {
@@ -653,7 +659,9 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(controller.testingManualHaplotypeAssignments.map(\.label), ["Native H1"])
     }
 
-    private func workbookLiteral(_ workbook: URL, sheet: String, genotype: String) throws -> Int {
+    /// The S1 cell values of every row of `sheet` that names `genotype`, so a
+    /// row the sheet omits reads as no value rather than as a failure.
+    private func workbookLiterals(_ workbook: URL, sheet: String, genotype: String) throws -> [Int] {
         let process = Process()
         process.executableURL = openpyxlPython
         process.arguments = ["-c", #"""
@@ -672,8 +680,7 @@ print(json.dumps(matches))
         let data = stdout.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         XCTAssertEqual(process.terminationStatus, 0)
-        let values = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [Int])
-        return try XCTUnwrap(values.count == 1 ? values.first : nil)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [Int])
     }
 
     private func workbookComments(_ workbook: URL) throws -> [String: [String]] {

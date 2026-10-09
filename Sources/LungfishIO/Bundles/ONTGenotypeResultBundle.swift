@@ -575,7 +575,8 @@ public enum ONTGenotypeResultBundle {
         let sampleRows = try loadCSVRows(from: artifacts.sampleSummaryCSVURL)
         let stats = try ONTGenotypeRunStats.load(from: artifacts.statsJSONURL)
         let haplotypeAnalysis = try loadHaplotypeAnalysisIfPresent(from: artifacts.haplotypeAnalysisURL)
-        let calls = callRows.compactMap(makeCall(row:)).filter { isAssignedSample($0.sample) }
+        let assignedRows = callRows.compactMap(makeCall(row:)).filter { isAssignedSample($0.sample) }
+        let calls = ONTGenotypeCall.uniqueOccurrences(assignedRows)
         let mhcProjection: MHCCandidateProjection
         if manifest.kind == "full-length-ont-mhc-genotype" {
             mhcProjection = try loadMHCCandidateProjection(
@@ -596,10 +597,12 @@ public enum ONTGenotypeResultBundle {
             from: manifest.alignmentArtifacts,
             bundleURL: bundleURL
         ) ?? mhcProjection.alignmentArtifactURLs
+        // The publisher declared its per-sample support from the rows as
+        // written, so its record is checked against those rows.
         let provisionalExon2Projection = try loadProvisionalExon2Projection(
             from: manifest.provisionalExon2Artifacts,
             bundleURL: bundleURL,
-            calls: calls
+            calls: assignedRows
         )
         let mhcReferenceVisualizations = try loadMHCReferenceVisualizations(
             from: manifest.mhcReferenceVisualizations,
@@ -647,7 +650,9 @@ public enum ONTGenotypeResultBundle {
             mhcCandidateGenBankArtifactURLs: mhcProjection.genBankArtifactURLs,
             mhcAlignmentArtifactURLs: alignmentArtifactURLs,
             mhcReferenceVisualizations: mhcReferenceVisualizations,
-            integrityWarnings: mhcProjection.warnings,
+            integrityWarnings: mhcProjection.warnings + ONTGenotypeIntegrityWarning.duplicateCallRowsCollapsed(
+                rowCount: assignedRows.count, uniqueCount: calls.count
+            ),
             referenceMetadata: referenceMetadata,
             provisionalExon2SequencesByGenotype: provisionalExon2Projection.sequencesByGenotype,
             provisionalExon2ArtifactURLs: provisionalExon2Projection.artifactURLs,

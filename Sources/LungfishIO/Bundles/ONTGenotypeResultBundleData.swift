@@ -126,8 +126,8 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         self.manifest = manifest
         self.artifacts = artifacts
         self.stats = stats
-        self.calls = calls
-        self.samples = samples
+        self.calls = ONTGenotypeCall.uniqueOccurrences(calls)
+        self.samples = samples.map { $0.collapsingDuplicateOccurrences() }
         self.haplotypeAnalysis = haplotypeAnalysis
         self.mhcCandidates = mhcCandidates
         self.mhcUnnameableClusters = mhcUnnameableClusters
@@ -135,7 +135,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         self.mhcCandidateGenBankArtifactURLs = mhcCandidateGenBankArtifactURLs
         self.mhcAlignmentArtifactURLs = mhcAlignmentArtifactURLs
         self.mhcReferenceVisualizations = mhcReferenceVisualizations
-        self.integrityWarnings = integrityWarnings
+        self.integrityWarnings = integrityWarnings + ONTGenotypeIntegrityWarning.duplicateCallRowsCollapsed(rowCount: calls.count, uniqueCount: self.calls.count)
         self.referenceMetadata = referenceMetadata
         self.provisionalExon2SequencesByGenotype = provisionalExon2SequencesByGenotype
         self.provisionalExon2ArtifactURLs = provisionalExon2ArtifactURLs

@@ -3971,7 +3971,12 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     }
 
 
-    func testDuplicateCellEvidenceRowsKeepFirstRecordWithoutCrashing() {
+    /// Decision D5b of the Phase 2.3 follow-up. Two rows for one animal and
+    /// allele collapse to the highest-read row when the result is built, so
+    /// the cell's detail rows read that row and its support over a locus total
+    /// that counts it once (91 of 91), not the first row in file order over a
+    /// summed total (17 of 108).
+    func testDuplicateCellDetailRowsReadTheCollapsedOccurrence() {
         let genotype = "01_Mafa_A1_DUPLICATE"
         let first = makeCall(sample: "AnimalA", genotype: genotype, reads: 17)
         let duplicate = makeCall(sample: "AnimalA", genotype: genotype, reads: 91)
@@ -3986,10 +3991,10 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
         let rows = controller.testingCurrentSelectionDetailRows
         XCTAssertTrue(rows.contains { $0 == ("Locus", "MHC-A") })
-        XCTAssertTrue(rows.contains { $0 == ("Unique Reads", "17") })
-        XCTAssertTrue(rows.contains { $0 == ("Alignments", "17") })
-        XCTAssertTrue(rows.contains { $0 == ("Support", "15.7%") })
-        XCTAssertFalse(rows.contains { $0 == ("Unique Reads", "91") })
+        XCTAssertTrue(rows.contains { $0 == ("Unique Reads", "91") })
+        XCTAssertTrue(rows.contains { $0 == ("Alignments", "91") })
+        XCTAssertTrue(rows.contains { $0 == ("Support", "100.0%") })
+        XCTAssertFalse(rows.contains { $0 == ("Unique Reads", "17") })
     }
 
 

@@ -2413,6 +2413,72 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertEqual(result.calls[0].locusGroup, "MHC-A")
     }
 
+    /// Decision D5b of the Phase 2.3 follow-up. A long summary that lists one
+    /// animal, locus and allele twice is a data error. The loader keeps the
+    /// row with the most passed unique reads in the first row's position,
+    /// never sums the rows, builds the sample's call list from the kept row
+    /// and records one integrity warning that names the collapsed count. The
+    /// sample's own read counts still come from the sample summary. Decoding
+    /// the loaded result again collapses nothing and adds no second warning.
+    func testLoaderCollapsesDuplicateGenotypeRowsToTheHighestReadRowAndWarns() throws {
+        let root = try TestTempDirectory.make(prefix: "ONTGenotypeResultBundleTests")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundleURL = root.appendingPathComponent("duplicates.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let workbookURL = bundleURL.appendingPathComponent("duplicates.xlsx")
+        let genotypeCSVURL = bundleURL.appendingPathComponent("duplicates.retained-demux-genotypes.csv")
+        let sampleCSVURL = bundleURL.appendingPathComponent("duplicates.retained-demux-samples.csv")
+        let statsJSONURL = bundleURL.appendingPathComponent("duplicates.retained-demux-stats.json")
+        let provenanceURL = bundleURL.appendingPathComponent("retained-demux-genotyping-provenance.json")
+        try Data("workbook".utf8).write(to: workbookURL)
+        try Data("{}".utf8).write(to: provenanceURL)
+        try """
+        sample,genotype,passed_alignments,passed_unique_reads
+        AnimalA,01_Mafa_A1_001_01,9,9
+        AnimalA,03_Mafa_B_075_01,17,17
+        AnimalB,03_Mafa_B_075_01,40,40
+        AnimalA,03_Mafa_B_075_01,91,91
+        """.write(to: genotypeCSVURL, atomically: true, encoding: .utf8)
+        try """
+        sample,passed_alignments,passed_unique_reads
+        AnimalA,120,120
+        AnimalB,40,40
+        """.write(to: sampleCSVURL, atomically: true, encoding: .utf8)
+        try """
+        {"totalInputReads": 300, "totalAlignments": 160, "passedAlignments": 160, "retainedUniqueReads": 160}
+        """.write(to: statsJSONURL, atomically: true, encoding: .utf8)
+        try ONTGenotypeResultBundle.writeManifest(ONTGenotypeResultBundleManifest(
+            outputName: "duplicates",
+            analysisName: "duplicates",
+            primaryWorkbookPath: workbookURL.lastPathComponent,
+            longSummaryCSVPath: genotypeCSVURL.lastPathComponent,
+            sampleSummaryCSVPath: sampleCSVURL.lastPathComponent,
+            statsJSONPath: statsJSONURL.lastPathComponent,
+            provenancePath: provenanceURL.lastPathComponent,
+            createdAt: "2026-10-09T12:00:00Z"
+        ), to: bundleURL)
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
+
+        XCTAssertEqual(
+            result.calls.map { "\($0.sample) \($0.genotype) \($0.passedUniqueReads)" },
+            ["AnimalA 01_Mafa_A1_001_01 9", "AnimalA 03_Mafa_B_075_01 91", "AnimalB 03_Mafa_B_075_01 40"],
+            "the 91-read row replaces the 17-read row in its position, and nothing is summed"
+        )
+        XCTAssertEqual(result.samples.map(\.sample), ["AnimalA", "AnimalB"])
+        XCTAssertEqual(result.samples[0].calls.map(\.passedUniqueReads), [91, 9])
+        XCTAssertEqual(result.samples[0].passedUniqueReads, 120, "the sample summary's own count stays as written")
+        XCTAssertEqual(result.integrityWarnings.map(\.code), [.duplicateCallRowsCollapsed])
+        XCTAssertEqual(
+            result.integrityWarnings.first?.detail.hasPrefix("1 duplicate genotype row was collapsed."), true,
+            result.integrityWarnings.first?.detail ?? ""
+        )
+        XCTAssertEqual(GenotypeLocusDenominator(result: result).total(sample: "AnimalA", sourceLocus: "MHC-B"), 91)
+
+        let decoded = try JSONDecoder().decode(ONTGenotypeResultBundleData.self, from: JSONEncoder().encode(result))
+        XCTAssertEqual(decoded, result, "a loaded result decodes to itself, with no second collapse or warning")
+    }
+
     func testLoadResultIgnoresRepeatedCSVHeaderRowsInSampleSummary() throws {
         let root = try TestTempDirectory.make(prefix: "ONTGenotypeResultBundleTests")
         defer { TestTempDirectory.cleanup(root) }
