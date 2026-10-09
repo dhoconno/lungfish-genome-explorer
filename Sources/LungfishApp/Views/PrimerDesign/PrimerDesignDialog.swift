@@ -187,9 +187,7 @@ struct PrimerDesignDialog: View {
         Text("One scheme per MSA").tag(PrimerAnalysisGrouping.independent)
         Text("Combined scheme from selected MSAs").tag(PrimerAnalysisGrouping.combined)
       }.disabled(state.engine == .varVAMP)
-      Text(state.grouping == .independent
-        ? "Each alignment produces a separate scheme and retains its input identity."
-        : "Design a combined panel from all selected alignments.")
+      Text(state.groupingDescription)
         .font(.caption).foregroundStyle(.secondary)
       HStack {
         numberField("Minimum amplicon size (bp)", $state.ampliconSizeMinimum)

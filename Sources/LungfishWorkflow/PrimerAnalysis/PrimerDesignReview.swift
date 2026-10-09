@@ -192,7 +192,7 @@ public enum PrimerDesignReview {
           nativePool: String(pool), name: fields[3]))
       }
     }
-    return names.map { name in
+    let reviews: [PrimerTargetDesignReview] = names.map { name in
       var intervals = spans[name] ?? []
       var targetPrimers: [PrimerReviewPrimer] = primers.filter { $0.reference == name }.map {
         .init(id: "\(id)-primer-\($0.id)", name: $0.name, start: $0.start, end: $0.end, strand: $0.strand,
@@ -205,6 +205,34 @@ public enum PrimerDesignReview {
         primers: targetPrimers, notes: ["Denominator: the full saved mapping reference. Overlapping amplicon spans count once; primer sequences are included.",
           amplicons == nil ? "No saved amplicon BED is available; coverage is unknown." : "Positional reference coverage does not establish coverage of every alignment row or successful amplification."],
         sourceResultID: id, referenceID: name)
+    }
+    return sharedPoolCoverageAdvisories(reviews)
+  }
+
+  /// Coverage below this fraction in a combined panel gets a shared-pool warning.
+  static let combinedPanelAdvisoryCoverage = 0.9
+
+  /// A combined panel reports success even when its shared pools filled up and
+  /// PrimalScheme stopped adding amplicons, so a gap can pass unnoticed. Warn on
+  /// each reference that ends under the threshold. One-reference results are a
+  /// single scheme and get no shared-pool warning.
+  static func sharedPoolCoverageAdvisories(_ reviews: [PrimerTargetDesignReview]) -> [PrimerTargetDesignReview] {
+    guard reviews.count > 1 else { return reviews }
+    let threshold = combinedPanelAdvisoryCoverage
+    let low = reviews.filter { ($0.coveragePercent ?? 100) < threshold * 100 }
+    guard !low.isEmpty else { return reviews }
+    let lowIDs = Set(low.map(\.id))
+    return reviews.map { review in
+      guard lowIDs.contains(review.id), let percent = review.coveragePercent else { return review }
+      var review = review
+      review.advisories.append(.init(severity: .warning, message:
+        "Amplicons span \(Int(percent.rounded(.down)))% of this reference. "
+        + "\(low.count) of \(reviews.count) references in this combined panel are under \(Int(threshold * 100))%. "
+        + "PrimalScheme skips any amplicon whose primers would form a dimer with primers already in the pool, "
+        + "so coverage falls as more alignments share the pools. "
+        + "A one-scheme-per-MSA run of this alignment shows the coverage it reaches alone. "
+        + "More primer pools or fewer alignments per panel leave more room."))
+      return review
     }
   }
 

@@ -32,7 +32,7 @@ The observed-only policy uses patched Python discovery; legacy preserves upstrea
 
 ## Olivar and varVAMP
 
-Olivar designs tiled amplicons with two native pools. It accepts one independent design per selected input or a combined design. Its **minimum variant frequency** is the native aggregate variation cutoff, including mismatch/deletion and insertion evidence. It is distinct from PrimalScheme's per-candidate sequence frequency. Advanced controls retain native terminology for risk weights, degeneracy, variant avoidance, GC/complexity, primer length, temperature/salinity, dimer constraints, effort, seed, workers and an optional local BLAST database. Inputs must already be aligned; LGE preserves that alignment's coordinate mapping.
+Olivar designs tiled amplicons with two native pools. It accepts one independent design per selected input or a combined design. A combined Olivar design does not tile the alignments jointly. Olivar places the tiles for each alignment on its own, with the same seed, so the tile layout matches a one-scheme-per-MSA run and the output still lists one scheme per reference. What changes is primer choice. Olivar then picks one primer pair in every tile so that the primers of all alignments sharing a pool form the fewest predicted dimers. Expect the same tiles with some primers moved by a few bases. See [Combining many alignments](#combining-many-alignments) for a measured comparison. Its **minimum variant frequency** is the native aggregate variation cutoff, including mismatch/deletion and insertion evidence. It is distinct from PrimalScheme's per-candidate sequence frequency. Advanced controls retain native terminology for risk weights, degeneracy, variant avoidance, GC/complexity, primer length, temperature/salinity, dimer constraints, effort, seed, workers and an optional local BLAST database. Inputs must already be aligned; LGE preserves that alignment's coordinate mapping.
 
 varVAMP supports **single**, **tiled** and **qPCR** modes. The qPCR mode includes hydrolysis-probe candidates suitable for subsequent qPCR/dPCR assay review; there is no separate dPCR optimizer. Single and qPCR results are unpooled alternatives, while tiled results retain native pools. The cumulative consensus threshold is a native varVAMP setting, not `1 − minimum variant frequency`. Single/tiled modes allow native automatic threshold selection; qPCR requires an explicit value. Probe settings appear only in qPCR mode.
 
@@ -43,6 +43,33 @@ Advanced varVAMP controls include ambiguity limits, tiled overlap, result/test c
 Olivar and varVAMP use the shared PrimalScheme result viewport and Inspector. Native reference sequences, oligo roles, pool identities and assay memberships are preserved. qPCR probes and alternative assays remain distinct. Exact mapping blocks permit alignment comparison; collapsed, synthetic or discontinuous regions show an unavailable comparison reason instead of invented mismatch statistics. Native Olivar pickle files remain opaque artifacts and are never unpickled when reopening a saved analysis.
 
 New results retain the safe `results/primer-schemes-v1.json` document, generated references, explicit binding maps, original native files, copied adapter sources and complete execution provenance. Native failures retain a separately identified diagnostic directory and do not publish a successful analysis.
+
+## Combining many alignments
+
+The two scheme engines mean different things by a combined design.
+
+| Engine | Tile or amplicon placement | Primer dimer checks |
+| --- | --- | --- |
+| Olivar | Each alignment on its own. Same tiles as an independent run. | All alignments in a pool, by simulated annealing over each tile's candidate pairs |
+| PrimalScheme | One panel. Amplicons are added to each alignment in turn. | Every new primer against all primers already in its pool |
+| Either engine, one scheme per MSA | Each alignment on its own | Within one alignment only |
+
+Schemes designed one per MSA are never checked against each other. Mixing them into shared tubes afterward can create dimers that no run evaluated. In a synthetic test of three 2 kb alignments, Olivar's own dimer score for the pooled primers was 245 when three independent designs were mixed and 11 for the combined design. The tiles were the same, while 18 of 21 primer pairs differed.
+
+A combined PrimalScheme panel runs as one native process. PrimalScheme skips any amplicon whose primers would form a dimer with primers already in the pool. As more alignments share the pools, fewer candidates fit, and the panel still finishes successfully, with gaps. Synthetic 3 kb alignments show the pattern.
+
+| Alignments | Pools | Native run | Amplicons | Coverage per reference |
+| --- | --- | --- | --- | --- |
+| 3 | 2 | 19 s | 18 | 99 to 100% |
+| 10 | 2 | 2 min | 86 | 88 to 98% |
+| 10 | 4 | 2.5 min | 91 | 97 to 100% |
+| 40 | 2 | 32 min | 236 | 47 to 85%, median 66% |
+| 40 | 4 | 23 min | 343 | 76 to 100%, median 92% |
+| 40 | 6 | 12 min | 362 | 87 to 100%, median 98% |
+
+Run time grows faster than the number of alignments. Discovery runs one alignment after another, and once the pools are crowded the engine checks many candidates that it then rejects. LGE stops a native run after 24 hours. The Operations Panel reports which alignment is in discovery and how many amplicons the panel holds, so a long run can be told apart from one that has stopped. On the Overview, each reference of a combined panel with less than 90% coverage carries a warning that names the shared-pool cause.
+
+For a large target set, raise the pool count or split the targets into smaller combined panels. Designing one scheme per MSA and pooling afterward is also possible, but the pooled set needs its own dimer review because no run has compared primers across schemes.
 
 ## Saved results and annotations
 

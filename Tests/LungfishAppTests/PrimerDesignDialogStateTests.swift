@@ -804,6 +804,22 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertEqual(try state.primer3Options().probe, Primer3ProbeDefaults.hydrolysisProbe)
   }
 
+  /// "Combined" means different things per engine. Olivar keeps per-alignment
+  /// tiling and only co-optimizes dimers, so the dialog must not promise a
+  /// jointly tiled panel for it.
+  func testGroupingDescriptionExplainsWhatEachEngineCombines() {
+    let state = configuredState()
+    state.engine = .olivar
+    state.grouping = .combined
+    XCTAssertTrue(state.groupingDescription.contains("tiles each alignment separately"))
+    XCTAssertTrue(state.groupingDescription.contains("dimers"))
+    state.engine = .primalScheme
+    state.grouping = .combined
+    XCTAssertTrue(state.groupingDescription.contains("builds one panel"))
+    state.grouping = .independent
+    XCTAssertTrue(state.groupingDescription.contains("never checked against each other"))
+  }
+
   private func configuredState() -> PrimerDesignDialogState {
     let state = PrimerDesignDialogState(projectURL: FileManager.default.temporaryDirectory)
     state.analysisName = UUID().uuidString

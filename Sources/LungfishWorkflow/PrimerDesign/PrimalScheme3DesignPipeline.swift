@@ -414,7 +414,6 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         var results: [PrimerAnalysisResult] = []
         for (index, group) in groups.enumerated() {
             try Task.checkCancellation()
-            progress?(0.2 + 0.7 * Double(index) / Double(groups.count), "Running PrimalScheme (\(index + 1)/\(groups.count))")
             let resultID = UUID()
             let output = scratch.appendingPathComponent("native/\(resultID.uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -428,11 +427,12 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             ], options: [.prettyPrinted, .sortedKeys]).write(
                 to: executionRequests.appendingPathComponent("\(resultID.uuidString)-design-request.json"),
                 options: .withoutOverwriting)
-            let executed = try await runner(.init(executableOverride: request.executableURL,
-                                                  arguments: args, workingDirectory: scratch,
-                                                  selectionAlgorithm: executionOptions.selectionAlgorithm,
-                                                  terminalGapPolicy: executionOptions.terminalGapPolicy,
-                                                  managedEnvironmentURL: runtimeLease?.environmentURL))
+            let executed = try await PrimalScheme3NativeProgress.observing(run: index, of: groups.count, inputCount: group.count, progress: progress) {
+                try await runner(.init(executableOverride: request.executableURL, arguments: args, workingDirectory: scratch,
+                                       selectionAlgorithm: executionOptions.selectionAlgorithm,
+                                       terminalGapPolicy: executionOptions.terminalGapPolicy,
+                                       managedEnvironmentURL: runtimeLease?.environmentURL))
+            }
             let attemptLogs = scratch.appendingPathComponent("logs/\(resultID.uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: attemptLogs, withIntermediateDirectories: true)
             let runtimeData = try JSONEncoder().encode(executed.runtime)

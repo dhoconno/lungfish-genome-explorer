@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 import XCTest
 import LungfishCore
 import LungfishIO
@@ -46,6 +47,59 @@ final class PrimalScheme3PublicationTests: XCTestCase {
     XCTAssertTrue(inputFiles.allSatisfy {
       !$0.path.isEmpty && ($0.checksumSHA256?.isEmpty == false) && ($0.fileSize ?? 0) > 0
     })
+  }
+
+  /// A combined panel is one long native process. Its log lines must reach the
+  /// operation as progress so a slow run never looks like a hang.
+  func testNativeLogLinesBecomeProgressMessages() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let input = root.appendingPathComponent("target.fasta")
+    try Data(">target\nACGTACGTACGT\n".utf8).write(to: input)
+    let destination = root.appendingPathComponent("result.lungfishprimeranalysis")
+    let pipeline = PrimalScheme3DesignPipeline(runner: { command in
+      for line in [
+        "           INFO     Digesting input_A_row_0",
+        "[16:12:24] INFO     Added amplicon (1) for",
+        "           INFO     Added amplicon (2) for",
+        "           INFO     Writing outputs...",
+      ] {
+        NativeProcessObservation.onEvent?(.output(stream: .stdout, line: line))
+      }
+      return try Self.nativeFixture(command)
+    }, writer: PrimerAnalysisBundleWriter(provenanceWriter: ProvenanceWriter(signingProvider: nil)))
+    let request = PrimalScheme3DesignRequest(inputURLs: [input], destinationURL: destination,
+      options: .init(ampliconSize: 400, poolCount: 2), grouping: .independent,
+      invocation: .init(argv: ["lungfish", "primer", "design", input.path], callerVersion: "test",
+        explicitOptions: [:], runtimeIdentity: .init()),
+      expectedInputChecksums: [input: try Primer3InputLoader.fingerprint(input)])
+    let recorded = OSAllocatedUnfairLock(initialState: [(Double, String)]())
+    let forwarded = OSAllocatedUnfairLock(initialState: 0)
+
+    _ = try await NativeProcessObservation.$onEvent.withValue({ _ in forwarded.withLock { $0 += 1 } }) {
+      try await pipeline.run(request: request) { fraction, message in
+        recorded.withLock { $0.append((fraction, message)) }
+      }
+    }
+
+    let messages = recorded.withLock { $0.map(\.1) }
+    XCTAssertTrue(messages.contains("Finding primer candidates in alignment 1 of 1"))
+    XCTAssertTrue(messages.contains("Building the panel: 2 amplicons added"))
+    XCTAssertTrue(messages.contains("Writing PrimalScheme reports"))
+    let fractions = recorded.withLock { $0.map(\.0) }
+    XCTAssertEqual(fractions, fractions.sorted(), "progress must never move backward")
+    XCTAssertEqual(forwarded.withLock { $0 }, 4, "the caller's own observer still receives every native line")
+  }
+
+  func testNativeProgressCountsDiscoveryAndAmplicons() {
+    var progress = PrimalScheme3NativeProgress(inputCount: 2)
+    XCTAssertNil(progress.consume("           INFO     Creating the Mismatch Database"))
+    XCTAssertEqual(progress.consume("           INFO     Digesting input_A_row_0")?.fraction, 0)
+    XCTAssertEqual(progress.consume("           INFO     Digesting input_B_row_0")?.fraction, 0.25)
+    let added = progress.consume("[16:12:24] INFO     Added amplicon (1) for")
+    XCTAssertEqual(added?.message, "Building the panel: 1 amplicon added")
+    XCTAssertEqual(added?.fraction, 0.5)
   }
 
   func testCompressedSingleSequenceReferenceIsMaterializedAsUTF8AndPreservedWithProvenance() async throws {

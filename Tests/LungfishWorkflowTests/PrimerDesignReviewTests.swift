@@ -40,6 +40,27 @@ final class PrimerDesignReviewTests: XCTestCase {
     XCTAssertEqual(reviews[1].coveragePercent, 0)
   }
 
+  /// A combined panel whose shared pools filled up still finishes successfully,
+  /// so each under-covered reference must say so on its own card.
+  func testCombinedPanelWarnsOnlyOnUnderCoveredReferences() throws {
+    let reviews = try PrimerDesignReview.primalScheme(id: "run", label: "Panel",
+      reference: Data(">a\nAAAAAAAAAA\n>b\nAAAAAAAAAA\n>c\nAAAAAAAAAA\n".utf8),
+      amplicons: Data("a\t0\t10\tA\t1\nb\t0\t9\tB\t2\nc\t0\t5\tC\t1\n".utf8), primers: [], labels: [:])
+    XCTAssertEqual(reviews.map(\.coveragePercent), [100, 90, 50])
+    XCTAssertTrue(reviews[0].advisories.isEmpty)
+    XCTAssertTrue(reviews[1].advisories.isEmpty, "exactly 90% is not under the threshold")
+    let warning = try XCTUnwrap(reviews[2].advisories.first)
+    XCTAssertEqual(warning.severity, .warning)
+    XCTAssertTrue(warning.message.hasPrefix("Amplicons span 50% of this reference. 1 of 3 references"))
+  }
+
+  func testSingleReferenceSchemeGetsNoSharedPoolWarning() throws {
+    let reviews = try PrimerDesignReview.primalScheme(id: "run", label: "Scheme",
+      reference: Data(">a\nAAAAAAAAAA\n".utf8), amplicons: Data("a\t0\t5\tA\t1\n".utf8), primers: [], labels: [:])
+    XCTAssertEqual(reviews.first?.coveragePercent, 50)
+    XCTAssertEqual(reviews.first?.advisories, [])
+  }
+
   func testAbsentAmpliconFileIsUnknownNotZeroOrPrimerFootprintCoverage() throws {
     let reviews = try PrimerDesignReview.primalScheme(id: "run", label: "Scheme",
       reference: Data(">a\nAAAA\n".utf8), amplicons: nil, primers: [], labels: [:])
