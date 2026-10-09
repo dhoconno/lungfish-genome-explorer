@@ -71,7 +71,7 @@ public enum GenotypeHaplotypeAnalyzer {
         matrixReviews: [GenotypeAnnotationSidecar.MatrixReviewAnnotation],
         locusDenominator: GenotypeLocusDenominator
     ) -> GenotypeHaplotypeAnalysis {
-        // N1. A zero-read genotype row is not an observation, so it never enters matching.
+        // N1. A zero-read genotype row is not an observation, so it never enters matching or the observed loci.
         let reviewedCalls = GenotypeReviewedHaplotypeEvidence.callsForInference(calls.filter { $0.passedUniqueReads > 0 }, reviews: matrixReviews)
         let filteredCalls = applyDropout(
             reviewedCalls,
@@ -80,7 +80,7 @@ public enum GenotypeHaplotypeAnalyzer {
             locusDenominator: locusDenominator
         )
         let callsBySample = Dictionary(grouping: filteredCalls, by: { normalizedSampleName($0.sample) })
-        let observedLoci = observedDefinitionLoci(calls: calls, definitionSet: definitionSet)
+        let observedLoci = observedDefinitionLoci(calls: calls.filter { $0.passedUniqueReads > 0 }, definitionSet: definitionSet)
         let rawSampleNames = Set(calls.map { normalizedSampleName($0.sample) })
         let samples = rawSampleNames.sorted {
             $0.localizedStandardCompare($1) == .orderedAscending

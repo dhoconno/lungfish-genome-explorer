@@ -148,6 +148,57 @@ final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
         XCTAssertEqual([s2.haplotype1, s2.haplotype2], ["M1A", "-"])
     }
 
+    /// The run-wide companion of N1 (wave 1 review). A locus whose only rows
+    /// anywhere in the run carry zero reads was not observed in the run, so
+    /// it is not assayed for every animal, exactly as a locus with no rows at
+    /// all. Reporting it as no haplotype would turn one run-level gap, a
+    /// missing amplicon or a plate-wide failure, into one sample-level
+    /// failure per animal. A locus with reads in another animal keeps the
+    /// per-animal no-haplotype result for the animal whose only row there is
+    /// zero-read.
+    func testALocusWithOnlyZeroReadRowsInTheRunIsNotAssayed() throws {
+        let definition = GenotypeHaplotypeDefinitionSet(
+            id: "zero-only",
+            assayID: "MHC-exon2-miSeq",
+            displayName: "Zero only",
+            speciesName: "Test macaque",
+            speciesCode: "TEST",
+            prefix: "",
+            locusDefinitions: [
+                GenotypeHaplotypeLocusDefinition(locus: "MHC-A", sourceLocus: "Mafa-A", haplotypes: [
+                    GenotypeHaplotypeDefinition(name: "M1A", diagnosticAlleles: ["01_Mafa_A1_001_01"]),
+                    GenotypeHaplotypeDefinition(name: "M2A", diagnosticAlleles: ["02_Mafa_A1_002_01"]),
+                ]),
+                GenotypeHaplotypeLocusDefinition(locus: "MHC-B", sourceLocus: "Mafa-B", haplotypes: [
+                    GenotypeHaplotypeDefinition(name: "M1B", diagnosticAlleles: ["03_Mafa_B_075_01"]),
+                    GenotypeHaplotypeDefinition(name: "M2B", diagnosticAlleles: ["04_Mafa_B_082_01"]),
+                ]),
+            ]
+        )
+
+        let analysis = GenotypeHaplotypeAnalyzer.analyze(
+            calls: [
+                Self.call(sample: "S1", genotype: "02_Mafa_A1_002_01", reads: 0),
+                Self.call(sample: "S1", genotype: "03_Mafa_B_075_01", reads: 0),
+                Self.call(sample: "S2", genotype: "01_Mafa_A1_001_01", reads: 40),
+                Self.call(sample: "S2", genotype: "04_Mafa_B_082_01", reads: 0),
+            ],
+            definitionSet: definition
+        )
+
+        XCTAssertEqual(analysis.samples.map(\.sample), ["S1", "S2"], "a zero-read animal stays in the analysis")
+        for sample in ["S1", "S2"] {
+            let b = try XCTUnwrap(analysis.samples.first { $0.sample == sample }?.calls.first { $0.locus == "MHC-B" })
+            XCTAssertEqual(b.status, .notAssayed, "\(sample) at MHC-B, where no animal in the run has a read")
+            XCTAssertEqual([b.haplotype1, b.haplotype2], ["Not assayed", "Not assayed"])
+        }
+        let s1 = try XCTUnwrap(analysis.samples.first { $0.sample == "S1" }?.calls.first { $0.locus == "MHC-A" })
+        XCTAssertEqual(s1.status, .noHaplotype, "S1 dropped out at a locus the run did assay")
+        XCTAssertEqual([s1.haplotype1, s1.haplotype2], ["ERR: NO HAP", "ERR: NO HAP"])
+        let s2 = try XCTUnwrap(analysis.samples.first { $0.sample == "S2" }?.calls.first { $0.locus == "MHC-A" })
+        XCTAssertEqual([s2.haplotype1, s2.haplotype2], ["M1A", "-"])
+    }
+
     func testMCMAnalyzerOmitsMHCEFromDeterministicHaplotypeCalls() throws {
         let definition = GenotypeHaplotypeDefinitionSet(
             id: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques.test",
