@@ -134,6 +134,76 @@ final class GenotypeCatalogMatrixIdentityTests: XCTestCase {
         XCTAssertEqual(native.count, 5, "two known rows, two candidates and the interpreted incomplete-span cluster")
     }
 
+    /// The mapping runs twice on every bundle open and four times per Excel
+    /// export, so it has to stay cheap on a real catalog. This builds a bundle
+    /// of realistic size, 50 animals, 300 observed alleles and a 1,500-row
+    /// production-shape reference catalog of which 1,200 rows stand alone, and
+    /// prints the median wall time of `rawSupport(in:)`. It asserts the shape
+    /// of the result and never the time, so load cannot make it flake.
+    func testRawSupportTimingOnARealisticProductionCatalog() {
+        let samples = (1...50).map { String(format: "Animal%03d", $0) }
+        let observed = (1...300).map { String(format: "%04d_Mafa_A1_%04d", $0, $0) }
+        let unobserved = (301...1500).map { String(format: "%04d_Mafa_A1_%04d", $0, $0) }
+        var calls: [ONTGenotypeCall] = []
+        for (index, genotype) in observed.enumerated() {
+            for offset in 0..<10 {
+                calls.append(GenotypeTestFixtures.makeCall(
+                    sample: samples[(index + offset * 5) % samples.count], genotype: genotype, reads: 20 + offset))
+            }
+        }
+        XCTAssertTrue(calls.allSatisfy { $0.locusGroup == "MHC-A" })
+        var observedReads: [String: [String: Int]] = [:]
+        for call in calls {
+            observedReads[call.genotype, default: [:]][call.sample] = call.passedUniqueReads
+        }
+        let rows = (observed + unobserved).map { allele in
+            GenotypeReviewableRowCatalog.Row(
+                kind: .reference, callID: "reference:MHC-A:\(allele)", displayName: allele, locus: "MHC-A",
+                stableID: nil, section: "reference", sortKey: allele,
+                supportBySample: Dictionary(uniqueKeysWithValues: samples.map { ($0, observedReads[allele]?[$0] ?? 0) })
+            )
+        }
+        let result = GenotypeTestFixtures.makeResult(
+            calls: calls, reviewableRowCatalog: GenotypeReviewableRowCatalog(samples: samples, rows: rows))
+
+        /// The median of seven timed runs after one warm-up run.
+        func medianMilliseconds(_ body: () -> Void) -> Double {
+            var milliseconds: [Double] = []
+            for _ in 0..<8 {
+                let started = DispatchTime.now().uptimeNanoseconds
+                body()
+                milliseconds.append(Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000)
+            }
+            return milliseconds.dropFirst().sorted()[3]
+        }
+        var support: [Target: Int] = [:]
+        let total = medianMilliseconds { support = GenotypeMatrixReviewEligibility.rawSupport(in: result) }
+        // Where the time goes. The floor is writing the 75,000 attested cells
+        // into a dictionary, which rawSupport paid before S1 as well.
+        let catalog = result.reviewableRowCatalog!
+        let nativeRows = GenotypeCatalogMatrixIdentity.nativeRows(in: result)
+        let nativeOnly = GenotypeMatrixReviewEligibility.rawSupport(in: GenotypeTestFixtures.makeResult(calls: calls))
+        let nativeRowsOnly = medianMilliseconds { _ = GenotypeCatalogMatrixIdentity.nativeRows(in: result) }
+        let mapOnly = medianMilliseconds { _ = try? GenotypeCatalogMatrixIdentity.map(catalog, nativeRows: nativeRows, into: nativeOnly) }
+        let floor = medianMilliseconds {
+            var cells = nativeOnly
+            for row in catalog.rows {
+                for sample in samples {
+                    cells[.cell(locus: "MHC-A", genotype: row.displayName, sample: sample)] = row.supportBySample[sample] ?? 0
+                }
+            }
+        }
+        print(String(format: "rawSupport(in:) over 1,500 catalog rows, 300 native rows and 50 samples, median of 7 runs after a warm-up: %.1f ms (nativeRows %.1f ms, map %.1f ms, dictionary floor for 75,000 cells %.1f ms)",
+                     total, nativeRowsOnly, mapOnly, floor))
+        XCTAssertEqual(support.count, 1_500 * 50, "every catalog cell is attested under a display identity")
+        XCTAssertEqual(support[.cell(locus: "MHC-A", genotype: observed[0], sample: samples[0])], 20)
+        XCTAssertEqual(support[.cell(locus: "MHC-A", genotype: unobserved[0], sample: samples[0])], 0)
+        XCTAssertFalse(support.keys.contains { key in
+            if case let .cell(_, genotype, _, _) = key { return genotype.hasPrefix("reference:") }
+            return false
+        })
+    }
+
     private func unnameableRecord(
         id: String,
         reason: ONTMHCUnnameableReason,
