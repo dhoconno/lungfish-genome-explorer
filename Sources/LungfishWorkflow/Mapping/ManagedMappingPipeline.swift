@@ -700,6 +700,13 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         return MappingTimedCondaToolResult(result: result, step: step)
     }
 
+    /// Runs `micromamba run` with the tool's stdout written straight into
+    /// `stdoutURL`, through ``ToolProcess``. The run returns only once no
+    /// process of micromamba's group can still write the file. A child still
+    /// running ``CondaFamilyProcess/micromambaDrainGracePeriod`` after
+    /// micromamba exits is stopped, and the run throws
+    /// ``CondaError/executionFailed(tool:exitCode:stderr:)``, because the file
+    /// may be incomplete.
     private func runCondaToolStreamingStdout(
         executable: String,
         arguments: [String],
@@ -710,109 +717,44 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
     ) async throws -> (stderr: String, exitCode: Int32) {
         try await condaManager.ensureMicromamba()
         let micromambaPath = await condaManager.micromambaPath
-        let rootPath = condaManager.rootPrefix.path
-        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
-        let tempDirectory = ProcessInfo.processInfo.environment["TMPDIR"]
 
-        let cancellationHandle = NativeProcessCancellationHandle()
-        let runState = NativeProcessRunState()
-
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                let process = Process()
-                process.executableURL = micromambaPath
-                process.arguments = ["run", "-n", environment, executable] + arguments
-                process.currentDirectoryURL = workingDirectory
-
-                var processEnvironment: [String: String] = [
-                    "MAMBA_ROOT_PREFIX": rootPath,
-                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                    "HOME": homePath,
-                ]
-                if let tempDirectory {
-                    processEnvironment["TMPDIR"] = tempDirectory
-                }
-                process.environment = processEnvironment
-
-                let stderrPipe = Pipe()
-                let outputHandle: FileHandle
-                do {
-                    FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
-                    outputHandle = try FileHandle(forWritingTo: stdoutURL)
-                } catch {
-                    continuation.resume(throwing: error)
-                    return
-                }
-
-                process.standardOutput = outputHandle
-                process.standardError = stderrPipe
-
-                let outputGroup = DispatchGroup()
-                let stderrCapture = ProcessDataCapture()
-                let startStderrDrain: @Sendable () -> Void = {
-                    outputGroup.enter()
-                    DispatchQueue(label: "com.lungfish.workflow.mapping-streaming-stderr", qos: .userInitiated).async {
-                        stderrCapture.data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                        outputGroup.leave()
-                    }
-                }
-                cancellationHandle.store(process)
-
-                let timeoutWorkItem = DispatchWorkItem {
-                    guard process.isRunning else { return }
-                    runState.markTimedOut()
-                    cancellationHandle.terminateProcessTree()
-                }
-                DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutWorkItem)
-
-                process.terminationHandler = { terminatedProcess in
-                    timeoutWorkItem.cancel()
-                    outputGroup.notify(queue: .global(qos: .userInitiated)) {
-                        cancellationHandle.clear(terminatedProcess)
-                        try? outputHandle.close()
-                        let stderr = String(data: stderrCapture.data, encoding: .utf8) ?? ""
-
-                        runState.resumeOnce { reason in
-                            switch reason {
-                            case .cancelled:
-                                continuation.resume(throwing: CancellationError())
-                            case .timedOut:
-                                continuation.resume(
-                                    throwing: CondaError.timeout(tool: executable, seconds: timeout)
-                                )
-                            case .completed:
-                                continuation.resume(returning: (stderr, terminatedProcess.terminationStatus))
-                            }
-                        }
-                    }
-                }
-
-                do {
-                    startStderrDrain()
-                    try process.run()
-                    cancellationHandle.terminateIfRequested()
-                    if runState.isCancelled {
-                        cancellationHandle.requestProcessTreeTermination()
-                    }
-                } catch {
-                    timeoutWorkItem.cancel()
-                    cancellationHandle.clear(process)
-                    stderrPipe.fileHandleForWriting.closeFile()
-                    try? outputHandle.close()
-                    runState.resumeOnce { reason in
-                        switch reason {
-                        case .cancelled:
-                            continuation.resume(throwing: CancellationError())
-                        case .completed, .timedOut:
-                            continuation.resume(throwing: error)
-                        }
-                    }
-                }
-            }
-        } onCancel: {
-            runState.markCancelled()
-            cancellationHandle.requestProcessTreeTermination()
+        var processEnvironment: [String: String] = [
+            "MAMBA_ROOT_PREFIX": condaManager.rootPrefix.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
+        ]
+        if let tempDirectory = ProcessInfo.processInfo.environment["TMPDIR"] {
+            processEnvironment["TMPDIR"] = tempDirectory
         }
+        let spec = ToolProcessSpec(
+            executableURL: micromambaPath,
+            arguments: ["run", "-n", environment, executable] + arguments,
+            environment: processEnvironment,
+            workingDirectory: workingDirectory,
+            stdout: .file(stdoutURL),
+            timeout: CondaFamilyProcess.limit(seconds: timeout),
+            drainGracePeriod: CondaFamilyProcess.micromambaDrainGracePeriod,
+            label: executable
+        )
+        let result: ToolProcessResult
+        do {
+            result = try await ToolProcess.run(spec)
+        } catch ToolProcessError.timedOut {
+            throw CondaError.timeout(tool: executable, seconds: timeout)
+        } catch ToolProcessError.cancelled {
+            throw CancellationError()
+        }
+        let stderr = CondaFamilyProcess.text(result.stderr)
+        if let reason = CondaFamilyProcess.incompleteOutputReason(
+            result, drainGrace: CondaFamilyProcess.micromambaDrainGracePeriod
+        ) {
+            throw CondaError.executionFailed(
+                tool: executable,
+                exitCode: result.status,
+                stderr: stderr.isEmpty ? reason : "\(reason)\n\(stderr)"
+            )
+        }
+        return (stderr, result.status)
     }
 
     func runCondaToolStreamingStdoutForTesting(
@@ -1268,10 +1210,6 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         }
         return name
     }
-}
-
-private final class ProcessDataCapture: @unchecked Sendable {
-    var data = Data()
 }
 
 struct MappingTimedNativeToolResult {

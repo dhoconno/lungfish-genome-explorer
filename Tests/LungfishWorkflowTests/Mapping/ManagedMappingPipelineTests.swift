@@ -779,6 +779,68 @@ final class ManagedMappingPipelineTests: XCTestCase {
         }
     }
 
+    func testStreamingCondaStdoutWritesMoreThan64KBToFileWhileDrainingStderr() async throws {
+        let fixture = try StreamingCondaFixture()
+        defer { fixture.cleanup() }
+        let pipeline = ManagedMappingPipeline(condaManager: fixture.condaManager)
+        let stdoutURL = fixture.root.appendingPathComponent("big.sam")
+
+        let result = try await pipeline.runCondaToolStreamingStdoutForTesting(
+            executable: "mapper",
+            arguments: ["big"],
+            environment: "mapper",
+            workingDirectory: fixture.root,
+            stdoutURL: stdoutURL,
+            timeout: 30
+        )
+
+        XCTAssertEqual(result.exitCode, 0)
+        let written = try String(contentsOf: stdoutURL, encoding: .utf8)
+        XCTAssertGreaterThan(written.utf8.count, 64 * 1024)
+        XCTAssertEqual(written.split(separator: "\n").count, 3000)
+        XCTAssertTrue(written.hasSuffix("read-2999\t0\tchr1\t1\t60\t40M\t*\t0\t0\tACGT\tIIII\n"))
+        XCTAssertGreaterThan(result.stderr.utf8.count, 64 * 1024)
+        XCTAssertTrue(result.stderr.hasSuffix("stderr-line-2999-abcdefghijklmnopqrstuvwxyz\n"))
+    }
+
+    /// A child still running after micromamba exits could still be writing
+    /// the SAM, so the run stops it and refuses the output.
+    func testStreamingCondaStdoutThrowsWhenAChildOutlivesMicromamba() async throws {
+        let fixture = try StreamingCondaFixture()
+        defer { fixture.cleanup() }
+        let pipeline = ManagedMappingPipeline(condaManager: fixture.condaManager)
+        let stdoutURL = fixture.root.appendingPathComponent("lingering.sam")
+        let childPIDURL = fixture.root.appendingPathComponent("child.pid")
+
+        do {
+            _ = try await pipeline.runCondaToolStreamingStdoutForTesting(
+                executable: "mapper",
+                arguments: ["linger", childPIDURL.path],
+                environment: "mapper",
+                workingDirectory: fixture.root,
+                stdoutURL: stdoutURL,
+                timeout: 120
+            )
+            XCTFail("Expected incomplete output to throw")
+        } catch CondaError.executionFailed(let tool, let exitCode, let stderr) {
+            XCTAssertEqual(tool, "mapper")
+            XCTAssertEqual(exitCode, 0)
+            XCTAssertTrue(
+                stderr.hasPrefix("The output of mapper is incomplete because a child process kept it open after mapper exited."),
+                stderr
+            )
+        }
+
+        let pidText = try String(contentsOf: childPIDURL, encoding: .utf8)
+        let childPID = try XCTUnwrap(Int32(pidText.trimmingCharacters(in: .whitespacesAndNewlines)))
+        defer { ProcessTreeTerminator.terminate(rootPID: childPID, gracePeriod: 0) }
+        let deadline = Date().addingTimeInterval(5)
+        while ProcessTreeTerminator.processExists(pid: childPID), Date() < deadline {
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        XCTAssertFalse(ProcessTreeTerminator.processExists(pid: childPID), "The lingering child must be stopped")
+    }
+
     // MARK: - Flagstat parsing reports primary reads, not alignment records
 
     /// The worked example from the audit: 10 reads (8 mapped primaries, 2
@@ -909,6 +971,21 @@ private struct StreamingCondaFixture {
             ready)
               touch "$2"
               sleep 30
+              ;;
+            big)
+              i=0
+              while [ $i -lt 3000 ]; do
+                echo "read-$i	0	chr1	1	60	40M	*	0	0	ACGT	IIII"
+                echo "stderr-line-$i-abcdefghijklmnopqrstuvwxyz" >&2
+                i=$((i+1))
+              done
+              exit 0
+              ;;
+            linger)
+              sleep 60 &
+              echo "$!" > "$2"
+              echo "header"
+              exit 0
               ;;
             *)
               echo "unknown mode for $tool" >&2

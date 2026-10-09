@@ -1238,6 +1238,160 @@ final class CondaManagerTests: XCTestCase {
         try await waitForProcessExit(pid: childPID)
     }
 
+    // MARK: - runTool on ToolProcess (R7, Phase 2.2 lane 2B)
+
+    /// A fake micromamba whose `run` executes `runBody`, on a CondaManager
+    /// rooted in a fresh sandbox.
+    private func makeScriptedRunManager(runBody: String) async throws -> (manager: CondaManager, sandbox: URL) {
+        let sandbox = try makeMicromambaSandbox()
+        let bundledMicromamba = sandbox.appendingPathComponent("bundled-micromamba")
+        let script = """
+        #!/bin/sh
+        case "$1" in
+            --version)
+                echo "2.0.5-0"
+                exit 0
+                ;;
+            run)
+        \(runBody)
+                ;;
+            *)
+                echo "unexpected args: $@" >&2
+                exit 1
+                ;;
+        esac
+        """
+        try script.write(to: bundledMicromamba, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bundledMicromamba.path)
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { bundledMicromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+        return (manager, sandbox)
+    }
+
+    /// A child that inherits micromamba's stdout and outlives it used to hang
+    /// runTool forever. ToolProcess bounds the wait, stops the child and
+    /// reports the output as incomplete, which runTool turns into an error.
+    func testRunToolThrowsWhenAChildKeepsOutputOpenAfterMicromambaExits() async throws {
+        let childPIDURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lingering-child-\(UUID().uuidString).pid")
+        defer { try? FileManager.default.removeItem(at: childPIDURL) }
+        let (manager, sandbox) = try await makeScriptedRunManager(runBody: """
+                sleep 60 &
+                echo "$!" > '\(childPIDURL.path)'
+                echo "finished"
+                exit 0
+        """)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let start = Date()
+        do {
+            _ = try await manager.runTool(name: "lingering", environment: "lingering-env", timeout: 120)
+            XCTFail("Expected incomplete output to throw")
+        } catch CondaError.executionFailed(let tool, let exitCode, let stderr) {
+            XCTAssertEqual(tool, "lingering")
+            XCTAssertEqual(exitCode, 0)
+            XCTAssertTrue(
+                stderr.hasPrefix("The output of lingering is incomplete because a child process kept it open after lingering exited."),
+                stderr
+            )
+        }
+        let elapsed = Date().timeIntervalSince(start)
+        XCTAssertLessThan(elapsed, 30, "runTool must not wait for the lingering child")
+
+        let childPID = try readPID(childPIDURL)
+        defer { ProcessTreeTerminator.terminate(rootPID: childPID, gracePeriod: 0) }
+        try await waitForProcessExit(pid: childPID)
+    }
+
+    /// More than 64 KB on both streams at once, with blank lines, reaches the
+    /// result and both line handlers in full.
+    func testRunToolDrainsMoreThan64KBOnBothStreamsAndDeliversEveryLine() async throws {
+        let (manager, sandbox) = try await makeScriptedRunManager(runBody: """
+                i=0
+                while [ $i -lt 3000 ]; do
+                    echo "stdout-line-$i-abcdefghijklmnopqrstuvwxyz"
+                    echo "stderr-line-$i-abcdefghijklmnopqrstuvwxyz" >&2
+                    i=$((i+1))
+                done
+                printf 'a\\n\\nb\\n'
+                printf 'c\\n\\nd\\n' >&2
+                exit 0
+        """)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let stdoutLines = LockedStrings()
+        let stderrLines = LockedStrings()
+        let result = try await manager.runTool(
+            name: "chatty",
+            environment: "chatty-env",
+            stdoutHandler: { stdoutLines.append($0) },
+            stderrHandler: { stderrLines.append($0) }
+        )
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertGreaterThan(result.stdout.utf8.count, 64 * 1024)
+        XCTAssertGreaterThan(result.stderr.utf8.count, 64 * 1024)
+        let expectedStdout = (0..<3000).map { "stdout-line-\($0)-abcdefghijklmnopqrstuvwxyz" } + ["a", "", "b"]
+        let expectedStderr = (0..<3000).map { "stderr-line-\($0)-abcdefghijklmnopqrstuvwxyz" } + ["c", "", "d"]
+        XCTAssertEqual(stdoutLines.snapshot(), expectedStdout)
+        XCTAssertEqual(stderrLines.snapshot(), expectedStderr)
+        XCTAssertEqual(result.stdout, expectedStdout.joined(separator: "\n") + "\n")
+        XCTAssertEqual(result.stderr, expectedStderr.joined(separator: "\n") + "\n")
+    }
+
+    /// micromamba ended by an uncaught SIGTERM reads as a timeout, as it did
+    /// before runTool moved to ToolProcess.
+    func testRunToolMapsAnUncaughtSIGTERMToTimeout() async throws {
+        let (manager, sandbox) = try await makeScriptedRunManager(runBody: """
+                kill -TERM $$
+                sleep 5
+        """)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        do {
+            _ = try await manager.runTool(name: "terminated", environment: "terminated-env", timeout: 42)
+            XCTFail("Expected SIGTERM to map to a timeout")
+        } catch CondaError.timeout(let tool, let seconds) {
+            XCTAssertEqual(tool, "terminated")
+            XCTAssertEqual(seconds, 42)
+        }
+    }
+
+    func testRunToolTimeoutStopsMicromambaAndThrowsCondaTimeout() async throws {
+        let (manager, sandbox) = try await makeScriptedRunManager(runBody: """
+                sleep 60
+        """)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let start = Date()
+        do {
+            _ = try await manager.runTool(name: "slow", environment: "slow-env", timeout: 0.5)
+            XCTFail("Expected a timeout")
+        } catch CondaError.timeout(let tool, let seconds) {
+            XCTAssertEqual(tool, "slow")
+            XCTAssertEqual(seconds, 0.5)
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(start), 10)
+    }
+
+    func testRunToolReturnsNonzeroExitWithOutput() async throws {
+        let (manager, sandbox) = try await makeScriptedRunManager(runBody: """
+                echo "partial"
+                echo "bad input" >&2
+                exit 3
+        """)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let result = try await manager.runTool(name: "failing", environment: "failing-env")
+        XCTAssertEqual(result.exitCode, 3)
+        XCTAssertEqual(result.stdout, "partial\n")
+        XCTAssertEqual(result.stderr, "bad input\n")
+    }
+
     // MARK: - Private Test Helper
 
     /// Result from running a process with concurrent pipe reading.

@@ -25,7 +25,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 6 | 2473 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 8 | 8359 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 14 | 3548 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 706 | 225985 | 1341 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 706 | 225682 | 1342 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 4 | 399 | 2 | LungfishKit, LungfishTestSupport |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 34 | 5961 | 28 | LungfishCore, LungfishIO, LungfishWorkflow |
 
@@ -50,7 +50,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUITests | Tests/LungfishPhylogeneticsUITests | 4 | 1114 | LungfishIO, LungfishKit, LungfishPhylogeneticsUI, LungfishTestSupport, LungfishWorkflow |
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 10 | 3203 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 12 | 2554 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
-| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 394 | 161971 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
+| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 394 | 162202 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 
 ## Lungfish
 
@@ -1796,7 +1796,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 706, lines 225985
+- Swift files. 706, lines 225682
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1812,7 +1812,7 @@ None.
 | Assembly | 21 | 5776 |
 | Bundles | 9 | 2027 |
 | CLIEvents | 2 | 296 |
-| Conda | 29 | 8780 |
+| Conda | 29 | 8608 |
 | Containers | 9 | 3557 |
 | Databases | 1 | 1708 |
 | DemoProjects | 5 | 1065 |
@@ -1825,7 +1825,7 @@ None.
 | Geneious | 10 | 2380 |
 | Ingestion | 29 | 10152 |
 | MSA | 14 | 2641 |
-| Mapping | 24 | 9658 |
+| Mapping | 24 | 9596 |
 | Metagenomics | 48 | 20559 |
 | Metagenomics/CzId | 3 | 909 |
 | Native | 7 | 4519 |
@@ -1848,7 +1848,7 @@ None.
 | TaxTriage | 8 | 4104 |
 | ToolReference | 2 | 473 |
 | TwelveS | 14 | 4896 |
-| Variants | 32 | 7453 |
+| Variants | 32 | 7384 |
 | ViralRecon | 14 | 2943 |
 | WorkflowPackages | 1 | 334 |
 | nf-core | 3 | 627 |
@@ -2096,16 +2096,16 @@ None.
 - `ClumpingTool` enum, `Sources/LungfishWorkflow/Ingestion/ClumpingTool.swift:8`
 - `ClumpingToolResolution` struct, `Sources/LungfishWorkflow/Ingestion/ClumpingTool.swift:96`
 - `CompressionLevel` enum, `Sources/LungfishWorkflow/Recipes/IngestionPlatform.swift:11`
-- `CondaEnvironment` struct, `Sources/LungfishWorkflow/Conda/CondaManager.swift:112`
+- `CondaEnvironment` struct, `Sources/LungfishWorkflow/Conda/CondaManager.swift:137`
 - `CondaEnvironmentMutationLock` class, `Sources/LungfishWorkflow/Conda/CondaRootMutationLock.swift:186`
 - `CondaEnvironmentMutationTransaction` class, `Sources/LungfishWorkflow/Conda/CondaRootMutationLock.swift:244`
-- `CondaError` enum, `Sources/LungfishWorkflow/Conda/CondaManager.swift:62`
+- `CondaError` enum, `Sources/LungfishWorkflow/Conda/CondaManager.swift:87`
 - `CondaLockfileError` enum, `Sources/LungfishWorkflow/Conda/CondaLockfileService.swift:89`
 - `CondaLockfileResult` struct, `Sources/LungfishWorkflow/Conda/CondaLockfileService.swift:24`
 - `CondaLockfileService` struct, `Sources/LungfishWorkflow/Conda/CondaLockfileService.swift:106`
 - `CondaLockInstalling` protocol, `Sources/LungfishWorkflow/Conda/CondaLockfileService.swift:4`
 - `CondaLockInstallResult` struct, `Sources/LungfishWorkflow/Conda/CondaLockfileService.swift:29`
-- `CondaManager` actor, `Sources/LungfishWorkflow/Conda/CondaManager.swift:189`
+- `CondaManager` actor, `Sources/LungfishWorkflow/Conda/CondaManager.swift:214`
 - `CondaManagerLockInstaller` struct, `Sources/LungfishWorkflow/Conda/CondaLockfileService.swift:8`
 - `CondaMetaPackage` struct, `Sources/LungfishWorkflow/Dependencies/CondaMetaReader.swift:3`
 - `CondaMetaReader` enum, `Sources/LungfishWorkflow/Dependencies/CondaMetaReader.swift:37`
@@ -2116,7 +2116,7 @@ None.
 - `CondaOfflinePackInstallResult` struct, `Sources/LungfishWorkflow/Conda/CondaOfflinePackService.swift:73`
 - `CondaOfflinePackManifest` struct, `Sources/LungfishWorkflow/Conda/CondaOfflinePackService.swift:17`
 - `CondaOfflinePackService` struct, `Sources/LungfishWorkflow/Conda/CondaOfflinePackService.swift:78`
-- `CondaPackageInfo` struct, `Sources/LungfishWorkflow/Conda/CondaManager.swift:128`
+- `CondaPackageInfo` struct, `Sources/LungfishWorkflow/Conda/CondaManager.swift:153`
 - `CondaRequestedEnvironmentSpecification` struct, `Sources/LungfishWorkflow/Conda/CondaLockfileService.swift:36`
 - `CondaRootMutationLock` class, `Sources/LungfishWorkflow/Conda/CondaRootMutationLock.swift:21`
 - `CondaRootMutationLockError` enum, `Sources/LungfishWorkflow/Conda/CondaRootMutationLock.swift:4`
@@ -2476,7 +2476,7 @@ None.
 - `ManagedToolLock` struct, `Sources/LungfishWorkflow/Conda/ManagedToolLock.swift:147`
 - `ManagedToolSourceFileSystem` struct, `Sources/LungfishWorkflow/Conda/ManagedToolSourceFileSystem.swift:8`
 - `ManagedToolSourceInstallationRecord` struct, `Sources/LungfishWorkflow/Conda/ManagedToolSourceInstallationRecord.swift:6`
-- `ManagedToolSourceInstaller` struct, `Sources/LungfishWorkflow/Conda/ManagedToolSourceInstaller.swift:23`
+- `ManagedToolSourceInstaller` struct, `Sources/LungfishWorkflow/Conda/ManagedToolSourceInstaller.swift:6`
 - `ManagedToolSourceInstallerError` enum, `Sources/LungfishWorkflow/Conda/ManagedToolSourceInstallerError.swift:5`
 - `ManagedToolSourceRuntimeProbe` struct, `Sources/LungfishWorkflow/Conda/ManagedToolSourceRuntimeProbe.swift:7`
 - `ManualReviewEvidence` struct, `Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingTypes.swift:262`
@@ -2850,7 +2850,8 @@ None.
 - `PrimerToolPortableLauncher` enum, `Sources/LungfishWorkflow/Conda/PrimerToolPortableLauncher.swift:24`
 - `PrimerToolPortableLauncherError` enum, `Sources/LungfishWorkflow/Conda/PrimerToolPortableLauncher.swift:4`
 - `PrimerTrimProvenanceLoader` enum, `Sources/LungfishWorkflow/Primers/PrimerTrimProvenanceLoader.swift:16`
-- `ProcessGATKCommandRunner` struct, `Sources/LungfishWorkflow/Variants/ProcessGATKCommandRunner.swift:25`
+- `ProcessGATKCommandRunner` struct, `Sources/LungfishWorkflow/Variants/ProcessGATKCommandRunner.swift:23`
+- `ProcessGATKCommandRunnerError` enum, `Sources/LungfishWorkflow/Variants/ProcessGATKCommandRunner.swift:9`
 - `ProcessHandle` struct, `Sources/LungfishWorkflow/ProcessHandle.swift:35`
 - `ProcessManager` actor, `Sources/LungfishWorkflow/ProcessManager.swift:57`
 - `ProcessManaging` protocol, `Sources/LungfishWorkflow/ProcessManaging.swift:16`

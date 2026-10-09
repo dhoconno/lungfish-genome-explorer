@@ -8,51 +8,76 @@ import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.workflow, category: "CondaManager")
 
-// MARK: - EOF-synchronized pipe drain
+// MARK: - ToolProcess adapter shared by the conda family
 
-/// A lock-protected `Data` accumulator fed by a `Pipe`'s `readabilityHandler`.
-///
-/// `readabilityHandler` fires on the pipe's dispatch source queue, which is
-/// not necessarily the queue that reads `data` afterward, so appends and
-/// reads both take the lock.
-private final class CondaPipeDrainBuffer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var buffer = Data()
-    private let eof = DispatchSemaphore(value: 0)
-    private var framer = ProcessOutputLineFramer()
+/// What the conda family of runners shares when it runs a process through
+/// ``ToolProcess``. `CondaManager`, the streaming micromamba run in
+/// `ManagedMappingPipeline`, `ManagedToolSourceInstaller.run` and
+/// `ProcessGATKCommandRunner` use it.
+enum CondaFamilyProcess {
+    /// How long a micromamba run's captured streams, and the process group of
+    /// a run that writes stdout to a file, get to settle after micromamba exits.
+    ///
+    /// `micromamba run` starts the tool as its child and exits once that child
+    /// exits, so in a normal run end of file arrives with the exit and this
+    /// time is never spent. It matters only when something the tool started
+    /// outlives it, such as a helper that a launcher script forked and that is
+    /// still flushing its last lines on a loaded Mac. Five seconds gives such
+    /// a late flush room that the 2 second ToolProcess default may not, and
+    /// still bounds a daemonized grandchild that never closes the pipe, which
+    /// used to hang the run forever.
+    static let micromambaDrainGracePeriod: Duration = .seconds(5)
 
-    /// Attaches this buffer to a pipe's readabilityHandler. Signals `eof`
-    /// exactly once, when the handler observes empty data (true EOF), rather
-    /// than after a fixed delay that has no happens-before relationship to
-    /// the last handler invocation.
-    func attach(to pipe: Pipe, onLine: (@Sendable (String) -> Void)? = nil) {
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            guard let self else { return }
-            // Serialize the final callback with EOF: completion must not overtake
-            // output still being delivered to the caller's durable diagnostic sink.
-            self.lock.lock()
-            defer { self.lock.unlock() }
-            let chunk = handle.availableData
-            if chunk.isEmpty {
-                for line in self.framer.finish() { onLine?(line) }
-                pipe.fileHandleForReading.readabilityHandler = nil
-                self.eof.signal()
-            } else {
-                self.buffer.append(chunk)
-                if let onLine {
-                    for line in self.framer.append(chunk) { onLine(line) }
-                }
+    /// The ToolProcess limit for a timeout in seconds. A value that is not
+    /// finite, or too large to count in nanoseconds, means no limit. A value at
+    /// or below zero becomes the smallest limit, so the run stops at once, as
+    /// the timer it replaces did.
+    static func limit(seconds: TimeInterval) -> Duration? {
+        guard seconds.isFinite, seconds < 9e9 else { return nil }
+        return .nanoseconds(max(Int64((seconds * 1e9).rounded()), 1))
+    }
+
+    /// Captured bytes as UTF-8 text, or the empty string when they are not
+    /// valid UTF-8, which is what `String(data:encoding:)` gave these runners.
+    static func text(_ data: Data) -> String {
+        String(data: data, encoding: .utf8) ?? ""
+    }
+
+    /// An event observer that hands each captured line to the handler for its
+    /// stream, or nil when there is no handler, so output is not framed at all.
+    static func lineForwarder(
+        stdout stdoutHandler: (@Sendable (String) -> Void)?,
+        stderr stderrHandler: (@Sendable (String) -> Void)?
+    ) -> (@Sendable (ToolProcessEvent) -> Void)? {
+        guard stdoutHandler != nil || stderrHandler != nil else { return nil }
+        return { event in
+            guard case .output(let stream, let line) = event else { return }
+            switch stream {
+            case .stdout: stdoutHandler?(line)
+            case .stderr: stderrHandler?(line)
             }
         }
     }
 
-    /// Blocks (on a background queue only -- never call from an actor) until
-    /// EOF has been observed, then returns the accumulated bytes.
-    func waitForEOFAndTake() -> Data {
-        eof.wait()
-        lock.lock()
-        defer { lock.unlock() }
-        return buffer
+    /// Why a run's output is incomplete, for an error message, or nil when it
+    /// is complete.
+    static func incompleteOutputReason(_ result: ToolProcessResult, drainGrace: Duration) -> String? {
+        if result.outputDrainTimedOut {
+            let waited = drainGrace.components.seconds
+            return "The output of \(result.label) is incomplete because a child process kept it open after \(result.label) exited. LGE waited \(waited) seconds for it, then stopped it."
+        }
+        if result.outputReadFailed {
+            return "The output of \(result.label) is incomplete because reading it failed."
+        }
+        return nil
+    }
+
+    /// The `Process` termination reason that matches a ToolProcess termination.
+    static func terminationReason(_ termination: ToolProcessTermination) -> Process.TerminationReason {
+        switch termination {
+        case .exited: return .exit
+        case .signaled: return .uncaughtSignal
+        }
     }
 }
 
@@ -555,41 +580,30 @@ public actor CondaManager {
     private func runMicromambaVersion(at path: URL) async throws -> String {
         try ensureMicromambaExecutable(at: path)
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let process = Process()
-            process.executableURL = path
-            process.arguments = ["--version"]
-
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
-
-            process.terminationHandler = { terminatedProcess in
-                let stdoutData = try? stdoutPipe.fileHandleForReading.readToEnd() ?? Data()
-                let stderrData = try? stderrPipe.fileHandleForReading.readToEnd() ?? Data()
-                let stdout = String(decoding: stdoutData ?? Data(), as: UTF8.self)
-                let stderr = String(decoding: stderrData ?? Data(), as: UTF8.self)
-
-                if terminatedProcess.terminationStatus == 0 {
-                    continuation.resume(returning: stdout)
-                } else {
-                    continuation.resume(
-                        throwing: CondaError.executionFailed(
-                            tool: "micromamba",
-                            exitCode: terminatedProcess.terminationStatus,
-                            stderr: stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-                        )
-                    )
-                }
-            }
-
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(throwing: error)
-            }
+        let spec = ToolProcessSpec(
+            executableURL: path,
+            arguments: ["--version"],
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            drainGracePeriod: CondaFamilyProcess.micromambaDrainGracePeriod,
+            label: "micromamba"
+        )
+        // An unstructured task does not inherit cancellation, so the probe
+        // runs to its end even when the caller is cancelled, as it always has.
+        let result = try await Task { try await ToolProcess.run(spec) }.value
+        guard result.termination == .exited(code: 0) else {
+            throw CondaError.executionFailed(
+                tool: "micromamba",
+                exitCode: result.status,
+                stderr: String(decoding: result.stderr, as: UTF8.self)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            )
         }
+        if let reason = CondaFamilyProcess.incompleteOutputReason(
+            result, drainGrace: CondaFamilyProcess.micromambaDrainGracePeriod
+        ) {
+            throw CondaError.executionFailed(tool: "micromamba", exitCode: result.status, stderr: reason)
+        }
+        return String(decoding: result.stdout, as: UTF8.self)
     }
 
     // MARK: - Environment Management
@@ -1083,11 +1097,13 @@ public actor CondaManager {
     /// Uses `micromamba run -n <env> <tool> [args...]` to ensure the correct
     /// environment is activated, including library paths and Python venvs.
     ///
-    /// Pipe reading is performed concurrently with the subprocess using
-    /// `readabilityHandler` to avoid deadlocks when the process produces
-    /// more than 64 KB of output. The actor thread is never blocked --
-    /// the method suspends via `CheckedContinuation` until the process
-    /// terminates or the timeout expires.
+    /// The run goes through ``ToolProcess``, which reads both streams while
+    /// the process runs, so more than 64 KB of output never blocks it, and
+    /// which stops the whole micromamba process tree on cancellation or
+    /// timeout. Output that a child process still holds open
+    /// ``CondaFamilyProcess/micromambaDrainGracePeriod`` after micromamba
+    /// exits is incomplete, and the run throws ``CondaError/executionFailed(tool:exitCode:stderr:)``
+    /// saying so.
     ///
     /// - Parameters:
     ///   - name: The tool executable name (e.g., "kraken2").
@@ -1103,7 +1119,8 @@ public actor CondaManager {
     ///   - stdoutHandler: Optional live stdout line callback. Each pipe frames UTF-8,
     ///     LF, CRLF, CR updates and its final unterminated line independently.
     ///     Both callbacks finish before this method returns or throws after launch.
-    ///     Callbacks run synchronously on pipe readers and should enqueue expensive work.
+    ///     Callbacks run one at a time on the run's event queue, and output is
+    ///     not read while one runs, so they should enqueue expensive work.
     /// - Returns: A tuple of (stdout, stderr, exitCode).
     /// - Throws: ``CondaError`` on tool-not-found, timeout, or launch failure.
     public func runTool(
@@ -1138,144 +1155,59 @@ public actor CondaManager {
         let args = ["run", "-n", environment, name] + arguments
         logger.info("Running conda tool: micromamba \(args.joined(separator: " "), privacy: .public)")
 
-        let executablePath = micromambaPath
-        let rootPath = rootPrefix.path
-        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
-        let tempDirectory = ProcessInfo.processInfo.environment["TMPDIR"]
-
-        let cancellationHandle = NativeProcessCancellationHandle()
-        let runState = NativeProcessRunState()
-
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                let process = Process()
-                process.executableURL = executablePath
-                process.arguments = args
-                var env: [String: String] = [
-                    "MAMBA_ROOT_PREFIX": rootPath,
-                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                    "HOME": homePath,
-                ]
-                if let tempDirectory {
-                    env["TMPDIR"] = tempDirectory
-                }
-                if let extraVars = environmentVariables {
-                    env.merge(extraVars) { _, new in new }
-                }
-                process.environment = env
-                if let wd = workingDirectory {
-                    process.currentDirectoryURL = wd
-                }
-
-                let stdoutPipe = Pipe()
-                let stderrPipe = Pipe()
-                process.standardOutput = stdoutPipe
-                process.standardError = stderrPipe
-
-                // Drain to true EOF (signaled by the readabilityHandler
-                // itself observing empty data) rather than a fixed delay after
-                // `terminationHandler` fires. A time delay is not a
-                // happens-before edge: a handler invocation still in flight when
-                // the delay expires can append to the buffer while it is being
-                // read (a data race on NSMutableData), and output still sitting
-                // in the pipe past the delay is silently lost. `eof.wait()`
-                // below blocks until this handler has actually seen EOF.
-                let stdoutDrain = CondaPipeDrainBuffer()
-                cancellationHandle.store(process)
-
-                let stderrDrain = CondaPipeDrainBuffer()
-                stdoutDrain.attach(to: stdoutPipe, onLine: stdoutHandler)
-                stderrDrain.attach(to: stderrPipe, onLine: stderrHandler)
-
-                // Timeout timer: terminates the process if it runs too long.
-                // nonisolated(unsafe) because DispatchWorkItem is not Sendable,
-                // but we only cancel it from the terminationHandler or catch
-                // block, never concurrently with its execution.
-                nonisolated(unsafe) let timeoutItem = DispatchWorkItem { [weak process] in
-                    guard let process, process.isRunning else { return }
-                    logger.warning("Tool '\(name, privacy: .public)' timed out after \(Int(timeout))s, terminating")
-                    runState.markTimedOut()
-                    cancellationHandle.terminateProcessTree()
-                }
-                DispatchQueue.global().asyncAfter(
-                    deadline: .now() + timeout,
-                    execute: timeoutItem
-                )
-
-                process.terminationHandler = { terminatedProcess in
-                    // Cancel the timeout timer since the process finished.
-                    timeoutItem.cancel()
-
-                    // Wait for both pipes' real EOF (not a fixed
-                    // delay) before reading the accumulated buffers. This
-                    // dispatches to a background queue, never the actor, so
-                    // the semaphore waits below do not block CondaManager's
-                    // executor for other callers.
-                    DispatchQueue.global().async {
-                        let stdoutData = stdoutDrain.waitForEOFAndTake()
-                        let stderrData = stderrDrain.waitForEOFAndTake()
-
-                        cancellationHandle.clear(terminatedProcess)
-                        // Nil out handlers to break retain cycles.
-                        stdoutPipe.fileHandleForReading.readabilityHandler = nil
-                        stderrPipe.fileHandleForReading.readabilityHandler = nil
-
-                        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-                        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-
-                        runState.resumeOnce { reason in
-                            switch reason {
-                            case .cancelled:
-                                continuation.resume(throwing: CancellationError())
-                            case .timedOut:
-                                continuation.resume(
-                                    throwing: CondaError.timeout(tool: name, seconds: timeout)
-                                )
-                            case .completed:
-                                // Check if this was a timeout (SIGTERM = exit 15 or 143).
-                                if terminatedProcess.terminationReason == .uncaughtSignal
-                                    && (terminatedProcess.terminationStatus == 15
-                                        || terminatedProcess.terminationStatus == 143) {
-                                    continuation.resume(
-                                        throwing: CondaError.timeout(tool: name, seconds: timeout)
-                                    )
-                                } else {
-                                    continuation.resume(
-                                        returning: (stdout, stderr, terminatedProcess.terminationStatus)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                do {
-                    try process.run()
-                    cancellationHandle.terminateIfRequested(gracePeriod: 0)
-                    if runState.isCancelled {
-                        cancellationHandle.terminateProcessTree(gracePeriod: 0)
-                    }
-                } catch {
-                    timeoutItem.cancel()
-                    cancellationHandle.clear(process)
-                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
-                    stderrPipe.fileHandleForReading.readabilityHandler = nil
-                    runState.resumeOnce { reason in
-                        switch reason {
-                        case .cancelled:
-                            continuation.resume(
-                                throwing: CancellationError()
-                            )
-                        case .completed, .timedOut:
-                            continuation.resume(throwing: error)
-                        }
-                    }
-                }
-            }
-        } onCancel: {
-            runState.markCancelled()
-            cancellationHandle.terminateProcessTree(gracePeriod: 0)
+        // Hermetic: nothing from the caller's shell beyond TMPDIR.
+        var processEnvironment: [String: String] = [
+            "MAMBA_ROOT_PREFIX": rootPrefix.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
+        ]
+        if let tempDirectory = ProcessInfo.processInfo.environment["TMPDIR"] {
+            processEnvironment["TMPDIR"] = tempDirectory
         }
+        if let environmentVariables {
+            processEnvironment.merge(environmentVariables) { _, new in new }
+        }
+        // ToolProcess has one grace period for a cancellation and a timeout.
+        // A cancellation keeps the immediate kill it has always had, so a
+        // timeout now gets no grace either, where it had 0.5 seconds.
+        let spec = ToolProcessSpec(
+            executableURL: micromambaPath,
+            arguments: args,
+            environment: processEnvironment,
+            workingDirectory: workingDirectory,
+            timeout: CondaFamilyProcess.limit(seconds: timeout),
+            terminationGracePeriod: .zero,
+            drainGracePeriod: CondaFamilyProcess.micromambaDrainGracePeriod,
+            label: name
+        )
+        let result: ToolProcessResult
+        do {
+            result = try await ToolProcess.run(
+                spec,
+                onEvent: CondaFamilyProcess.lineForwarder(stdout: stdoutHandler, stderr: stderrHandler)
+            )
+        } catch ToolProcessError.timedOut {
+            logger.warning("Tool '\(name, privacy: .public)' timed out after \(Int(timeout))s and was terminated")
+            throw CondaError.timeout(tool: name, seconds: timeout)
+        } catch ToolProcessError.cancelled {
+            throw CancellationError()
+        }
+        // A SIGTERM from outside LGE reads as a timeout, as it always has.
+        if result.termination == .signaled(signal: SIGTERM) {
+            throw CondaError.timeout(tool: name, seconds: timeout)
+        }
+        let stderr = CondaFamilyProcess.text(result.stderr)
+        if let reason = CondaFamilyProcess.incompleteOutputReason(
+            result, drainGrace: CondaFamilyProcess.micromambaDrainGracePeriod
+        ) {
+            logger.error("\(reason, privacy: .public)")
+            throw CondaError.executionFailed(
+                tool: name,
+                exitCode: result.status,
+                stderr: stderr.isEmpty ? reason : "\(reason)\n\(stderr)"
+            )
+        }
+        return (CondaFamilyProcess.text(result.stdout), stderr, result.status)
     }
 
     // MARK: - Nextflow Integration
@@ -1475,12 +1407,6 @@ public actor CondaManager {
         }
     }
 
-    /// Runs micromamba with the given arguments and returns stdout.
-    ///
-    /// Pipe reading is performed concurrently with the subprocess using
-    /// `readabilityHandler` to avoid deadlocks when micromamba produces
-    /// more than 64 KB of output (e.g. environment creation with many
-    /// packages). The actor thread is never blocked.
     /// Builds a failure message that always says what ran and how it died,
     /// even when micromamba produced no output at all (a SIGKILLed binary with
     /// an invalid code signature prints nothing, which used to surface as the
@@ -1517,91 +1443,55 @@ public actor CondaManager {
         return parts.joined(separator: "; ")
     }
 
+    /// Runs micromamba with the given arguments and returns stdout.
+    ///
+    /// The run goes through ``ToolProcess``, so more than 64 KB of output,
+    /// as an environment creation with many packages writes, never blocks it.
+    /// It has no timeout, and it runs to its end even when the calling task
+    /// is cancelled, because stopping micromamba partway through a create or
+    /// install can leave an environment half written.
     private func runMicromamba(_ arguments: [String]) async throws -> String {
         guard FileManager.default.fileExists(atPath: micromambaPath.path) else {
             throw CondaError.micromambaNotFound
         }
 
         let executablePath = micromambaPath
-        let rootPath = rootPrefix.path
-        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
-        let tempDirectory = ProcessInfo.processInfo.environment["TMPDIR"]
-
-        return try await withCheckedThrowingContinuation { continuation in
-            let process = Process()
-            process.executableURL = executablePath
-            process.arguments = arguments
-            process.environment = [
-                "MAMBA_ROOT_PREFIX": rootPath,
+        let spec = ToolProcessSpec(
+            executableURL: executablePath,
+            arguments: arguments,
+            environment: [
+                "MAMBA_ROOT_PREFIX": rootPrefix.path,
                 "MAMBA_NO_BANNER": "1",
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "HOME": homePath,
-                "TMPDIR": tempDirectory ?? "/tmp",
-            ]
-
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
-
-            // Lock-protected single-resume guard (R3-R3ML-15), replacing an ad-hoc
-            // nonisolated(unsafe) var continuationResumed flag that was mutated from
-            // both the terminationHandler's asyncAfter closure and the synchronous
-            // catch block below with no synchronization. The two writer sites cannot
-            // literally race today (process.run() throwing means the termination
-            // handler never fires), so this was not an active bug, but it diverged
-            // from the mutex-protected NativeProcessRunState.resumeOnce idiom
-            // runTool (~30 lines above in this same file) and PBAAClusteringPipeline
-            // both already use for this exact continuation-double-resume hazard.
-            let runState = NativeProcessRunState()
-
-            // See the comment in `runTool` -- drain to real EOF
-            // instead of a fixed delay after `terminationHandler` fires.
-            let stdoutDrain = CondaPipeDrainBuffer()
-            let stderrDrain = CondaPipeDrainBuffer()
-            stdoutDrain.attach(to: stdoutPipe)
-            stderrDrain.attach(to: stderrPipe)
-
-            process.terminationHandler = { terminatedProcess in
-                DispatchQueue.global().async {
-                    let stdoutData = stdoutDrain.waitForEOFAndTake()
-                    let stderrData = stderrDrain.waitForEOFAndTake()
-                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
-                    stderrPipe.fileHandleForReading.readabilityHandler = nil
-
-                    runState.resumeOnce { _ in
-                        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-                        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-
-                        if terminatedProcess.terminationStatus != 0 {
-                            let message = Self.micromambaFailureMessage(
-                                executable: executablePath,
-                                arguments: arguments,
-                                status: terminatedProcess.terminationStatus,
-                                reason: terminatedProcess.terminationReason,
-                                stdout: stdout,
-                                stderr: stderr
-                            )
-                            logger.error("\(message, privacy: .public)")
-                            continuation.resume(
-                                throwing: CondaError.packageInstallFailed(message)
-                            )
-                        } else {
-                            continuation.resume(returning: stdout)
-                        }
-                    }
-                }
-            }
-
-            do {
-                try process.run()
-            } catch {
-                stdoutPipe.fileHandleForReading.readabilityHandler = nil
-                stderrPipe.fileHandleForReading.readabilityHandler = nil
-                runState.resumeOnce { _ in
-                    continuation.resume(throwing: error)
-                }
-            }
+                "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
+                "TMPDIR": ProcessInfo.processInfo.environment["TMPDIR"] ?? "/tmp",
+            ],
+            drainGracePeriod: CondaFamilyProcess.micromambaDrainGracePeriod,
+            label: "micromamba"
+        )
+        // An unstructured task does not inherit cancellation.
+        let result = try await Task { try await ToolProcess.run(spec) }.value
+        let stdout = CondaFamilyProcess.text(result.stdout)
+        let stderr = CondaFamilyProcess.text(result.stderr)
+        if result.status != 0 {
+            let message = Self.micromambaFailureMessage(
+                executable: executablePath,
+                arguments: arguments,
+                status: result.status,
+                reason: CondaFamilyProcess.terminationReason(result.termination),
+                stdout: stdout,
+                stderr: stderr
+            )
+            logger.error("\(message, privacy: .public)")
+            throw CondaError.packageInstallFailed(message)
         }
+        if let reason = CondaFamilyProcess.incompleteOutputReason(
+            result, drainGrace: CondaFamilyProcess.micromambaDrainGracePeriod
+        ) {
+            let command = ([executablePath.path] + arguments).joined(separator: " ")
+            logger.error("\(reason, privacy: .public)")
+            throw CondaError.packageInstallFailed("\(reason) command: \(command)")
+        }
+        return stdout
     }
 }

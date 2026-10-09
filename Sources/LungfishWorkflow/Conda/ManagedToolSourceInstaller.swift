@@ -3,23 +3,6 @@ import CryptoKit
 import Darwin
 import LungfishCore
 
-private final class ManagedToolProcessOutputBuffer: @unchecked Sendable {
-    private let lock = NSLock()
-    private let data = NSMutableData()
-
-    func append(_ chunk: Data) {
-        lock.lock()
-        data.append(chunk)
-        lock.unlock()
-    }
-
-    func string() -> String {
-        lock.lock()
-        defer { lock.unlock() }
-        return String(data: data as Data, encoding: .utf8) ?? ""
-    }
-}
-
 public struct ManagedToolSourceInstaller: Sendable {
     public struct ProcessInvocation: Sendable, Hashable {
         public let executable: URL
@@ -444,6 +427,12 @@ public struct ManagedToolSourceInstaller: Sendable {
         try data.write(to: destination, options: .atomic)
     }
 
+    /// Runs one build or probe step through ``ToolProcess``, which reads both
+    /// streams while it runs and stops its whole process tree on cancellation
+    /// or timeout. A cancellation throws `CancellationError`, a timeout throws
+    /// ``ManagedToolSourceInstallerError/processTimedOut(seconds:)``, and
+    /// output that a child process still held open after the step exited
+    /// throws ``CondaError/executionFailed(tool:exitCode:stderr:)``.
     public static func run(
         _ invocation: ProcessInvocation,
         timeout: TimeInterval = 3_600
@@ -451,86 +440,35 @@ public struct ManagedToolSourceInstaller: Sendable {
         guard timeout > 0 else {
             throw ManagedToolSourceInstallerError.processTimedOut(seconds: timeout)
         }
-        let cancellationHandle = NativeProcessCancellationHandle()
-        let runState = NativeProcessRunState()
-        return try await withTaskCancellationHandler(operation: {
-            try Task.checkCancellation()
-            return try await withCheckedThrowingContinuation { continuation in
-            let process = Process()
-            process.executableURL = invocation.executable
-            process.arguments = invocation.arguments
-            process.currentDirectoryURL = invocation.workingDirectory
-            process.environment = ProcessInfo.processInfo.environment.merging(invocation.environment) { _, replacement in replacement }
-            let stdout = Pipe()
-            let stderr = Pipe()
-            process.standardOutput = stdout
-            process.standardError = stderr
-            let stdoutBuffer = ManagedToolProcessOutputBuffer()
-            let stderrBuffer = ManagedToolProcessOutputBuffer()
-            cancellationHandle.store(process)
-
-            stdout.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                if data.isEmpty {
-                    stdout.fileHandleForReading.readabilityHandler = nil
-                } else {
-                    stdoutBuffer.append(data)
-                }
-            }
-            stderr.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                if data.isEmpty {
-                    stderr.fileHandleForReading.readabilityHandler = nil
-                } else {
-                    stderrBuffer.append(data)
-                }
-            }
-
-            let timeoutItem = DispatchWorkItem { [weak process] in
-                guard let process, process.isRunning else { return }
-                runState.markTimedOut()
-                cancellationHandle.terminateProcessTree()
-            }
-            process.terminationHandler = { terminatedProcess in
-                timeoutItem.cancel()
-                DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
-                    stdout.fileHandleForReading.readabilityHandler = nil
-                    stderr.fileHandleForReading.readabilityHandler = nil
-                    cancellationHandle.clear(terminatedProcess)
-                    runState.resumeOnce { reason in
-                        switch reason {
-                        case .cancelled:
-                            continuation.resume(throwing: CancellationError())
-                        case .timedOut:
-                            continuation.resume(throwing: ManagedToolSourceInstallerError.processTimedOut(seconds: timeout))
-                        case .completed:
-                            continuation.resume(returning: .init(
-                                exitStatus: terminatedProcess.terminationStatus,
-                                stdout: stdoutBuffer.string(),
-                                stderr: stderrBuffer.string()
-                            ))
-                        }
-                    }
-                }
-            }
-            do {
-                try process.run()
-                cancellationHandle.terminateIfRequested()
-                DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutItem)
-            } catch {
-                timeoutItem.cancel()
-                stdout.fileHandleForReading.readabilityHandler = nil
-                stderr.fileHandleForReading.readabilityHandler = nil
-                cancellationHandle.clear(process)
-                runState.resumeOnce { _ in
-                    continuation.resume(throwing: error)
-                }
-            }
-            }
-        }, onCancel: {
-            runState.markCancelled()
-            cancellationHandle.requestProcessTreeTermination()
-        })
+        try Task.checkCancellation()
+        let spec = ToolProcessSpec(
+            executableURL: invocation.executable,
+            arguments: invocation.arguments,
+            environment: ToolProcessSpec.inheritedEnvironment(overriding: invocation.environment),
+            workingDirectory: invocation.workingDirectory,
+            timeout: CondaFamilyProcess.limit(seconds: timeout)
+        )
+        let result: ToolProcessResult
+        do {
+            result = try await ToolProcess.run(spec)
+        } catch ToolProcessError.timedOut {
+            throw ManagedToolSourceInstallerError.processTimedOut(seconds: timeout)
+        } catch ToolProcessError.cancelled {
+            throw CancellationError()
+        }
+        let stderr = CondaFamilyProcess.text(result.stderr)
+        if let reason = CondaFamilyProcess.incompleteOutputReason(result, drainGrace: spec.drainGracePeriod) {
+            throw CondaError.executionFailed(
+                tool: spec.label,
+                exitCode: result.status,
+                stderr: stderr.isEmpty ? reason : "\(reason)\n\(stderr)"
+            )
+        }
+        return .init(
+            exitStatus: result.status,
+            stdout: CondaFamilyProcess.text(result.stdout),
+            stderr: stderr
+        )
     }
 
     private func shellCommand(_ argv: [String]) -> String {
