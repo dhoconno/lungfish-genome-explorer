@@ -31,7 +31,7 @@ public final class GenotypeResultDisplaySectionViewModel {
     public var supportedCellMinimumReads = 1
     public var isMatrixAppearanceExpanded = false
     public var mhcCandidateControlsAvailable = false
-    public var mhcCandidateIntegrityWarnings: [String] = []
+    private(set) var integrityWarningLines: (candidate: [String], result: [String]) = ([], [])
     public var mhcCandidatePersistenceWarning: String?
     public var locusDisplayOrderAvailable = false
     public var locusDisplayOrderCanEdit = true
@@ -247,7 +247,7 @@ public final class GenotypeResultDisplaySectionViewModel {
         hasHaplotypingResult = false
         presentationPolicy = nil
         mhcCandidateControlsAvailable = false
-        mhcCandidateIntegrityWarnings = []
+        integrityWarningLines = ([], [])
         mhcCandidatePersistenceWarning = nil
         isGenotypeOnlyResult = false
         matrixReviewCapability = Self.emptyMatrixReviewCapability
@@ -293,7 +293,7 @@ public final class GenotypeResultDisplaySectionViewModel {
             && declaration?.candidateJSON != nil
             && declaration?.candidateFASTA != nil
             && result.mhcCandidates.map { isSupportedMHCCandidateDocumentSchemaVersion($0.schemaVersion) } == true
-        mhcCandidateIntegrityWarnings = Self.candidateWarningLines(for: result)
+        integrityWarningLines = (Self.candidateWarningLines(for: result), Self.resultWarningLines(for: result))
         if !mhcCandidateControlsAvailable {
             displayState.mhcCandidateDisplaySettings = nil
         }

@@ -278,8 +278,8 @@ public struct GenotypeResultDisplaySection: View {
         VStack(alignment: .leading, spacing: 4) {
             LabeledContent("Rows", value: "\(viewModel.visibleRowCount) of \(viewModel.totalRowCount)")
             LabeledContent("Hidden Cells", value: "\(viewModel.hiddenCellCount)")
+            GenotypeResultIntegrityWarningList(warnings: viewModel.resultIntegrityWarnings)
         }
-        .font(typography.font(for: .body))
     }
 
     private var viewControls: some View {
