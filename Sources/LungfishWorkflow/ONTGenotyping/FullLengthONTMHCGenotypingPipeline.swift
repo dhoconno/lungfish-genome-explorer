@@ -1151,7 +1151,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             steps: &pipelineSteps
         )
         let haplotypeAnalysis = try writeHaplotypeAnalysisIfRequested(
-            request: request,
+            request: request, candidateDocument: candidateDocument, unnameableDocument: unnameableDocument,
             supportDirectory: request.outputDirectory.appendingPathComponent(".full-length-ont-mhc", isDirectory: true),
             generatedAt: Date()
         )

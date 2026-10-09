@@ -204,8 +204,19 @@ extension FullLengthONTMHCGenotypingPipeline {
         ]
     }
 
+    /// Infers the run's own haplotype analysis and writes it to
+    /// `request.haplotypeAnalysisURL`. The run's candidate and interpreted
+    /// un-nameable clusters count toward the locus denominators, as
+    /// `GenotypeLocusDenominator` documents and as every re-inference of the
+    /// published bundle divides, so the run's own calls agree with the GUI's
+    /// live analysis and the CLI exports near the locus percent threshold
+    /// (note N7 of the Phase 2.3 bioinformatics review). The manifest below
+    /// names no candidate artifacts, so the documents arrive from the caller,
+    /// which has already decoded them for the other report steps.
     internal func writeHaplotypeAnalysisIfRequested(
         request: FullLengthONTMHCGenotypingRunRequest,
+        candidateDocument: ONTMHCCandidateAllelesDocument,
+        unnameableDocument: ONTMHCUnnameableClustersDocument,
         supportDirectory: URL,
         generatedAt: Date
     ) throws -> GenotypeHaplotypeAnalysis? {
@@ -237,7 +248,11 @@ extension FullLengthONTMHCGenotypingPipeline {
             definitionSet: definitionSet,
             generatedAt: ISO8601DateFormatter().string(from: generatedAt),
             dropoutFilter: request.haplotypeDropoutEvaluator,
-            locusDenominator: GenotypeLocusDenominator(result: result)
+            locusDenominator: GenotypeLocusDenominator(
+                calls: result.calls,
+                candidateDocument: candidateDocument,
+                unnameableDocument: unnameableDocument
+            )
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
