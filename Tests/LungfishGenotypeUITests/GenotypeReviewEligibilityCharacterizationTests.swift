@@ -11,9 +11,9 @@
 // with changed evidence, and in a second test on a read-only bundle. The
 // tables are compared with review-eligibility.json and
 // review-eligibility-read-only.json under Tests/Fixtures/golden/genotype-gui.
-// The tests pin current behaviour, finding S1 included: a production-shape
-// catalog zero is not reviewable in the UI, so Mark False Negative stays
-// disabled and its stored false negative is not drawn.
+// The tables were recaptured when lane S1 fixed finding S1. A production-shape
+// catalog zero is an attested zero in the UI as it is in the workbook, so Mark
+// False Negative is enabled on it and its stored false negative is drawn.
 
 import AppKit
 import Foundation

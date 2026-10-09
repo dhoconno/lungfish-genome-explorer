@@ -73,22 +73,13 @@
           "genotype" : "03_Mafa_A1_PROD",
           "kind" : "cell",
           "locus" : "MHC-A",
-          "sample" : "S3"
-        },
-        "value" : 4
-      },
-      {
-        "key" : {
-          "genotype" : "reference:MHC-A:03_Mafa_A1_PROD",
-          "kind" : "cell",
-          "locus" : "MHC-A",
           "sample" : "S1"
         },
         "value" : 0
       },
       {
         "key" : {
-          "genotype" : "reference:MHC-A:03_Mafa_A1_PROD",
+          "genotype" : "03_Mafa_A1_PROD",
           "kind" : "cell",
           "locus" : "MHC-A",
           "sample" : "S2"
@@ -97,7 +88,7 @@
       },
       {
         "key" : {
-          "genotype" : "reference:MHC-A:03_Mafa_A1_PROD",
+          "genotype" : "03_Mafa_A1_PROD",
           "kind" : "cell",
           "locus" : "MHC-A",
           "sample" : "S3"
@@ -1229,11 +1220,7 @@
 
               },
               "commentState" : "none",
-              "falseNegative" : {
-                "disabled" : [
-                  "False negative requires attested zero read support in every selected cell."
-                ]
-              },
+              "falseNegative" : "enabled",
               "falsePositive" : {
                 "disabled" : [
                   "False positive requires read support in every selected cell."
@@ -1245,18 +1232,20 @@
                   "No comments to remove."
                 ]
               },
-              "reviewState" : "none",
+              "reviewState" : {
+                "uniform" : "falseNegative"
+              },
               "selectedCellCount" : 1,
               "selectionShape" : "cells",
               "support" : {
                 "supportedCount" : 0,
-                "unknownCount" : 1,
-                "unsupportedCount" : 0
+                "unknownCount" : 0,
+                "unsupportedCount" : 1
               },
               "upsertComment" : "enabled"
             },
             "cellTexts" : [
-              ""
+              "—"
             ],
             "label" : "PROD S1, production-shape catalog zero with a stored false negative",
             "matrixCapabilityEqualsController" : true,
@@ -1275,11 +1264,7 @@
                   "title" : "Mark False Positive"
                 },
                 {
-                  "availability" : {
-                    "disabled" : [
-                      "False negative requires attested zero read support in every selected cell."
-                    ]
-                  },
+                  "availability" : "enabled",
                   "command" : "markFalseNegative",
                   "keyEquivalent" : "x",
                   "keyModifierRawValue" : 1572864,
@@ -1413,11 +1398,7 @@
                 }
               ],
               "commentState" : "none",
-              "falseNegative" : {
-                "disabled" : [
-                  "False negative requires attested zero read support in every selected cell."
-                ]
-              },
+              "falseNegative" : "enabled",
               "falsePositive" : {
                 "disabled" : [
                   "False positive requires read support in every selected cell."
@@ -1434,8 +1415,8 @@
               "selectionShape" : "cells",
               "support" : {
                 "supportedCount" : 0,
-                "unknownCount" : 1,
-                "unsupportedCount" : 0
+                "unknownCount" : 0,
+                "unsupportedCount" : 1
               },
               "upsertComment" : "enabled"
             },
@@ -1459,11 +1440,7 @@
                   "title" : "Mark False Positive"
                 },
                 {
-                  "availability" : {
-                    "disabled" : [
-                      "False negative requires attested zero read support in every selected cell."
-                    ]
-                  },
+                  "availability" : "enabled",
                   "command" : "markFalseNegative",
                   "keyEquivalent" : "x",
                   "keyModifierRawValue" : 1572864,
@@ -4386,11 +4363,7 @@
 
               },
               "commentState" : "none",
-              "falseNegative" : {
-                "disabled" : [
-                  "False negative requires attested zero read support in every selected cell."
-                ]
-              },
+              "falseNegative" : "enabled",
               "falsePositive" : {
                 "disabled" : [
                   "False positive requires read support in every selected cell."
@@ -4402,18 +4375,20 @@
                   "No comments to remove."
                 ]
               },
-              "reviewState" : "none",
+              "reviewState" : {
+                "uniform" : "falseNegative"
+              },
               "selectedCellCount" : 1,
               "selectionShape" : "cells",
               "support" : {
                 "supportedCount" : 0,
-                "unknownCount" : 1,
-                "unsupportedCount" : 0
+                "unknownCount" : 0,
+                "unsupportedCount" : 1
               },
               "upsertComment" : "enabled"
             },
             "cellTexts" : [
-              ""
+              "—"
             ],
             "label" : "PROD S1, production-shape catalog zero with a stored false negative",
             "matrixCapabilityEqualsController" : true,
@@ -4432,11 +4407,7 @@
                   "title" : "Mark False Positive"
                 },
                 {
-                  "availability" : {
-                    "disabled" : [
-                      "False negative requires attested zero read support in every selected cell."
-                    ]
-                  },
+                  "availability" : "enabled",
                   "command" : "markFalseNegative",
                   "keyEquivalent" : "x",
                   "keyModifierRawValue" : 1572864,
@@ -4570,11 +4541,7 @@
                 }
               ],
               "commentState" : "none",
-              "falseNegative" : {
-                "disabled" : [
-                  "False negative requires attested zero read support in every selected cell."
-                ]
-              },
+              "falseNegative" : "enabled",
               "falsePositive" : {
                 "disabled" : [
                   "False positive requires read support in every selected cell."
@@ -4591,8 +4558,8 @@
               "selectionShape" : "cells",
               "support" : {
                 "supportedCount" : 0,
-                "unknownCount" : 1,
-                "unsupportedCount" : 0
+                "unknownCount" : 0,
+                "unsupportedCount" : 1
               },
               "upsertComment" : "enabled"
             },
@@ -4616,11 +4583,7 @@
                   "title" : "Mark False Positive"
                 },
                 {
-                  "availability" : {
-                    "disabled" : [
-                      "False negative requires attested zero read support in every selected cell."
-                    ]
-                  },
+                  "availability" : "enabled",
                   "command" : "markFalseNegative",
                   "keyEquivalent" : "x",
                   "keyModifierRawValue" : 1572864,
@@ -6490,22 +6453,13 @@
           "genotype" : "03_Mafa_A1_PROD",
           "kind" : "cell",
           "locus" : "MHC-A",
-          "sample" : "S3"
-        },
-        "value" : 4
-      },
-      {
-        "key" : {
-          "genotype" : "reference:MHC-A:03_Mafa_A1_PROD",
-          "kind" : "cell",
-          "locus" : "MHC-A",
           "sample" : "S1"
         },
         "value" : 0
       },
       {
         "key" : {
-          "genotype" : "reference:MHC-A:03_Mafa_A1_PROD",
+          "genotype" : "03_Mafa_A1_PROD",
           "kind" : "cell",
           "locus" : "MHC-A",
           "sample" : "S2"
@@ -6514,7 +6468,7 @@
       },
       {
         "key" : {
-          "genotype" : "reference:MHC-A:03_Mafa_A1_PROD",
+          "genotype" : "03_Mafa_A1_PROD",
           "kind" : "cell",
           "locus" : "MHC-A",
           "sample" : "S3"

@@ -401,7 +401,8 @@ extension GenotypeResultViewportTestCase {
         // sample columns and remap colours and styles for a sample the native
         // matrix never had. The production-shape row names the allele of
         // 01_Mafa_A1_001_01 in a spelling the native matrix does not carry, so
-        // today it becomes a second All row for the same allele (finding S1).
+        // it stands alone as a second All row for the same allele, which is
+        // how the shared catalog mapping treats an unmatched row (finding S1).
         let catalog: GenotypeReviewableRowCatalog
         switch variant {
         case .catalogExtended, .catalogPrevalence, .catalogPrevalenceWithCountColumns:

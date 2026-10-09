@@ -35,6 +35,13 @@ public enum GenotypeMatrixReviewEligibility {
     /// Exact raw observations plus complete-roster entries from the catalog
     /// already validated by the bundle loader. Missing observations outside that
     /// authority remain absent, including unobserved candidate cells.
+    ///
+    /// Catalog rows reach the matrix through `GenotypeCatalogMatrixIdentity`,
+    /// the mapping the Excel builder uses, so a catalog-attested zero is
+    /// reviewable here exactly when the workbook treats it as reviewable
+    /// (Phase 2.3 finding S1). When the mapping refuses the catalog, the
+    /// builder refuses the bundle and no catalog cell is reviewable in the
+    /// workbook, so the observations alone are returned.
     public static func rawSupport(in result: ONTGenotypeResultBundleData) -> [Target: Int] {
         var support: [Target: Int] = [:]
         for call in result.calls {
@@ -61,11 +68,10 @@ public enum GenotypeMatrixReviewEligibility {
                 support[target, default: 0] += observation.aggregatedSampleReadCount
             }
         }
-        for row in result.reviewableRowCatalog?.rows ?? [] {
-            for (sample, reads) in row.supportBySample {
-                let target = Target.cell(locus: row.locus, genotype: row.callID, sample: sample, stableClusterID: row.stableID)
-                if support[target] == nil { support[target] = reads }
-            }
+        if let catalog = result.reviewableRowCatalog,
+           let mapping = try? GenotypeCatalogMatrixIdentity.map(
+               catalog, nativeRows: GenotypeCatalogMatrixIdentity.nativeRows(in: result), into: support) {
+            support = mapping.support
         }
         return support
     }

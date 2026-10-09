@@ -132,26 +132,22 @@ public enum GenotypeExcelSnapshotBuilder {
                 }
                 return (row.locus, row.genotype, row.stableClusterID, label)
             }
-        // Catalog call IDs are transport identities; annotations and the native
-        // projection use the displayed candidate identity. Map explicitly.
-        for row in result.reviewableRowCatalog?.rows ?? [] {
-            let matches = evidenceRows.indices.filter {
-                let native = evidenceRows[$0]
-                return GenotypeHaplotypeLocusResolver.canonicalLocusName(native.locus) == row.locus && native.stable == row.stableID
-                    && (native.genotype == row.callID || native.genotype == row.displayName
-                        || MHCReferenceGenotypeDisplay.alleleName(for: native.genotype) == row.displayName)
+        // Catalog call IDs are transport identities. Annotations and the native
+        // projection use the displayed identity, so the catalog maps onto the
+        // native rows through the one mapping the matrix UI also reads, and a
+        // cell is reviewable here exactly when it is reviewable there (S1).
+        if let catalog = result.reviewableRowCatalog {
+            let mapping: GenotypeCatalogMatrixIdentity.Mapping
+            do {
+                mapping = try GenotypeCatalogMatrixIdentity.map(catalog,
+                    nativeRows: evidenceRows.map { .init(locus: $0.locus, genotype: $0.genotype, stableClusterID: $0.stable) },
+                    into: raw)
+            } catch let refusal as GenotypeCatalogMatrixIdentity.Refusal {
+                throw CaptureError.incoherent(refusal.message)
             }
-            guard matches.count <= 1 else { throw CaptureError.incoherent("ambiguous catalog to native row identity") }
-            let existing = matches.first
-            let genotype = existing.map { evidenceRows[$0].genotype } ?? row.displayName
-            let nativeLocus = existing.map { evidenceRows[$0].locus } ?? row.locus
-            if existing == nil { evidenceRows.append((row.locus, genotype, row.stableID, row.displayName)) }
-            for (sample, reads) in row.supportBySample {
-                let target = T.cell(locus: nativeLocus, genotype: genotype, sample: sample, stableClusterID: row.stableID)
-                if let observed = raw[target], observed != reads {
-                    throw CaptureError.incoherent("catalog support disagrees with captured observations")
-                }
-                raw[target] = reads
+            raw = mapping.support
+            for resolution in mapping.resolutions where resolution.native == nil {
+                evidenceRows.append((resolution.row.locus, resolution.row.displayName, resolution.row.stableID, resolution.row.displayName))
             }
         }
         guard raw.values.allSatisfy({ $0 >= 0 }) else { throw CaptureError.incoherent("negative support") }

@@ -1303,13 +1303,15 @@
                   "This bundle is read-only."
                 ]
               },
-              "reviewState" : "none",
+              "reviewState" : {
+                "uniform" : "falseNegative"
+              },
               "selectedCellCount" : 1,
               "selectionShape" : "cells",
               "support" : {
                 "supportedCount" : 0,
-                "unknownCount" : 1,
-                "unsupportedCount" : 0
+                "unknownCount" : 0,
+                "unsupportedCount" : 1
               },
               "upsertComment" : {
                 "disabled" : [
@@ -1318,7 +1320,7 @@
               }
             },
             "cellTexts" : [
-              ""
+              "—"
             ],
             "label" : "PROD S1, production-shape catalog zero with a stored false negative",
             "matrixCapabilityEqualsController" : true,
@@ -1504,8 +1506,8 @@
               "selectionShape" : "cells",
               "support" : {
                 "supportedCount" : 0,
-                "unknownCount" : 1,
-                "unsupportedCount" : 0
+                "unknownCount" : 0,
+                "unsupportedCount" : 1
               },
               "upsertComment" : {
                 "disabled" : [
@@ -3565,22 +3567,13 @@
           "genotype" : "03_Mafa_A1_PROD",
           "kind" : "cell",
           "locus" : "MHC-A",
-          "sample" : "S3"
-        },
-        "value" : 4
-      },
-      {
-        "key" : {
-          "genotype" : "reference:MHC-A:03_Mafa_A1_PROD",
-          "kind" : "cell",
-          "locus" : "MHC-A",
           "sample" : "S1"
         },
         "value" : 0
       },
       {
         "key" : {
-          "genotype" : "reference:MHC-A:03_Mafa_A1_PROD",
+          "genotype" : "03_Mafa_A1_PROD",
           "kind" : "cell",
           "locus" : "MHC-A",
           "sample" : "S2"
@@ -3589,7 +3582,7 @@
       },
       {
         "key" : {
-          "genotype" : "reference:MHC-A:03_Mafa_A1_PROD",
+          "genotype" : "03_Mafa_A1_PROD",
           "kind" : "cell",
           "locus" : "MHC-A",
           "sample" : "S3"

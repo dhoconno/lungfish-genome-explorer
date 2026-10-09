@@ -1857,4 +1857,83 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         scheduler.fireScheduledActions()
     }
 
+    /// Phase 2.3 finding S1. The real catalog publisher keys a reference row
+    /// `reference:<locus>:<allele>`, which never equals a matrix target, so
+    /// its attested zeros reached the workbook but not the matrix. The matrix
+    /// reads the catalog through the identity mapping the Excel builder uses,
+    /// so Mark False Negative is enabled on the cell, its stored review is
+    /// drawn, the store accepts a new one, and the workbook capture of the
+    /// same bundle agrees cell for cell.
+    func testProductionShapeCatalogZeroTakesAFalseNegativeLikeTheWorkbook() throws {
+        let root = try TestTempDirectory.make(prefix: "ProductionCatalogZero")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let genotype = "03_Mafa_A1_PROD"
+        func cell(_ sample: String) -> GenotypeAnnotationSidecar.MatrixTarget {
+            .cell(locus: "MHC-A", genotype: genotype, sample: sample)
+        }
+        let stored = cell("S1"), unmarked = cell("S2")
+        let catalog = GenotypeReviewableRowCatalog(samples: ["S1", "S2", "S3"], rows: [
+            .init(kind: .reference, callID: "reference:MHC-A:\(genotype)", displayName: genotype, locus: "MHC-A",
+                  stableID: nil, section: "reference", sortKey: "1", supportBySample: ["S1": 0, "S2": 0, "S3": 4]),
+        ])
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z")
+        sidecar.matrixReviews = [.init(target: stored, disposition: .falseNegative, author: "A", timestamp: "now")]
+        try sidecar.encoded().write(to: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename))
+        let calls = [makeCall(sample: "S3", genotype: genotype, reads: 4)]
+        let result = makeResult(
+            bundleURL: bundleURL,
+            samples: GenotypeCharacterizationFixture.sampleResults(for: calls, order: ["S1", "S2", "S3"]),
+            calls: calls,
+            reviewableRowCatalog: catalog
+        )
+        try ONTGenotypeResultBundle.writeManifest(result.manifest, to: bundleURL)
+        let controller = makeManualHaplotypeGuardedController()
+        _ = controller.view
+        controller.configure(result: result)
+
+        controller.testingShowMatrixTargetSelection([stored])
+        var capability = controller.testingMatrixReviewCapability
+        XCTAssertEqual(capability.support, .init(supportedCount: 0, unsupportedCount: 1, unknownCount: 0))
+        XCTAssertEqual(capability.reviewState, .uniform(.falseNegative))
+        XCTAssertTrue(capability.falseNegative.isEnabled)
+        XCTAssertFalse(capability.falsePositive.isEnabled)
+        XCTAssertTrue(capability.clearReview.isEnabled)
+        XCTAssertEqual(controller.testingComparisonMatrixReviewCapability, capability)
+        XCTAssertEqual(controller.testingCellValue(genotype: genotype, sample: "S1"), "—", "the stored false negative is drawn")
+        XCTAssertEqual(controller.testingCellValue(genotype: genotype, sample: "S2"), "")
+        XCTAssertEqual(controller.testingCellValue(genotype: genotype, sample: "S3"), "4")
+
+        controller.testingShowMatrixTargetSelection([unmarked])
+        capability = controller.testingMatrixReviewCapability
+        XCTAssertEqual(capability.support, .init(supportedCount: 0, unsupportedCount: 1, unknownCount: 0))
+        XCTAssertEqual(capability.reviewState, .none)
+        XCTAssertTrue(capability.falseNegative.isEnabled)
+        XCTAssertFalse(capability.clearReview.isEnabled)
+        controller.applyMatrixReview(.init(targets: [unmarked], intent: .set(.falseNegative)))
+        let persisted = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
+        XCTAssertEqual(Set(persisted.matrixReviews.map(\.target)), [stored, unmarked], "the store accepts the write")
+        XCTAssertEqual(controller.testingCellValue(genotype: genotype, sample: "S2"), "—")
+
+        // The workbook treated these cells as reviewable before the fix, and
+        // its capture of this bundle is what it was. The matrix now agrees.
+        let snapshot = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self,
+            from: XCTUnwrap(controller.captureExcelExportSnapshot().excelSnapshotData))
+        XCTAssertEqual(snapshot.allMatrix.rows.count, 1)
+        let row = try XCTUnwrap(snapshot.allMatrix.rows.first { $0.target.genotype == genotype })
+        let cells = Dictionary(uniqueKeysWithValues: row.cells.map { ($0.sampleID, $0) })
+        XCTAssertEqual(cells["S1"]?.rawSupport, 0)
+        XCTAssertEqual(cells["S1"]?.reviewEligible, true)
+        XCTAssertEqual(cells["S1"]?.review, "false-negative")
+        XCTAssertEqual(cells["S2"]?.rawSupport, 0)
+        XCTAssertEqual(cells["S2"]?.review, "false-negative")
+        XCTAssertEqual(cells["S3"]?.rawSupport, 4)
+        XCTAssertNil(cells["S3"]?.review)
+        let matrixEvidence = GenotypeMatrixReviewEligibility.rawSupport(in: result)
+        for sample in ["S1", "S2", "S3"] {
+            XCTAssertEqual(matrixEvidence[cell(sample)], cells[sample]?.rawSupport, sample)
+        }
+    }
+
 }

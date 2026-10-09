@@ -286,8 +286,9 @@ enum GenotypeReviewEligibilityNames {
 }
 
 /// A guarded controller over a genotype-only bundle whose catalog carries one
-/// row in each identity shape. The production-shape row's attested zeros never
-/// reach the matrix (plan finding S1).
+/// row in each identity shape. The production-shape row's attested zeros reach
+/// the matrix through the identity mapping the Excel builder shares (plan
+/// finding S1, fixed in lane S1).
 @MainActor
 struct GenotypeReviewEligibilityScenario {
     let root: URL

@@ -1,0 +1,166 @@
+import XCTest
+import LungfishTestSupport
+@testable import LungfishIO
+
+/// The catalog-to-matrix identity mapping the matrix UI and the Excel builder
+/// share (Phase 2.3 finding S1).
+final class GenotypeCatalogMatrixIdentityTests: XCTestCase {
+    private typealias Identity = GenotypeCatalogMatrixIdentity
+    private typealias Target = GenotypeAnnotationSidecar.MatrixTarget
+
+    private func row(
+        kind: GenotypeReviewableRowCatalog.RowKind = .reference,
+        callID: String,
+        displayName: String,
+        locus: String = "MHC-A",
+        stableID: String? = nil,
+        support: [String: Int]
+    ) -> GenotypeReviewableRowCatalog.Row {
+        .init(kind: kind, callID: callID, displayName: displayName, locus: locus, stableID: stableID,
+              section: kind.rawValue, sortKey: callID, supportBySample: support)
+    }
+
+    func testARowNamesTheNativeRowByCallIDDisplayNameOrAlleleName() throws {
+        let known = Identity.NativeRow(locus: "MHC-A", genotype: "01_Mafa_A1_001_01", stableClusterID: nil)
+        let metadata = Identity.NativeRow(locus: "MHC-A", genotype: "MCM_0102|alleles=Mafa-A1*002:01", stableClusterID: nil)
+        let candidate = Identity.NativeRow(locus: "MHC-A1", genotype: "Mafa-A1*900:01_nov", stableClusterID: "cluster-9")
+        let native = [known, metadata, candidate]
+
+        XCTAssertEqual(try Identity.resolve(
+            row(callID: "01_Mafa_A1_001_01", displayName: "Mafa-A1*001:01", support: [:]), among: native).native, known)
+        XCTAssertEqual(try Identity.resolve(
+            row(callID: "reference:MHC-A:Mafa-A1*002:01", displayName: "Mafa-A1*002:01", support: [:]), among: native).native, metadata)
+        let resolved = try Identity.resolve(
+            row(kind: .candidate, callID: "candidate:MHC-A:cluster-9", displayName: "Mafa-A1*900:01_nov",
+                stableID: "cluster-9", support: [:]), among: native)
+        XCTAssertEqual(resolved.native, candidate)
+        XCTAssertEqual(resolved.target(sample: "S1"),
+            .cell(locus: "MHC-A1", genotype: "Mafa-A1*900:01_nov", sample: "S1", stableClusterID: "cluster-9"),
+            "the cell keeps the native locus spelling")
+        // The stable ID is part of the identity, so a reference row never names a candidate.
+        XCTAssertNil(try Identity.resolve(
+            row(callID: "reference:MHC-A:Mafa-A1*900:01_nov", displayName: "Mafa-A1*900:01_nov", support: [:]), among: native).native)
+    }
+
+    func testAnUnmatchedRowStandsAloneAndALaterRowCanNameIt() throws {
+        let catalog = GenotypeReviewableRowCatalog(samples: ["S1", "S2"], rows: [
+            row(callID: "reference:MHC-B:Mafa-B*099:01", displayName: "Mafa-B*099:01", locus: "MHC-B", support: ["S1": 0, "S2": 0]),
+            row(callID: "Mafa-B*099:01", displayName: "Mafa-B*099:01", locus: "MHC-B", support: ["S1": 0, "S2": 0]),
+        ])
+        let mapping = try Identity.map(catalog, nativeRows: [], into: [:])
+        let standalone = Identity.NativeRow(locus: "MHC-B", genotype: "Mafa-B*099:01", stableClusterID: nil)
+        XCTAssertNil(mapping.resolutions[0].native)
+        XCTAssertEqual(mapping.resolutions[0].matrixRow, standalone)
+        XCTAssertEqual(mapping.resolutions[1].native, standalone, "the second row names the row the first one added")
+        XCTAssertEqual(mapping.support, [
+            .cell(locus: "MHC-B", genotype: "Mafa-B*099:01", sample: "S1"): 0,
+            .cell(locus: "MHC-B", genotype: "Mafa-B*099:01", sample: "S2"): 0,
+        ])
+    }
+
+    func testAmbiguityAndDisagreementRefuseWithTheWorkbookReasons() {
+        let one = Identity.NativeRow(locus: "MHC-A", genotype: "01_A", stableClusterID: nil)
+        let two = Identity.NativeRow(locus: "MHC-A", genotype: "02_A", stableClusterID: nil)
+        let ambiguous = row(callID: "01_A", displayName: "02_A", support: ["S1": 0])
+        XCTAssertThrowsError(try Identity.resolve(ambiguous, among: [one, two])) { error in
+            XCTAssertEqual(error as? Identity.Refusal, .ambiguousIdentity(callID: "01_A"))
+            XCTAssertEqual((error as? Identity.Refusal)?.message, "ambiguous catalog to native row identity")
+        }
+
+        let cell = Target.cell(locus: "MHC-A", genotype: "01_A", sample: "S1")
+        let observed: [Target: Int] = [cell: 7]
+        let disagreeing = row(callID: "reference:MHC-A:01_A", displayName: "01_A", support: ["S1": 5, "S2": 0])
+        XCTAssertThrowsError(try Identity.map(.init(samples: ["S1", "S2"], rows: [disagreeing]), nativeRows: [one], into: observed)) { error in
+            XCTAssertEqual(error as? Identity.Refusal, .supportDisagreement(target: cell, observed: 7, catalog: 5))
+            XCTAssertEqual((error as? Identity.Refusal)?.message, "catalog support disagrees with captured observations")
+        }
+
+        // An agreeing observation stays and the rest of the roster is attested.
+        var support = observed
+        let agreeing = row(callID: "reference:MHC-A:01_A", displayName: "01_A", support: ["S1": 7, "S2": 0])
+        XCTAssertNoThrow(try Identity.merge(Identity.Resolution(row: agreeing, native: one), into: &support))
+        XCTAssertEqual(support, [cell: 7, .cell(locus: "MHC-A", genotype: "01_A", sample: "S2"): 0])
+    }
+
+    /// The identity set the matrix maps against equals the rows of the
+    /// unfiltered projection the Excel builder maps against.
+    func testNativeRowsAreTheRowsOfTheUnfilteredMatrixProjection() throws {
+        let calls = [
+            GenotypeTestFixtures.makeCall(sample: "S1", genotype: "01_Mafa_A1_001_01", reads: 9),
+            GenotypeTestFixtures.makeCall(sample: "S2", genotype: "01_Mafa_A1_001_01", reads: 0),
+            GenotypeTestFixtures.makeCall(sample: "S1", genotype: "01_Mafa_A1_001_01", reads: 3),
+            GenotypeTestFixtures.makeCall(sample: "S2", genotype: "03_Mafa_B_075_01", reads: 12),
+        ]
+        let candidates = GenotypeLocusDenominatorFixtures.candidateDocument(
+            candidates: [("shared-1", "Mafa-A1*900:01_nov", "MHC-A1"), ("silent-2", "Mafa-B*900:01_nov", "MHC-B")],
+            observations: [("shared-1", "S1", 6), ("shared-1", "S2", 4)]
+        )
+        let unnameable = ONTMHCUnnameableClustersDocument(
+            schemaVersion: 1,
+            createdAt: "2026-07-20T00:00:00Z",
+            thresholds: .defaults,
+            sequenceFASTA: .init(path: "unnameable.fasta", sha256: String(repeating: "a", count: 64), sizeBytes: 1),
+            clusters: [
+                try unnameableRecord(id: "span-3", reason: .incompleteReferenceSpan, interpreting: candidates.candidates[0]),
+                try unnameableRecord(id: "coverage-4", reason: .insufficientCoverage, interpreting: candidates.candidates[1]),
+                try unnameableRecord(id: "plain-5", reason: .noAlignment, interpreting: nil),
+            ],
+            observations: [
+                ONTMHCCandidateObservation(
+                    stableClusterID: "span-3", sampleID: "S1", readGroupID: "S1", sourceClusterIDs: ["source-span-3"],
+                    sourceClusterReadCounts: ["source-span-3": 5], aggregatedSampleReadCount: 5, evidence: []
+                ),
+            ]
+        )
+        let base = GenotypeTestFixtures.makeResult(calls: calls)
+        let result = ONTGenotypeResultBundleData(
+            bundleURL: base.bundleURL, manifest: base.manifest, artifacts: base.artifacts, stats: base.stats,
+            calls: calls, samples: base.samples, haplotypeAnalysis: nil,
+            mhcCandidates: candidates, mhcUnnameableClusters: unnameable,
+            mhcCandidateSequencesByStableClusterID: [:], mhcCandidateGenBankArtifactURLs: .empty,
+            mhcAlignmentArtifactURLs: .empty, mhcReferenceVisualizations: nil, integrityWarnings: [],
+            referenceMetadata: nil, provisionalExon2SequencesByGenotype: [:], provisionalExon2ArtifactURLs: .empty
+        )
+        let projection = GenotypeMatrixBaseProjection(
+            calls: calls, samples: result.samples, candidateDocument: candidates, unnameableDocument: unnameable,
+            logicalSampleNames: ["S1", "S2"], candidateSettings: .default
+        )
+        let projected = projection.derive(.unfiltered).rows.map {
+            Identity.NativeRow(locus: $0.locus, genotype: $0.genotype, stableClusterID: $0.stableClusterID)
+        }
+        let native = Identity.nativeRows(in: result)
+        XCTAssertEqual(Set(native), Set(projected))
+        XCTAssertEqual(native.count, projected.count)
+        XCTAssertEqual(native.count, 5, "two known rows, two candidates and the interpreted incomplete-span cluster")
+    }
+
+    private func unnameableRecord(
+        id: String,
+        reason: ONTMHCUnnameableReason,
+        interpreting candidate: ONTMHCCandidateRecord?
+    ) throws -> ONTMHCUnnameableRecord {
+        ONTMHCUnnameableRecord(
+            stableClusterID: id,
+            reason: reason,
+            failedMetrics: ["reference_span": 0.5],
+            supportClass: .shared,
+            independentSampleCount: 1,
+            occurrenceCount: 1,
+            totalClusterReads: 5,
+            supportingSampleIDs: ["S1"],
+            fastaRecordID: id,
+            sequenceSHA256: String(repeating: "b", count: 64),
+            reciprocalHitSummary: try ONTMHCReciprocalQueryHitSummary(
+                bamPath: "unmatched.bam",
+                queryName: id,
+                alignmentCount: 1,
+                targetAlignmentCounts: ["reference": 1],
+                exactMatchTargetNames: [],
+                closestMatchTargetNames: ["reference"]
+            ),
+            selectedEvidence: nil,
+            selectedAlignmentIsReverse: nil,
+            candidateInterpretation: candidate.map(ONTMHCIncompleteCandidateInterpretation.init(candidate:))
+        )
+    }
+}

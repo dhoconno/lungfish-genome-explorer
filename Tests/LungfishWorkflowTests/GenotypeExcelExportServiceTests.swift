@@ -1216,4 +1216,80 @@ print(json.dumps(result))
         XCTAssertEqual(retainedMixed.cells.first { $0.sampleID == "S2" }?.review, "false-negative")
         XCTAssertEqual(retainedMixed.cells.first { $0.sampleID == "S2" }?.comment, "retained zero comment")
     }
+
+    // MARK: Catalog identity shared with the matrix (Phase 2.3 finding S1)
+
+    private static let production = "03_Mafa_A1_PROD"
+    private static let other = "04_Mafa_A1_OTHER"
+
+    /// Calls PROD (S3 at 4) and OTHER (S1 at 2) at MHC-A over a three-animal
+    /// catalog roster.
+    private func makeCatalogResult(rows: [GenotypeReviewableRowCatalog.Row]) -> ONTGenotypeResultBundleData {
+        GenotypeTestFixtures.makeResult(calls: [
+            GenotypeTestFixtures.makeCall(sample: "S3", genotype: Self.production, reads: 4),
+            GenotypeTestFixtures.makeCall(sample: "S1", genotype: Self.other, reads: 2),
+        ], reviewableRowCatalog: GenotypeReviewableRowCatalog(samples: ["S1", "S2", "S3"], rows: rows))
+    }
+
+    private func referenceRow(callID: String, displayName: String, support: [String: Int]) -> GenotypeReviewableRowCatalog.Row {
+        .init(kind: .reference, callID: callID, displayName: displayName, locus: "MHC-A", stableID: nil,
+              section: "reference", sortKey: callID, supportBySample: support)
+    }
+
+    /// The real publisher's `reference:<locus>:<allele>` call ID never equals a
+    /// matrix target. The builder maps the row onto the native row its display
+    /// name names, so the attested zero is reviewable and its review is
+    /// exported. The matrix evidence reads the same mapping, cell for cell.
+    func testProductionShapeCatalogZeroIsReviewableInTheWorkbookAndTheMatrixAgrees() throws {
+        let result = makeCatalogResult(rows: [
+            referenceRow(callID: "reference:MHC-A:\(Self.production)", displayName: Self.production,
+                         support: ["S1": 0, "S2": 0, "S3": 4]),
+        ])
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: timestamp)
+        sidecar.matrixReviews = [.init(target: .cell(locus: "MHC-A", genotype: Self.production, sample: "S1"),
+                                       disposition: .falseNegative, author: "Tester", timestamp: timestamp)]
+        let snapshot = try GenotypeExcelSnapshotBuilder.capture(result: result, sidecar: sidecar, allProjection: nil,
+            filteredProjection: nil, generatedAt: timestamp, authority: .init(analysis: nil))
+        XCTAssertEqual(snapshot.allMatrix.rows.count, 2, "the catalog row is the native row, not a second one")
+        let row = try XCTUnwrap(snapshot.allMatrix.rows.first { $0.target.genotype == Self.production })
+        let cells = Dictionary(uniqueKeysWithValues: row.cells.map { ($0.sampleID, $0) })
+        XCTAssertEqual(cells["S1"]?.rawSupport, 0)
+        XCTAssertEqual(cells["S1"]?.reviewEligible, true)
+        XCTAssertEqual(cells["S1"]?.review, "false-negative")
+        XCTAssertEqual(cells["S2"]?.rawSupport, 0)
+        XCTAssertEqual(cells["S2"]?.reviewEligible, true)
+        XCTAssertNil(cells["S2"]?.review)
+        XCTAssertEqual(cells["S3"]?.rawSupport, 4)
+        let matrixEvidence = GenotypeMatrixReviewEligibility.rawSupport(in: result)
+        for cell in row.cells {
+            XCTAssertEqual(matrixEvidence[.cell(locus: "MHC-A", genotype: Self.production, sample: cell.sampleID)],
+                           cell.rawSupport, cell.sampleID)
+        }
+    }
+
+    /// The two refusals keep their wording after the mapping moved into
+    /// LungfishIO.
+    func testCaptureRefusesAnAmbiguousOrDisagreeingCatalogWithTheSharedReasons() {
+        func capture(_ result: ONTGenotypeResultBundleData) throws -> GenotypeWorkbookPresentation.Snapshot {
+            try GenotypeExcelSnapshotBuilder.capture(result: result, sidecar: .empty(generatedAt: timestamp), allProjection: nil,
+                filteredProjection: nil, generatedAt: timestamp, authority: .init(analysis: nil))
+        }
+        // The row names PROD by its call ID and OTHER by its display name.
+        let ambiguous = makeCatalogResult(rows: [
+            referenceRow(callID: Self.production, displayName: Self.other, support: ["S1": 0, "S2": 0, "S3": 4]),
+        ])
+        XCTAssertThrowsError(try capture(ambiguous)) { error in
+            XCTAssertEqual((error as? GenotypeExcelSnapshotBuilder.CaptureError)?.errorDescription,
+                           "Incoherent Excel capture: ambiguous catalog to native row identity")
+        }
+        // The catalog records 5 reads where the call observed 4.
+        let disagreeing = makeCatalogResult(rows: [
+            referenceRow(callID: "reference:MHC-A:\(Self.production)", displayName: Self.production,
+                         support: ["S1": 0, "S2": 0, "S3": 5]),
+        ])
+        XCTAssertThrowsError(try capture(disagreeing)) { error in
+            XCTAssertEqual((error as? GenotypeExcelSnapshotBuilder.CaptureError)?.errorDescription,
+                           "Incoherent Excel capture: catalog support disagrees with captured observations")
+        }
+    }
 }
