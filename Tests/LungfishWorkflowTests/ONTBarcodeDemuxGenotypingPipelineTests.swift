@@ -2913,6 +2913,55 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             XCTAssertTrue(stderr.contains("intentional samtools sort failure"), stderr)
             XCTAssertLessThan(Date().timeIntervalSince(startedAt), 3)
         }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.mappingBAMURL.path))
+    }
+
+    func testMinimap2FailingAfterOutputLeavesNoSortedBAM() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot, minimap2FailAfterOutput: true)
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let outputDirectory = root.appendingPathComponent("failed-mid-stream.lungfishgenotype", isDirectory: true)
+        try ">allele1\nACGTACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        let sample = try makeMergedFASTQBundle(root: root, name: "mid-stream", sequence: "ACGTACGT")
+
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [sample.bundleURL],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "failed-mid-stream",
+            analysisName: "FailedMidStream",
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            keepIntermediates: true,
+            mode: .ontSampleBundles,
+            readType: .ont
+        )
+
+        do {
+            _ = try await ONTBarcodeDemuxGenotypingPipeline(
+                condaManager: CondaManager(
+                    rootPrefix: condaRoot,
+                    bundledMicromambaProvider: { bundledMicromamba },
+                    bundledMicromambaVersionProvider: { "test-micromamba" }
+                )
+            ).run(request)
+            XCTFail("Expected minimap2 failure")
+        } catch let error as ONTBarcodeDemuxGenotypingError {
+            guard case .processFailed(let tool, let status, let stderr) = error else {
+                return XCTFail("Expected processFailed, received \(error)")
+            }
+            XCTAssertEqual(tool, "minimap2")
+            XCTAssertEqual(status, 41)
+            XCTAssertTrue(stderr.contains("intentional mid-stream minimap2 failure"), stderr)
+        }
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: request.mappingBAMURL.path),
+            "A failed minimap2 must not leave a sorted BAM behind"
+        )
     }
 
     func testONTSampleBundleCohortUsesONTPresetAndCountWeightedSampleManifest() async throws {
@@ -4711,6 +4760,7 @@ print(json.dumps(payload))
         minimap2NoReadMarkerPath: String? = nil,
         minimap2FailBeforeRead: Bool = false,
         minimap2ProduceForever: Bool = false,
+        minimap2FailAfterOutput: Bool = false,
         samtoolsFailSort: Bool = false
     ) throws -> URL {
         let bin = root.appendingPathComponent("bin", isDirectory: true)
@@ -4795,6 +4845,7 @@ print(json.dumps(payload))
             fi
             \#(minimap2FailBeforeRead ? "echo \"intentional minimap2 failure\" >&2; exit 37" : ":")
             \#(minimap2ProduceForever ? "exec yes '@HD\tVN:1.6'" : ":")
+            \#(minimap2FailAfterOutput ? "printf '@HD\\tVN:1.6\\n'; echo \"intentional mid-stream minimap2 failure\" >&2; exit 41" : ":")
             \#(minimap2NoReadMarkerLine)
             if [ "$uses_stdin" -eq 1 ]; then
               cat >/dev/null

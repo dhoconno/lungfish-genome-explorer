@@ -6,6 +6,7 @@
 
 import Foundation
 import os.log
+import Synchronization
 import LungfishCore
 
 // MARK: - DockerRuntime
@@ -433,9 +434,7 @@ public actor DockerRuntime: ContainerRuntimeProtocol {
         let containerId = container.id
         let execCommand = command
         let currentDockerPath = dockerPath
-
-        // Create a combined holder for process and output writer
-        let execHolder = DockerExecHolder()
+        let execRun = DockerExecRun()
 
         let containerProcess = ContainerProcess(
             command: command,
@@ -444,9 +443,6 @@ public actor DockerRuntime: ContainerRuntimeProtocol {
             workingDirectory: workingDirectory,
             containerID: container.id,
             startHandler: {
-                let proc = Process()
-                await execHolder.setProcess(proc)
-
                 guard let path = currentDockerPath else {
                     throw ContainerRuntimeError.execFailed(
                         containerID: containerId,
@@ -454,68 +450,67 @@ public actor DockerRuntime: ContainerRuntimeProtocol {
                         reason: "Docker executable not found"
                     )
                 }
-
-                proc.executableURL = URL(fileURLWithPath: path)
-                proc.arguments = execArgs
-
-                let stdoutPipe = Pipe()
-                let stderrPipe = Pipe()
-                proc.standardOutput = stdoutPipe
-                proc.standardError = stderrPipe
-
-                // Get the output writer from the holder
-                guard let outputWriter = await execHolder.getOutputWriter() else {
+                guard let outputWriter = execRun.outputWriter else {
                     throw ContainerRuntimeError.execFailed(
                         containerID: containerId,
                         command: execCommand,
                         reason: "Output writer not set"
                     )
                 }
-
-                // Stream stdout
-                stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-                    let data = handle.availableData
-                    if !data.isEmpty {
-                        outputWriter.writeStdout(data)
-                    }
+                // A capture limit of 0 streams every line into the process's
+                // streams without also keeping the whole output in memory.
+                let spec = ToolProcessSpec(
+                    executableURL: URL(fileURLWithPath: path),
+                    arguments: execArgs,
+                    environment: ToolProcessSpec.inheritedEnvironment(),
+                    stdout: .capture(limit: 0),
+                    stderr: .capture(limit: 0),
+                    label: "docker exec"
+                )
+                do {
+                    try await execRun.start(spec, writer: outputWriter)
+                } catch {
+                    throw ContainerRuntimeError.execFailed(
+                        containerID: containerId,
+                        command: execCommand,
+                        reason: error.localizedDescription
+                    )
                 }
-
-                // Stream stderr
-                stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-                    let data = handle.availableData
-                    if !data.isEmpty {
-                        outputWriter.writeStderr(data)
-                    }
-                }
-
-                try proc.run()
             },
             waitHandler: {
-                guard let proc = await execHolder.getProcess() else { return -1 }
-                proc.waitUntilExit()
-
-                // Clean up handlers
-                if let stdout = proc.standardOutput as? Pipe {
-                    stdout.fileHandleForReading.readabilityHandler = nil
+                let result: ToolProcessResult
+                do {
+                    guard let finished = try await execRun.wait() else { return -1 }
+                    result = finished
+                } catch let error as ToolProcessError {
+                    throw ContainerRuntimeError.execFailed(
+                        containerID: containerId,
+                        command: execCommand,
+                        reason: error.localizedDescription
+                    )
                 }
-                if let stderr = proc.standardError as? Pipe {
-                    stderr.fileHandleForReading.readabilityHandler = nil
+                guard result.outputComplete else {
+                    throw ContainerRuntimeError.execFailed(
+                        containerID: containerId,
+                        command: execCommand,
+                        reason: result.outputDrainTimedOut
+                            ? "Output was incomplete: a child process kept its output open after docker exited"
+                            : "Output was incomplete: reading it failed"
+                    )
                 }
-
-                return proc.terminationStatus
+                return result.status
             },
             signalHandler: { signal in
-                guard let proc = await execHolder.getProcess() else { return }
-                if signal == 9 {
-                    proc.terminate()
-                } else if signal == 15 {
-                    proc.interrupt()
+                // SIGTERM and SIGKILL stop the docker client's whole process
+                // tree, SIGTERM first and SIGKILL after the grace period.
+                if signal == SIGKILL || signal == SIGTERM {
+                    execRun.stop()
                 }
             }
         )
 
         // Set the output writer reference in the holder
-        await execHolder.setOutputWriter(containerProcess)
+        execRun.setOutputWriter(containerProcess)
 
         return containerProcess
     }
@@ -575,23 +570,18 @@ public actor DockerRuntime: ContainerRuntimeProtocol {
     // MARK: - Private Methods
 
     private func findDockerPath() async -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        process.arguments = ["docker"]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: "/usr/bin/which"),
+            arguments: ["docker"],
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stderr: .discard,
+            label: "which docker"
+        )
         do {
-            try process.run()
-            process.waitUntilExit()
-
-            if process.terminationStatus == 0 {
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                if let path = String(data: data, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                   !path.isEmpty {
+            let result = try await ToolProcess.run(spec)
+            if result.isSuccess {
+                let path = result.stdoutText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !path.isEmpty {
                     return path
                 }
             }
@@ -602,6 +592,12 @@ public actor DockerRuntime: ContainerRuntimeProtocol {
         return nil
     }
 
+    /// Runs the docker CLI and returns its exit status and trimmed output.
+    ///
+    /// A run that cannot produce a trustworthy result, because docker could
+    /// not launch, ran past `timeout`, was cancelled or left its output
+    /// incomplete, returns status -1 with the reason in stderr. A timed-out or
+    /// cancelled run has its whole process tree stopped first.
     private func runDockerCommand(
         _ arguments: [String],
         timeout: TimeInterval = 120.0
@@ -620,42 +616,41 @@ public actor DockerRuntime: ContainerRuntimeProtocol {
             return (-1, "", "Docker executable not found")
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = arguments
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: path),
+            arguments: arguments,
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            timeout: .seconds(timeout),
+            label: "docker"
+        )
+        let command = (["docker"] + arguments.prefix(1)).joined(separator: " ")
+        func trimmed(_ data: Data) -> String {
+            String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
 
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
+        let result: ToolProcessResult
         do {
-            try process.run()
-
-            // Set up timeout
-            let timeoutTask = Task {
-                try await Task.sleep(for: .seconds(timeout))
-                if process.isRunning {
-                    process.terminate()
-                }
-            }
-
-            process.waitUntilExit()
-            timeoutTask.cancel()
-
-            let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-
-            let stdout = String(decoding: stdoutData, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let stderr = String(decoding: stderrData, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-
-            return (process.terminationStatus, stdout, stderr)
-
+            result = try await ToolProcess.run(spec)
+        } catch .timedOut(_, let results) {
+            let stdout = results.first.map { trimmed($0.stdout) } ?? ""
+            let stderr = results.first.map { trimmed($0.stderr) } ?? ""
+            let reason = "\(command) timed out after \(Int(timeout)) seconds"
+            return (-1, stdout, stderr.isEmpty ? reason : stderr + "\n" + reason)
+        } catch .cancelled {
+            return (-1, "", "\(command) was cancelled")
         } catch {
             return (-1, "", error.localizedDescription)
         }
+
+        let stdout = trimmed(result.stdout)
+        let stderr = trimmed(result.stderr)
+        guard result.outputComplete else {
+            let reason = result.outputDrainTimedOut
+                ? "\(command) output was incomplete: a child process kept its output open after docker exited"
+                : "\(command) output was incomplete: reading it failed"
+            return (-1, stdout, stderr.isEmpty ? reason : stderr + "\n" + reason)
+        }
+        return (result.status, stdout, stderr)
     }
 
     private func parseDockerVersion(_ output: String) -> String {
@@ -683,26 +678,122 @@ public actor DockerRuntime: ContainerRuntimeProtocol {
     }
 }
 
-// MARK: - DockerExecHolder
+// MARK: - DockerExecRun
 
-/// Thread-safe holder for Docker exec state including process and output writer.
-private actor DockerExecHolder {
-    private var process: Process?
-    private weak var outputWriter: ContainerProcess?
-
-    func setProcess(_ proc: Process) {
-        self.process = proc
+/// One `docker exec` run on ToolProcess, shared by the start, wait and
+/// signal handlers of its ``ContainerProcess``.
+///
+/// The run is an unstructured task, so it keeps going between `start()` and
+/// `wait()`. Its output lines go to the process's streams as they arrive, and
+/// the streams finish when the run is over. Cancelling the task, through a
+/// signal or a cancelled `wait()`, stops docker's whole process tree.
+private final class DockerExecRun: Sendable {
+    private struct State {
+        weak var outputWriter: ContainerProcess?
+        var task: Task<ToolProcessResult, any Error>?
     }
 
-    func getProcess() -> Process? {
-        return process
+    private let state = Mutex(State())
+
+    var outputWriter: ContainerProcess? {
+        state.withLock { $0.outputWriter }
     }
 
     func setOutputWriter(_ writer: ContainerProcess) {
-        self.outputWriter = writer
+        state.withLock { $0.outputWriter = writer }
     }
 
-    func getOutputWriter() -> ContainerProcess? {
-        return outputWriter
+    /// Launches docker and returns once it is running, or throws when it
+    /// could not launch.
+    func start(_ spec: ToolProcessSpec, writer: ContainerProcess) async throws {
+        let launch = DockerExecLaunchSignal()
+        let task = Task<ToolProcessResult, any Error> {
+            defer { writer.finishStreams() }
+            do {
+                let result = try await ToolProcess.run(
+                    spec,
+                    onEvent: { event in
+                        guard case .output(let stream, let line) = event else { return }
+                        let data = Data((line + "\n").utf8)
+                        switch stream {
+                        case .stdout: writer.writeStdout(data)
+                        case .stderr: writer.writeStderr(data)
+                        }
+                    },
+                    onLaunch: { _ in launch.resolve(nil) }
+                )
+                launch.resolve(nil)
+                return result
+            } catch {
+                launch.resolve(error)
+                throw error
+            }
+        }
+        state.withLock { $0.task = task }
+        if let error = await launch.wait() {
+            throw error
+        }
+    }
+
+    /// The finished run, or nil when it never started. Cancelling the
+    /// calling task stops the run and throws `CancellationError`.
+    func wait() async throws -> ToolProcessResult? {
+        guard let task = state.withLock({ $0.task }) else { return nil }
+        let outcome = await withTaskCancellationHandler {
+            await task.result
+        } onCancel: {
+            task.cancel()
+        }
+        switch outcome {
+        case .success(let result):
+            return result
+        case .failure(ToolProcessError.cancelled(let results)):
+            if Task.isCancelled { throw CancellationError() }
+            // Stopped through a signal: report how docker ended.
+            guard let result = results.first else { throw CancellationError() }
+            return result
+        case .failure(let error):
+            throw error
+        }
+    }
+
+    func stop() {
+        state.withLock { $0.task }?.cancel()
+    }
+}
+
+/// Resolves once, with nil when docker launched or with the error that kept
+/// it from launching.
+private final class DockerExecLaunchSignal: Sendable {
+    private struct State {
+        var resolved = false
+        var error: (any Error)?
+        var waiter: CheckedContinuation<(any Error)?, Never>?
+    }
+
+    private let state = Mutex(State())
+
+    func resolve(_ error: (any Error)?) {
+        let waiter = state.withLock { state -> CheckedContinuation<(any Error)?, Never>? in
+            guard !state.resolved else { return nil }
+            state.resolved = true
+            state.error = error
+            defer { state.waiter = nil }
+            return state.waiter
+        }
+        waiter?.resume(returning: error)
+    }
+
+    func wait() async -> (any Error)? {
+        await withCheckedContinuation { continuation in
+            let resolved = state.withLock { state -> (done: Bool, error: (any Error)?) in
+                if state.resolved { return (true, state.error) }
+                state.waiter = continuation
+                return (false, nil)
+            }
+            if resolved.done {
+                continuation.resume(returning: resolved.error)
+            }
+        }
     }
 }

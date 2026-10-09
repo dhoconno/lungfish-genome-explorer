@@ -2622,188 +2622,130 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let runClock = ProvenanceRunClock()
 
         try FileManager.default.createDirectory(at: outputBAMURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let stdoutPipe = Pipe()
-        let stdinPipe = streamedSampleInputs == nil ? nil : Pipe()
-        let minimap2 = Process()
-        minimap2.executableURL = minimap2URL
-        minimap2.arguments = minimap2Arguments
-        minimap2.standardOutput = stdoutPipe
-        if let stdinPipe {
-            minimap2.standardInput = stdinPipe
+        // Any failure below removes what samtools sort wrote, so a failed or
+        // cut-short minimap2 can never leave a sorted BAM that looks valid.
+        func failing(_ error: Error) -> Error {
+            Self.removePartialSortOutput(outputBAMURL)
+            return error
         }
-        let minimap2StderrHandle = try fileHandleForWriting(to: minimap2StderrURL)
-        minimap2.standardError = minimap2StderrHandle
-
-        let sort = Process()
-        sort.executableURL = samtoolsURL
-        sort.arguments = sortArguments
-        sort.standardInput = stdoutPipe
-        let sortStderrHandle = try fileHandleForWriting(to: sortStderrURL)
-        sort.standardError = sortStderrHandle
-
-        let minimap2Exit = ONTGenotypingProcessExitObservation()
-        let sortExit = ONTGenotypingProcessExitObservation()
-        minimap2.terminationHandler = { terminatedProcess in
-            minimap2Exit.record(status: terminatedProcess.terminationStatus)
-        }
-        sort.terminationHandler = { terminatedProcess in
-            sortExit.record(status: terminatedProcess.terminationStatus)
-        }
-        let processes = ONTGenotypingMappingProcessGroup(processes: [minimap2, sort])
-        let requestTermination: @Sendable () -> Void = {
-            processes.requestTermination()
-        }
-        let processWaiter = ONTGenotypingProcessExitWaiter()
-        let processDeadline = ONTGenotypingProcessDeadline(timeout: Self.mappingProcessTimeout)
-
-        defer {
-            minimap2.terminationHandler = nil
-            sort.terminationHandler = nil
-            try? minimap2StderrHandle.close()
-            try? sortStderrHandle.close()
+        func stderrText(_ url: URL) -> String {
+            (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         }
 
-        try Task.checkCancellation()
-        try sort.run()
-        do {
-            try minimap2.run()
-        } catch {
-            stdoutPipe.fileHandleForWriting.closeFile()
-            stdoutPipe.fileHandleForReading.closeFile()
-            requestTermination()
-            throw error
-        }
-        stdoutPipe.fileHandleForWriting.closeFile()
-        stdoutPipe.fileHandleForReading.closeFile()
-        async let streamedInputCount: Int? = {
-            guard let streamedSampleInputs, let stdinPipe else { return nil }
+        // Sample-prefixed reads reach minimap2 through a pipe this process
+        // writes while minimap2 reads. ToolProcess opens the read end through
+        // /dev/fd as minimap2's stdin.
+        let streamedInput: ONTGenotypingStreamedInput?
+        if streamedSampleInputs != nil {
             do {
-                let count = try await Self.writeSamplePrefixedFASTQStream(
-                    samples: streamedSampleInputs,
-                    to: stdinPipe.fileHandleForWriting
-                )
-                try stdinPipe.fileHandleForWriting.close()
-                return count
+                streamedInput = try ONTGenotypingStreamedInput()
             } catch {
-                try? stdinPipe.fileHandleForWriting.close()
-                throw error
+                throw failing(error)
             }
+        } else {
+            streamedInput = nil
+        }
+        let environment = ToolProcessSpec.inheritedEnvironment()
+        let minimap2Spec = ToolProcessSpec(
+            executableURL: minimap2URL,
+            arguments: minimap2Arguments,
+            environment: environment,
+            stdin: streamedInput.map { .file($0.readURL) } ?? .null,
+            stderr: .file(minimap2StderrURL),
+            label: "minimap2"
+        )
+        let sortSpec = ToolProcessSpec(
+            executableURL: samtoolsURL,
+            arguments: sortArguments,
+            environment: environment,
+            stdout: .discard,
+            stderr: .file(sortStderrURL),
+            label: "samtools sort"
+        )
+
+        do {
+            try Task.checkCancellation()
+        } catch {
+            streamedInput?.closeReadEnd()
+            streamedInput?.closeWriteEnd()
+            throw failing(error)
+        }
+        async let streamedInputCount: Int? = {
+            guard let streamedSampleInputs, let streamedInput else { return nil }
+            defer { streamedInput.closeWriteEnd() }
+            return try await Self.writeSamplePrefixedFASTQStream(
+                samples: streamedSampleInputs,
+                to: streamedInput.writeHandle
+            )
         }()
 
-        let processStatuses: [String: Int32]
+        // A failing stage stops the other, as `set -o pipefail` would, so a
+        // failed minimap2 never lets samtools sort finish on partial input.
+        let run: Result<ToolPipelineResult, ToolProcessError>
+        do {
+            run = .success(try await ToolProcess.runPipeline(
+                [minimap2Spec, sortSpec],
+                timeout: .seconds(Self.mappingProcessTimeout),
+                failurePolicy: .stopAllOnFailure,
+                onLaunch: { stage, _ in
+                    // minimap2 holds its own copy of the read end now. Closing
+                    // ours lets the writer see EPIPE once minimap2 is gone.
+                    if stage == 0 { streamedInput?.closeReadEnd() }
+                }
+            ))
+        } catch {
+            run = .failure(error)
+        }
+        streamedInput?.closeReadEnd()
         let streamedInputError: Error?
         do {
-            processStatuses = try await withThrowingTaskGroup(
-                of: (tool: String, status: Int32).self
-            ) { group in
-                group.addTask {
-                    let status = try await processWaiter.wait(
-                        tool: "minimap2",
-                        deadline: processDeadline,
-                        observation: minimap2Exit,
-                        isRunning: { minimap2.isRunning },
-                        terminationStatus: { minimap2.terminationStatus },
-                        requestTermination: requestTermination
-                    )
-                    return ("minimap2", status)
-                }
-                group.addTask {
-                    let status = try await processWaiter.wait(
-                        tool: "samtools sort",
-                        deadline: processDeadline,
-                        observation: sortExit,
-                        isRunning: { sort.isRunning },
-                        terminationStatus: { sort.terminationStatus },
-                        requestTermination: requestTermination
-                    )
-                    return ("samtools sort", status)
-                }
-
-                var statuses: [String: Int32] = [:]
-                var firstFailure: (tool: String, status: Int32)?
-                while let exit = try await group.next() {
-                    statuses[exit.tool] = exit.status
-                    if exit.status != 0 {
-                        if firstFailure == nil {
-                            firstFailure = exit
-                        }
-                        requestTermination()
-                    }
-                }
-                if var failure = firstFailure {
-                    let minimap2TerminationSignals = Set<Int32>([SIGPIPE, SIGTERM, SIGKILL])
-                    if failure.tool == "minimap2",
-                       minimap2TerminationSignals.contains(failure.status),
-                       let sortStatus = statuses["samtools sort"],
-                       sortStatus != 0,
-                       !minimap2TerminationSignals.contains(sortStatus) {
-                        failure = ("samtools sort", sortStatus)
-                    }
-                    throw ONTGenotypingProcessWaitError.exitedNonzero(
-                        tool: failure.tool,
-                        status: failure.status
-                    )
-                }
-                return statuses
-            }
-            do {
-                _ = try await streamedInputCount
-                streamedInputError = nil
-            } catch {
-                streamedInputError = error
-            }
-        } catch let waitError as ONTGenotypingProcessWaitError {
-            requestTermination()
-            _ = try? await streamedInputCount
-            try? minimap2StderrHandle.close()
-            try? sortStderrHandle.close()
-            let tool: String
-            let publicError: ONTBarcodeDemuxGenotypingError
-            switch waitError {
-            case .timedOut(let timedOutTool, let timedOutSeconds):
-                tool = timedOutTool
-                let stderrURL = tool == "minimap2" ? minimap2StderrURL : sortStderrURL
-                let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
-                publicError = .processTimedOut(
-                    tool: tool,
-                    seconds: timedOutSeconds,
-                    stderr: stderr
-                )
-            case .exitedNonzero(let failedTool, let status):
-                tool = failedTool
-                let stderrURL = tool == "minimap2" ? minimap2StderrURL : sortStderrURL
-                let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
-                publicError = .processFailed(tool: tool, status: status, stderr: stderr)
-            }
-            throw publicError
+            _ = try await streamedInputCount
+            streamedInputError = nil
         } catch {
-            requestTermination()
-            _ = try? await streamedInputCount
-            throw error
+            streamedInputError = error
         }
-        try? minimap2StderrHandle.close()
-        try? sortStderrHandle.close()
 
-        let minimap2Stderr = (try? String(contentsOf: minimap2StderrURL, encoding: .utf8)) ?? ""
-        let sortStderr = (try? String(contentsOf: sortStderrURL, encoding: .utf8)) ?? ""
-        let minimap2Status = processStatuses["minimap2"] ?? minimap2.terminationStatus
-        let sortStatus = processStatuses["samtools sort"] ?? sort.terminationStatus
-        guard minimap2Status == 0 else {
-            throw ONTBarcodeDemuxGenotypingError.processFailed(
-                tool: "minimap2",
-                status: minimap2Status,
-                stderr: minimap2Stderr
-            )
+        let pipeline: ToolPipelineResult
+        switch run {
+        case .success(let result):
+            pipeline = result
+        case .failure(.cancelled):
+            throw failing(CancellationError())
+        case .failure(.timedOut(_, let results)):
+            let tool = results.first.map { $0.termination == .exited(code: 0) } == true ? "samtools sort" : "minimap2"
+            throw failing(ONTBarcodeDemuxGenotypingError.processTimedOut(
+                tool: tool,
+                seconds: Self.mappingProcessTimeout,
+                stderr: stderrText(tool == "minimap2" ? minimap2StderrURL : sortStderrURL)
+            ))
+        case .failure(let error):
+            throw failing(error)
         }
-        guard sortStatus == 0 else {
-            throw ONTBarcodeDemuxGenotypingError.processFailed(
-                tool: "samtools sort",
-                status: sortStatus,
-                stderr: sortStderr
-            )
+
+        let minimap2Result = pipeline.stages[0]
+        let sortResult = pipeline.stages[1]
+        if let failure = Self.mappingPipelineFailure(minimap2: minimap2Result, sort: sortResult) {
+            throw failing(ONTBarcodeDemuxGenotypingError.processFailed(
+                tool: failure.tool,
+                status: failure.status,
+                stderr: stderrText(failure.tool == "minimap2" ? minimap2StderrURL : sortStderrURL)
+            ))
+        }
+        for (tool, result, stderrURL) in [
+            ("minimap2", minimap2Result, minimap2StderrURL),
+            ("samtools sort", sortResult, sortStderrURL),
+        ] where !result.outputComplete {
+            let reason = result.outputDrainTimedOut
+                ? "\(tool) output was incomplete: a child process kept writing after it exited"
+                : "\(tool) output was incomplete: reading it failed"
+            throw failing(ONTBarcodeDemuxGenotypingError.processFailed(
+                tool: tool,
+                status: result.status,
+                stderr: [stderrText(stderrURL), reason].filter { !$0.isEmpty }.joined(separator: "\n")
+            ))
         }
         if let streamedInputError {
-            throw streamedInputError
+            throw failing(streamedInputError)
         }
 
         return MappingInvocationResult(
@@ -2811,8 +2753,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             outputBAMURL: outputBAMURL,
             minimap2Arguments: minimap2Arguments,
             samtoolsSortArguments: sortArguments,
-            minimap2Stderr: minimap2Stderr,
-            samtoolsSortStderr: sortStderr,
+            minimap2Stderr: stderrText(minimap2StderrURL),
+            samtoolsSortStderr: stderrText(sortStderrURL),
             wallClockSeconds: runClock.elapsed
         )
     }

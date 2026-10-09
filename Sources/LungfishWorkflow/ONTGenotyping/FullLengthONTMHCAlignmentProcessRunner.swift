@@ -43,126 +43,129 @@ struct FullLengthONTMHCAlignmentProcessRunner: @unchecked Sendable {
                 temporaryRootURL: request.temporaryRootURL
             )
         }
-        let stdoutHandle = try Self.truncatingWriteHandle(at: stdoutLogURL, fileManager: fileManager)
-        let stderrHandle = try Self.truncatingWriteHandle(at: stderrLogURL, fileManager: fileManager)
+        try Self.createEmptyLog(at: stdoutLogURL, fileManager: fileManager)
+        try Self.createEmptyLog(at: stderrLogURL, fileManager: fileManager)
         let runClock = ProvenanceRunClock()
-        let state = CancellableProcessState()
+        let spec = ToolProcessSpec(
+            executableURL: request.executableURL,
+            arguments: request.arguments,
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            workingDirectory: request.workingDirectoryURL,
+            stdout: .file(stdoutLogURL),
+            stderr: .file(stderrLogURL),
+            label: request.executableURL.lastPathComponent
+        )
 
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                let process = Process()
-                process.executableURL = request.executableURL
-                process.arguments = request.arguments
-                process.currentDirectoryURL = request.workingDirectoryURL
-                process.environment = ProcessInfo.processInfo.environment
-                process.standardOutput = stdoutHandle
-                process.standardError = stderrHandle
-                state.register(process)
+        let run: Result<ToolProcessResult, ToolProcessError>
+        do {
+            run = .success(try await ToolProcess.run(spec))
+        } catch {
+            run = .failure(error)
+        }
+        let status: Int32
+        let launchError: String?
+        var cancelled = false
+        switch run {
+        case .success(let result):
+            // A descendant that outlived the tool may still have been writing
+            // its output or logs, so the run cannot vouch for them.
+            if result.outputDrainTimedOut {
+                throw FullLengthONTMHCAlignmentSafetyError(
+                    "\(spec.label) output was incomplete: a child process kept writing after it exited."
+                )
+            }
+            if result.outputReadFailed {
+                throw FullLengthONTMHCAlignmentSafetyError("\(spec.label) output was incomplete: reading it failed.")
+            }
+            status = result.status
+            launchError = nil
+        case .failure(.cancelled(let results)):
+            // A cancelled run still returns its record, so the caller can keep
+            // the logs of what ran. Before launch there is no exit status.
+            cancelled = true
+            status = results.first?.status ?? -1
+            launchError = results.isEmpty ? CancellationError().localizedDescription : nil
+        case .failure(let error):
+            status = -1
+            launchError = error.localizedDescription
+        }
 
-                let finish: @Sendable (Int32, String?) -> Void = { status, launchError in
-                    state.finishOnce {
-                        try? stdoutHandle.close()
-                        try? stderrHandle.close()
-                        let completedAt = runClock.now
-                        do {
-                            let stdoutDescriptor = try FullLengthONTMHCArtifactDescriptor(
-                                url: stdoutLogURL,
-                                role: .commandStdoutLog,
-                                phase: .diagnostic
-                            )
-                            let stderrDescriptor = try FullLengthONTMHCArtifactDescriptor(
-                                url: stderrLogURL,
-                                role: .commandStderrLog,
-                                phase: .diagnostic
-                            )
-                            var outputDescriptors: [FullLengthONTMHCArtifactDescriptor] = []
-                            var descriptorCaptureErrors: [FullLengthONTMHCArtifactDescriptorCaptureError] = []
-                            do {
-                                try request.pathIdentityValidator?()
-                                for url in request.outputs where Self.entryExistsNoFollow(url) {
-                                    do {
-                                        outputDescriptors.append(try Self.descriptor(
-                                            for: url,
-                                            role: .commandOutput,
-                                            temporaryRootURL: request.temporaryRootURL
-                                        ))
-                                    } catch {
-                                        descriptorCaptureErrors.append(.init(
-                                            path: url.standardizedFileURL.path,
-                                            role: .commandOutput,
-                                            message: (error as? LocalizedError)?.errorDescription
-                                                ?? error.localizedDescription
-                                        ))
-                                    }
-                                }
-                            } catch {
-                                descriptorCaptureErrors.append(.init(
-                                    path: request.temporaryRootURL.standardizedFileURL.path,
-                                    role: .commandOutput,
-                                    message: (error as? LocalizedError)?.errorDescription
-                                        ?? error.localizedDescription
-                                ))
-                            }
-                            let stdoutText: String
-                            let stderrText: String
-                            if let launchError {
-                                stdoutText = ""
-                                stderrText = launchError
-                            } else {
-                                stdoutText = try Self.boundedTail(of: stdoutLogURL)
-                                stderrText = try Self.boundedTail(of: stderrLogURL)
-                            }
-                            continuation.resume(returning: FullLengthONTMHCCohortAlignmentCommandRecord(
-                                executableURL: request.executableURL,
-                                toolVersion: request.toolVersion,
-                                argv: [request.executableURL.path] + request.arguments,
-                                arguments: request.arguments,
-                                inputs: request.inputs,
-                                outputs: request.outputs,
-                                inputDescriptors: inputDescriptors,
-                                outputDescriptors: outputDescriptors,
-                                descriptorCaptureErrors: descriptorCaptureErrors,
-                                stdoutLogDescriptor: stdoutDescriptor,
-                                stderrLogDescriptor: stderrDescriptor,
-                                exitStatus: status,
-                                stdout: stdoutText,
-                                stderr: stderrText,
-                                wasCancelled: state.isCancelled,
-                                startedAt: runClock.startedAt,
-                                completedAt: completedAt,
-                                wallTime: completedAt.timeIntervalSince(runClock.startedAt)
-                            ))
-                        } catch {
-                            continuation.resume(throwing: error)
-                        }
-                    }
-                }
-
-                process.terminationHandler = { terminatedProcess in
-                    finish(terminatedProcess.terminationStatus, nil)
-                }
-
+        let completedAt = runClock.now
+        let stdoutDescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: stdoutLogURL,
+            role: .commandStdoutLog,
+            phase: .diagnostic
+        )
+        let stderrDescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: stderrLogURL,
+            role: .commandStderrLog,
+            phase: .diagnostic
+        )
+        var outputDescriptors: [FullLengthONTMHCArtifactDescriptor] = []
+        var descriptorCaptureErrors: [FullLengthONTMHCArtifactDescriptorCaptureError] = []
+        do {
+            try request.pathIdentityValidator?()
+            for url in request.outputs where Self.entryExistsNoFollow(url) {
                 do {
-                    if state.isCancelled { throw CancellationError() }
-                    try process.run()
-                    state.terminateIfCancelled()
+                    outputDescriptors.append(try Self.descriptor(
+                        for: url,
+                        role: .commandOutput,
+                        temporaryRootURL: request.temporaryRootURL
+                    ))
                 } catch {
-                    finish(-1, error.localizedDescription)
+                    descriptorCaptureErrors.append(.init(
+                        path: url.standardizedFileURL.path,
+                        role: .commandOutput,
+                        message: (error as? LocalizedError)?.errorDescription
+                            ?? error.localizedDescription
+                    ))
                 }
             }
-        } onCancel: {
-            state.cancel()
+        } catch {
+            descriptorCaptureErrors.append(.init(
+                path: request.temporaryRootURL.standardizedFileURL.path,
+                role: .commandOutput,
+                message: (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+            ))
         }
+        let stdoutText: String
+        let stderrText: String
+        if let launchError {
+            stdoutText = ""
+            stderrText = launchError
+        } else {
+            stdoutText = try Self.boundedTail(of: stdoutLogURL)
+            stderrText = try Self.boundedTail(of: stderrLogURL)
+        }
+        return FullLengthONTMHCCohortAlignmentCommandRecord(
+            executableURL: request.executableURL,
+            toolVersion: request.toolVersion,
+            argv: [request.executableURL.path] + request.arguments,
+            arguments: request.arguments,
+            inputs: request.inputs,
+            outputs: request.outputs,
+            inputDescriptors: inputDescriptors,
+            outputDescriptors: outputDescriptors,
+            descriptorCaptureErrors: descriptorCaptureErrors,
+            stdoutLogDescriptor: stdoutDescriptor,
+            stderrLogDescriptor: stderrDescriptor,
+            exitStatus: status,
+            stdout: stdoutText,
+            stderr: stderrText,
+            wasCancelled: cancelled || Task.isCancelled,
+            startedAt: runClock.startedAt,
+            completedAt: completedAt,
+            wallTime: completedAt.timeIntervalSince(runClock.startedAt)
+        )
     }
 
-    private static func truncatingWriteHandle(
-        at url: URL,
-        fileManager: FileManager
-    ) throws -> FileHandle {
+    /// Creates an empty log before launch, so a run that never launches
+    /// still leaves both logs for its record.
+    private static func createEmptyLog(at url: URL, fileManager: FileManager) throws {
         guard fileManager.createFile(atPath: url.path, contents: Data()) else {
             throw FullLengthONTMHCAlignmentSafetyError("Could not create process log \(url.path).")
         }
-        return try FileHandle(forWritingTo: url)
     }
 
     private static func boundedTail(of url: URL) throws -> String {
@@ -201,43 +204,5 @@ struct FullLengthONTMHCAlignmentProcessRunner: @unchecked Sendable {
         let candidateComponents = candidate.standardizedFileURL.pathComponents
         guard candidateComponents.count >= rootComponents.count else { return false }
         return Array(candidateComponents.prefix(rootComponents.count)) == rootComponents
-    }
-}
-
-private final class CancellableProcessState: @unchecked Sendable {
-    private let lock = NSLock()
-    private var process: Process?
-    private var cancelled = false
-    private var finished = false
-
-    var isCancelled: Bool {
-        lock.withLock { cancelled }
-    }
-
-    func register(_ process: Process) {
-        lock.withLock { self.process = process }
-    }
-
-    func cancel() {
-        let process = lock.withLock { () -> Process? in
-            cancelled = true
-            return self.process
-        }
-        if process?.isRunning == true { process?.terminate() }
-    }
-
-    func terminateIfCancelled() {
-        let process = lock.withLock { cancelled ? self.process : nil }
-        if process?.isRunning == true { process?.terminate() }
-    }
-
-    func finishOnce(_ body: () -> Void) {
-        let shouldFinish = lock.withLock { () -> Bool in
-            guard !finished else { return false }
-            finished = true
-            process = nil
-            return true
-        }
-        if shouldFinish { body() }
     }
 }
