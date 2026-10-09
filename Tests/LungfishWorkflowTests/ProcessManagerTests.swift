@@ -4,6 +4,7 @@
 
 import XCTest
 import Darwin
+import LungfishCore
 @testable import LungfishWorkflow
 
 final class ProcessManagerTests: XCTestCase {

@@ -1,0 +1,163 @@
+// ToolProcess.swift - The one way Lungfish runs an external process
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import Foundation
+
+/// Runs external processes for every layer, from LungfishCore to the CLI.
+///
+/// Guarantees that every run keeps.
+///
+/// - Each process is spawned with posix_spawn as the leader of its own
+///   process group, with only stdin, stdout and stderr open, default signal
+///   dispositions (SIGPIPE included) and an empty signal mask.
+/// - Both output pipes are read from launch until end of file, so a process
+///   that writes more than the 64 KB pipe buffer never blocks on a full pipe.
+/// - After the root process exits, captured streams get
+///   ``ToolProcessSpec/drainGracePeriod`` to reach end of file, and a stage
+///   that writes a file gets the same time for its process group to empty.
+///   Descendants still running then are killed through the group, so the call
+///   cannot hang and nothing writes after it returns. The result is then not
+///   a success and says so with ``ToolProcessResult/outputDrainTimedOut``.
+/// - Cancelling the calling task, or exceeding the wall-clock or idle limit,
+///   sends SIGTERM to the process group and the descendant tree, then
+///   SIGKILL after the grace period, so helper processes such as a JVM under
+///   a wrapper script do not survive. The limits run on the suspending clock,
+///   so time the Mac spends asleep does not count.
+/// - Every running process is registered with ``NativeProcessRegistry``, so
+///   app quit reaches it.
+/// - A nonzero exit status is a result, not an error. Only an invalid spec, a
+///   launch failure, a timeout or a cancellation throws.
+public enum ToolProcess {
+    /// Runs one process and returns once it has exited and its captured
+    /// output is drained.
+    ///
+    /// - Parameters:
+    ///   - spec: What to run and how.
+    ///   - onEvent: Receives the launch and every captured output line, one
+    ///     event at a time, before this method returns or throws. Without it,
+    ///     output is not framed into lines at all. A trailing closure binds here.
+    ///   - onLaunch: Receives the pid synchronously, on the launching thread,
+    ///     right after the spawn succeeds.
+    /// - Throws: ``ToolProcessError``.
+    public static func run(
+        _ spec: ToolProcessSpec,
+        onEvent: (@Sendable (ToolProcessEvent) -> Void)? = nil,
+        onLaunch: (@Sendable (Int32) -> Void)? = nil
+    ) async throws(ToolProcessError) -> ToolProcessResult {
+        try validate(spec)
+        if let idle = spec.idleTimeout, !spec.stdout.isCaptured && !spec.stderr.isCaptured {
+            throw .invalidSpec("An idle timeout of \(idle) needs stdout or stderr captured, because no other output is observed.")
+        }
+        var stageHandler: (@Sendable (Int, ToolProcessEvent) -> Void)?
+        if let onEvent {
+            stageHandler = { _, event in onEvent(event) }
+        }
+        var launchHandler: (@Sendable (Int, Int32) -> Void)?
+        if let onLaunch {
+            launchHandler = { _, pid in onLaunch(pid) }
+        }
+        let execution = ToolProcessExecution(
+            specs: [spec],
+            limits: .init(wallClock: spec.timeout, idle: spec.idleTimeout, drainGrace: spec.drainGracePeriod),
+            observers: .init(failurePolicy: .runToCompletion, onLaunch: launchHandler, onEvent: stageHandler)
+        )
+        let result = try await execution.run()
+        return result.stages[0]
+    }
+
+    /// Runs stages connected stdout to stdin, as a shell pipeline does, for
+    /// example `samtools view | samtools sort`.
+    ///
+    /// The first stage reads its own ``ToolProcessSpec/stdin`` and the last
+    /// stage writes its own ``ToolProcessSpec/stdout``. Every stage keeps its
+    /// own stderr. The stdin of a later stage must stay `.null` and the stdout
+    /// of an earlier stage must stay at its default, because the pipe replaces
+    /// them. The limits cover the whole pipeline, so the stages' own
+    /// `timeout` and `idleTimeout` must be nil. A cancellation or a limit
+    /// terminates every running stage. Under the default
+    /// ``ToolPipelineFailurePolicy/stopAllOnFailure`` a failing stage stops
+    /// the others and the result is not a success. A stage that cannot launch
+    /// stops the stages already running, and the error carries their results.
+    ///
+    /// - Parameters:
+    ///   - stages: The stages in order. At least one.
+    ///   - timeout: Wall-clock limit for the whole pipeline.
+    ///   - idleTimeout: Limit on the time with no output on any captured
+    ///     stream of any stage.
+    ///   - failurePolicy: What a failing stage does to the others.
+    ///   - onEvent: Receives each stage's index with its events, one event at
+    ///     a time, before this method returns or throws. A trailing closure
+    ///     binds here.
+    ///   - onLaunch: Receives each stage's index and pid synchronously, right
+    ///     after its spawn succeeds.
+    /// - Throws: ``ToolProcessError``.
+    public static func runPipeline(
+        _ stages: [ToolProcessSpec],
+        timeout: Duration? = nil,
+        idleTimeout: Duration? = nil,
+        failurePolicy: ToolPipelineFailurePolicy = .stopAllOnFailure,
+        onEvent: (@Sendable (_ stage: Int, _ event: ToolProcessEvent) -> Void)? = nil,
+        onLaunch: (@Sendable (_ stage: Int, _ pid: Int32) -> Void)? = nil
+    ) async throws(ToolProcessError) -> ToolPipelineResult {
+        guard !stages.isEmpty else {
+            throw .invalidSpec("A pipeline needs at least one stage.")
+        }
+        for (index, stage) in stages.enumerated() {
+            try validate(stage)
+            if stage.timeout != nil || stage.idleTimeout != nil {
+                throw .invalidSpec("Stage \(index) (\(stage.label)) sets its own timeout. Pass the pipeline's limits to runPipeline instead.")
+            }
+            if index > 0 && stage.stdin != .null {
+                throw .invalidSpec("Stage \(index) (\(stage.label)) reads the previous stage's stdout, so its stdin must stay .null.")
+            }
+            if index < stages.count - 1 && stage.stdout != .capture() {
+                throw .invalidSpec("Stage \(index) (\(stage.label)) writes into the next stage, so its stdout must stay at the default.")
+            }
+        }
+        try validate(limit: timeout, name: "pipeline timeout")
+        try validate(limit: idleTimeout, name: "pipeline idle timeout")
+        if let idleTimeout {
+            let observed = stages.contains { $0.stderr.isCaptured } || stages[stages.count - 1].stdout.isCaptured
+            if !observed {
+                throw .invalidSpec("An idle timeout of \(idleTimeout) needs a captured stream, because no other output is observed.")
+            }
+        }
+        let execution = ToolProcessExecution(
+            specs: stages,
+            limits: .init(
+                wallClock: timeout,
+                idle: idleTimeout,
+                drainGrace: stages.map(\.drainGracePeriod).max() ?? .seconds(2)
+            ),
+            observers: .init(failurePolicy: failurePolicy, onLaunch: onLaunch, onEvent: onEvent)
+        )
+        return try await execution.run()
+    }
+
+    private static func validate(_ spec: ToolProcessSpec) throws(ToolProcessError) {
+        guard spec.executableURL.isFileURL else {
+            throw .invalidSpec("\(spec.label) has an executable URL that is not a file URL.")
+        }
+        for output in [spec.stdout, spec.stderr] {
+            if case .capture(let limit?) = output, limit < 0 {
+                throw .invalidSpec("\(spec.label) has a negative capture limit.")
+            }
+        }
+        if case .file(let stdoutURL) = spec.stdout, case .file(let stderrURL) = spec.stderr,
+           stdoutURL.standardizedFileURL.path == stderrURL.standardizedFileURL.path {
+            throw .invalidSpec("\(spec.label) writes stdout and stderr to the same file, and each would truncate and overwrite the other. Write one to a file and capture the other.")
+        }
+        try validate(limit: spec.timeout, name: "timeout of \(spec.label)")
+        try validate(limit: spec.idleTimeout, name: "idle timeout of \(spec.label)")
+        if spec.terminationGracePeriod < .zero || spec.drainGracePeriod < .zero {
+            throw .invalidSpec("\(spec.label) has a negative grace period.")
+        }
+    }
+
+    private static func validate(limit: Duration?, name: String) throws(ToolProcessError) {
+        if let limit, limit <= .zero {
+            throw .invalidSpec("The \(name) must be positive.")
+        }
+    }
+}

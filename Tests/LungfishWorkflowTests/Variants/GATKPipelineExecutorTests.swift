@@ -1,4 +1,5 @@
 import XCTest
+import LungfishCore
 @testable import LungfishWorkflow
 
 final class GATKPipelineExecutorTests: XCTestCase {

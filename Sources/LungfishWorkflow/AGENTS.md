@@ -33,6 +33,7 @@ Add to these. Never write a second copy in the CLI or the app.
 | Multiple sequence alignment | `MAFFTAlignmentPipeline` | Sources/LungfishWorkflow/MSA/MAFFTAlignmentPipeline.swift line 93 |
 | Viral variant calling | `ViralVariantCallingPipeline` | Sources/LungfishWorkflow/Variants/ViralVariantCallingPipeline.swift line 8 |
 | Native tool runs | `NativeToolRunner` | Sources/LungfishWorkflow/Native/NativeToolRunner.swift line 648 |
+| Process tree termination and output line framing, moved out of Native in Phase 2.2 | `ProcessTreeTerminator`, `ProcessOutputLineFramer` | Sources/LungfishCore/Process/ |
 | Conda environment tool runs | `CondaManager.runTool` | Sources/LungfishWorkflow/Conda/CondaManager.swift line 1112 |
 | Nextflow launch environment | `WorkflowEngineLaunch.resolve` | Sources/LungfishWorkflow/WorkflowEngineLaunch.swift line 56 |
 | CLI progress events | `CLIEvent` | Sources/LungfishWorkflow/CLIEvents/CLIEvent.swift line 19 |

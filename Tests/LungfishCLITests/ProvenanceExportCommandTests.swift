@@ -6,6 +6,7 @@ import ArgumentParser
 import Foundation
 import XCTest
 @testable import LungfishCLI
+import LungfishCore
 @testable import LungfishWorkflow
 
 final class ProvenanceExportCommandTests: XCTestCase {

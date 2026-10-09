@@ -15,20 +15,6 @@ final class ProcessOutputStreamingTests: XCTestCase {
         XCTAssertEqual(result.stderr, "β\r\nnext\rfinal")
     }
 
-    func testFramerHandlesEveryByteBoundaryAndPreservesEmptyLines() {
-        let bytes = Data("α\r\nβ\n\nγ\rdelta\r\n最後".utf8)
-        for chunkSize in 1...bytes.count {
-            var framer = ProcessOutputLineFramer()
-            var lines: [String] = []
-            for start in stride(from: 0, to: bytes.count, by: chunkSize) {
-                lines += framer.append(bytes.subdata(in: start..<min(start + chunkSize, bytes.count)))
-            }
-            lines += framer.finish()
-            XCTAssertEqual(lines, ["α", "β", "", "γ", "delta", "最後"], "Chunk size \(chunkSize)")
-            XCTAssertTrue(framer.finish().isEmpty)
-        }
-    }
-
     func testBothStreamsArriveBeforeExitAndFlushTheirFinalLines() async throws {
         let fixture = try StreamingProcessFixture(script: #"""
         printf 'out\n'

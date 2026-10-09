@@ -5,7 +5,6 @@
 import Foundation
 import Darwin
 import os.log
-import LungfishCore
 
 /// One row of the whole-system process table, as `pid=,ppid=` plus liveness
 /// state — the minimum ``ProcessTreeTerminator`` needs to compute a
@@ -176,6 +175,21 @@ public enum ProcessTreeTerminator {
         }
 
         terminate(rootPID: rootPID, gracePeriod: gracePeriod)
+    }
+
+    /// Terminates a process that was spawned as the leader of its own
+    /// process group, such as every ToolProcess stage.
+    ///
+    /// SIGTERM goes to the whole group and to the descendant tree, the tree
+    /// walk then escalates to SIGKILL after the grace period, and a final
+    /// SIGKILL reaches any group member the walk missed, such as a child
+    /// orphaned by an earlier exit. Call it only while the leader has not
+    /// been reaped, so its ID still names this group.
+    public static func terminate(processGroupLeader pid: Int32, gracePeriod: TimeInterval = 0.5) {
+        guard pid > 1 else { return }
+        killpg(pid, SIGTERM)
+        terminate(rootPID: pid, gracePeriod: gracePeriod)
+        killpg(pid, SIGKILL)
     }
 
     public static func terminate(rootPID: Int32, gracePeriod: TimeInterval = 0.5) {
@@ -387,8 +401,23 @@ public final class NativeProcessRegistry: @unchecked Sendable {
 
     private let lock = NSLock()
     private var processes: [ObjectIdentifier: Process] = [:]
+    private var groupLeaders: Set<Int32> = []
 
     private init() {}
+
+    /// Registers a process spawned without Foundation as the leader of its
+    /// own process group, so app quit terminates its group and tree.
+    public func register(processGroupLeader pid: Int32) {
+        lock.lock()
+        groupLeaders.insert(pid)
+        lock.unlock()
+    }
+
+    public func unregister(processGroupLeader pid: Int32) {
+        lock.lock()
+        groupLeaders.remove(pid)
+        lock.unlock()
+    }
 
     public func register(_ process: Process) {
         lock.lock()
@@ -420,21 +449,30 @@ public final class NativeProcessRegistry: @unchecked Sendable {
     /// concurrency to free the caller.
     public func terminateAll(gracePeriod: TimeInterval = 0.5) {
         let snapshot: [Process]
+        let leaders: [Int32]
         lock.lock()
         snapshot = Array(processes.values)
+        leaders = Array(groupLeaders)
         lock.unlock()
 
-        guard !snapshot.isEmpty else { return }
-        guard snapshot.count > 1 else {
-            ProcessTreeTerminator.terminate(rootProcess: snapshot[0], gracePeriod: gracePeriod)
+        var terminations: [@Sendable () -> Void] = snapshot.map { process in
+            { ProcessTreeTerminator.terminate(rootProcess: process, gracePeriod: gracePeriod) }
+        }
+        terminations += leaders.map { pid in
+            { ProcessTreeTerminator.terminate(processGroupLeader: pid, gracePeriod: gracePeriod) }
+        }
+
+        guard !terminations.isEmpty else { return }
+        guard terminations.count > 1 else {
+            terminations[0]()
             return
         }
 
         let group = DispatchGroup()
-        for process in snapshot {
+        for terminate in terminations {
             group.enter()
             DispatchQueue.global(qos: .userInitiated).async {
-                ProcessTreeTerminator.terminate(rootProcess: process, gracePeriod: gracePeriod)
+                terminate()
                 group.leave()
             }
         }
@@ -444,47 +482,49 @@ public final class NativeProcessRegistry: @unchecked Sendable {
     public var activeProcessCount: Int {
         lock.lock()
         defer { lock.unlock() }
-        return processes.count
+        return processes.count + groupLeaders.count
     }
 }
 
-enum NativeProcessCompletionReason {
+package enum NativeProcessCompletionReason {
     case completed
     case cancelled
     case timedOut
 }
 
-final class NativeProcessRunState: @unchecked Sendable {
+package final class NativeProcessRunState: @unchecked Sendable {
     private let lock = NSLock()
     private var resumed = false
     private var cancelled = false
     private var timedOut = false
 
-    func markCancelled() {
+    package init() {}
+
+    package func markCancelled() {
         lock.lock()
         cancelled = true
         lock.unlock()
     }
 
-    func markTimedOut() {
+    package func markTimedOut() {
         lock.lock()
         timedOut = true
         lock.unlock()
     }
 
-    var isCancelled: Bool {
+    package var isCancelled: Bool {
         lock.lock()
         defer { lock.unlock() }
         return cancelled
     }
 
-    var isTimedOut: Bool {
+    package var isTimedOut: Bool {
         lock.lock()
         defer { lock.unlock() }
         return timedOut
     }
 
-    func resumeOnce(_ body: (NativeProcessCompletionReason) -> Void) {
+    package func resumeOnce(_ body: (NativeProcessCompletionReason) -> Void) {
         let reason: NativeProcessCompletionReason
         lock.lock()
         guard !resumed else {

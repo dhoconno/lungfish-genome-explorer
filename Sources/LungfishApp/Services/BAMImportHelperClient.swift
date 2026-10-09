@@ -4,6 +4,7 @@
 
 import Foundation
 import os
+import LungfishCore
 import LungfishWorkflow
 
 /// Errors thrown by ``BAMImportHelperClient``.

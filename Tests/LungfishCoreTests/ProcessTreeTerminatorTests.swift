@@ -4,7 +4,7 @@
 
 import Darwin
 import XCTest
-@testable import LungfishWorkflow
+@testable import LungfishCore
 
 final class ProcessTreeTerminatorTests: XCTestCase {
     func testTerminateKillsNestedGrandchildProcess() async throws {

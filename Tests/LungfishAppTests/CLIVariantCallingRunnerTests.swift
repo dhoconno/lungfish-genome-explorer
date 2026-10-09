@@ -1,6 +1,7 @@
 import XCTest
 import Darwin
 @testable import LungfishApp
+import LungfishCore
 @testable import LungfishWorkflow
 
 final class CLIVariantCallingRunnerTests: XCTestCase {

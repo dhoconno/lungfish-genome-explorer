@@ -4,6 +4,7 @@
 
 import Foundation
 import Darwin
+import LungfishCore
 import LungfishWorkflow
 
 /// A thread-safe box holding the currently running CLI process.
