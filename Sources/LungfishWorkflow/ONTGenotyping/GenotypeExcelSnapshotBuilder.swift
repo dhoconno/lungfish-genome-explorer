@@ -115,7 +115,7 @@ public enum GenotypeExcelSnapshotBuilder {
         if let definition = authority.definitionSet { captured["definition.json"] = try encoder.encode(definition) }
         if let allProjection { captured["all-projection.json"] = try encoder.encode(allProjection) }
         if let filteredProjection { captured["filtered-projection.json"] = try encoder.encode(filteredProjection) }
-        let sampleNames = logicalSampleRoster(result: result, authority: authority)
+        let sampleNames = GenotypeMatrixBaseProjection.logicalSampleRoster(result: result, candidateDocument: result.mhcCandidates)
         let effectiveReferenceMetadata = MHCReferenceGenotypeDisplay.effectiveReferenceMetadata(
             storedMetadata: result.referenceMetadata,
             genotypes: result.calls.map(\.genotype)
@@ -472,20 +472,12 @@ public enum GenotypeExcelSnapshotBuilder {
     /// once here for every export container. `genotype export` builds its CSV
     /// and TSV matrix from these rows, so the delimited formats cannot drift
     /// from the xlsx format (finding SF2). The roster is the one `capture`
-    /// uses, so a genotype-only result lists its manual assignments the same
-    /// way in both.
+    /// and the comparison matrix use (decision D1), so a genotype-only result
+    /// lists its manual assignments the same way in both.
     public static func effectiveCalls(result: ONTGenotypeResultBundleData, sidecar: GenotypeAnnotationSidecar,
                                       authority: CapturedAuthority) throws -> [GenotypeWorkbookPresentation.Call] {
         try calls(result: result, sidecar: sidecar, authority: authority,
-                  samples: logicalSampleRoster(result: result, authority: authority)).calls
-    }
-
-    /// Every sample any scientific input names, in first-seen order.
-    private static func logicalSampleRoster(result: ONTGenotypeResultBundleData, authority: CapturedAuthority) -> [String] {
-        unique(result.samples.map(\.sample) + result.calls.map(\.sample)
-            + (result.reviewableRowCatalog?.samples ?? []) + (result.mhcCandidates?.observations.map(\.sampleID) ?? [])
-            + (result.mhcUnnameableClusters?.observations.map(\.sampleID) ?? [])
-            + (authority.analysis?.samples.map(\.sample) ?? []))
+                  samples: GenotypeMatrixBaseProjection.logicalSampleRoster(result: result, candidateDocument: result.mhcCandidates)).calls
     }
 
     private static func resolvedStyle(_ target: GenotypeAnnotationSidecar.MatrixTarget,

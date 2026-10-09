@@ -597,7 +597,8 @@
                 "style" : {
                   "fillHex" : "#FFE5BF",
                   "isBold" : true,
-                  "isItalic" : false
+                  "isItalic" : false,
+                  "textHex" : "#000000"
                 }
               }
             ],
@@ -1166,7 +1167,10 @@
                   "isBold" : false,
                   "isItalic" : false
                 },
-                null
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
               ],
               "label" : "Mafa-A1*001:01",
               "locus" : "MHC-A",
@@ -1235,7 +1239,10 @@
                   "isBold" : false,
                   "isItalic" : false
                 },
-                null
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
               ],
               "label" : "Mafa-A1*002:01",
               "locus" : "MHC-A",
@@ -1270,7 +1277,7 @@
                 "#FFE5BF",
                 "#FFE5BF",
                 "#FFE5BF",
-                null
+                "#FFE5BF"
               ],
               "cells" : [
                 "9",
@@ -1311,7 +1318,12 @@
                   "isItalic" : false,
                   "textHex" : "#000000"
                 },
-                null
+                {
+                  "fillHex" : "#FFE5BF",
+                  "isBold" : true,
+                  "isItalic" : false,
+                  "textHex" : "#000000"
+                }
               ],
               "label" : "Mafa-B*075:01",
               "locus" : "MHC-B",
@@ -1383,7 +1395,10 @@
                   "isBold" : false,
                   "isItalic" : false
                 },
-                null
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
               ],
               "label" : "Mafa-B*082:01",
               "locus" : "MHC-B",
@@ -2653,59 +2668,6 @@
                 "isBold" : true,
                 "isItalic" : false,
                 "textHex" : "#000000"
-              }
-            },
-            {
-              "cellColorsHex" : [
-                "#E4F3FF",
-                null,
-                "#CCE7FF"
-              ],
-              "cells" : [
-                "",
-                "",
-                "9"
-              ],
-              "cellStyles" : [
-                {
-                  "fillHex" : "#E4F3FF",
-                  "isBold" : false,
-                  "isItalic" : false
-                },
-                {
-                  "isBold" : false,
-                  "isItalic" : false
-                },
-                {
-                  "fillHex" : "#CCE7FF",
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              ],
-              "label" : "Mafa-B*082:01",
-              "locus" : "MHC-B",
-              "matrixColumnValues" : [
-                {
-                  "key" : "standard.genotype",
-                  "text" : "04_Mafa_B_082_01"
-                },
-                {
-                  "key" : "reference.feature.allele",
-                  "text" : "Mafa-B*082:01"
-                },
-                {
-                  "key" : "reference.source.organism",
-                  "text" : "Macaca fascicularis"
-                },
-                {
-                  "key" : "standard.locus",
-                  "text" : "MHC-B"
-                }
-              ],
-              "rawGenotype" : "04_Mafa_B_082_01",
-              "rowStyle" : {
-                "isBold" : false,
-                "isItalic" : false
               }
             }
           ],
@@ -4000,72 +3962,6 @@
         },
         "stableClusterID" : null,
         "totalUniqueReads" : 89
-      },
-      {
-        "cellStyles" : {
-
-        },
-        "displayName" : "Mafa-B*082:01",
-        "genotype" : "04_Mafa_B_082_01",
-        "locus" : "MHC-B",
-        "matrixColumnValues" : [
-          {
-            "key" : "standard.genotype",
-            "text" : "04_Mafa_B_082_01"
-          },
-          {
-            "key" : "reference.feature.allele",
-            "text" : "Mafa-B*082:01"
-          },
-          {
-            "key" : "reference.source.organism",
-            "text" : "Macaca fascicularis"
-          },
-          {
-            "key" : "standard.locus",
-            "text" : "MHC-B"
-          }
-        ],
-        "renderedCellStyles" : {
-          "AnimalA" : {
-            "borderColor" : null,
-            "fillColor" : null,
-            "isBold" : false,
-            "isItalic" : false,
-            "textColor" : null
-          },
-          "AnimalB" : {
-            "borderColor" : null,
-            "fillColor" : "#0088FF33",
-            "isBold" : false,
-            "isItalic" : false,
-            "textColor" : null
-          },
-          "AnimalC" : {
-            "borderColor" : null,
-            "fillColor" : "#0088FF1B",
-            "isBold" : false,
-            "isItalic" : false,
-            "textColor" : null
-          }
-        },
-        "renderedRowStyle" : {
-          "borderColor" : null,
-          "fillColor" : null,
-          "isBold" : false,
-          "isItalic" : false,
-          "textColor" : null
-        },
-        "rowStyle" : {
-          "borderColor" : null,
-          "fillColor" : null
-        },
-        "sampleCount" : 2,
-        "sampleReads" : {
-          "AnimalB" : 9
-        },
-        "stableClusterID" : null,
-        "totalUniqueReads" : 49
       }
     ],
     "sampleNames" : [

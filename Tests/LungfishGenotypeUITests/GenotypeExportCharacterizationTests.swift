@@ -4,13 +4,13 @@
 //
 // Byte-level characterization of the genotype export coordinator before its
 // extraction from GenotypeResultViewController (Phase 2.3, REVIEW.md R6).
-// The frozen Excel capture and the delimited viewport snapshot of five
-// scenarios are compared with committed files under
-// Tests/Fixtures/golden/genotype-gui. The panel flow, the manual definitions
-// provenance, the scoped export request, the panel's window and the refused
-// capture of a catalog-only sample under a prevalence filter are pinned
-// inline. Every test pins current behaviour, including behaviour the design
-// experts flagged as wrong, so a later fix shows up as a reviewed diff.
+// The frozen Excel capture of six scenarios is compared with committed files
+// under Tests/Fixtures/golden/genotype-gui. The panel flow, the manual
+// definitions provenance, the scoped export request, the panel's window, the
+// one roster the matrix and the workbook count prevalence over and the exact
+// threshold values of the filter context are pinned inline. Every test pins
+// current behaviour, including behaviour the design experts flagged as
+// wrong, so a later fix shows up as a reviewed diff.
 
 import AppKit
 import Foundation
@@ -86,11 +86,12 @@ final class GenotypeExportCharacterizationTests: GenotypeResultViewportTestCase 
         }
     }
 
-    /// Scenario E pins the first consequence of finding T2. With the
-    /// catalog-only AnimalF in the roster the Excel builder counts and
-    /// prevalence 40, the Filtered sheet drops 04_Mafa_B_082_01 at 2 of 6
-    /// while the GUI matrix keeps it at 2 of 5. Its Samples and Unique Reads
-    /// columns are hidden, see the next test for why.
+    /// Scenario E pins decision D1 (finding T2). The matrix and the Excel
+    /// builder take their sample roster from one function, so the catalog-only
+    /// AnimalF is a matrix column and both count prevalence 40 over six
+    /// animals. 04_Mafa_B_082_01, seen in two of them, leaves the matrix and
+    /// the Filtered sheet alike. Its Samples and Unique Reads columns are
+    /// hidden here and visible in the next scenario.
     func testCatalogPrevalenceMiSeqExportCapturesMatchCharacterization() throws {
         try GenotypeCharacterizationExpectedStore.verify(prefix: "haplotyped-miseq-catalog-prevalence") {
             let scenario = try makeCatalogPrevalenceMiSeqScenario()
@@ -99,24 +100,62 @@ final class GenotypeExportCharacterizationTests: GenotypeResultViewportTestCase 
         }
     }
 
-    /// The second consequence of finding T2. With the Samples and Unique Reads
-    /// columns visible, the GUI's default, the Excel builder recomputes both
-    /// over its six-animal roster, finds the GUI's five-animal values for
-    /// 04_Mafa_B_082_01 different and refuses the capture. The export then
-    /// publishes exactly one failed event with that message and opens no save
-    /// panel. Pinned as it is today, T2 is on the owner's decision list.
-    func testCatalogPrevalenceWithCountColumnsRefusesTheExcelCapture() throws {
+    /// Decision D1 (finding T2), the matrix side. Before the fix the matrix
+    /// counted prevalence over the five animals of the result and kept
+    /// 04_Mafa_B_082_01 at 2 of 5, exactly 40 percent, while the Excel builder
+    /// counted the catalog-only AnimalF too and dropped the row at 2 of 6. The
+    /// matrix now takes its columns from the roster the builder counts over,
+    /// so AnimalF is a column and the row is hidden in the window and in the
+    /// Filtered sheet alike.
+    func testCatalogPrevalenceHidesTheSameRowInTheMatrixAndTheFilteredSheet() throws {
+        let scenario = try makeCatalogPrevalenceMiSeqScenario()
+        defer { scenario.cleanup() }
+        let matrix = scenario.controller.testingComparisonMatrix
+        let roster = matrix.exportSnapshot(
+            bundleURL: scenario.bundleURL, analysisName: "Example", lens: "genotype", unfiltered: true
+        ).sampleNames
+        XCTAssertEqual(roster, ["AnimalC", "AnimalA", "AnimalB", "AnimalD", "AnimalE", "AnimalF"],
+                       "the catalog-only animal is a matrix column, after the moved AnimalC and the result's order")
+        let visible = matrix.testingVisibleGenotypes
+        XCTAssertFalse(visible.contains("04_Mafa_B_082_01"), "2 of 6 animals is under 40 percent")
+        XCTAssertTrue(visible.contains("03_Mafa_B_075_01"))
+
+        let snapshot = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self,
+            from: XCTUnwrap(scenario.withAquaDrawingAppearance { try scenario.controller.captureExcelExportSnapshot() }.excelSnapshotData))
+        XCTAssertEqual(snapshot.allMatrix.samples.map(\.name), roster, "the All sheet lists the same roster")
+        let filtered = snapshot.filteredMatrix.rows.map(\.target.genotype)
+        XCTAssertFalse(filtered.contains("04_Mafa_B_082_01"))
+        XCTAssertTrue(filtered.contains("03_Mafa_B_075_01"))
+    }
+
+    /// Decision D1 (finding T2), the other consequence. With the Samples and
+    /// Unique Reads columns visible, the GUI's default, the Excel builder used
+    /// to recompute both over its six-animal roster, find the GUI's five-animal
+    /// values for 04_Mafa_B_082_01 different and refuse the whole capture with
+    /// one failed event and no save panel. Both sides now count over one
+    /// roster, so the capture succeeds with the count columns visible, the
+    /// panel flow opens one save panel and publishes no failed event, and the
+    /// capture is pinned as its own expected file.
+    func testCatalogPrevalenceWithCountColumnsExportCapturesMatchCharacterization() throws {
+        try GenotypeCharacterizationExpectedStore.verify(prefix: "haplotyped-miseq-catalog-prevalence-counts") {
+            let scenario = try makeCatalogPrevalenceWithCountColumnsMiSeqScenario()
+            defer { scenario.cleanup() }
+            return try scenario.canonicalExportFiles(prefix: "haplotyped-miseq-catalog-prevalence-counts")
+        }
+
         let scenario = try makeCatalogPrevalenceWithCountColumnsMiSeqScenario()
         defer { scenario.cleanup() }
         let controller = scenario.controller
-        let refusal = "Incoherent Excel capture: projected native matrix column values disagree with scientific authority"
-        XCTAssertThrowsError(try scenario.withAquaDrawingAppearance { try controller.captureExcelExportSnapshot() }) { error in
-            guard case GenotypeExcelSnapshotBuilder.CaptureError.incoherent(let message) = error else {
-                return XCTFail("Expected the builder's incoherent capture error, got \(error)")
-            }
-            XCTAssertEqual(message, "projected native matrix column values disagree with scientific authority")
-            XCTAssertEqual(error.localizedDescription, refusal)
-        }
+        let snapshot = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self,
+            from: XCTUnwrap(scenario.withAquaDrawingAppearance { try controller.captureExcelExportSnapshot() }.excelSnapshotData))
+        XCTAssertEqual(snapshot.allMatrix.samples.map(\.name), ["AnimalC", "AnimalA", "AnimalB", "AnimalD", "AnimalE", "AnimalF"])
+        XCTAssertFalse(snapshot.filteredMatrix.rows.map(\.target.genotype).contains("04_Mafa_B_082_01"))
+        XCTAssertFalse(controller.testingComparisonMatrix.testingVisibleGenotypes.contains("04_Mafa_B_082_01"))
+        // The count columns reach the Filtered sheet with the window's values.
+        let row = try XCTUnwrap(snapshot.filteredMatrix.rows.first { $0.target.genotype == "03_Mafa_B_075_01" })
+        let values = Dictionary(uniqueKeysWithValues: (row.columnValues ?? []).map { ($0.key, $0) })
+        XCTAssertEqual(values["standard.samples"]?.integer, 3, "AnimalA, AnimalC and the hidden AnimalD")
+        XCTAssertEqual(values["standard.totalUniqueReads"]?.integer, 89)
 
         var panels = 0
         var events: [String] = []
@@ -131,8 +170,8 @@ final class GenotypeExportCharacterizationTests: GenotypeResultViewportTestCase 
         try scenario.withAquaDrawingAppearance {
             controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
         }
-        XCTAssertEqual(panels, 0, "A refused capture must open no save panel")
-        XCTAssertEqual(events, ["failed " + refusal])
+        XCTAssertEqual(panels, 1, "the capture is no longer refused, so the save panel opens")
+        XCTAssertEqual(events, [], "no event is published before the save completes")
     }
 
     // MARK: E3, the panel flow

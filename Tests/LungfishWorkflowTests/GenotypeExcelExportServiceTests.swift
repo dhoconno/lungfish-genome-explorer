@@ -558,7 +558,8 @@ print(json.dumps(result))
                 calls: ["MHC-A", "MHC-B"].map { .init(locus: $0, sourceLocus: $0,
                     haplotype1: $0 + "-call", haplotype2: "-", status: .called,
                     matchedHaplotypes: [], observedGenotypeCount: 0, observedGenotypes: []) })])
-        let result = GenotypeTestFixtures.makeResult(calls: [], haplotypeAnalysis: analysis)
+        // S1 is a sample of the run. An analysis alone names no roster animal (D1).
+        let result = GenotypeTestFixtures.makeResult(samples: [sampleRow("S1")], calls: [], haplotypeAnalysis: analysis)
         func capture(_ scope: [String]?) throws -> GenotypeWorkbookPresentation.Snapshot {
             let projection = GenotypeViewProjection(lens: "genotype", sampleColumns: ["S1"], rows: [],
                 haplotypeLocusScope: scope)
@@ -801,7 +802,7 @@ print(json.dumps(result))
                 speciesName: "fixture", samples: [.init(sample: "S1", calls: [.init(locus: "MHC-A", sourceLocus: "MHC-A",
                     haplotype1: status == .called ? "M4" : "", haplotype2: "", status: status,
                     matchedHaplotypes: [], observedGenotypeCount: 0, observedGenotypes: [])])])
-            let result = GenotypeTestFixtures.makeResult(calls: [], haplotypeAnalysis: analysis)
+            let result = GenotypeTestFixtures.makeResult(samples: [sampleRow("S1")], calls: [], haplotypeAnalysis: analysis)
             let snapshot = try GenotypeExcelSnapshotBuilder.capture(result: result, sidecar: .empty(generatedAt: timestamp),
                 allProjection: nil, filteredProjection: nil, generatedAt: timestamp, authority: .init(analysis: analysis))
             XCTAssertTrue(snapshot.hasHaplotypeContent)
@@ -1229,6 +1230,14 @@ print(json.dumps(result))
             GenotypeTestFixtures.makeCall(sample: "S3", genotype: Self.production, reads: 4),
             GenotypeTestFixtures.makeCall(sample: "S1", genotype: Self.other, reads: 2),
         ], reviewableRowCatalog: GenotypeReviewableRowCatalog(samples: ["S1", "S2", "S3"], rows: rows))
+    }
+
+    /// A sample summary row with no reads, the roster entry every bundle has
+    /// for each animal of the run. An analysis alone names no roster animal
+    /// (decision D1), so a fixture whose calls name an animal gives it a row.
+    private func sampleRow(_ sample: String) -> ONTGenotypeSampleResult {
+        ONTGenotypeSampleResult(sample: sample, passedAlignments: 0, passedUniqueReads: 0,
+                                sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: [])
     }
 
     private func referenceRow(callID: String, displayName: String, support: [String: Int]) -> GenotypeReviewableRowCatalog.Row {

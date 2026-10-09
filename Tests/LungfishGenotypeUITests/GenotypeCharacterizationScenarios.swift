@@ -299,25 +299,22 @@ extension GenotypeResultViewportTestCase {
 
     /// Scenario E, the data of scenario A with its five-animal catalog, which
     /// holds the catalog-only AnimalF, matrix prevalence 40, and the Samples
-    /// and Unique Reads matrix columns hidden. It pins the roster discrepancy
-    /// of finding T2 in the bioinformatics report. The matrix counts prevalence
-    /// over the five animals the result holds, so 04_Mafa_B_082_01 stays
-    /// visible at 2 of 5, exactly 40 percent. The Excel builder counts over the
-    /// union of the result, call, catalog and analysis samples, so AnimalF
-    /// makes the roster six, the row falls to 2 of 6 and leaves the Filtered
-    /// sheet. The two count columns are hidden because the builder recomputes
-    /// them over its own roster and refuses the whole capture when they differ
-    /// from the GUI's, which the next scenario pins. Scenario D keeps the same
-    /// row with its four-animal catalog, where both rosters agree.
+    /// and Unique Reads matrix columns hidden. It pins decision D1 on finding
+    /// T2 in the bioinformatics report. The matrix and the Excel builder take
+    /// their sample roster from one function, the result's animals, then
+    /// call, displayed candidate and catalog animals, so AnimalF is a matrix
+    /// column, both count prevalence over six animals and 04_Mafa_B_082_01
+    /// falls to 2 of 6 and leaves the matrix and the Filtered sheet alike.
+    /// Scenario D keeps the same row with its four-animal catalog.
     func makeCatalogPrevalenceMiSeqScenario() throws -> GenotypeCharacterizationScenario {
         try makeHaplotypedMiSeqScenario(.catalogPrevalence)
     }
 
     /// Scenario E with the Samples and Unique Reads columns visible, the GUI's
-    /// default. The Excel builder recomputes both columns over its six-animal
-    /// roster, finds the GUI's five-animal values for 04_Mafa_B_082_01
-    /// different and refuses the capture, so the export publishes one failed
-    /// event and opens no save panel. The other consequence of finding T2.
+    /// default. Before decision D1 the Excel builder recomputed both columns
+    /// over its six-animal roster, found the GUI's five-animal values for
+    /// 04_Mafa_B_082_01 different and refused the capture. With one roster the
+    /// capture succeeds and is pinned as its own expected file.
     func makeCatalogPrevalenceWithCountColumnsMiSeqScenario() throws -> GenotypeCharacterizationScenario {
         try makeHaplotypedMiSeqScenario(.catalogPrevalenceWithCountColumns)
     }
@@ -330,7 +327,7 @@ extension GenotypeResultViewportTestCase {
         case thresholded
         /// Scenario E, the catalog of scenario A with prevalence 40 and the count columns hidden.
         case catalogPrevalence
-        /// Scenario E with the count columns visible, so the Excel capture is refused.
+        /// Scenario E with the count columns visible, the GUI's default.
         case catalogPrevalenceWithCountColumns
 
         var temporaryPrefix: String {

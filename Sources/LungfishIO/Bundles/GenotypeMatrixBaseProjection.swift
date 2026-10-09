@@ -442,6 +442,44 @@ public struct GenotypeMatrixBaseProjection: Sendable {
         return Double(supportingSamples.intersection(logicalSamples).count) / Double(logicalSamples.count)
     }
 
+    /// The logical sample roster of a result, the one list the comparison
+    /// matrix shows as columns and that prevalence and the Samples and Unique
+    /// Reads columns count over, in the GUI and the Excel builder alike
+    /// (Phase 2.3 decision D1, finding T2). The run's samples come first in
+    /// result order, then call samples the summary lacks in first-seen order,
+    /// then the animals the displayed candidate observations and the
+    /// interpreted incomplete-span observations name, sorted, then catalog
+    /// animals in catalog order. `candidateDocument` is the candidate document
+    /// the caller displays, the validated one in the matrix and the bundle's
+    /// own in the builder. An animal named only by a haplotype analysis or
+    /// only by an uninterpreted un-nameable cluster is not an animal of the
+    /// run and is left out, so the roster is a function of the result alone
+    /// and cannot move when the active analysis changes. Every animal in a
+    /// denominator is therefore a visible column, and "2 of 6" can be read
+    /// off the screen.
+    public static func logicalSampleRoster(
+        result: ONTGenotypeResultBundleData,
+        candidateDocument: ONTMHCCandidateAllelesDocument?
+    ) -> [String] {
+        var roster: [String] = []
+        var seen = Set<String>()
+        func append(_ names: [String]) {
+            roster.append(contentsOf: names.filter { seen.insert($0).inserted })
+        }
+        append(result.sampleNames)
+        append(result.calls.map(\.sample))
+        let interpretedClusterIDs = Set(result.mhcUnnameableClusters?.clusters.compactMap {
+            $0.candidateInterpretation == nil ? nil : $0.stableClusterID
+        } ?? [])
+        let observed = (candidateDocument?.observations.map(\.sampleID) ?? [])
+            + (result.mhcUnnameableClusters?.observations.compactMap {
+                interpretedClusterIDs.contains($0.stableClusterID) ? $0.sampleID : nil
+            } ?? [])
+        append(observed.sorted { $0.localizedStandardCompare($1) == .orderedAscending })
+        append(result.reviewableRowCatalog?.samples ?? [])
+        return roster
+    }
+
     public func supportFractions(
         for denominator: ONTGenotypeSupportDenominator
     ) -> [CellIdentity: Double] {

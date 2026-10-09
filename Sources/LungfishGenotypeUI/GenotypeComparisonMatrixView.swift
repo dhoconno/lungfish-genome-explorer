@@ -554,11 +554,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             : []
         updateReviewLegend()
         configureReferenceColumns(from: result.referenceMetadata)
-        sampleNames = result.sampleNames
-        if sampleNames.isEmpty {
-            sampleNames = orderedSamples(from: result.calls)
-        }
-        appendMissingCandidateSamples(from: result)
+        sampleNames = GenotypeMatrixBaseProjection.logicalSampleRoster(
+            result: result, candidateDocument: validatedMHCCandidateDocument(from: result))
         preferredSampleColumnOrder = sampleNames
         sampleColumnWidthsByStableID = [:]
         manualHaplotypeTransientMinimumWidths = [:]
@@ -691,11 +688,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             : []
         updateReviewLegend()
         configureReferenceColumns(from: result.referenceMetadata)
-        sampleNames = result.sampleNames
-        if sampleNames.isEmpty {
-            sampleNames = orderedSamples(from: result.calls)
-        }
-        appendMissingCandidateSamples(from: result)
+        sampleNames = GenotypeMatrixBaseProjection.logicalSampleRoster(
+            result: result, candidateDocument: validatedMHCCandidateDocument(from: result))
         let validSamples = Set(sampleNames)
         preferredSampleColumnOrder =
             preferredSampleColumnOrder.filter(validSamples.contains)
@@ -3002,31 +2996,6 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private func compare<T: Comparable>(_ lhs: T, _ rhs: T) -> ComparisonResult {
         if lhs == rhs { return .orderedSame }
         return lhs < rhs ? .orderedAscending : .orderedDescending
-    }
-
-    private func orderedSamples(from calls: [ONTGenotypeCall]) -> [String] {
-        var names: [String] = []
-        var seen = Set<String>()
-        for call in calls where seen.insert(call.sample).inserted {
-            names.append(call.sample)
-        }
-        return names
-    }
-
-    private func appendMissingCandidateSamples(from result: ONTGenotypeResultBundleData) {
-        var seen = Set(sampleNames)
-        let interpretedUnnameableIDs = Set(result.mhcUnnameableClusters?.clusters.compactMap {
-            $0.candidateInterpretation == nil ? nil : $0.stableClusterID
-        } ?? [])
-        let candidateSamples = (
-            validatedMHCCandidateDocument(from: result)?.observations.map(\.sampleID) ?? []
-        ) + (result.mhcUnnameableClusters?.observations.compactMap {
-            interpretedUnnameableIDs.contains($0.stableClusterID) ? $0.sampleID : nil
-        } ?? [])
-        let sortedCandidateSamples = candidateSamples.sorted {
-            $0.localizedStandardCompare($1) == .orderedAscending
-        }
-        sampleNames.append(contentsOf: sortedCandidateSamples.filter { seen.insert($0).inserted })
     }
 
     private func sampleReadTitles(from result: ONTGenotypeResultBundleData) -> [String: String] {
