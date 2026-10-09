@@ -173,6 +173,16 @@ struct GenotypeHaplotypeCallBandSnapshot: Equatable, Sendable {
         if statuses.contains(.tooManyHaplotypes) {
             return "Too many haplotypes"
         }
+        // The analyzer gives both slots of a locus it could not call the same
+        // status, so such a locus reads as a word like the two above. An
+        // analyst override on one slot keeps its value, with a dash for the
+        // other slot, so the dash means only that a slot has no value (D5a).
+        if statuses.allSatisfy({ $0 == .noHaplotype }) {
+            return "No haplotype"
+        }
+        if statuses.allSatisfy({ $0 == .notAssayed }) {
+            return "Not assayed"
+        }
         let h1Label = Self.compactLabel(h1)
         let h2Label = Self.compactLabel(h2)
         guard h1Label != "—" || h2Label != "—" else {
@@ -247,9 +257,12 @@ struct GenotypeHaplotypeCallBandSnapshot: Equatable, Sendable {
         guard let value else { return "—" }
         switch value.status {
         case .notAssayed, .noHaplotype, .tooManyHaplotypes,
-             .tooManyGenotypes, .ambiguous:
+             .tooManyGenotypes:
             return "—"
-        case .called, .specialCase, .homozygous, .unresolvedSecondHaplotype:
+        case .called, .specialCase, .homozygous, .unresolvedSecondHaplotype,
+             .ambiguous:
+            // An ambiguous slot keeps its token, for example M4|M7, the way
+            // the workbook writes it (D5a).
             let label = value.value.trimmingCharacters(
                 in: .whitespacesAndNewlines
             )

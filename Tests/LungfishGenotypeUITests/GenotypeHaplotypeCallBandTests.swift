@@ -91,6 +91,28 @@ final class GenotypeHaplotypeCallBandTests: XCTestCase {
             ).renderedLocusValue(sample: "S", locus: "MHC-A"),
             "M2A • —"
         )
+        // An ambiguous call keeps its tokens, the way the workbook writes
+        // them, in the one-group and the two-group form (decision D5a).
+        XCTAssertEqual(
+            compactSnapshot(
+                h1: "M4|M7",
+                h2: "M4|M7",
+                h1Status: .ambiguous,
+                h2Status: .ambiguous
+            ).renderedLocusValue(sample: "S", locus: "MHC-A"),
+            "M4|M7 • M4|M7"
+        )
+        XCTAssertEqual(
+            compactSnapshot(
+                h1: "M4|M7",
+                h2: "M1",
+                h1Status: .ambiguous,
+                h2Status: .ambiguous
+            ).renderedLocusValue(sample: "S", locus: "MHC-A"),
+            "M4|M7 • M1"
+        )
+        // No haplotype and not assayed are spelled out like the other locus
+        // words, so the dash means only that a slot has no value.
         XCTAssertEqual(
             compactSnapshot(
                 h1: "ERR: NO HAP",
@@ -98,7 +120,16 @@ final class GenotypeHaplotypeCallBandTests: XCTestCase {
                 h1Status: .noHaplotype,
                 h2Status: .noHaplotype
             ).renderedLocusValue(sample: "S", locus: "MHC-A"),
-            "—"
+            "No haplotype"
+        )
+        XCTAssertEqual(
+            compactSnapshot(
+                h1: "Not assayed",
+                h2: "Not assayed",
+                h1Status: .notAssayed,
+                h2Status: .notAssayed
+            ).renderedLocusValue(sample: "S", locus: "MHC-A"),
+            "Not assayed"
         )
         XCTAssertEqual(
             compactSnapshot(

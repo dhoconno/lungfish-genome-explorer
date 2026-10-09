@@ -174,7 +174,7 @@
               "drawn" : null,
               "locus" : "MHC-A",
               "registeredTooltip" : null,
-              "rendered" : "—",
+              "rendered" : "A1|A2 • A1|A2",
               "slots" : [
                 {
                   "hitTarget" : null,
@@ -325,7 +325,7 @@
               "drawn" : null,
               "locus" : "MHC-DRB",
               "registeredTooltip" : null,
-              "rendered" : "—",
+              "rendered" : "Not assayed",
               "slots" : [
                 {
                   "hitTarget" : null,
@@ -536,10 +536,10 @@
           "headerAccessibilityLabel" : "Sample column Sample-B. 0 sample column comments. Haplotype calls: MHC-A H1 A1|A2, ambiguous, pipeline; MHC-A H2 A1|A2, ambiguous, pipeline; MHC-B H1 B1, called, pipeline; MHC-B H2 B2, called, pipeline; MHC-DRB H1 D2, unresolved second haplotype, pipeline; MHC-DRB H2 ?, unresolved second haplotype, pipeline",
           "loci" : [
             {
-              "drawn" : "—",
+              "drawn" : "A1|A2 • A1|A2",
               "locus" : "MHC-A",
               "registeredTooltip" : null,
-              "rendered" : "—",
+              "rendered" : "A1|A2 • A1|A2",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -737,10 +737,10 @@
               "tooltip" : null
             },
             {
-              "drawn" : "—",
+              "drawn" : "Not assayed",
               "locus" : "MHC-DRB",
               "registeredTooltip" : null,
-              "rendered" : "—",
+              "rendered" : "Not assayed",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -961,10 +961,10 @@
           "headerAccessibilityLabel" : "Sample column Sample-B. 0 sample column comments. Haplotype calls: MHC-A H1 A1|A2, ambiguous, pipeline; MHC-A H2 A1|A2, ambiguous, pipeline; MHC-B H1 B1, called, pipeline; MHC-B H2 B2, called, pipeline; MHC-DRB H1 D2, unresolved second haplotype, pipeline; MHC-DRB H2 ?, unresolved second haplotype, pipeline",
           "loci" : [
             {
-              "drawn" : "—",
+              "drawn" : "A1|A2 • A1|A2",
               "locus" : "MHC-A",
               "registeredTooltip" : null,
-              "rendered" : "—",
+              "rendered" : "A1|A2 • A1|A2",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -1162,10 +1162,10 @@
               "tooltip" : null
             },
             {
-              "drawn" : "—",
+              "drawn" : "Not assayed",
               "locus" : "MHC-DRB",
               "registeredTooltip" : null,
-              "rendered" : "—",
+              "rendered" : "Not assayed",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -1386,10 +1386,10 @@
           "headerAccessibilityLabel" : "Sample column Sample-B. 0 sample column comments. Haplotype calls: MHC-A H1 A1|A2, ambiguous, pipeline; MHC-A H2 A1|A2, ambiguous, pipeline; MHC-B H1 B1, called, pipeline; MHC-B H2 B2, called, pipeline; MHC-DRB H1 D2, unresolved second haplotype, pipeline; MHC-DRB H2 ?, unresolved second haplotype, pipeline",
           "loci" : [
             {
-              "drawn" : "—",
+              "drawn" : "A1|A2 • A1|A2",
               "locus" : "MHC-A",
               "registeredTooltip" : null,
-              "rendered" : "—",
+              "rendered" : "A1|A2 • A1|A2",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -1587,10 +1587,10 @@
               "tooltip" : null
             },
             {
-              "drawn" : "—",
+              "drawn" : "Not assayed",
               "locus" : "MHC-DRB",
               "registeredTooltip" : null,
-              "rendered" : "—",
+              "rendered" : "Not assayed",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -1688,10 +1688,10 @@
           "headerAccessibilityLabel" : "Sample column Sample-B. 0 sample column comments. Haplotype calls: MHC-A H1 A1|A2, ambiguous, pipeline; MHC-A H2 A1|A2, ambiguous, pipeline; MHC-B H1 B1, called, pipeline; MHC-B H2 B2, called, pipeline; MHC-DRB H1 D2, unresolved second haplotype, pipeline; MHC-DRB H2 ?, unresolved second haplotype, pipeline",
           "loci" : [
             {
-              "drawn" : "—",
+              "drawn" : "A1|A2 • A1|A2",
               "locus" : "MHC-A",
               "registeredTooltip" : null,
-              "rendered" : "—",
+              "rendered" : "A1|A2 • A1|A2",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -2012,10 +2012,10 @@
               "tooltip" : null
             },
             {
-              "drawn" : "—",
+              "drawn" : "Not assayed",
               "locus" : "MHC-DRB",
               "registeredTooltip" : null,
-              "rendered" : "—",
+              "rendered" : "Not assayed",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -2311,10 +2311,10 @@
               "tooltip" : null
             },
             {
-              "drawn" : "—",
+              "drawn" : "Not assayed",
               "locus" : "MHC-DRB",
               "registeredTooltip" : null,
-              "rendered" : "—",
+              "rendered" : "Not assayed",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -2892,10 +2892,10 @@
               "tooltip" : null
             },
             {
-              "drawn" : "—",
+              "drawn" : "Not assayed",
               "locus" : "MHC-DRB",
               "registeredTooltip" : null,
-              "rendered" : "—",
+              "rendered" : "Not assayed",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -3144,7 +3144,7 @@
               "drawn" : null,
               "locus" : "MHC-DRB",
               "registeredTooltip" : null,
-              "rendered" : "—",
+              "rendered" : "Not assayed",
               "slots" : [
                 {
                   "hitTarget" : null,
@@ -3328,7 +3328,7 @@
               "drawn" : null,
               "locus" : "MHC-A",
               "registeredTooltip" : null,
-              "rendered" : "—",
+              "rendered" : "A1|A2 • A1|A2",
               "slots" : [
                 {
                   "hitTarget" : null,
@@ -3479,7 +3479,7 @@
               "drawn" : null,
               "locus" : "MHC-DRB",
               "registeredTooltip" : null,
-              "rendered" : "—",
+              "rendered" : "Not assayed",
               "slots" : [
                 {
                   "hitTarget" : null,
@@ -3690,10 +3690,10 @@
           "headerAccessibilityLabel" : "Sample column Sample-B. 0 sample column comments. Haplotype calls: MHC-A H1 A1|A2, ambiguous, pipeline; MHC-A H2 A1|A2, ambiguous, pipeline; MHC-B H1 B1, called, pipeline; MHC-B H2 B2, called, pipeline; MHC-DRB H1 D2, unresolved second haplotype, pipeline; MHC-DRB H2 ?, unresolved second haplotype, pipeline",
           "loci" : [
             {
-              "drawn" : "—",
+              "drawn" : "A1|A2 • A1|A2",
               "locus" : "MHC-A",
               "registeredTooltip" : null,
-              "rendered" : "—",
+              "rendered" : "A1|A2 • A1|A2",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -3891,10 +3891,10 @@
               "tooltip" : null
             },
             {
-              "drawn" : "—",
+              "drawn" : "Not assayed",
               "locus" : "MHC-DRB",
               "registeredTooltip" : null,
-              "rendered" : "—",
+              "rendered" : "Not assayed",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -4088,7 +4088,7 @@
               "drawn" : null,
               "locus" : "MHC-A",
               "registeredTooltip" : null,
-              "rendered" : "—",
+              "rendered" : "A1|A2 • A1|A2",
               "slots" : [
                 {
                   "hitTarget" : null,
@@ -4239,7 +4239,7 @@
               "drawn" : null,
               "locus" : "MHC-DRB",
               "registeredTooltip" : null,
-              "rendered" : "—",
+              "rendered" : "Not assayed",
               "slots" : [
                 {
                   "hitTarget" : null,

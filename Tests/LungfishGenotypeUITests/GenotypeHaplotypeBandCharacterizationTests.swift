@@ -11,9 +11,10 @@
 // over manual assignments. After every step the whole band model is recorded
 // without frames, widths, colours or URLs, and compared with
 // haplotype-band.effective.json and haplotype-band.manual.json under
-// Tests/Fixtures/golden/genotype-gui. The tests pin current behaviour,
-// finding SF3 included (an ambiguous call draws as a dash, like no call) and
-// the stored but never restored expansion of the effective band.
+// Tests/Fixtures/golden/genotype-gui. The tests pin current behaviour, the
+// stored but never restored expansion of the effective band included.
+// Decision D5a of the follow-up made an ambiguous call draw its tokens and a
+// locus with no haplotype or no assay draw those words, recaptured here.
 
 import AppKit
 import Foundation
