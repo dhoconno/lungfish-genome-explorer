@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishIO
+import LungfishTestSupport
 
 /// Regression for the 2026-08-22 OOM: `GzipInputStream.lines()` and
 /// `FASTQReader.records(from:)` used producer tasks yielding into unbounded
@@ -119,10 +120,11 @@ extension GzipLineSourceBackpressureTests {
         try? process.run()
         while process.isRunning { usleep(1_000) }
 
+        // A wait that ran to its timeout would take the full 30 s.
         let started = Date()
-        GzipLineSource.waitBounded(process, timeout: 1.0)
+        GzipLineSource.waitBounded(process, timeout: 30)
 
-        XCTAssertLessThan(Date().timeIntervalSince(started), 1.0)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 10)
         XCTAssertFalse(process.isRunning)
         XCTAssertEqual(process.terminationStatus, 0)
     }
@@ -146,7 +148,9 @@ extension GzipLineSourceBackpressureTests {
         GzipLineSource.waitBounded(process, timeout: 1.0)
         let elapsed = Date().timeIntervalSince(started)
         XCTAssertFalse(process.isRunning)
-        XCTAssertLessThan(elapsed, 5.0, "bounded wait must escalate to SIGKILL, not hang")
+        // Only a hang on the 1000 s sleep fails this. The bound leaves room
+        // for the parallel unit tier.
+        XCTAssertLessThan(elapsed, 20, "bounded wait must escalate to SIGKILL, not hang")
     }
 
     /// Abandoning a lines() iterator mid-file (consumer breaks early) must
@@ -177,15 +181,19 @@ extension GzipLineSourceBackpressureTests {
             }
             XCTAssertEqual(count, 10)
         }
-        // The abandoned source's child must be gone well before the bounded
-        // timeout: SIGPIPE from the closed pipe or SIGTERM finishes it.
-        try await Task.sleep(nanoseconds: 200_000_000)
-        XCTAssertLessThan(Date().timeIntervalSince(started), 8.0)
-        let lingering = try? Process.run(
-            URL(fileURLWithPath: "/usr/bin/pgrep"),
-            arguments: ["-f", "gzip -dc \(gzURL.path)"]
-        )
-        lingering?.waitUntilExit()
-        XCTAssertNotEqual(lingering?.terminationStatus, 0, "no gzip child may outlive its abandoned line source")
+        // Teardown is bounded: SIGPIPE from the closed pipe, SIGTERM or the
+        // bounded wait's SIGKILL finishes the child. The time bound only
+        // catches a hang, with room for the parallel unit tier.
+        XCTAssertLessThan(Date().timeIntervalSince(started), 20)
+        // The abandoned source's child must be gone.
+        let gone = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(100)) {
+            let lingering = try? Process.run(
+                URL(fileURLWithPath: "/usr/bin/pgrep"),
+                arguments: ["-f", "gzip -dc \(gzURL.path)"]
+            )
+            lingering?.waitUntilExit()
+            return lingering?.terminationStatus != 0
+        }
+        XCTAssertTrue(gone, "no gzip child may outlive its abandoned line source")
     }
 }

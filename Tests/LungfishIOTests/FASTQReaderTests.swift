@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishIO
+import LungfishTestSupport
 
 final class FASTQReaderTests: XCTestCase {
 
@@ -730,9 +731,11 @@ final class GzipInputStreamTests: XCTestCase {
         }
 
         XCTAssertEqual(seenLines, 1)
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        let runningProcessCount = try GzipTestHelper.runningGzipProcessCount(matching: gzipURL.path)
+        var runningProcessCount = -1
+        try await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(100)) {
+            runningProcessCount = try GzipTestHelper.runningGzipProcessCount(matching: gzipURL.path)
+            return runningProcessCount == 0
+        }
         XCTAssertEqual(runningProcessCount, 0)
     }
 
@@ -754,7 +757,9 @@ final class GzipInputStreamTests: XCTestCase {
         }
 
         XCTAssertEqual(observedLineCount, lineCount)
-        XCTAssertLessThan(Date().timeIntervalSince(start), 2.0)
+        // Quadratic compaction of the 1 MB chunk would take minutes. The bound
+        // leaves room for the parallel unit tier.
+        XCTAssertLessThan(Date().timeIntervalSince(start), 10.0)
     }
 }
 

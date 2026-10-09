@@ -1001,9 +1001,11 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         let elapsed = Date().timeIntervalSince(startedAt)
 
         XCTAssertEqual(result.provisionalExon2SequencesByGenotype.count, 100)
+        // The bound catches a multi-pass blowup and leaves room for file
+        // reads under the parallel unit tier.
         XCTAssertLessThan(
             elapsed,
-            2.0,
+            10.0,
             "Catalog and FASTA validation should remain a one-pass off-main load"
         )
     }
@@ -1357,8 +1359,10 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         let candidateJSONURL = fixture.candidateJSONURL
         let start = Date()
         let task = Task.detached { try ONTGenotypeResultBundle.loadResult(from: bundleURL) }
+        // A load that blocked on the FIFO would wait for this writer, so it
+        // could not return before 20 s.
         let emergencyUnblocker = Task.detached {
-            try await Task.sleep(for: .milliseconds(200))
+            try await Task.sleep(for: .seconds(20))
             let writerFD = candidateJSONURL.path.withCString {
                 Darwin.open($0, O_WRONLY | O_NONBLOCK | O_CLOEXEC)
             }
@@ -1367,7 +1371,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         let result = try await task.value
         emergencyUnblocker.cancel()
 
-        XCTAssertLessThan(Date().timeIntervalSince(start), 0.15, "FIFO validation must never block waiting for an external writer")
+        XCTAssertLessThan(Date().timeIntervalSince(start), 10, "FIFO validation must never block waiting for an external writer")
         XCTAssertEqual(result.calls.count, 1)
         XCTAssertEqual(result.integrityWarnings.first?.code, .candidateArtifactNotRegularFile)
     }

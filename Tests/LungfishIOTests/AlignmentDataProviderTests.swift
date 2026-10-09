@@ -44,7 +44,8 @@ final class AlignmentDataProviderTests: XCTestCase {
         } catch is CancellationError {
             // Expected.
         }
-        XCTAssertLessThan(Date().timeIntervalSince(cancelledAt), 3)
+        // Far short of the 1000 s sleep, with room for the parallel unit tier.
+        XCTAssertLessThan(Date().timeIntervalSince(cancelledAt), 20)
         XCTAssertEqual(kill(pid, 0), -1, "A cancelled samtools must be gone when the fetch returns")
     }
 
@@ -85,7 +86,8 @@ final class AlignmentDataProviderTests: XCTestCase {
             } catch is CancellationError {
                 // Expected.
             }
-            XCTAssertLessThan(Date().timeIntervalSince(cancelledAt), 3, fetch)
+            // Far short of the 1000 s sleep, with room for the parallel unit tier.
+            XCTAssertLessThan(Date().timeIntervalSince(cancelledAt), 20, fetch)
             XCTAssertEqual(kill(pid, 0), -1, "\(fetch): samtools survived cancellation")
             XCTAssertEqual(kill(child, 0), -1, "\(fetch): a samtools child survived cancellation")
         }
@@ -131,7 +133,9 @@ final class AlignmentDataProviderTests: XCTestCase {
         } catch {
             XCTAssertEqual(error.localizedDescription, "samtools timed out")
         }
-        XCTAssertLessThan(Date().timeIntervalSince(started), 6)
+        // The child never ends by itself, so any return shows the deadline
+        // held. The bound leaves room for the parallel unit tier.
+        XCTAssertLessThan(Date().timeIntervalSince(started), 20)
         let pid = try XCTUnwrap(childPID.withLock { $0 })
         XCTAssertEqual(kill(pid, 0), -1, "Timed-out child must be reaped before returning")
     }
@@ -243,12 +247,15 @@ final class AlignmentDataProviderTests: XCTestCase {
     func testRunSamtoolsProcessWorkIsDetachedFromCallerExecutor() async throws {
         let tempDir = try makeTemporaryDirectory(prefix: "alignment-detached-samtools")
         defer { try? FileManager.default.removeItem(at: tempDir) }
+        // samtools runs until the test releases it, or gives up after 30 s.
+        let releaseFile = tempDir.appendingPathComponent("release")
         let samtoolsURL = try makeFakeSamtools(
             in: tempDir,
             script: """
             #!/bin/sh
             if [ "$1" = "idxstats" ]; then
-                sleep 1
+                i=0
+                while [ ! -f "\(releaseFile.path)" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
                 echo "chr1\t100\t2\t0"
                 echo "fake stderr from idxstats" >&2
                 exit 0
@@ -267,11 +274,14 @@ final class AlignmentDataProviderTests: XCTestCase {
         let task = Task { try await provider.fetchIdxstats() }
         await Task.yield()
 
+        // A fetch that blocked the main actor would hold it until samtools
+        // gave up waiting for the release at 30 s.
         XCTAssertLessThan(
             Date().timeIntervalSince(start),
-            0.5,
+            20,
             "Calling fetchIdxstats from MainActor must suspend quickly while samtools runs elsewhere"
         )
+        try Data().write(to: releaseFile)
         let output = try await task.value
         XCTAssertEqual(output, "chr1\t100\t2\t0\n")
     }
@@ -1223,7 +1233,7 @@ final class AlignmentDataProviderTests: XCTestCase {
 
     /// Waits for a fake samtools to write its pid, which it does once running.
     private func recordedPID(_ file: URL) async throws -> pid_t {
-        let written = await waitUntil(timeout: .seconds(10)) {
+        let written = await waitUntil(timeout: .seconds(30)) {
             (try? String(contentsOf: file, encoding: .utf8)).flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) } != nil
         }
         XCTAssertTrue(written, "The fake samtools never started")

@@ -57,7 +57,7 @@ final class DownloadFlowTests: XCTestCase {
             }
         }
 
-        await fulfillment(of: [expectation], timeout: 2.0)
+        await fulfillment(of: [expectation], timeout: 5.0)
         print("✓ Task from DispatchQueue.main.asyncAfter executes correctly")
     }
 

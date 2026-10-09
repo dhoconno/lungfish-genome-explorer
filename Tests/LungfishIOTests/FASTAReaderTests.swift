@@ -929,8 +929,9 @@ final class FASTARealFileTests: XCTestCase {
 
         XCTAssertEqual(seq.length, 10000, "Each large resource sequence should be 10000 bp")
 
-        // Verify performance is acceptable (should parse in under 1 second)
-        XCTAssertLessThan(elapsed, 1.0, "Parsing should complete in under 1 second")
+        // Verify performance is acceptable. The bound catches a blowup and
+        // leaves room for the parallel unit tier.
+        XCTAssertLessThan(elapsed, 5.0, "Parsing should complete in under 5 seconds")
 
         // Log the actual performance
         print("Large FASTA parsing took \(String(format: "%.3f", elapsed)) seconds for \(seq.length) bp")
@@ -950,7 +951,8 @@ final class FASTARealFileTests: XCTestCase {
         let elapsed = CFAbsoluteTimeGetCurrent() - startTime
 
         XCTAssertEqual(totalLength, 100000, "Total length should be 100000 bp")
-        XCTAssertLessThan(elapsed, 1.0, "Streaming should complete in under 1 second")
+        // The bound catches a blowup and leaves room for the parallel unit tier.
+        XCTAssertLessThan(elapsed, 5.0, "Streaming should complete in under 5 seconds")
 
         print("Large FASTA streaming took \(String(format: "%.3f", elapsed)) seconds for \(totalLength) bp")
     }
