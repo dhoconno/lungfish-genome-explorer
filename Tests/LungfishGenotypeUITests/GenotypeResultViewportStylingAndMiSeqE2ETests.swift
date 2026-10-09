@@ -4586,10 +4586,6 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             controller.testingCapturedScientificCalls().map(\.locus),
             ["MHC-A", "MHC-B", "MHC-A", "MHC-B"]
         )
-        XCTAssertEqual(
-            controller.testingCurrentExportSnapshot()?.haplotypeCalls?.map(\.locus),
-            ["MHC-B", "MHC-B"]
-        )
     }
 
 

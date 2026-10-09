@@ -945,128 +945,12 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
         controller.testingSetUnifiedSampleFilter("DW472")
         try controller.testingSaveCurrentFilterAsSmartCohort()
         controller.testingSetUnifiedSampleFilter("")
-        let snapshot = try XCTUnwrap(controller.testingCurrentExportSnapshot())
+        let snapshot = try controller.captureExcelExportSnapshot()
 
         XCTAssertEqual(snapshot.sampleNames, ["DW472"])
         XCTAssertEqual(snapshot.filters["activeSmartCohortName"], "Filter: DW472")
         XCTAssertEqual(snapshot.filters["activeSmartCohortScope"], "bundle")
         XCTAssertTrue(snapshot.filters["activeSmartCohortPredicate"]?.contains("DW472") ?? false)
-    }
-
-
-    func testControllerExportSnapshotUsesVisibleHaplotypeMatrixRows() throws {
-        let controller = makeMatrixAnnotationGuardedController()
-        _ = controller.view
-        let calls = [
-            makeCall(sample: "DW472", genotype: "12_M3_B_075_01", reads: 148),
-            makeCall(sample: "DW472", genotype: "12_M3_B_165_01", reads: 119),
-        ]
-        let analysis = GenotypeHaplotypeAnalysis(
-            assayID: "MHC-exon2-miSeq",
-            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
-            definitionSetName: "Mauritian cynomolgus macaques",
-            speciesName: "Mauritian cynomolgus macaques",
-            samples: [
-                GenotypeHaplotypeSampleAnalysis(
-                    sample: "DW472",
-                    calls: [
-                        GenotypeHaplotypeLocusCall(
-                            locus: "MHC-B",
-                            sourceLocus: "Mafa-B",
-                            haplotype1: "M3B",
-                            haplotype2: "-",
-                            status: .called,
-                            matchedHaplotypes: [
-                                GenotypeHaplotypeMatchedDefinition(
-                                    name: "M3B",
-                                    diagnosticAlleles: ["12_M3_B_075_01", "12_M3_B_165_01"],
-                                    observedDiagnosticAlleles: ["12_M3_B_075_01", "12_M3_B_165_01"]
-                                ),
-                            ],
-                            observedGenotypeCount: 2,
-                            observedGenotypes: ["12_M3_B_075_01", "12_M3_B_165_01"]
-                        )
-                    ]
-                )
-            ]
-        )
-        controller.configure(result: makeResult(
-            samples: [],
-            calls: calls,
-            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
-            haplotypeAnalysis: analysis
-        ))
-        controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix, layout: .listTop))
-
-        let snapshot = try XCTUnwrap(controller.testingCurrentExportSnapshot())
-
-        XCTAssertEqual(snapshot.lens, "summary")
-        XCTAssertEqual(snapshot.sampleNames, ["DW472"])
-        XCTAssertTrue(snapshot.rows.contains { $0.genotype == "12_M3_B_075_01" })
-        XCTAssertEqual(snapshot.haplotypeSampleScope, ["DW472"])
-        XCTAssertEqual(snapshot.haplotypeLocusScope, ["MHC-B"])
-        XCTAssertEqual(snapshot.haplotypeCalls?.map(\.sample), ["DW472"])
-        XCTAssertEqual(snapshot.haplotypeCalls?.map(\.locus), ["MHC-B"])
-    }
-
-    func testControllerExportSnapshotWithoutHaplotypeAnalysisRetainsEmptyManualSlots() throws {
-        let controller = makeMatrixAnnotationGuardedController()
-        _ = controller.view
-        controller.configure(result: makeResult(
-            samples: [],
-            calls: [makeCall(sample: "AnimalA", genotype: "14_M2_DQA1_01_04", reads: 40)]
-        ))
-
-        let snapshot = try XCTUnwrap(controller.testingCurrentExportSnapshot())
-
-        let calls = try XCTUnwrap(snapshot.haplotypeCalls)
-        XCTAssertEqual(calls.map(\.locus), GenotypeManualHaplotypeLocus.allCases.map(\.rawValue))
-        XCTAssertEqual(Set(calls.map(\.sample)), ["AnimalA"])
-        XCTAssertTrue(calls.allSatisfy { $0.haplotype1.isEmpty && $0.haplotype2.isEmpty && $0.baselineHaplotype1.isEmpty && $0.baselineHaplotype2.isEmpty })
-    }
-
-    func testControllerExportSnapshotKeepsSplitDQLociExactAndCapturedOrder() throws {
-        let controller = makeMatrixAnnotationGuardedController()
-        _ = controller.view
-        let loci = ["MHC-DQA", "MHC-DQB", "MHC-DQ"]
-        let analysis = GenotypeHaplotypeAnalysis(
-            assayID: "split-dq",
-            definitionSetID: "split-dq.definitions",
-            definitionSetName: "Split DQ",
-            speciesName: "Test",
-            samples: [
-                GenotypeHaplotypeSampleAnalysis(sample: "AnimalB", calls: loci.reversed().map {
-                    GenotypeHaplotypeLocusCall(
-                        locus: $0, sourceLocus: $0, haplotype1: "B-\($0)", haplotype2: "-",
-                        status: .called, matchedHaplotypes: [], observedGenotypeCount: 0,
-                        observedGenotypes: []
-                    )
-                }),
-                GenotypeHaplotypeSampleAnalysis(sample: "AnimalA", calls: loci.reversed().map {
-                    GenotypeHaplotypeLocusCall(
-                        locus: $0, sourceLocus: $0, haplotype1: "A-\($0)", haplotype2: "-",
-                        status: .called, matchedHaplotypes: [], observedGenotypeCount: 0,
-                        observedGenotypes: []
-                    )
-                }),
-            ]
-        )
-        controller.configure(result: makeResult(
-            samples: [],
-            calls: [
-                makeCall(sample: "AnimalA", genotype: "14_M2_DQA1_01_04", reads: 40),
-                makeCall(sample: "AnimalB", genotype: "15_M2_DQB1_01_04", reads: 30),
-            ],
-            haplotypeAnalysis: analysis
-        ))
-        controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix))
-
-        for locus in loci {
-            controller.testingSetComparisonLocusFilter(locus)
-            let snapshot = try XCTUnwrap(controller.testingCurrentExportSnapshot())
-            XCTAssertEqual(snapshot.haplotypeCalls?.map(\.locus), [locus, locus])
-            XCTAssertEqual(snapshot.haplotypeCalls?.map(\.sample), ["AnimalA", "AnimalB"])
-        }
     }
 
 
@@ -1256,7 +1140,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
         XCTAssertNil(controller.testingBackgroundColor(genotype: sharedGenotype, sample: "AnimalA"))
         XCTAssertNotNil(controller.testingBackgroundColor(genotype: sharedGenotype, sample: "AnimalB"))
-        let snapshot = try XCTUnwrap(controller.testingCurrentExportSnapshot())
+        let snapshot = try controller.captureExcelExportSnapshot()
         XCTAssertNil(try exportedStyle(snapshot, genotype: sharedGenotype, sample: "AnimalA")["fillHex"])
         XCTAssertNotNil(try exportedStyle(snapshot, genotype: sharedGenotype, sample: "AnimalB")["fillHex"])
     }
@@ -2605,11 +2489,15 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
         XCTAssertTrue(sidecar.auditLog.contains { entry in
             entry.action == "updateSettings" && (entry.after?.contains(definitionID) ?? false)
         })
-        let definitionURL = try XCTUnwrap(HaplotypeDefinitionStore(projectRoot: projectRoot).definitionURL(for: definitionID))
-        let snapshot = try XCTUnwrap(controller.testingCurrentExportSnapshot())
-        XCTAssertTrue(snapshot.provenanceInputURLs.contains(definitionURL))
-        XCTAssertEqual(snapshot.filters["activeHaplotypeDefinitionSetID"], definitionID)
-        XCTAssertEqual(snapshot.filters["activeHaplotypeAssayID"], "custom-assay")
+        // The frozen Excel capture embeds the active definition's bytes and
+        // names its id, which is stronger than citing the definition's path.
+        let frozen = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self,
+            from: XCTUnwrap(controller.captureExcelExportSnapshot().excelSnapshotData))
+        XCTAssertEqual(frozen.sourceRevision["definitionSetID"], definitionID)
+        let capturedDefinition = try JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self,
+            from: XCTUnwrap(frozen.capturedScientificInputs?["definition.json"]))
+        XCTAssertEqual(capturedDefinition.id, definitionID)
+        XCTAssertEqual(capturedDefinition.assayID, "custom-assay")
     }
 
 
@@ -2893,7 +2781,6 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
             let capturedResult = makeResult(bundleURL: root, samples: [.init(sample: "AnimalA", passedAlignments: 1, passedUniqueReads: 1, sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: [])], calls: [], haplotypeAnalysis: analysis, manifest: manifest)
             controller.configure(result: capturedResult)
             let current = try XCTUnwrap(controller.testingCapturedScientificCalls().first)
-            let projected = try XCTUnwrap(controller.testingCurrentExportSnapshot()?.haplotypeCalls?.first)
             XCTAssertEqual(current.haplotype1, "Manual-A")
             XCTAssertEqual(current.baselineHaplotype1, "M1A")
             XCTAssertEqual(current.baselineHaplotype2, "-")
@@ -2909,9 +2796,6 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
             XCTAssertEqual(headless.calls.first?.h2.status, current.haplotype2Status)
             XCTAssertEqual(headless.calls.first?.h2.source, current.haplotype2Source)
             XCTAssertEqual(current.haplotype2, absent ? "-" : "Manual-A")
-            XCTAssertEqual(projected.haplotype1, current.haplotype1)
-            XCTAssertEqual(projected.haplotype2, current.haplotype2)
-            XCTAssertEqual(projected.baselineHaplotype2, "-")
             let outline = try XCTUnwrap(controller.testingOutlineSlots(sample: "AnimalA").first)
             XCTAssertEqual(outline.h2Semantics?.value, current.haplotype2)
         }
@@ -2982,7 +2866,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
     }
 
 
-    func testFrozenSnapshotKeepsRealManualAssignmentsAndFullNativeEditorScopeForONTAndMiSeq()
+    func testFrozenSnapshotKeepsRealManualAssignmentsForONTAndMiSeq()
         throws
     {
         for kind in [
@@ -3059,22 +2943,9 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
             let calls = controller.testingCapturedScientificCalls()
             XCTAssertEqual(calls.count, 2, kind.rawValue)
-            let filtered = try XCTUnwrap(controller.testingCurrentExportSnapshot()?.haplotypeCalls)
-            XCTAssertEqual(filtered.count, 14, "The native editor retains seven blank/assigned slots per sample.")
-            let assigned = filtered.filter { !$0.haplotype1.isEmpty || !$0.haplotype2.isEmpty }
-            XCTAssertEqual(assigned.map(\.haplotype1), calls.map(\.haplotype1))
-            XCTAssertEqual(assigned.map(\.haplotype2), calls.map(\.haplotype2))
             let frozen = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self,
                 from: XCTUnwrap(controller.captureExcelExportSnapshot().excelSnapshotData))
             XCTAssertEqual(frozen.allMatrix.samples.map(\.name), ["Sample-A", "Sample-B"])
-            XCTAssertTrue(filtered.allSatisfy { $0.baselineHaplotype1.isEmpty && $0.baselineHaplotype2.isEmpty })
-            controller.testingSetComparisonLocusFilter("MHC-A")
-            controller.testingSetUnifiedSampleFilter("Sample-A")
-            let scoped = try XCTUnwrap(controller.testingCurrentExportSnapshot()?.haplotypeCalls)
-            XCTAssertEqual(scoped.map(\.sample), ["Sample-A"])
-            XCTAssertEqual(scoped.map(\.locus), ["MHC-A"])
-            XCTAssertEqual(scoped.first?.haplotype1, "Newest-A")
-            XCTAssertEqual(scoped.first?.haplotype2, "")
             XCTAssertEqual(
                 calls.map(\.sample),
                 ["Sample-A", "Sample-A"],
@@ -3109,9 +2980,6 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
             XCTAssertEqual(drb.notes, "literal label", kind.rawValue)
             XCTAssertFalse(calls.contains { $0.sample == "Sample-B" },
                 "Export must not fabricate call records for an unassigned sample.")
-            XCTAssertTrue(filtered.filter { $0.sample == "Sample-B" }.allSatisfy {
-                $0.haplotype1.isEmpty && $0.haplotype2.isEmpty
-            })
         }
     }
 

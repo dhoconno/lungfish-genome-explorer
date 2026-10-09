@@ -329,7 +329,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         XCTAssertEqual(style.borderColor?.hexString, "#666666")
         XCTAssertTrue(style.isBold)
         XCTAssertTrue(style.isItalic)
-        let captured = try exportedStyle(XCTUnwrap(controller.testingCurrentExportSnapshot()), genotype: genotype, sample: "AnimalA")
+        let captured = try exportedStyle(controller.captureExcelExportSnapshot(), genotype: genotype, sample: "AnimalA")
         XCTAssertEqual(captured["fillHex"] as? String, "#E0EDDB") // Actual NSColor composited on spreadsheet white.
         XCTAssertEqual(captured["textHex"] as? String, "#C00000")
         XCTAssertNotNil(captured["borderHex"])
@@ -378,7 +378,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         XCTAssertEqual(style.fillColor?.hexString, "#D9EAD3")
         XCTAssertFalse(style.isBold)
         XCTAssertFalse(style.isItalic)
-        let captured = try exportedStyle(XCTUnwrap(controller.testingCurrentExportSnapshot()), genotype: genotype, sample: "AnimalA")
+        let captured = try exportedStyle(controller.captureExcelExportSnapshot(), genotype: genotype, sample: "AnimalA")
         XCTAssertEqual(captured["isBold"] as? Bool, false)
         XCTAssertEqual(captured["isItalic"] as? Bool, false)
     }

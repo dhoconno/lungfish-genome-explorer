@@ -1737,11 +1737,6 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
         XCTAssertEqual(result.callCount, 0)
         XCTAssertTrue(result.locusSummaries.isEmpty)
         XCTAssertEqual(controller.testingCapturedScientificCalls(), [])
-        let editorCalls = controller.testingCurrentExportSnapshot()?.haplotypeCalls ?? []
-        XCTAssertEqual(editorCalls.count, 14)
-        XCTAssertTrue(editorCalls.allSatisfy {
-            $0.haplotype1.isEmpty && $0.haplotype2.isEmpty && !$0.locus.contains("Candidate")
-        })
         XCTAssertFalse(controller.testingHaplotypeMatrixText.contains("Candidate_nov"))
     }
 

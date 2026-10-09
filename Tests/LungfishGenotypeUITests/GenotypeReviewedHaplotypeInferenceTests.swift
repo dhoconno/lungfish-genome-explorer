@@ -200,33 +200,28 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
         filteredDisplay.matrixMinimumReads = 100
         filteredDisplay.matrixMinimumPercent = 50
         controller.testingApplyDisplayStateImmediately(filteredDisplay)
-        let captured = try XCTUnwrap(controller.testingCurrentExportSnapshot())
+        let captured = try controller.captureExcelExportSnapshot()
         controller.testingApplyDisplayStateImmediately(originalDisplay)
         XCTAssertEqual(controller.testingSynchronizedMiSeqPerformanceSnapshot.haplotypeAnalysisRunCount, 0,
                        "Visual thresholds and captured exports must never rerun inference")
-        let capturedCall = try XCTUnwrap(captured.haplotypeCalls?.first)
-        XCTAssertEqual(capturedCall.sample, "AnimalA")
+        let frozen = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self,
+            from: XCTUnwrap(captured.excelSnapshotData))
+        let capturedCall = try XCTUnwrap(frozen.calls.first)
+        XCTAssertEqual(capturedCall.sampleID, "AnimalA")
         XCTAssertEqual(capturedCall.locus, "MHC-A")
-        XCTAssertEqual(capturedCall.haplotype1, "M1A")
-        XCTAssertEqual(capturedCall.haplotype2, "M1A")
-        XCTAssertEqual(capturedCall.haplotype1Status, "called")
-        XCTAssertEqual(capturedCall.haplotype2Status, "called")
-        XCTAssertEqual(capturedCall.baselineHaplotype1, "M1A")
-        XCTAssertEqual(capturedCall.baselineHaplotype2, "-")
-        XCTAssertEqual(captured.sourceRevision, .init(
-            assayID: definition.assayID,
-            analysisRevisionID: nil,
-            definitionSetID: definition.id
-        ))
+        XCTAssertEqual(capturedCall.h1.effective, "M1A")
+        XCTAssertEqual(capturedCall.h2.effective, "M1A")
+        XCTAssertEqual(capturedCall.h1.status, "called")
+        XCTAssertEqual(capturedCall.h2.status, "called")
+        XCTAssertEqual(capturedCall.h1.pipeline, "M1A")
+        XCTAssertEqual(capturedCall.h2.pipeline, "-")
+        XCTAssertEqual(frozen.sourceRevision["definitionSetID"], definition.id)
+        XCTAssertEqual(frozen.sourceRevision["analysisRevisionID"], "",
+                       "A live analysis re-inferred after a review carries no persisted revision")
         let capturedSidecar = try GenotypeAnnotationSidecar.decode(
             XCTUnwrap(captured.annotationSidecarData)
         )
         XCTAssertEqual(capturedSidecar.matrixReviews.map(\.target), [target])
-        let projection = GenotypeViewProjectionSerializer.makeProjection(
-            from: captured
-        )
-        XCTAssertEqual(projection.haplotypeCalls?.first, capturedCall)
-        XCTAssertEqual(projection.sourceRevision, captured.sourceRevision)
 
         // A review exclusion changes inference only; an explicit call
         // override remains authoritative over that derived projection.
