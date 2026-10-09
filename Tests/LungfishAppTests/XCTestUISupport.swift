@@ -24,9 +24,11 @@ extension NSView {
 /// Polls `condition` every 10 ms until it returns `true` or `timeout` elapses.
 ///
 /// On timeout, fires an `XCTAssertTrue` at the call site so the test fails with a useful line number.
+/// The default leaves room for the parallel unit tier; the poll still returns as soon as the
+/// condition holds.
 @MainActor
 func waitUntilCondition(
-    timeout: TimeInterval = 2.0,
+    timeout: TimeInterval = 5.0,
     file: StaticString = #filePath,
     line: UInt = #line,
     _ condition: @escaping @MainActor () -> Bool

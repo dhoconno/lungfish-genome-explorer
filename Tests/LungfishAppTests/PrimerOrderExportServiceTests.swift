@@ -64,7 +64,8 @@ final class PrimerOrderExportServiceTests: XCTestCase {
     session.configure(snapshot)
     XCTAssertTrue(session.isComputingCompatibility)
     XCTAssertFalse(session.settings.filterByCompatibility)
-    for _ in 0..<200 where session.isComputingCompatibility { try await Task.sleep(for: .milliseconds(10)) }
+    // The comparison runs off the main actor, so allow for a loaded host.
+    await waitUntil(timeoutNanoseconds: 30_000_000_000) { !session.isComputingCompatibility }
     XCTAssertTrue(session.compatibilityReady, session.compatibilityError ?? "Timed out")
     XCTAssertEqual(session.compatibilitySummaries[primer.id],
       .init(matchingRows: 1, assessableRows: 2, totalRows: 3))

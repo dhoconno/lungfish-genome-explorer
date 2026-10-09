@@ -19,7 +19,7 @@ final class ProjectHydrationOwnershipTests: XCTestCase {
         split.projectPreparation = { _ in await gate.wait() }
         delegate.openProject(url, in: controller)
         let open = try XCTUnwrap(split.projectOpenTask)
-        await fulfillment(of: [started], timeout: 3)
+        await fulfillment(of: [started], timeout: 10)
         XCTAssertNil(controller.projectSession.project)
         controller.window?.title = "Window interaction remains available"
         XCTAssertEqual(controller.window?.title, "Window interaction remains available")
@@ -62,7 +62,7 @@ final class ProjectHydrationOwnershipTests: XCTestCase {
         }
         split.loadProjectDocument(first)
         let firstTask = try XCTUnwrap(split.externalDocumentLoadTask)
-        await fulfillment(of: [firstStarted], timeout: 3)
+        await fulfillment(of: [firstStarted], timeout: 10)
         split.loadProjectDocument(second)
         await split.externalDocumentLoadTask?.value
         await gate.finish(snapshot)

@@ -488,7 +488,7 @@ final class WelcomeStorageFlowTests: XCTestCase {
         XCTAssertFalse(viewModel.requiredSetupItemProgress.isEmpty)
 
         provider.releaseInstall()
-        try? await Task.sleep(for: .milliseconds(50))
+        await waitUntil { !viewModel.isInstallingRequiredSetup }
 
         XCTAssertFalse(viewModel.isInstallingRequiredSetup)
         XCTAssertTrue(viewModel.requiredSetupItemProgress.isEmpty)

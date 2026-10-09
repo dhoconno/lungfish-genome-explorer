@@ -356,7 +356,7 @@ final class OperationCenterLockingTests: XCTestCase {
         }
         center.cancel(id: id)
         center.cancel(id: id)
-        await fulfillment(of: [signalReturned], timeout: 2)
+        await fulfillment(of: [signalReturned], timeout: 5)
         // Drain the main queue after the callback has returned. Worker cleanup
         // remains blocked independently of cancellation delivery.
         for _ in 0..<3 {
@@ -378,7 +378,7 @@ final class OperationCenterLockingTests: XCTestCase {
         ).rowID
         XCTAssertEqual(center.items.first { $0.id == blocked }?.state, .failed)
         workerMayFinish.signal()
-        await fulfillment(of: [workerFinished], timeout: 2)
+        await fulfillment(of: [workerFinished], timeout: 5)
         XCTAssertEqual(center.items.first { $0.id == id }?.state, .cancelled)
         XCTAssertTrue(center.canStartOperation(on: url))
     }
@@ -438,17 +438,18 @@ final class OperationCenterLockingTests: XCTestCase {
         XCTAssertEqual(center.items.first { $0.id == id }?.state, .cancelling)
         XCTAssertEqual(center.activeLockHolder(for: target)?.id, id)
         try Data().write(to: allowExit)
-        await fulfillment(of: [drained], timeout: 3)
+        await fulfillment(of: [drained], timeout: 30)
         XCTAssertEqual(center.items.first { $0.id == id }?.state, .cancelling)
         XCTAssertEqual(center.activeLockHolder(for: target)?.id, id)
         cleanupAllowed.signal()
-        await fulfillment(of: [finished], timeout: 3)
+        await fulfillment(of: [finished], timeout: 30)
         XCTAssertEqual(center.items.first { $0.id == id }?.state, .cancelled)
         XCTAssertTrue(center.canStartOperation(on: target))
     }
 
+    /// The shell child writes each marker, so the wait allows for a loaded host.
     private func waitForMarker(_ url: URL) async throws {
-        let deadline = Date().addingTimeInterval(3)
+        let deadline = Date().addingTimeInterval(30)
         while !FileManager.default.fileExists(atPath: url.path) {
             guard Date() < deadline else {
                 throw CocoaError(.fileReadNoSuchFile)

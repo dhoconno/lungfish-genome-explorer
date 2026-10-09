@@ -126,7 +126,7 @@ final class SequenceExportSourceResolverTests: XCTestCase {
         session.hydrationLoader = { _, _ in await gate.wait() }
         let request = try SequenceExportSourceResolver.capture(items: [row(selected)], session: session)
         let task = Task { try await request.resolve() }
-        await fulfillment(of: [started], timeout: 3)
+        await fulfillment(of: [started], timeout: 10)
         session.closeProject()
         await gate.finish(ProjectHydrationSnapshot(sequence: try Sequence(name: "late", alphabet: .dna, bases: "CCCC"), annotations: []))
         do {

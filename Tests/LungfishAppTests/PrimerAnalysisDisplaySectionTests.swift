@@ -110,9 +110,8 @@ final class PrimerAnalysisDisplaySectionTests: XCTestCase {
         XCTAssertFalse(session.settings.filterByCompatibility)
         XCTAssertThrowsError(try before.find(ViewType.Slider.self))
         try before.find(button: "Calculate MSA matches").tap()
-        for _ in 0..<100 where !session.compatibilityReady {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        // The comparison runs off the main actor, so allow for a loaded host.
+        await waitUntil(timeoutNanoseconds: 30_000_000_000) { session.compatibilityReady }
         XCTAssertTrue(session.compatibilityReady)
         let ready = try PrimerAnalysisDisplaySection(session: session).inspect()
         try ready.find(ViewType.Toggle.self, where: {

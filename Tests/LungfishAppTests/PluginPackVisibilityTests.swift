@@ -68,6 +68,11 @@ private final class DelayedPluginManagerPackStatusProvider: @unchecked Sendable,
         progress: (@Sendable (PluginPackInstallProgress) -> Void)?
     ) async throws {}
 
+    /// Whether a status request is parked, so `release()` has something to wake.
+    var hasPendingRequest: Bool {
+        lock.withLock { !continuations.isEmpty }
+    }
+
     func release() {
         let pending = lock.withLock {
             let pending = continuations
@@ -525,13 +530,13 @@ final class PluginPackVisibilityTests: XCTestCase {
         let provider = DelayedPluginManagerPackStatusProvider(statuses: [required])
         let viewModel = PluginManagerViewModel(packStatusProvider: provider)
 
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitUntil { viewModel.isLoadingPackStatuses && provider.hasPendingRequest }
 
         XCTAssertTrue(viewModel.isLoadingPackStatuses)
         XCTAssertNil(viewModel.requiredSetupPack)
 
         provider.release()
-        try? await Task.sleep(for: .milliseconds(50))
+        await waitUntil { !viewModel.isLoadingPackStatuses }
 
         XCTAssertFalse(viewModel.isLoadingPackStatuses)
         XCTAssertEqual(viewModel.requiredSetupPack?.pack.id, "lungfish-tools")
@@ -570,7 +575,7 @@ final class PluginPackVisibilityTests: XCTestCase {
         XCTAssertEqual(viewModel.optionalPackStatuses.first?.state, .ready)
 
         viewModel.removePack(pack)
-        try? await Task.sleep(for: .milliseconds(50))
+        await waitUntil { viewModel.optionalPackStatuses.first?.state == .needsInstall }
 
         let invalidationCount = await provider.recordedInvalidationCount()
         XCTAssertEqual(invalidationCount, 1)
@@ -622,7 +627,7 @@ final class PluginPackVisibilityTests: XCTestCase {
         defer { center.removeObserver(token) }
 
         viewModel.removePack(pack)
-        await fulfillment(of: [exp], timeout: 1.0)
+        await fulfillment(of: [exp], timeout: 5)
     }
 
     func testInstallPackReportsCondaPackCompletionToOperationCenter() async throws {
@@ -797,7 +802,7 @@ final class PluginPackVisibilityTests: XCTestCase {
     private func finishedPluginPackOperation(
         in operationCenter: OperationCenter,
         packName: String,
-        timeout: TimeInterval = 1
+        timeout: TimeInterval = 5
     ) async -> OperationCenter.Item? {
         let title = "Plugin Pack: \(packName)"
         let deadline = Date().addingTimeInterval(timeout)

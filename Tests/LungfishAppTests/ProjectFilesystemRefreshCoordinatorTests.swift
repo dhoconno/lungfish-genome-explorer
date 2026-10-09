@@ -105,7 +105,7 @@ final class ProjectFilesystemRefreshCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(receivedFullReloads.count, 0, "Full reload events should be delayed so bursts can coalesce")
 
-        try await waitForCoordinatorCondition {
+        await waitUntil {
             receivedFullReloads.count == 1
         }
 
@@ -175,7 +175,7 @@ final class ProjectFilesystemRefreshCoordinatorTests: XCTestCase {
         await coordinator.testingWaitForIdentity(projectURL: url)
         coordinator.testingSimulateRootChanged(projectURL: url)
         let recovery = Task { await coordinator.rebind(old) }
-        await fulfillment(of: [started], timeout: 3)
+        await fulfillment(of: [started], timeout: 10)
         coordinator.unregister(old)
         var newEvents: [String] = []
         _ = coordinator.registerEvents(projectURL: url) { newEvents.append(Self.eventName($0)) }
@@ -210,7 +210,7 @@ final class ProjectFilesystemRefreshCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(receivedFullReloads.count, 0, "Second event should restart the full-reload debounce")
 
-        try await waitForCoordinatorCondition {
+        await waitUntil {
             receivedFullReloads.count == 1
         }
         XCTAssertEqual(receivedFullReloads.count, 1)
@@ -237,7 +237,7 @@ final class ProjectFilesystemRefreshCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(receivedChanges.count, 0, "A concrete event during a pending full reload should not trigger an extra immediate reload")
 
-        try await waitForCoordinatorCondition {
+        await waitUntil {
             receivedChanges.count == 1
         }
 
@@ -266,23 +266,6 @@ final class ProjectFilesystemRefreshCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(receivedFullReloads.count, 0)
     }
-}
-
-@MainActor
-private func waitForCoordinatorCondition(
-    timeout: TimeInterval = 2.0,
-    file: StaticString = #filePath,
-    line: UInt = #line,
-    _ condition: @escaping @MainActor () -> Bool
-) async throws {
-    let deadline = Date().addingTimeInterval(timeout)
-    while Date() < deadline {
-        if condition() {
-            return
-        }
-        try await Task.sleep(for: .milliseconds(10))
-    }
-    XCTAssertTrue(condition(), file: file, line: line)
 }
 
 private final class FilesystemIdentityCallCounter: @unchecked Sendable {

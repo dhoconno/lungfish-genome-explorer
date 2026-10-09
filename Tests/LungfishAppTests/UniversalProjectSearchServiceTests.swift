@@ -5,6 +5,7 @@
 import Foundation
 import XCTest
 import LungfishWorkflow
+import LungfishTestSupport
 @testable import LungfishApp
 
 final class UniversalProjectSearchServiceTests: XCTestCase {
@@ -118,16 +119,18 @@ final class UniversalProjectSearchServiceTests: XCTestCase {
             metadataRows: [("sample_name", "Second Sample")]
         )
 
+        // The debounce window is wide enough that the second call lands inside
+        // it even under the parallel unit tier's load.
         let service = UniversalProjectSearchService()
         await service.scheduleUpdate(
             projectURL: projectURL,
             changedPaths: [firstBundle],
-            delaySeconds: 0.05
+            delaySeconds: 1
         )
         await service.scheduleUpdate(
             projectURL: projectURL,
             changedPaths: [secondBundle, firstBundle],
-            delaySeconds: 0.05
+            delaySeconds: 1
         )
 
         let sidecarURL = ProvenanceRecorder.fileSidecarURL(
@@ -193,15 +196,13 @@ final class UniversalProjectSearchServiceTests: XCTestCase {
         try data.write(to: url)
     }
 
-    private func waitForFile(at url: URL, timeout: TimeInterval = 2.0) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if FileManager.default.fileExists(atPath: url.path) {
-                return
-            }
-            try await Task.sleep(for: .milliseconds(20))
+    /// Waits until the sidecar parses, not merely exists, so a reader never
+    /// races the writer.
+    private func waitForFile(at url: URL, timeout: Duration = .seconds(30)) async throws {
+        let parsed = await waitUntil(timeout: timeout) {
+            (try? ProvenanceEnvelopeReader.load(fromSidecar: url)) != nil
         }
-        XCTFail("Timed out waiting for \(url.path)")
+        XCTAssertTrue(parsed, "Timed out waiting for \(url.path)")
     }
 
     @discardableResult

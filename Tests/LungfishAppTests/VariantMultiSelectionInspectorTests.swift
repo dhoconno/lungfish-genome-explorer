@@ -387,7 +387,7 @@ private final class GenotypeFetchGate: @unchecked Sendable {
     }
 
     func waitUntilBlocked() -> DispatchTimeoutResult {
-        entered.wait(timeout: .now() + 2)
+        entered.wait(timeout: .now() + 10)
     }
 
     func release() {

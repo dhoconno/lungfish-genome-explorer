@@ -50,8 +50,10 @@ final class ReferenceDiscoveryServiceTests: XCTestCase {
 
         let slowCandidate = ReferenceCandidate.standaloneFASTA(url: slowProjectURL.appendingPathComponent("slow.fasta"))
         let fastCandidate = ReferenceCandidate.standaloneFASTA(url: fastProjectURL.appendingPathComponent("fast.fasta"))
+        let (slowScanStarted, signalSlowScanStarted) = AsyncStream<Void>.makeStream()
         let service = ReferenceDiscoveryService(scanner: { url in
             if url == slowProjectURL {
+                signalSlowScanStarted.yield()
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 return [slowCandidate]
             }
@@ -59,7 +61,10 @@ final class ReferenceDiscoveryServiceTests: XCTestCase {
         })
 
         async let firstScan: Void = service.scan(projectURL: slowProjectURL)
-        try? await Task.sleep(nanoseconds: 20_000_000)
+        // Start the second scan only once the first is in flight, however long
+        // the loaded host takes to schedule it.
+        var slowScanStartedIterator = slowScanStarted.makeAsyncIterator()
+        _ = await slowScanStartedIterator.next()
         await service.scan(projectURL: fastProjectURL)
         await firstScan
 

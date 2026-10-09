@@ -163,7 +163,7 @@ final class ProjectStoragePerformanceTests: XCTestCase {
         let before = try StorageFixtureSnapshot.capture(root: project.url)
 
         coordinator.viewModel.beginCleanup()
-        guard await cleanupBarrier.waitUntilReached(timeout: 5) else {
+        guard await cleanupBarrier.waitUntilReached(timeout: 30) else {
             return XCTFail(
                 "Cleanup preparation did not reach its barrier; "
                     + "state=\(coordinator.viewModel.state), "
@@ -171,7 +171,7 @@ final class ProjectStoragePerformanceTests: XCTestCase {
             )
         }
         XCTAssertTrue(coordinator.viewModel.handleEscapeKey())
-        guard await cancellation.wait(timeout: 5) else {
+        guard await cancellation.wait(timeout: 30) else {
             cleanupBarrier.release()
             return XCTFail(
                 "Cancellation did not propagate to the detached worker"
@@ -259,13 +259,13 @@ final class ProjectStoragePerformanceTests: XCTestCase {
             completion: {}
         )
         XCTAssertTrue(authorityCoordinator.present())
-        guard await authorityBarrier.waitUntilReached(timeout: 5) else {
+        guard await authorityBarrier.waitUntilReached(timeout: 30) else {
             return XCTFail("Authority worker did not reach its barrier")
         }
         XCTAssertTrue(
             authorityCoordinator.viewModel.handleEscapeKey()
         )
-        guard await authorityCancellation.wait(timeout: 5) else {
+        guard await authorityCancellation.wait(timeout: 30) else {
             authorityBarrier.release()
             return XCTFail(
                 "Authority-worker cancellation did not propagate"

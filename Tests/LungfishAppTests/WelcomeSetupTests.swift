@@ -805,7 +805,7 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertTrue(provider.hasPendingVisibleStatusesRequest())
         XCTAssertTrue(viewModel.isRefreshingSetup)
         provider.release()
-        try? await Task.sleep(for: .milliseconds(50))
+        await waitUntil { viewModel.requiredSetupStatus?.state == .ready }
 
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
     }
@@ -923,7 +923,7 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .needsInstall)
 
         viewModel.installRequiredSetup()
-        await fulfillment(of: [notification], timeout: 2)
+        await fulfillment(of: [notification], timeout: 5)
         await waitUntil { !(viewModel.isInstallingRequiredSetup || viewModel.isRefreshingSetup) }
 
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)

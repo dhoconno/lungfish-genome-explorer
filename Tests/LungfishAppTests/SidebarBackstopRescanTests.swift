@@ -210,10 +210,9 @@ final class SidebarBackstopRescanTests: XCTestCase {
         XCTAssertFalse(SidebarViewController.sidebarItems([item], match: [added]))
     }
 
+    /// The rescan walks the project on disk, so the wait allows for a loaded host.
     private func drainBackstop(_ sidebar: SidebarViewController) async {
-        for _ in 0..<200 where sidebar.backstopRescanThrottle.isInFlight {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil(timeoutNanoseconds: 30_000_000_000) { !sidebar.backstopRescanThrottle.isInFlight }
     }
 }
 

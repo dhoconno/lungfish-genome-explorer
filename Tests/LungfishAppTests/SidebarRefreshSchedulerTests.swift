@@ -13,7 +13,7 @@ final class SidebarRefreshSchedulerTests: XCTestCase {
         scheduler.requestFullReload(notifyUnchangedSelectionRefresh: false)
         scheduler.requestFullReload(notifyUnchangedSelectionRefresh: false)
 
-        try await Task.sleep(for: .milliseconds(60))
+        await waitUntil { !refreshes.isEmpty }
 
         XCTAssertEqual(refreshes, [true])
     }

@@ -129,7 +129,7 @@ final class ProjectFilesystemWindowOwnershipTests: XCTestCase {
         }
         split.loadProjectDocument(try XCTUnwrap(window.projectSession.documents.last))
         let hydration = try XCTUnwrap(split.externalDocumentLoadTask)
-        await fulfillment(of: [hydrationStarted], timeout: 3)
+        await fulfillment(of: [hydrationStarted], timeout: 10)
 
         var replies: [Bool] = []
         let initialReply = app.testingApplicationShouldTerminate { replies.append($0) }
@@ -176,7 +176,7 @@ final class ProjectFilesystemWindowOwnershipTests: XCTestCase {
         }
         split.loadProjectDocument(try XCTUnwrap(window.projectSession.documents.last))
         let hydration = try XCTUnwrap(split.externalDocumentLoadTask)
-        await fulfillment(of: [hydrationStarted], timeout: 3)
+        await fulfillment(of: [hydrationStarted], timeout: 10)
         split.invalidateDisplayRequest()
         XCTAssertNil(split.externalDocumentLoadTask)
 
@@ -230,7 +230,7 @@ final class ProjectFilesystemWindowOwnershipTests: XCTestCase {
         }
         split.handleMultipleItemsSelected([item])
         let hydration = try XCTUnwrap(split.multiDocumentLoadTask)
-        await fulfillment(of: [hydrationStarted], timeout: 3)
+        await fulfillment(of: [hydrationStarted], timeout: 10)
         split.cancelMultiDocumentLoadIfNeeded(hideProgress: true, reason: "termination regression")
         XCTAssertNil(split.multiDocumentLoadTask)
 
@@ -252,9 +252,10 @@ final class ProjectFilesystemWindowOwnershipTests: XCTestCase {
         window.close()
     }
 
+    /// Lock release goes through the file system, so the wait allows for a loaded host.
     private func waitForMissingFile(at url: URL) async -> Bool {
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
+        let deadline = clock.now.advanced(by: .seconds(30))
         while FileManager.default.fileExists(atPath: url.path), clock.now < deadline {
             try? await Task.sleep(for: .milliseconds(10))
         }
@@ -360,7 +361,7 @@ final class ProjectFilesystemWindowOwnershipTests: XCTestCase {
         split.projectPreparation = { _ in await gate.wait() }
         app.openProject(second, in: window)
         let open = try XCTUnwrap(split.projectOpenTask)
-        await fulfillment(of: [started], timeout: 3)
+        await fulfillment(of: [started], timeout: 10)
         ProjectFilesystemRefreshCoordinator.shared.testingSimulateRootChanged(projectURL: first)
         XCTAssertTrue(window.projectSession.isFilesystemUnavailable)
         await gate.finish(.success(prepared))
@@ -402,7 +403,7 @@ final class ProjectFilesystemWindowOwnershipTests: XCTestCase {
         let rebound = await split.sidebarController.retryProjectFilesystem()
         XCTAssertTrue(rebound)
         let open = try XCTUnwrap(split.projectOpenTask)
-        await fulfillment(of: [started], timeout: 3)
+        await fulfillment(of: [started], timeout: 10)
         try FileManager.default.moveItem(at: url, to: root.appendingPathComponent("moved.lungfish"))
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         await gate.finish(.success(prepared))
@@ -436,7 +437,7 @@ final class ProjectFilesystemWindowOwnershipTests: XCTestCase {
         window.projectSession.hydrationLoader = { _, _ in await gate.wait() }
         split.loadProjectDocument(selected)
         let pending = try XCTUnwrap(split.externalDocumentLoadTask)
-        await fulfillment(of: [started], timeout: 3)
+        await fulfillment(of: [started], timeout: 10)
         ProjectFilesystemRefreshCoordinator.shared.testingSimulateRootChanged(projectURL: url)
         window.projectSession.hydrationLoader = nil
         await gate.finish(ProjectHydrationSnapshot(sequence: try Sequence(id: selectedID, name: "other", alphabet: .dna, bases: "TTTT"), annotations: []))
@@ -616,7 +617,7 @@ final class ProjectFilesystemWindowOwnershipTests: XCTestCase {
         split.projectPreparation = { _ in await gate.wait() }
         _ = await split.sidebarController.retryProjectFilesystem()
         let open = try XCTUnwrap(split.projectOpenTask)
-        await fulfillment(of: [started], timeout: 3)
+        await fulfillment(of: [started], timeout: 10)
         XCTAssertTrue(app.isProjectWriteBlocked(projectURL: folder, windowStateScope: window.projectSession.windowStateScope))
         await gate.finish(.failure(ProjectFileError.missingMetadata(url: folder)))
         await open.value

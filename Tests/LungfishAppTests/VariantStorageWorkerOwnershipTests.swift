@@ -26,7 +26,7 @@ final class VariantStorageWorkerOwnershipTests: XCTestCase {
                 _ = finish.wait(timeout: .now() + 10)
                 return 7
             }, publish: { _ in published = true }))
-        await fulfillment(of: [started], timeout: 3)
+        await fulfillment(of: [started], timeout: 10)
         let owner = try XCTUnwrap(center.activeLockHolder(for: bundle))
         XCTAssertEqual(owner.state, .running)
         XCTAssertNil(owner.onCancel, "A synchronous durable transaction cannot promise cancellation")

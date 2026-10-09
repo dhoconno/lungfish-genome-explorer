@@ -157,11 +157,11 @@ final class SRAWindowImportLeftoversTests: XCTestCase {
             }
         }
         if let condition {
-            let started = await waitUntil(timeout: .seconds(10)) { condition() }
+            let started = await waitUntil(timeout: .seconds(30)) { condition() }
             XCTAssertTrue(started, "the fake CLI started")
             task.cancel()
         }
-        let ended = await waitUntil(timeout: .seconds(15)) { outcome.value != nil }
+        let ended = await waitUntil(timeout: .seconds(30)) { outcome.value != nil }
         XCTAssertTrue(ended, "the import ends promptly")
         return outcome.value ?? "still running"
     }

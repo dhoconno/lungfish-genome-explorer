@@ -21,7 +21,7 @@ final class SidebarSearchSchedulerTests: XCTestCase {
         XCTAssertEqual(localQueries, [])
         XCTAssertEqual(universalQueries, [])
 
-        try await waitForSidebarSearchCondition {
+        await waitUntil {
             localQueries == ["alpha"] && universalQueries == ["alpha"]
         }
     }
@@ -58,26 +58,9 @@ final class SidebarSearchSchedulerTests: XCTestCase {
 
         scheduler.submit("ab")
 
-        try await waitForSidebarSearchCondition {
+        await waitUntil {
             localQueries == ["ab"]
         }
         XCTAssertEqual(universalQueries, [])
     }
-}
-
-@MainActor
-private func waitForSidebarSearchCondition(
-    timeout: TimeInterval = 2.0,
-    file: StaticString = #filePath,
-    line: UInt = #line,
-    _ condition: @escaping @MainActor () -> Bool
-) async throws {
-    let deadline = Date().addingTimeInterval(timeout)
-    while Date() < deadline {
-        if condition() {
-            return
-        }
-        try await Task.sleep(for: .milliseconds(10))
-    }
-    XCTAssertTrue(condition(), file: file, line: line)
 }

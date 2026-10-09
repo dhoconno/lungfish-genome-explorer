@@ -28,7 +28,7 @@ final class SelectionSectionViewModelTests: XCTestCase {
         vm.scheduleTextCommit(debounce: .milliseconds(30))
 
         XCTAssertTrue(updates.isEmpty)
-        try await Task.sleep(for: .milliseconds(80))
+        await waitUntil { !updates.isEmpty }
 
         XCTAssertEqual(updates.map(\.name), ["second"])
     }

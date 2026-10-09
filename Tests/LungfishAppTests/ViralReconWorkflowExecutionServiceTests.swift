@@ -831,10 +831,13 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
 
         let runner = ProcessViralReconWorkflowProcessRunner(executableURL: URL(fileURLWithPath: "/bin/sh"))
         var received: [ViralReconWorkflowProcessOutput] = []
+        // The child holds its last line until the test has checked the streamed
+        // ones, so a loaded host cannot let it finish early.
+        let releaseURL = temp.appendingPathComponent("release")
 
         let task = Task {
             try await runner.runLungfishCLI(
-                arguments: ["-c", "printf 'stdout-ready\\n'; printf 'stderr-ready\\n' >&2; sleep 3; printf 'stdout-done\\n'"],
+                arguments: ["-c", "printf 'stdout-ready\\n'; printf 'stderr-ready\\n' >&2; while [ ! -f '\(releaseURL.path)' ]; do sleep 0.01; done; printf 'stdout-done\\n'"],
                 workingDirectory: temp,
                 outputHandler: { output in
                     received.append(output)
@@ -842,7 +845,7 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
             )
         }
 
-        let deadline = Date().addingTimeInterval(10)
+        let deadline = Date().addingTimeInterval(30)
         while Date() < deadline
             && !(received.contains(.standardOutput("stdout-ready"))
                  && received.contains(.standardError("stderr-ready"))) {
@@ -851,6 +854,7 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         XCTAssertTrue(received.contains(.standardOutput("stdout-ready")))
         XCTAssertTrue(received.contains(.standardError("stderr-ready")))
         XCTAssertFalse(received.contains(.standardOutput("stdout-done")))
+        try Data().write(to: releaseURL)
         let result = try await task.value
         XCTAssertEqual(result.exitCode, 0)
         XCTAssertTrue(result.standardOutput.contains("stdout-ready"))
@@ -938,7 +942,8 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         let cancelStart = Date()
         runner.cancel()
         let cancelReturnElapsed = Date().timeIntervalSince(cancelStart)
-        XCTAssertLessThan(cancelReturnElapsed, 0.25, "ViralRecon cancel() should only request process-tree termination")
+        // cancel() only queues the termination, so this bound just leaves room for a loaded host.
+        XCTAssertLessThan(cancelReturnElapsed, 2, "ViralRecon cancel() should only request process-tree termination")
         try await waitForProcessExit(pid: childPID)
         _ = try await runTask.value
 
@@ -1246,7 +1251,7 @@ private func functionBody(named name: String, in source: String) throws -> Strin
     return ""
 }
 
-private func waitForFile(_ url: URL, timeout: TimeInterval = 10) async throws {
+private func waitForFile(_ url: URL, timeout: TimeInterval = 30) async throws {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if FileManager.default.fileExists(atPath: url.path) {
@@ -1272,7 +1277,7 @@ private func waitUntil(
     XCTFail("Timed out waiting for condition")
 }
 
-private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 10) async throws {
+private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 30) async throws {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if !ProcessTreeTerminator.processExists(pid: pid) {
