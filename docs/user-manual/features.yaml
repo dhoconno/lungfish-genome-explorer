@@ -1283,6 +1283,7 @@ features:
     outputs: [xlsx, csv, tsv, labkey-csv]
     viewport_class: none
     sources:
+      - Sources/LungfishGenotypeUI/GenotypeViewportExportCoordinator.swift
       - Sources/LungfishGenotypeUI/GenotypeViewportExportService.swift
       - Sources/LungfishCLI/Commands/GenotypeExportSubcommand.swift
       - Sources/LungfishCLI/Commands/GenotypeExportXlsxSubcommand.swift

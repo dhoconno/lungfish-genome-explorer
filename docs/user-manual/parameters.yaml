@@ -6619,6 +6619,7 @@ operations:
     gating: []
     sources:
       - Sources/LungfishGenotypeUI/GenotypeResultViewController.swift
+      - Sources/LungfishGenotypeUI/GenotypeViewportExportCoordinator.swift
       - Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift
       - Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift
       - Sources/LungfishGenotypeUI/GenotypeNumericFilterDraft.swift
