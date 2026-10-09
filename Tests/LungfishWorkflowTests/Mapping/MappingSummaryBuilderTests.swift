@@ -487,15 +487,21 @@ final class MappingSummaryBuilderTests: XCTestCase {
                         executableURL: scriptURL,
                         arguments: [],
                         workingDirectory: scriptURL.deletingLastPathComponent(),
-                        timeout: 10
+                        timeout: 20
                     )
                     return .completed(.success(stdout))
                 } catch {
                     return .completed(.failure(error))
                 }
             }
+            // The budgets leave room for a heavily loaded Mac. The unit tier runs
+            // test classes in parallel beside other builds, and on 2026-10-09 this
+            // stub took about 12 seconds to finish under that load although it
+            // takes well under one second on an idle machine. A real deadlock
+            // never finishes, so it still fails, at 20 seconds through the
+            // runner's own timeout or at 30 seconds through this race.
             group.addTask {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
                 return .timedOut
             }
 
