@@ -239,7 +239,12 @@ final class GenotypePivotFilteredCopyTests: XCTestCase {
         )
     }
 
-    func testPivotProjectionPreservesLowerAuthoritativeOccurrenceAndAttestedZero() async throws {
+    /// Two rows name S1 and 01_M1A_A1_063 (16 and 4 reads). Since decision D5b
+    /// of Phase 2.3 the loader keeps one occurrence per animal, locus and allele,
+    /// the row with the most reads, so the projection must carry 16. A projection
+    /// that still names the dropped 4-read row no longer matches the evidence, and
+    /// the builder refuses it like any other incoherent projection.
+    func testPivotProjectionKeepsTheCollapsedOccurrenceAndAttestedZero() async throws {
         let python = try XCTUnwrap(Self.managedPythonURL)
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cli-projected-occurrences-\(UUID().uuidString)", isDirectory: true)
@@ -265,7 +270,7 @@ final class GenotypePivotFilteredCopyTests: XCTestCase {
                     .init(
                         label: "Captured allele",
                         rawGenotype: "01_M1A_A1_063",
-                        cells: ["4", "0"]
+                        cells: ["16", "0"]
                     ),
                 ]
             )
@@ -292,7 +297,7 @@ final class GenotypePivotFilteredCopyTests: XCTestCase {
         )
         let row = try XCTUnwrap(snapshot.filteredMatrix.rows.first)
         XCTAssertEqual(row.displayName, "Captured allele")
-        XCTAssertEqual(row.cells.map(\.displayValue), [4, 0])
+        XCTAssertEqual(row.cells.map(\.displayValue), [16, 0])
     }
 
     func testPivotRejectsIncoherentProjectionBeforeForcedDestinationReplacement() async throws {
