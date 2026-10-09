@@ -117,49 +117,30 @@ public enum LungfishCLIRunner {
             throw RunError.cliNotFound
         }
 
-        let spec = ToolProcessSpec(
-            executableURL: cliURL,
-            arguments: arguments,
-            environment: ManagedStorageConfigStore().subprocessEnvironment(),
-            terminationGracePeriod: .zero,
-            label: "lungfish-cli"
+        let outcome = await CLIProcessLauncher.run(
+            CLIProcessLauncher.spec(executableURL: cliURL, arguments: arguments, standardOutput: .captured),
+            cancellation: cancellation?.cancellation ?? CLIRunCancellation()
         )
-        let outcome = await (cancellation?.cancellation ?? CLIRunCancellation()).run(spec)
 
-        let result: ToolProcessResult
-        switch outcome.result {
-        case .success(let finished):
-            result = finished
-        case .failure(.cancelled):
+        let exit: CLIProcessExit
+        switch outcome {
+        case .exited(let finished):
+            exit = finished
+        case .cancelled:
             throw RunError.cancelled
-        case .failure(let error):
-            logger.error("run: Failed to launch CLI: \(error.localizedDescription, privacy: .public)")
-            throw RunError.launchFailed(error.cliLaunchFailureReason)
+        case .launchFailed(let reason):
+            logger.error("run: Failed to launch CLI: \(reason, privacy: .public)")
+            throw RunError.launchFailed(reason)
         }
 
-        if outcome.cancelRequested || result.stop == .cancelled {
-            throw RunError.cancelled
-        }
-
-        let stdoutText = result.cliStdoutText
-        let stderrText = result.cliStderrText
-
-        if let incomplete = result.cliIncompleteOutputNote {
-            logger.error("run: \(incomplete, privacy: .public)")
-            throw RunError.nonZeroExit(
-                status: result.status,
-                stderr: [stderrText, incomplete].filter { !$0.isEmpty }.joined(separator: "\n")
-            )
-        }
-
-        if result.status != 0 {
+        if !exit.succeeded {
             logger.error(
-                "run: CLI exited with status \(result.status, privacy: .public): \(stderrText, privacy: .public)"
+                "run: CLI exited with status \(exit.status, privacy: .public): \(exit.failureDetail, privacy: .public)"
             )
-            throw RunError.nonZeroExit(status: result.status, stderr: stderrText)
+            throw RunError.nonZeroExit(status: exit.status, stderr: exit.failureDetail)
         }
 
-        return Output(stdout: stdoutText, stderr: stderrText, status: result.status)
+        return Output(stdout: exit.stdout, stderr: exit.stderr, status: exit.status)
     }
 
     /// Runs `lungfish-cli build-db <tool> <resultDir>` and waits for it.

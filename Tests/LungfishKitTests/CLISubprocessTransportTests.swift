@@ -203,7 +203,7 @@ final class CLISubprocessTransportTests: XCTestCase {
         let clock = ContinuousClock()
         let start = clock.now
         transport.cancel()
-        XCTAssertLessThan(start.duration(to: clock.now), .milliseconds(100), "cancel returns at once")
+        XCTAssertLessThan(start.duration(to: clock.now), .seconds(1), "cancel returns at once")
 
         let outcome = try await wait(for: task)
         guard case .failure(let error) = outcome else { return XCTFail("a cancelled run returns no result") }

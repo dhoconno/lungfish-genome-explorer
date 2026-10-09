@@ -195,7 +195,7 @@ final class WorkflowEngineProcessCancellationTests: XCTestCase {
             XCTFail("a run that left a process behind must fail")
         } catch let error as CLIError {
             guard case .workflowFailed(let reason) = error else { return XCTFail("\(error)") }
-            XCTAssertTrue(reason.contains("may be incomplete because a process it started kept running"), reason)
+            XCTAssertTrue(reason.contains("is incomplete because a child process kept it open"), reason)
         }
         XCTAssertGreaterThanOrEqual(start.duration(to: clock.now), WorkflowEngineProcess.drainGracePeriod)
         let childPID = try await waitForPID(childPIDFile)

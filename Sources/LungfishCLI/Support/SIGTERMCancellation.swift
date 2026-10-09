@@ -30,8 +30,10 @@ private func handleSIGTERM(_ signalNumber: Int32) {
     }
     if count >= 2, secondSIGTERMEndsProcess.load(ordering: .sequentiallyConsistent) {
         // The default action ends the process once this handler returns.
+        // The signal goes to the process, because raise() is pthread_kill on
+        // this thread and fails with ENOTSUP on a dispatch worker thread.
         signal(SIGTERM, SIG_DFL)
-        raise(SIGTERM)
+        kill(getpid(), SIGTERM)
     }
     errno = savedErrno
 }
@@ -76,6 +78,9 @@ private enum SIGTERMPipe {
 /// time.
 final class SIGTERMCancellation {
     private let source: DispatchSourceProtocol
+    /// The SIGTERM handler in place before this one, such as the CLI-wide
+    /// one of `CLITerminationSignals`, put back by ``end()``.
+    private let previousHandler: sig_t?
     private var ended = false
 
     /// Starts turning SIGTERM into `cancel()` calls.
@@ -102,7 +107,8 @@ final class SIGTERMCancellation {
         caughtSIGTERMs.store(0, ordering: .sequentiallyConsistent)
         secondSIGTERMEndsProcess.store(secondSignalEndsProcess, ordering: .sequentiallyConsistent)
         sigtermPipeWriteEnd.store(ends?.write ?? -1, ordering: .sequentiallyConsistent)
-        signal(SIGTERM, handleSIGTERM)
+        // signal() fails only for an invalid signal number, never for SIGTERM.
+        previousHandler = signal(SIGTERM, handleSIGTERM)
         beforeListening()
         if let ends {
             let readSource = DispatchSource.makeReadSource(fileDescriptor: ends.read, queue: queue)
@@ -137,11 +143,11 @@ final class SIGTERMCancellation {
         self.init(secondSignalEndsProcess: secondSignalEndsProcess) { target.cancel() }
     }
 
-    /// Gives SIGTERM its default action back.
+    /// Gives SIGTERM back the handler it had before, or its default action.
     func end() {
         guard !ended else { return }
         ended = true
-        signal(SIGTERM, SIG_DFL)
+        signal(SIGTERM, previousHandler ?? SIG_DFL)
         secondSIGTERMEndsProcess.store(false, ordering: .sequentiallyConsistent)
         sigtermPipeWriteEnd.store(-1, ordering: .sequentiallyConsistent)
         source.cancel()

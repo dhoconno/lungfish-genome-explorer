@@ -127,6 +127,9 @@ struct LungfishCLI: AsyncParsableCommand {
 
 public enum LungfishCLIMain {
     public static func main() async {
+        // Ctrl-C, SIGTERM and SIGHUP stop the tools this run starts before
+        // the CLI ends, because each tool runs in a process group of its own.
+        CLITerminationSignals.install()
         let arguments = LungfishCLI.normalizedArgumentsForParsing(Array(CommandLine.arguments.dropFirst()))
         do {
             var command = try LungfishCLI.parseAsRoot(arguments)

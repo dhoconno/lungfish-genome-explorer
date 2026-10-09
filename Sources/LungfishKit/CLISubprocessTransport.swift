@@ -80,11 +80,6 @@ public actor CLISubprocessTransport {
         cancellation.cancel()
     }
 
-    /// The longest event line the transport decodes whole. ToolProcess cuts a
-    /// longer line into pieces, and a `complete` event that lists thousands of
-    /// outputs can pass the 64 KB default.
-    private static let maxEventLineBytes = 16 * 1024 * 1024
-
     /// Launches `lungfish-cli` with `arguments`, streams decoded `CLIEvent`s
     /// to `onEvent` as they arrive (already hopped to the main actor — see
     /// below), and returns the `.complete` outputs on success.
@@ -145,33 +140,23 @@ public actor CLISubprocessTransport {
             }
         }
 
-        let spec = ToolProcessSpec(
-            executableURL: binaryURL,
-            arguments: arguments,
-            environment: ManagedStorageConfigStore().subprocessEnvironment(),
-            stdout: .capture(limit: 0),
-            stderr: .capture(),
-            terminationGracePeriod: .zero,
-            maxLineBytes: Self.maxEventLineBytes,
-            label: "lungfish-cli"
+        let outcome = await CLIProcessLauncher.run(
+            CLIProcessLauncher.spec(executableURL: binaryURL, arguments: arguments),
+            cancellation: cancellation,
+            onStdoutLine: handleLine
         )
-        let outcome = await cancellation.run(spec) { event in
-            guard case .output(.stdout, let line) = event else { return }
-            handleLine(line)
-        }
 
-        let result: ToolProcessResult
-        switch outcome.result {
-        case .success(let finished):
-            result = finished
-        case .failure(.cancelled):
+        let exit: CLIProcessExit
+        switch outcome {
+        case .exited(let finished):
+            exit = finished
+        case .cancelled:
             throw CancellationError()
-        case .failure(let error):
-            throw RunError.launchFailed(error.cliLaunchFailureReason)
+        case .launchFailed(let reason):
+            throw RunError.launchFailed(reason)
         }
 
-        let operationCancelled = await isCancelled()
-        if outcome.cancelRequested || result.stop == .cancelled || operationCancelled {
+        if await isCancelled() {
             throw CancellationError()
         }
 
@@ -185,12 +170,11 @@ public actor CLISubprocessTransport {
         if let failed = snapshot.failed {
             throw RunError.failedEvent(message: failed.message, detail: failed.detail)
         }
-        if let incomplete = result.cliIncompleteOutputNote {
-            transportLogger.error("\(incomplete, privacy: .public)")
-            throw RunError.nonZeroExit(status: result.status, stderr: [result.cliStderrText, incomplete].filter { !$0.isEmpty }.joined(separator: "\n"))
-        }
-        if result.status != 0 {
-            throw RunError.nonZeroExit(status: result.status, stderr: result.cliStderrText)
+        if !exit.succeeded {
+            if let incomplete = exit.incompleteOutput {
+                transportLogger.error("\(incomplete, privacy: .public)")
+            }
+            throw RunError.nonZeroExit(status: exit.status, stderr: exit.failureDetail)
         }
         guard !snapshot.outputs.isEmpty else {
             throw RunError.missingCompletion

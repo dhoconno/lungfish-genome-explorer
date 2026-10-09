@@ -174,33 +174,22 @@ actor CLINativeBundleImportRunner {
             _ = OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Launching lungfish-cli...")
         }
 
-        let spec = ToolProcessSpec(
-            executableURL: binaryURL,
-            arguments: arguments,
-            environment: ManagedStorageConfigStore().subprocessEnvironment(),
-            stdout: .capture(limit: 0),
-            stderr: .capture(),
-            terminationGracePeriod: .zero,
-            label: "lungfish-cli"
+        let outcome = await CLIProcessLauncher.run(
+            CLIProcessLauncher.spec(executableURL: binaryURL, arguments: arguments),
+            cancellation: cancellation,
+            onStdoutLine: handleLine
         )
-        let outcome = await cancellation.run(spec) { event in
-            guard case .output(.stdout, let line) = event else { return }
-            handleLine(line)
-        }
 
-        let result: ToolProcessResult
-        switch outcome.result {
-        case .success(let finished):
-            result = finished
-        case .failure(.cancelled):
+        let exit: CLIProcessExit
+        switch outcome {
+        case .exited(let finished):
+            exit = finished
+        case .cancelled:
             throw CancellationError()
-        case .failure(let error):
-            let reason = error.cliLaunchFailureReason
+        case .launchFailed(let reason):
             await failOperation(opID, detail: reason)
             throw RunError.launchFailed(reason)
         }
-
-        if outcome.cancelRequested || result.stop == .cancelled { throw CancellationError() }
 
         let snapshot = state.withLock { current in
             (
@@ -213,15 +202,11 @@ actor CLINativeBundleImportRunner {
         if let failedMessage = snapshot.failedMessage {
             throw RunError.failedEvent(failedMessage)
         }
-        if let incomplete = result.cliIncompleteOutputNote {
-            nativeBundleImportLogger.error("\(incomplete, privacy: .public)")
-            throw RunError.nonZeroExit(
-                status: result.status,
-                stderr: [result.cliStderrText, incomplete].filter { !$0.isEmpty }.joined(separator: "\n")
-            )
-        }
-        if result.status != 0 {
-            throw RunError.nonZeroExit(status: result.status, stderr: result.cliStderrText)
+        if !exit.succeeded {
+            if let incomplete = exit.incompleteOutput {
+                nativeBundleImportLogger.error("\(incomplete, privacy: .public)")
+            }
+            throw RunError.nonZeroExit(status: exit.status, stderr: exit.failureDetail)
         }
         guard let bundlePath = snapshot.bundlePath,
               !bundlePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {

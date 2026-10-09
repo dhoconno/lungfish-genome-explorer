@@ -59,7 +59,7 @@ public actor CLIImportRunner {
     /// so termination never has to wait for the actor's executor. It also
     /// remembers a cancel that arrives before the launch, so the CLI is then
     /// never launched.
-    private let cancellation = CLIRunCancellation(cleanupGrace: .seconds(CLIImportRunner.cleanupGrace))
+    private let cancellation = CLIRunCancellation()
 
     // MARK: - Static: Binary Resolution
 
@@ -483,39 +483,40 @@ public actor CLIImportRunner {
         // The output is read until end of file as the CLI writes it, so events
         // reach OperationCenter as the CLI emits them, not after exit. A cancel
         // gives the CLI `cleanupGrace` after SIGTERM to remove its staging
-        // folders (see ``CLIRunCancellation``). A tool the CLI started that
+        // folders before ToolProcess sends SIGKILL. A tool the CLI started that
         // keeps the output open after the CLI exits is stopped half a second
         // later, so it cannot hold the import slot.
-        let spec = ToolProcessSpec(
-            executableURL: binaryURL,
-            arguments: arguments,
-            environment: ManagedStorageConfigStore().subprocessEnvironment(),
-            stdout: .capture(limit: 0),
-            stderr: .capture(),
-            terminationGracePeriod: .zero,
-            drainGracePeriod: .milliseconds(500),
-            label: "lungfish-cli"
-        )
-        let outcome = await cancellation.run(spec) { event in
-            guard case .output(.stdout, let line) = event, !line.isEmpty else { return }
-            handleStdoutLine(line)
-        }
-
-        let result: ToolProcessResult
-        switch outcome.result {
-        case .success(let finished):
-            result = finished
-        case .failure(.cancelled(let results)), .failure(.timedOut(_, let results)):
-            guard let ended = results.first else {
-                // A cancel came before the launch, so nothing ran. The
-                // caller ends the operation as cancelled.
-                logger.info("CLI import cancelled before launch")
-                onError("Import cancelled before it started")
-                return
+        let outcome = await CLIProcessLauncher.run(
+            CLIProcessLauncher.spec(
+                executableURL: binaryURL,
+                arguments: arguments,
+                terminationGracePeriod: Self.cleanupGrace,
+                drainGracePeriod: .milliseconds(500)
+            ),
+            cancellation: cancellation,
+            onStdoutLine: { line in
+                guard !line.isEmpty else { return }
+                handleStdoutLine(line)
             }
-            result = ended
-        case .failure(let error):
-            let msg = "Failed to launch CLI process: \(error.cliLaunchFailureReason)"
+        )
+
+        let exit: CLIProcessExit
+        let cancelRequested: Bool
+        switch outcome {
+        case .exited(let finished):
+            exit = finished
+            cancelRequested = false
+        case .cancelled(let finished?):
+            exit = finished
+            cancelRequested = true
+        case .cancelled(nil):
+            // A cancel came before the launch, so nothing ran. The caller
+            // ends the operation as cancelled.
+            logger.info("CLI import cancelled before launch")
+            onError("Import cancelled before it started")
+            return
+        case .launchFailed(let reason):
+            let msg = "Failed to launch CLI process: \(reason)"
             logger.error("\(msg, privacy: .public)")
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -528,11 +529,11 @@ public actor CLIImportRunner {
 
         // Handle a non-zero exit, or an exit whose output a lingering child
         // process cut short.
-        let exitStatus = result.status
-        let incompleteNote = result.cliIncompleteOutputNote
-        if exitStatus != 0 || incompleteNote != nil {
+        if !exit.succeeded {
+            let exitStatus = exit.status
+            let incompleteNote = exit.incompleteOutput
             let snapshot = state.withLock { current in current.lastSampleFailure }
-            let stderrOutput = result.cliStderrText
+            let stderrOutput = exit.stderr
             let trimmedStderr = stderrOutput.trimmingCharacters(in: .whitespacesAndNewlines)
             let exitSummary = exitStatus != 0 ? "CLI exited with status \(exitStatus)" : (incompleteNote ?? "")
             let msg = snapshot ?? exitSummary
@@ -544,7 +545,7 @@ public actor CLIImportRunner {
             logger.error("\(exitSummary, privacy: .public): \(stderrOutput, privacy: .public)")
             // After a cancel the caller ends the operation, once its own
             // cleanup has run, so the row is not ended here first.
-            if !outcome.cancelRequested {
+            if !cancelRequested {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         _ = OperationCenter.shared.fail(
@@ -565,7 +566,7 @@ public actor CLIImportRunner {
     /// How long `lungfish-cli` gets after SIGTERM to remove its staging
     /// folders and workspace before it is killed. Inside OperationCenter's
     /// 10 s forced-acknowledge grace period.
-    static let cleanupGrace: TimeInterval = 5
+    static let cleanupGrace: Duration = .seconds(5)
 
     /// Terminates the running CLI process tree, if any, or keeps the CLI
     /// from launching when the cancel comes first.
@@ -575,7 +576,7 @@ public actor CLIImportRunner {
     /// ``cancellation`` rather than actor-isolated state, so cancellation
     /// never has to wait in line behind the very operation it is trying to
     /// stop. It returns at once. The CLI and its descendants get SIGTERM, and
-    /// the CLI has ``cleanupGrace`` seconds to clean up and exit. ToolProcess
+    /// the CLI has ``cleanupGrace`` to clean up and exit. ToolProcess
     /// then kills whatever is left.
     public nonisolated func cancel() {
         logger.info("Terminating CLI process tree")

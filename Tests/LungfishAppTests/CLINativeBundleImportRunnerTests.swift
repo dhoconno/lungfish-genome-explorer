@@ -103,6 +103,41 @@ final class CLINativeBundleImportRunnerTests: XCTestCase {
         }
     }
 
+    /// Phase 2.2 lane 5B. The App runners read events through the same
+    /// launcher as CLISubprocessTransport, so a JSON event line over the 64 KB
+    /// line default arrives whole and decodes. It used to be cut in pieces,
+    /// and the run then reported no imported bundle.
+    func testACompleteEventLineOver64KBIsDecodedWhole() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let bundle = tempDir.appendingPathComponent("aligned.lungfishmsa", isDirectory: true)
+        let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")
+        let script = """
+        #!/bin/sh
+        padding=$(/usr/bin/head -c 200000 /dev/zero | /usr/bin/tr '\\0' 'p')
+        printf '%s%s%s\\n' '{"event":"nativeBundleImportComplete","bundle":"\(bundle.path)","warningCount":3,"padding":"' "$padding" '"}'
+        """
+        try script.write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
+
+        let opID = await MainActor.run {
+            OperationCenter.shared.begin(
+                title: "MSA Import",
+                detail: "Launching...",
+                operationType: .multipleSequenceAlignmentImport,
+                cliCommand: nil
+            ).rowID
+        }
+
+        let result = try await CLINativeBundleImportRunner(cliURLOverride: fakeCLI)
+            .run(arguments: [], operationID: opID)
+
+        XCTAssertEqual(result.bundleURL.path, bundle.path)
+        XCTAssertEqual(result.warningCount, 3)
+        await MainActor.run {
+            _ = OperationCenter.shared.complete(id: opID, detail: "Test complete")
+        }
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = repoRoot
             .appendingPathComponent(".build", isDirectory: true)

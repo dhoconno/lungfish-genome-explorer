@@ -107,9 +107,9 @@ enum WorkflowEngineProcess {
             }
             throw error
         }
-        guard result.outputComplete else {
+        if let incomplete = result.incompleteOutputReason {
             throw CLIError.workflowFailed(
-                reason: "\(spec.label) exited with status \(result.status), but its output and results may be incomplete because a process it started kept running after it exited. That process was stopped."
+                reason: "\(spec.label) exited with status \(result.status). \(incomplete)"
             )
         }
         return Output(

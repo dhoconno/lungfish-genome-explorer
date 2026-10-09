@@ -86,4 +86,24 @@ final class SIGTERMCancellationTests: XCTestCase {
         XCTAssertTrue(stopped, "a caught SIGTERM goes back to its default action in a launched tool")
         XCTAssertEqual(tool.terminationReason, .uncaughtSignal)
     }
+
+    /// Phase 2.2 lane 5B. The CLI installs a SIGTERM handler for its whole
+    /// run that stops its tools. A command's cooperative cancel takes over
+    /// SIGTERM while it runs and puts that handler back when it ends.
+    func testEndPutsBackTheHandlerThatWasThereBefore() {
+        let original = signal(SIGTERM, recordSIGTERMForTest)
+        defer { signal(SIGTERM, original) }
+
+        let termination = SIGTERMCancellation { }
+        termination.end()
+
+        let restored = signal(SIGTERM, original)
+        XCTAssertEqual(
+            restored.map { unsafeBitCast($0, to: UInt.self) },
+            unsafeBitCast(recordSIGTERMForTest as sig_t, to: UInt.self)
+        )
+    }
 }
+
+/// Stands in for the CLI-wide SIGTERM handler. It is never called.
+private func recordSIGTERMForTest(_ signalNumber: Int32) {}

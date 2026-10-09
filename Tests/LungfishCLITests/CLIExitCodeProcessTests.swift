@@ -2,7 +2,9 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import Darwin
 import Foundation
+import LungfishCore
 import LungfishTestSupport
 import XCTest
 @testable import LungfishCLI
@@ -513,6 +515,116 @@ final class CLIExitCodeProcessTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         assertSingleErrorLine(in: result.stderr, diagnostic: "Unknown option '--Validation failed:'")
         XCTAssertTrue(result.stderr.contains("Usage: lungfish"))
+    }
+
+    // MARK: - Termination signals
+
+    // Phase 2.2 lane 5B (finding R7). Every tool runs in a process group of
+    // its own, so Ctrl-C in a terminal reaches only lungfish-cli, which used
+    // to die at once and leave the tool running. The CLI now stops every tool
+    // it started, then ends by the signal it was sent. Each test runs
+    // `conda run` against a fake micromamba under a temporary conda root.
+
+    func testSIGINTStopsTheToolTreeAndTheCLIEndsBySIGINT() async throws {
+        try await assertSignalStopsTheToolTreeAndEndsTheCLI(SIGINT)
+    }
+
+    func testSIGHUPStopsTheToolTreeAndTheCLIEndsBySIGHUP() async throws {
+        try await assertSignalStopsTheToolTreeAndEndsTheCLI(SIGHUP)
+    }
+
+    /// `conda run` does not turn SIGTERM into a cooperative cancel, so the
+    /// CLI-wide handler stops its tool.
+    func testSIGTERMStopsTheToolTreeAndTheCLIEndsBySIGTERM() async throws {
+        try await assertSignalStopsTheToolTreeAndEndsTheCLI(SIGTERM)
+    }
+
+    private func assertSignalStopsTheToolTreeAndEndsTheCLI(
+        _ signalNumber: Int32,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let binary = try XCTUnwrap(Self.cliBinaryURL, "Build lungfish-cli beside the test bundle", file: file, line: line)
+        // The copy the CLI compares an installed micromamba against.
+        let realMicromamba = try XCTUnwrap(
+            RuntimeResourceLocator.path("Tools/micromamba", in: .workflow),
+            "no bundled micromamba to report its version",
+            file: file,
+            line: line
+        )
+
+        let root = try TestTempDirectory.make(prefix: "cli-signal")
+        defer { TestTempDirectory.cleanup(root) }
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let storageRoot = root.appendingPathComponent("storage", isDirectory: true)
+        try FileManager.default.createDirectory(at: condaRoot.appendingPathComponent("bin"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: storageRoot, withIntermediateDirectories: true)
+        let toolPIDFile = root.appendingPathComponent("tool.pid")
+        let childPIDFile = root.appendingPathComponent("child.pid")
+        // The version probe answers as the bundled copy does, so the CLI keeps
+        // this fake. The run records its pid, starts a child that stands in
+        // for the tool's own workers, and waits.
+        let fake = condaRoot.appendingPathComponent("bin/micromamba")
+        try """
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then exec "\(realMicromamba.path)" --version; fi
+        echo $$ > "\(toolPIDFile.path)"
+        /bin/sh -c 'echo $$ > "\(childPIDFile.path)"; exec /bin/sleep 300' &
+        wait
+        """.write(to: fake, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
+
+        let environment = ToolProcessSpec.inheritedEnvironment(overriding: [
+            "LUNGFISH_CONDA_ROOT": condaRoot.path,
+            "LUNGFISH_STORAGE_ROOT": storageRoot.path,
+            "LUNGFISH_CONDA_SHARED_PKGS": "0",
+        ])
+        // The CLI must use the temporary root, never the user's own.
+        XCTAssertEqual(
+            ManagedStorageConfigStore().currentCondaRootURL(environment: environment).standardizedFileURL.path,
+            condaRoot.standardizedFileURL.path,
+            file: file,
+            line: line
+        )
+
+        let run = try ToolProcess.start(ToolProcessSpec(
+            executableURL: binary,
+            arguments: ["conda", "run", "signal-test-tool"],
+            environment: environment,
+            timeout: .seconds(120)
+        ))
+        var toolPID: Int32?
+        var childPID: Int32?
+        let started = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(20)) {
+            toolPID = Self.readPID(toolPIDFile)
+            childPID = Self.readPID(childPIDFile)
+            return toolPID != nil && childPID != nil
+        }
+        defer {
+            for pid in [toolPID, childPID].compactMap({ $0 }) where ProcessTreeTerminator.processExists(pid: pid) {
+                kill(pid, SIGKILL)
+            }
+        }
+        guard started, let toolPID, let childPID else {
+            run.cancel()
+            let result = try? await run.result()
+            return XCTFail("the tool never started: \(result?.stderrText ?? "")", file: file, line: line)
+        }
+        let cliPID = try XCTUnwrap(run.pid, file: file, line: line)
+
+        kill(cliPID, signalNumber)
+
+        let result = try await run.result()
+        XCTAssertEqual(result.termination, .signaled(signal: signalNumber), result.stderrText, file: file, line: line)
+        let stopped = await waitUntil(timeout: .seconds(5)) {
+            !ProcessTreeTerminator.processExists(pid: toolPID) && !ProcessTreeTerminator.processExists(pid: childPID)
+        }
+        XCTAssertTrue(stopped, "the tool and its child are stopped", file: file, line: line)
+    }
+
+    private static func readPID(_ url: URL) -> Int32? {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return Int32(text.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     private func runCLI(_ arguments: [String]) throws -> (exitCode: Int32, stdout: String, stderr: String) {
