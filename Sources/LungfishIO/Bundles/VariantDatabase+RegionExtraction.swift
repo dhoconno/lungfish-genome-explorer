@@ -532,25 +532,11 @@ extension VariantDatabase {
         let ext = url.pathExtension.lowercased()
 
         if ext == "gz" {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-            process.arguments = ["-dc", url.path]
-
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-            try process.run()
-
-            let fileHandle = pipe.fileHandleForReading
-            defer {
-                if process.isRunning { process.terminate() }
-                process.waitUntilExit()
-            }
-
+            let gzip = try gzipDecompression(of: url)
             var buffer = Data()
             var keepReading = true
             while keepReading {
-                let chunk = fileHandle.readData(ofLength: 64 * 1024)
+                let chunk = gzip.read(upTo: 64 * 1024)
                 if chunk.isEmpty { break }
                 buffer.append(chunk)
 
@@ -565,6 +551,11 @@ extension VariantDatabase {
                 if lineStart > buffer.startIndex {
                     buffer.removeSubrange(..<lineStart)
                 }
+            }
+            // The header ends long before the data, so stop gzip there.
+            if !keepReading { gzip.stop() }
+            if case .failure(.launchFailed(_, let reason, _)) = gzip.finishBlocking() {
+                throw VariantDatabaseError.createFailed("Cannot open VCF file: \(url.lastPathComponent) (\(reason))")
             }
             return ordered
         }
@@ -701,24 +692,12 @@ extension VariantDatabase {
         onProgress: ((Double) -> Void)? = nil,
         _ handler: (Substring) throws -> Void
     ) throws -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        process.arguments = ["-dc", url.path]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        try process.run()
+        let gzip = try gzipDecompression(of: url)
+        var finished = false
         // If `handler` throws (e.g. a COMMIT failure aborting the import), make sure the
         // still-running gzip child process is torn down instead of leaking.
-        defer {
-            if process.isRunning {
-                process.terminate()
-            }
-        }
+        defer { if !finished { gzip.stop(); _ = gzip.finishBlocking() } }
 
-        let fileHandle = pipe.fileHandleForReading
         var buffer = Data()
         var bytesRead: Int64 = 0
         var lastProgress = -1.0
@@ -727,10 +706,10 @@ extension VariantDatabase {
         while true {
             if shouldCancel?() == true {
                 cancelled = true
-                process.terminate()
+                gzip.stop()
                 break
             }
-            let chunk = fileHandle.readData(ofLength: 64 * 1024)
+            let chunk = gzip.read(upTo: 64 * 1024)
             if chunk.isEmpty { break }
             bytesRead += Int64(chunk.count)
             buffer.append(chunk)
@@ -774,11 +753,30 @@ extension VariantDatabase {
             )
         }
 
-        process.waitUntilExit()
-        if !cancelled, process.terminationStatus != 0 {
-            throw VariantDatabaseError.createFailed("Failed to decompress \(url.lastPathComponent) (gzip exit code \(process.terminationStatus))")
+        let outcome = gzip.finishBlocking()
+        finished = true
+        guard !cancelled else { return cancelled }
+        let problem: String? = switch outcome {
+        case .success(let result) where !result.outputComplete || gzip.readFailed: "gzip output was incomplete"
+        case .success(let result): result.status == 0 ? nil : "gzip exit code \(result.status)"
+        case .failure(let error): error.localizedDescription
+        }
+        if let problem {
+            throw VariantDatabaseError.createFailed("Failed to decompress \(url.lastPathComponent) (\(problem))")
         }
         return cancelled
+    }
+
+    /// Starts `gzip -dc` on ToolProcess with its output read raw, so every
+    /// byte reaches the line splitter exactly as the file holds it.
+    private static func gzipDecompression(of url: URL) throws -> ToolProcessRawStdout {
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: "/usr/bin/gzip"), arguments: ["-dc", url.path],
+            environment: ToolProcessSpec.inheritedEnvironment(), stderr: .discard, label: "gzip"
+        )
+        do { return try ToolProcessRawStdout(spec) } catch {
+            throw VariantDatabaseError.createFailed("Failed to decompress \(url.lastPathComponent) (\(error.localizedDescription))")
+        }
     }
 
     /// Estimates uncompressed size for a gzip file using ISIZE footer with heuristic fallback.

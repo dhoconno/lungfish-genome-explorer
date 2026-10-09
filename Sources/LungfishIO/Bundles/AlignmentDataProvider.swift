@@ -11,46 +11,15 @@ import os.log
 /// Logger for alignment data operations
 private let alignmentLogger = Logger(subsystem: LogSubsystem.io, category: "AlignmentDataProvider")
 
-private final class PipeReadBuffer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var data = Data()
-
-    func store(_ newData: Data) {
-        lock.lock()
-        data = newData
-        lock.unlock()
-    }
-
-    func load() -> Data {
-        lock.lock()
-        defer { lock.unlock() }
-        return data
-    }
-}
-
-/// Mutable box around `UniqueReadStartCounter` for use inside a
-/// `DispatchQueue.global` closure that is the sole owner of the box for its
-/// lifetime (see `AlignmentDataProvider.streamUniqueReadCount`). No lock is
-/// needed because only that one closure ever touches it.
-private final class UniqueReadCounterBox: @unchecked Sendable {
-    private var counter = UniqueReadStartCounter()
-
-    func ingest(chunk: String, leftover: inout String, isFinal: Bool = false) {
-        counter.ingest(chunk: chunk, leftover: &leftover, isFinal: isFinal)
-    }
-
-    var uniqueCount: Int { counter.uniqueCount }
-}
-
-private final class BudgetedSamtoolsState: @unchecked Sendable {
-    private let lock = NSLock()
-    private var retained = Data(), pending = Data(), stderr = Data()
+/// Keeps complete SAM records from raw samtools output until a record or
+/// byte budget is reached.
+private struct BudgetedSamtoolsState: Sendable {
+    private var retained = Data(), pending = Data()
     private var records = 0, budgetReached = false
-    private let maxRecords: Int, maxBytes: Int, maxStderrBytes: Int
-    init(maxRecords: Int, maxBytes: Int, maxStderrBytes: Int = 1 << 20) { self.maxRecords = maxRecords; self.maxBytes = maxBytes; self.maxStderrBytes = maxStderrBytes }
+    private let maxRecords: Int, maxBytes: Int
+    init(maxRecords: Int, maxBytes: Int) { self.maxRecords = maxRecords; self.maxBytes = maxBytes }
     /// Returns true exactly once when the process must be stopped.
-    func consumeStdout(_ chunk: Data) -> Bool {
-        lock.lock(); defer { lock.unlock() }
+    mutating func consumeStdout(_ chunk: Data) -> Bool {
         guard !budgetReached else { return false }
         pending.append(chunk)
         if retained.count + pending.count > maxBytes { budgetReached = true; pending.removeAll(); return true }
@@ -61,8 +30,7 @@ private final class BudgetedSamtoolsState: @unchecked Sendable {
         }
         return false
     }
-    func consumeStderr(_ chunk: Data) { lock.lock(); defer { lock.unlock() }; if stderr.count < maxStderrBytes { stderr.append(chunk.prefix(maxStderrBytes - stderr.count)) } }
-    func result(exitCode: Int32) -> BudgetedSamtoolsResult { lock.lock(); defer { lock.unlock() }; return .init(exitCode: exitCode, stdout: String(data: retained, encoding: .utf8) ?? "", stderr: String(data: stderr, encoding: .utf8) ?? "", terminatedForBudget: budgetReached, retainedRecordCount: records) }
+    func result(exitCode: Int32, stderr: Data) -> BudgetedSamtoolsResult { .init(exitCode: exitCode, stdout: String(data: retained, encoding: .utf8) ?? "", stderr: String(data: stderr, encoding: .utf8) ?? "", terminatedForBudget: budgetReached, retainedRecordCount: records) }
 }
 
 // MARK: - AlignmentDataProvider
@@ -273,21 +241,7 @@ public final class AlignmentDataProvider: @unchecked Sendable {
 
         alignmentLogger.debug("Counting unique reads (streaming): samtools \(arguments.joined(separator: " "))")
 
-        let samtoolsPath = try findSamtools()
-        let cancellation = SamtoolsCancellation()
-        return try await withTaskCancellationHandler(operation: {
-            try Task.checkCancellation()
-            let value = try await Task.detached(priority: .userInitiated) {
-                try Self.streamUniqueReadCount(
-                    samtoolsPath: samtoolsPath,
-                    arguments: arguments,
-                    timeout: 300,
-                    cancellation: cancellation
-                )
-            }.value
-            try Task.checkCancellation()
-            return value
-        }, onCancel: { cancellation.cancel() })
+        return try await Self.streamUniqueReadCount(samtoolsPath: try findSamtools(), arguments: arguments, timeout: 300)
     }
 
     /// Runs `samtools view` and feeds its stdout, 64 KB at a time, into a
@@ -295,61 +249,28 @@ public final class AlignmentDataProvider: @unchecked Sendable {
     static func streamUniqueReadCount(
         samtoolsPath: String,
         arguments: [String],
-        timeout: TimeInterval,
-        cancellation: SamtoolsCancellation? = nil
-    ) throws -> Int {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: samtoolsPath)
-        process.arguments = arguments
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        do { try process.run() } catch { throw AlignmentFetchError.samtoolsNotFound }
-        cancellation?.install(process)
-
-        let counterBox = UniqueReadCounterBox()
-        let group = DispatchGroup()
-        group.enter()
-        DispatchQueue.global(qos: .userInitiated).async {
-            defer { group.leave() }
-            var leftover = ""
-            while true {
-                let chunk = stdoutPipe.fileHandleForReading.readData(ofLength: 64 * 1024)
-                guard !chunk.isEmpty else { break }
-                // Lossy decoding: a strict UTF-8 decode returns nil when a
-                // multi-byte character straddles the 64 KB boundary, which
-                // would silently drop a whole chunk of reads. The fields the
-                // counter reads (FLAG, POS, CIGAR) are ASCII either way.
-                let text = String(decoding: chunk, as: UTF8.self)
-                counterBox.ingest(chunk: text, leftover: &leftover)
-            }
-            if !leftover.isEmpty {
-                counterBox.ingest(chunk: "", leftover: &leftover, isFinal: true)
-            }
+        timeout: TimeInterval
+    ) async throws -> Int {
+        let run = try await streamSamtools(
+            samtoolsPath: samtoolsPath, arguments: arguments, timeout: timeout,
+            initial: (counter: UniqueReadStartCounter(), leftover: "")
+        ) { state, chunk in
+            // Lossy decoding: a strict UTF-8 decode returns nil when a
+            // multi-byte character straddles the 64 KB boundary, which
+            // would silently drop a whole chunk of reads. The fields the
+            // counter reads (FLAG, POS, CIGAR) are ASCII either way.
+            state.counter.ingest(chunk: String(decoding: chunk, as: UTF8.self), leftover: &state.leftover)
+            return true
         }
-        let stderrBuffer = PipeReadBuffer()
-        group.enter()
-        DispatchQueue.global(qos: .userInitiated).async {
-            defer { group.leave() }
-            stderrBuffer.store(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+        var (counter, leftover) = run.state
+        if !leftover.isEmpty {
+            counter.ingest(chunk: "", leftover: &leftover, isFinal: true)
         }
-
-        if group.wait(timeout: .now() + timeout) == .timedOut {
-            process.terminate()
-            _ = kill(process.processIdentifier, SIGKILL)
-            process.waitUntilExit()
-            stdoutPipe.fileHandleForReading.closeFile()
-            stderrPipe.fileHandleForReading.closeFile()
-            _ = group.wait(timeout: .now() + 5)
-            throw AlignmentFetchError.timeout
+        guard run.result.status == 0 else {
+            let stderrText = String(data: run.result.stderr, encoding: .utf8) ?? ""
+            throw AlignmentFetchError.samtoolsFailed(stderrText.isEmpty ? "exit code \(run.result.status)" : stderrText)
         }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let stderrText = String(data: stderrBuffer.load(), encoding: .utf8) ?? ""
-            throw AlignmentFetchError.samtoolsFailed(stderrText.isEmpty ? "exit code \(process.terminationStatus)" : stderrText)
-        }
-        return counterBox.uniqueCount
+        return counter.uniqueCount
     }
 
     /// Fetches a bounded deterministic read sketch for fast overview rendering.
@@ -536,112 +457,49 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         // The view stage already applied the flag mask; clear depth's own
         // implicit UNMAP|SECONDARY|QCFAIL|DUP filter so it counts what view kept.
         let depthArgs = ["depth", "-g", "1796", "-"]
-        let samtoolsPath = try findSamtools()
-        let cancellation = SamtoolsCancellation()
-        let depthCancellation = SamtoolsCancellation()
-        let output = try await withTaskCancellationHandler(operation: {
-            try Task.checkCancellation()
-            let value = try await Task.detached(priority: .userInitiated) {
-                try Self.runSamtoolsPipeline(
-                    samtoolsPath: samtoolsPath, producer: viewArgs, consumer: depthArgs, timeout: 60,
-                    cancellation: cancellation, consumerCancellation: depthCancellation
-                )
-            }.value
-            try Task.checkCancellation()
-            return value
-        }, onCancel: { cancellation.cancel(); depthCancellation.cancel() })
+        let output = try await Self.runSamtoolsPipeline(
+            samtoolsPath: try findSamtools(), producer: viewArgs, consumer: depthArgs, timeout: 60
+        )
         return Self.parseDepthOutput(output).filter { $0.position >= start && $0.position < end }
     }
 
     /// Runs `samtools <producer> | samtools <consumer>` and returns the
-    /// consumer's stdout.
+    /// consumer's stdout. Both stages run to their own end, so each reports
+    /// its own exit code.
     static func runSamtoolsPipeline(
         samtoolsPath: String,
         producer: [String],
         consumer: [String],
-        timeout: TimeInterval,
-        cancellation: SamtoolsCancellation? = nil,
-        consumerCancellation: SamtoolsCancellation? = nil
-    ) throws -> String {
-        let first = Process()
-        first.executableURL = URL(fileURLWithPath: samtoolsPath)
-        first.arguments = producer
-        let second = Process()
-        second.executableURL = URL(fileURLWithPath: samtoolsPath)
-        second.arguments = consumer
-        let link = Pipe()
-        let stdoutPipe = Pipe()
-        let firstErr = Pipe()
-        let secondErr = Pipe()
-        first.standardOutput = link
-        first.standardError = firstErr
-        second.standardInput = link
-        second.standardOutput = stdoutPipe
-        second.standardError = secondErr
+        timeout: TimeInterval
+    ) async throws -> String {
+        let result: ToolPipelineResult
         do {
-            try first.run()
-            try second.run()
+            result = try await ToolProcess.runPipeline(
+                [samtoolsSpec(samtoolsPath, producer), samtoolsSpec(samtoolsPath, consumer)],
+                timeout: .seconds(timeout),
+                failurePolicy: .runToCompletion
+            )
         } catch {
-            if first.isRunning { first.terminate() }
-            throw AlignmentFetchError.samtoolsNotFound
+            throw samtoolsError(error)
         }
-        cancellation?.install(first)
-        consumerCancellation?.install(second)
-        // Our copies of the link must close so the consumer sees EOF.
-        link.fileHandleForReading.closeFile()
-        link.fileHandleForWriting.closeFile()
-
-        let stdoutBuffer = PipeReadBuffer()
-        let firstErrBuffer = PipeReadBuffer()
-        let secondErrBuffer = PipeReadBuffer()
-        let group = DispatchGroup()
-        // Drain all three pipes concurrently so no stage can block on a full pipe.
-        for (handle, buffer) in [
-            (stdoutPipe.fileHandleForReading, stdoutBuffer),
-            (firstErr.fileHandleForReading, firstErrBuffer),
-            (secondErr.fileHandleForReading, secondErrBuffer),
-        ] {
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                defer { group.leave() }
-                buffer.store(handle.readDataToEndOfFile())
-            }
-        }
-        if group.wait(timeout: .now() + timeout) == .timedOut {
-            first.terminate()
-            second.terminate()
-            first.waitUntilExit()
-            second.waitUntilExit()
-            _ = group.wait(timeout: .now() + 5)
-            throw AlignmentFetchError.timeout
-        }
-        first.waitUntilExit()
-        second.waitUntilExit()
-        guard first.terminationStatus == 0, second.terminationStatus == 0 else {
-            let stderrText = String(decoding: firstErrBuffer.load() + secondErrBuffer.load(), as: UTF8.self)
+        for stage in result.stages { try requireCompleteOutput(stage) }
+        let (first, second) = (result.stages[0], result.stages[1])
+        guard first.status == 0, second.status == 0 else {
+            let stderrText = String(decoding: first.stderr + second.stderr, as: UTF8.self)
             throw AlignmentFetchError.samtoolsFailed(
-                stderrText.isEmpty ? "exit codes \(first.terminationStatus)/\(second.terminationStatus)" : stderrText
+                stderrText.isEmpty ? "exit codes \(first.status)/\(second.status)" : stderrText
             )
         }
-        return String(data: stdoutBuffer.load(), encoding: .utf8) ?? ""
+        return String(data: second.stdout, encoding: .utf8) ?? ""
     }
 
     private func runSamtoolsBudgeted(
         arguments: [String], maxRecords: Int, maxBytes: Int
     ) async throws -> BudgetedSamtoolsResult {
-        let samtoolsPath = try findSamtools()
-        let cancellation = SamtoolsCancellation()
-        let result = try await withTaskCancellationHandler(operation: {
-            try Task.checkCancellation()
-            let value = try await Task.detached(priority: .userInitiated) {
-                try Self.runSamtoolsProcessBudgeted(
-                    samtoolsPath: samtoolsPath, arguments: arguments, timeout: 30,
-                    maxRecords: maxRecords, maxBytes: maxBytes, cancellation: cancellation
-                )
-            }.value
-            try Task.checkCancellation()
-            return value
-        }, onCancel: { cancellation.cancel() })
+        let result = try await Self.runSamtoolsProcessBudgeted(
+            samtoolsPath: try findSamtools(), arguments: arguments, timeout: 30,
+            maxRecords: maxRecords, maxBytes: maxBytes
+        )
         guard result.exitCode == 0 || result.terminatedForBudget else {
             throw AlignmentFetchError.samtoolsFailed(result.stderr.isEmpty ? "exit code \(result.exitCode)" : result.stderr)
         }
@@ -659,23 +517,7 @@ public final class AlignmentDataProvider: @unchecked Sendable {
             subsampleFraction: subsampleFraction, subsampleSeed: subsampleSeed
         )
         arguments += ["-X", alignmentPath, indexPath, "\(chromosome):\(start + 1)-\(end)"]
-        let finalArguments = arguments
-        let samtoolsPath = try findSamtools()
-        let cancellation = SamtoolsCancellation()
-        let result = try await withTaskCancellationHandler(operation: {
-            try Task.checkCancellation()
-            let value = try await Task.detached(priority: .userInitiated) {
-                try Self.runSamtoolsProcessBudgeted(
-                    samtoolsPath: samtoolsPath, arguments: finalArguments, timeout: 30,
-                    maxRecords: maxReads, maxBytes: byteBudget, cancellation: cancellation
-                )
-            }.value
-            try Task.checkCancellation()
-            return value
-        }, onCancel: { cancellation.cancel() })
-        guard result.exitCode == 0 || result.terminatedForBudget else {
-            throw AlignmentFetchError.samtoolsFailed(result.stderr.isEmpty ? "exit code \(result.exitCode)" : result.stderr)
-        }
+        let result = try await runSamtoolsBudgeted(arguments: arguments, maxRecords: maxReads, maxBytes: byteBudget)
         return (SAMParser.parse(result.stdout, maxReads: maxReads), result.terminatedForBudget)
     }
 
@@ -1249,154 +1091,132 @@ public final class AlignmentDataProvider: @unchecked Sendable {
     /// Coverage histograms need ALL reads — the 30s timeout is the real safety net.
     private static let maxStdoutSize = 500 * 1024 * 1024
 
-    /// Runs samtools with the given arguments using Process.
-    ///
-    /// Reads stdout and stderr concurrently to prevent pipe deadlock when one
-    /// buffer fills (typically 64 KB on macOS). Uses a timeout to prevent
-    /// runaway processes.
-    ///
-    /// - Parameters:
-    ///   - arguments: Arguments to pass to samtools
-    ///   - timeout: Maximum execution time in seconds (default: 60)
-    /// - Returns: Exit code, stdout string, stderr string
-    /// - Throws: AlignmentFetchError on failure
+    /// Runs samtools with the given arguments and returns its exit code, stdout
+    /// and stderr. Cancelling the calling task stops samtools and its tree.
     private func runSamtools(arguments: [String], timeout: TimeInterval = 60) async throws -> (exitCode: Int32, stdout: String, stderr: String) {
-        let samtoolsPath = try findSamtools()
-
-        let cancellation = SamtoolsCancellation()
-        return try await withTaskCancellationHandler(operation: {
-            try Task.checkCancellation()
-            let value = try await Task.detached(priority: .userInitiated) {
-                try Self.runSamtoolsProcess(samtoolsPath: samtoolsPath, arguments: arguments, timeout: timeout, cancellation: cancellation)
-            }.value
-            try Task.checkCancellation()
-            return value
-        }, onCancel: { cancellation.cancel() })
+        try await Self.runSamtoolsProcess(samtoolsPath: try findSamtools(), arguments: arguments, timeout: timeout)
     }
 
     static func runSamtoolsProcess(
         samtoolsPath: String,
         arguments: [String],
-        timeout: TimeInterval,
-        cancellation: SamtoolsCancellation? = nil
-    ) throws -> (exitCode: Int32, stdout: String, stderr: String) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: samtoolsPath)
-        process.arguments = arguments
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
+        timeout: TimeInterval
+    ) async throws -> (exitCode: Int32, stdout: String, stderr: String) {
+        let result: ToolProcessResult
         do {
-            try process.run()
+            result = try await ToolProcess.run(samtoolsSpec(samtoolsPath, arguments, timeout: timeout))
         } catch {
-            throw AlignmentFetchError.samtoolsNotFound
+            throw samtoolsError(error)
         }
-        cancellation?.install(process)
-
-        // Read stdout and stderr CONCURRENTLY to prevent pipe deadlock.
-        // If we read sequentially, filling one pipe's buffer (64 KB) blocks
-        // the child process, which prevents it from writing to the other pipe,
-        // which prevents us from finishing our read — classic deadlock.
-        let stdoutBuffer = PipeReadBuffer()
-        let stderrBuffer = PipeReadBuffer()
-        let group = DispatchGroup()
-
-        group.enter()
-        DispatchQueue.global(qos: .userInitiated).async {
-            var data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            // Truncate if excessively large to prevent memory exhaustion
-            if data.count > AlignmentDataProvider.maxStdoutSize {
-                data = data.prefix(AlignmentDataProvider.maxStdoutSize)
-            }
-            stdoutBuffer.store(data)
-            group.leave()
-        }
-
-        group.enter()
-        DispatchQueue.global(qos: .userInitiated).async {
-            stderrBuffer.store(stderrPipe.fileHandleForReading.readDataToEndOfFile())
-            group.leave()
-        }
-
-        // Timeout: if the process doesn't finish, terminate it.
-        let timeoutResult = group.wait(timeout: .now() + timeout)
-        if timeoutResult == .timedOut {
-            process.terminate()
-            // Close pipe read ends to unblock the GCD reader blocks
-            stdoutPipe.fileHandleForReading.closeFile()
-            stderrPipe.fileHandleForReading.closeFile()
-            // Wait for GCD blocks to complete (they will now return quickly since pipes are closed)
-            _ = group.wait(timeout: .now() + 5)
-            throw AlignmentFetchError.timeout
-        }
-
-        process.waitUntilExit()
-
-        let stdout = String(data: stdoutBuffer.load(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrBuffer.load(), encoding: .utf8) ?? ""
-        return (process.terminationStatus, stdout, stderr)
+        try requireCompleteOutput(result)
+        // Truncate if excessively large, keeping the first bytes as before.
+        let stdout = result.stdout.count > maxStdoutSize ? result.stdout.prefix(maxStdoutSize) : result.stdout
+        return (result.status, String(data: stdout, encoding: .utf8) ?? "", String(data: result.stderr, encoding: .utf8) ?? "")
     }
 
-    /// Runs a sketch query without ever retaining an unbounded SAM stream. Stdout
-    /// is consumed in a background reader, retaining complete records only until
-    /// either budget is reached; the child is then terminated while both pipes are
-    /// drained so a noisy stderr cannot deadlock the caller.
+    /// Runs a sketch query without ever retaining an unbounded SAM stream.
+    /// Stdout is read raw, retaining complete records only until either
+    /// budget is reached, and then samtools and its tree are stopped.
     static func runSamtoolsProcessBudgeted(
         samtoolsPath: String,
         arguments: [String],
         timeout: TimeInterval,
         maxRecords: Int,
         maxBytes: Int,
-        cancellation: SamtoolsCancellation? = nil,
-        processStarted: ((pid_t) -> Void)? = nil
-    ) throws -> BudgetedSamtoolsResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: samtoolsPath)
-        process.arguments = arguments
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        do { try process.run() } catch { throw AlignmentFetchError.samtoolsNotFound }
-        processStarted?(process.processIdentifier)
-        cancellation?.install(process)
+        processStarted: (@Sendable (pid_t) -> Void)? = nil
+    ) async throws -> BudgetedSamtoolsResult {
+        let run = try await streamSamtools(
+            samtoolsPath: samtoolsPath, arguments: arguments, timeout: timeout,
+            stderrLimit: 1 << 20, initial: BudgetedSamtoolsState(maxRecords: maxRecords, maxBytes: maxBytes),
+            onLaunch: processStarted
+        ) { state, chunk in !state.consumeStdout(chunk) }
+        return run.state.result(exitCode: run.result.status, stderr: run.result.stderr)
+    }
 
-        let state = BudgetedSamtoolsState(maxRecords: maxRecords, maxBytes: maxBytes)
-        let group = DispatchGroup()
-        group.enter()
-        DispatchQueue.global(qos: .userInitiated).async {
-            defer { group.leave() }
-            while true {
-                let chunk = stdoutPipe.fileHandleForReading.readData(ofLength: 64 * 1024)
-                guard !chunk.isEmpty else { return }
-                if state.consumeStdout(chunk) { process.terminate() }
+    /// Runs samtools with its stdout read raw by `consume`, 64 KB at a time,
+    /// until end of file or until `consume` returns false, which stops the
+    /// run. Cancelling the calling task stops samtools and its tree promptly.
+    private static func streamSamtools<State: Sendable>(
+        samtoolsPath: String,
+        arguments: [String],
+        timeout: TimeInterval,
+        stderrLimit: Int? = nil,
+        initial: State,
+        onLaunch: (@Sendable (pid_t) -> Void)? = nil,
+        consume: @escaping @Sendable (inout State, Data) -> Bool
+    ) async throws -> (result: ToolProcessResult, state: State) {
+        let stdout: ToolProcessRawStdout
+        do {
+            stdout = try ToolProcessRawStdout(
+                samtoolsSpec(samtoolsPath, arguments, timeout: timeout, stderr: .capture(limit: stderrLimit)),
+                onLaunch: onLaunch
+            )
+        } catch {
+            throw samtoolsError(error)
+        }
+        let (state, stopped, outcome) = await withTaskCancellationHandler {
+            let (state, stopped) = await stdout.drain((initial, false)) { drained, chunk in
+                guard consume(&drained.0, chunk) else {
+                    drained.1 = true
+                    return false
+                }
+                return true
             }
+            if stopped { stdout.stop() }
+            return (state, stopped, await stdout.finish())
+        } onCancel: {
+            stdout.stop()
         }
-        group.enter()
-        DispatchQueue.global(qos: .userInitiated).async {
-            defer { group.leave() }
-            while true {
-                let chunk = stderrPipe.fileHandleForReading.readData(ofLength: 64 * 1024)
-                guard !chunk.isEmpty else { return }
-                state.consumeStderr(chunk)
+        switch outcome {
+        case .success(let result):
+            if !stopped {
+                try requireCompleteOutput(result, readFailed: stdout.readFailed)
             }
+            return (result, state)
+        case .failure(.cancelled(let results)) where stopped && !Task.isCancelled && !results.isEmpty:
+            return (results[0], state)
+        case .failure(let error):
+            throw samtoolsError(error)
         }
-        if group.wait(timeout: .now() + timeout) == .timedOut {
-            process.terminate()
-            _ = kill(process.processIdentifier, SIGKILL)
-            // The owner, not either reader, owns process reaping. Waiting here
-            // guarantees a timed-out child cannot remain as a zombie/orphan.
-            process.waitUntilExit()
-            stdoutPipe.fileHandleForReading.closeFile()
-            stderrPipe.fileHandleForReading.closeFile()
-            _ = group.wait(timeout: .now() + 5)
-            throw AlignmentFetchError.timeout
+    }
+
+    /// samtools inherits the app's environment and working directory, as it
+    /// did when it ran under Process.
+    private static func samtoolsSpec(
+        _ samtoolsPath: String,
+        _ arguments: [String],
+        timeout: TimeInterval? = nil,
+        stderr: ToolProcessOutput = .capture()
+    ) -> ToolProcessSpec {
+        ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: samtoolsPath),
+            arguments: arguments,
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stderr: stderr,
+            timeout: timeout.map { .seconds($0) },
+            label: "samtools"
+        )
+    }
+
+    /// The error the viewer has always seen for each way a run can fail to
+    /// produce a result.
+    private static func samtoolsError(_ error: ToolProcessError) -> Error {
+        switch error {
+        case .cancelled: return CancellationError()
+        case .timedOut: return AlignmentFetchError.timeout
+        case .invalidSpec, .launchFailed: return AlignmentFetchError.samtoolsNotFound
         }
-        process.waitUntilExit()
-        return state.result(exitCode: process.terminationStatus)
+    }
+
+    /// Refuses output that a lingering descendant cut short or a read error
+    /// lost, because a truncated read set must never pass as a complete one.
+    private static func requireCompleteOutput(_ result: ToolProcessResult, readFailed: Bool = false) throws {
+        if result.outputDrainTimedOut {
+            throw AlignmentFetchError.samtoolsFailed("samtools output was incomplete: a child process kept its output open after it exited")
+        }
+        if result.outputReadFailed || readFailed {
+            throw AlignmentFetchError.samtoolsFailed("samtools output was incomplete: reading it failed")
+        }
     }
 
     /// Finds the samtools binary from standard locations.

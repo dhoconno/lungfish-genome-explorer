@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import SQLite3
+import os
 #if canImport(Darwin)
 import Darwin
 #endif
@@ -767,45 +769,68 @@ public enum VCFImportHelper {
         label: String,
         debugLogURL: URL?
     ) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
         appendDebugLog("tool-start \(label): \(executablePath) \(arguments.joined(separator: " "))", debugLogURL: debugLogURL)
-        try process.run()
-        process.waitUntilExit()
-
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+        let result = try runToCompletion(executablePath: executablePath, arguments: arguments, label: label)
+        let stdout = String(data: result.stdout, encoding: .utf8) ?? ""
+        let stderr = String(data: result.stderr, encoding: .utf8) ?? ""
 
         appendDebugLog(
-            "tool-exit \(label) status=\(process.terminationStatus) reason=\(process.terminationReason == .uncaughtSignal ? "signal" : "exit")",
+            "tool-exit \(label) status=\(result.status) reason=\(isSignal(result) ? "signal" : "exit")",
             debugLogURL: debugLogURL
         )
 
-        guard process.terminationStatus == 0 else {
+        guard result.status == 0 else {
             let errorText = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            let signalSuffix: String
-            if process.terminationReason == .uncaughtSignal {
-                signalSuffix = " (signal \(process.terminationStatus)\(signalName(for: process.terminationStatus).map { " \($0)" } ?? ""))"
-            } else {
-                signalSuffix = ""
-            }
             throw VariantDatabaseError.createFailed(
                 errorText.isEmpty
-                    ? "\(label) failed with status \(process.terminationStatus)\(signalSuffix)"
+                    ? "\(label) failed with status \(result.status)\(signalSuffix(result))"
                     : "\(label) failed: \(errorText)"
             )
         }
 
         return stdout
+    }
+
+    /// Runs one process on ToolProcess and waits for it on this thread. Both
+    /// pipes are read while it runs, so output past the 64 KB pipe buffer
+    /// cannot block it. The helper runs synchronously off the main run loop,
+    /// so blocking here is what the old waitUntilExit did.
+    private static func runToCompletion(executablePath: String, arguments: [String], label: String) throws -> ToolProcessResult {
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: executablePath), arguments: arguments,
+            environment: ToolProcessSpec.inheritedEnvironment(), label: label
+        )
+        let outcome = OSAllocatedUnfairLock<Result<ToolProcessResult, ToolProcessError>?>(initialState: nil)
+        let finished = DispatchSemaphore(value: 0)
+        Task.detached {
+            do throws(ToolProcessError) {
+                let result = try await ToolProcess.run(spec)
+                outcome.withLock { $0 = .success(result) }
+            } catch {
+                outcome.withLock { $0 = .failure(error) }
+            }
+            finished.signal()
+        }
+        finished.wait()
+        let result: ToolProcessResult
+        do {
+            result = try outcome.withLock { $0! }.get()
+        } catch {
+            throw VariantDatabaseError.createFailed("\(label) could not run: \(error.localizedDescription)")
+        }
+        if !result.outputComplete {
+            throw VariantDatabaseError.createFailed("\(label) output was incomplete")
+        }
+        return result
+    }
+
+    private static func isSignal(_ result: ToolProcessResult) -> Bool {
+        if case .signaled = result.termination { true } else { false }
+    }
+
+    private static func signalSuffix(_ result: ToolProcessResult) -> String {
+        guard isSignal(result) else { return "" }
+        return " (signal \(result.status)\(signalName(for: result.status).map { " \($0)" } ?? ""))"
     }
 
     private static func findToolExecutable(named tool: String) throws -> String {
@@ -834,8 +859,6 @@ public enum VCFImportHelper {
             throw VariantDatabaseError.createFailed("Could not locate application executable for chromosome helper import")
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executablePath)
         var childArguments: [String] = [
             "--vcf-import-helper",
             "--vcf-path", vcfURL.path,
@@ -853,12 +876,6 @@ public enum VCFImportHelper {
         if let debugPath = debugLogURL?.path {
             childArguments.append(contentsOf: ["--debug-log-path", debugPath])
         }
-        process.arguments = childArguments
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
 
         appendDebugLog(
             "chromosome-child-launch chrom=\(chromosomeLabel) inputVCF=\(vcfURL.lastPathComponent) outputDB=\(outputDBURL.lastPathComponent)",
@@ -866,30 +883,18 @@ public enum VCFImportHelper {
         )
         progressHandler(0.0, phaseMessage(2, 4, "Launching helper subprocess"))
 
-        try process.run()
-        process.waitUntilExit()
-
-        let reasonText: String = {
-            switch process.terminationReason {
-            case .exit:
-                return "exit"
-            case .uncaughtSignal:
-                return "signal"
-            @unknown default:
-                return "unknown"
-            }
-        }()
+        let result = try runToCompletion(
+            executablePath: executablePath, arguments: childArguments, label: "Chromosome helper (\(chromosomeLabel))"
+        )
         appendDebugLog(
-            "chromosome-child-exit chrom=\(chromosomeLabel) status=\(process.terminationStatus) reason=\(reasonText)",
+            "chromosome-child-exit chrom=\(chromosomeLabel) status=\(result.status) reason=\(isSignal(result) ? "signal" : "exit")",
             debugLogURL: debugLogURL
         )
 
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
 
         var helperError: String?
         var variantCount: Int?
-        for line in stdoutData.split(separator: 0x0A) {
+        for line in result.stdout.split(separator: 0x0A) {
             guard !line.isEmpty else { continue }
             let lineData = Data(line)
             if let event = try? JSONDecoder().decode(Event.self, from: lineData) {
@@ -919,19 +924,13 @@ public enum VCFImportHelper {
             }
         }
 
-        guard process.terminationStatus == 0 else {
-            let stderrMessage = String(data: stderrData, encoding: .utf8)?
+        guard result.status == 0 else {
+            let stderrMessage = String(data: result.stderr, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            let signalSuffix: String
-            if process.terminationReason == .uncaughtSignal {
-                signalSuffix = " (signal \(process.terminationStatus)\(signalName(for: process.terminationStatus).map { " \($0)" } ?? ""))"
-            } else {
-                signalSuffix = ""
-            }
             let message = helperError
                 ?? (stderrMessage?.isEmpty == false
                     ? stderrMessage!
-                    : "Chromosome helper (\(chromosomeLabel)) exited with status \(process.terminationStatus)\(signalSuffix)")
+                    : "Chromosome helper (\(chromosomeLabel)) exited with status \(result.status)\(signalSuffix(result))")
             throw VariantDatabaseError.createFailed(message)
         }
 

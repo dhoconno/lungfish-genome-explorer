@@ -4,8 +4,10 @@
 
 import XCTest
 import Darwin
+import os
 @testable import LungfishIO
 @testable import LungfishCore
+import LungfishTestSupport
 
 final class AlignmentDataProviderTests: XCTestCase {
 
@@ -21,27 +23,75 @@ final class AlignmentDataProviderTests: XCTestCase {
         XCTAssertEqual(depth.first?.depth, 2)
     }
 
-    func testCancellationRelayTerminatesRunningSamtoolsProcess() async throws {
+    func testCancellingTheTaskStopsSamtoolsPromptly() async throws {
         let tempDir = try makeTemporaryDirectory(prefix: "alignment-cancellation")
         defer { try? FileManager.default.removeItem(at: tempDir) }
+        let pidFile = tempDir.appendingPathComponent("pid")
         let script = try makeFakeSamtools(in: tempDir, script: """
         #!/bin/sh
+        echo $$ > "\(pidFile.path)"
         exec /bin/sleep 1000
         """)
-        let installed = DispatchSemaphore(value: 0)
-        let cancellation = SamtoolsCancellation(onInstall: { installed.signal() })
         let task = Task.detached {
-            try AlignmentDataProvider.runSamtoolsProcess(
-                samtoolsPath: script.path, arguments: [], timeout: 30, cancellation: cancellation
-            )
+            try await AlignmentDataProvider.runSamtoolsProcess(samtoolsPath: script.path, arguments: [], timeout: 30)
         }
-        XCTAssertEqual(installed.wait(timeout: .now() + 2), .success)
-        cancellation.cancel()
-        let result = try await task.value
-        XCTAssertNotEqual(result.exitCode, 0)
+        let pid = try await recordedPID(pidFile)
+        let cancelledAt = Date()
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected.
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(cancelledAt), 3)
+        XCTAssertEqual(kill(pid, 0), -1, "A cancelled samtools must be gone when the fetch returns")
     }
 
-    func testBudgetedSketchReaderTerminatesProducerAndRetainsBoundedRecords() throws {
+    /// A region the user scrolled away from cancels its fetch. samtools must
+    /// stop even when it ignores SIGTERM, and so must anything it started.
+    func testScrolledAwayFetchStopsATermIgnoringSamtoolsTree() async throws {
+        let tempDir = try makeTemporaryDirectory(prefix: "alignment-scroll-away")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let pidFile = tempDir.appendingPathComponent("pid")
+        let childFile = tempDir.appendingPathComponent("child")
+        let script = try makeFakeSamtools(in: tempDir, script: """
+        #!/bin/sh
+        if [ "$1" = "depth" ]; then printf 'chr1\t1\t10\n'; exit 0; fi
+        trap '' TERM
+        /bin/sleep 1000 &
+        echo $! > "\(childFile.path)"
+        echo $$ > "\(pidFile.path)"
+        wait
+        """)
+        let provider = AlignmentDataProvider(alignmentPath: "/tmp/fake.bam", indexPath: "/tmp/fake.bam.bai", samtoolsPath: script.path)
+        for fetch in ["reads", "unique", "sketch"] {
+            try? FileManager.default.removeItem(at: pidFile)
+            try? FileManager.default.removeItem(at: childFile)
+            let task = Task.detached { () -> Void in
+                switch fetch {
+                case "reads": _ = try await provider.fetchReads(chromosome: "chr1", start: 0, end: 100)
+                case "unique": _ = try await provider.countUniqueReads(chromosome: "chr1", start: 0, end: 100)
+                default: _ = try await provider.fetchDepthCappedReads(chromosome: "chr1", start: 0, end: 100, maxDisplayedDepth: 5)
+                }
+            }
+            let pid = try await recordedPID(pidFile)
+            let child = try await recordedPID(childFile)
+            let cancelledAt = Date()
+            task.cancel()
+            do {
+                try await task.value
+                XCTFail("Expected cancellation of \(fetch)")
+            } catch is CancellationError {
+                // Expected.
+            }
+            XCTAssertLessThan(Date().timeIntervalSince(cancelledAt), 3, fetch)
+            XCTAssertEqual(kill(pid, 0), -1, "\(fetch): samtools survived cancellation")
+            XCTAssertEqual(kill(child, 0), -1, "\(fetch): a samtools child survived cancellation")
+        }
+    }
+
+    func testBudgetedSketchReaderTerminatesProducerAndRetainsBoundedRecords() async throws {
         let tempDir = try makeTemporaryDirectory(prefix: "alignment-budgeted-stream")
         defer { try? FileManager.default.removeItem(at: tempDir) }
         let script = try makeFakeSamtools(in: tempDir, script: """
@@ -50,7 +100,7 @@ final class AlignmentDataProviderTests: XCTestCase {
         while :; do printf 'read\\t0\\tchr1\\t1\\t60\\t1M\\t*\\t0\\t0\\tA\\tI\\n'; done
         """)
 
-        let result = try AlignmentDataProvider.runSamtoolsProcessBudgeted(
+        let result = try await AlignmentDataProvider.runSamtoolsProcessBudgeted(
             samtoolsPath: script.path, arguments: ["view", "-X", "/tmp/evidence.bam", "/tmp/evidence.bam.bai", "chr1:1-1"],
             timeout: 5, maxRecords: 7, maxBytes: 2_048
         )
@@ -61,22 +111,79 @@ final class AlignmentDataProviderTests: XCTestCase {
         XCTAssertLessThanOrEqual(result.stdout.split(separator: "\n").count, 7)
     }
 
-    func testBudgetedReaderKillsTermIgnoringNoisyChildByDeadline() throws {
+    func testBudgetedReaderKillsTermIgnoringNoisyChildByDeadline() async throws {
         let tempDir = try makeTemporaryDirectory(prefix: "alignment-budget-timeout")
         defer { try? FileManager.default.removeItem(at: tempDir) }
         let script = try makeFakeSamtools(in: tempDir, script: "#!/bin/sh\ntrap '' TERM\nwhile :; do printf 'unterminated-record'; printf 'noisy stderr' >&2; done\n")
         let started = Date()
-        var childPID: pid_t?
-        XCTAssertThrowsError(try AlignmentDataProvider.runSamtoolsProcessBudgeted(
-            samtoolsPath: script.path, arguments: ["view", "-X", "/tmp/evidence.bam", "/tmp/evidence.bam.bai", "chr1:1-1"],
-            timeout: 0.2, maxRecords: 10, maxBytes: 256,
-            processStarted: { childPID = $0 }
-        )) { error in
+        let childPID = OSAllocatedUnfairLock<pid_t?>(initialState: nil)
+        // The byte budget runs out at once and stops the child, escalating to
+        // SIGKILL because it ignores SIGTERM. Under heavy load the 0.2 s
+        // limit can fire first. Either way the call returns by the deadline.
+        do {
+            let result = try await AlignmentDataProvider.runSamtoolsProcessBudgeted(
+                samtoolsPath: script.path, arguments: ["view", "-X", "/tmp/evidence.bam", "/tmp/evidence.bam.bai", "chr1:1-1"],
+                timeout: 0.2, maxRecords: 10, maxBytes: 256,
+                processStarted: { pid in childPID.withLock { $0 = pid } }
+            )
+            XCTAssertTrue(result.terminatedForBudget)
+            XCTAssertEqual(result.retainedRecordCount, 0)
+        } catch {
             XCTAssertEqual(error.localizedDescription, "samtools timed out")
         }
         XCTAssertLessThan(Date().timeIntervalSince(started), 6)
-        let pid = try XCTUnwrap(childPID)
+        let pid = try XCTUnwrap(childPID.withLock { $0 })
         XCTAssertEqual(kill(pid, 0), -1, "Timed-out child must be reaped before returning")
+    }
+
+    /// A long read's SAM record is far longer than 64 KB. Every streaming
+    /// path must hand it to the parser whole.
+    func testSAMRecordsLongerThan64KBReachTheParserWhole() async throws {
+        let tempDir = try makeTemporaryDirectory(prefix: "alignment-long-records")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let length = 150_000
+        let script = try makeFakeSamtools(in: tempDir, script: """
+        #!/bin/sh
+        seq=$(/usr/bin/head -c \(length) /dev/zero | /usr/bin/tr '\\0' 'A')
+        qual=$(/usr/bin/head -c \(length) /dev/zero | /usr/bin/tr '\\0' 'I')
+        for pos in 10 20 30; do
+          printf 'long%s\\t0\\tchr1\\t%s\\t60\\t\(length)M\\t*\\t0\\t0\\t%s\\t%s\\n' $pos $pos "$seq" "$qual"
+        done
+        """)
+        let provider = AlignmentDataProvider(alignmentPath: "/tmp/fake.bam", indexPath: "/tmp/fake.bam.bai", samtoolsPath: script.path)
+
+        let reads = try await provider.fetchReads(chromosome: "chr1", start: 0, end: 1_000_000)
+        XCTAssertEqual(reads.map(\.position), [9, 19, 29])
+        XCTAssertEqual(reads.map(\.sequence.count), [length, length, length])
+
+        let unique = try await provider.countUniqueReads(chromosome: "chr1", start: 0, end: 1_000_000)
+        XCTAssertEqual(unique, 3)
+
+        let budgeted = try await AlignmentDataProvider.runSamtoolsProcessBudgeted(
+            samtoolsPath: script.path, arguments: ["view"], timeout: 30, maxRecords: 10, maxBytes: 10_000_000
+        )
+        XCTAssertFalse(budgeted.terminatedForBudget)
+        XCTAssertEqual(budgeted.retainedRecordCount, 3)
+        XCTAssertEqual(SAMParser.parse(budgeted.stdout, maxReads: 10).map(\.sequence.count), [length, length, length])
+    }
+
+    func testOutputOver64KBOnBothStreamsIsReadWhileSamtoolsRuns() async throws {
+        let tempDir = try makeTemporaryDirectory(prefix: "alignment-both-streams")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let script = try makeFakeSamtools(in: tempDir, script: """
+        #!/bin/sh
+        i=0
+        while [ $i -lt 3000 ]; do
+          echo "stdout line $i padded so that the stream overflows the pipe buffer"
+          echo "stderr line $i padded so that the stream overflows the pipe buffer" >&2
+          i=$((i+1))
+        done
+        exit 4
+        """)
+        let result = try await AlignmentDataProvider.runSamtoolsProcess(samtoolsPath: script.path, arguments: [], timeout: 30)
+        XCTAssertEqual(result.exitCode, 4)
+        XCTAssertEqual(result.stdout.split(separator: "\n").count, 3_000)
+        XCTAssertEqual(result.stderr.split(separator: "\n").count, 3_000)
     }
 
     // MARK: - Initialization
@@ -196,7 +303,7 @@ final class AlignmentDataProviderTests: XCTestCase {
         }
     }
 
-    func testRunSamtoolsProcessTimeoutIsPreserved() throws {
+    func testRunSamtoolsProcessTimeoutIsPreserved() async throws {
         let tempDir = try makeTemporaryDirectory(prefix: "alignment-timeout-samtools")
         defer { try? FileManager.default.removeItem(at: tempDir) }
         let samtoolsURL = try makeFakeSamtools(
@@ -209,7 +316,7 @@ final class AlignmentDataProviderTests: XCTestCase {
         )
 
         do {
-            _ = try AlignmentDataProvider.runSamtoolsProcess(
+            _ = try await AlignmentDataProvider.runSamtoolsProcess(
                 samtoolsPath: samtoolsURL.path,
                 arguments: ["idxstats", "/tmp/fake.bam"],
                 timeout: 0.1
@@ -1112,6 +1219,16 @@ final class AlignmentDataProviderTests: XCTestCase {
             .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    /// Waits for a fake samtools to write its pid, which it does once running.
+    private func recordedPID(_ file: URL) async throws -> pid_t {
+        let written = await waitUntil(timeout: .seconds(10)) {
+            (try? String(contentsOf: file, encoding: .utf8)).flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) } != nil
+        }
+        XCTAssertTrue(written, "The fake samtools never started")
+        let text = try String(contentsOf: file, encoding: .utf8)
+        return try XCTUnwrap(Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)))
     }
 
     private func makeFakeSamtools(in directory: URL, script: String) throws -> URL {
