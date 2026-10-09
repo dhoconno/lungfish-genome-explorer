@@ -163,25 +163,20 @@ struct GenotypeHaplotypeCallBandSnapshot: Equatable, Sendable {
             + Self.sourceLabel(value.source)
     }
 
+    /// The band shows what the Haplotype Calls sheet writes, with four
+    /// whole-locus compactions. A locus word stands for the whole locus, so
+    /// it replaces the pair only when both slots carry that status, which is
+    /// how the analyzer leaves a locus it could not call. An analyst override
+    /// on one slot therefore shows beside the pipeline slot's own value, for
+    /// example `B9 • ERR: TMG`, and the dash means only an empty or `-`
+    /// value, such as an analyst's "no second haplotype" (D5a and its wave 1
+    /// review).
     func renderedLocusValue(sample: String, locus: String) -> String {
         let h1 = value(sample: sample, locus: locus, slot: .h1)
         let h2 = value(sample: sample, locus: locus, slot: .h2)
         let statuses = [h1?.status, h2?.status]
-        if statuses.contains(.tooManyGenotypes) {
-            return "Too many genotypes"
-        }
-        if statuses.contains(.tooManyHaplotypes) {
-            return "Too many haplotypes"
-        }
-        // The analyzer gives both slots of a locus it could not call the same
-        // status, so such a locus reads as a word like the two above. An
-        // analyst override on one slot keeps its value, with a dash for the
-        // other slot, so the dash means only that a slot has no value (D5a).
-        if statuses.allSatisfy({ $0 == .noHaplotype }) {
-            return "No haplotype"
-        }
-        if statuses.allSatisfy({ $0 == .notAssayed }) {
-            return "Not assayed"
+        for (status, word) in Self.locusWords where statuses.allSatisfy({ $0 == status }) {
+            return word
         }
         let h1Label = Self.compactLabel(h1)
         let h2Label = Self.compactLabel(h2)
@@ -190,6 +185,14 @@ struct GenotypeHaplotypeCallBandSnapshot: Equatable, Sendable {
         }
         return "\(h1Label) • \(h2Label)"
     }
+
+    /// The four statuses that read as a word when both slots carry them.
+    private static let locusWords: [(GenotypeHaplotypeCallStatus, String)] = [
+        (.tooManyGenotypes, "Too many genotypes"),
+        (.tooManyHaplotypes, "Too many haplotypes"),
+        (.noHaplotype, "No haplotype"),
+        (.notAssayed, "Not assayed"),
+    ]
 
     func tooltip(
         sample: String,
@@ -251,28 +254,16 @@ struct GenotypeHaplotypeCallBandSnapshot: Equatable, Sendable {
         }
     }
 
+    /// A slot's value as the workbook writes it, an ambiguity token such as
+    /// M4|M7 included. Only an empty or `-` value draws the dash.
     private static func compactLabel(
         _ value: GenotypeHaplotypeCallBandSlotValue?
     ) -> String {
         guard let value else { return "—" }
-        switch value.status {
-        case .notAssayed, .noHaplotype, .tooManyHaplotypes,
-             .tooManyGenotypes:
-            return "—"
-        case .called, .specialCase, .homozygous, .unresolvedSecondHaplotype,
-             .ambiguous:
-            // An ambiguous slot keeps its token, for example M4|M7, the way
-            // the workbook writes it (D5a).
-            let label = value.value.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
-            guard !label.isEmpty,
-                  label != "-",
-                  !label.hasPrefix("ERR:") else {
-                return "—"
-            }
-            return label
-        }
+        let label = value.value.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        return label.isEmpty || label == "-" ? "—" : label
     }
 
     private static func bandValue(

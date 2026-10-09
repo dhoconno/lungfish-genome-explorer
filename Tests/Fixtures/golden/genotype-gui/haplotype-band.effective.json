@@ -110,7 +110,7 @@
               "drawn" : null,
               "locus" : "MHC-B",
               "registeredTooltip" : null,
-              "rendered" : "Too many genotypes",
+              "rendered" : "B9 • ERR: TMG",
               "slots" : [
                 {
                   "hitTarget" : null,
@@ -452,10 +452,10 @@
               "tooltip" : null
             },
             {
-              "drawn" : "Too many genotypes",
+              "drawn" : "B9 • ERR: TMG",
               "locus" : "MHC-B",
               "registeredTooltip" : null,
-              "rendered" : "Too many genotypes",
+              "rendered" : "B9 • ERR: TMG",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -877,10 +877,10 @@
               "tooltip" : null
             },
             {
-              "drawn" : "Too many genotypes",
+              "drawn" : "B9 • ERR: TMG",
               "locus" : "MHC-B",
               "registeredTooltip" : null,
-              "rendered" : "Too many genotypes",
+              "rendered" : "B9 • ERR: TMG",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -1302,10 +1302,10 @@
               "tooltip" : null
             },
             {
-              "drawn" : "Too many genotypes",
+              "drawn" : "B9 • ERR: TMG",
               "locus" : "MHC-B",
               "registeredTooltip" : null,
-              "rendered" : "Too many genotypes",
+              "rendered" : "B9 • ERR: TMG",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -1850,10 +1850,10 @@
               "tooltip" : null
             },
             {
-              "drawn" : "Too many genotypes",
+              "drawn" : "B9 • ERR: TMG",
               "locus" : "MHC-B",
               "registeredTooltip" : null,
-              "rendered" : "Too many genotypes",
+              "rendered" : "B9 • ERR: TMG",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -2149,10 +2149,10 @@
               "tooltip" : null
             },
             {
-              "drawn" : "Too many genotypes",
+              "drawn" : "B9 • ERR: TMG",
               "locus" : "MHC-B",
               "registeredTooltip" : null,
-              "rendered" : "Too many genotypes",
+              "rendered" : "B9 • ERR: TMG",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -2407,10 +2407,10 @@
           "headerAccessibilityLabel" : "Sample column Sample-A. 0 sample column comments. Haplotype calls: MHC-B H1 B9, called, analyst override; MHC-B H2 ERR: TMG, too many genotypes, pipeline",
           "loci" : [
             {
-              "drawn" : "Too many genotypes",
+              "drawn" : "B9 • ERR: TMG",
               "locus" : "MHC-B",
               "registeredTooltip" : null,
-              "rendered" : "Too many genotypes",
+              "rendered" : "B9 • ERR: TMG",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -2548,10 +2548,10 @@
           "headerAccessibilityLabel" : "Sample column Sample-A. 0 sample column comments. Haplotype calls: MHC-B H1 B9, called, analyst override; MHC-B H2 ERR: TMG, too many genotypes, pipeline",
           "loci" : [
             {
-              "drawn" : "Too many genotypes",
+              "drawn" : "B9 • ERR: TMG",
               "locus" : "MHC-B",
               "registeredTooltip" : null,
-              "rendered" : "Too many genotypes",
+              "rendered" : "B9 • ERR: TMG",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -2730,10 +2730,10 @@
               "tooltip" : null
             },
             {
-              "drawn" : "Too many genotypes",
+              "drawn" : "B9 • ERR: TMG",
               "locus" : "MHC-B",
               "registeredTooltip" : null,
-              "rendered" : "Too many genotypes",
+              "rendered" : "B9 • ERR: TMG",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -3022,7 +3022,7 @@
               "drawn" : null,
               "locus" : "MHC-B",
               "registeredTooltip" : null,
-              "rendered" : "Too many genotypes",
+              "rendered" : "B9 • ERR: TMG",
               "slots" : [
                 {
                   "hitTarget" : null,
@@ -3264,7 +3264,7 @@
               "drawn" : null,
               "locus" : "MHC-B",
               "registeredTooltip" : null,
-              "rendered" : "Too many genotypes",
+              "rendered" : "B9 • ERR: TMG",
               "slots" : [
                 {
                   "hitTarget" : null,
@@ -3606,10 +3606,10 @@
               "tooltip" : null
             },
             {
-              "drawn" : "Too many genotypes",
+              "drawn" : "B9 • ERR: TMG",
               "locus" : "MHC-B",
               "registeredTooltip" : null,
-              "rendered" : "Too many genotypes",
+              "rendered" : "B9 • ERR: TMG",
               "slots" : [
                 {
                   "hitTarget" : {
@@ -4024,7 +4024,7 @@
               "drawn" : null,
               "locus" : "MHC-B",
               "registeredTooltip" : null,
-              "rendered" : "Too many genotypes",
+              "rendered" : "B9 • ERR: TMG",
               "slots" : [
                 {
                   "hitTarget" : null,

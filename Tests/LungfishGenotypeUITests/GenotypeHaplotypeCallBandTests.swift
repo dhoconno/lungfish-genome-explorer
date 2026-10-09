@@ -65,12 +65,15 @@ final class GenotypeHaplotypeCallBandTests: XCTestCase {
         XCTAssertTrue(accessibility.contains("no haplotype"))
         XCTAssertTrue(accessibility.contains("pipeline"))
 
+        // The pipeline slot keeps its own value beside the override, the way
+        // the Haplotype Calls sheet writes it. A dash would read as an
+        // analyst's "no second haplotype".
         XCTAssertEqual(
             after.renderedLocusValue(
                 sample: "SAMPLE_001",
                 locus: "Very-Long-MHC-A-Locus"
             ),
-            "A-override • —"
+            "A-override • ERR: NO HAP"
         )
         XCTAssertFalse(after.renderedValues(sample: "SAMPLE_001").joined().contains("pipeline"))
         XCTAssertTrue(after.accessibilitySummary(sample: "SAMPLE_001").contains("pipeline"))
@@ -149,6 +152,112 @@ final class GenotypeHaplotypeCallBandTests: XCTestCase {
             ).renderedLocusValue(sample: "S", locus: "MHC-A"),
             "Too many haplotypes"
         )
+        // A locus word stands for the whole locus, so it appears only when
+        // both slots carry that status. An analyst override on one slot shows
+        // its value beside the pipeline slot's own value, the way the
+        // Haplotype Calls sheet writes it, for all four words.
+        XCTAssertEqual(
+            compactSnapshot(
+                h1: "A-override",
+                h2: "ERR: NO HAP",
+                h1Status: .called,
+                h2Status: .noHaplotype
+            ).renderedLocusValue(sample: "S", locus: "MHC-A"),
+            "A-override • ERR: NO HAP"
+        )
+        XCTAssertEqual(
+            compactSnapshot(
+                h1: "X",
+                h2: "Not assayed",
+                h1Status: .called,
+                h2Status: .notAssayed
+            ).renderedLocusValue(sample: "S", locus: "MHC-A"),
+            "X • Not assayed"
+        )
+        XCTAssertEqual(
+            compactSnapshot(
+                h1: "B9",
+                h2: "ERR: TMG",
+                h1Status: .called,
+                h2Status: .tooManyGenotypes
+            ).renderedLocusValue(sample: "S", locus: "MHC-A"),
+            "B9 • ERR: TMG"
+        )
+        XCTAssertEqual(
+            compactSnapshot(
+                h1: "C1",
+                h2: "ERR: TMH (M1A, M2A, M3A)",
+                h1Status: .called,
+                h2Status: .tooManyHaplotypes
+            ).renderedLocusValue(sample: "S", locus: "MHC-A"),
+            "C1 • ERR: TMH (M1A, M2A, M3A)"
+        )
+        // The dash is kept for an empty or "-" value only, so an analyst's
+        // "-" on H2 still reads as no second haplotype.
+        XCTAssertEqual(
+            compactSnapshot(
+                h1: "A1",
+                h2: "-",
+                h1Status: .called,
+                h2Status: .noHaplotype
+            ).renderedLocusValue(sample: "S", locus: "MHC-A"),
+            "A1 • —"
+        )
+        XCTAssertEqual(
+            compactSnapshot(h1: "", h2: "").renderedLocusValue(sample: "S", locus: "MHC-A"),
+            "—"
+        )
+    }
+
+    /// An expanded band auto-fits each sample column to its widest rendered
+    /// value, so an ambiguity token, the longest value a locus can show, is
+    /// drawn whole. The drawn text is the rendered text, and the row's text
+    /// rect is at least as wide as the token in the band's own font.
+    func testExpandedAmbiguousTokenFitsItsColumn() throws {
+        let fixture = GenotypeManualHaplotypeTask10Fixture(sampleCount: 2)
+        let matrix = GenotypeComparisonMatrixView(
+            frame: NSRect(x: 0, y: 0, width: 760, height: 520)
+        )
+        let token = "M4|M7|M12"
+        let snapshot = GenotypeHaplotypeCallBandSnapshot(
+            orderedLoci: ["MHC-B"],
+            calls: [
+                .init(
+                    sample: "SAMPLE_001",
+                    locus: "MHC-B",
+                    h1: .init(value: token, status: .ambiguous, source: .pipeline, isEditable: true),
+                    h2: .init(value: token, status: .ambiguous, source: .pipeline, isEditable: true)
+                ),
+            ]
+        )
+        matrix.setHaplotypeBand(mode: .effectiveMiSeqCalls, snapshot: snapshot)
+        matrix.configure(
+            result: fixture.result(workflowMode: .genotypeOnly),
+            sidecar: fixture.sidecar
+        )
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        matrix.layoutSubtreeIfNeeded()
+        _ = matrix.testingHaplotypeBandHitTarget(.init(sample: "SAMPLE_001", locus: "MHC-B", slot: .h1))
+        let band = try XCTUnwrap(
+            bandViews(in: matrix).first,
+            "the matrix hosts one sample band"
+        )
+        let layout = try XCTUnwrap(band.effectiveValueLayout(sample: "SAMPLE_001", locus: "MHC-B"))
+        XCTAssertEqual(layout.value, "\(token) • \(token)", "the drawn text is the rendered text")
+        let textWidth = (layout.value as NSString).size(
+            withAttributes: GenotypeManualHaplotypeValueLayout.drawingAttributes(font: band.font)
+        ).width
+        XCTAssertGreaterThanOrEqual(
+            layout.textRect.width, textWidth,
+            "the expanded column is auto-fitted to the token, so the token is not truncated"
+        )
+        XCTAssertGreaterThanOrEqual(matrix.testingSampleColumnWidth(sample: "SAMPLE_001"), textWidth)
+    }
+
+    private func bandViews(in view: NSView) -> [GenotypeManualHaplotypeSampleBandView] {
+        view.subviews.flatMap { subview in
+            ((subview as? GenotypeManualHaplotypeSampleBandView).map { [$0] } ?? []) + bandViews(in: subview)
+        }
     }
 
     func testDynamicGeometryAndLongEffectiveCallsPreserveManualDefaults() {
