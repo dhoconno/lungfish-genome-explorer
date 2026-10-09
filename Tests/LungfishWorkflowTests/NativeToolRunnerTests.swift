@@ -4,29 +4,46 @@
 
 import XCTest
 import Darwin
+import Synchronization
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class NativeToolRunnerTests: XCTestCase {
 
-    func testCancellationDuringProcessLaunchTerminatesNewChildPromptly() async throws {
-        let runner = NativeToolRunner(processLauncher: { process in
-            withUnsafeCurrentTask { $0?.cancel() }
-            try process.run()
-        })
+    /// Cancellation that arrives the moment the child has launched, through
+    /// the real launch path, still stops the child at once.
+    func testCancellationAsTheChildLaunchesTerminatesItPromptly() async throws {
+        let runner = NativeToolRunner(toolsDirectory: nil)
+        let state = Mutex<(task: Task<NativeToolResult, Error>?, launched: Bool)>((nil, false))
         let started = Date()
         let task = Task {
-            try await runner.runProcess(executableURL: URL(fileURLWithPath: "/bin/sleep"),
-                arguments: ["2"], timeout: 10)
+            try await runner.runProcess(
+                executableURL: URL(fileURLWithPath: "/bin/sleep"),
+                arguments: ["2"],
+                timeout: 10,
+                onEvent: { event in
+                    guard case .started = event else { return }
+                    let task = state.withLock { value -> Task<NativeToolResult, Error>? in
+                        value.launched = true
+                        return value.task
+                    }
+                    task?.cancel()
+                }
+            )
         }
+        let launched = state.withLock { value -> Bool in
+            value.task = task
+            return value.launched
+        }
+        if launched { task.cancel() }
         do {
             _ = try await task.value
-            XCTFail("Startup cancellation must throw CancellationError")
+            XCTFail("Cancellation at launch must throw CancellationError")
         } catch {
-            XCTAssertTrue(error is CancellationError)
+            XCTAssertTrue(error is CancellationError, "\(error)")
         }
         XCTAssertLessThan(Date().timeIntervalSince(started), 1,
-            "Cancellation before PID assignment must be reapplied after launch")
+            "Cancellation at launch must stop the child, not wait for it")
     }
 
     func testNativeOutputStreamsBeforeProcessExitAndRetainsCompleteOutput() async throws {
@@ -450,7 +467,7 @@ final class NativeToolRunnerTests: XCTestCase {
     /// executor: a concurrent, fast `run` call on the *same* actor instance
     /// (as every caller shares via `.shared`) must complete well before the
     /// slow call does. Before the fix, both `runWithFileOutput` and
-    /// `runPipeline`/`runPipelineWithFileOutput` ran `process.waitUntilExit()`
+    /// `runPipeline` ran `process.waitUntilExit()`
     /// synchronously inside the actor-isolated continuation body, so the fast
     /// call queued behind the slow one for its entire runtime.
     func testSlowFileOutputRunDoesNotBlockConcurrentFastRunOnSameActor() async throws {
@@ -606,46 +623,6 @@ final class NativeToolRunnerTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains("2"), "Stats should show 2 reads")
     }
 
-    func testPipelineWithFileOutput() async throws {
-        let (runner, root) = try makeManagedNativeToolRunner()
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("PipelineFileTest-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        let fqContent = """
-        @read1
-        ACGTACGTACGT
-        +
-        FFFFFFFFFFFF
-        @read2
-        TTTTTTTTTTTTT
-        +
-        FFFFFFFFFFFFF
-
-        """
-        let inputURL = tempDir.appendingPathComponent("test.fq")
-        try fqContent.write(to: inputURL, atomically: true, encoding: .utf8)
-
-        let outputURL = tempDir.appendingPathComponent("output.fq")
-
-        // seqkit seq --upper-case | seqkit seq --reverse > output.fq
-        let result = try await runner.runPipelineWithFileOutput(
-            [
-                NativePipelineStage(.seqkit, arguments: ["seq", "--upper-case", inputURL.path]),
-                NativePipelineStage(.seqkit, arguments: ["seq", "--reverse"]),
-            ],
-            outputFile: outputURL
-        )
-
-        XCTAssertTrue(result.isSuccess, "Pipeline should succeed; stderr: \(result.combinedStderr)")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
-        let output = try String(contentsOf: outputURL, encoding: .utf8)
-        XCTAssertFalse(output.isEmpty, "Output file should not be empty")
-    }
-
     func testRunWithFileOutputDoesNotPublishPartialOutputOnFailure() async throws {
         let (runner, root) = try makeManagedNativeToolRunner()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -667,30 +644,6 @@ final class NativeToolRunnerTests: XCTestCase {
         XCTAssertFalse(result.isSuccess)
         XCTAssertEqual(result.exitCode, 7)
         XCTAssertEqual(try String(contentsOf: outputURL, encoding: .utf8), "original output\n")
-        XCTAssertFalse(try containsTemporaryOutput(for: outputURL, in: tempDir))
-    }
-
-    func testPipelineWithFileOutputDoesNotPublishPartialOutputOnFailure() async throws {
-        let (runner, root) = try makeManagedNativeToolRunner()
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("PipelineFileFailureTest-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        let outputURL = tempDir.appendingPathComponent("pipeline-output.txt")
-        let result = try await runner.runPipelineWithFileOutput(
-            [
-                NativePipelineStage(.seqkit, arguments: ["short-output", "input"]),
-                NativePipelineStage(.seqkit, arguments: ["fail-after-output"]),
-            ],
-            outputFile: outputURL
-        )
-
-        XCTAssertFalse(result.isSuccess)
-        XCTAssertEqual(result.exitCodes.last, 7)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
         XCTAssertFalse(try containsTemporaryOutput(for: outputURL, in: tempDir))
     }
 
@@ -1085,7 +1038,6 @@ final class NativeToolRunnerTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let environment = ["PATH": "/usr/bin:/bin"]
         let fileOutput = fixture.root.appendingPathComponent("file-output.txt")
-        let pipelineOutput = fixture.root.appendingPathComponent("pipeline-output.txt")
 
         let fileResult = try await fixture.runner.runWithFileOutput(
             .reformat,
@@ -1101,20 +1053,6 @@ final class NativeToolRunnerTests: XCTestCase {
         ]
         let pipelineResult = try await fixture.runner.runPipeline(stages, environment: environment)
         XCTAssertTrue(pipelineResult.isSuccess, "BBTools pipeline should receive managed Java: \(pipelineResult.combinedStderr)")
-
-        let pipelineFileResult = try await fixture.runner.runPipelineWithFileOutput(
-            stages,
-            outputFile: pipelineOutput,
-            environment: environment
-        )
-        XCTAssertTrue(
-            pipelineFileResult.isSuccess,
-            """
-            BBTools file pipeline should receive managed Java:
-            exitCodes=\(pipelineFileResult.exitCodes)
-            stderr=\(pipelineFileResult.combinedStderr)
-            """
-        )
     }
 
     // MARK: - Managed Fixture
