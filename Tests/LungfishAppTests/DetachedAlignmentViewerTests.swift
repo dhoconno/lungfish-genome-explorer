@@ -549,7 +549,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
 
         view.selectedReadGroupsSetting = []
         view.fetchDetachedDepth(source: source, region: .init(chromosome: "chr1", start: 0, end: 1))
-        await waitUntil { !view.testCachedDepthPoints.isEmpty }
+        await waitUntil(timeout: .seconds(30)) { !view.testCachedDepthPoints.isEmpty }
         XCTAssertEqual(view.testCachedDepthPoints.first?.depth, 5)
     }
 
@@ -581,12 +581,12 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         let region = GenomicRegion(chromosome: "chr1", start: 0, end: 1)
 
         view.fetchDetachedDepth(source: source, region: region)
-        await waitUntil { view.testDetachedEvidenceFetchMessage != nil }
+        await waitUntil(timeout: .seconds(30)) { view.testDetachedEvidenceFetchMessage != nil }
         XCTAssertTrue(view.testDetachedEvidenceFetchMessage?.hasPrefix("Coverage evidence could not be fetched:") == true)
 
         try "success".write(to: mode, atomically: true, encoding: .utf8)
         view.fetchDetachedDepth(source: source, region: region)
-        await waitUntil { !view.testCachedDepthPoints.isEmpty }
+        await waitUntil(timeout: .seconds(30)) { !view.testCachedDepthPoints.isEmpty }
         XCTAssertEqual(view.testCachedDepthPoints.first?.depth, 5)
         XCTAssertNil(view.testDetachedEvidenceFetchMessage)
     }

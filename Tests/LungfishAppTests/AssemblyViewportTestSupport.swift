@@ -23,9 +23,14 @@ final class RecordingPasteboard: PasteboardWriting {
 // fake now live in Tests/LungfishAssemblyUITests, alongside the viewport unit tests
 // that moved into the LungfishAssemblyUI leaf module.
 
+/// Fails the test when `predicate` does not hold within the timeout. Swift
+/// picks this over the shared `waitUntil` in LungfishTestSupport for a
+/// synchronous main-actor closure, so its default matches that helper's 5 s,
+/// which leaves room for the parallel unit tier. It returns as soon as the
+/// predicate holds.
 @MainActor
 func waitUntil(
-    timeoutNanoseconds: UInt64 = 1_000_000_000,
+    timeoutNanoseconds: UInt64 = 5_000_000_000,
     file: StaticString = #filePath,
     line: UInt = #line,
     _ predicate: @escaping @MainActor () -> Bool

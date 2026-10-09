@@ -124,13 +124,16 @@ final class CLIPrimerTrimRunnerTests: XCTestCase {
     }
 }
 
-private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 2) async throws -> Int32 {
+/// Waits until the script has written the child's PID. The shell creates the
+/// file before it writes the number, so an empty or partial read means "not
+/// yet". The 30 s timeouts leave room for the parallel unit tier, and both
+/// waits return as soon as their condition holds.
+private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 30) async throws -> Int32 {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
-        if FileManager.default.fileExists(atPath: url.path) {
-            let text = try String(contentsOf: url, encoding: .utf8)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return try XCTUnwrap(Int32(text), "Expected pid in \(url.path)")
+        if let text = try? String(contentsOf: url, encoding: .utf8),
+           let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return pid
         }
         try await Task.sleep(nanoseconds: 25_000_000)
     }
@@ -138,7 +141,7 @@ private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 2) async throws 
     throw CancellationError()
 }
 
-private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 2) async throws {
+private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 30) async throws {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if !ProcessTreeTerminator.processExists(pid: pid) {
