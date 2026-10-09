@@ -15,6 +15,17 @@ import LungfishKit
 /// logic belongs here and not in the controller (REVIEW.md R6).
 @MainActor
 final class GenotypeViewportExportCoordinator {
+    /// The controller this coordinator reads, held without a retain because
+    /// the controller is the coordinator's only owner. Two invariants keep
+    /// that safe. The three `[weak self]` captures in presentExcelExportPanel
+    /// and presentViewExportPanel must stay weak, so a closure that runs after
+    /// the controller is gone finds a nil coordinator and returns before any
+    /// forwarder reads the controller. And no callback the export path calls,
+    /// which are originStillCurrent, settleDisplayState, onExcelExportEvent
+    /// and excelSavePanelPresenter, may release the controller synchronously,
+    /// because the forwarder read that follows the call would reach a freed
+    /// controller. GenotypeViewportExportCoordinatorLifetimeTests pins the
+    /// first invariant.
     private unowned let host: GenotypeResultViewController
 
     init(host: GenotypeResultViewController) {
@@ -159,7 +170,9 @@ final class GenotypeViewportExportCoordinator {
             guard let self, originStillCurrent(), self.representedBundleURL == origin,
                   self.ownsDesiredResultConfiguration(authority) else { return }
             // Excel always carries its pre-panel immutable scientific capture.
-            // Delimiter formats retain their existing viewport snapshot boundary.
+            // The CSV and TSV fallback to currentExportSnapshot has had no GUI
+            // caller since 24fe49f05, so in production this guard always sees
+            // the capture. See the doc comment on currentExportSnapshot.
             guard let snapshot = capturedSnapshot ?? self.currentExportSnapshot() else { return }
             let outputURL = url
             self.publishExcelExportEvent(.started, excelWorkflow: excelWorkflow)
@@ -196,6 +209,15 @@ final class GenotypeViewportExportCoordinator {
         onExcelExportEvent?(event)
     }
 
+    /// The delimited CSV and TSV viewport path. It has had no GUI caller since
+    /// 24fe49f05 removed its callers, because the one production call of
+    /// presentViewExportPanel passes the frozen Excel capture and the fallback
+    /// to this snapshot in its completion never runs. Phase 2.3 moved it here
+    /// intact, and GenotypeExportCharacterizationTests pins it through
+    /// testingCurrentExportSnapshot and the viewport-snapshot expected files
+    /// under Tests/Fixtures/golden/genotype-gui. Phase 4a decides whether to
+    /// restore an entry point or delete the path with its tests. Until then,
+    /// change nothing here without recapturing those files.
     func currentExportSnapshot() -> GenotypeViewportExportSnapshot? {
         guard let result else { return nil }
         let capturedAnalysis = activeHaplotypeAnalysis()

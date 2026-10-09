@@ -1503,9 +1503,9 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         manualHaplotypingSelection = []
     }
 
-    /// Thresholds that were fixed at genotyping time and recorded in the run
-    /// stats. These are the only thresholds the viewport uses to explain
-    /// haplotype omissions; Inspector controls no longer recompute calls live.
+    /// Thresholds fixed at genotyping time, from the run stats or, for an older
+    /// full-length bundle, from the argv its provenance recorded (lane SF1). They
+    /// alone explain haplotype omissions. Inspector controls do not recompute calls.
     private func runHaplotypeDropoutEvaluator() -> GenotypeDropoutEvaluator? {
         guard let result else { return nil }
         return GenotypeHaplotypeAnalysisResolver.runHaplotypeDropoutEvaluator(for: result)
