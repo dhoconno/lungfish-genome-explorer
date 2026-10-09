@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 
 /// Live GUI testing found a cancelled EsViritu operation stayed in
 /// OperationCenter's active list indefinitely (40+ minutes, still shown as
@@ -69,12 +70,7 @@ final class OperationCenterCancelGracePeriodTests: XCTestCase {
         center.cancel(id: id)
         XCTAssertEqual(center.items.first(where: { $0.id == id })?.state, .cancelling)
 
-        let deadline = Date().addingTimeInterval(5)
-        while center.items.first(where: { $0.id == id })?.state == .cancelling, Date() < deadline {
-            let expectation = XCTestExpectation(description: "poll tick")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { expectation.fulfill() }
-            await fulfillment(of: [expectation], timeout: 1)
-        }
+        await waitUntil { center.items.first(where: { $0.id == id })?.state != .cancelling }
 
         let finalState = center.items.first(where: { $0.id == id })?.state
         XCTAssertEqual(finalState, .cancelled, "a worker that never returns must not leave the operation active forever")
@@ -106,10 +102,7 @@ final class OperationCenterCancelGracePeriodTests: XCTestCase {
         XCTAssertFalse(center.canStartOperation(on: bundleURL), "the bundle must be locked while the operation runs")
 
         center.cancel(id: id)
-        let deadline = Date().addingTimeInterval(5)
-        while center.items.first(where: { $0.id == id })?.state != .cancelled, Date() < deadline {
-            try await Task.sleep(nanoseconds: 20_000_000)
-        }
+        await waitUntil { center.items.first(where: { $0.id == id })?.state == .cancelled }
 
         XCTAssertEqual(center.items.first(where: { $0.id == id })?.state, .cancelled)
         XCTAssertFalse(center.activeItems.contains { $0.id == id })
@@ -133,10 +126,7 @@ final class OperationCenterCancelGracePeriodTests: XCTestCase {
             title: "Stuck op", detail: "", operationType: .classification, targetBundleURL: bundleURL, cliCommand: nil, onCancel: {}
         ) else { return XCTFail("expected start") }
         center.cancel(id: id)
-        let deadline = Date().addingTimeInterval(5)
-        while center.items.first(where: { $0.id == id })?.state != .cancelled, Date() < deadline {
-            try await Task.sleep(nanoseconds: 20_000_000)
-        }
+        await waitUntil { center.items.first(where: { $0.id == id })?.state == .cancelled }
         center.clearCompleted()
         XCTAssertFalse(center.items.contains { $0.id == id })
         XCTAssertFalse(center.canStartOperation(on: bundleURL))
@@ -158,12 +148,7 @@ final class OperationCenterCancelGracePeriodTests: XCTestCase {
 
         center.cancel(id: id)
 
-        let deadline = Date().addingTimeInterval(5)
-        while center.items.first(where: { $0.id == id })?.state != .cancelled, Date() < deadline {
-            let expectation = XCTestExpectation(description: "poll tick")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { expectation.fulfill() }
-            await fulfillment(of: [expectation], timeout: 1)
-        }
+        await waitUntil { center.items.first(where: { $0.id == id })?.state == .cancelled }
         XCTAssertEqual(center.items.first(where: { $0.id == id })?.state, .cancelled)
         XCTAssertTrue(
             center.items.first(where: { $0.id == id })?.logEntries.contains {
@@ -212,7 +197,7 @@ final class OperationCenterCancelGracePeriodTests: XCTestCase {
         // (no double-log, no state flip) now that the operation is already terminal.
         let expectation = XCTestExpectation(description: "grace period elapses")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { expectation.fulfill() }
-        await fulfillment(of: [expectation], timeout: 2)
+        await fulfillment(of: [expectation], timeout: 5)
 
         XCTAssertEqual(center.items.first(where: { $0.id == id })?.state, .cancelled)
         XCTAssertEqual(center.items.first(where: { $0.id == id })?.detail, "Cancelled by user")

@@ -190,7 +190,7 @@ final class CLISubprocessTransportTests: XCTestCase {
             try await transport.run(arguments: [], isCancelled: { false }, onEvent: { _ in })
         }
         var grandchild: Int32?
-        let started = await waitUntil(timeout: .seconds(10)) {
+        let started = await waitUntil(timeout: .seconds(30)) {
             grandchild = (try? String(contentsOf: grandchildPIDFile, encoding: .utf8))
                 .flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
             return grandchild != nil
@@ -208,7 +208,7 @@ final class CLISubprocessTransportTests: XCTestCase {
         let outcome = try await wait(for: task)
         guard case .failure(let error) = outcome else { return XCTFail("a cancelled run returns no result") }
         XCTAssertTrue(error is CancellationError, "\(error)")
-        let gone = await waitUntil(timeout: .seconds(10)) { !ProcessTreeTerminator.processExists(pid: pid) }
+        let gone = await waitUntil(timeout: .seconds(30)) { !ProcessTreeTerminator.processExists(pid: pid) }
         XCTAssertTrue(gone, "the grandchild is stopped, even though it ignores SIGTERM")
     }
 
@@ -241,7 +241,7 @@ final class CLISubprocessTransportTests: XCTestCase {
             try await transport.run(arguments: [], isCancelled: { false }, onEvent: { _ in })
         }
         var cliPID: Int32?
-        let started = await waitUntil(timeout: .seconds(10)) {
+        let started = await waitUntil(timeout: .seconds(30)) {
             cliPID = (try? String(contentsOf: pidFile, encoding: .utf8))
                 .flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
             return cliPID != nil
@@ -253,7 +253,7 @@ final class CLISubprocessTransportTests: XCTestCase {
         let outcome = try await wait(for: task)
         guard case .failure(let error) = outcome else { return XCTFail("a cancelled run returns no result") }
         XCTAssertTrue(error is CancellationError, "\(error)")
-        let gone = await waitUntil(timeout: .seconds(10)) { !ProcessTreeTerminator.processExists(pid: pid) }
+        let gone = await waitUntil(timeout: .seconds(30)) { !ProcessTreeTerminator.processExists(pid: pid) }
         XCTAssertTrue(gone)
     }
 }

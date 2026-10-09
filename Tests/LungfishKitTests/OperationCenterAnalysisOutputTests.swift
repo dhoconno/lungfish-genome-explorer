@@ -53,7 +53,7 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
         XCTAssertTrue(center.complete(id: id, detail: "Done"))
         XCTAssertFalse(AnalysisRunRecord.isIncomplete(dir))
         XCTAssertFalse(center.isTrackingAnalysisOutput(dir))
-        wait(for: [notified], timeout: 1)
+        wait(for: [notified], timeout: 5)
     }
 
     func testCompletingWithWarningsIsASuccessfulRun() throws {

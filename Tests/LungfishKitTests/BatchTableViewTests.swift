@@ -2,6 +2,7 @@ import AppKit
 import XCTest
 @testable import LungfishCore
 @testable import LungfishKit
+import LungfishTestSupport
 
 @MainActor
 final class BatchTableViewTests: XCTestCase {
@@ -398,7 +399,7 @@ final class BatchTableViewTests: XCTestCase {
 
         XCTAssertEqual(table.displayedRows.map(\.name), ["alpha", "beta", "alphabet"])
 
-        try await waitUntil {
+        await waitUntil {
             table.displayedRows.map(\.name) == ["alpha", "alphabet"]
         }
 
@@ -424,7 +425,7 @@ final class BatchTableViewTests: XCTestCase {
 
         XCTAssertEqual(table.applyCount, 1)
 
-        try await waitUntil {
+        await waitUntil {
             table.applyCount == 2 && table.displayedRows.map(\.name) == ["alpha", "alphabet"]
         }
 
@@ -1230,23 +1231,6 @@ private extension NSView {
         }
         return nil
     }
-}
-
-@MainActor
-private func waitUntil(
-    timeout: TimeInterval = 2.0,
-    file: StaticString = #filePath,
-    line: UInt = #line,
-    _ condition: @escaping @MainActor () -> Bool
-) async throws {
-    let deadline = Date().addingTimeInterval(timeout)
-    while Date() < deadline {
-        if condition() {
-            return
-        }
-        try await Task.sleep(for: .milliseconds(10))
-    }
-    XCTAssertTrue(condition(), file: file, line: line)
 }
 
 @MainActor
