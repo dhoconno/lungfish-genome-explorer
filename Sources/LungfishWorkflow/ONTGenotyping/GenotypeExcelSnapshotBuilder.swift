@@ -547,15 +547,18 @@ public enum GenotypeExcelSnapshotBuilder {
             }
         }
         for call in calls {
-            for value in [call.h1.effective, call.h2.effective] where !value.isEmpty && value != "-" {
+            for value in [call.h1.effective, call.h2.effective] where GenotypeHaplotypeLocusCall.isSingleHaplotypeName(value) {
                 if colors.contains(where: { $0.locus == call.locus && $0.call == value }) { continue }
                 let definition = authority.definitionSet?.locusDefinitions.first { $0.locus == call.locus }?.haplotypes.first { $0.name == value }
                 let token = HaplotypeColorToken.assigned(forName: value)
                 colors.append(.init(locus: call.locus, call: value, fillHex: (definition?.effectiveFillColor ?? token.fillColor).hexString, fontHex: token.fontColor.hexString))
             }
         }
+        // Only a single haplotype name gets a colour (SF6). The definition's
+        // presentation colours seed the list above, so the rule is applied to
+        // the final list and not only to the called values.
         var seen = Set<String>()
-        colors = colors.filter { seen.insert($0.locus + "\u{0}" + $0.call).inserted }
+        colors = colors.filter { GenotypeHaplotypeLocusCall.isSingleHaplotypeName($0.call) && seen.insert($0.locus + "\u{0}" + $0.call).inserted }
         return (calls, colors)
     }
 

@@ -3634,12 +3634,6 @@
           "fillHex" : "#0000FF",
           "fontHex" : "#FFFFFF",
           "locus" : "MHC-B"
-        },
-        {
-          "call" : "ERR: NO HAP",
-          "fillHex" : "#106B42",
-          "fontHex" : "#FFFFFF",
-          "locus" : "MHC-A"
         }
       ],
       "filteredMatrix" : {

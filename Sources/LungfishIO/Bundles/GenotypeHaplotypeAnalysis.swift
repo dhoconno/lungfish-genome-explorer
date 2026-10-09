@@ -505,6 +505,22 @@ public struct GenotypeHaplotypeLocusCall: Codable, Equatable, Sendable {
         )
     }
 
+    /// Whether a slot value names one haplotype, the only kind of value that
+    /// gets a haplotype colour (Phase 2.3 finding SF6). An empty value, the
+    /// dash, the unresolved marker "?", "Not assayed", an error token such as
+    /// "ERR: NO HAP" and an ambiguity token joining candidates with "|" are
+    /// statuses, not names, so two of them must never read as a shared
+    /// haplotype.
+    public static func isSingleHaplotypeName(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty
+            && trimmed != "-"
+            && trimmed != "?"
+            && trimmed.caseInsensitiveCompare("Not assayed") != .orderedSame
+            && !trimmed.hasPrefix("ERR:")
+            && !trimmed.contains("|")
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.locus = try container.decode(String.self, forKey: .locus)

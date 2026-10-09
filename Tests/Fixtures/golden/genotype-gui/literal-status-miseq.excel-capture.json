@@ -2960,18 +2960,6 @@
           "locus" : "MHC-A"
         },
         {
-          "call" : "M1A|M2A",
-          "fillHex" : "#61D8A3",
-          "fontHex" : "#000000",
-          "locus" : "MHC-A"
-        },
-        {
-          "call" : "?",
-          "fillHex" : "#720B8C",
-          "fontHex" : "#FFFFFF",
-          "locus" : "MHC-A"
-        },
-        {
           "call" : "M1B",
           "fillHex" : "#0C0000",
           "fontHex" : "#FFFFFF",
@@ -2980,12 +2968,6 @@
         {
           "call" : "M2B",
           "fillHex" : "#FF0000",
-          "fontHex" : "#FFFFFF",
-          "locus" : "MHC-B"
-        },
-        {
-          "call" : "Not assayed",
-          "fillHex" : "#808080",
           "fontHex" : "#FFFFFF",
           "locus" : "MHC-B"
         },
@@ -3008,12 +2990,6 @@
           "locus" : "MHC-DRB"
         },
         {
-          "call" : "M1DR|M2DR",
-          "fillHex" : "#AB3BC6",
-          "fontHex" : "#FFFFFF",
-          "locus" : "MHC-DRB"
-        },
-        {
           "call" : "M3A",
           "fillHex" : "#0000FF",
           "fontHex" : "#FFFFFF",
@@ -3024,24 +3000,6 @@
           "fillHex" : "#423BC6",
           "fontHex" : "#FFFFFF",
           "locus" : "MHC-B"
-        },
-        {
-          "call" : "?",
-          "fillHex" : "#720B8C",
-          "fontHex" : "#FFFFFF",
-          "locus" : "MHC-DRB"
-        },
-        {
-          "call" : "ERR: NO HAP",
-          "fillHex" : "#106B42",
-          "fontHex" : "#FFFFFF",
-          "locus" : "MHC-B"
-        },
-        {
-          "call" : "ERR: TMH (M1DR, M2DR, M3DR)",
-          "fillHex" : "#423BC6",
-          "fontHex" : "#FFFFFF",
-          "locus" : "MHC-DRB"
         }
       ],
       "filteredMatrix" : {

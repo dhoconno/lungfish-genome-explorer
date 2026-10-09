@@ -1008,6 +1008,37 @@ print(json.dumps(result))
             authority: .init(analysis: analysis, definitionSet: definition)))
     }
 
+    /// Finding SF6. A workbook colour names one haplotype, so a value that is
+    /// empty, a dash, the unresolved marker, Not assayed, an error token or an
+    /// ambiguity token joining candidates with "|" gets none, and two failures
+    /// cannot look like a shared haplotype. The rule applies to the final
+    /// colour list, because the definition's presentation colours seed it
+    /// before the call loop adds the called values.
+    func testWorkbookColoursOnlySingleHaplotypeNames() throws {
+        typealias P = GenotypeWorkbookPresentation
+        func call(_ locus: String, _ h1: String, _ h2: String, _ status: GenotypeHaplotypeCallStatus) -> GenotypeHaplotypeLocusCall {
+            .init(locus: locus, sourceLocus: locus, haplotype1: h1, haplotype2: h2, status: status,
+                  matchedHaplotypes: [], observedGenotypeCount: 0, observedGenotypes: [])
+        }
+        let analysis = GenotypeHaplotypeAnalysis(assayID: "fixture", definitionSetID: "fixture", definitionSetName: "fixture",
+            speciesName: "fixture", samples: [.init(sample: "S1", calls: [
+                call("MHC-A", "M1A", "M2A", .called),
+                call("MHC-B", "M1B|M2B", "M1B|M2B", .ambiguous),
+                call("MHC-DRB", "ERR: NO HAP", "ERR: NO HAP", .noHaplotype),
+                call("MHC-DQ", "M1DQ", "?", .unresolvedSecondHaplotype),
+                call("MHC-DP", "Not assayed", "Not assayed", .notAssayed),
+            ])])
+        let seeded = ["M1A", "M1A|M2A", "?", "Not assayed", "ERR: TMH (M1A, M2A)", "-", ""].map {
+            P.Color(locus: "MHC-A", call: $0, fillHex: "#112233", fontHex: "#FFFFFF")
+        }
+        let result = GenotypeTestFixtures.makeResult(samples: [sampleRow("S1")], calls: [], haplotypeAnalysis: analysis)
+        let snapshot = try GenotypeExcelSnapshotBuilder.capture(result: result, sidecar: .empty(generatedAt: timestamp),
+            allProjection: nil, filteredProjection: nil, generatedAt: timestamp, authority: .init(analysis: analysis, colors: seeded))
+        XCTAssertEqual(snapshot.calls.map(\.locus), ["MHC-A", "MHC-B", "MHC-DRB", "MHC-DQ", "MHC-DP"], "every call is still reported")
+        XCTAssertEqual(snapshot.colors.map { $0.locus + " " + $0.call }, ["MHC-A M1A", "MHC-A M2A", "MHC-DQ M1DQ"])
+        XCTAssertEqual(snapshot.colors.first?.fillHex, "#112233", "a seeded colour for a haplotype name keeps its fill")
+    }
+
     func testCaptureRecordsAllFilterDefaultsAndFrozenOrdering() throws {
         let snapshot = try GenotypeExcelSnapshotBuilder.capture(result: GenotypeTestFixtures.makeResult(calls: []),
             sidecar: .empty(generatedAt: timestamp), allProjection: nil, filteredProjection: nil, generatedAt: timestamp,
