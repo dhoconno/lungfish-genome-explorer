@@ -20,8 +20,13 @@ enum ToolProcessDescriptors {
         guard pipe(&fds) == 0 else {
             throw OpenError(reason: "Could not create a pipe. \(lastErrorText())")
         }
-        // Close-on-exec keeps a process launched elsewhere in the app at the
-        // same moment from inheriting this pipe and holding it open.
+        // Close-on-exec keeps a process launched elsewhere in the app from
+        // inheriting this pipe and holding it open. pipe() takes no flags on
+        // Darwin, so a Foundation Process spawned on another thread between
+        // pipe() and the fcntl below can still inherit it. ToolProcess's own
+        // spawns use POSIX_SPAWN_CLOEXEC_DEFAULT and cannot. The window
+        // closes once the remaining Foundation Process spawns, which
+        // scripts/ratchets/process-spawn.sh counts, move to ToolProcess.
         return (aboveStandardStreams(fds[0]), aboveStandardStreams(fds[1]))
     }
 
@@ -225,9 +230,14 @@ final class ToolProcessStreamDrain: Sendable {
                     read(fd, raw.baseAddress, raw.count)
                 }
                 if count > 0 {
-                    let chunk = Data(drain.buffer[0..<count])
-                    Self.keep(chunk, in: &drain, limit: limit)
-                    let lines = drain.framer?.append(chunk) ?? []
+                    // The bytes are kept and framed straight from the read
+                    // buffer, so each chunk is copied once, into the capture.
+                    let buffer = drain.buffer
+                    let lines = buffer.withUnsafeBytes { raw -> [String] in
+                        let chunk = UnsafeRawBufferPointer(rebasing: raw[0..<count])
+                        Self.keep(chunk, in: &drain, limit: limit)
+                        return drain.framer?.append(bytes: chunk) ?? []
+                    }
                     return (.data(lines), count)
                 }
                 if count == 0 {
@@ -247,16 +257,17 @@ final class ToolProcessStreamDrain: Sendable {
         return outcome
     }
 
-    private static func keep(_ chunk: Data, in drain: inout DrainState, limit: Int?) {
+    private static func keep(_ chunk: UnsafeRawBufferPointer, in drain: inout DrainState, limit: Int?) {
+        guard let base = chunk.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
         guard let limit else {
-            drain.bytes.append(chunk)
+            drain.bytes.append(base, count: chunk.count)
             return
         }
         guard limit > 0 else {
             drain.truncated = true
             return
         }
-        drain.bytes.append(chunk)
+        drain.bytes.append(base, count: chunk.count)
         if drain.bytes.count > limit {
             drain.truncated = true
             // Trim in batches so a long stream costs amortized linear time.

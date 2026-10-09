@@ -144,12 +144,22 @@ enum ToolProcessSpawner {
         }
     }
 
-    private static func isRunning(_ pid: pid_t) -> Bool {
+    /// True while `pid` is a live process that has not exited.
+    static func isRunning(_ pid: pid_t) -> Bool {
+        runningStartTime(pid) != nil
+    }
+
+    /// When the live process `pid` started, in microseconds since the epoch,
+    /// or nil once it has exited. A pid plus its start time names one
+    /// process even after the pid is reused.
+    static func runningStartTime(_ pid: pid_t) -> UInt64? {
+        guard pid > 0 else { return nil }
         var info = proc_bsdinfo()
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)
         let result = withUnsafeMutablePointer(to: &info) { pointer in
             proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, pointer, size)
         }
-        return result == size && info.pbi_status != UInt32(SZOMB)
+        guard result == size, info.pbi_status != UInt32(SZOMB) else { return nil }
+        return UInt64(info.pbi_start_tvsec) * 1_000_000 + UInt64(info.pbi_start_tvusec)
     }
 }

@@ -130,6 +130,34 @@ final class ToolProcessIntegrityTests: XCTestCase {
         }
     }
 
+    /// Exits are seen through the process source alone, with no polling, so
+    /// a missed exit would never end its run. Short runs started back to
+    /// back race their exit against the source's registration.
+    func testShortRunsStartedBackToBackAllSeeTheirExit() async throws {
+        let count = 200
+        let runs = try (0..<count).map { _ in
+            try ToolProcess.start(ToolProcessSpec(
+                executableURL: URL(fileURLWithPath: "/usr/bin/true"),
+                environment: [:],
+                stdout: .discard,
+                stderr: .discard
+            ))
+        }
+        let ended = expectation(description: "every run ends")
+        ended.expectedFulfillmentCount = count
+        let clean = ToolProcessTestBox(0)
+        for run in runs {
+            Task {
+                if (try? await run.result())?.termination == .exited(code: 0) {
+                    clean.withLock { $0 += 1 }
+                }
+                ended.fulfill()
+            }
+        }
+        await fulfillment(of: [ended], timeout: 60)
+        XCTAssertEqual(clean.withLock { $0 }, count)
+    }
+
     // MARK: - Bounded memory
 
     private static let noNewlineScript = "head -c 20000000 /dev/zero | tr '\\0' a"

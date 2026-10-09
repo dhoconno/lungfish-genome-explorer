@@ -16,10 +16,11 @@ import Synchronization
 /// stream or group that has not settled when the drain grace period runs out
 /// is cut short and its group killed. Then every stage is reaped. Mutable
 /// state lives in one Mutex. Exit checks, reads, event delivery, group
-/// polling and limit checks run on one serial queue, and terminations, which
-/// sleep, run on serial queues of their own. Serial queues always get a GCD
-/// thread, so no step of a run waits for the Swift cooperative pool or for
-/// the width-limited global queues.
+/// polling and limit checks run on one serial queue, and terminations run on
+/// the one timer queue that ``ProcessGroupTerminator`` shares between runs,
+/// so no termination parks a thread through its grace period. Serial queues
+/// always get a GCD thread, so no step of a run waits for the Swift
+/// cooperative pool or for the width-limited global queues.
 final class ToolProcessExecution: Sendable {
     struct Limits: Sendable {
         var wallClock: Duration?
@@ -93,9 +94,10 @@ final class ToolProcessExecution: Sendable {
     let limitClock = SuspendingClock()
     let state: Mutex<RunState>
     let lastActivity: Mutex<SuspendingClock.Instant>
-    /// The caller's reader of a ``ToolProcessOutput/stream`` stdout. It
-    /// stays at end of file when the last stage does not stream.
-    let stdoutStream = ToolProcessOutputStream()
+    /// The pipe behind the caller's reader of a ``ToolProcessOutput/stream``
+    /// stdout. It stays at end of file when the last stage does not stream.
+    /// The run only attaches and wakes it. The caller's reader owns it.
+    let stdoutChannel = ToolProcessStreamChannel()
 
     init(specs: [ToolProcessSpec], limits: Limits, observers: Observers) {
         self.specs = specs
@@ -104,14 +106,6 @@ final class ToolProcessExecution: Sendable {
         self.queue = DispatchQueue(label: "org.lungfish.tool-process", qos: Self.qualityOfService(Task.currentPriority))
         self.state = Mutex(RunState(stages: Array(repeating: StageRecord(), count: specs.count)))
         self.lastActivity = Mutex(SuspendingClock().now)
-    }
-
-    /// A new serial queue for work that sleeps, such as a termination
-    /// waiting out its grace period. A serial queue always gets a thread,
-    /// even when callers blocked in ``ToolProcess/runBlocking(_:cancellation:onEvent:onLaunch:)``
-    /// hold every thread of the global queues.
-    static func sleepingWorkQueue() -> DispatchQueue {
-        DispatchQueue(label: "org.lungfish.tool-process.stop", qos: .userInitiated)
     }
 
     /// The queue's QoS follows the calling task's priority, so a run started
@@ -286,7 +280,8 @@ final class ToolProcessExecution: Sendable {
         // group and tree as the only writers, so end of file means they are done.
         childFDs.forEach { close($0) }
         if let streamRead {
-            stdoutStream.attach(streamRead)
+            // Bytes the caller's reader takes are output for the idle limit.
+            stdoutChannel.attach(streamRead) { [weak self] in self?.recordActivity() }
         }
 
         NativeProcessRegistry.shared.register(processGroupLeader: pid)

@@ -10,25 +10,32 @@ import Synchronization
 extension ToolProcessExecution {
     // MARK: - Exit
 
-    /// Watches a stage for exit with a process source, plus one immediate
-    /// look and a slow poll, because the exit can come before the source is
-    /// registered with the kernel.
+    /// Watches a stage for exit with a process source, without polling.
+    ///
+    /// The exit can come before the source is registered with the kernel.
+    /// The registration handler looks once the source is registered, which
+    /// covers an exit before that point, and libdispatch reports an exit
+    /// that already happened when it registers (ESRCH) as an exit event.
+    /// After an exit event the status is waitable at once in practice, and
+    /// should it not be yet, ``exitReported(_:)`` looks again shortly.
     func watchExit(_ index: Int, pid: pid_t) {
         let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
         source.setEventHandler { [weak self] in
+            self?.exitReported(index)
+        }
+        source.setRegistrationHandler { [weak self] in
             self?.checkExit(index)
         }
         state.withLock { $0.stages[index].exitSource = source }
         source.activate()
-        queue.async { [weak self] in
-            self?.pollExit(index)
-        }
     }
 
-    private func pollExit(_ index: Int) {
+    /// The kernel reported the stage's exit. Records it, looking again every
+    /// few milliseconds until waitid reports it.
+    private func exitReported(_ index: Int) {
         guard !checkExit(index) else { return }
-        queue.asyncAfter(deadline: .now() + .milliseconds(250)) { [weak self] in
-            self?.pollExit(index)
+        queue.asyncAfter(deadline: .now() + .milliseconds(5)) { [weak self] in
+            self?.exitReported(index)
         }
     }
 
@@ -163,13 +170,14 @@ extension ToolProcessExecution {
             }
             evaluateCompletion()
         case .complete(let onComplete, let reap, let unregister):
-            // Reaping last keeps every pid and group ID reserved until no
-            // signal can be sent to it any more.
-            reap.forEach(ToolProcessSpawner.reap)
+            // Unregister first, so app quit can no longer signal these
+            // groups, then reap. Reaping last keeps every pid and group ID
+            // reserved until nothing can send a signal to it any more.
             unregister.forEach { NativeProcessRegistry.shared.unregister(processGroupLeader: $0) }
+            reap.forEach(ToolProcessSpawner.reap)
             // A reader of a streamed stdout stops waiting once nothing is
             // left in the pipe, even if a process outside the run holds it.
-            stdoutStream.runEnded()
+            stdoutChannel.runEnded()
             // Finish behind every event already queued, so a run whose streams
             // are not captured still delivers its started events first.
             queue.async {
@@ -180,7 +188,8 @@ extension ToolProcessExecution {
 
     /// Waits for every stage that writes a file to have no running process
     /// left in its group, because such a process could still be writing the
-    /// file after the run returned.
+    /// file after the run returned. A descendant that left the group with
+    /// setsid or setpgid is not listed, so it can escape this wait.
     private func pollGroups() {
         let watched = state.withLock { run -> [(Int, pid_t)] in
             guard !run.completed else { return [] }
@@ -213,8 +222,9 @@ extension ToolProcessExecution {
     static let leftoverTerminationGrace: Duration = .milliseconds(200)
 
     /// Cuts short every stage whose output has not settled. Its open streams
-    /// are marked abandoned, its process group is sent SIGTERM and, after a
-    /// grace period, SIGKILL, and then its streams are closed. The grace is
+    /// are marked abandoned, its process group and tree are terminated
+    /// through ``ProcessGroupTerminator``, SIGKILL following after a grace
+    /// period, and once they are gone its streams are closed. The grace is
     /// the spec's termination grace when the run is stopping (`stop` is set),
     /// and ``leftoverTerminationGrace`` when only the drain grace ran out.
     /// Runs on `queue`.
@@ -249,14 +259,9 @@ extension ToolProcessExecution {
                 target.drains.forEach { $0.abandon() }
                 continue
             }
-            let grace = Self.seconds(stop == nil ? Self.leftoverTerminationGrace : specs[target.index].terminationGracePeriod)
-            Self.sleepingWorkQueue().async { [self] in
-                // The leader is an unreaped zombie, so this group ID is still ours.
-                killpg(pid, SIGTERM)
-                if grace > 0 {
-                    usleep(useconds_t(min(grace, 60) * 1_000_000))
-                }
-                killpg(pid, SIGKILL)
+            let grace = stop == nil ? Self.leftoverTerminationGrace : specs[target.index].terminationGracePeriod
+            // The leader is an unreaped zombie, so this group ID is still ours.
+            ProcessGroupTerminator.terminate(processGroupLeader: pid, gracePeriod: grace) { [self] in
                 queue.async { [self] in
                     target.drains.forEach { $0.abandon() }
                     state.withLock { $0.pendingKills -= 1 }
@@ -315,15 +320,16 @@ extension ToolProcessExecution {
         return claimed
     }
 
-    /// Terminates a claimed stage's group and tree on a queue of its own,
-    /// because ProcessTreeTerminator sleeps through the grace period.
+    /// Terminates a claimed stage's group and tree. The termination waits
+    /// on a shared timer, not a thread, and ends as soon as the group and
+    /// tree are gone, so a tool that honours SIGTERM does not cost the grace.
     func terminateStage(_ index: Int) {
         let pid = state.withLock { $0.stages[index].pid }
-        let grace = Self.seconds(specs[index].terminationGracePeriod)
-        Self.sleepingWorkQueue().async { [self] in
-            ProcessTreeTerminator.terminate(processGroupLeader: pid, gracePeriod: grace)
-            state.withLock { $0.pendingKills -= 1 }
-            evaluateCompletion()
+        ProcessGroupTerminator.terminate(processGroupLeader: pid, gracePeriod: specs[index].terminationGracePeriod) { [self] in
+            queue.async { [self] in
+                state.withLock { $0.pendingKills -= 1 }
+                evaluateCompletion()
+            }
         }
     }
 

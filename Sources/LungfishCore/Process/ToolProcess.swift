@@ -31,13 +31,35 @@ import Foundation
 ///   the ``ToolProcessCancellation`` of a blocking run), or exceeding the wall-clock or idle limit,
 ///   sends SIGTERM to the process group and the descendant tree, then
 ///   SIGKILL after ``ToolProcessSpec/terminationGracePeriod``, so helper
-///   processes such as a JVM under a wrapper script do not survive. The
+///   processes such as a JVM under a wrapper script do not survive. The run
+///   ends as soon as the group and tree are gone, so a tool that honours
+///   SIGTERM does not wait out the grace, and no thread waits for it. The
 ///   limits run on the suspending clock, so time the Mac spends asleep does
 ///   not count.
 /// - Every running process is registered with ``NativeProcessRegistry``, so
 ///   app quit reaches it.
 /// - A nonzero exit status is a result, not an error. Only an invalid spec, a
 ///   launch failure, a timeout or a cancellation throws.
+///
+/// Known limits.
+///
+/// - Settlement watches the stage's process group, plus the descendant tree
+///   while a termination runs. A descendant that leaves the group with
+///   setsid or setpgid, and is no longer in the tree, can keep writing a
+///   ``ToolProcessOutput/file(_:)`` output after the run returns, and the
+///   result does not show it.
+/// - A streamed stdout settles when the stage's group empties. A descendant
+///   in the group that still writes it after the leader exits gets
+///   ``ToolProcessSpec/drainGracePeriod``. A reader slower than that keeps it
+///   blocked on the full pipe until the grace runs out, and it is then
+///   killed and the output reported incomplete. Read a stream promptly, or
+///   raise the grace for such a tool.
+/// - Pipes are made with pipe() and marked close-on-exec with fcntl right
+///   after. ToolProcess spawns with POSIX_SPAWN_CLOEXEC_DEFAULT and never
+///   inherits them, but a Foundation `Process` launched elsewhere in the app
+///   in that window can, and then holds the pipe open until it exits. The
+///   window stays until the remaining Foundation `Process` spawns move to
+///   ToolProcess, which scripts/ratchets/process-spawn.sh counts.
 public enum ToolProcess {
     /// Runs one process and returns once it has exited and its captured
     /// output is drained.
@@ -72,8 +94,8 @@ public enum ToolProcess {
         onLaunch: (@Sendable (Int32) -> Void)?
     ) throws(ToolProcessError) -> ToolProcessExecution {
         try validate(spec)
-        if let idle = spec.idleTimeout, !spec.stdout.isCaptured && !spec.stderr.isCaptured {
-            throw .invalidSpec("An idle timeout of \(idle) needs stdout or stderr captured, because no other output is observed.")
+        if let idle = spec.idleTimeout, !spec.stdout.isCaptured && spec.stdout != .stream && !spec.stderr.isCaptured {
+            throw .invalidSpec("An idle timeout of \(idle) needs stdout or stderr captured, or stdout streamed, because no other output is observed.")
         }
         var stageHandler: (@Sendable (Int, ToolProcessEvent) -> Void)?
         if let onEvent {

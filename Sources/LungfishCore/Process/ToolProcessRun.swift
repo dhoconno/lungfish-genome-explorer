@@ -74,9 +74,13 @@ extension ToolProcess {
 /// The one handle on a process started by ``ToolProcess/start(_:onEvent:onLaunch:)``.
 ///
 /// Start now, cancel from any thread, wait later, either suspending with
-/// ``result()`` or blocking a thread with ``waitBlocking()``. The run keeps
-/// itself alive until it is over, so dropping the handle neither stops the
-/// process nor leaves it unreaped.
+/// ``result()`` or blocking a thread with ``waitBlocking()``. The engine
+/// keeps itself alive until the run is over, so dropping the handle never
+/// leaves a process unreaped or registered. Dropping it does not stop a
+/// process whose output is captured or written to a file. A streamed stdout
+/// is closed once the handle and every reference to ``stdout`` are gone, so
+/// its writer gets SIGPIPE at its next write, the run ends, and its output
+/// counts as incomplete.
 public final class ToolProcessRun: Sendable {
     /// Standard output when the spec sets ``ToolProcessOutput/stream``, and
     /// at end of file at once otherwise.
@@ -88,7 +92,7 @@ public final class ToolProcessRun: Sendable {
 
     init(_ execution: ToolProcessExecution) {
         self.execution = execution
-        self.stdout = execution.stdoutStream
+        self.stdout = ToolProcessOutputStream(execution.stdoutChannel)
         done.enter()
     }
 
@@ -99,9 +103,13 @@ public final class ToolProcessRun: Sendable {
     }
 
     func begin() {
-        // The closure holds the run until the execution calls it at the end.
-        execution.start { [self] in
-            done.leave()
+        // The closure holds the engine, not this handle, until the engine
+        // calls it at the end, so the run is reaped and unregistered even
+        // when the caller drops the handle and with it the stream's read end.
+        execution.start { [execution, done] in
+            withExtendedLifetime(execution) {
+                done.leave()
+            }
         }
     }
 
@@ -145,14 +153,16 @@ public final class ToolProcessRun: Sendable {
     private func finish() -> Result<ToolProcessResult, ToolProcessError> {
         outcome.withLock { cached in
             if let cached { return cached }
+            // Closing first settles the stream's flags, so a reader still
+            // short of end of file shows in the result.
+            stdout.close()
             let value: Result<ToolProcessResult, ToolProcessError>
             do throws(ToolProcessError) {
                 let result = try execution.outcome().stages[0]
                 value = .success(stdout.folded(into: result))
             } catch {
-                value = .failure(error)
+                value = .failure(stdout.folded(into: error))
             }
-            stdout.close()
             cached = value
             return value
         }

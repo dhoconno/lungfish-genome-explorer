@@ -24,7 +24,10 @@ public enum ToolProcessOutput: Sendable, Equatable {
     /// streams lines without keeping any bytes.
     case capture(limit: Int? = nil)
     /// Written by the process straight into this file, created or truncated
-    /// before launch. No line events are delivered for the stream.
+    /// before launch. No line events are delivered for the stream. The run
+    /// waits for the stage's process group to empty, so a descendant still
+    /// writing the file holds it. A descendant that left the group with
+    /// setsid or setpgid is not seen and can write after the run returns.
     case file(URL)
     /// Sent to `/dev/null`. No line events are delivered for the stream.
     case discard
@@ -33,7 +36,9 @@ public enum ToolProcessOutput: Sendable, Equatable {
     /// pipe holds the process back when the caller reads slower than it
     /// writes. Only standard output of a run started with
     /// ``ToolProcess/start(_:onEvent:onLaunch:)`` can stream. No line events
-    /// are delivered and the result keeps no bytes.
+    /// are delivered and the result keeps no bytes. Once the process exits, a
+    /// descendant still writing the stream gets ``ToolProcessSpec/drainGracePeriod``,
+    /// so a reader slower than that sees it killed and the output incomplete.
     case stream
 
     var isCaptured: Bool {
@@ -64,11 +69,16 @@ public struct ToolProcessSpec: Sendable {
     public var stderr: ToolProcessOutput
     /// Wall-clock limit from launch, measured on a monotonic clock. Nil means none.
     public var timeout: Duration?
-    /// Limit on the time with no output on any captured stream. Nil means none.
-    /// It needs at least one stream set to ``ToolProcessOutput/capture(limit:)``.
+    /// Limit on the time with no output on any captured stream, and with no
+    /// bytes taken by the reader of a streamed stdout. Nil means none. It
+    /// needs at least one stream set to ``ToolProcessOutput/capture(limit:)``
+    /// or stdout set to ``ToolProcessOutput/stream``. A streamed stdout counts
+    /// only what the reader takes, so a reader that stops reading lets the
+    /// limit fire even while the process waits on the full pipe.
     public var idleTimeout: Duration?
     /// How long a cancelled or timed-out process tree has between SIGTERM and
-    /// SIGKILL. It applies to a cancellation and a timeout only. Descendants
+    /// SIGKILL. A tree that exits sooner ends the wait at once. It applies to
+    /// a cancellation and a timeout only. Descendants
     /// still holding output when ``drainGracePeriod`` runs out get a short
     /// fixed grace of their own, because the run is already over for them.
     public var terminationGracePeriod: Duration

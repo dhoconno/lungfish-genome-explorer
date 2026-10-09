@@ -428,6 +428,13 @@ public final class NativeProcessRegistry: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// True while `pid` is registered as a process group leader.
+    func isRegistered(processGroupLeader pid: Int32) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return groupLeaders.contains(pid)
+    }
+
     public func register(_ process: Process) {
         lock.lock()
         processes[ObjectIdentifier(process)] = process

@@ -25,41 +25,45 @@ public struct ProcessOutputLineFramer: Sendable {
     }
 
     public mutating func append(_ data: Data) -> [String] {
+        data.withUnsafeBytes { append(bytes: $0) }
+    }
+
+    /// Frames bytes that are only borrowed for the call, such as a read
+    /// buffer, so the caller does not copy them into a Data first.
+    mutating func append(bytes raw: UnsafeRawBufferPointer) -> [String] {
         var lines: [String] = []
-        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
-            guard let base = raw.baseAddress, raw.count > 0 else { return }
-            let count = raw.count
-            var start = 0
-            if previousWasCR {
-                previousWasCR = false
-                if raw[0] == 10 {
-                    start = 1
-                }
+        guard let base = raw.baseAddress, raw.count > 0 else { return lines }
+        let count = raw.count
+        var start = 0
+        if previousWasCR {
+            previousWasCR = false
+            if raw[0] == 10 {
+                start = 1
             }
-            // The next LF and CR at or after `start`, found with memchr and
-            // searched again only once passed, so a chunk is scanned once.
-            var nextLF = Self.find(10, in: base, from: start, count: count)
-            var nextCR = Self.find(13, in: base, from: start, count: count)
-            while start < count {
-                if nextLF < start { nextLF = Self.find(10, in: base, from: start, count: count) }
-                if nextCR < start { nextCR = Self.find(13, in: base, from: start, count: count) }
-                let terminator = min(nextLF, nextCR)
-                guard terminator < count else {
-                    appendPending(base + start, count: count - start, into: &lines)
-                    return
-                }
-                appendPending(base + start, count: terminator - start, into: &lines)
-                lines.append(String(decoding: pending, as: UTF8.self))
-                pending.removeAll(keepingCapacity: true)
-                start = terminator + 1
-                if raw[terminator] == 13 {
-                    if start < count {
-                        if raw[start] == 10 {
-                            start += 1
-                        }
-                    } else {
-                        previousWasCR = true
+        }
+        // The next LF and CR at or after `start`, found with memchr and
+        // searched again only once passed, so a chunk is scanned once.
+        var nextLF = Self.find(10, in: base, from: start, count: count)
+        var nextCR = Self.find(13, in: base, from: start, count: count)
+        while start < count {
+            if nextLF < start { nextLF = Self.find(10, in: base, from: start, count: count) }
+            if nextCR < start { nextCR = Self.find(13, in: base, from: start, count: count) }
+            let terminator = min(nextLF, nextCR)
+            guard terminator < count else {
+                appendPending(base + start, count: count - start, into: &lines)
+                return lines
+            }
+            appendPending(base + start, count: terminator - start, into: &lines)
+            lines.append(String(decoding: pending, as: UTF8.self))
+            pending.removeAll(keepingCapacity: true)
+            start = terminator + 1
+            if raw[terminator] == 13 {
+                if start < count {
+                    if raw[start] == 10 {
+                        start += 1
                     }
+                } else {
+                    previousWasCR = true
                 }
             }
         }
