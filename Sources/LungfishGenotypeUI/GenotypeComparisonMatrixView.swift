@@ -3,11 +3,6 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 
-struct GenotypeMatrixContentScrollOrigins: Equatable {
-    let pinned: NSPoint
-    let samples: NSPoint
-}
-
 private extension GenotypeCandidateMatrixRowID {
     var accessibilityIdentifierComponent: String {
         switch self {
@@ -17,21 +12,6 @@ private extension GenotypeCandidateMatrixRowID {
             return "candidate:\(stableClusterID)"
         }
     }
-}
-
-struct GenotypeVisibleSampleAlleleSemantics {
-    let isProvisionalExon2: Bool
-    let candidateClassification: ONTMHCCandidateClassification?
-    let cell: GenotypeMatrixCellSemanticState
-}
-
-struct GenotypeVisibleSampleAlleleDetail {
-    let rowID: GenotypeCandidateMatrixRowID
-    let stableClusterID: String?
-    let sharedCall: ONTGenotypeSharedCall
-    let support: ONTGenotypeSampleSupport
-    let fraction: Double?
-    let semantics: GenotypeVisibleSampleAlleleSemantics
 }
 
 #if DEBUG
@@ -138,21 +118,6 @@ private final class GenotypeMatrixPaneDivider: NSView {
         NSColor.separatorColor.setFill()
         NSRect(x: bounds.midX, y: bounds.minY, width: 1, height: bounds.height).fill()
     }
-}
-
-@MainActor
-/// The review commands the genotype matrix answers from the menu bar.
-///
-/// Selection > Genotype Call sends these to the first responder
-/// with a nil target, so they reach the matrix only while it has the keyboard
-/// focus. The protocol is public so the menu bar can name the selectors
-/// without the matrix view itself being public.
-@objc public protocol GenotypeMatrixReviewMenuActions: AnyObject {
-    func markSelectionFalsePositive(_ sender: Any?)
-    func markSelectionFalseNegative(_ sender: Any?)
-    func clearSelectionReview(_ sender: Any?)
-    func editSelectionComment(_ sender: Any?)
-    func removeSelectionComments(_ sender: Any?)
 }
 
 final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTableViewDelegate, GenotypeMatrixReviewMenuActions {
