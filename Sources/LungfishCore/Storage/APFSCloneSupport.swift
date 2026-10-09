@@ -132,6 +132,19 @@ public enum APFSCloneSupport {
         struct FileIdentity: Hashable, Sendable {
             let device: dev_t
             let inode: UInt64
+
+            init(device: dev_t, inode: UInt64) {
+                self.device = device
+                self.inode = inode
+            }
+
+            /// proc_pidfdinfo reports the device as a uint32_t and stat as a signed
+            /// dev_t, so the value is converted by bit pattern. A plain conversion
+            /// trapped whenever any process held a file open on a device whose
+            /// number has the top bit set, which crashed `storage dedupe`.
+            init(vnodeDevice: UInt32, inode: UInt64) {
+                self.init(device: dev_t(bitPattern: vnodeDevice), inode: inode)
+            }
         }
 
         init(identities: Set<FileIdentity>, processesInspected: Int) {
@@ -174,7 +187,7 @@ public enum APFSCloneSupport {
                     let size = Int32(MemoryLayout<vnode_fdinfowithpath>.size)
                     guard proc_pidfdinfo(pid, descriptor.proc_fd, PROC_PIDFDVNODEPATHINFO, &info, size) == size else { continue }
                     identities.insert(FileIdentity(
-                        device: dev_t(info.pvip.vip_vi.vi_stat.vst_dev),
+                        vnodeDevice: info.pvip.vip_vi.vi_stat.vst_dev,
                         inode: info.pvip.vip_vi.vi_stat.vst_ino
                     ))
                 }
