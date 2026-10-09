@@ -48,7 +48,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishNaoMgsUITests | Tests/LungfishNaoMgsUITests | 2 | 1614 | LungfishKit, LungfishNaoMgsUI, LungfishTestSupport |
 | LungfishNvdUITests | Tests/LungfishNvdUITests | 3 | 1466 | LungfishKit, LungfishNvdUI, LungfishTestSupport |
 | LungfishPhylogeneticsUITests | Tests/LungfishPhylogeneticsUITests | 4 | 1114 | LungfishIO, LungfishKit, LungfishPhylogeneticsUI, LungfishTestSupport, LungfishWorkflow |
-| LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 10 | 3200 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
+| LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 10 | 3203 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 12 | 2554 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
 | LungfishWorkflowTests | Tests/LungfishWorkflowTests | 389 | 160905 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 

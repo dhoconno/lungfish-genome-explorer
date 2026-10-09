@@ -571,7 +571,10 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
             line: UInt = #line,
             until condition: ([TaxTriageMetric]) -> Bool
         ) {
-            let deadline = Date().addingTimeInterval(10)
+            // A ceiling, not a speed check: the loop returns as soon as rows appear
+            // (about 0.15 s alone). Rows load on a detached task, which a loaded unit
+            // tier on the 20-core Mac Studio once left unscheduled for over 10 s.
+            let deadline = Date().addingTimeInterval(60)
             while !condition(vc.testBatchFlatTableView.displayedRows) && Date() < deadline {
                 RunLoop.main.run(until: Date().addingTimeInterval(0.02))
             }
