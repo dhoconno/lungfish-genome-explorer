@@ -50,7 +50,8 @@ final class ToolProcessOrphanTests: XCTestCase {
         let sleeper = try XCTUnwrap(Fixtures.readPID(pidFile))
         defer { Fixtures.killIfAlive(sleeper) }
 
-        XCTAssertLessThan(started.duration(to: clock.now), .seconds(10))
+        // Well under the sleeper's 30 s, with room for the parallel unit tier.
+        XCTAssertLessThan(started.duration(to: clock.now), .seconds(20))
         XCTAssertFalse(result.isSuccess)
         XCTAssertTrue(result.outputDrainTimedOut)
         XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), "hi\n")
@@ -126,7 +127,8 @@ final class ToolProcessOrphanTests: XCTestCase {
             ],
             timeout: .seconds(60)
         )
-        XCTAssertLessThan(started.duration(to: clock.now), .seconds(10))
+        // Well under the 60 s timeout, with room for the parallel unit tier.
+        XCTAssertLessThan(started.duration(to: clock.now), .seconds(30))
         XCTAssertFalse(result.isSuccess)
         XCTAssertEqual(result.failedStageIndices, [1])
         XCTAssertEqual(result.stages[1].termination, .exited(code: 3))

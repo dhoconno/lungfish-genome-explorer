@@ -42,7 +42,8 @@ final class ToolProcessBlockingTests: XCTestCase {
             XCTAssertEqual(results.first?.stdoutText, "begun\n")
             XCTAssertEqual(results.first?.stop, .cancelled)
         }
-        XCTAssertLessThan(started.duration(to: clock.now), .seconds(10))
+        // Well under the sleeper's 30 s, with room for the parallel unit tier.
+        XCTAssertLessThan(started.duration(to: clock.now), .seconds(20))
         let sleeper = try XCTUnwrap(Fixtures.readPID(pidFile))
         defer { Fixtures.killIfAlive(sleeper) }
         XCTAssertFalse(ProcessTreeTerminator.processExists(pid: sleeper))
@@ -130,18 +131,18 @@ final class ToolProcessBlockingTests: XCTestCase {
                     let text: String
                     switch index % 4 {
                     case 0, 1:
-                        let result = try ToolProcess.runBlocking(Fixtures.shell("sleep 0.2; printf '\(expected)'"))
+                        let result = try ToolProcess.runBlocking(Fixtures.shell("sleep 1; printf '\(expected)'"))
                         guard result.isSuccess else { throw Failure.notSuccessful }
                         text = result.stdoutText
                     case 2:
                         let file = directory.appendingPathComponent("out-\(index).txt")
                         let result = try ToolProcess.runBlocking(
-                            Fixtures.shell("sleep 0.2; printf '\(expected)'", stdout: .file(file))
+                            Fixtures.shell("sleep 1; printf '\(expected)'", stdout: .file(file))
                         )
                         guard result.isSuccess else { throw Failure.notSuccessful }
                         text = try String(contentsOf: file, encoding: .utf8)
                     default:
-                        let run = try ToolProcess.start(Fixtures.shell("sleep 0.2; printf '\(expected)'", stdout: .stream))
+                        let run = try ToolProcess.start(Fixtures.shell("sleep 1; printf '\(expected)'", stdout: .stream))
                         let bytes = ToolProcessStreamTests.readToEnd(run.stdout)
                         guard try run.waitBlocking().isSuccess else { throw Failure.notSuccessful }
                         text = String(decoding: bytes, as: UTF8.self)
@@ -156,12 +157,13 @@ final class ToolProcessBlockingTests: XCTestCase {
                 }
             }
         }
-        XCTAssertEqual(group.wait(timeout: .now() + 60), .success, "runBlocking hung while the cooperative pool was saturated")
+        XCTAssertEqual(group.wait(timeout: .now() + 120), .success, "runBlocking hung while the cooperative pool was saturated")
         let elapsed = started.duration(to: clock.now)
         XCTAssertEqual(succeeded.withLock { $0 }, runCount, "failures: \(failures.withLock { $0 })")
         XCTAssertEqual(pool.entered, parked, "the pool stayed saturated for the whole time")
-        // 64 runs of 0.2 s one after another would take 12.8 s.
-        XCTAssertLessThan(elapsed, .seconds(10), "the runs went one at a time instead of at once")
+        // 64 runs of 1 s one after another would take 64 s. The bound leaves
+        // room for spawning 64 shells under the parallel unit tier.
+        XCTAssertLessThan(elapsed, .seconds(30), "the runs went one at a time instead of at once")
 
         pool.release(blockerCount)
         released = true

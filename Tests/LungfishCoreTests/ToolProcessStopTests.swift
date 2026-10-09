@@ -29,7 +29,8 @@ final class ToolProcessStopTests: XCTestCase {
         } catch {
             XCTFail("Unexpected error \(error)")
         }
-        XCTAssertLessThan(started.duration(to: clock.now), .seconds(10))
+        // Well under the 30 s sleep, with room for the parallel unit tier.
+        XCTAssertLessThan(started.duration(to: clock.now), .seconds(20))
     }
 
     func testIdleTimeoutFiresWhenOutputStops() async throws {
@@ -137,7 +138,7 @@ final class ToolProcessStopTests: XCTestCase {
         let task = Task { try await ToolProcess.run(spec) { events.append($0) } }
         defer { Fixtures.killIfAlive(Fixtures.readPID(sleeperPIDFile)) }
 
-        let printed = await waitUntil(timeout: .seconds(10)) {
+        let printed = await waitUntil(timeout: .seconds(30)) {
             events.lines(.stdout) == ["done"]
         }
         XCTAssertTrue(printed)
@@ -148,7 +149,7 @@ final class ToolProcessStopTests: XCTestCase {
         guard case .started(let rootPID, _)? = events.all.first?.event else {
             return XCTFail("The first event must be started")
         }
-        let exited = await waitUntil(timeout: .seconds(10)) {
+        let exited = await waitUntil(timeout: .seconds(30)) {
             if case .exited = ToolProcessSpawner.peekExit(rootPID) { return true }
             return false
         }
@@ -166,7 +167,8 @@ final class ToolProcessStopTests: XCTestCase {
         default:
             XCTFail("Expected cancelled")
         }
-        XCTAssertLessThan(cancelledAt.duration(to: clock.now), .seconds(10))
+        // Well under the sleeper's 30 s, with room for the parallel unit tier.
+        XCTAssertLessThan(cancelledAt.duration(to: clock.now), .seconds(20))
         XCTAssertFalse(ProcessTreeTerminator.processExists(pid: sleeper))
     }
 }

@@ -69,7 +69,7 @@ enum ToolProcessFixtures {
         return Int32(text.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
-    static func waitForPID(_ url: URL, timeout: Duration = .seconds(10)) async -> Int32? {
+    static func waitForPID(_ url: URL, timeout: Duration = .seconds(30)) async -> Int32? {
         var pid: Int32?
         _ = await waitUntil(timeout: timeout, pollInterval: .milliseconds(20)) {
             pid = readPID(url)
@@ -78,7 +78,7 @@ enum ToolProcessFixtures {
         return pid
     }
 
-    static func waitForExit(_ pid: Int32, timeout: Duration = .seconds(5)) async -> Bool {
+    static func waitForExit(_ pid: Int32, timeout: Duration = .seconds(30)) async -> Bool {
         await waitUntil(timeout: timeout, pollInterval: .milliseconds(25)) {
             !ProcessTreeTerminator.processExists(pid: pid)
         }

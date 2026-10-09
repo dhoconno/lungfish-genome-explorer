@@ -64,7 +64,7 @@ final class ToolProcessIntegrityTests: XCTestCase {
     /// can open descriptors of its own for a moment.
     private func assertDescriptorsReturn(to baseline: Int, _ message: String) async {
         var last = openDescriptorCount()
-        let returned = await waitUntil(timeout: .seconds(3), pollInterval: .milliseconds(20)) {
+        let returned = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(20)) {
             last = openDescriptorCount()
             return last <= baseline
         }

@@ -311,7 +311,8 @@ final class ToolProcessTests: XCTestCase {
         let sleeper = try XCTUnwrap(Fixtures.readPID(pidFile))
         defer { Fixtures.killIfAlive(sleeper) }
 
-        XCTAssertLessThan(elapsed, .seconds(10))
+        // Well under the grandchild's 30 s, with room for the parallel unit tier.
+        XCTAssertLessThan(elapsed, .seconds(20))
         XCTAssertEqual(result.termination, .exited(code: 0))
         XCTAssertFalse(result.isSuccess)
         XCTAssertFalse(result.outputComplete)

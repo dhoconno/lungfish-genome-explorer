@@ -52,19 +52,20 @@ final class ProjectLockTests: XCTestCase {
     /// waited on it synchronously (Process().run() + waitUntilExit()), which is the
     /// "main-thread sync subprocess spawn" pattern flagged in the campaign. A native
     /// (no-subprocess) implementation should resolve near-instantly; this bounds
-    /// 200 repeated calls well under what 200 sequential `/bin/ps` forks would cost
-    /// (each fork+exec+wait is typically several milliseconds; 200 of them would push
-    /// this well past a second on a loaded CI machine).
+    /// 1000 repeated calls well under what 1000 sequential `/bin/ps` forks would cost
+    /// (each fork+exec+wait is typically several milliseconds; 1000 of them would take
+    /// over 5 s even on an idle machine, while the native calls leave room for the
+    /// parallel unit tier's load).
     func testProcessStartTimeResolvesQuicklyWithoutSpawningASubprocess() {
         let pid = Int(ProcessInfo.processInfo.processIdentifier)
 
         let start = Date()
-        for _ in 0..<200 {
+        for _ in 0..<1000 {
             _ = ProjectProcessInspector.processStartTime(for: pid)
         }
         let elapsed = Date().timeIntervalSince(start)
 
-        XCTAssertLessThan(elapsed, 1.0, "200 calls took \(elapsed)s -- suggests a subprocess is still being spawned per call")
+        XCTAssertLessThan(elapsed, 5.0, "1000 calls took \(elapsed)s -- suggests a subprocess is still being spawned per call")
     }
 
     func testAcquireLockCreatesRecordWhenLockFileDoesNotExist() throws {
@@ -151,7 +152,7 @@ final class ProjectLockTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(group.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(group.wait(timeout: .now() + 30), .success)
         XCTAssertTrue(collector.errors.isEmpty, "Unexpected acquisition errors: \(collector.errors)")
         XCTAssertEqual(collector.winningModes.count, 1)
         XCTAssertEqual(try ProjectLockManager().readLock(at: lockURL)?.mode, collector.winningModes.first)

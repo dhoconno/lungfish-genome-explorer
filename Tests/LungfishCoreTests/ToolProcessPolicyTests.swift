@@ -77,7 +77,8 @@ final class ToolProcessPolicyTests: XCTestCase {
         let stubborn = Fixtures.readPID(pidFile)
         defer { Fixtures.killIfAlive(stubborn) }
 
-        XCTAssertLessThan(elapsed, .seconds(10), "the 30 second termination grace must not apply to leftovers")
+        // Well under the 30 s grace, with room for the parallel unit tier.
+        XCTAssertLessThan(elapsed, .seconds(20), "the 30 second termination grace must not apply to leftovers")
         XCTAssertEqual(result.termination, .exited(code: 0))
         XCTAssertNil(result.stop)
         XCTAssertTrue(result.outputDrainTimedOut)
@@ -86,7 +87,7 @@ final class ToolProcessPolicyTests: XCTestCase {
         let leftover = try XCTUnwrap(stubborn)
         // SIGKILL went out before the run returned, so the leftover is gone
         // within moments, long before its 60 second sleep.
-        let gone = await Fixtures.waitForExit(leftover, timeout: .seconds(2))
+        let gone = await Fixtures.waitForExit(leftover)
         XCTAssertTrue(gone, "the leftover ignored SIGTERM and must still be killed")
     }
 

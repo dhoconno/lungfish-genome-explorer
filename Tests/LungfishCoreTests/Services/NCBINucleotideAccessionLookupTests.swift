@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishCore
+import LungfishTestSupport
 
 final class NCBINucleotideAccessionLookupTests: XCTestCase {
     func testExactVersionsOrderDeduplicationAndNoPagination() async throws {
@@ -102,10 +103,7 @@ final class NCBINucleotideAccessionLookupTests: XCTestCase {
         let lookup = Task {
             try await service.lookupNucleotideAccessions(["NM_000546.5", "NM_000059.4"])
         }
-        for _ in 0..<100 {
-            if !(await client.requests).isEmpty { break }
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntil { !(await client.requests).isEmpty }
         lookup.cancel()
         do {
             _ = try await lookup.value

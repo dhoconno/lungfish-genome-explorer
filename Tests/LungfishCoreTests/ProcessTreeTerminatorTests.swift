@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: MIT
 
 import Darwin
+import Synchronization
 import XCTest
 @testable import LungfishCore
+import LungfishTestSupport
 
 final class ProcessTreeTerminatorTests: XCTestCase {
     func testTerminateKillsNestedGrandchildProcess() async throws {
@@ -59,8 +61,8 @@ final class ProcessTreeTerminatorTests: XCTestCase {
 
         ProcessTreeTerminator.terminate(rootPID: rootPID, gracePeriod: 0)
 
-        let childExited = await waitUntilProcessExits(pid: childPID, timeout: 2)
-        let grandchildExited = await waitUntilProcessExits(pid: grandchildPID, timeout: 2)
+        let childExited = await waitUntilProcessExits(pid: childPID)
+        let grandchildExited = await waitUntilProcessExits(pid: grandchildPID)
         XCTAssertTrue(childExited)
         XCTAssertTrue(grandchildExited)
     }
@@ -109,8 +111,8 @@ final class ProcessTreeTerminatorTests: XCTestCase {
         let latePIDBeforeCancel = try await waitForPIDFile(latePIDFile)
         ProcessTreeTerminator.terminate(rootPID: rootPID, gracePeriod: 0)
 
-        let lateChildExited = await waitUntilProcessExits(pid: latePIDBeforeCancel, timeout: 2)
-        let rootExited = await waitUntilProcessExits(pid: rootPID, timeout: 2)
+        let lateChildExited = await waitUntilProcessExits(pid: latePIDBeforeCancel)
+        let rootExited = await waitUntilProcessExits(pid: rootPID)
         XCTAssertTrue(lateChildExited)
         XCTAssertTrue(rootExited)
     }
@@ -130,7 +132,7 @@ final class ProcessTreeTerminatorTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
     }
 
-    private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 5) async throws -> Int32 {
+    private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 30) async throws -> Int32 {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if let pid = try? readPID(url) {
@@ -161,15 +163,10 @@ final class ProcessTreeTerminatorTests: XCTestCase {
         return pid
     }
 
-    private func waitUntilProcessExits(pid: Int32, timeout: TimeInterval) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if !ProcessTreeTerminator.processExists(pid: pid) {
-                return true
-            }
-            try? await Task.sleep(nanoseconds: 50_000_000)
+    private func waitUntilProcessExits(pid: Int32, timeout: Duration = .seconds(30)) async -> Bool {
+        await waitUntil(timeout: timeout, pollInterval: .milliseconds(50)) {
+            !ProcessTreeTerminator.processExists(pid: pid)
         }
-        return !ProcessTreeTerminator.processExists(pid: pid)
     }
 
     private func shellQuote(_ value: String) -> String {
@@ -235,8 +232,8 @@ final class ProcessTreeTerminatorTests: XCTestCase {
 
         ProcessTreeTerminator.terminate(rootPID: rootPID, gracePeriod: 0)
 
-        let rootExited = await waitUntilProcessExits(pid: rootPID, timeout: 2)
-        let grandchildExited = await waitUntilProcessExits(pid: grandchildPID, timeout: 2)
+        let rootExited = await waitUntilProcessExits(pid: rootPID)
+        let grandchildExited = await waitUntilProcessExits(pid: grandchildPID)
         XCTAssertTrue(rootExited, "root process must not survive cancellation")
         XCTAssertTrue(grandchildExited, "a SIGTERM-ignoring grandchild must not survive cancellation")
     }
@@ -310,16 +307,51 @@ final class ProcessTreeTerminatorTests: XCTestCase {
 
         ProcessTreeTerminator.terminate(rootPID: rootPID, gracePeriod: 0)
 
-        let grandchildExited = await waitUntilProcessExits(pid: grandchildPID, timeout: 2)
+        let grandchildExited = await waitUntilProcessExits(pid: grandchildPID)
         XCTAssertTrue(grandchildExited)
         XCTAssertGreaterThan(counting.calls, 0, "terminate(rootPID:) must consult the injected lister")
     }
 
     // MARK: - Concurrent terminateAll
 
+    /// Process-table lister that holds each caller until a second caller is
+    /// inside `snapshot()` at the same time, so a test can see whether
+    /// terminations overlap without timing them. If none arrives within
+    /// 30 s it stops holding callers and leaves `maxInFlight` at 1.
+    private final class OverlapDetectingLister: ProcessTableLister {
+        private struct State {
+            var inFlight = 0
+            var maxInFlight = 0
+            var gaveUp = false
+        }
+
+        private let real = LibprocProcessTableLister()
+        private let state = Mutex(State())
+
+        var maxInFlight: Int { state.withLock { $0.maxInFlight } }
+
+        func snapshot() -> [ProcessTableRow] {
+            state.withLock { state in
+                state.inFlight += 1
+                state.maxInFlight = max(state.maxInFlight, state.inFlight)
+            }
+            defer { state.withLock { $0.inFlight -= 1 } }
+            let deadline = Date().addingTimeInterval(30)
+            while state.withLock({ $0.maxInFlight < 2 && !$0.gaveUp }) {
+                if Date() >= deadline {
+                    state.withLock { $0.gaveUp = true }
+                    break
+                }
+                usleep(1_000)
+            }
+            return real.snapshot()
+        }
+    }
+
     /// Acceptance test: terminating 4 fake roots, each with 3
-    /// SIGTERM-ignoring children, completes in well under 4x a single
-    /// root's cost — i.e. roots are terminated concurrently, not serially.
+    /// SIGTERM-ignoring children, terminates the roots concurrently, not
+    /// serially. Overlapping process-table reads show the concurrency, which
+    /// a wall-clock bound could not do reliably under the parallel unit tier.
     func testTerminateAllRunsRootsConcurrently() async throws {
         let tempDir = try makeTemporaryDirectory()
         let registry = NativeProcessRegistry.shared
@@ -374,17 +406,19 @@ final class ProcessTreeTerminatorTests: XCTestCase {
             }
         }
 
-        let start = Date()
+        let overlapping = OverlapDetectingLister()
+        let previousLister = ProcessTreeTerminator.processTableLister
+        ProcessTreeTerminator.processTableLister = overlapping
         registry.terminateAll(gracePeriod: 0)
-        let elapsed = Date().timeIntervalSince(start)
+        ProcessTreeTerminator.processTableLister = previousLister
 
         for pid in allChildPIDs {
-            let exited = await waitUntilProcessExits(pid: pid, timeout: 2)
+            let exited = await waitUntilProcessExits(pid: pid)
             XCTAssertTrue(exited, "child \(pid) must not survive terminateAll")
         }
-        // Four roots run concurrently should finish well under 4x a single
-        // root's serial cost; generous bound to avoid CI flakiness while
-        // still catching a regression back to serial execution.
-        XCTAssertLessThan(elapsed, 3.0, "terminateAll should run roots concurrently, not serially")
+        XCTAssertGreaterThanOrEqual(
+            overlapping.maxInFlight, 2,
+            "terminateAll should run roots concurrently, not serially"
+        )
     }
 }

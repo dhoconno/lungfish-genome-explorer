@@ -22,12 +22,13 @@ final class ToolProcessTerminationTests: XCTestCase {
     }
 
     /// A process that honours SIGTERM is gone within milliseconds, so the
-    /// cancelled run returns long before the 2 second grace runs out.
+    /// cancelled run returns long before the 30 second grace runs out. The
+    /// long grace keeps the bound clear of the parallel unit tier's load.
     func testCancellingARunThatHonoursSIGTERMReturnsWellBeforeTheGrace() async throws {
-        let run = try ToolProcess.start(sleeper(30, grace: .seconds(2)))
+        let run = try ToolProcess.start(sleeper(60, grace: .seconds(30)))
         let pid = try XCTUnwrap(run.pid)
         defer { Fixtures.killIfAlive(pid) }
-        let running = await waitUntil(timeout: .seconds(10)) { ToolProcessTreeProbe.isRunning(pid) }
+        let running = await waitUntil(timeout: .seconds(30)) { ToolProcessTreeProbe.isRunning(pid) }
         XCTAssertTrue(running)
 
         let clock = ContinuousClock()
@@ -40,7 +41,7 @@ final class ToolProcessTerminationTests: XCTestCase {
             XCTAssertEqual(results.first?.termination, .signaled(signal: SIGTERM))
         }
         let elapsed = cancelledAt.duration(to: clock.now)
-        XCTAssertLessThan(elapsed, .milliseconds(500), "the run must end once the group is gone, not after the 2 s grace")
+        XCTAssertLessThan(elapsed, .seconds(10), "the run must end once the group is gone, not after the 30 s grace")
     }
 
     /// Fifty runs that ignore SIGTERM are cancelled together and wait out a
@@ -55,7 +56,7 @@ final class ToolProcessTerminationTests: XCTestCase {
         let pids = runs.compactMap(\.pid)
         defer { pids.forEach(Fixtures.killIfAlive) }
         XCTAssertEqual(pids.count, count)
-        let allRunning = await waitUntil(timeout: .seconds(20)) { pids.allSatisfy(ToolProcessTreeProbe.isRunning) }
+        let allRunning = await waitUntil(timeout: .seconds(30)) { pids.allSatisfy(ToolProcessTreeProbe.isRunning) }
         XCTAssertTrue(allRunning)
         try await Task.sleep(for: .milliseconds(300))
         let baseline = try XCTUnwrap(Self.threadCount())

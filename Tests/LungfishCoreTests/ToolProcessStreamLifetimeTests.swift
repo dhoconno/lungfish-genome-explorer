@@ -24,12 +24,12 @@ final class ToolProcessStreamLifetimeTests: XCTestCase {
     func testDroppingAStreamedRunWithoutReadingEndsAndReapsIt() async throws {
         let pid = try Self.startAndDropYes()
         defer { Fixtures.killIfAlive(pid) }
-        let reaped = await waitUntil(timeout: .seconds(5), pollInterval: .milliseconds(20)) {
+        let reaped = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(20)) {
             if case .lost = ToolProcessSpawner.peekExit(pid) { return true }
             return false
         }
         XCTAssertTrue(reaped, "the writer of a dropped stream must end and be reaped")
-        let unregistered = await waitUntil(timeout: .seconds(5)) {
+        let unregistered = await waitUntil(timeout: .seconds(30)) {
             !NativeProcessRegistry.shared.isRegistered(processGroupLeader: pid)
         }
         XCTAssertTrue(unregistered, "a finished run leaves the registry")
@@ -86,7 +86,7 @@ final class ToolProcessStreamLifetimeTests: XCTestCase {
             }
             finished.signal()
         }
-        XCTAssertEqual(started.wait(timeout: .now() + 10), .success)
+        XCTAssertEqual(started.wait(timeout: .now() + 30), .success)
         try await Task.sleep(for: .milliseconds(100))
 
         run.cancel()
@@ -107,13 +107,13 @@ final class ToolProcessStreamLifetimeTests: XCTestCase {
         }
         defer { decoys.forEach { Darwin.close($0) } }
 
-        XCTAssertEqual(finished.wait(timeout: .now() + 10), .success, "the close must end the reader")
+        XCTAssertEqual(finished.wait(timeout: .now() + 30), .success, "the close must end the reader")
         XCTAssertFalse(sawMarker.withLock { $0 }, "the reader read a descriptor after the stream closed it")
         XCTAssertFalse(run.stdout.readFailed, "no read may fail on a closed descriptor")
         XCTAssertTrue(run.stdout.endedWithoutEndOfFile, "the stream was closed before end of file")
         if let holder {
             // The real close came once the reader left, so the holder's next write gets SIGPIPE.
-            let holderEnded = await Fixtures.waitForExit(holder, timeout: .seconds(5))
+            let holderEnded = await Fixtures.waitForExit(holder)
             XCTAssertTrue(holderEnded, "the read end must really close after the last reader leaves")
         }
     }

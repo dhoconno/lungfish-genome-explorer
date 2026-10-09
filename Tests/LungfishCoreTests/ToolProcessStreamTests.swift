@@ -116,7 +116,7 @@ final class ToolProcessStreamTests: XCTestCase {
             }
             readerDone.signal()
         }
-        XCTAssertEqual(blocked.wait(timeout: .now() + 10), .success)
+        XCTAssertEqual(blocked.wait(timeout: .now() + 30), .success)
         let sleeper = try XCTUnwrap(Self.waitForPID(pidFile))
         defer { Fixtures.killIfAlive(sleeper) }
         // The reader is now parked on a pipe that will not be written again.
@@ -126,8 +126,9 @@ final class ToolProcessStreamTests: XCTestCase {
         let clock = ContinuousClock()
         let cancelledAt = clock.now
         run.cancel()
-        XCTAssertEqual(readerDone.wait(timeout: .now() + 10), .success, "cancel must end a blocked read")
-        XCTAssertLessThan(cancelledAt.duration(to: clock.now), .seconds(5))
+        XCTAssertEqual(readerDone.wait(timeout: .now() + 30), .success, "cancel must end a blocked read")
+        // Well under the sleeper's 30 s, with room for the parallel unit tier.
+        XCTAssertLessThan(cancelledAt.duration(to: clock.now), .seconds(20))
         XCTAssertEqual(readBytes.withLock { $0 }, Data("start".utf8))
         do {
             _ = try run.waitBlocking()
@@ -193,7 +194,8 @@ final class ToolProcessStreamTests: XCTestCase {
 
         XCTAssertNotNil(escaped)
         XCTAssertTrue(escaped.map(ToolProcessTreeProbe.isRunning) ?? false, "the escaped writer still holds the pipe")
-        XCTAssertLessThan(started.duration(to: clock.now), .seconds(10), "the reader must not wait for the escaped writer")
+        // Well under the escaped writer's 30 s sleep, with room for the parallel unit tier.
+        XCTAssertLessThan(started.duration(to: clock.now), .seconds(20), "the reader must not wait for the escaped writer")
         XCTAssertEqual(bytes, Data("hello".utf8))
         XCTAssertTrue(run.stdout.endedWithoutEndOfFile)
         XCTAssertTrue(result.outputDrainTimedOut, "the reader's early end is folded into the result")
@@ -262,7 +264,7 @@ final class ToolProcessStreamTests: XCTestCase {
         }
     }
 
-    static func waitForPID(_ url: URL, timeout: TimeInterval = 10) -> Int32? {
+    static func waitForPID(_ url: URL, timeout: TimeInterval = 30) -> Int32? {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if let pid = Fixtures.readPID(url) { return pid }

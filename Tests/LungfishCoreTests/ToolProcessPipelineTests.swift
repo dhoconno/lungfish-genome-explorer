@@ -104,7 +104,8 @@ final class ToolProcessPipelineTests: XCTestCase {
         } catch {
             XCTFail("Unexpected error \(error)")
         }
-        XCTAssertLessThan(started.duration(to: clock.now), .seconds(10))
+        // Well under the stage's 30 s sleep, with room for the parallel unit tier.
+        XCTAssertLessThan(started.duration(to: clock.now), .seconds(20))
     }
 
     func testCancellationTerminatesEveryStage() async throws {

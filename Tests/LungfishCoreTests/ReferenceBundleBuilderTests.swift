@@ -456,7 +456,7 @@ final class ReferenceBundleBuilderTests: XCTestCase {
             }
         }
 
-        await fulfillment(of: [buildStarted], timeout: 2.0)
+        await fulfillment(of: [buildStarted], timeout: 5.0)
         task.cancel()
 
         do {

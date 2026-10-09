@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishCore
+import LungfishTestSupport
 
 final class NCBIServiceTests: XCTestCase {
 
@@ -1902,12 +1903,10 @@ final class NCBIServiceTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
-        for _ in 0..<50 {
-            if await mockClient.requests.count >= expectedCount {
-                return
-            }
-            try await Task.sleep(nanoseconds: 10_000_000)
+        let recorded = await waitUntil {
+            await mockClient.requests.count >= expectedCount
         }
+        if recorded { return }
         let actualCount = await mockClient.requests.count
         XCTFail("Timed out waiting for \(expectedCount) recorded request(s); saw \(actualCount)", file: file, line: line)
     }

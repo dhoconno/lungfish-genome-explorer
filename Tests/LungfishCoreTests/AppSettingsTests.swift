@@ -510,7 +510,7 @@ final class AppSettingsTests: XCTestCase {
         let expectation = expectation(forNotification: .appSettingsChanged, object: nil)
         AppSettings.shared.maxAnnotationRows = 99
         AppSettings.shared.save()
-        wait(for: [expectation], timeout: 1.0)
+        wait(for: [expectation], timeout: 5.0)
     }
 
     @MainActor
@@ -518,7 +518,7 @@ final class AppSettingsTests: XCTestCase {
         let expectation = expectation(forNotification: .appearanceChanged, object: nil)
         AppSettings.shared.annotationTypeColorHexes["gene"] = "#FF0000"
         AppSettings.shared.save()
-        wait(for: [expectation], timeout: 1.0)
+        wait(for: [expectation], timeout: 5.0)
     }
 
     @MainActor
