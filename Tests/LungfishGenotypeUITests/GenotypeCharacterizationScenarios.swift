@@ -574,12 +574,12 @@ extension GenotypeResultViewportTestCase {
                     Fixture.locusCall("MHC-DRB", "M1DR|M2DR", "M3DR", .ambiguous,
                         matched: ["M1DR": ["06_Mafa_DRB_001_01"], "M2DR": ["06_Mafa_DRB_001_01"], "M3DR": ["07_Mafa_DRB_002_01"]],
                         observed: ["06_Mafa_DRB_001_01", "07_Mafa_DRB_002_01"],
-                        notes: "GEN-02: M1DR|M2DR and M3DR cannot be distinguished from the observed diagnostic alleles"),
+                        notes: "M1DR|M2DR and M3DR cannot be distinguished from the observed diagnostic alleles"),
                 ]),
                 .init(sample: "AnimalB", calls: [
                     Fixture.locusCall("MHC-A", "M1A|M2A", "M1A|M2A", .ambiguous,
                         matched: ["M1A": ["01_Mafa_A1_001_01"], "M2A": ["01_Mafa_A1_001_01"]], observed: ["01_Mafa_A1_001_01"],
-                        notes: "GEN-02: M1A|M2A cannot be distinguished from the observed diagnostic alleles"),
+                        notes: "M1A|M2A cannot be distinguished from the observed diagnostic alleles"),
                     Fixture.locusCall("MHC-B", "ERR: NO HAP", "ERR: NO HAP", .noHaplotype, observed: ["05_Mafa_B_090_01"]),
                     Fixture.locusCall("MHC-DRB", "ERR: TMH (M1DR, M2DR, M3DR)", "ERR: TMH (M1DR, M2DR, M3DR)", .tooManyHaplotypes,
                         matched: ["M1DR": ["06_Mafa_DRB_001_01"], "M2DR": ["08_Mafa_DRB_003_01"], "M3DR": ["07_Mafa_DRB_002_01"]],
@@ -588,7 +588,7 @@ extension GenotypeResultViewportTestCase {
                 .init(sample: "AnimalC", calls: [
                     Fixture.locusCall("MHC-A", "M2A", "?", .unresolvedSecondHaplotype,
                         matched: ["M2A": ["02_Mafa_A1_002_01"]], observed: ["02_Mafa_A1_002_01", "09_Mafa_A1_009_01"],
-                        notes: "GEN-08: only M2A matched a defined haplotype"),
+                        notes: "Only M2A matched a defined haplotype"),
                     Fixture.locusCall("MHC-B", "Not assayed", "Not assayed", .notAssayed,
                         notes: "MHC-B was not observed anywhere in this run for the active definition set."),
                     Fixture.locusCall("MHC-DRB", "M2DR", "M3DR", .called,

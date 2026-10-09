@@ -631,7 +631,7 @@
           "sampleID" : "AnimalA"
         },
         {
-          "comment" : "GEN-02: M1DR|M2DR and M3DR cannot be distinguished from the observed diagnostic alleles",
+          "comment" : "M1DR|M2DR and M3DR cannot be distinguished from the observed diagnostic alleles",
           "h1" : {
             "baselineAvailable" : true,
             "effective" : "M1DR|M2DR",
@@ -651,7 +651,7 @@
           "sampleID" : "AnimalA"
         },
         {
-          "comment" : "GEN-02: M1A|M2A cannot be distinguished from the observed diagnostic alleles",
+          "comment" : "M1A|M2A cannot be distinguished from the observed diagnostic alleles",
           "h1" : {
             "baselineAvailable" : true,
             "effective" : "M1A",
@@ -711,7 +711,7 @@
           "sampleID" : "AnimalB"
         },
         {
-          "comment" : "GEN-08: only M2A matched a defined haplotype",
+          "comment" : "Only M2A matched a defined haplotype",
           "h1" : {
             "baselineAvailable" : true,
             "effective" : "M2A",
@@ -1155,7 +1155,7 @@
                       ]
                     }
                   ],
-                  "notes" : "GEN-02: M1DR|M2DR and M3DR cannot be distinguished from the observed diagnostic alleles",
+                  "notes" : "M1DR|M2DR and M3DR cannot be distinguished from the observed diagnostic alleles",
                   "observedGenotypeCount" : 2,
                   "observedGenotypes" : [
                     "06_Mafa_DRB_001_01",
@@ -1196,7 +1196,7 @@
                       ]
                     }
                   ],
-                  "notes" : "GEN-02: M1A|M2A cannot be distinguished from the observed diagnostic alleles",
+                  "notes" : "M1A|M2A cannot be distinguished from the observed diagnostic alleles",
                   "observedGenotypeCount" : 1,
                   "observedGenotypes" : [
                     "01_Mafa_A1_001_01"
@@ -1291,7 +1291,7 @@
                       ]
                     }
                   ],
-                  "notes" : "GEN-08: only M2A matched a defined haplotype",
+                  "notes" : "Only M2A matched a defined haplotype",
                   "observedGenotypeCount" : 2,
                   "observedGenotypes" : [
                     "02_Mafa_A1_002_01",
@@ -1806,7 +1806,7 @@
                           ]
                         }
                       ],
-                      "notes" : "GEN-02: M1DR|M2DR and M3DR cannot be distinguished from the observed diagnostic alleles",
+                      "notes" : "M1DR|M2DR and M3DR cannot be distinguished from the observed diagnostic alleles",
                       "observedGenotypeCount" : 2,
                       "observedGenotypes" : [
                         "06_Mafa_DRB_001_01",
@@ -1847,7 +1847,7 @@
                           ]
                         }
                       ],
-                      "notes" : "GEN-02: M1A|M2A cannot be distinguished from the observed diagnostic alleles",
+                      "notes" : "M1A|M2A cannot be distinguished from the observed diagnostic alleles",
                       "observedGenotypeCount" : 1,
                       "observedGenotypes" : [
                         "01_Mafa_A1_001_01"
@@ -1942,7 +1942,7 @@
                           ]
                         }
                       ],
-                      "notes" : "GEN-08: only M2A matched a defined haplotype",
+                      "notes" : "Only M2A matched a defined haplotype",
                       "observedGenotypeCount" : 2,
                       "observedGenotypes" : [
                         "02_Mafa_A1_002_01",
@@ -2658,7 +2658,7 @@
                         ]
                       }
                     ],
-                    "notes" : "GEN-02: M1DR|M2DR and M3DR cannot be distinguished from the observed diagnostic alleles",
+                    "notes" : "M1DR|M2DR and M3DR cannot be distinguished from the observed diagnostic alleles",
                     "observedGenotypeCount" : 2,
                     "observedGenotypes" : [
                       "06_Mafa_DRB_001_01",
@@ -2699,7 +2699,7 @@
                         ]
                       }
                     ],
-                    "notes" : "GEN-02: M1A|M2A cannot be distinguished from the observed diagnostic alleles",
+                    "notes" : "M1A|M2A cannot be distinguished from the observed diagnostic alleles",
                     "observedGenotypeCount" : 1,
                     "observedGenotypes" : [
                       "01_Mafa_A1_001_01"
@@ -2794,7 +2794,7 @@
                         ]
                       }
                     ],
-                    "notes" : "GEN-08: only M2A matched a defined haplotype",
+                    "notes" : "Only M2A matched a defined haplotype",
                     "observedGenotypeCount" : 2,
                     "observedGenotypes" : [
                       "02_Mafa_A1_002_01",
