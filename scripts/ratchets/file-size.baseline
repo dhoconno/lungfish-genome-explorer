@@ -111,13 +111,13 @@ Sources/LungfishEsVirituUI/ViralDetectionTableView.swift 2101
 Sources/LungfishGenotypeUI/GenotypeAnnotationStore.swift 2681
 Sources/LungfishGenotypeUI/GenotypeCallEvidenceView.swift 1605
 Sources/LungfishGenotypeUI/GenotypeCandidateAlleleDetailView.swift 1142
-Sources/LungfishGenotypeUI/GenotypeComparisonMatrixView.swift 9351
+Sources/LungfishGenotypeUI/GenotypeComparisonMatrixView.swift 9320
 Sources/LungfishGenotypeUI/GenotypeKnownAlleleDetailView.swift 1092
 Sources/LungfishGenotypeUI/GenotypeManualHaplotypeDraft.swift 814
 Sources/LungfishGenotypeUI/GenotypeOutlineView.swift 814
 Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift 842
-Sources/LungfishGenotypeUI/GenotypeResultDisplaySectionViewModel.swift 1284
-Sources/LungfishGenotypeUI/GenotypeResultViewController.swift 11352
+Sources/LungfishGenotypeUI/GenotypeResultDisplaySectionViewModel.swift 1277
+Sources/LungfishGenotypeUI/GenotypeResultViewController.swift 11345
 Sources/LungfishGenotypeUI/GenotypeSampleComparisonModel.swift 843
 Sources/LungfishGenotypeUI/GenotypeSampleComparisonPanel.swift 1372
 Sources/LungfishIO/Bundles/AlignmentDataProvider.swift 1229
@@ -126,7 +126,7 @@ Sources/LungfishIO/Bundles/GenotypeAnnotationSidecar.swift 995
 Sources/LungfishIO/Bundles/GenotypeHaplotypeAnalyzer.swift 1368
 Sources/LungfishIO/Bundles/MHCReferenceRecordCatalog.swift 922
 Sources/LungfishIO/Bundles/MultipleSequenceAlignmentBundle.swift 1526
-Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift 2119
+Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift 2086
 Sources/LungfishIO/Bundles/ONTGenotypeResultBundleData.swift 887
 Sources/LungfishIO/Bundles/ONTGenotypeWorkbookCleanupStateStore.swift 1314
 Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift 3398
