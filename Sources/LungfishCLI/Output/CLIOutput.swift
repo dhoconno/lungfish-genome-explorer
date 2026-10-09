@@ -15,6 +15,20 @@ func printStatusLine(_ text: String) {
     FileHandle.standardError.write(Data((text + "\n").utf8))
 }
 
+// MARK: - Event lines
+
+/// Writes one event line to standard output and flushes it at once.
+///
+/// The app runs lungfish-cli with stdout on a pipe and reads its events line
+/// by line, and print buffers on a pipe. An event printed without a flush
+/// reaches the Operations Panel only when the command exits, so a long run
+/// looks hung. Use this for each line a live reader parses, and keep plain
+/// print for bulk data, which a flush per line would slow down.
+func printEventLine(_ line: String) {
+    print(line)
+    fflush(stdout)
+}
+
 // MARK: - CLI Output Protocol
 
 /// Protocol for CLI output handlers

@@ -88,7 +88,7 @@ extension TreeCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
-            try await execute(emit: { print($0) })
+            try await execute(emit: { printEventLine($0) })
         }
 
         func executeForTesting(emit: @escaping (String) -> Void) async throws {

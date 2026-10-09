@@ -86,7 +86,7 @@ extension MSACommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() throws {
-            try execute(emit: { print($0) })
+            try execute(emit: { printEventLine($0) })
         }
 
         func executeForTesting(emit: @escaping (String) -> Void) throws {

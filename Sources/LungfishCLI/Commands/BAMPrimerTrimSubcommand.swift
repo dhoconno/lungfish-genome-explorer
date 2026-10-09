@@ -109,7 +109,7 @@ extension BAMCommand {
                 if resolvedGlobalOptions.outputFormat == .text && resolvedGlobalOptions.quiet {
                     return
                 }
-                print(line)
+                printEventLine(line)
             }
             _ = try await execute(emit: emit, format: resolvedGlobalOptions.outputFormat)
         }

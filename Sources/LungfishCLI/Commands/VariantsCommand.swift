@@ -869,7 +869,7 @@ extension VariantsCommand {
             if globalOptions.outputFormat == .json {
                 emitter = { event in
                     if let line = encode(event: event) {
-                        print(line)
+                        printEventLine(line)
                     }
                 }
             } else {

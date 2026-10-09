@@ -154,7 +154,7 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
         let explicitReadType = readType.flatMap(Self.parseReadType)
         let clearReadType = readType?.lowercased() == Self.clearReadTypeValue
         let source: PlatformAssignment.Source = confirm ? .userConfirmed : .userCorrected
-        let events = CLIEventEmitter(enabled: globalOptions.outputFormat == .json) { print($0) }
+        let events = CLIEventEmitter(enabled: globalOptions.outputFormat == .json) { printEventLine($0) }
         events.emitStart(message: "Recording the sequencing platform of \(bundleURLs.count) FASTQ bundle(s)")
 
         var targets: [URL] = []
