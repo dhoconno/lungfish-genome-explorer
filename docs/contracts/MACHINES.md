@@ -1,16 +1,25 @@
 # Machines
 
-This contract says what each Mac that works on Lungfish Genome Explorer (LGE) is for, where the golden comparison runs, and how a laptop takes part without holding the golden environment. The owner set it on 2026-10-08, when the Mac Studio became the golden runner and a second release Mac.
+This contract says what each Mac that works on Lungfish Genome Explorer (LGE) is for, where the golden comparison runs, and how a laptop takes part without holding the golden environment. The owner set it on 2026-10-08, when the Mac Studio became the golden runner and the only release Mac.
 
 ## Roles
 
 | Machine | Role | What runs there |
 |---|---|---|
-| Mac Studio (M1 Ultra, 20 cores) | Golden runner and release Mac | The `Golden` workflow on every push to `main` and on demand, the release commands, and any work a person does at it |
-| The laptop (M4 Pro, 14 cores) | Release Mac and development Mac | The release commands and day-to-day development |
-| Any other Mac | Development Mac | Targeted tests, the unit tier and, when its owner provisions the golden environment, the golden comparison |
+| Mac Studio (M1 Ultra, 20 cores) | Golden runner and the only release Mac | The `Golden` workflow on every push to `main` and on demand, every Preview and Stable release, and any work a person does at it |
+| The laptop (M4 Pro, 14 cores) | Development Mac | Day-to-day development, Debug builds, targeted tests, the unit tier and the golden comparison |
+| Any other Mac | Development Mac | Debug builds, targeted tests, the unit tier and, when its owner provisions the golden environment, the golden comparison |
 
-A release Mac holds the signing identity, the notary profile and the Sparkle key, and `python3 scripts/release/release.py setup` passes on it. The golden runner holds the golden environment and runs the GitHub Actions runner service. Neither role depends on the account name, because nothing in the goldens records a home folder.
+The release Mac holds the signing identity, the notary profile and the Sparkle key, and `python3 scripts/release/release.py setup` passes on it. The laptop keeps the same credentials as a standby, but it runs no `release.py package` or `release.py publish`. Making it a release Mac again takes a reviewed change to this table. The golden runner holds the golden environment and runs the GitHub Actions runner service. Neither role depends on the account name, because nothing in the goldens records a home folder.
+
+## Builds on each Mac
+
+| Build | Where it is made | How it reaches another Mac |
+|---|---|---|
+| Lungfish Debug | Any development Mac, with `python3 scripts/release/release.py debug` from its own checkout. It is ad-hoc signed and needs no release credentials. | It does not. Each Mac builds its own, and Debug is never published. |
+| Lungfish Preview and Lungfish (Stable) | The Mac Studio only, with `release.py package` and then `release.py publish` | Sparkle updates the installed app from its channel's feed. The notarized DMG is also on the GitHub release. |
+
+A development Mac needs no release verification root (`~/.lungfish-verify`) and no packaged releases under `build/Release`, because it never packages.
 
 ## The golden environment
 

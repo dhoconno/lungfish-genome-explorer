@@ -60,7 +60,7 @@ When a session adds only one small fix, the integration, review and final-candid
 
 ## What each step costs
 
-Measured on the release Mac (14-core M4 Pro) on 2026-10-07.
+Measured on the laptop (14-core M4 Pro) on 2026-10-07.
 
 | Step | Time |
 |---|---|
