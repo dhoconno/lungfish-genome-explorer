@@ -1,0 +1,5394 @@
+{
+  "normalization" : {
+    "masks" : [
+      {
+        "applies" : "The test's own temp root in plain paths and file URLs, in the /var and the /private/var spelling",
+        "count" : 0,
+        "guard" : "None, it is the fixture root",
+        "token" : "<ROOT>"
+      },
+      {
+        "applies" : "The top-level generatedAt of the frozen Excel capture",
+        "count" : 0,
+        "guard" : "Parses as ISO 8601 UTC to the second and lies inside the test's time window",
+        "token" : "<GENERATED_AT>"
+      },
+      {
+        "applies" : "A sourceRevision digest of the frozen Excel capture whose key names a captured input",
+        "count" : 0,
+        "guard" : "Equals the SHA-256 of that input's raw bytes, which are decoded and compared in full",
+        "token" : "<SHA256>"
+      }
+    ]
+  },
+  "value" : [
+    {
+      "activeSampleNames" : [
+        "AnimalA",
+        "AnimalB",
+        "AnimalC"
+      ],
+      "disclosure" : {
+        "accessibilityHelp" : "Shows seven locus-level manual haplotype assignment rows below the sample names.",
+        "accessibilityLabel" : "Manual haplotypes (7 loci)",
+        "identifier" : "manual-haplotype-band-disclosure",
+        "isAccessibilityExpanded" : false,
+        "isOn" : false,
+        "label" : "Manual haplotypes (7 loci)",
+        "title" : "Haplotypes",
+        "toolTip" : "Manual haplotypes (7 loci)"
+      },
+      "expandedInDisplayState" : false,
+      "expandedInMatrix" : false,
+      "expandedInStore" : null,
+      "expandedRowCount" : 0,
+      "export" : {
+        "haplotypeCalls" : [
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "Pedigree confirmed",
+            "haplotype1" : "Hap-1",
+            "haplotype1Source" : "manualAssignment",
+            "haplotype1Status" : "called",
+            "haplotype2" : "Hap-2",
+            "haplotype2Source" : "manualAssignment",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "Provisional",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "Hap-3",
+            "haplotype2Source" : "manualAssignment",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalC"
+          }
+        ],
+        "haplotypeLocusScope" : null,
+        "haplotypeSampleScope" : null,
+        "locusFilter" : "All Loci",
+        "sampleNames" : [
+          "AnimalA",
+          "AnimalB",
+          "AnimalC"
+        ]
+      },
+      "includedLoci" : null,
+      "label" : "configured",
+      "loci" : [
+        "MHC-A",
+        "MHC-B",
+        "MHC-DRB",
+        "MHC-DQA",
+        "MHC-DQB",
+        "MHC-DPA",
+        "MHC-DPB"
+      ],
+      "locusFilterTitles" : [
+        "All Loci",
+        "MHC-A",
+        "MHC-B",
+        "MHC-DPA1",
+        "MHC-DPB1",
+        "MHC-DQA1",
+        "MHC-DQB1",
+        "MHC-DRB"
+      ],
+      "mode" : "manualAssignments",
+      "sampleColumnTitles" : [
+        "AnimalA",
+        "AnimalB",
+        "AnimalC"
+      ],
+      "samples" : [
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalA. 0 sample column comments. Manual haplotypes: MHC-A H1 Hap-1, H2 Hap-2",
+          "loci" : [
+            {
+              "drawn" : null,
+              "locus" : "MHC-A",
+              "registeredTooltip" : null,
+              "rendered" : "Hap-1 · Hap-2",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: Hap-1; H2: Hap-2"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-B",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalA"
+        },
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalB. 0 sample column comments. Manual haplotypes: MHC-DQA H2 Hap-3",
+          "loci" : [
+            {
+              "drawn" : null,
+              "locus" : "MHC-A",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-B",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : null,
+              "rendered" : "— · Hap-3",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: Hap-3"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalB"
+        },
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalC. 0 sample column comments. No manual haplotype assignments",
+          "loci" : [
+            {
+              "drawn" : null,
+              "locus" : "MHC-A",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-B",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalC"
+        }
+      ],
+      "selectedCallEvidenceSample" : null,
+      "selectedSample" : null
+    },
+    {
+      "activeSampleNames" : [
+        "AnimalA",
+        "AnimalB",
+        "AnimalC"
+      ],
+      "disclosure" : {
+        "accessibilityHelp" : "Shows seven locus-level manual haplotype assignment rows below the sample names.",
+        "accessibilityLabel" : "Manual haplotypes (7 loci)",
+        "identifier" : "manual-haplotype-band-disclosure",
+        "isAccessibilityExpanded" : true,
+        "isOn" : true,
+        "label" : "Manual haplotypes (7 loci)",
+        "title" : "Haplotypes",
+        "toolTip" : "Manual haplotypes (7 loci)"
+      },
+      "expandedInDisplayState" : true,
+      "expandedInMatrix" : true,
+      "expandedInStore" : true,
+      "expandedRowCount" : 7,
+      "export" : {
+        "haplotypeCalls" : [
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "Pedigree confirmed",
+            "haplotype1" : "Hap-1",
+            "haplotype1Source" : "manualAssignment",
+            "haplotype1Status" : "called",
+            "haplotype2" : "Hap-2",
+            "haplotype2Source" : "manualAssignment",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "Provisional",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "Hap-3",
+            "haplotype2Source" : "manualAssignment",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalC"
+          }
+        ],
+        "haplotypeLocusScope" : null,
+        "haplotypeSampleScope" : null,
+        "locusFilter" : "All Loci",
+        "sampleNames" : [
+          "AnimalA",
+          "AnimalB",
+          "AnimalC"
+        ]
+      },
+      "includedLoci" : null,
+      "label" : "expanded through the disclosure button",
+      "loci" : [
+        "MHC-A",
+        "MHC-B",
+        "MHC-DRB",
+        "MHC-DQA",
+        "MHC-DQB",
+        "MHC-DPA",
+        "MHC-DPB"
+      ],
+      "locusFilterTitles" : [
+        "All Loci",
+        "MHC-A",
+        "MHC-B",
+        "MHC-DPA1",
+        "MHC-DPB1",
+        "MHC-DQA1",
+        "MHC-DQB1",
+        "MHC-DRB"
+      ],
+      "mode" : "manualAssignments",
+      "sampleColumnTitles" : [
+        "AnimalA",
+        "AnimalB",
+        "AnimalC"
+      ],
+      "samples" : [
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalA. 0 sample column comments. Manual haplotypes: MHC-A H1 Hap-1, H2 Hap-2",
+          "loci" : [
+            {
+              "drawn" : "Hap-1 · Hap-2",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: Hap-1; H2: Hap-2",
+              "rendered" : "Hap-1 · Hap-2",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: Hap-1; H2: Hap-2"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalA"
+        },
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalB. 0 sample column comments. Manual haplotypes: MHC-DQA H2 Hap-3",
+          "loci" : [
+            {
+              "drawn" : "—",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "— · Hap-3",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: Hap-3",
+              "rendered" : "— · Hap-3",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: Hap-3"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalB"
+        },
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalC. 0 sample column comments. No manual haplotype assignments",
+          "loci" : [
+            {
+              "drawn" : "—",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalC"
+        }
+      ],
+      "selectedCallEvidenceSample" : null,
+      "selectedSample" : null
+    },
+    {
+      "activeSampleNames" : [
+        "AnimalA",
+        "AnimalB",
+        "AnimalC"
+      ],
+      "disclosure" : {
+        "accessibilityHelp" : "Shows seven locus-level manual haplotype assignment rows below the sample names.",
+        "accessibilityLabel" : "Manual haplotypes (7 loci)",
+        "identifier" : "manual-haplotype-band-disclosure",
+        "isAccessibilityExpanded" : true,
+        "isOn" : true,
+        "label" : "Manual haplotypes (7 loci)",
+        "title" : "Haplotypes",
+        "toolTip" : "Manual haplotypes (7 loci)"
+      },
+      "expandedInDisplayState" : true,
+      "expandedInMatrix" : true,
+      "expandedInStore" : true,
+      "expandedRowCount" : 7,
+      "export" : {
+        "haplotypeCalls" : [
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "Pedigree confirmed",
+            "haplotype1" : "Hap-1",
+            "haplotype1Source" : "manualAssignment",
+            "haplotype1Status" : "called",
+            "haplotype2" : "Hap-2",
+            "haplotype2Source" : "manualAssignment",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "Provisional",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "Hap-3",
+            "haplotype2Source" : "manualAssignment",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalB"
+          }
+        ],
+        "haplotypeLocusScope" : null,
+        "haplotypeSampleScope" : null,
+        "locusFilter" : "All Loci",
+        "sampleNames" : [
+          "AnimalC",
+          "AnimalA",
+          "AnimalB"
+        ]
+      },
+      "includedLoci" : null,
+      "label" : "AnimalC moved first",
+      "loci" : [
+        "MHC-A",
+        "MHC-B",
+        "MHC-DRB",
+        "MHC-DQA",
+        "MHC-DQB",
+        "MHC-DPA",
+        "MHC-DPB"
+      ],
+      "locusFilterTitles" : [
+        "All Loci",
+        "MHC-A",
+        "MHC-B",
+        "MHC-DPA1",
+        "MHC-DPB1",
+        "MHC-DQA1",
+        "MHC-DQB1",
+        "MHC-DRB"
+      ],
+      "mode" : "manualAssignments",
+      "sampleColumnTitles" : [
+        "AnimalC",
+        "AnimalA",
+        "AnimalB"
+      ],
+      "samples" : [
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalC. 0 sample column comments. No manual haplotype assignments",
+          "loci" : [
+            {
+              "drawn" : "—",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalC"
+        },
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalA. 0 sample column comments. Manual haplotypes: MHC-A H1 Hap-1, H2 Hap-2",
+          "loci" : [
+            {
+              "drawn" : "Hap-1 · Hap-2",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: Hap-1; H2: Hap-2",
+              "rendered" : "Hap-1 · Hap-2",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: Hap-1; H2: Hap-2"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalA"
+        },
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalB. 0 sample column comments. Manual haplotypes: MHC-DQA H2 Hap-3",
+          "loci" : [
+            {
+              "drawn" : "—",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "— · Hap-3",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: Hap-3",
+              "rendered" : "— · Hap-3",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: Hap-3"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalB"
+        }
+      ],
+      "selectedCallEvidenceSample" : null,
+      "selectedSample" : null
+    },
+    {
+      "activeSampleNames" : [
+        "AnimalA",
+        "AnimalC"
+      ],
+      "disclosure" : {
+        "accessibilityHelp" : "Shows seven locus-level manual haplotype assignment rows below the sample names.",
+        "accessibilityLabel" : "Manual haplotypes (7 loci)",
+        "identifier" : "manual-haplotype-band-disclosure",
+        "isAccessibilityExpanded" : true,
+        "isOn" : true,
+        "label" : "Manual haplotypes (7 loci)",
+        "title" : "Haplotypes",
+        "toolTip" : "Manual haplotypes (7 loci)"
+      },
+      "expandedInDisplayState" : true,
+      "expandedInMatrix" : true,
+      "expandedInStore" : true,
+      "expandedRowCount" : 7,
+      "export" : {
+        "haplotypeCalls" : [
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "Pedigree confirmed",
+            "haplotype1" : "Hap-1",
+            "haplotype1Source" : "manualAssignment",
+            "haplotype1Status" : "called",
+            "haplotype2" : "Hap-2",
+            "haplotype2Source" : "manualAssignment",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalA"
+          }
+        ],
+        "haplotypeLocusScope" : null,
+        "haplotypeSampleScope" : null,
+        "locusFilter" : "All Loci",
+        "sampleNames" : [
+          "AnimalC",
+          "AnimalA"
+        ]
+      },
+      "includedLoci" : null,
+      "label" : "AnimalB hidden",
+      "loci" : [
+        "MHC-A",
+        "MHC-B",
+        "MHC-DRB",
+        "MHC-DQA",
+        "MHC-DQB",
+        "MHC-DPA",
+        "MHC-DPB"
+      ],
+      "locusFilterTitles" : [
+        "All Loci",
+        "MHC-A",
+        "MHC-B",
+        "MHC-DPA1",
+        "MHC-DPB1",
+        "MHC-DQA1",
+        "MHC-DQB1",
+        "MHC-DRB"
+      ],
+      "mode" : "manualAssignments",
+      "sampleColumnTitles" : [
+        "AnimalC",
+        "AnimalA"
+      ],
+      "samples" : [
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalC. 0 sample column comments. No manual haplotype assignments",
+          "loci" : [
+            {
+              "drawn" : "—",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalC"
+        },
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalA. 0 sample column comments. Manual haplotypes: MHC-A H1 Hap-1, H2 Hap-2",
+          "loci" : [
+            {
+              "drawn" : "Hap-1 · Hap-2",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: Hap-1; H2: Hap-2",
+              "rendered" : "Hap-1 · Hap-2",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: Hap-1; H2: Hap-2"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalA"
+        }
+      ],
+      "selectedCallEvidenceSample" : null,
+      "selectedSample" : null
+    },
+    {
+      "activeSampleNames" : [
+        "AnimalA",
+        "AnimalC"
+      ],
+      "disclosure" : {
+        "accessibilityHelp" : "Shows seven locus-level manual haplotype assignment rows below the sample names.",
+        "accessibilityLabel" : "Manual haplotypes (7 loci)",
+        "identifier" : "manual-haplotype-band-disclosure",
+        "isAccessibilityExpanded" : true,
+        "isOn" : true,
+        "label" : "Manual haplotypes (7 loci)",
+        "title" : "Haplotypes",
+        "toolTip" : "Manual haplotypes (7 loci)"
+      },
+      "expandedInDisplayState" : true,
+      "expandedInMatrix" : true,
+      "expandedInStore" : true,
+      "expandedRowCount" : 7,
+      "export" : {
+        "haplotypeCalls" : [
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "Pedigree confirmed",
+            "haplotype1" : "Hap-1",
+            "haplotype1Source" : "manualAssignment",
+            "haplotype1Status" : "called",
+            "haplotype2" : "Hap-2",
+            "haplotype2Source" : "manualAssignment",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalA"
+          }
+        ],
+        "haplotypeLocusScope" : null,
+        "haplotypeSampleScope" : null,
+        "locusFilter" : "MHC-A",
+        "sampleNames" : [
+          "AnimalC",
+          "AnimalA"
+        ]
+      },
+      "includedLoci" : null,
+      "label" : "locus filter MHC-A",
+      "loci" : [
+        "MHC-A",
+        "MHC-B",
+        "MHC-DRB",
+        "MHC-DQA",
+        "MHC-DQB",
+        "MHC-DPA",
+        "MHC-DPB"
+      ],
+      "locusFilterTitles" : [
+        "All Loci",
+        "MHC-A",
+        "MHC-B",
+        "MHC-DPA1",
+        "MHC-DPB1",
+        "MHC-DQA1",
+        "MHC-DQB1",
+        "MHC-DRB"
+      ],
+      "mode" : "manualAssignments",
+      "sampleColumnTitles" : [
+        "AnimalC",
+        "AnimalA"
+      ],
+      "samples" : [
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalC. 0 sample column comments. No manual haplotype assignments",
+          "loci" : [
+            {
+              "drawn" : "—",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalC"
+        },
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalA. 0 sample column comments. Manual haplotypes: MHC-A H1 Hap-1, H2 Hap-2",
+          "loci" : [
+            {
+              "drawn" : "Hap-1 · Hap-2",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: Hap-1; H2: Hap-2",
+              "rendered" : "Hap-1 · Hap-2",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: Hap-1; H2: Hap-2"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalA"
+        }
+      ],
+      "selectedCallEvidenceSample" : null,
+      "selectedSample" : null
+    },
+    {
+      "activeSampleNames" : [
+        "AnimalA",
+        "AnimalC"
+      ],
+      "disclosure" : {
+        "accessibilityHelp" : "Shows seven locus-level manual haplotype assignment rows below the sample names.",
+        "accessibilityLabel" : "Manual haplotypes (7 loci)",
+        "identifier" : "manual-haplotype-band-disclosure",
+        "isAccessibilityExpanded" : true,
+        "isOn" : true,
+        "label" : "Manual haplotypes (7 loci)",
+        "title" : "Haplotypes",
+        "toolTip" : "Manual haplotypes (7 loci)"
+      },
+      "expandedInDisplayState" : true,
+      "expandedInMatrix" : true,
+      "expandedInStore" : true,
+      "expandedRowCount" : 7,
+      "export" : {
+        "haplotypeCalls" : [
+
+        ],
+        "haplotypeLocusScope" : null,
+        "haplotypeSampleScope" : null,
+        "locusFilter" : "MHC-DQA1",
+        "sampleNames" : [
+          "AnimalC",
+          "AnimalA"
+        ]
+      },
+      "includedLoci" : null,
+      "label" : "locus filter MHC-DQA1",
+      "loci" : [
+        "MHC-A",
+        "MHC-B",
+        "MHC-DRB",
+        "MHC-DQA",
+        "MHC-DQB",
+        "MHC-DPA",
+        "MHC-DPB"
+      ],
+      "locusFilterTitles" : [
+        "All Loci",
+        "MHC-A",
+        "MHC-B",
+        "MHC-DPA1",
+        "MHC-DPB1",
+        "MHC-DQA1",
+        "MHC-DQB1",
+        "MHC-DRB"
+      ],
+      "mode" : "manualAssignments",
+      "sampleColumnTitles" : [
+        "AnimalC",
+        "AnimalA"
+      ],
+      "samples" : [
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalC. 0 sample column comments. No manual haplotype assignments",
+          "loci" : [
+            {
+              "drawn" : "—",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalC"
+        },
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalA. 0 sample column comments. Manual haplotypes: MHC-A H1 Hap-1, H2 Hap-2",
+          "loci" : [
+            {
+              "drawn" : "Hap-1 · Hap-2",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: Hap-1; H2: Hap-2",
+              "rendered" : "Hap-1 · Hap-2",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: Hap-1; H2: Hap-2"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalA"
+        }
+      ],
+      "selectedCallEvidenceSample" : null,
+      "selectedSample" : null
+    },
+    {
+      "activeSampleNames" : [
+        "AnimalA",
+        "AnimalC"
+      ],
+      "disclosure" : {
+        "accessibilityHelp" : "Shows seven locus-level manual haplotype assignment rows below the sample names.",
+        "accessibilityLabel" : "Manual haplotypes (7 loci)",
+        "identifier" : "manual-haplotype-band-disclosure",
+        "isAccessibilityExpanded" : true,
+        "isOn" : true,
+        "label" : "Manual haplotypes (7 loci)",
+        "title" : "Haplotypes",
+        "toolTip" : "Manual haplotypes (7 loci)"
+      },
+      "expandedInDisplayState" : true,
+      "expandedInMatrix" : true,
+      "expandedInStore" : true,
+      "expandedRowCount" : 7,
+      "export" : {
+        "haplotypeCalls" : [
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "Pedigree confirmed",
+            "haplotype1" : "Hap-1",
+            "haplotype1Source" : "manualAssignment",
+            "haplotype1Status" : "called",
+            "haplotype2" : "Hap-2",
+            "haplotype2Source" : "manualAssignment",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalA"
+          }
+        ],
+        "haplotypeLocusScope" : null,
+        "haplotypeSampleScope" : null,
+        "locusFilter" : "All Loci",
+        "sampleNames" : [
+          "AnimalC",
+          "AnimalA"
+        ]
+      },
+      "includedLoci" : null,
+      "label" : "locus filter cleared",
+      "loci" : [
+        "MHC-A",
+        "MHC-B",
+        "MHC-DRB",
+        "MHC-DQA",
+        "MHC-DQB",
+        "MHC-DPA",
+        "MHC-DPB"
+      ],
+      "locusFilterTitles" : [
+        "All Loci",
+        "MHC-A",
+        "MHC-B",
+        "MHC-DPA1",
+        "MHC-DPB1",
+        "MHC-DQA1",
+        "MHC-DQB1",
+        "MHC-DRB"
+      ],
+      "mode" : "manualAssignments",
+      "sampleColumnTitles" : [
+        "AnimalC",
+        "AnimalA"
+      ],
+      "samples" : [
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalC. 0 sample column comments. No manual haplotype assignments",
+          "loci" : [
+            {
+              "drawn" : "—",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalC"
+        },
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalA. 0 sample column comments. Manual haplotypes: MHC-A H1 Hap-1, H2 Hap-2",
+          "loci" : [
+            {
+              "drawn" : "Hap-1 · Hap-2",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: Hap-1; H2: Hap-2",
+              "rendered" : "Hap-1 · Hap-2",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: Hap-1; H2: Hap-2"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalA"
+        }
+      ],
+      "selectedCallEvidenceSample" : null,
+      "selectedSample" : null
+    },
+    {
+      "activeSampleNames" : [
+        "AnimalA",
+        "AnimalC"
+      ],
+      "disclosure" : {
+        "accessibilityHelp" : "Shows seven locus-level manual haplotype assignment rows below the sample names.",
+        "accessibilityLabel" : "Manual haplotypes (7 loci)",
+        "identifier" : "manual-haplotype-band-disclosure",
+        "isAccessibilityExpanded" : false,
+        "isOn" : false,
+        "label" : "Manual haplotypes (7 loci)",
+        "title" : "Haplotypes",
+        "toolTip" : "Manual haplotypes (7 loci)"
+      },
+      "expandedInDisplayState" : false,
+      "expandedInMatrix" : false,
+      "expandedInStore" : false,
+      "expandedRowCount" : 0,
+      "export" : {
+        "haplotypeCalls" : [
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "Pedigree confirmed",
+            "haplotype1" : "Hap-1",
+            "haplotype1Source" : "manualAssignment",
+            "haplotype1Status" : "called",
+            "haplotype2" : "Hap-2",
+            "haplotype2Source" : "manualAssignment",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalA"
+          }
+        ],
+        "haplotypeLocusScope" : null,
+        "haplotypeSampleScope" : null,
+        "locusFilter" : "All Loci",
+        "sampleNames" : [
+          "AnimalC",
+          "AnimalA"
+        ]
+      },
+      "includedLoci" : null,
+      "label" : "collapsed through the disclosure button",
+      "loci" : [
+        "MHC-A",
+        "MHC-B",
+        "MHC-DRB",
+        "MHC-DQA",
+        "MHC-DQB",
+        "MHC-DPA",
+        "MHC-DPB"
+      ],
+      "locusFilterTitles" : [
+        "All Loci",
+        "MHC-A",
+        "MHC-B",
+        "MHC-DPA1",
+        "MHC-DPB1",
+        "MHC-DQA1",
+        "MHC-DQB1",
+        "MHC-DRB"
+      ],
+      "mode" : "manualAssignments",
+      "sampleColumnTitles" : [
+        "AnimalC",
+        "AnimalA"
+      ],
+      "samples" : [
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalC. 0 sample column comments. No manual haplotype assignments",
+          "loci" : [
+            {
+              "drawn" : null,
+              "locus" : "MHC-A",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-B",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalC"
+        },
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalA. 0 sample column comments. Manual haplotypes: MHC-A H1 Hap-1, H2 Hap-2",
+          "loci" : [
+            {
+              "drawn" : null,
+              "locus" : "MHC-A",
+              "registeredTooltip" : null,
+              "rendered" : "Hap-1 · Hap-2",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: Hap-1; H2: Hap-2"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-B",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalA"
+        }
+      ],
+      "selectedCallEvidenceSample" : null,
+      "selectedSample" : null
+    },
+    {
+      "activeSampleNames" : [
+        "AnimalA",
+        "AnimalB",
+        "AnimalC"
+      ],
+      "disclosure" : {
+        "accessibilityHelp" : "Shows seven locus-level manual haplotype assignment rows below the sample names.",
+        "accessibilityLabel" : "Manual haplotypes (7 loci)",
+        "identifier" : "manual-haplotype-band-disclosure",
+        "isAccessibilityExpanded" : false,
+        "isOn" : false,
+        "label" : "Manual haplotypes (7 loci)",
+        "title" : "Haplotypes",
+        "toolTip" : "Manual haplotypes (7 loci)"
+      },
+      "expandedInDisplayState" : false,
+      "expandedInMatrix" : false,
+      "expandedInStore" : false,
+      "expandedRowCount" : 0,
+      "export" : {
+        "haplotypeCalls" : [
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "Pedigree confirmed",
+            "haplotype1" : "Hap-1",
+            "haplotype1Source" : "manualAssignment",
+            "haplotype1Status" : "called",
+            "haplotype2" : "Hap-2",
+            "haplotype2Source" : "manualAssignment",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "Provisional",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "Hap-3",
+            "haplotype2Source" : "manualAssignment",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalC"
+          }
+        ],
+        "haplotypeLocusScope" : null,
+        "haplotypeSampleScope" : null,
+        "locusFilter" : "All Loci",
+        "sampleNames" : [
+          "AnimalA",
+          "AnimalB",
+          "AnimalC"
+        ]
+      },
+      "includedLoci" : null,
+      "label" : "recreated with the same store after a collapse",
+      "loci" : [
+        "MHC-A",
+        "MHC-B",
+        "MHC-DRB",
+        "MHC-DQA",
+        "MHC-DQB",
+        "MHC-DPA",
+        "MHC-DPB"
+      ],
+      "locusFilterTitles" : [
+        "All Loci",
+        "MHC-A",
+        "MHC-B",
+        "MHC-DPA1",
+        "MHC-DPB1",
+        "MHC-DQA1",
+        "MHC-DQB1",
+        "MHC-DRB"
+      ],
+      "mode" : "manualAssignments",
+      "sampleColumnTitles" : [
+        "AnimalA",
+        "AnimalB",
+        "AnimalC"
+      ],
+      "samples" : [
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalA. 0 sample column comments. Manual haplotypes: MHC-A H1 Hap-1, H2 Hap-2",
+          "loci" : [
+            {
+              "drawn" : null,
+              "locus" : "MHC-A",
+              "registeredTooltip" : null,
+              "rendered" : "Hap-1 · Hap-2",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: Hap-1; H2: Hap-2"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-B",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalA"
+        },
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalB. 0 sample column comments. Manual haplotypes: MHC-DQA H2 Hap-3",
+          "loci" : [
+            {
+              "drawn" : null,
+              "locus" : "MHC-A",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-B",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : null,
+              "rendered" : "— · Hap-3",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: Hap-3"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalB"
+        },
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalC. 0 sample column comments. No manual haplotype assignments",
+          "loci" : [
+            {
+              "drawn" : null,
+              "locus" : "MHC-A",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-B",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : null,
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : null,
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalC"
+        }
+      ],
+      "selectedCallEvidenceSample" : null,
+      "selectedSample" : null
+    },
+    {
+      "activeSampleNames" : [
+        "AnimalA",
+        "AnimalB",
+        "AnimalC"
+      ],
+      "disclosure" : {
+        "accessibilityHelp" : "Shows seven locus-level manual haplotype assignment rows below the sample names.",
+        "accessibilityLabel" : "Manual haplotypes (7 loci)",
+        "identifier" : "manual-haplotype-band-disclosure",
+        "isAccessibilityExpanded" : true,
+        "isOn" : true,
+        "label" : "Manual haplotypes (7 loci)",
+        "title" : "Haplotypes",
+        "toolTip" : "Manual haplotypes (7 loci)"
+      },
+      "expandedInDisplayState" : true,
+      "expandedInMatrix" : true,
+      "expandedInStore" : true,
+      "expandedRowCount" : 7,
+      "export" : {
+        "haplotypeCalls" : [
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "Pedigree confirmed",
+            "haplotype1" : "Hap-1",
+            "haplotype1Source" : "manualAssignment",
+            "haplotype1Status" : "called",
+            "haplotype2" : "Hap-2",
+            "haplotype2Source" : "manualAssignment",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "Provisional",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "Hap-3",
+            "haplotype2Source" : "manualAssignment",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalC"
+          }
+        ],
+        "haplotypeLocusScope" : null,
+        "haplotypeSampleScope" : null,
+        "locusFilter" : "All Loci",
+        "sampleNames" : [
+          "AnimalA",
+          "AnimalB",
+          "AnimalC"
+        ]
+      },
+      "includedLoci" : null,
+      "label" : "recreated controller expanded",
+      "loci" : [
+        "MHC-A",
+        "MHC-B",
+        "MHC-DRB",
+        "MHC-DQA",
+        "MHC-DQB",
+        "MHC-DPA",
+        "MHC-DPB"
+      ],
+      "locusFilterTitles" : [
+        "All Loci",
+        "MHC-A",
+        "MHC-B",
+        "MHC-DPA1",
+        "MHC-DPB1",
+        "MHC-DQA1",
+        "MHC-DQB1",
+        "MHC-DRB"
+      ],
+      "mode" : "manualAssignments",
+      "sampleColumnTitles" : [
+        "AnimalA",
+        "AnimalB",
+        "AnimalC"
+      ],
+      "samples" : [
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalA. 0 sample column comments. Manual haplotypes: MHC-A H1 Hap-1, H2 Hap-2",
+          "loci" : [
+            {
+              "drawn" : "Hap-1 · Hap-2",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: Hap-1; H2: Hap-2",
+              "rendered" : "Hap-1 · Hap-2",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: Hap-1; H2: Hap-2"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalA"
+        },
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalB. 0 sample column comments. Manual haplotypes: MHC-DQA H2 Hap-3",
+          "loci" : [
+            {
+              "drawn" : "—",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "— · Hap-3",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: Hap-3",
+              "rendered" : "— · Hap-3",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: Hap-3"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalB"
+        },
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalC. 0 sample column comments. No manual haplotype assignments",
+          "loci" : [
+            {
+              "drawn" : "—",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalC"
+        }
+      ],
+      "selectedCallEvidenceSample" : null,
+      "selectedSample" : null
+    },
+    {
+      "activeSampleNames" : [
+        "AnimalA",
+        "AnimalB",
+        "AnimalC"
+      ],
+      "disclosure" : {
+        "accessibilityHelp" : "Shows seven locus-level manual haplotype assignment rows below the sample names.",
+        "accessibilityLabel" : "Manual haplotypes (7 loci)",
+        "identifier" : "manual-haplotype-band-disclosure",
+        "isAccessibilityExpanded" : true,
+        "isOn" : true,
+        "label" : "Manual haplotypes (7 loci)",
+        "title" : "Haplotypes",
+        "toolTip" : "Manual haplotypes (7 loci)"
+      },
+      "expandedInDisplayState" : true,
+      "expandedInMatrix" : true,
+      "expandedInStore" : true,
+      "expandedRowCount" : 7,
+      "export" : {
+        "haplotypeCalls" : [
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "Pedigree confirmed",
+            "haplotype1" : "Hap-1",
+            "haplotype1Source" : "manualAssignment",
+            "haplotype1Status" : "called",
+            "haplotype2" : "Hap-2",
+            "haplotype2Source" : "manualAssignment",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalA"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "Provisional",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "Hap-3",
+            "haplotype2Source" : "manualAssignment",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalB"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-A",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-B",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DRB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQA",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DQB",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPA",
+            "sample" : "AnimalC"
+          },
+          {
+            "baselineHaplotype1" : "",
+            "baselineHaplotype1Available" : false,
+            "baselineHaplotype2" : "",
+            "baselineHaplotype2Available" : false,
+            "comment" : "",
+            "haplotype1" : "",
+            "haplotype1Source" : "unassigned",
+            "haplotype1Status" : "called",
+            "haplotype2" : "",
+            "haplotype2Source" : "unassigned",
+            "haplotype2Status" : "called",
+            "locus" : "MHC-DPB",
+            "sample" : "AnimalC"
+          }
+        ],
+        "haplotypeLocusScope" : null,
+        "haplotypeSampleScope" : null,
+        "locusFilter" : "All Loci",
+        "sampleNames" : [
+          "AnimalA",
+          "AnimalB",
+          "AnimalC"
+        ]
+      },
+      "includedLoci" : null,
+      "label" : "recreated again with the store holding expanded",
+      "loci" : [
+        "MHC-A",
+        "MHC-B",
+        "MHC-DRB",
+        "MHC-DQA",
+        "MHC-DQB",
+        "MHC-DPA",
+        "MHC-DPB"
+      ],
+      "locusFilterTitles" : [
+        "All Loci",
+        "MHC-A",
+        "MHC-B",
+        "MHC-DPA1",
+        "MHC-DPB1",
+        "MHC-DQA1",
+        "MHC-DQB1",
+        "MHC-DRB"
+      ],
+      "mode" : "manualAssignments",
+      "sampleColumnTitles" : [
+        "AnimalA",
+        "AnimalB",
+        "AnimalC"
+      ],
+      "samples" : [
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalA. 0 sample column comments. Manual haplotypes: MHC-A H1 Hap-1, H2 Hap-2",
+          "loci" : [
+            {
+              "drawn" : "Hap-1 · Hap-2",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: Hap-1; H2: Hap-2",
+              "rendered" : "Hap-1 · Hap-2",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: Hap-1; H2: Hap-2"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalA"
+        },
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalB. 0 sample column comments. Manual haplotypes: MHC-DQA H2 Hap-3",
+          "loci" : [
+            {
+              "drawn" : "—",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "— · Hap-3",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: Hap-3",
+              "rendered" : "— · Hap-3",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: Hap-3"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalB"
+        },
+        {
+          "headerAccessibilityLabel" : "Sample column AnimalC. 0 sample column comments. No manual haplotype assignments",
+          "loci" : [
+            {
+              "drawn" : "—",
+              "locus" : "MHC-A",
+              "registeredTooltip" : "MHC-A — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-A — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-B",
+              "registeredTooltip" : "MHC-B — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-B — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DRB",
+              "registeredTooltip" : "MHC-DRB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DRB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQA",
+              "registeredTooltip" : "MHC-DQA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DQB",
+              "registeredTooltip" : "MHC-DQB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DQB — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPA",
+              "registeredTooltip" : "MHC-DPA — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPA — H1: unassigned; H2: unassigned"
+            },
+            {
+              "drawn" : "—",
+              "locus" : "MHC-DPB",
+              "registeredTooltip" : "MHC-DPB — H1: unassigned; H2: unassigned",
+              "rendered" : "—",
+              "slots" : [
+
+              ],
+              "tooltip" : "MHC-DPB — H1: unassigned; H2: unassigned"
+            }
+          ],
+          "sample" : "AnimalC"
+        }
+      ],
+      "selectedCallEvidenceSample" : null,
+      "selectedSample" : null
+    }
+  ]
+}
