@@ -2,11 +2,11 @@
 
 These files pin the genotype export of the Lungfish Genome Explorer (LGE) app at the byte level. The CLI genotype goldens under `Tests/Fixtures/golden/genotype` drive `lungfish-cli`, which never links LungfishGenotypeUI, and the GUI Excel export never runs the CLI. So nothing else sees the capture code in `GenotypeResultViewController` while Phase 2.3 of the architecture program extracts it into an export coordinator (review finding R6). Equal frozen captures imply equal workbooks, because the export service re-derives the snapshot from its captured inputs and refuses any difference, so the files stop at the capture and need no Python.
 
-They were captured on code whose export behaviour equals main at 7505b9e13, before any move or extraction commit. The suite is `GenotypeExportCharacterizationTests` in `Tests/LungfishGenotypeUITests`, with the scenario builders in `GenotypeCharacterizationScenarios.swift` and the canonical encoder and the file store in `GenotypeCharacterizationSupport.swift`. Every test pins current behaviour, including behaviour the design review flagged as wrong. A fix shows up here as a reviewed diff, never as a silent change.
+They were captured on code whose export behaviour equals main at 7505b9e13, before any move or extraction commit. The export suite is `GenotypeExportCharacterizationTests` in `Tests/LungfishGenotypeUITests`, with the scenario builders in `GenotypeCharacterizationScenarios.swift` and the canonical encoder and the file store in `GenotypeCharacterizationSupport.swift`. Three more suites pin the responsibilities Phase 4a extracts next, the matrix projection, review eligibility and the haplotype-band disclosure, with their fixtures in `GenotypeCharacterizationExtractionScenarios.swift`. Every test pins current behaviour, including behaviour the design review flagged as wrong. A fix shows up here as a reviewed diff, never as a silent change.
 
 ## What each file holds
 
-Each scenario has two files.
+Each export scenario has two files.
 
 | File | Value |
 |---|---|
@@ -25,6 +25,14 @@ Every scenario is built in code inside a real bundle folder nested like `<root>/
 | Genotype-only with manual haplotypes | `genotype-only-manual` | Three animals, no analysis and no metadata. Manual assignments for two animals at MHC-A and MHC-B, one label the validator rejects, one cell comment. The haplotype cell colour mode with no analysis, so only its no-evidence path is pinned here, the manual band expanded, min percent 10 on sample-retained reads and a pending quick search for one animal |
 | Haplotyped MiSeq without a resolvable definition | `literal-status-miseq` | Three animals and three loci with every call status (called homozygous, heterozygous, ambiguous with a two-group and a one-group token, no haplotype, too many haplotypes, unresolved second haplotype and not assayed). No definition anywhere, so the literal analysis survives and the definition is synthesized from it. The identity-bound override matrix (an exact identity, a stale identity, a nil identity, a dash, a question mark, a malformed timestamp, two overrides on one slot, a nil identity that beats a newer stale one on AnimalC MHC-DRB H1, and two exact overrides on AnimalA MHC-B H2 where the later one wins although it is listed first) plus one manual assignment that a haplotyped MiSeq result ignores |
 | Haplotyped MiSeq with the global percent, prevalence and a locus order | `haplotyped-miseq-thresholds` | The data of the first scenario with its four-animal catalog, and three more viewport inputs. The global percent is 7.5 with Hide Low Support off, so the capture's global filter stays 0.0 while the filter context records 7.5. Prevalence is 40, which drops `02_Mafa_A1_002_01` (one of five animals) and keeps `04_Mafa_B_082_01` at exactly 40 percent, counting AnimalE outside the cohort. The sidecar carries the locus display order MHC-B before MHC-A |
+
+## The extraction suites
+
+Each of these files holds the whole model of one responsibility across a series of steps, so Phase 4a can move the code and prove nothing changed. Band models leave out frames, widths, colours and URLs.
+
+| Suite and test | File | What it walks and records |
+|---|---|---|
+| `GenotypeMatrixProjectionCharacterizationTests`, `testMatrixProjectionAcrossDisplayStates` | `matrix-projection.json` | A standalone `GenotypeComparisonMatrixView` over a full-length ONT result with four known rows, two candidates, one interpreted incomplete-span cluster, a duplicate occurrence of one animal on one row (reads 17 and 91), a zero-read call, a zero-read observation, GenBank metadata and a sidecar with reviews on positive, zero, absent and candidate cells, a duplicate review pair, comments and styles. Every display-state step starts from the base state and changes one control (min reads, min percent on each denominator, prevalence, the global percent with and without Hide Low Support, the combined thresholds, the row and sample filter texts, diagnostic alleles only), then the matrix-state steps accumulate (a hidden sample, a hidden row, shared search constraints, highlights, a sort by a sample column, the three other cell colour modes), two steps use the hidden locus popup and are labelled test-only, and the last two reconfigure the matrix with changed evidence. Per step it records the display state, the summary, the locus, pinned, sample and read titles, the sort key, the visible rows and, per visible cell, the text, the semantic text, colour role and italic, the evidence reads, the review, the comment counts and the heatmap fraction as a 6-decimal string, plus the filtered and unfiltered export snapshots. Finding S2 is pinned as it is today, the duplicate occurrence shows 91 in the cell and the 17-read occurrence in the fraction |
 
 ## Canonical form
 
@@ -47,6 +55,7 @@ Row and call ids are SHA-256 of identity text and stay unmasked, so they pin ide
 ```sh
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 swift test --skip-update --filter 'LungfishGenotypeUITests\.GenotypeExportCharacterizationTests'
+swift test --skip-update --filter 'LungfishGenotypeUITests\.Genotype(MatrixProjection|ReviewEligibility|HaplotypeBand)CharacterizationTests'
 ```
 
 The compare never writes into the checkout, because an untracked file there ends a running gate. Each test names the prefix of its files, and the compare fails when the build produces no file, when a produced file is missing on disk, or when a file with that prefix on disk is stale, so an empty build or a renamed value cannot pass. On a mismatch it writes the actual bytes to `$TMPDIR/lungfish-genotype-gui-<uuid>/<file>` and fails with that path and the first differing lines. A missing expected file fails with the capture command of the suite that writes it.
