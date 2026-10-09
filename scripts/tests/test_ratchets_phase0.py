@@ -121,6 +121,98 @@ def test_hatches_removal_passes(tmp_path):
     assert "--update" in result.stdout
 
 
+# --------------------------------------------------------------- process-spawn
+
+SPAWN = RATCHETS / "process-spawn.sh"
+SPAWN_SRC = (
+    "func run() {\n"
+    "    let p = Process()\n"
+    "    p.terminate()\n"
+    "}\n"
+)
+
+
+def test_spawn_counts_files_and_terminates_and_passes_at_baseline(tmp_path):
+    script = make_repo(
+        tmp_path,
+        SPAWN,
+        {"Sources/A/A.swift": SPAWN_SRC, "Sources/A/B.swift": "let p = Process()\nlet q = Process()\n"},
+    )
+    assert run(script, "--update").returncode == 0
+    baseline = (tmp_path / "scripts/ratchets/process-spawn.baseline").read_text()
+    assert "files_creating_process 2" in baseline
+    assert "raw_terminate_calls 1" in baseline
+    assert run(script).returncode == 0
+
+
+def test_spawn_new_process_in_a_new_file_fails(tmp_path):
+    script = make_repo(tmp_path, SPAWN, {"Sources/A/A.swift": SPAWN_SRC})
+    assert run(script, "--update").returncode == 0
+    (tmp_path / "Sources/A/C.swift").write_text("let p = Process()\n")
+    result = run(script)
+    assert result.returncode == 1
+    assert "files_creating_process" in result.stderr
+
+
+def test_spawn_new_terminate_call_fails(tmp_path):
+    script = make_repo(tmp_path, SPAWN, {"Sources/A/A.swift": SPAWN_SRC})
+    assert run(script, "--update").returncode == 0
+    (tmp_path / "Sources/A/C.swift").write_text("func stop(_ p: Foo) { p.terminate() }\n")
+    result = run(script)
+    assert result.returncode == 1
+    assert "raw_terminate_calls" in result.stderr
+
+
+def test_spawn_ignores_the_two_primitive_folders(tmp_path):
+    script = make_repo(tmp_path, SPAWN, {"Sources/A/A.swift": "let a = 1\n"})
+    assert run(script, "--update").returncode == 0
+    for rel in (
+        "Sources/LungfishCore/Process/Runner.swift",
+        "Sources/LungfishWorkflow/Native/Tool.swift",
+    ):
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(SPAWN_SRC)
+    assert run(script).returncode == 0
+
+
+def test_spawn_works_when_the_core_process_folder_is_absent(tmp_path):
+    script = make_repo(
+        tmp_path,
+        SPAWN,
+        {"Sources/LungfishWorkflow/Native/Tool.swift": SPAWN_SRC, "Sources/A/A.swift": "let a = 1\n"},
+    )
+    assert run(script, "--update").returncode == 0
+    baseline = (tmp_path / "scripts/ratchets/process-spawn.baseline").read_text()
+    assert "files_creating_process 0" in baseline
+    assert "raw_terminate_calls 0" in baseline
+
+
+def test_spawn_ignores_commented_lines(tmp_path):
+    script = make_repo(tmp_path, SPAWN, {"Sources/A/A.swift": "let a = 1\n"})
+    assert run(script, "--update").returncode == 0
+    (tmp_path / "Sources/A/B.swift").write_text(
+        "// let p = Process()\n"
+        "/// p.terminate() in a doc comment\n"
+        "let a = 2 // p.terminate() and Process() in a trailing comment\n"
+    )
+    assert run(script).returncode == 0
+
+
+def test_spawn_removal_passes_and_suggests_update(tmp_path):
+    script = make_repo(tmp_path, SPAWN, {"Sources/A/A.swift": SPAWN_SRC})
+    assert run(script, "--update").returncode == 0
+    (tmp_path / "Sources/A/A.swift").write_text("let a = 1\n")
+    result = run(script)
+    assert result.returncode == 0
+    assert "--update" in result.stdout
+
+
+def test_spawn_missing_baseline_fails(tmp_path):
+    script = make_repo(tmp_path, SPAWN, {"Sources/A/A.swift": "let a = 1\n"})
+    assert run(script).returncode == 1
+
+
 # ------------------------------------------------------ source-text-assertions
 
 SRC_TEXT = RATCHETS / "source-text-assertions.sh"
@@ -323,6 +415,7 @@ def test_real_repo_passes_every_check():
     for script in (
         RATCHETS / "file-size.sh",
         RATCHETS / "concurrency-hatches.sh",
+        RATCHETS / "process-spawn.sh",
         RATCHETS / "source-text-assertions.sh",
         CHECKS / "doc-path-references.py",
         CHECKS / "duplicate-public-types.py",
@@ -354,6 +447,7 @@ def test_installed_hook_lists_new_checks_before_the_gate(tmp_path):
         "file-size.sh",
         "concurrency-hatches.sh",
         "source-text-assertions.sh",
+        "process-spawn.sh",
         "doc-path-references.py",
         "duplicate-public-types.py",
         "full-suite-gate.sh",
