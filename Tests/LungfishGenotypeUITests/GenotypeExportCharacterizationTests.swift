@@ -4,7 +4,7 @@
 //
 // Byte-level characterization of the genotype export coordinator before its
 // extraction from GenotypeResultViewController (Phase 2.3, REVIEW.md R6).
-// The frozen Excel capture and the delimited viewport snapshot of three
+// The frozen Excel capture and the delimited viewport snapshot of four
 // scenarios are compared with committed files under
 // Tests/Fixtures/golden/genotype-gui. The panel flow, the manual definitions
 // provenance, the scoped export request and the panel's window are pinned
@@ -48,10 +48,10 @@ private struct SettleFailure: LocalizedError {
 
 @MainActor
 final class GenotypeExportCharacterizationTests: GenotypeResultViewportTestCase {
-    // MARK: E1 to E3', committed expected files
+    // MARK: E1 to E3'', committed expected files
 
     func testHaplotypedMiSeqExportCapturesMatchCharacterization() throws {
-        try GenotypeCharacterizationExpectedStore.verify {
+        try GenotypeCharacterizationExpectedStore.verify(prefix: "haplotyped-miseq") {
             let scenario = try makeHaplotypedMiSeqScenario()
             defer { scenario.cleanup() }
             return try scenario.canonicalExportFiles(prefix: "haplotyped-miseq")
@@ -59,7 +59,7 @@ final class GenotypeExportCharacterizationTests: GenotypeResultViewportTestCase 
     }
 
     func testGenotypeOnlyManualExportCapturesMatchCharacterization() throws {
-        try GenotypeCharacterizationExpectedStore.verify {
+        try GenotypeCharacterizationExpectedStore.verify(prefix: "genotype-only-manual") {
             let scenario = try makeGenotypeOnlyManualScenario()
             defer { scenario.cleanup() }
             return try scenario.canonicalExportFiles(prefix: "genotype-only-manual")
@@ -67,10 +67,22 @@ final class GenotypeExportCharacterizationTests: GenotypeResultViewportTestCase 
     }
 
     func testLiteralStatusMiSeqExportCapturesMatchCharacterization() throws {
-        try GenotypeCharacterizationExpectedStore.verify {
+        try GenotypeCharacterizationExpectedStore.verify(prefix: "literal-status-miseq") {
             let scenario = try makeLiteralStatusMiSeqScenario()
             defer { scenario.cleanup() }
             return try scenario.canonicalExportFiles(prefix: "literal-status-miseq")
+        }
+    }
+
+    /// Scenario D pins the three capture inputs no other scenario moves: the
+    /// global percent stays 0.0 while the filter context records 7.5, the
+    /// prevalence control reaches the capture, and the sidecar locus order
+    /// reaches the authority.
+    func testThresholdedMiSeqExportCapturesMatchCharacterization() throws {
+        try GenotypeCharacterizationExpectedStore.verify(prefix: "haplotyped-miseq-thresholds") {
+            let scenario = try makeThresholdedMiSeqScenario()
+            defer { scenario.cleanup() }
+            return try scenario.canonicalExportFiles(prefix: "haplotyped-miseq-thresholds")
         }
     }
 
@@ -121,12 +133,25 @@ final class GenotypeExportCharacterizationTests: GenotypeResultViewportTestCase 
             "name matches pattern",
         ])
         XCTAssertEqual(recorder.events, [])
+        // The view changes while the panel is up. The runner must still
+        // receive the capture frozen before the panel, not one taken at save.
+        var changedWhilePanelIsUp = state
+        changedWhilePanelIsUp.matrixMinimumReads += 3
+        controller.testingApplyDisplayStateImmediately(changedWhilePanelIsUp)
+        controller.testingComparisonMatrix.testingHideSamples(["AnimalA"])
         try XCTUnwrap(save)(root.appendingPathComponent("out.xlsx"))
         await waitUntil { recorder.events.count == 2 }
         XCTAssertEqual(recorder.events, ["started", "succeeded <ROOT>/out.xlsx"])
         XCTAssertEqual(recorder.runnerFormats, [.excel])
         XCTAssertEqual(recorder.runnerCaptures.count, 1)
-        XCTAssertEqual(recorder.runnerCaptures.first, direct, "The runner must receive the capture frozen before the panel")
+        let runnerCapture = try XCTUnwrap(recorder.runnerCaptures.first)
+        XCTAssertEqual(
+            runnerCapture, direct,
+            "The runner must receive the capture frozen before the panel\n"
+                + GenotypeCharacterizationExpectedStore.differences(expected: direct, actual: runnerCapture)
+        )
+        controller.testingApplyDisplayStateImmediately(state)
+        controller.testingResetMatrixVisibility()
 
         // A settled Inspector state that differs from the controller's yields no panel and no event.
         recorder.events = []
@@ -154,6 +179,10 @@ final class GenotypeExportCharacterizationTests: GenotypeResultViewportTestCase 
         defer { scenario.cleanup() }
         let store = try GenotypeAnnotationStore(bundleURL: scenario.bundleURL, author: GenotypeCharacterizationFixture.author)
         scenario.controller.testingInstallEffectiveHaplotypeAnnotationStore(store)
+        // The payload is the test's own input, the raw sidecar assignments
+        // (five, the validator-rejected label included), not the current
+        // assignments the production button encodes. The test pins the write
+        // half, the bytes on disk and the provenance, not the payload builder.
         let assignments = store.sidecar.manualHaplotypeAssignments
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

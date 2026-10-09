@@ -133,7 +133,7 @@
         "cardDensity" : "auto",
         "cardDensityThreshold" : 30,
         "dropoutAbsolute" : 50,
-        "dropoutLocusFraction" : 0.01,
+        "dropoutLocusFraction" : "0.01",
         "mhcCandidateDisplay" : {
           "showKnown" : true,
           "showSharedCandidates" : true,
@@ -141,27 +141,27 @@
           "tints" : {
             "sharedExtension" : {
               "alpha" : 1,
-              "blue" : 0.81568627450980391,
-              "green" : 0.84705882352941175,
-              "red" : 0.6588235294117647
+              "blue" : "0.8156862745098039",
+              "green" : "0.8470588235294118",
+              "red" : "0.6588235294117647"
             },
             "sharedNovel" : {
               "alpha" : 1,
-              "blue" : 0.55686274509803924,
-              "green" : 0.84313725490196079,
-              "red" : 0.96078431372549022
+              "blue" : "0.5568627450980392",
+              "green" : "0.8431372549019608",
+              "red" : "0.9607843137254902"
             },
             "singletonExtension" : {
               "alpha" : 1,
-              "blue" : 0.94901960784313721,
-              "green" : 0.79607843137254897,
-              "red" : 0.68627450980392157
+              "blue" : "0.9490196078431372",
+              "green" : "0.796078431372549",
+              "red" : "0.6862745098039216"
             },
             "singletonNovel" : {
               "alpha" : 1,
-              "blue" : 0.47843137254901963,
-              "green" : 0.72549019607843135,
-              "red" : 0.96078431372549022
+              "blue" : "0.47843137254901963",
+              "green" : "0.7254901960784313",
+              "red" : "0.9607843137254902"
             }
           }
         },
@@ -380,7 +380,7 @@
 
     ],
     "provenanceInputURLs" : [
-      "file://<ROOT>/Project/Analyses/run/manual.lungfishgenotype/annotations.json"
+      "<ROOT>/Project/Analyses/run/manual.lungfishgenotype/annotations.json"
     ],
     "rows" : [
       {

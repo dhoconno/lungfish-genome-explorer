@@ -196,6 +196,10 @@
         "cardDensityThreshold" : 30,
         "dropoutAbsolute" : 50,
         "dropoutLocusFraction" : "0.01",
+        "genotypeLocusDisplayOrder" : [
+          "MHC-B",
+          "MHC-A"
+        ],
         "mhcCandidateDisplay" : {
           "showKnown" : true,
           "showSharedCandidates" : true,
@@ -348,214 +352,6 @@
           {
             "cells" : [
               {
-                "reviewEligible" : false,
-                "sampleID" : "AnimalC",
-                "style" : {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              },
-              {
-                "displayValue" : 9,
-                "fillHex" : "#CCE7FF",
-                "rawSupport" : 9,
-                "reviewEligible" : true,
-                "sampleID" : "AnimalA",
-                "style" : {
-                  "fillHex" : "#CCE7FF",
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              },
-              {
-                "displayValue" : 0,
-                "rawSupport" : 0,
-                "review" : "false-negative",
-                "reviewEligible" : true,
-                "sampleID" : "AnimalB",
-                "style" : {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              },
-              {
-                "displayValue" : 40,
-                "fillHex" : "#CCE7FF",
-                "rawSupport" : 40,
-                "reviewEligible" : true,
-                "sampleID" : "AnimalD",
-                "style" : {
-                  "fillHex" : "#CCE7FF",
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              },
-              {
-                "displayValue" : 12,
-                "fillHex" : "#CCE7FF",
-                "rawSupport" : 12,
-                "reviewEligible" : true,
-                "sampleID" : "AnimalE",
-                "style" : {
-                  "fillHex" : "#CCE7FF",
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              },
-              {
-                "displayValue" : 7,
-                "rawSupport" : 7,
-                "reviewEligible" : true,
-                "sampleID" : "AnimalF",
-                "style" : {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              }
-            ],
-            "columnValues" : [
-              {
-                "key" : "standard.genotype",
-                "text" : "01_Mafa_A1_001_01"
-              },
-              {
-                "key" : "reference.feature.allele",
-                "text" : "Mafa-A1*001:01"
-              },
-              {
-                "key" : "reference.source.organism",
-                "text" : "Macaca fascicularis"
-              },
-              {
-                "key" : "standard.locus",
-                "text" : "MHC-A"
-              },
-              {
-                "integer" : 3,
-                "key" : "standard.samples"
-              },
-              {
-                "integer" : 61,
-                "key" : "standard.totalUniqueReads"
-              }
-            ],
-            "comment" : "Reference allele row",
-            "displayName" : "Mafa-A1*001:01",
-            "id" : "43dad97338931b585b7c775daa344411b42e090bce1be11fe72f9dc6d07dad22",
-            "style" : {
-              "isBold" : false,
-              "isItalic" : false
-            },
-            "target" : {
-              "genotype" : "01_Mafa_A1_001_01",
-              "kind" : "row",
-              "locus" : "MHC-A"
-            }
-          },
-          {
-            "cells" : [
-              {
-                "displayValue" : 0,
-                "rawSupport" : 0,
-                "reviewEligible" : true,
-                "sampleID" : "AnimalC",
-                "style" : {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              },
-              {
-                "displayValue" : 3,
-                "fillHex" : "#E4F3FF",
-                "rawSupport" : 3,
-                "review" : "false-positive",
-                "reviewEligible" : true,
-                "sampleID" : "AnimalA",
-                "style" : {
-                  "fillHex" : "#E4F3FF",
-                  "isBold" : false,
-                  "isItalic" : true,
-                  "textHex" : "#B00020"
-                }
-              },
-              {
-                "displayValue" : 40,
-                "fillHex" : "#CCE7FF",
-                "rawSupport" : 40,
-                "reviewEligible" : true,
-                "sampleID" : "AnimalB",
-                "style" : {
-                  "fillHex" : "#CCE7FF",
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              },
-              {
-                "reviewEligible" : false,
-                "sampleID" : "AnimalD",
-                "style" : {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              },
-              {
-                "reviewEligible" : false,
-                "sampleID" : "AnimalE",
-                "style" : {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              },
-              {
-                "reviewEligible" : false,
-                "sampleID" : "AnimalF",
-                "style" : {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              }
-            ],
-            "columnValues" : [
-              {
-                "key" : "standard.genotype",
-                "text" : "02_Mafa_A1_002_01"
-              },
-              {
-                "key" : "reference.feature.allele",
-                "text" : "Mafa-A1*002:01"
-              },
-              {
-                "key" : "reference.source.organism",
-                "text" : "Macaca fascicularis"
-              },
-              {
-                "key" : "standard.locus",
-                "text" : "MHC-A"
-              },
-              {
-                "integer" : 3,
-                "key" : "standard.samples"
-              },
-              {
-                "integer" : 43,
-                "key" : "standard.totalUniqueReads"
-              }
-            ],
-            "displayName" : "Mafa-A1*002:01",
-            "id" : "7baea7b2bd3da07c0e91a3edbc78cb023bbfd8580e473c93a45067220b794846",
-            "style" : {
-              "isBold" : false,
-              "isItalic" : false
-            },
-            "target" : {
-              "genotype" : "02_Mafa_A1_002_01",
-              "kind" : "row",
-              "locus" : "MHC-A"
-            }
-          },
-          {
-            "cells" : [
-              {
                 "displayValue" : 9,
                 "fillHex" : "#FFE5BF",
                 "rawSupport" : 9,
@@ -614,16 +410,6 @@
                   "isBold" : true,
                   "isItalic" : false,
                   "textHex" : "#000000"
-                }
-              },
-              {
-                "fillHex" : "#FFE5BF",
-                "reviewEligible" : false,
-                "sampleID" : "AnimalF",
-                "style" : {
-                  "fillHex" : "#FFE5BF",
-                  "isBold" : true,
-                  "isItalic" : false
                 }
               }
             ],
@@ -722,14 +508,6 @@
                   "isBold" : false,
                   "isItalic" : false
                 }
-              },
-              {
-                "reviewEligible" : false,
-                "sampleID" : "AnimalF",
-                "style" : {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
               }
             ],
             "columnValues" : [
@@ -781,6 +559,196 @@
                 }
               },
               {
+                "displayValue" : 9,
+                "fillHex" : "#CCE7FF",
+                "rawSupport" : 9,
+                "reviewEligible" : true,
+                "sampleID" : "AnimalA",
+                "style" : {
+                  "fillHex" : "#CCE7FF",
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              },
+              {
+                "displayValue" : 0,
+                "rawSupport" : 0,
+                "review" : "false-negative",
+                "reviewEligible" : true,
+                "sampleID" : "AnimalB",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              },
+              {
+                "displayValue" : 40,
+                "fillHex" : "#CCE7FF",
+                "rawSupport" : 40,
+                "reviewEligible" : true,
+                "sampleID" : "AnimalD",
+                "style" : {
+                  "fillHex" : "#CCE7FF",
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              },
+              {
+                "displayValue" : 12,
+                "fillHex" : "#CCE7FF",
+                "rawSupport" : 12,
+                "reviewEligible" : true,
+                "sampleID" : "AnimalE",
+                "style" : {
+                  "fillHex" : "#CCE7FF",
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              }
+            ],
+            "columnValues" : [
+              {
+                "key" : "standard.genotype",
+                "text" : "01_Mafa_A1_001_01"
+              },
+              {
+                "key" : "reference.feature.allele",
+                "text" : "Mafa-A1*001:01"
+              },
+              {
+                "key" : "reference.source.organism",
+                "text" : "Macaca fascicularis"
+              },
+              {
+                "key" : "standard.locus",
+                "text" : "MHC-A"
+              },
+              {
+                "integer" : 3,
+                "key" : "standard.samples"
+              },
+              {
+                "integer" : 61,
+                "key" : "standard.totalUniqueReads"
+              }
+            ],
+            "comment" : "Reference allele row",
+            "displayName" : "Mafa-A1*001:01",
+            "id" : "43dad97338931b585b7c775daa344411b42e090bce1be11fe72f9dc6d07dad22",
+            "style" : {
+              "isBold" : false,
+              "isItalic" : false
+            },
+            "target" : {
+              "genotype" : "01_Mafa_A1_001_01",
+              "kind" : "row",
+              "locus" : "MHC-A"
+            }
+          },
+          {
+            "cells" : [
+              {
+                "displayValue" : 0,
+                "rawSupport" : 0,
+                "reviewEligible" : true,
+                "sampleID" : "AnimalC",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              },
+              {
+                "displayValue" : 3,
+                "fillHex" : "#E4F3FF",
+                "rawSupport" : 3,
+                "review" : "false-positive",
+                "reviewEligible" : true,
+                "sampleID" : "AnimalA",
+                "style" : {
+                  "fillHex" : "#E4F3FF",
+                  "isBold" : false,
+                  "isItalic" : true,
+                  "textHex" : "#B00020"
+                }
+              },
+              {
+                "displayValue" : 40,
+                "fillHex" : "#CCE7FF",
+                "rawSupport" : 40,
+                "reviewEligible" : true,
+                "sampleID" : "AnimalB",
+                "style" : {
+                  "fillHex" : "#CCE7FF",
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              },
+              {
+                "reviewEligible" : false,
+                "sampleID" : "AnimalD",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              },
+              {
+                "reviewEligible" : false,
+                "sampleID" : "AnimalE",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              }
+            ],
+            "columnValues" : [
+              {
+                "key" : "standard.genotype",
+                "text" : "02_Mafa_A1_002_01"
+              },
+              {
+                "key" : "reference.feature.allele",
+                "text" : "Mafa-A1*002:01"
+              },
+              {
+                "key" : "reference.source.organism",
+                "text" : "Macaca fascicularis"
+              },
+              {
+                "key" : "standard.locus",
+                "text" : "MHC-A"
+              },
+              {
+                "integer" : 3,
+                "key" : "standard.samples"
+              },
+              {
+                "integer" : 43,
+                "key" : "standard.totalUniqueReads"
+              }
+            ],
+            "displayName" : "Mafa-A1*002:01",
+            "id" : "7baea7b2bd3da07c0e91a3edbc78cb023bbfd8580e473c93a45067220b794846",
+            "style" : {
+              "isBold" : false,
+              "isItalic" : false
+            },
+            "target" : {
+              "genotype" : "02_Mafa_A1_002_01",
+              "kind" : "row",
+              "locus" : "MHC-A"
+            }
+          },
+          {
+            "cells" : [
+              {
+                "reviewEligible" : false,
+                "sampleID" : "AnimalC",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              },
+              {
                 "displayValue" : 0,
                 "rawSupport" : 0,
                 "reviewEligible" : true,
@@ -815,16 +783,6 @@
                 "rawSupport" : 0,
                 "reviewEligible" : true,
                 "sampleID" : "AnimalE",
-                "style" : {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              },
-              {
-                "displayValue" : 0,
-                "rawSupport" : 0,
-                "reviewEligible" : true,
-                "sampleID" : "AnimalF",
                 "style" : {
                   "isBold" : false,
                   "isItalic" : false
@@ -868,105 +826,6 @@
               "kind" : "row",
               "locus" : "MHC-B"
             }
-          },
-          {
-            "cells" : [
-              {
-                "reviewEligible" : false,
-                "sampleID" : "AnimalC",
-                "style" : {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              },
-              {
-                "displayValue" : 9,
-                "rawSupport" : 9,
-                "reviewEligible" : true,
-                "sampleID" : "AnimalA",
-                "style" : {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              },
-              {
-                "displayValue" : 0,
-                "rawSupport" : 0,
-                "reviewEligible" : true,
-                "sampleID" : "AnimalB",
-                "style" : {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              },
-              {
-                "displayValue" : 40,
-                "rawSupport" : 40,
-                "reviewEligible" : true,
-                "sampleID" : "AnimalD",
-                "style" : {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              },
-              {
-                "displayValue" : 12,
-                "rawSupport" : 12,
-                "reviewEligible" : true,
-                "sampleID" : "AnimalE",
-                "style" : {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              },
-              {
-                "displayValue" : 7,
-                "rawSupport" : 7,
-                "reviewEligible" : true,
-                "sampleID" : "AnimalF",
-                "style" : {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              }
-            ],
-            "columnValues" : [
-              {
-                "key" : "standard.genotype",
-                "text" : "Mafa-A1*001:01"
-              },
-              {
-                "key" : "reference.feature.allele",
-                "text" : "Mafa-A1*001:01"
-              },
-              {
-                "key" : "reference.source.organism",
-                "text" : ""
-              },
-              {
-                "key" : "standard.locus",
-                "text" : "MHC-A"
-              },
-              {
-                "integer" : 4,
-                "key" : "standard.samples"
-              },
-              {
-                "integer" : 68,
-                "key" : "standard.totalUniqueReads"
-              }
-            ],
-            "displayName" : "Mafa-A1*001:01",
-            "id" : "989e49537ee21a94b8eaef9d8fe65e6d6e8c8946f34010b5f41fe4d4888d8b70",
-            "style" : {
-              "isBold" : false,
-              "isItalic" : false
-            },
-            "target" : {
-              "genotype" : "Mafa-A1*001:01",
-              "kind" : "row",
-              "locus" : "MHC-A"
-            }
           }
         ],
         "samples" : [
@@ -990,10 +849,6 @@
           {
             "id" : "AnimalE",
             "name" : "AnimalE"
-          },
-          {
-            "id" : "AnimalF",
-            "name" : "AnimalF"
           }
         ]
       },
@@ -1204,20 +1059,20 @@
           "filterContext" : {
             "cellColorMode" : "Support",
             "diagnosticAllelesOnly" : "false",
-            "genotypeLocusDisplayOrder" : "",
+            "genotypeLocusDisplayOrder" : "MHC-B,MHC-A",
             "genotypeNumericPrefixOrder" : "false",
             "hideFilteredHighlights" : "true",
             "hideLowSupport" : "false",
             "includeTotalReads" : "true",
             "locus" : "All Loci",
             "matrixMinimumPercent" : "10.0",
-            "matrixMinimumPrevalencePercent" : "0.0",
+            "matrixMinimumPrevalencePercent" : "40.0",
             "matrixMinimumReads" : "5",
             "matrixPercentBasis" : "per-sample read fraction, per source locus",
             "matrixPercentDenominator" : "Source Locus",
             "matrixRowFilterText" : "",
             "matrixSampleFilterText" : "",
-            "minimumSupportPercent" : "0.0",
+            "minimumSupportPercent" : "7.5",
             "searchText" : "",
             "supportDenominator" : "Source Locus"
           },
@@ -1286,173 +1141,17 @@
           "rows" : [
             {
               "cellColorsHex" : [
-                null,
-                "#CCE7FF",
-                null,
-                "#CCE7FF",
-                "#CCE7FF",
-                null
-              ],
-              "cells" : [
-                "",
-                "9",
-                "0",
-                "40",
-                "12",
-                "7"
-              ],
-              "cellStyles" : [
-                {
-                  "isBold" : false,
-                  "isItalic" : false
-                },
-                {
-                  "fillHex" : "#CCE7FF",
-                  "isBold" : false,
-                  "isItalic" : false
-                },
-                {
-                  "isBold" : false,
-                  "isItalic" : false
-                },
-                {
-                  "fillHex" : "#CCE7FF",
-                  "isBold" : false,
-                  "isItalic" : false
-                },
-                {
-                  "fillHex" : "#CCE7FF",
-                  "isBold" : false,
-                  "isItalic" : false
-                },
-                null
-              ],
-              "label" : "Mafa-A1*001:01",
-              "locus" : "MHC-A",
-              "matrixColumnValues" : [
-                {
-                  "key" : "standard.genotype",
-                  "text" : "01_Mafa_A1_001_01"
-                },
-                {
-                  "key" : "reference.feature.allele",
-                  "text" : "Mafa-A1*001:01"
-                },
-                {
-                  "key" : "reference.source.organism",
-                  "text" : "Macaca fascicularis"
-                },
-                {
-                  "key" : "standard.locus",
-                  "text" : "MHC-A"
-                },
-                {
-                  "integer" : 3,
-                  "key" : "standard.samples"
-                },
-                {
-                  "integer" : 61,
-                  "key" : "standard.totalUniqueReads"
-                }
-              ],
-              "rawGenotype" : "01_Mafa_A1_001_01",
-              "rowStyle" : {
-                "isBold" : false,
-                "isItalic" : false
-              }
-            },
-            {
-              "cellColorsHex" : [
-                null,
-                "#E4F3FF",
-                "#CCE7FF",
-                null,
-                null,
-                null
-              ],
-              "cells" : [
-                "0",
-                "3",
-                "40",
-                "",
-                "",
-                ""
-              ],
-              "cellStyles" : [
-                {
-                  "isBold" : false,
-                  "isItalic" : false
-                },
-                {
-                  "fillHex" : "#E4F3FF",
-                  "isBold" : false,
-                  "isItalic" : true,
-                  "textHex" : "#B00020"
-                },
-                {
-                  "fillHex" : "#CCE7FF",
-                  "isBold" : false,
-                  "isItalic" : false
-                },
-                {
-                  "isBold" : false,
-                  "isItalic" : false
-                },
-                {
-                  "isBold" : false,
-                  "isItalic" : false
-                },
-                null
-              ],
-              "label" : "Mafa-A1*002:01",
-              "locus" : "MHC-A",
-              "matrixColumnValues" : [
-                {
-                  "key" : "standard.genotype",
-                  "text" : "02_Mafa_A1_002_01"
-                },
-                {
-                  "key" : "reference.feature.allele",
-                  "text" : "Mafa-A1*002:01"
-                },
-                {
-                  "key" : "reference.source.organism",
-                  "text" : "Macaca fascicularis"
-                },
-                {
-                  "key" : "standard.locus",
-                  "text" : "MHC-A"
-                },
-                {
-                  "integer" : 3,
-                  "key" : "standard.samples"
-                },
-                {
-                  "integer" : 43,
-                  "key" : "standard.totalUniqueReads"
-                }
-              ],
-              "rawGenotype" : "02_Mafa_A1_002_01",
-              "rowStyle" : {
-                "isBold" : false,
-                "isItalic" : false
-              }
-            },
-            {
-              "cellColorsHex" : [
                 "#FFE5BF",
                 "#FFE5BF",
                 "#FFE5BF",
                 "#FFE5BF",
-                "#FFE5BF",
-                null
+                "#FFE5BF"
               ],
               "cells" : [
                 "9",
                 "40",
                 "",
                 "40",
-                "",
                 ""
               ],
               "cellStyles" : [
@@ -1485,8 +1184,7 @@
                   "isBold" : true,
                   "isItalic" : false,
                   "textHex" : "#000000"
-                },
-                null
+                }
               ],
               "label" : "Mafa-B*075:01",
               "locus" : "MHC-B",
@@ -1531,16 +1229,14 @@
                 null,
                 "#CCE7FF",
                 null,
-                "#CCE7FF",
-                null
+                "#CCE7FF"
               ],
               "cells" : [
                 "3",
                 "",
                 "9",
                 "",
-                "40",
-                ""
+                "40"
               ],
               "cellStyles" : [
                 {
@@ -1565,8 +1261,7 @@
                   "fillHex" : "#CCE7FF",
                   "isBold" : false,
                   "isItalic" : false
-                },
-                null
+                }
               ],
               "label" : "Mafa-B*082:01",
               "locus" : "MHC-B",
@@ -1603,19 +1298,162 @@
               }
             },
             {
+              "cellColorsHex" : [
+                null,
+                "#CCE7FF",
+                null,
+                "#CCE7FF",
+                "#CCE7FF"
+              ],
               "cells" : [
                 "",
+                "9",
                 "0",
-                "0",
-                "0",
-                "0",
-                "0"
+                "40",
+                "12"
               ],
               "cellStyles" : [
                 {
                   "isBold" : false,
                   "isItalic" : false
                 },
+                {
+                  "fillHex" : "#CCE7FF",
+                  "isBold" : false,
+                  "isItalic" : false
+                },
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                },
+                {
+                  "fillHex" : "#CCE7FF",
+                  "isBold" : false,
+                  "isItalic" : false
+                },
+                {
+                  "fillHex" : "#CCE7FF",
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              ],
+              "label" : "Mafa-A1*001:01",
+              "locus" : "MHC-A",
+              "matrixColumnValues" : [
+                {
+                  "key" : "standard.genotype",
+                  "text" : "01_Mafa_A1_001_01"
+                },
+                {
+                  "key" : "reference.feature.allele",
+                  "text" : "Mafa-A1*001:01"
+                },
+                {
+                  "key" : "reference.source.organism",
+                  "text" : "Macaca fascicularis"
+                },
+                {
+                  "key" : "standard.locus",
+                  "text" : "MHC-A"
+                },
+                {
+                  "integer" : 3,
+                  "key" : "standard.samples"
+                },
+                {
+                  "integer" : 61,
+                  "key" : "standard.totalUniqueReads"
+                }
+              ],
+              "rawGenotype" : "01_Mafa_A1_001_01",
+              "rowStyle" : {
+                "isBold" : false,
+                "isItalic" : false
+              }
+            },
+            {
+              "cellColorsHex" : [
+                null,
+                "#E4F3FF",
+                "#CCE7FF",
+                null,
+                null
+              ],
+              "cells" : [
+                "0",
+                "3",
+                "40",
+                "",
+                ""
+              ],
+              "cellStyles" : [
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                },
+                {
+                  "fillHex" : "#E4F3FF",
+                  "isBold" : false,
+                  "isItalic" : true,
+                  "textHex" : "#B00020"
+                },
+                {
+                  "fillHex" : "#CCE7FF",
+                  "isBold" : false,
+                  "isItalic" : false
+                },
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                },
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              ],
+              "label" : "Mafa-A1*002:01",
+              "locus" : "MHC-A",
+              "matrixColumnValues" : [
+                {
+                  "key" : "standard.genotype",
+                  "text" : "02_Mafa_A1_002_01"
+                },
+                {
+                  "key" : "reference.feature.allele",
+                  "text" : "Mafa-A1*002:01"
+                },
+                {
+                  "key" : "reference.source.organism",
+                  "text" : "Macaca fascicularis"
+                },
+                {
+                  "key" : "standard.locus",
+                  "text" : "MHC-A"
+                },
+                {
+                  "integer" : 3,
+                  "key" : "standard.samples"
+                },
+                {
+                  "integer" : 43,
+                  "key" : "standard.totalUniqueReads"
+                }
+              ],
+              "rawGenotype" : "02_Mafa_A1_002_01",
+              "rowStyle" : {
+                "isBold" : false,
+                "isItalic" : false
+              }
+            },
+            {
+              "cells" : [
+                "",
+                "0",
+                "0",
+                "0",
+                "0"
+              ],
+              "cellStyles" : [
                 {
                   "isBold" : false,
                   "isItalic" : false
@@ -1644,49 +1482,6 @@
                 "isBold" : false,
                 "isItalic" : false
               }
-            },
-            {
-              "cells" : [
-                "",
-                "9",
-                "0",
-                "40",
-                "12",
-                "7"
-              ],
-              "cellStyles" : [
-                {
-                  "isBold" : false,
-                  "isItalic" : false
-                },
-                {
-                  "isBold" : false,
-                  "isItalic" : false
-                },
-                {
-                  "isBold" : false,
-                  "isItalic" : false
-                },
-                {
-                  "isBold" : false,
-                  "isItalic" : false
-                },
-                {
-                  "isBold" : false,
-                  "isItalic" : false
-                },
-                {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              ],
-              "label" : "Mafa-A1*001:01",
-              "locus" : "MHC-A",
-              "rawGenotype" : "Mafa-A1*001:01",
-              "rowStyle" : {
-                "isBold" : false,
-                "isItalic" : false
-              }
             }
           ],
           "sampleColumns" : [
@@ -1694,8 +1489,7 @@
             "AnimalA",
             "AnimalB",
             "AnimalD",
-            "AnimalE",
-            "AnimalF"
+            "AnimalE"
           ]
         },
         "analysis.json" : {
@@ -2176,6 +1970,10 @@
             "cardDensityThreshold" : 30,
             "dropoutAbsolute" : 50,
             "dropoutLocusFraction" : "0.01",
+            "genotypeLocusDisplayOrder" : [
+              "MHC-B",
+              "MHC-A"
+            ],
             "mhcCandidateDisplay" : {
               "showKnown" : true,
               "showSharedCandidates" : true,
@@ -2666,14 +2464,19 @@
               "schemaVersion" : 3,
               "speciesCode" : "TEST",
               "speciesName" : "Test macaque"
-            }
+            },
+            "locusDisplayOrder" : [
+              "MHC-B",
+              "MHC-A"
+            ]
           },
           "filter" : {
             "globalDenominator" : "viewedLocus",
             "globalMinimumPercent" : 0,
             "matrixDenominator" : "viewedLocus",
             "matrixMinimumPercent" : 10,
-            "matrixMinimumReads" : 5
+            "matrixMinimumReads" : 5,
+            "minimumPrevalencePercent" : 40
           },
           "filteredEvidenceRowPolicy" : "positive-displayed-count-in-visible-samples"
         },
@@ -2739,23 +2542,27 @@
             "activeSmartCohortScope" : "bundle",
             "cellColorMode" : "Support",
             "diagnosticAllelesOnly" : "false",
-            "genotypeLocusDisplayOrder" : "",
+            "genotypeLocusDisplayOrder" : "MHC-B,MHC-A",
             "genotypeNumericPrefixOrder" : "false",
             "hideFilteredHighlights" : "true",
             "hideLowSupport" : "false",
             "includeTotalReads" : "true",
             "locus" : "All Loci",
             "matrixMinimumPercent" : "10.0",
-            "matrixMinimumPrevalencePercent" : "0.0",
+            "matrixMinimumPrevalencePercent" : "40.0",
             "matrixMinimumReads" : "5",
             "matrixPercentBasis" : "per-sample read fraction, per source locus",
             "matrixPercentDenominator" : "Source Locus",
             "matrixRowFilterText" : "",
             "matrixSampleFilterText" : "",
-            "minimumSupportPercent" : "0.0",
+            "minimumSupportPercent" : "7.5",
             "searchText" : "",
             "supportDenominator" : "Source Locus"
           },
+          "genotypeLocusDisplayOrder" : [
+            "MHC-B",
+            "MHC-A"
+          ],
           "genotypeNumericPrefixOrder" : false,
           "haplotypeLocusScope" : [
             "MHC-A",
@@ -2802,128 +2609,6 @@
 
           ],
           "rows" : [
-            {
-              "cellColorsHex" : [
-                null,
-                "#CCE7FF",
-                null
-              ],
-              "cells" : [
-                "",
-                "9",
-                ""
-              ],
-              "cellStyles" : [
-                {
-                  "isBold" : false,
-                  "isItalic" : false
-                },
-                {
-                  "fillHex" : "#CCE7FF",
-                  "isBold" : false,
-                  "isItalic" : false
-                },
-                {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              ],
-              "label" : "Mafa-A1*001:01",
-              "locus" : "MHC-A",
-              "matrixColumnValues" : [
-                {
-                  "key" : "standard.genotype",
-                  "text" : "01_Mafa_A1_001_01"
-                },
-                {
-                  "key" : "reference.feature.allele",
-                  "text" : "Mafa-A1*001:01"
-                },
-                {
-                  "key" : "reference.source.organism",
-                  "text" : "Macaca fascicularis"
-                },
-                {
-                  "key" : "standard.locus",
-                  "text" : "MHC-A"
-                },
-                {
-                  "integer" : 3,
-                  "key" : "standard.samples"
-                },
-                {
-                  "integer" : 61,
-                  "key" : "standard.totalUniqueReads"
-                }
-              ],
-              "rawGenotype" : "01_Mafa_A1_001_01",
-              "rowStyle" : {
-                "isBold" : false,
-                "isItalic" : false
-              }
-            },
-            {
-              "cellColorsHex" : [
-                null,
-                "#E4F3FF",
-                "#CCE7FF"
-              ],
-              "cells" : [
-                "",
-                "",
-                "40"
-              ],
-              "cellStyles" : [
-                {
-                  "isBold" : false,
-                  "isItalic" : false
-                },
-                {
-                  "fillHex" : "#E4F3FF",
-                  "isBold" : false,
-                  "isItalic" : true,
-                  "textHex" : "#B00020"
-                },
-                {
-                  "fillHex" : "#CCE7FF",
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              ],
-              "label" : "Mafa-A1*002:01",
-              "locus" : "MHC-A",
-              "matrixColumnValues" : [
-                {
-                  "key" : "standard.genotype",
-                  "text" : "02_Mafa_A1_002_01"
-                },
-                {
-                  "key" : "reference.feature.allele",
-                  "text" : "Mafa-A1*002:01"
-                },
-                {
-                  "key" : "reference.source.organism",
-                  "text" : "Macaca fascicularis"
-                },
-                {
-                  "key" : "standard.locus",
-                  "text" : "MHC-A"
-                },
-                {
-                  "integer" : 1,
-                  "key" : "standard.samples"
-                },
-                {
-                  "integer" : 40,
-                  "key" : "standard.totalUniqueReads"
-                }
-              ],
-              "rawGenotype" : "02_Mafa_A1_002_01",
-              "rowStyle" : {
-                "isBold" : false,
-                "isItalic" : false
-              }
-            },
             {
               "cellColorsHex" : [
                 "#FFE5BF",
@@ -3048,6 +2733,66 @@
                 }
               ],
               "rawGenotype" : "04_Mafa_B_082_01",
+              "rowStyle" : {
+                "isBold" : false,
+                "isItalic" : false
+              }
+            },
+            {
+              "cellColorsHex" : [
+                null,
+                "#CCE7FF",
+                null
+              ],
+              "cells" : [
+                "",
+                "9",
+                ""
+              ],
+              "cellStyles" : [
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                },
+                {
+                  "fillHex" : "#CCE7FF",
+                  "isBold" : false,
+                  "isItalic" : false
+                },
+                {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              ],
+              "label" : "Mafa-A1*001:01",
+              "locus" : "MHC-A",
+              "matrixColumnValues" : [
+                {
+                  "key" : "standard.genotype",
+                  "text" : "01_Mafa_A1_001_01"
+                },
+                {
+                  "key" : "reference.feature.allele",
+                  "text" : "Mafa-A1*001:01"
+                },
+                {
+                  "key" : "reference.source.organism",
+                  "text" : "Macaca fascicularis"
+                },
+                {
+                  "key" : "standard.locus",
+                  "text" : "MHC-A"
+                },
+                {
+                  "integer" : 3,
+                  "key" : "standard.samples"
+                },
+                {
+                  "integer" : 61,
+                  "key" : "standard.totalUniqueReads"
+                }
+              ],
+              "rawGenotype" : "01_Mafa_A1_001_01",
               "rowStyle" : {
                 "isBold" : false,
                 "isItalic" : false
@@ -3565,10 +3310,6 @@
                   {
                     "sample" : "AnimalE",
                     "support" : 12
-                  },
-                  {
-                    "sample" : "AnimalF",
-                    "support" : 7
                   }
                 ]
               },
@@ -3595,40 +3336,6 @@
                   {
                     "sample" : "AnimalE",
                     "support" : 0
-                  },
-                  {
-                    "sample" : "AnimalF",
-                    "support" : 0
-                  }
-                ]
-              },
-              {
-                "call_id" : "reference:MHC-A:Mafa-A1*001:01",
-                "display_name" : "Mafa-A1*001:01",
-                "kind" : "reference",
-                "locus" : "MHC-A",
-                "section" : "reference",
-                "sort_key" : "3",
-                "support_by_sample" : [
-                  {
-                    "sample" : "AnimalA",
-                    "support" : 9
-                  },
-                  {
-                    "sample" : "AnimalB",
-                    "support" : 0
-                  },
-                  {
-                    "sample" : "AnimalD",
-                    "support" : 40
-                  },
-                  {
-                    "sample" : "AnimalE",
-                    "support" : 12
-                  },
-                  {
-                    "sample" : "AnimalF",
-                    "support" : 7
                   }
                 ]
               }
@@ -3637,8 +3344,7 @@
               "AnimalA",
               "AnimalB",
               "AnimalD",
-              "AnimalE",
-              "AnimalF"
+              "AnimalE"
             ],
             "schema_id" : "org.lungfish.genotype.reviewable-row-catalog",
             "schema_version" : 1
@@ -3831,153 +3537,6 @@
           {
             "cells" : [
               {
-                "reviewEligible" : false,
-                "sampleID" : "AnimalC",
-                "style" : {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              },
-              {
-                "displayValue" : 9,
-                "fillHex" : "#CCE7FF",
-                "rawSupport" : 9,
-                "reviewEligible" : true,
-                "sampleID" : "AnimalA",
-                "style" : {
-                  "fillHex" : "#CCE7FF",
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              },
-              {
-                "rawSupport" : 0,
-                "review" : "false-negative",
-                "reviewEligible" : true,
-                "sampleID" : "AnimalB",
-                "style" : {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              }
-            ],
-            "columnValues" : [
-              {
-                "key" : "standard.genotype",
-                "text" : "01_Mafa_A1_001_01"
-              },
-              {
-                "key" : "reference.feature.allele",
-                "text" : "Mafa-A1*001:01"
-              },
-              {
-                "key" : "reference.source.organism",
-                "text" : "Macaca fascicularis"
-              },
-              {
-                "key" : "standard.locus",
-                "text" : "MHC-A"
-              },
-              {
-                "integer" : 3,
-                "key" : "standard.samples"
-              },
-              {
-                "integer" : 61,
-                "key" : "standard.totalUniqueReads"
-              }
-            ],
-            "comment" : "Reference allele row",
-            "displayName" : "Mafa-A1*001:01",
-            "id" : "43dad97338931b585b7c775daa344411b42e090bce1be11fe72f9dc6d07dad22",
-            "style" : {
-              "isBold" : false,
-              "isItalic" : false
-            },
-            "target" : {
-              "genotype" : "01_Mafa_A1_001_01",
-              "kind" : "row",
-              "locus" : "MHC-A"
-            }
-          },
-          {
-            "cells" : [
-              {
-                "rawSupport" : 0,
-                "reviewEligible" : true,
-                "sampleID" : "AnimalC",
-                "style" : {
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              },
-              {
-                "fillHex" : "#E4F3FF",
-                "rawSupport" : 3,
-                "review" : "false-positive",
-                "reviewEligible" : true,
-                "sampleID" : "AnimalA",
-                "style" : {
-                  "fillHex" : "#E4F3FF",
-                  "isBold" : false,
-                  "isItalic" : true,
-                  "textHex" : "#B00020"
-                }
-              },
-              {
-                "displayValue" : 40,
-                "fillHex" : "#CCE7FF",
-                "rawSupport" : 40,
-                "reviewEligible" : true,
-                "sampleID" : "AnimalB",
-                "style" : {
-                  "fillHex" : "#CCE7FF",
-                  "isBold" : false,
-                  "isItalic" : false
-                }
-              }
-            ],
-            "columnValues" : [
-              {
-                "key" : "standard.genotype",
-                "text" : "02_Mafa_A1_002_01"
-              },
-              {
-                "key" : "reference.feature.allele",
-                "text" : "Mafa-A1*002:01"
-              },
-              {
-                "key" : "reference.source.organism",
-                "text" : "Macaca fascicularis"
-              },
-              {
-                "key" : "standard.locus",
-                "text" : "MHC-A"
-              },
-              {
-                "integer" : 1,
-                "key" : "standard.samples"
-              },
-              {
-                "integer" : 40,
-                "key" : "standard.totalUniqueReads"
-              }
-            ],
-            "displayName" : "Mafa-A1*002:01",
-            "id" : "7baea7b2bd3da07c0e91a3edbc78cb023bbfd8580e473c93a45067220b794846",
-            "style" : {
-              "isBold" : false,
-              "isItalic" : false
-            },
-            "target" : {
-              "genotype" : "02_Mafa_A1_002_01",
-              "kind" : "row",
-              "locus" : "MHC-A"
-            }
-          },
-          {
-            "cells" : [
-              {
                 "displayValue" : 9,
                 "fillHex" : "#FFE5BF",
                 "rawSupport" : 9,
@@ -4128,6 +3687,78 @@
               "kind" : "row",
               "locus" : "MHC-B"
             }
+          },
+          {
+            "cells" : [
+              {
+                "reviewEligible" : false,
+                "sampleID" : "AnimalC",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              },
+              {
+                "displayValue" : 9,
+                "fillHex" : "#CCE7FF",
+                "rawSupport" : 9,
+                "reviewEligible" : true,
+                "sampleID" : "AnimalA",
+                "style" : {
+                  "fillHex" : "#CCE7FF",
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              },
+              {
+                "rawSupport" : 0,
+                "review" : "false-negative",
+                "reviewEligible" : true,
+                "sampleID" : "AnimalB",
+                "style" : {
+                  "isBold" : false,
+                  "isItalic" : false
+                }
+              }
+            ],
+            "columnValues" : [
+              {
+                "key" : "standard.genotype",
+                "text" : "01_Mafa_A1_001_01"
+              },
+              {
+                "key" : "reference.feature.allele",
+                "text" : "Mafa-A1*001:01"
+              },
+              {
+                "key" : "reference.source.organism",
+                "text" : "Macaca fascicularis"
+              },
+              {
+                "key" : "standard.locus",
+                "text" : "MHC-A"
+              },
+              {
+                "integer" : 3,
+                "key" : "standard.samples"
+              },
+              {
+                "integer" : 61,
+                "key" : "standard.totalUniqueReads"
+              }
+            ],
+            "comment" : "Reference allele row",
+            "displayName" : "Mafa-A1*001:01",
+            "id" : "43dad97338931b585b7c775daa344411b42e090bce1be11fe72f9dc6d07dad22",
+            "style" : {
+              "isBold" : false,
+              "isItalic" : false
+            },
+            "target" : {
+              "genotype" : "01_Mafa_A1_001_01",
+              "kind" : "row",
+              "locus" : "MHC-A"
+            }
           }
         ],
         "samples" : [
@@ -4187,7 +3818,7 @@
         ],
         [
           "Seen in at least N% of animals",
-          "0.0"
+          "40.0"
         ],
         [
           "Prevalence basis",
@@ -4219,7 +3850,7 @@
         ],
         [
           "genotypeLocusDisplayOrder",
-          ""
+          "MHC-B,MHC-A"
         ],
         [
           "genotypeNumericPrefixOrder",
@@ -4247,7 +3878,7 @@
         ],
         [
           "matrixMinimumPrevalencePercent",
-          "0.0"
+          "40.0"
         ],
         [
           "matrixMinimumReads",
@@ -4271,7 +3902,7 @@
         ],
         [
           "minimumSupportPercent",
-          "0.0"
+          "7.5"
         ],
         [
           "searchText",
@@ -4302,20 +3933,20 @@
       "activeSmartCohortScope" : "bundle",
       "cellColorMode" : "Support",
       "diagnosticAllelesOnly" : "false",
-      "genotypeLocusDisplayOrder" : "",
+      "genotypeLocusDisplayOrder" : "MHC-B,MHC-A",
       "genotypeNumericPrefixOrder" : "false",
       "hideFilteredHighlights" : "true",
       "hideLowSupport" : "false",
       "includeTotalReads" : "true",
       "locus" : "All Loci",
       "matrixMinimumPercent" : "10.0",
-      "matrixMinimumPrevalencePercent" : "0.0",
+      "matrixMinimumPrevalencePercent" : "40.0",
       "matrixMinimumReads" : "5",
       "matrixPercentBasis" : "per-sample read fraction, per source locus",
       "matrixPercentDenominator" : "Source Locus",
       "matrixRowFilterText" : "",
       "matrixSampleFilterText" : "",
-      "minimumSupportPercent" : "0.0",
+      "minimumSupportPercent" : "7.5",
       "searchText" : "",
       "supportDenominator" : "Source Locus"
     },
@@ -4388,154 +4019,6 @@
 
     ],
     "rows" : [
-      {
-        "cellStyles" : {
-
-        },
-        "displayName" : "Mafa-A1*001:01",
-        "genotype" : "01_Mafa_A1_001_01",
-        "locus" : "MHC-A",
-        "matrixColumnValues" : [
-          {
-            "key" : "standard.genotype",
-            "text" : "01_Mafa_A1_001_01"
-          },
-          {
-            "key" : "reference.feature.allele",
-            "text" : "Mafa-A1*001:01"
-          },
-          {
-            "key" : "reference.source.organism",
-            "text" : "Macaca fascicularis"
-          },
-          {
-            "key" : "standard.locus",
-            "text" : "MHC-A"
-          },
-          {
-            "integer" : 3,
-            "key" : "standard.samples"
-          },
-          {
-            "integer" : 61,
-            "key" : "standard.totalUniqueReads"
-          }
-        ],
-        "renderedCellStyles" : {
-          "AnimalA" : {
-            "borderColor" : null,
-            "fillColor" : "#0088FF33",
-            "isBold" : false,
-            "isItalic" : false,
-            "textColor" : null
-          },
-          "AnimalB" : {
-            "borderColor" : null,
-            "fillColor" : null,
-            "isBold" : false,
-            "isItalic" : false,
-            "textColor" : null
-          },
-          "AnimalC" : {
-            "borderColor" : null,
-            "fillColor" : null,
-            "isBold" : false,
-            "isItalic" : false,
-            "textColor" : null
-          }
-        },
-        "renderedRowStyle" : {
-          "borderColor" : null,
-          "fillColor" : null,
-          "isBold" : false,
-          "isItalic" : false,
-          "textColor" : null
-        },
-        "rowStyle" : {
-          "borderColor" : null,
-          "fillColor" : null
-        },
-        "sampleCount" : 3,
-        "sampleReads" : {
-          "AnimalA" : 9
-        },
-        "stableClusterID" : null,
-        "totalUniqueReads" : 61
-      },
-      {
-        "cellStyles" : {
-
-        },
-        "displayName" : "Mafa-A1*002:01",
-        "genotype" : "02_Mafa_A1_002_01",
-        "locus" : "MHC-A",
-        "matrixColumnValues" : [
-          {
-            "key" : "standard.genotype",
-            "text" : "02_Mafa_A1_002_01"
-          },
-          {
-            "key" : "reference.feature.allele",
-            "text" : "Mafa-A1*002:01"
-          },
-          {
-            "key" : "reference.source.organism",
-            "text" : "Macaca fascicularis"
-          },
-          {
-            "key" : "standard.locus",
-            "text" : "MHC-A"
-          },
-          {
-            "integer" : 1,
-            "key" : "standard.samples"
-          },
-          {
-            "integer" : 40,
-            "key" : "standard.totalUniqueReads"
-          }
-        ],
-        "renderedCellStyles" : {
-          "AnimalA" : {
-            "borderColor" : null,
-            "fillColor" : "#0088FF1B",
-            "isBold" : false,
-            "isItalic" : true,
-            "textColor" : "#B00020FF"
-          },
-          "AnimalB" : {
-            "borderColor" : null,
-            "fillColor" : "#0088FF33",
-            "isBold" : false,
-            "isItalic" : false,
-            "textColor" : null
-          },
-          "AnimalC" : {
-            "borderColor" : null,
-            "fillColor" : null,
-            "isBold" : false,
-            "isItalic" : false,
-            "textColor" : null
-          }
-        },
-        "renderedRowStyle" : {
-          "borderColor" : null,
-          "fillColor" : null,
-          "isBold" : false,
-          "isItalic" : false,
-          "textColor" : null
-        },
-        "rowStyle" : {
-          "borderColor" : null,
-          "fillColor" : null
-        },
-        "sampleCount" : 1,
-        "sampleReads" : {
-          "AnimalB" : 40
-        },
-        "stableClusterID" : null,
-        "totalUniqueReads" : 40
-      },
       {
         "cellStyles" : {
           "AnimalA" : {
@@ -4695,6 +4178,80 @@
         },
         "stableClusterID" : null,
         "totalUniqueReads" : 49
+      },
+      {
+        "cellStyles" : {
+
+        },
+        "displayName" : "Mafa-A1*001:01",
+        "genotype" : "01_Mafa_A1_001_01",
+        "locus" : "MHC-A",
+        "matrixColumnValues" : [
+          {
+            "key" : "standard.genotype",
+            "text" : "01_Mafa_A1_001_01"
+          },
+          {
+            "key" : "reference.feature.allele",
+            "text" : "Mafa-A1*001:01"
+          },
+          {
+            "key" : "reference.source.organism",
+            "text" : "Macaca fascicularis"
+          },
+          {
+            "key" : "standard.locus",
+            "text" : "MHC-A"
+          },
+          {
+            "integer" : 3,
+            "key" : "standard.samples"
+          },
+          {
+            "integer" : 61,
+            "key" : "standard.totalUniqueReads"
+          }
+        ],
+        "renderedCellStyles" : {
+          "AnimalA" : {
+            "borderColor" : null,
+            "fillColor" : "#0088FF33",
+            "isBold" : false,
+            "isItalic" : false,
+            "textColor" : null
+          },
+          "AnimalB" : {
+            "borderColor" : null,
+            "fillColor" : null,
+            "isBold" : false,
+            "isItalic" : false,
+            "textColor" : null
+          },
+          "AnimalC" : {
+            "borderColor" : null,
+            "fillColor" : null,
+            "isBold" : false,
+            "isItalic" : false,
+            "textColor" : null
+          }
+        },
+        "renderedRowStyle" : {
+          "borderColor" : null,
+          "fillColor" : null,
+          "isBold" : false,
+          "isItalic" : false,
+          "textColor" : null
+        },
+        "rowStyle" : {
+          "borderColor" : null,
+          "fillColor" : null
+        },
+        "sampleCount" : 3,
+        "sampleReads" : {
+          "AnimalA" : 9
+        },
+        "stableClusterID" : null,
+        "totalUniqueReads" : 61
       }
     ],
     "sampleNames" : [

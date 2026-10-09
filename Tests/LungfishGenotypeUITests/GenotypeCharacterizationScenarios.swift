@@ -285,15 +285,48 @@ extension GenotypeResultViewportTestCase {
 
     /// Five animals, two loci, a definition snapshot in the bundle so the live
     /// analysis is re-inferred, GenBank metadata, a catalog with one
-    /// overlapping row and one catalog-only reference row, reviews, comments
-    /// and styles in the sidecar, an identity-bound override, min reads 5 and
-    /// min percent 10, AnimalD hidden, AnimalE outside the smart cohort and
-    /// AnimalC moved first. The reference row 01_Mafa_A1_001_01 then holds a
-    /// positive cell (AnimalA), a catalog zero (AnimalB) and an unknown cell
-    /// (AnimalC) in the Filtered sheet at once.
+    /// overlapping row, one catalog-only reference row, one production-shape
+    /// row for an allele the native matrix spells differently and one
+    /// catalog-only animal (AnimalF) that is in no call and no sample, reviews,
+    /// comments and styles in the sidecar, an identity-bound override, min
+    /// reads 5 and min percent 10, AnimalD hidden, AnimalE outside the smart
+    /// cohort and AnimalC moved first. The reference row 01_Mafa_A1_001_01
+    /// then holds a positive cell (AnimalA), a catalog zero (AnimalB) and an
+    /// unknown cell (AnimalC) in the Filtered sheet at once, and the All sheet
+    /// gains the AnimalF column from the catalog alone.
     func makeHaplotypedMiSeqScenario() throws -> GenotypeCharacterizationScenario {
+        try makeHaplotypedMiSeqScenario(.catalogExtended)
+    }
+
+    /// Scenario D, the data of scenario A with the four-animal catalog and
+    /// three more viewport inputs. The global percent is 7.5 with Hide Low
+    /// Support off, so the capture's global filter must stay 0.0 while the
+    /// filter context records 7.5. Prevalence is 40, which drops
+    /// 02_Mafa_A1_002_01 (one of five animals) and keeps 04_Mafa_B_082_01 at
+    /// exactly 40 percent, counting AnimalE outside the cohort. The sidecar
+    /// carries a locus display order of MHC-B before MHC-A.
+    func makeThresholdedMiSeqScenario() throws -> GenotypeCharacterizationScenario {
+        try makeHaplotypedMiSeqScenario(.thresholded)
+    }
+
+    /// The two scenarios that share the haplotyped MiSeq data.
+    enum HaplotypedMiSeqVariant {
+        /// Scenario A, with the catalog-only animal and the production-shape row.
+        case catalogExtended
+        /// Scenario D, with the global percent, prevalence and a locus order.
+        case thresholded
+
+        var temporaryPrefix: String {
+            switch self {
+            case .catalogExtended: return "GenotypeCharacterizationHaplotyped"
+            case .thresholded: return "GenotypeCharacterizationThresholded"
+            }
+        }
+    }
+
+    private func makeHaplotypedMiSeqScenario(_ variant: HaplotypedMiSeqVariant) throws -> GenotypeCharacterizationScenario {
         typealias Fixture = GenotypeCharacterizationFixture
-        let (root, bundleURL) = try Fixture.makeBundleFolder(prefix: "GenotypeCharacterizationHaplotyped", name: "haplotyped")
+        let (root, bundleURL) = try Fixture.makeBundleFolder(prefix: variant.temporaryPrefix, name: "haplotyped")
         let definition = Fixture.exon2DefinitionSet()
         try Fixture.writeDefinitionSnapshot(definition, in: bundleURL)
         let calls = [
@@ -323,14 +356,35 @@ extension GenotypeResultViewportTestCase {
             source: .deterministic,
             samples: pipeline.samples
         )
-        let catalog = GenotypeReviewableRowCatalog(samples: ["AnimalA", "AnimalB", "AnimalD", "AnimalE"], rows: [
-            .init(kind: .reference, callID: "01_Mafa_A1_001_01", displayName: "Mafa-A1*001:01", locus: "MHC-A",
-                  stableID: nil, section: "reference", sortKey: "1",
-                  supportBySample: ["AnimalA": 9, "AnimalB": 0, "AnimalD": 40, "AnimalE": 12]),
-            .init(kind: .reference, callID: "reference:MHC-B:Mafa-B*099:01", displayName: "Mafa-B*099:01", locus: "MHC-B",
-                  stableID: nil, section: "reference", sortKey: "2",
-                  supportBySample: ["AnimalA": 0, "AnimalB": 0, "AnimalD": 0, "AnimalE": 0]),
-        ])
+        // AnimalF exists only in the catalog, so the All sheet must extend its
+        // sample columns and remap colours and styles for a sample the native
+        // matrix never had. The production-shape row names the allele of
+        // 01_Mafa_A1_001_01 in a spelling the native matrix does not carry, so
+        // today it becomes a second All row for the same allele (finding S1).
+        let catalog: GenotypeReviewableRowCatalog
+        switch variant {
+        case .catalogExtended:
+            catalog = GenotypeReviewableRowCatalog(samples: ["AnimalA", "AnimalB", "AnimalD", "AnimalE", "AnimalF"], rows: [
+                .init(kind: .reference, callID: "01_Mafa_A1_001_01", displayName: "Mafa-A1*001:01", locus: "MHC-A",
+                      stableID: nil, section: "reference", sortKey: "1",
+                      supportBySample: ["AnimalA": 9, "AnimalB": 0, "AnimalD": 40, "AnimalE": 12, "AnimalF": 7]),
+                .init(kind: .reference, callID: "reference:MHC-B:Mafa-B*099:01", displayName: "Mafa-B*099:01", locus: "MHC-B",
+                      stableID: nil, section: "reference", sortKey: "2",
+                      supportBySample: ["AnimalA": 0, "AnimalB": 0, "AnimalD": 0, "AnimalE": 0, "AnimalF": 0]),
+                .init(kind: .reference, callID: "reference:MHC-A:Mafa-A1*001:01", displayName: "Mafa-A1*001:01", locus: "MHC-A",
+                      stableID: nil, section: "reference", sortKey: "3",
+                      supportBySample: ["AnimalA": 9, "AnimalB": 0, "AnimalD": 40, "AnimalE": 12, "AnimalF": 7]),
+            ])
+        case .thresholded:
+            catalog = GenotypeReviewableRowCatalog(samples: ["AnimalA", "AnimalB", "AnimalD", "AnimalE"], rows: [
+                .init(kind: .reference, callID: "01_Mafa_A1_001_01", displayName: "Mafa-A1*001:01", locus: "MHC-A",
+                      stableID: nil, section: "reference", sortKey: "1",
+                      supportBySample: ["AnimalA": 9, "AnimalB": 0, "AnimalD": 40, "AnimalE": 12]),
+                .init(kind: .reference, callID: "reference:MHC-B:Mafa-B*099:01", displayName: "Mafa-B*099:01", locus: "MHC-B",
+                      stableID: nil, section: "reference", sortKey: "2",
+                      supportBySample: ["AnimalA": 0, "AnimalB": 0, "AnimalD": 0, "AnimalE": 0]),
+            ])
+        }
         let result = makeResult(
             bundleURL: bundleURL,
             samples: Fixture.sampleResults(for: calls, order: animals),
@@ -349,6 +403,9 @@ extension GenotypeResultViewportTestCase {
             predicate: .animalIdIn(["AnimalA", "AnimalB", "AnimalC", "AnimalD"])
         )
         var sidecar = Fixture.baseSidecar(preferredSummaryViewMode: "matrix")
+        if variant == .thresholded {
+            sidecar.settings.genotypeLocusDisplayOrder = ["MHC-B", "MHC-A"]
+        }
         sidecar.smartCohorts.append(cohort)
         sidecar.callOverrides = [
             Fixture.override(
@@ -386,6 +443,11 @@ extension GenotypeResultViewportTestCase {
         state.summaryViewMode = .matrix
         state.matrixMinimumReads = 5
         state.matrixMinimumPercent = 10
+        if variant == .thresholded {
+            state.hideLowSupport = false
+            state.minimumSupportPercent = 7.5
+            state.matrixMinimumPrevalencePercent = 40
+        }
         controller.testingApplyDisplayStateImmediately(state)
         let matrix = controller.testingComparisonMatrix
         matrix.testingHideSamples(["AnimalD"])
@@ -453,9 +515,12 @@ extension GenotypeResultViewportTestCase {
 
     /// Three animals and three loci with every call status, no definition
     /// anywhere so the literal analysis survives and the definition is
-    /// synthesized, the identity-bound override matrix and one manual
-    /// assignment that a haplotyped MiSeq result ignores. No (sample, locus)
-    /// is called twice, because the delimited path traps on duplicates.
+    /// synthesized, the identity-bound override matrix (including a nil
+    /// identity beating a newer stale one on AnimalC MHC-DRB H1, and the later
+    /// of two exact overrides winning on AnimalA MHC-B H2 although it is listed
+    /// first) and one manual assignment that a haplotyped MiSeq result ignores.
+    /// No (sample, locus) is called twice, because the delimited path traps on
+    /// duplicates.
     func makeLiteralStatusMiSeqScenario() throws -> GenotypeCharacterizationScenario {
         typealias Fixture = GenotypeCharacterizationFixture
         let (root, bundleURL) = try Fixture.makeBundleFolder(prefix: "GenotypeCharacterizationLiteral", name: "literal")
@@ -538,6 +603,14 @@ extension GenotypeResultViewportTestCase {
                 timestamp: "2026-09-02T10:25:00Z", identity: exact, operation: "slot-first"),
             Fixture.override(sample: "AnimalB", locus: "MHC-A", slot: .h1, original: "M1A|M2A", call: "M2A",
                 timestamp: "2026-09-02T10:30:00Z", identity: nil, operation: "slot-second"),
+            Fixture.override(sample: "AnimalC", locus: "MHC-DRB", slot: .h1, original: "M2DR", call: "M3DR",
+                timestamp: "2026-09-02T10:35:00Z", identity: nil, operation: "nil-beats-stale"),
+            Fixture.override(sample: "AnimalC", locus: "MHC-DRB", slot: .h1, original: "M2DR", call: "M9DR",
+                timestamp: "2026-09-02T10:40:00Z", identity: stale, operation: "stale-newer-than-nil"),
+            Fixture.override(sample: "AnimalA", locus: "MHC-B", slot: .h2, original: "M2B", call: "M8B",
+                timestamp: "2026-09-02T10:50:00Z", identity: exact, operation: "exact-later-listed-first"),
+            Fixture.override(sample: "AnimalA", locus: "MHC-B", slot: .h2, original: "M2B", call: "M7B",
+                timestamp: "2026-09-02T10:45:00Z", identity: exact, operation: "exact-earlier-listed-second"),
         ]
         sidecar.manualHaplotypeAssignments = [
             .init(sample: "AnimalA", locus: "MHC-A", slot: .h1, label: "Manual-A", colorTokenIndex: 5, diagnosticAlleles: [], notes: "Ignored for haplotyped MiSeq"),

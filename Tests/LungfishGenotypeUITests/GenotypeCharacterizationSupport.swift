@@ -9,7 +9,13 @@
 //
 // One encoder turns any captured value into bytes. Non-Codable values are
 // walked through Mirror, so a stored property added later shows up and fails
-// the compare instead of being skipped. Codable values go through JSONEncoder
+// the compare instead of being skipped. Sets, dictionaries and collections are
+// walked before the Codable check, so a Set or a dictionary with non-string
+// keys is sorted by canonical text instead of leaving JSONEncoder in hash-seed
+// order, and a URL element is a plain path like a lone URL. Every floating-point
+// number is written as the text of Double.description, which the Swift
+// standard library owns, so Foundation's number formatting on another macOS
+// release cannot move a digit. Other Codable values go through JSONEncoder
 // with sorted keys. Only three masks exist, each with a guard, and every
 // expected file starts with a normalization object that lists them.
 //
@@ -183,13 +189,29 @@ struct GenotypeCharacterizationCanonicalizer: Sendable {
         if value is NSNull { return NSNull() }
         if let string = value as? String { return maskRoot(in: string, counts: &counts) }
         if let flag = value as? Bool { return flag }
-        if let number = value as? NSNumber { return number }
+        if let double = value as? Double { return double.description }
+        if let float = value as? Float { return float.description }
+        if let scalar = value as? CGFloat { return Double(scalar).description }
+        if let number = value as? NSNumber { return Self.canonicalNumber(number) }
         if let data = value as? Data { return try decodedData(data, counts: &counts) }
         if let url = value as? URL {
             return maskRoot(in: url.isFileURL ? url.path : url.absoluteString, counts: &counts)
         }
         if let color = value as? AnnotationColor { return Self.hex(color) }
         if let date = value as? Date { return Self.iso8601.string(from: date) }
+        // Containers are walked element by element before the Codable check,
+        // so a Set or a non-string-keyed dictionary is sorted by canonical text
+        // and a URL element is a plain path, whatever JSONEncoder would do.
+        switch mirror.displayStyle {
+        case .collection:
+            return try mirror.children.map { try canonicalTree($0.value, counts: &counts) }
+        case .set:
+            return try sortedByCanonicalText(mirror.children.map { try canonicalTree($0.value, counts: &counts) })
+        case .dictionary:
+            return try canonicalDictionary(mirror, counts: &counts)
+        default:
+            break
+        }
         if let encodable = value as? any Encodable {
             return try normalizedJSON(try Self.jsonObject(encoding: encodable), counts: &counts)
         }
@@ -204,17 +226,16 @@ struct GenotypeCharacterizationCanonicalizer: Sendable {
         case .enum:
             guard let payload = mirror.children.first else { return String(describing: value) }
             return [payload.label ?? String(describing: value): try canonicalTree(payload.value, counts: &counts)]
-        case .tuple, .collection:
+        case .tuple:
             return try mirror.children.map { try canonicalTree($0.value, counts: &counts) }
-        case .set:
-            return try sortedByCanonicalText(mirror.children.map { try canonicalTree($0.value, counts: &counts) })
-        case .dictionary:
-            return try canonicalDictionary(mirror, counts: &counts)
         default:
             return maskRoot(in: String(describing: value), counts: &counts)
         }
     }
 
+    /// String keys give an object. Integer keys give an object with the
+    /// integer's text, the form JSONEncoder uses. Any other key sorts the pairs
+    /// by the key's canonical text.
     private func canonicalDictionary(_ mirror: Mirror, counts: inout MaskCounts) throws -> Any {
         var pairs: [(key: Any, value: Any)] = []
         for entry in mirror.children {
@@ -227,10 +248,24 @@ struct GenotypeCharacterizationCanonicalizer: Sendable {
             for pair in pairs { object[pair.key as! String] = pair.value }
             return object
         }
+        if pairs.allSatisfy({ $0.key is NSNumber }) {
+            var object: [String: Any] = [:]
+            for pair in pairs { object[(pair.key as! NSNumber).stringValue] = pair.value }
+            return object
+        }
         let keyed = try pairs.map { pair -> (text: String, pair: [String: Any]) in
             (try Self.canonicalText(pair.key), ["key": pair.key, "value": pair.value])
         }
         return keyed.sorted { $0.text < $1.text }.map(\.pair)
+    }
+
+    /// Integers and booleans stay JSON numbers and booleans. A floating-point
+    /// number becomes the text of `Double.description`, so no Foundation
+    /// formatter decides its digits.
+    private static func canonicalNumber(_ number: NSNumber) -> Any {
+        if CFGetTypeID(number) == CFBooleanGetTypeID() { return number.boolValue }
+        if CFNumberIsFloatType(number) { return number.doubleValue.description }
+        return number
     }
 
     private func sortedByCanonicalText(_ trees: [Any]) throws -> [Any] {
@@ -274,6 +309,9 @@ struct GenotypeCharacterizationCanonicalizer: Sendable {
         }
         if let string = tree as? String {
             return maskRoot(in: string, counts: &counts)
+        }
+        if let number = tree as? NSNumber {
+            return Self.canonicalNumber(number)
         }
         return tree
     }
@@ -378,7 +416,9 @@ struct GenotypeCharacterizationCanonicalizer: Sendable {
 /// The committed expected files under Tests/Fixtures/golden/genotype-gui.
 enum GenotypeCharacterizationExpectedStore {
     static let captureEnvironmentVariable = "LUNGFISH_CAPTURE_GENOTYPE_GUI_GOLDENS"
-    static let testFilter = #"LungfishGenotypeUITests\.GenotypeExportCharacterizationTests"#
+    /// Every characterization suite that owns files in the folder.
+    static let testFilter =
+        #"LungfishGenotypeUITests\.Genotype(Export|MatrixProjection|ReviewEligibility|HaplotypeBand)CharacterizationTests"#
 
     static var isCaptureMode: Bool {
         ProcessInfo.processInfo.environment[captureEnvironmentVariable] == "1"
@@ -396,15 +436,30 @@ enum GenotypeCharacterizationExpectedStore {
         root.appendingPathComponent(name)
     }
 
-    static var captureCommand: String {
-        "\(captureEnvironmentVariable)=1 swift test --skip-update --filter '\(testFilter)'"
+    /// The capture command for the suite in `file`, so a missing file names
+    /// the one suite that writes it.
+    static func captureCommand(for file: StaticString) -> String {
+        let suite = URL(fileURLWithPath: "\(file)").deletingPathExtension().lastPathComponent
+        return "\(captureEnvironmentVariable)=1 swift test --skip-update --filter 'LungfishGenotypeUITests\\.\(suite)'"
     }
 
-    /// Compare mode builds once and checks every named file against the
-    /// checkout. Capture mode builds twice, refuses to write unless both
-    /// builds agree byte for byte, then writes every file.
+    /// The committed files whose names start with `prefix` and a dot.
+    static func committedNames(prefix: String) throws -> [String] {
+        guard FileManager.default.fileExists(atPath: root.path) else { return [] }
+        return try FileManager.default.contentsOfDirectory(atPath: root.path)
+            .filter { $0.hasPrefix(prefix + ".") }
+            .sorted()
+    }
+
+    /// Compare mode builds once and checks every file the build produces
+    /// against the checkout, and fails when the build produces no file, or
+    /// when the files on disk with the scenario's prefix are not exactly the
+    /// files the build produced. Capture mode builds twice, refuses to write
+    /// unless both builds agree byte for byte, then writes every file and
+    /// removes a stale file with the prefix.
     @MainActor
     static func verify(
+        prefix: String,
         _ build: () throws -> [String: Data],
         file: StaticString = #filePath,
         line: UInt = #line
@@ -412,6 +467,10 @@ enum GenotypeCharacterizationExpectedStore {
         if isCaptureMode {
             let first = try build()
             let second = try build()
+            guard !first.isEmpty else {
+                XCTFail("The build produced no file for \(prefix), so nothing was written.", file: file, line: line)
+                return
+            }
             for name in Set(first.keys).union(second.keys).sorted() {
                 guard let lhs = first[name], let rhs = second[name], lhs == rhs else {
                     XCTFail(
@@ -426,18 +485,31 @@ enum GenotypeCharacterizationExpectedStore {
             for name in first.keys.sorted() {
                 try first[name]?.write(to: url(for: name), options: .atomic)
             }
+            for stale in try committedNames(prefix: prefix) where first[stale] == nil {
+                try FileManager.default.removeItem(at: url(for: stale))
+            }
             return
         }
         let actual = try build()
-        for name in actual.keys.sorted() {
+        guard !actual.isEmpty else {
+            XCTFail("The build produced no file for \(prefix), so there is nothing to compare.", file: file, line: line)
+            return
+        }
+        let committed = try committedNames(prefix: prefix)
+        let produced = actual.keys.sorted()
+        if committed != produced {
+            let missing = produced.filter { !committed.contains($0) }
+            let stale = committed.filter { !produced.contains($0) }
+            XCTFail(
+                "The files with the prefix \(prefix) on disk differ from the files the build produced.\n"
+                    + "Missing on disk: \(missing)\nStale on disk: \(stale)\n"
+                    + "Capture on known-good code with\n\(captureCommand(for: file))",
+                file: file, line: line
+            )
+        }
+        for name in produced {
             let expectedURL = url(for: name)
-            guard FileManager.default.fileExists(atPath: expectedURL.path) else {
-                XCTFail(
-                    "No expected file at \(expectedURL.path). Capture it on known-good code with\n\(captureCommand)",
-                    file: file, line: line
-                )
-                continue
-            }
+            guard FileManager.default.fileExists(atPath: expectedURL.path) else { continue }
             let expected = try Data(contentsOf: expectedURL)
             guard let bytes = actual[name], bytes != expected else { continue }
             let scratch = FileManager.default.temporaryDirectory
