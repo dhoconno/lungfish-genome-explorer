@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 /// Export a `.lungfishgenotype` bundle's finalized analyst results as a set
 /// of LabKey-ready CSV files.
@@ -20,15 +21,17 @@ import LungfishIO
 ///   * `audit_log.csv`           — full audit trail
 ///   * `smart_cohorts.csv`       — saved smart cohorts in the bundle
 ///
-/// The haplotype calls reflect analyst-applied overrides merged over the
-/// pipeline's `haplotypeAnalysis` so LabKey receives the *active* (final)
-/// call, not the raw pipeline output. A homozygous locus (one matched
-/// haplotype, status `called` or `homozygous`) exports the same name in the
-/// `h1` and `h2` rows, the convention the workbook's Effective H2 and the
-/// `genotype export` CSV matrix share; `-` in `h2` means an analyst marked
-/// the second haplotype absent and `?` means it is unresolved. Bundle files themselves are never
-/// modified — this is a provenance-`inspectOnly` (`cli.genotype` policy)
-/// command, peer to the existing `export-xlsx` subcommand.
+/// The haplotype calls are the workbook's effective calls, resolved by
+/// `GenotypeExcelSnapshotBuilder.effectiveCalls`, so LabKey, the Excel report
+/// and the `genotype export` matrix report one set of calls (finding SF2).
+/// An analyst override applies under the precedence of the result's
+/// workflow, a manual assignment applies under the legacy precedence, and a
+/// homozygous locus (one matched haplotype, status `called` or
+/// `homozygous`) exports the same name in the `h1` and `h2` rows. `-` in `h2`
+/// means an analyst marked the second haplotype absent and `?` means it is
+/// unresolved. Bundle files themselves are never modified. This is a
+/// provenance-`inspectOnly` (`cli.genotype` policy) command, peer to the
+/// existing `export-xlsx` subcommand.
 struct GenotypeExportLabKeySubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "export-labkey",
@@ -144,7 +147,7 @@ struct LabKeyExporter {
     ]
 
     func writeAll() throws -> [GenotypeLabKeyExportFile] {
-        let haplotypeRows = buildHaplotypeRows()
+        let haplotypeRows = try buildHaplotypeRows()
         let alleleRows = buildAlleleRows()
         let overrideRows = buildOverrideRows()
         let auditRows = buildAuditRows()
@@ -196,82 +199,58 @@ struct LabKeyExporter {
 
     // MARK: Haplotype calls
 
-    /// Build the final, post-override haplotype call rows.
+    /// The slot source the shared builder writes for a value the analyst
+    /// chose, by an override or, under the legacy precedence, a manual
+    /// assignment.
+    private static let analystOverrideSource = "analystOverride"
+
+    /// Build the final haplotype call rows from the workbook's effective calls.
     ///
-    /// `sidecar.callOverrides` are merged over `result.haplotypeAnalysis` so
-    /// each `(sample, locus, slot)` triple resolves to the analyst-chosen
-    /// haplotype when one exists. The status column reports the pipeline's
-    /// status string for transparency (analysts can still see when the raw
-    /// call was `no_haplotype` even after an override sets a final call).
-    func buildHaplotypeRows() -> [[String]] {
-        guard let result else { return [] }
-        let analysis = GenotypeActiveHaplotypeAnalysisResolver.activeAnalysis(
-            for: result,
-            bundleURL: bundleURL,
-            sidecar: sidecar
-        ) ?? GenotypeHaplotypeAnalysis(
-                assayID: "", definitionSetID: "", definitionSetName: "",
-                speciesName: "", samples: []
-            )
-        let overrideIndex = indexOverrides(sidecar.callOverrides)
+    /// Each `(sample, locus)` of the active analysis gives an `h1` and an `h2`
+    /// row in analysis order. `called_haplotype` is the workbook's Effective
+    /// H1 or H2 and `is_override` says whether the analyst chose it. The
+    /// status column reports the pipeline's status string for transparency
+    /// (analysts can still see when the raw call was `no_haplotype` even
+    /// after an override sets a final call). A result without an analysis
+    /// writes no rows.
+    func buildHaplotypeRows() throws -> [[String]] {
+        guard let result,
+              let analysis = GenotypeActiveHaplotypeAnalysisResolver.activeAnalysis(
+                  for: result,
+                  bundleURL: bundleURL,
+                  sidecar: sidecar
+              ) else { return [] }
+        let effective = try GenotypeExcelSnapshotBuilder.effectiveCalls(
+            result: result,
+            sidecar: sidecar,
+            authority: .init(analysis: analysis)
+        )
+        let effectiveByCall = Dictionary(
+            effective.map { ([$0.sampleID, $0.locus], $0) },
+            uniquingKeysWith: { _, last in last }
+        )
         let callsBySample = Dictionary(uniqueKeysWithValues: result.samples.map { ($0.sample, $0) })
 
         var rows: [[String]] = []
         for sampleAnalysis in analysis.samples {
             let sampleCalls = callsBySample[sampleAnalysis.sample]?.calls ?? []
             for call in sampleAnalysis.calls {
-                let h1Override = overrideIndex[OverrideKey(sample: sampleAnalysis.sample, locus: call.locus, slot: .h1)]
-                let h2Override = overrideIndex[OverrideKey(sample: sampleAnalysis.sample, locus: call.locus, slot: .h2)]
-                let h1Call = h1Override?.overrideCall ?? call.haplotype1
-                let h2Call = Self.effectiveSecondHaplotype(
-                    firstCall: h1Call,
-                    secondCall: h2Override?.overrideCall ?? call.haplotype2,
-                    status: h2Override.map {
-                        GenotypeEffectiveCallAuthority.overrideStatus(effective: $0.overrideCall, baseline: call.status)
-                    } ?? call.status
-                )
-                rows.append(haplotypeRow(
-                    sample: sampleAnalysis.sample,
-                    locus: call.locus,
-                    slot: .h1,
-                    finalCall: h1Call,
-                    override: h1Override,
-                    status: call.status,
-                    notes: call.notes,
-                    sampleCalls: sampleCalls
-                ))
-                rows.append(haplotypeRow(
-                    sample: sampleAnalysis.sample,
-                    locus: call.locus,
-                    slot: .h2,
-                    finalCall: h2Call,
-                    override: h2Override,
-                    status: call.status,
-                    notes: call.notes,
-                    sampleCalls: sampleCalls
-                ))
+                guard let resolved = effectiveByCall[[sampleAnalysis.sample, call.locus]] else { continue }
+                for (slot, value) in [(HaplotypeSlot.h1, resolved.h1), (.h2, resolved.h2)] {
+                    rows.append(haplotypeRow(
+                        sample: sampleAnalysis.sample,
+                        locus: call.locus,
+                        slot: slot,
+                        finalCall: value.effective,
+                        isOverride: value.source == Self.analystOverrideSource,
+                        status: call.status,
+                        notes: call.notes,
+                        sampleCalls: sampleCalls
+                    ))
+                }
             }
         }
         return rows
-    }
-
-    /// The `h2` value LabKey receives: the same effective-call rule the
-    /// workbook and viewport apply (``GenotypeEffectiveCallAuthority``), so a
-    /// called locus with one matched haplotype exports `h2 == h1` (the
-    /// homozygous convention) everywhere instead of `-` here, blank in the
-    /// CSV matrix, and the repeated name in the workbook. An analyst's
-    /// explicit absent H2 (`-` override, `no_haplotype` status) and an
-    /// unresolved second haplotype (`?`) are exported as written.
-    static func effectiveSecondHaplotype(
-        firstCall: String,
-        secondCall: String,
-        status: GenotypeHaplotypeCallStatus
-    ) -> String {
-        GenotypeEffectiveCallAuthority.normalizedSecondHaplotype(
-            first: firstCall,
-            second: secondCall,
-            status: status
-        )
     }
 
     private func haplotypeRow(
@@ -279,7 +258,7 @@ struct LabKeyExporter {
         locus: String,
         slot: HaplotypeSlot,
         finalCall: String,
-        override: GenotypeAnnotationSidecar.CallOverride?,
+        isOverride: Bool,
         status: GenotypeHaplotypeCallStatus,
         notes: String,
         sampleCalls: [ONTGenotypeCall]
@@ -293,7 +272,7 @@ struct LabKeyExporter {
             finalCall,
             statusString(status),
             String(reads),
-            override != nil ? "true" : "false",
+            isOverride ? "true" : "false",
             notes
         ]
     }
@@ -467,31 +446,5 @@ struct LabKeyExporter {
             return "\"\(escaped)\""
         }
         return value
-    }
-
-    // MARK: Override indexing
-
-    struct OverrideKey: Hashable {
-        let sample: String
-        let locus: String
-        let slot: HaplotypeSlot
-    }
-
-    /// Build a last-write-wins lookup keyed on `(sample, locus, slot)`. The
-    /// sidecar's append-only history may contain superseded overrides for
-    /// the same slot; LabKey only wants the most recent decision, which
-    /// matches what the inspector renders.
-    private func indexOverrides(
-        _ overrides: [GenotypeAnnotationSidecar.CallOverride]
-    ) -> [OverrideKey: GenotypeAnnotationSidecar.CallOverride] {
-        var index: [OverrideKey: GenotypeAnnotationSidecar.CallOverride] = [:]
-        for override in overrides {
-            let key = OverrideKey(sample: override.sample, locus: override.locus, slot: override.slot)
-            if let existing = index[key], existing.timestamp >= override.timestamp {
-                continue
-            }
-            index[key] = override
-        }
-        return index
     }
 }
