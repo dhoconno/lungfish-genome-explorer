@@ -7,21 +7,23 @@
 import Foundation
 import os.log
 import LungfishCore
-import Darwin
+import Synchronization
 
 // MARK: - ProcessManager Actor
 
 /// Singleton actor for managing external process execution.
 ///
 /// ProcessManager provides a thread-safe interface for spawning,
-/// monitoring, and terminating external processes. It uses Foundation's
-/// Process (NSTask) under the hood.
+/// monitoring, and terminating external processes, mostly the Nextflow and
+/// Snakemake engines. Every process runs on ``ToolProcess``, so it is the
+/// leader of its own process group, its output is read until end of file,
+/// and stopping it stops its whole tree.
 ///
 /// ## Features
 ///
 /// - Real-time stdout/stderr streaming via AsyncStream
 /// - Automatic cleanup of terminated processes
-/// - Graceful and forced termination support
+/// - Graceful and forced termination of the whole process tree
 /// - Environment variable injection
 /// - Working directory configuration
 ///
@@ -61,6 +63,21 @@ public actor ProcessManager: ProcessManaging {
     /// Shared singleton instance.
     public static let shared = ProcessManager()
 
+    // MARK: - Policy
+
+    /// How long the output of a process has to reach end of file after the
+    /// process exits. Nextflow and Snakemake, the engines this manager runs,
+    /// can leave a daemon or JVM child holding the output for a moment after
+    /// the engine exits. A child still holding it after this long is stopped
+    /// and the output counts as incomplete.
+    static let drainGracePeriod: Duration = .seconds(5)
+
+    /// The status a spawned handle reports when the process exited cleanly
+    /// but its output is incomplete, because a child process kept the output
+    /// open past ``drainGracePeriod`` or reading it failed. It is the value
+    /// `ProcessHandle.waitForExit()` already uses for "no exit status".
+    static let incompleteOutputStatus: Int32 = -1
+
     // MARK: - Properties
 
     /// Logger for process management events.
@@ -72,221 +89,11 @@ public actor ProcessManager: ProcessManaging {
     /// Active processes indexed by handle ID.
     private var activeProcesses: [UUID: ProcessEntry] = [:]
 
-    /// Internal struct to track process state.
-    private struct ProcessEntry: @unchecked Sendable {
+    /// A running process and the task that runs it.
+    private struct ProcessEntry: Sendable {
         let handle: ProcessHandle
-        let process: Process
-        let stdoutReader: PipeOutputReader
-        let stderrReader: PipeOutputReader
-    }
-
-    private final class PipeOutputLineBuffer: @unchecked Sendable {
-        private let lock = NSLock()
-        private var pending = Data()
-
-        func append(_ data: Data) -> [String] {
-            lock.lock()
-            pending.append(data)
-            let lines = drainCompleteLines()
-            lock.unlock()
-            return lines
-        }
-
-        func finish() -> [String] {
-            lock.lock()
-            defer { lock.unlock() }
-            guard !pending.isEmpty else { return [] }
-            let line = decodeLine(pending)
-            pending.removeAll(keepingCapacity: false)
-            return [line]
-        }
-
-        private func drainCompleteLines() -> [String] {
-            var lines: [String] = []
-            while let newlineIndex = pending.firstIndex(where: { $0 == 0x0A || $0 == 0x0D }) {
-                let lineData = pending[..<newlineIndex]
-                lines.append(decodeLineSlice(lineData))
-
-                var removalEnd = pending.index(after: newlineIndex)
-                if pending[newlineIndex] == 0x0D,
-                   removalEnd < pending.endIndex,
-                   pending[removalEnd] == 0x0A {
-                    removalEnd = pending.index(after: removalEnd)
-                }
-                pending.removeSubrange(pending.startIndex..<removalEnd)
-            }
-            return lines
-        }
-
-        private func decodeLineSlice(_ data: Data.SubSequence) -> String {
-            decodeLine(Data(data))
-        }
-
-        private func decodeLine(_ data: Data) -> String {
-            String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
-        }
-    }
-
-    private final class PipeOutputReader: @unchecked Sendable {
-        private static let callbackReadLimit = 1024 * 1024
-        // Darwin's FIONREAD (`_IOR('f', 127, int)`) is not imported into Swift.
-        private static let bytesAvailableIOControlRequest: UInt = 0x4004_667F
-
-        private let fileHandle: FileHandle
-        private let continuation: AsyncStream<String>.Continuation?
-        private let lineBuffer = PipeOutputLineBuffer()
-        private let queue = DispatchQueue(label: "org.lungfish.process-output-reader.\(UUID().uuidString)")
-        private let schedulingLock = NSLock()
-        private var readScheduled = false
-        private var isFinished = false
-
-        init(
-            pipe: Pipe,
-            continuation: AsyncStream<String>.Continuation?
-        ) throws {
-            self.fileHandle = pipe.fileHandleForReading
-            self.continuation = continuation
-            let descriptor = fileHandle.fileDescriptor
-            let flags = fcntl(descriptor, F_GETFL)
-            guard flags >= 0 else {
-                throw Self.posixError(operation: "read pipe flags")
-            }
-            guard fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) != -1 else {
-                throw Self.posixError(operation: "enable nonblocking pipe reads")
-            }
-            fileHandle.readabilityHandler = { [weak self] _ in
-                self?.scheduleRead()
-            }
-        }
-
-        func finishAfterProcessTermination() {
-            queue.sync {
-                guard !isFinished else { return }
-                fileHandle.readabilityHandler = nil
-                let availableByteCount = bufferedByteCount()
-                if availableByteCount > 0 {
-                    _ = drainAvailableData(maximumBytes: availableByteCount)
-                }
-                finish()
-            }
-        }
-
-        func cancel() {
-            queue.sync {
-                guard !isFinished else { return }
-                fileHandle.readabilityHandler = nil
-                isFinished = true
-                continuation?.finish()
-            }
-        }
-
-        private func scheduleRead() {
-            schedulingLock.lock()
-            guard !readScheduled else {
-                schedulingLock.unlock()
-                return
-            }
-            readScheduled = true
-            schedulingLock.unlock()
-
-            queue.async { [weak self] in
-                self?.performScheduledRead()
-            }
-        }
-
-        private func performScheduledRead() {
-            guard !isFinished else {
-                completeScheduledRead()
-                return
-            }
-            let result = drainAvailableData(maximumBytes: Self.callbackReadLimit)
-            completeScheduledRead()
-            if result.reachedEOF {
-                finish()
-            } else if result.exhaustedBudget {
-                scheduleRead()
-            }
-        }
-
-        private func completeScheduledRead() {
-            schedulingLock.lock()
-            readScheduled = false
-            schedulingLock.unlock()
-        }
-
-        /// Reads every byte currently available without waiting for a writer
-        /// inherited by a detached descendant to close its copy of the pipe.
-        private func drainAvailableData(
-            maximumBytes: Int
-        ) -> (reachedEOF: Bool, exhaustedBudget: Bool) {
-            let descriptor = fileHandle.fileDescriptor
-            var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-            var drainedByteCount = 0
-
-            while drainedByteCount < maximumBytes {
-                let requestedByteCount = min(buffer.count, maximumBytes - drainedByteCount)
-                let count = buffer.withUnsafeMutableBytes { bytes in
-                    Darwin.read(descriptor, bytes.baseAddress, requestedByteCount)
-                }
-                if count > 0 {
-                    consume(Data(buffer.prefix(count)))
-                    drainedByteCount += count
-                    continue
-                }
-                if count == 0 {
-                    return (true, false)
-                }
-                if errno == EINTR {
-                    continue
-                }
-                if errno == EAGAIN || errno == EWOULDBLOCK {
-                    return (false, false)
-                }
-
-                // The stream cannot surface a read error separately. Complete
-                // it with every byte already delivered instead of hanging the
-                // workflow indefinitely.
-                return (true, false)
-            }
-            return (false, true)
-        }
-
-        private func bufferedByteCount() -> Int {
-            var availableByteCount: Int32 = 0
-            guard ioctl(
-                fileHandle.fileDescriptor,
-                Self.bytesAvailableIOControlRequest,
-                &availableByteCount
-            ) != -1 else {
-                return Self.callbackReadLimit
-            }
-            return max(0, Int(availableByteCount))
-        }
-
-        private func consume(_ data: Data) {
-            guard !data.isEmpty else { return }
-            for line in lineBuffer.append(data) where !line.isEmpty {
-                continuation?.yield(line)
-            }
-        }
-
-        private func finish() {
-            guard !isFinished else { return }
-            isFinished = true
-            fileHandle.readabilityHandler = nil
-            for line in lineBuffer.finish() where !line.isEmpty {
-                continuation?.yield(line)
-            }
-            continuation?.finish()
-        }
-
-        private static func posixError(operation: String) -> NSError {
-            NSError(
-                domain: NSPOSIXErrorDomain,
-                code: Int(errno),
-                userInfo: [NSLocalizedDescriptionKey: "Could not \(operation): \(String(cString: strerror(errno)))"]
-            )
-        }
+        let run: Task<ProcessRunOutcome, Never>
+        let record: ProcessRunRecord
     }
 
     // MARK: - Initialization
@@ -305,7 +112,10 @@ public actor ProcessManager: ProcessManaging {
     ///   - arguments: Command-line arguments
     ///   - workingDirectory: Working directory for the process
     ///   - environment: Additional environment variables (merged with current environment)
-    /// - Returns: A handle to the running process
+    /// - Returns: A handle to the running process. Its streams deliver every
+    ///   nonempty line, and `waitForExit()` returns the exit status once the
+    ///   output is drained, or ``incompleteOutputStatus`` for a clean exit
+    ///   whose output a child process kept open.
     /// - Throws: `WorkflowError.processError` if spawn fails
     public func spawn(
         executable: URL,
@@ -313,6 +123,28 @@ public actor ProcessManager: ProcessManaging {
         workingDirectory: URL,
         environment: [String: String]? = nil
     ) async throws -> ProcessHandle {
+        try await launch(
+            executable: executable,
+            arguments: arguments,
+            workingDirectory: workingDirectory,
+            environment: environment,
+            keepsOutput: false
+        ).handle
+    }
+
+    /// Launches a process on ``ToolProcess`` in its own task and returns once
+    /// it has started.
+    ///
+    /// With `keepsOutput` the output is kept whole for ``runAndWait`` and the
+    /// handle's streams stay empty. Without it the output is streamed line by
+    /// line into the handle and not kept, because an engine can run for hours.
+    private func launch(
+        executable: URL,
+        arguments: [String],
+        workingDirectory: URL,
+        environment: [String: String]?,
+        keepsOutput: Bool
+    ) async throws -> (handle: ProcessHandle, run: Task<ProcessRunOutcome, Never>) {
         let handleId = UUID()
 
         logger.info(
@@ -336,177 +168,152 @@ public actor ProcessManager: ProcessManaging {
             throw WorkflowError.invalidWorkingDirectory(path: workingDirectory)
         }
 
-        // Create the process
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.currentDirectoryURL = workingDirectory
-
-        // Set up environment
-        var processEnvironment = ProcessInfo.processInfo.environment
-        if let additionalEnv = environment {
-            processEnvironment.merge(additionalEnv) { _, new in new }
-        }
-        process.environment = processEnvironment
-
-        // Set up stdout pipe and stream
-        let stdoutPipe = Pipe()
-        process.standardOutput = stdoutPipe
-
-        var stdoutContinuation: AsyncStream<String>.Continuation?
-        let stdoutStream = AsyncStream<String> { continuation in
-            stdoutContinuation = continuation
-        }
-
-        // Set up stderr pipe and stream
-        let stderrPipe = Pipe()
-        process.standardError = stderrPipe
-
-        var stderrContinuation: AsyncStream<String>.Continuation?
-        let stderrStream = AsyncStream<String> { continuation in
-            stderrContinuation = continuation
-        }
-
-        // Set up termination stream
-        let (terminationStream, terminationContinuation) = AsyncStream.makeStream(of: Int32.self)
-
-        // Capture the continuation for use in the termination handler
-        let capturedTerminationContinuation = terminationContinuation
-
-        // Start reading stdout asynchronously
-        let stdoutReader: PipeOutputReader
-        let stderrReader: PipeOutputReader
-        do {
-            stdoutReader = try self.setupPipeReader(
-                pipe: stdoutPipe,
-                continuation: stdoutContinuation
-            )
-            do {
-                stderrReader = try self.setupPipeReader(
-                    pipe: stderrPipe,
-                    continuation: stderrContinuation
-                )
-            } catch {
-                stdoutReader.cancel()
-                throw error
-            }
-        } catch {
-            stdoutContinuation?.finish()
-            stderrContinuation?.finish()
-            terminationContinuation.finish()
-            throw WorkflowError.processError(
-                operation: "configure process output pipes",
-                underlying: error
-            )
-        }
-
-        // Set up termination handler
-        process.terminationHandler = { [weak self, logger, handleId] terminatedProcess in
-            let exitCode = terminatedProcess.terminationStatus
-            logger.info("Process \(handleId) terminated with exit code: \(exitCode)")
-            NativeProcessRegistry.shared.unregister(terminatedProcess)
-
-            capturedTerminationContinuation.yield(exitCode)
-            capturedTerminationContinuation.finish()
-
-            // Clean up
-            Task { [weak self] in
-                await self?.processDidTerminate(handleId: handleId)
-            }
-        }
-
-        // Create the handle
-        let handle = ProcessHandle(
-            id: handleId,
-            pid: 0, // Will be updated after launch
-            executable: executable,
+        let output: ToolProcessOutput = keepsOutput ? .capture() : .capture(limit: 0)
+        let spec = ToolProcessSpec(
+            executableURL: executable,
             arguments: arguments,
+            environment: ToolProcessSpec.inheritedEnvironment(overriding: environment ?? [:]),
             workingDirectory: workingDirectory,
-            standardOutput: stdoutStream,
-            standardError: stderrStream,
-            terminationContinuation: terminationContinuation,
-            terminationStream: terminationStream
+            stdout: output,
+            stderr: output,
+            drainGracePeriod: Self.drainGracePeriod,
+            label: executable.lastPathComponent
         )
 
-        // Launch the process
+        let (stdoutStream, stdoutContinuation) = AsyncStream.makeStream(of: String.self)
+        let (stderrStream, stderrContinuation) = AsyncStream.makeStream(of: String.self)
+        let (terminationStream, terminationContinuation) = AsyncStream.makeStream(of: Int32.self)
+        let bridge = ProcessStreamBridge(
+            stdout: stdoutContinuation,
+            stderr: stderrContinuation,
+            termination: terminationContinuation,
+            streamsLines: !keepsOutput
+        )
+        let launchSignal = ProcessLaunchSignal()
+        let record = ProcessRunRecord()
+        let startTime = Date()
+
+        let run = Task.detached(priority: Task.currentPriority) {
+            await Self.execute(spec, bridge: bridge, launchSignal: launchSignal, record: record)
+        }
+
+        let pid: Int32
         do {
-            try process.run()
+            pid = try await launchSignal.wait()
         } catch {
             logger.error("Failed to launch process: \(error.localizedDescription)")
-
-            // Clean up continuations
-            stdoutReader.cancel()
-            stderrReader.cancel()
-            terminationContinuation.finish()
-
             throw WorkflowError.processError(
                 operation: "spawn",
                 underlying: error
             )
         }
-        NativeProcessRegistry.shared.register(process)
 
-        // Update handle with actual PID and store
-        let updatedHandle = ProcessHandle(
+        let handle = ProcessHandle(
             id: handleId,
-            pid: process.processIdentifier,
+            pid: pid,
             executable: executable,
             arguments: arguments,
             workingDirectory: workingDirectory,
-            startTime: handle.startTime,
+            startTime: startTime,
             standardOutput: stdoutStream,
             standardError: stderrStream,
             terminationContinuation: terminationContinuation,
             terminationStream: terminationStream
         )
+        activeProcesses[handleId] = ProcessEntry(handle: handle, run: run, record: record)
 
-        let entry = ProcessEntry(
-            handle: updatedHandle,
-            process: process,
-            stdoutReader: stdoutReader,
-            stderrReader: stderrReader
-        )
-        activeProcesses[handleId] = entry
+        // Registered first, so the cleanup always finds the entry.
+        Task { [weak self] in
+            _ = await run.value
+            await self?.processDidTerminate(handleId: handleId)
+        }
 
         logger.info(
-            "Process spawned successfully: PID=\(process.processIdentifier), handle=\(handleId)"
+            "Process spawned successfully: PID=\(pid), handle=\(handleId)"
         )
 
-        return updatedHandle
+        return (handle, run)
     }
 
-    /// Sets up asynchronous reading from a pipe.
-    private nonisolated func setupPipeReader(
-        pipe: Pipe,
-        continuation: AsyncStream<String>.Continuation?
-    ) throws -> PipeOutputReader {
-        try PipeOutputReader(pipe: pipe, continuation: continuation)
+    /// Runs one process to its end and feeds the handle's streams. Never
+    /// isolated to the actor, so output is never queued behind it.
+    private nonisolated static func execute(
+        _ spec: ToolProcessSpec,
+        bridge: ProcessStreamBridge,
+        launchSignal: ProcessLaunchSignal,
+        record: ProcessRunRecord
+    ) async -> ProcessRunOutcome {
+        let logger = Logger(subsystem: LogSubsystem.workflow, category: "ProcessManager")
+        var onEvent: (@Sendable (ToolProcessEvent) -> Void)?
+        if bridge.streamsLines {
+            onEvent = { event in bridge.deliver(event) }
+        }
+        let result: ToolProcessResult
+        do {
+            result = try await ToolProcess.run(spec, onEvent: onEvent, onLaunch: { pid in
+                launchSignal.launched(pid)
+            })
+        } catch {
+            // A cancelled or stopped run still reports how the process ended.
+            if case .cancelled(let results) = error, let first = results.first {
+                result = first
+            } else if case .timedOut(_, let results) = error, let first = results.first {
+                result = first
+            } else {
+                // Nothing ran, so the spawn reports the error.
+                launchSignal.failed(error)
+                bridge.finish(status: nil)
+                record.finish(status: -1)
+                return ProcessRunOutcome(status: -1, stdout: Data(), stderr: Data(), incompleteOutput: nil)
+            }
+        }
+
+        // A run that was stopped on purpose is cut short by design, so only a
+        // run that ended by itself reports incomplete output.
+        let incomplete = result.stop == nil ? Self.incompleteOutputDescription(result) : nil
+        var reported = result.status
+        if let incomplete {
+            logger.error("\(incomplete, privacy: .public)")
+            bridge.deliverNotice(incomplete)
+            if result.termination == .exited(code: 0) {
+                reported = Self.incompleteOutputStatus
+            }
+        }
+        record.finish(status: reported)
+        bridge.finish(status: reported)
+        logger.info("\(spec.label, privacy: .public) (pid \(result.pid)) finished with status \(reported)")
+        return ProcessRunOutcome(
+            status: result.status,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            incompleteOutput: incomplete
+        )
     }
 
-    /// Called when a process terminates.
+    /// Says why a result's output is incomplete, or nil when it is complete.
+    static func incompleteOutputDescription(_ result: ToolProcessResult) -> String? {
+        if result.outputDrainTimedOut {
+            return "The output of \(result.label) is incomplete because a child process kept it open after \(result.label) exited. The child process was stopped."
+        }
+        if result.outputReadFailed {
+            return "The output of \(result.label) is incomplete because reading it failed."
+        }
+        return nil
+    }
+
+    /// Called when a process has finished and its output is drained.
     private func processDidTerminate(handleId: UUID) {
-        guard let entry = activeProcesses[handleId] else { return }
-        NativeProcessRegistry.shared.unregister(entry.process)
-
-        // A process can terminate before FileHandle delivers its final
-        // readability callback. Drain both pipes explicitly before completing
-        // their streams so callers receive every buffered byte without waiting
-        // indefinitely for a later EOF notification.
-        entry.stdoutReader.finishAfterProcessTermination()
-        entry.stderrReader.finishAfterProcessTermination()
-
-        // Remove from active processes
-        activeProcesses.removeValue(forKey: handleId)
-
+        guard activeProcesses.removeValue(forKey: handleId) != nil else { return }
         logger.debug("Cleaned up process entry: \(handleId)")
     }
 
     // MARK: - Termination
 
-    /// Terminates a running process.
+    /// Terminates a running process and its whole tree.
     ///
-    /// This sends SIGTERM first, giving the process a chance to clean up.
-    /// If the process doesn't terminate within a short period, SIGKILL is sent.
+    /// This sends SIGTERM to the process group and every descendant, then
+    /// SIGKILL to whatever is left after a short grace period, and returns
+    /// once the process has ended.
     ///
     /// - Parameter id: The process handle ID
     public func terminate(id: UUID) async {
@@ -515,14 +322,11 @@ public actor ProcessManager: ProcessManaging {
             return
         }
 
-        let process = entry.process
-        let pid = process.processIdentifier
+        logger.info("Terminating process: PID=\(entry.handle.pid), handle=\(id)")
 
-        logger.info("Terminating process: PID=\(pid), handle=\(id)")
-
-        ProcessTreeTerminator.terminate(rootProcess: process)
-
-        // Clean up will happen in terminationHandler
+        // Cancelling the run stops the process group and the descendant tree.
+        entry.run.cancel()
+        _ = await entry.run.value
     }
 
     /// Terminates all running processes.
@@ -546,7 +350,7 @@ public actor ProcessManager: ProcessManaging {
         guard let entry = activeProcesses[id] else {
             return false
         }
-        return entry.process.isRunning
+        return entry.record.status == nil
     }
 
     // MARK: - Query
@@ -574,56 +378,152 @@ public actor ProcessManager: ProcessManaging {
     /// - Parameter id: The handle ID
     /// - Returns: The exit code, or nil if process is still running or not found
     public func exitCode(for id: UUID) -> Int32? {
-        guard let entry = activeProcesses[id] else {
-            return nil
-        }
-
-        if entry.process.isRunning {
-            return nil
-        }
-
-        return entry.process.terminationStatus
+        activeProcesses[id]?.record.status
     }
 }
 
-private final class RunAndWaitCancellationState: @unchecked Sendable {
-    private let lock = NSLock()
-    private let manager: ProcessManager
-    private var handleID: UUID?
-    private var cancellationRequested = false
+// MARK: - Run plumbing
 
-    init(manager: ProcessManager) {
-        self.manager = manager
+/// What one ProcessManager run ended with.
+struct ProcessRunOutcome: Sendable {
+    /// The exit code, or the signal number for a process a signal ended.
+    let status: Int32
+    /// Captured standard output, kept only for ``ProcessManager/runAndWait``.
+    let stdout: Data
+    /// Captured standard error, kept only for ``ProcessManager/runAndWait``.
+    let stderr: Data
+    /// Why the output is incomplete, or nil when it is complete.
+    let incompleteOutput: String?
+}
+
+/// Feeds a handle's three streams from a run's events.
+private struct ProcessStreamBridge: Sendable {
+    let stdout: AsyncStream<String>.Continuation
+    let stderr: AsyncStream<String>.Continuation
+    let termination: AsyncStream<Int32>.Continuation
+    let streamsLines: Bool
+
+    /// Empty lines are dropped, as they always were.
+    func deliver(_ event: ToolProcessEvent) {
+        guard case .output(let stream, let line) = event, !line.isEmpty else { return }
+        switch stream {
+        case .stdout: stdout.yield(line)
+        case .stderr: stderr.yield(line)
+        }
     }
 
-    func store(handleID: UUID) {
-        let shouldTerminate: Bool
-        lock.lock()
-        self.handleID = handleID
-        shouldTerminate = cancellationRequested
-        lock.unlock()
+    /// Tells a reader of the error stream why the output stopped short.
+    func deliverNotice(_ notice: String) {
+        guard streamsLines else { return }
+        stderr.yield(notice)
+    }
 
-        if shouldTerminate {
-            terminate(handleID: handleID)
+    /// Ends the output streams, then reports the status, if there is one.
+    func finish(status: Int32?) {
+        stdout.finish()
+        stderr.finish()
+        if let status {
+            termination.yield(status)
+        }
+        termination.finish()
+    }
+}
+
+/// Hands the pid of a run, or the error that stopped its launch, to the
+/// spawn that waits for it. Only the first report counts.
+private final class ProcessLaunchSignal: Sendable {
+    private enum State {
+        case waiting(CheckedContinuation<Int32, any Error>?)
+        case launched(Int32)
+        case failed(any Error)
+    }
+
+    private let state = Mutex<State>(.waiting(nil))
+
+    func launched(_ pid: Int32) {
+        resolve(.launched(pid))
+    }
+
+    func failed(_ error: any Error) {
+        resolve(.failed(error))
+    }
+
+    private func resolve(_ outcome: State) {
+        let waiter = state.withLock { state -> CheckedContinuation<Int32, any Error>? in
+            guard case .waiting(let waiter) = state else { return nil }
+            state = outcome
+            return waiter
+        }
+        switch outcome {
+        case .launched(let pid): waiter?.resume(returning: pid)
+        case .failed(let error): waiter?.resume(throwing: error)
+        case .waiting: break
+        }
+    }
+
+    func wait() async throws -> Int32 {
+        try await withCheckedThrowingContinuation { continuation in
+            let ready = state.withLock { state -> State? in
+                guard case .waiting = state else { return state }
+                state = .waiting(continuation)
+                return nil
+            }
+            switch ready {
+            case .launched(let pid): continuation.resume(returning: pid)
+            case .failed(let error): continuation.resume(throwing: error)
+            case .waiting, nil: break
+            }
+        }
+    }
+}
+
+/// The status of a run once it has ended, readable without waiting.
+private final class ProcessRunRecord: Sendable {
+    private let finishedStatus = Mutex<Int32?>(nil)
+
+    var status: Int32? {
+        finishedStatus.withLock { $0 }
+    }
+
+    func finish(status: Int32) {
+        finishedStatus.withLock { $0 = status }
+    }
+}
+
+/// Cancels the run of a ``ProcessManager/runAndWait`` when its caller is
+/// cancelled, whether that happens before or after the launch.
+private final class RunAndWaitCancellation: Sendable {
+    private struct State {
+        var run: Task<ProcessRunOutcome, Never>?
+        var cancelled = false
+    }
+
+    private let state = Mutex(State())
+
+    func attach(_ run: Task<ProcessRunOutcome, Never>) {
+        let cancelNow = state.withLock { state -> Bool in
+            state.run = run
+            return state.cancelled
+        }
+        if cancelNow {
+            run.cancel()
         }
     }
 
     func cancel() {
-        let id: UUID?
-        lock.lock()
-        cancellationRequested = true
-        id = handleID
-        lock.unlock()
-
-        guard let id else { return }
-        terminate(handleID: id)
-    }
-
-    private func terminate(handleID: UUID) {
-        Task {
-            await manager.terminate(id: handleID)
+        let run = state.withLock { state -> Task<ProcessRunOutcome, Never>? in
+            state.cancelled = true
+            return state.run
         }
+        run?.cancel()
     }
+}
+
+/// The output of a ``ProcessManager/runAndWait`` run was cut short.
+struct ProcessOutputIncompleteError: LocalizedError, Sendable {
+    let reason: String
+
+    var errorDescription: String? { reason }
 }
 
 // MARK: - Convenience Functions
@@ -631,47 +531,86 @@ private final class RunAndWaitCancellationState: @unchecked Sendable {
 extension ProcessManager {
     /// Spawns a process and waits for completion.
     ///
+    /// The output is every nonempty line of each stream, joined with "\n".
+    /// Blank lines and a trailing line break are not kept.
+    ///
     /// - Parameters:
     ///   - executable: Path to the executable
     ///   - arguments: Command-line arguments
     ///   - workingDirectory: Working directory for the process
     ///   - environment: Additional environment variables
     /// - Returns: A tuple of (exitCode, stdout, stderr)
-    /// - Throws: `WorkflowError.processError` if spawn fails
+    /// - Throws: `WorkflowError.processError` if spawn fails, or if the output
+    ///   is incomplete because a child process kept it open after the process
+    ///   exited. `CancellationError` when the calling task is cancelled.
     public func runAndWait(
         executable: URL,
         arguments: [String],
         workingDirectory: URL,
         environment: [String: String]? = nil
     ) async throws -> (exitCode: Int32, stdout: String, stderr: String) {
-        let cancellationState = RunAndWaitCancellationState(manager: self)
+        let cancellation = RunAndWaitCancellation()
 
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
 
-            let handle = try await spawn(
+            let launched = try await launch(
                 executable: executable,
                 arguments: arguments,
                 workingDirectory: workingDirectory,
-                environment: environment
+                environment: environment,
+                keepsOutput: true
             )
-            cancellationState.store(handleID: handle.id)
-            try Task.checkCancellation()
-
-            // Collect output in parallel
-            async let stdoutTask = handle.collectStdout()
-            async let stderrTask = handle.collectStderr()
-            async let exitCodeTask = handle.waitForExit()
-
-            let stdout = await stdoutTask
-            let stderr = await stderrTask
-            let exitCode = await exitCodeTask
+            cancellation.attach(launched.run)
+            let outcome = await launched.run.value
 
             try Task.checkCancellation()
-            return (exitCode, stdout, stderr)
+            if let reason = outcome.incompleteOutput {
+                throw WorkflowError.processError(
+                    operation: "read the output of \(executable.lastPathComponent)",
+                    underlying: ProcessOutputIncompleteError(reason: reason)
+                )
+            }
+            return (
+                outcome.status,
+                Self.joinedNonemptyLines(outcome.stdout),
+                Self.joinedNonemptyLines(outcome.stderr)
+            )
         } onCancel: {
-            cancellationState.cancel()
+            cancellation.cancel()
         }
+    }
+
+    /// Splits output into lines at LF, CR and CRLF, drops the empty ones and
+    /// joins the rest with "\n". Each line decodes as UTF-8, with invalid
+    /// bytes replaced. This is the text `runAndWait` has always returned.
+    nonisolated static func joinedNonemptyLines(_ data: Data) -> String {
+        var lines: [String] = []
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            let bytes = raw.bindMemory(to: UInt8.self)
+            var start = 0
+            var index = 0
+            func appendLine(_ end: Int) {
+                guard end > start else { return }
+                let line = Data(bytes[start..<end])
+                lines.append(String(data: line, encoding: .utf8) ?? String(decoding: line, as: UTF8.self))
+            }
+            while index < bytes.count {
+                let byte = bytes[index]
+                guard byte == 0x0A || byte == 0x0D else {
+                    index += 1
+                    continue
+                }
+                appendLine(index)
+                index += 1
+                if byte == 0x0D, index < bytes.count, bytes[index] == 0x0A {
+                    index += 1
+                }
+                start = index
+            }
+            appendLine(bytes.count)
+        }
+        return lines.joined(separator: "\n")
     }
 
     /// Checks if an executable is available in PATH.

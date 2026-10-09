@@ -554,98 +554,49 @@ public struct ProcessPBAANextflowRunner: PBAANextflowRunning {
         )
     }
 
-    private func runProcess(
+    /// Runs Nextflow on ``ToolProcess`` as the leader of its own process
+    /// group, so cancelling the calling task stops Nextflow, its JVM and
+    /// every task process it started.
+    func runProcess(
         executableURL: URL,
         arguments: [String],
         workingDirectory: URL?,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) async throws -> PBAAProcessResult {
-        let cancellationHandle = NativeProcessCancellationHandle()
-        let runState = NativeProcessRunState()
-
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                let process = Process()
-                process.executableURL = executableURL
-                process.arguments = arguments
-                process.currentDirectoryURL = workingDirectory
-                process.environment = environment
-
-                let stdoutPipe = Pipe()
-                let stderrPipe = Pipe()
-                process.standardOutput = stdoutPipe
-                process.standardError = stderrPipe
-
-                let stdoutBox = PBAADataBox()
-                let stderrBox = PBAADataBox()
-                let group = DispatchGroup()
-                let startOutputDrain: @Sendable () -> Void = {
-                    group.enter()
-                    DispatchQueue.global().async {
-                        stdoutBox.value = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                        group.leave()
-                    }
-                    group.enter()
-                    DispatchQueue.global().async {
-                        stderrBox.value = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                        group.leave()
-                    }
-                }
-                cancellationHandle.store(process)
-
-                process.terminationHandler = { terminatedProcess in
-                    group.notify(queue: .global(qos: .userInitiated)) {
-                        cancellationHandle.clear(terminatedProcess)
-                        runState.resumeOnce { reason in
-                            switch reason {
-                            case .cancelled:
-                                continuation.resume(throwing: CancellationError())
-                            case .timedOut:
-                                continuation.resume(throwing: CancellationError())
-                            case .completed:
-                                continuation.resume(returning: PBAAProcessResult(
-                                    exitCode: terminatedProcess.terminationStatus,
-                                    stdout: String(data: stdoutBox.value, encoding: .utf8) ?? "",
-                                    stderr: String(data: stderrBox.value, encoding: .utf8) ?? ""
-                                ))
-                            }
-                        }
-                    }
-                }
-
-                do {
-                    startOutputDrain()
-                    try process.run()
-                    cancellationHandle.terminateIfRequested()
-                    if runState.isCancelled {
-                        cancellationHandle.requestProcessTreeTermination()
-                    }
-                } catch {
-                    cancellationHandle.clear(process)
-                    stdoutPipe.fileHandleForWriting.closeFile()
-                    stderrPipe.fileHandleForWriting.closeFile()
-                    runState.resumeOnce { reason in
-                        switch reason {
-                        case .cancelled, .timedOut:
-                            continuation.resume(throwing: CancellationError())
-                        case .completed:
-                            continuation.resume(throwing: PBAAClusteringError.nextflowUnavailable)
-                        }
-                    }
-                }
+        let spec = ToolProcessSpec(
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: environment,
+            workingDirectory: workingDirectory,
+            // Nextflow can leave its JVM or a task child holding the output
+            // for a moment after it exits.
+            drainGracePeriod: .seconds(5)
+        )
+        let result: ToolProcessResult
+        do {
+            result = try await ToolProcess.run(spec)
+        } catch {
+            switch error {
+            case .cancelled, .timedOut:
+                throw CancellationError()
+            case .invalidSpec, .launchFailed:
+                throw PBAAClusteringError.nextflowUnavailable
             }
-        } onCancel: {
-            runState.markCancelled()
-            cancellationHandle.requestProcessTreeTermination()
         }
+        let stdout = String(data: result.stdout, encoding: .utf8) ?? ""
+        let stderr = String(data: result.stderr, encoding: .utf8) ?? ""
+        guard result.outputComplete else {
+            let reason = result.outputDrainTimedOut
+                ? "The output of \(spec.label) is incomplete because a child process kept it open after \(spec.label) exited. The child process was stopped."
+                : "The output of \(spec.label) is incomplete because reading it failed."
+            let separator = stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : "\n\n"
+            throw PBAAClusteringError.nextflowFailed(status: result.status, stderr: stderr + separator + reason)
+        }
+        return PBAAProcessResult(exitCode: result.status, stdout: stdout, stderr: stderr)
     }
 }
 
-private final class PBAADataBox: @unchecked Sendable {
-    var value = Data()
-}
-
-private struct PBAAProcessResult: Sendable, Equatable {
+struct PBAAProcessResult: Sendable, Equatable {
     let exitCode: Int32
     let stdout: String
     let stderr: String

@@ -71,14 +71,19 @@ final class ProcessManagerTests: XCTestCase {
         }
     }
 
-    func testRunAndWaitDoesNotWaitForBackgroundDescendantHoldingPipesOpen() async throws {
+    /// A background child that keeps the pipes open after the root exits no
+    /// longer leaves runAndWait returning only what was buffered at exit. The
+    /// output gets the drain grace period, then the child is stopped and the
+    /// run is an error, because the output is incomplete (Phase 2.2 lane 2C
+    /// manager ruling).
+    func testRunAndWaitReportsOutputABackgroundDescendantHeldOpenAsIncomplete() async throws {
         let tempDir = try makeTemporaryDirectory()
         let scriptURL = tempDir.appendingPathComponent("background-pipe-holder.sh")
         let childPIDFile = tempDir.appendingPathComponent("child.pid")
         let script = """
         #!/bin/sh
         printf 'root-stdout\n'
-        (while :; do printf 'child-output'; done) &
+        /bin/sleep 300 &
         echo $! > "$1"
         printf 'root-stderr' >&2
         """
@@ -92,23 +97,171 @@ final class ProcessManagerTests: XCTestCase {
                let childPID = Int32(
                     childPIDText.trimmingCharacters(in: .whitespacesAndNewlines)
                ) {
-                kill(childPID, SIGTERM)
+                kill(childPID, SIGKILL)
             }
         }
 
         let start = Date()
+        do {
+            _ = try await ProcessManager.shared.runAndWait(
+                executable: scriptURL,
+                arguments: [childPIDFile.path],
+                workingDirectory: tempDir,
+                environment: nil
+            )
+            XCTFail("Output a child held open must not be returned as complete")
+        } catch let error as WorkflowError {
+            guard case .processError(_, let underlying) = error else {
+                return XCTFail("Unexpected workflow error: \(error)")
+            }
+            XCTAssertTrue(underlying is ProcessOutputIncompleteError, "\(underlying)")
+            let message = error.localizedDescription
+            XCTAssertTrue(message.contains("incomplete because a child process kept it open"), message)
+        }
+        let elapsed = Date().timeIntervalSince(start)
+
+        // The drain grace period, then the stop of the child's group.
+        XCTAssertGreaterThanOrEqual(elapsed, 4.5)
+        XCTAssertLessThan(elapsed, 10)
+        let childPID = try await waitForPIDFile(childPIDFile)
+        let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 2.0)
+        XCTAssertTrue(childExited, "The child that held the output open is stopped")
+    }
+
+    /// Pins the text runAndWait returns, which the tool goldens lock. Every
+    /// nonempty line of a stream, split at LF, CR or CRLF, joined with "\n".
+    /// Blank lines, a leading blank line and the trailing line break are not
+    /// kept, and a line longer than 64 KB is kept whole.
+    func testRunAndWaitJoinsNonemptyLinesAndDropsBlankLinesAndTheTrailingNewline() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let scriptURL = tempDir.appendingPathComponent("line-joining.sh")
+        let script = """
+        #!/bin/sh
+        printf '\\nfirst\\n\\n\\r\\nsecond\\r\\nthird\\rfourth\\n\\n'
+        printf '\\nwarn one\\n\\nwarn two\\n' >&2
+        """
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+
         let result = try await ProcessManager.shared.runAndWait(
+            executable: scriptURL,
+            arguments: [],
+            workingDirectory: tempDir,
+            environment: nil
+        )
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.stdout, "first\nsecond\nthird\nfourth")
+        XCTAssertEqual(result.stderr, "warn one\nwarn two")
+
+        let longLineScript = tempDir.appendingPathComponent("long-line.sh")
+        try """
+        #!/bin/sh
+        head -c 100000 /dev/zero | tr '\\0' 'a'
+        printf '\\nend\\n'
+        """.write(to: longLineScript, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: longLineScript.path)
+        let long = try await ProcessManager.shared.runAndWait(
+            executable: longLineScript,
+            arguments: [],
+            workingDirectory: tempDir,
+            environment: nil
+        )
+        XCTAssertEqual(long.stdout, String(repeating: "a", count: 100_000) + "\nend")
+    }
+
+    func testJoinedNonemptyLinesSplitsAsRunAndWaitAlwaysHas() {
+        func joined(_ bytes: [UInt8]) -> String {
+            ProcessManager.joinedNonemptyLines(Data(bytes))
+        }
+        XCTAssertEqual(joined([]), "")
+        XCTAssertEqual(joined(Array("\n\r\n\r".utf8)), "")
+        XCTAssertEqual(joined(Array("a\rb\r\nc\n\nd".utf8)), "a\nb\nc\nd")
+        // Each line decodes as UTF-8, with invalid bytes replaced.
+        XCTAssertEqual(joined([0xC3, 0xA9, 0x0A, 0xFF, 0x41]), "\u{e9}\n\u{FFFD}A")
+    }
+
+    /// The spawn path finishes its streams when a child holds the output
+    /// open too long, and reports the clean exit as incomplete through the
+    /// exit status, with the reason as the last line of stderr.
+    func testSpawnReportsOutputABackgroundDescendantHeldOpenThroughTheExitStatus() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let scriptURL = tempDir.appendingPathComponent("spawn-pipe-holder.sh")
+        let childPIDFile = tempDir.appendingPathComponent("child.pid")
+        try """
+        #!/bin/sh
+        printf 'root-stdout\n'
+        /bin/sleep 300 &
+        echo $! > "$1"
+        """.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+        defer {
+            if let text = try? String(contentsOf: childPIDFile, encoding: .utf8),
+               let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                kill(pid, SIGKILL)
+            }
+        }
+
+        let handle = try await ProcessManager.shared.spawn(
             executable: scriptURL,
             arguments: [childPIDFile.path],
             workingDirectory: tempDir,
             environment: nil
         )
-        let elapsed = Date().timeIntervalSince(start)
+        async let stdout = handle.collectStdout()
+        async let stderr = handle.collectStderr()
+        let exitCode = await handle.waitForExit()
+        let (out, err) = await (stdout, stderr)
 
-        XCTAssertEqual(result.exitCode, 0)
-        XCTAssertTrue(result.stdout.hasPrefix("root-stdout\n"))
-        XCTAssertEqual(result.stderr, "root-stderr")
-        XCTAssertLessThan(elapsed, 1.5)
+        XCTAssertEqual(exitCode, ProcessManager.incompleteOutputStatus)
+        XCTAssertEqual(out, "root-stdout")
+        XCTAssertTrue(err.contains("incomplete because a child process kept it open"), err)
+        let childPID = try await waitForPIDFile(childPIDFile)
+        let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 2.0)
+        XCTAssertTrue(childExited, "The child that held the output open is stopped")
+    }
+
+    /// A grandchild orphaned when its parent exits is no longer in the root's
+    /// descendant tree, but it never left the root's process group, so
+    /// terminate(id:) still stops it.
+    func testTerminateKillsAGrandchildThatKeptItsProcessGroup() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let grandchildPIDFile = tempDir.appendingPathComponent("grandchild.pid")
+        let scriptURL = tempDir.appendingPathComponent("orphaning-root.sh")
+        try """
+        #!/bin/sh
+        ( /bin/sleep 300 > /dev/null 2>&1 & echo $! > "$1" )
+        while true; do sleep 1; done
+        """.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+
+        let handle = try await ProcessManager.shared.spawn(
+            executable: scriptURL,
+            arguments: [grandchildPIDFile.path],
+            workingDirectory: tempDir,
+            environment: nil
+        )
+        let grandchildPID = try await waitForPIDFile(grandchildPIDFile)
+        addTeardownBlock {
+            if Self.isProcessRunning(pid: grandchildPID) {
+                kill(grandchildPID, SIGKILL)
+            }
+        }
+        XCTAssertTrue(Self.isProcessRunning(pid: grandchildPID))
+        XCTAssertEqual(getpgid(grandchildPID), handle.pid, "the grandchild stays in the root's group")
+        XCTAssertFalse(
+            ProcessTreeTerminator.descendantProcessIDs(of: handle.pid).contains(grandchildPID),
+            "the grandchild is orphaned, so a tree walk from the root misses it"
+        )
+
+        await ProcessManager.shared.terminate(id: handle.id)
+
+        let exited = await Self.waitUntilProcessExits(pid: grandchildPID, timeout: 2.0)
+        XCTAssertTrue(exited, "terminate(id:) stops the root's whole process group")
+        let exitCode = await handle.waitForExit()
+        XCTAssertEqual(exitCode, SIGTERM, "the root ended on the SIGTERM")
+        let running = await ProcessManager.shared.isRunning(id: handle.id)
+        XCTAssertFalse(running)
     }
 
     func testTerminateKillsSpawnedProcessTree() async throws {

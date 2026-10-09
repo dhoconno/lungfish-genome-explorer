@@ -1,5 +1,6 @@
 import XCTest
 import LungfishCore
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class PBAAClusteringPipelineTests: XCTestCase {
@@ -201,6 +202,65 @@ final class PBAAClusteringPipelineTests: XCTestCase {
             stillRunning = ProcessTreeTerminator.processExists(pid: pid)
         }
         XCTAssertFalse(stillRunning, "nextflow process (pid \(pid)) should be terminated promptly after Task cancellation")
+    }
+
+    /// runProcess runs on ToolProcess (Phase 2.2 lane 2C). Cancelling it
+    /// stops the stand-in Nextflow and the child standing in for its JVM, and
+    /// a finished run returns both streams decoded whole.
+    func testRunProcessStopsTheNextflowTreeOnCancelAndReturnsOutputWhole() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pbaa-run-process-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let script = root.appendingPathComponent("nextflow-like.sh")
+        try """
+        #!/bin/sh
+        if [ "$1" = "sleep" ]; then
+            echo $$ > "$2"
+            /bin/sh -c 'echo $$ > "$0"; exec /bin/sleep 300' "$3" &
+            wait
+        fi
+        printf '\\nN E X T F L O W\\n\\n'
+        printf 'warn\\n' >&2
+        exit 4
+        """.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let runner = ProcessPBAANextflowRunner(homeDirectoryProvider: { root }, appIdentity: .preview)
+
+        let finished = try await runner.runProcess(
+            executableURL: script, arguments: [], workingDirectory: root, environment: ["PATH": "/usr/bin:/bin"])
+        XCTAssertEqual(finished, PBAAProcessResult(exitCode: 4, stdout: "\nN E X T F L O W\n\n", stderr: "warn\n"))
+
+        let enginePIDFile = root.appendingPathComponent("engine.pid")
+        let javaPIDFile = root.appendingPathComponent("java.pid")
+        let task = Task {
+            try await runner.runProcess(
+                executableURL: script,
+                arguments: ["sleep", enginePIDFile.path, javaPIDFile.path],
+                workingDirectory: root,
+                environment: ["PATH": "/usr/bin:/bin"]
+            )
+        }
+        func pid(_ url: URL) -> Int32? {
+            (try? String(contentsOf: url, encoding: .utf8)).flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        }
+        let started = await waitUntil(timeout: .seconds(10)) { pid(enginePIDFile) != nil && pid(javaPIDFile) != nil }
+        let pids = [pid(enginePIDFile), pid(javaPIDFile)].compactMap { $0 }
+        XCTAssertTrue(started)
+        XCTAssertEqual(pids.count, 2)
+
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("a cancelled run must not return a result")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "\(error)")
+        }
+        let stopped = await waitUntil(timeout: .seconds(5)) {
+            pids.allSatisfy { !ProcessTreeTerminator.processExists(pid: $0) }
+        }
+        XCTAssertTrue(stopped, "the stand-in Nextflow and its JVM child are stopped")
+        pids.filter { ProcessTreeTerminator.processExists(pid: $0) }.forEach { kill($0, SIGKILL) }
     }
 
     func testPipelineImportsPassedFastaAsReferenceBundleAndWritesProvenance() async throws {
