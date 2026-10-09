@@ -6,7 +6,7 @@ Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift 811
 Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift 1475
 Sources/LungfishApp/App/AppDelegate.swift 2695
 Sources/LungfishApp/App/MainMenu.swift 1364
-Sources/LungfishApp/App/VCFImportHelper.swift 1146
+Sources/LungfishApp/App/VCFImportHelper.swift 1134
 Sources/LungfishApp/Services/AI/AIAssistantService.swift 901
 Sources/LungfishApp/Services/AI/AIToolRegistry.swift 951
 Sources/LungfishApp/Services/AnnotationSearchIndex.swift 1796
@@ -123,7 +123,7 @@ Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift 951
 Sources/LungfishGenotypeUI/GenotypeResultViewController.swift 11934
 Sources/LungfishGenotypeUI/GenotypeSampleComparisonModel.swift 899
 Sources/LungfishGenotypeUI/GenotypeSampleComparisonPanel.swift 1604
-Sources/LungfishIO/Bundles/AlignmentDataProvider.swift 1232
+Sources/LungfishIO/Bundles/AlignmentDataProvider.swift 1229
 Sources/LungfishIO/Bundles/AlignmentMetadataDatabase.swift 877
 Sources/LungfishIO/Bundles/GenotypeAnnotationSidecar.swift 995
 Sources/LungfishIO/Bundles/GenotypeHaplotypeAnalyzer.swift 1368
@@ -162,7 +162,7 @@ Sources/LungfishTaxTriageUI/TaxTriageBatchOverviewView.swift 867
 Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift 5916
 Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController.swift 1781
 Sources/LungfishWorkflow/Alignment/Minimap2Pipeline.swift 1263
-Sources/LungfishWorkflow/Conda/CondaManager.swift 1497
+Sources/LungfishWorkflow/Conda/CondaManager.swift 1463
 Sources/LungfishWorkflow/Conda/CondaOfflinePackService.swift 1230
 Sources/LungfishWorkflow/Conda/PluginPackStatusService.swift 1552
 Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift 1708
@@ -176,7 +176,7 @@ Sources/LungfishWorkflow/Geneious/GeneiousPackedSequenceExtractor.swift 902
 Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 2809
 Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift 1471
 Sources/LungfishWorkflow/MSA/MSAReferenceBundleBuilder.swift 819
-Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift 1223
+Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift 1221
 Sources/LungfishWorkflow/Mapping/MappingProvenance.swift 915
 Sources/LungfishWorkflow/Mapping/MappingViewerBundlePublicationService.swift 1810
 Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline.swift 2635
@@ -185,7 +185,7 @@ Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchProvenanceWriter.swift 11
 Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseRegistry.swift 2268
 Sources/LungfishWorkflow/Metagenomics/MetagenomicsImportService.swift 2644
 Sources/LungfishWorkflow/Native/NativeBundleBuilder.swift 1787
-Sources/LungfishWorkflow/Native/NativeToolRunner.swift 1209
+Sources/LungfishWorkflow/Native/NativeToolRunner.swift 1208
 Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingPatchValidator.swift 1247
 Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingRevisionPublisher.swift 912
 Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingRunner.swift 970
@@ -198,7 +198,7 @@ Sources/LungfishWorkflow/ONTGenotyping/FullLengthONTMHCGenotypingPipeline.swift 
 Sources/LungfishWorkflow/ONTGenotyping/FullLengthONTMHCWorkbookProjection.swift 839
 Sources/LungfishWorkflow/ONTGenotyping/GenotypeReviewableRowCatalogPublisher.swift 1420
 Sources/LungfishWorkflow/ONTGenotyping/HaplotypeDefinitionCommandService.swift 1110
-Sources/LungfishWorkflow/ONTGenotyping/ONTBarcodeDemuxGenotypingPipeline.swift 5012
+Sources/LungfishWorkflow/ONTGenotyping/ONTBarcodeDemuxGenotypingPipeline.swift 5010
 Sources/LungfishWorkflow/ONTGenotyping/ONTPacBioBarcodeDemuxMaterializer.swift 1147
 Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3AlleleContract.swift 1231
 Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3CoverageContract.swift 930
