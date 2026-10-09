@@ -2258,48 +2258,57 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         sidecarBeforeAttempt: GenotypeAnnotationSidecar
     ) {
         if indexedMatrixMutationRevision != store.matrixMutationRevision {
-            let changedTargets = matrixAnnotationChangedTargets(
-                from: sidecarBeforeAttempt,
-                to: store.sidecar
-            )
-            let candidateDisplayChanged =
-                sidecarBeforeAttempt.settings.mhcCandidateDisplay
-                    != store.sidecar.settings.mhcCandidateDisplay
-            let locusDisplayOrderChanged = sidecarBeforeAttempt.settings.genotypeLocusDisplayOrder
-                != store.sidecar.settings.genotypeLocusDisplayOrder
-            let searchDependenciesChanged = rebuildMatrixAnnotationIndexes()
-            if candidateDisplayChanged || locusDisplayOrderChanged {
-                comparisonMatrix.applyAnnotationSidecar(store.sidecar, reload: false)
-                var reconciledDisplayState = displayState
-                reconciledDisplayState.mhcCandidateDisplaySettings =
-                    store.sidecar.settings.mhcCandidateDisplay
-                reconciledDisplayState.genotypeLocusDisplayOrder = store.sidecar.settings.genotypeLocusDisplayOrder
-                applyDisplayStateImmediately(reconciledDisplayState)
-                onDisplayStateChanged?(reconciledDisplayState)
-                refreshCandidateSelectionDetails()
-            } else if changedTargets.isEmpty {
-                comparisonMatrix.applyAnnotationSidecar(store.sidecar, reload: false)
-            } else {
-                comparisonMatrix.applyAnnotationSidecar(
-                    store.sidecar,
-                    reloading: changedTargets
-                )
-            }
-            if sidecarBeforeAttempt.matrixReviews != store.sidecar.matrixReviews {
-                _ = refreshReviewedHaplotypeAnalysis()
-            }
-            if searchDependenciesChanged {
-                refreshActiveSharedSearchAfterDependencyChange()
-            }
-            refreshCurrentSelectionDetails()
-            publishMatrixReviewCapability(for: currentSelectionState?.matrixTargets ?? [])
-            onAnnotationSidecarChanged?(store.sidecar)
+            reconcileReplacedAnnotationSidecar(store: store, previous: sidecarBeforeAttempt)
         }
         if let onMatrixAnnotationCommandError {
             onMatrixAnnotationCommandError(error)
         } else {
             presentSheetAlert(error: error)
         }
+    }
+
+    /// Brings every surface that reads the sidecar in step with `store` after
+    /// it replaced the previous store from disk, whether a failed command's
+    /// retry or an editor's Reload replaced it (D5c). It redraws the changed
+    /// cells, re-infers the calls when a review changed, republishes the
+    /// review capability and hands the Inspector the reloaded sidecar.
+    private func reconcileReplacedAnnotationSidecar(store: GenotypeAnnotationStore, previous sidecarBeforeAttempt: GenotypeAnnotationSidecar) {
+        let changedTargets = matrixAnnotationChangedTargets(
+            from: sidecarBeforeAttempt,
+            to: store.sidecar
+        )
+        let candidateDisplayChanged =
+            sidecarBeforeAttempt.settings.mhcCandidateDisplay
+                != store.sidecar.settings.mhcCandidateDisplay
+        let locusDisplayOrderChanged = sidecarBeforeAttempt.settings.genotypeLocusDisplayOrder
+            != store.sidecar.settings.genotypeLocusDisplayOrder
+        let searchDependenciesChanged = rebuildMatrixAnnotationIndexes()
+        if candidateDisplayChanged || locusDisplayOrderChanged {
+            comparisonMatrix.applyAnnotationSidecar(store.sidecar, reload: false)
+            var reconciledDisplayState = displayState
+            reconciledDisplayState.mhcCandidateDisplaySettings =
+                store.sidecar.settings.mhcCandidateDisplay
+            reconciledDisplayState.genotypeLocusDisplayOrder = store.sidecar.settings.genotypeLocusDisplayOrder
+            applyDisplayStateImmediately(reconciledDisplayState)
+            onDisplayStateChanged?(reconciledDisplayState)
+            refreshCandidateSelectionDetails()
+        } else if changedTargets.isEmpty {
+            comparisonMatrix.applyAnnotationSidecar(store.sidecar, reload: false)
+        } else {
+            comparisonMatrix.applyAnnotationSidecar(
+                store.sidecar,
+                reloading: changedTargets
+            )
+        }
+        if sidecarBeforeAttempt.matrixReviews != store.sidecar.matrixReviews {
+            _ = refreshReviewedHaplotypeAnalysis()
+        }
+        if searchDependenciesChanged {
+            refreshActiveSharedSearchAfterDependencyChange()
+        }
+        refreshCurrentSelectionDetails()
+        publishMatrixReviewCapability(for: currentSelectionState?.matrixTargets ?? [])
+        onAnnotationSidecarChanged?(store.sidecar)
     }
 
     private func matrixAnnotationChangedTargets(
@@ -6143,7 +6152,8 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             },
             onReload: { [weak self] in
                 guard let self,
-                      let currentResult = self.result else {
+                      let currentResult = self.result,
+                      let previousSidecar = self.annotationStore?.sidecar else {
                     throw ManualHaplotypeEditorError.unavailable
                 }
                 let reloadedStore = try GenotypeAnnotationStore(
@@ -6152,12 +6162,8 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
                     seedBuiltInSmartCohorts: false
                 )
                 self.annotationStore = reloadedStore
-                self.rebuildMatrixAnnotationIndexes()
-                self.comparisonMatrix.applyAnnotationSidecar(
-                    reloadedStore.sidecar,
-                    reload: false
-                )
                 self.rebuildArtifactLens()
+                self.reconcileReplacedAnnotationSidecar(store: reloadedStore, previous: previousSidecar)
                 let snapshot = self.manualHaplotypeEditorSnapshot(
                     sample: sample,
                     result: currentResult,
@@ -6348,7 +6354,8 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             },
             onReload: { [weak self] in
                 guard let self,
-                      let currentResult = self.result else {
+                      let currentResult = self.result,
+                      let previousSidecar = self.annotationStore?.sidecar else {
                     throw ManualHaplotypeEditorError.unavailable
                 }
                 let reloadedStore = try GenotypeAnnotationStore(
@@ -6357,13 +6364,9 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
                     seedBuiltInSmartCohorts: false
                 )
                 self.annotationStore = reloadedStore
-                self.rebuildMatrixAnnotationIndexes()
-                self.comparisonMatrix.applyAnnotationSidecar(
-                    reloadedStore.sidecar,
-                    reload: false
-                )
                 self.rebuildEffectiveHaplotypeProjectionIfNeeded()
                 self.applyComparisonMatrixHaplotypeBandProjection()
+                self.reconcileReplacedAnnotationSidecar(store: reloadedStore, previous: previousSidecar)
                 guard let refreshed =
                     self.effectiveHaplotypeEditorSnapshot(sample: sample)
                 else {
@@ -11133,6 +11136,10 @@ extension GenotypeResultViewController {
 
     var testingEffectiveHaplotypeEditorPersistenceError: String? {
         effectiveHaplotypeEditorModel?.persistenceErrorMessage
+    }
+
+    func testingReloadEffectiveHaplotypeEditor() {
+        effectiveHaplotypeEditorModel?.reload()
     }
 
     func testingUpdateEffectiveHaplotypeLabel(

@@ -316,6 +316,81 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
         )
     }
 
+    /// Decision D5c of the Phase 2.3 follow-up (finding S3), on the effective
+    /// haplotype editor of a haplotyped MiSeq bundle. A false positive another
+    /// writer stored must change the live calls after Reload exactly as it does
+    /// after a stale publication, and the review capability must be republished.
+    func testEffectiveEditorReloadReinfersCallsAndRepublishesReviewCapability() throws {
+        let root = try TestTempDirectory.make(prefix: "EffectiveEditorReloadReinference")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundleURL = root.appendingPathComponent(
+            "reviewed.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        try installCallOverrideManifest(in: bundleURL)
+        let definition = makeDefinition()
+        try writeDefinitionSnapshot(definition, to: bundleURL)
+        let retained = makeCall(sample: "AnimalA", genotype: "01_M1_A_marker", reads: 100)
+        let contaminant = makeCall(sample: "AnimalA", genotype: "02_M2_A_marker", reads: 3)
+        let rawCalls = [retained, contaminant]
+        let controller = makeMatrixAnnotationGuardedController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [
+                .init(
+                    sample: "AnimalA",
+                    passedAlignments: 103,
+                    passedUniqueReads: 103,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: rawCalls
+                ),
+            ],
+            calls: rawCalls,
+            haplotypeAnalysis: GenotypeHaplotypeAnalyzer.analyze(calls: rawCalls, definitionSet: definition)
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        XCTAssertEqual(
+            controller.testingEffectiveHaplotypeEditorSample, "AnimalA",
+            "Selecting a sample column of a haplotyped MiSeq bundle mounts the effective editor"
+        )
+        XCTAssertEqual(controller.testingCapturedScientificCalls().first?.haplotype2, "M2A")
+        var capabilities = 0
+        var sidecars: [GenotypeAnnotationSidecar] = []
+        controller.onMatrixReviewCapabilityChanged = { _ in capabilities += 1 }
+        controller.onAnnotationSidecarChanged = { sidecars.append($0) }
+
+        // Another window marks the contaminant a false positive.
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: contaminant.genotype,
+            sample: "AnimalA"
+        )
+        let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
+        try concurrent.setMatrixReviewSynchronously(
+            .falsePositive,
+            targets: [target],
+            evidence: GenotypeMatrixEvidenceIndex([target: 3]),
+            author: "other"
+        )
+
+        controller.testingReloadEffectiveHaplotypeEditor()
+
+        XCTAssertNil(controller.testingEffectiveHaplotypeEditorPersistenceError)
+        XCTAssertEqual(
+            controller.testingCapturedScientificCalls().first?.haplotype2, "M1A",
+            "Reload must re-infer the live calls from the reloaded reviews"
+        )
+        XCTAssertEqual(controller.testingEffectiveHaplotypeEditorValue(locus: "MHC-A", slot: .h2), "M1A")
+        XCTAssertGreaterThan(capabilities, 0, "Reload must republish the review capability")
+        XCTAssertEqual(sidecars.last?.matrixReviews.map(\.target), [target])
+    }
+
     private func makeDefinition() -> GenotypeHaplotypeDefinitionSet {
         GenotypeHaplotypeDefinitionSet(
             id: "reviewed-evidence-test",

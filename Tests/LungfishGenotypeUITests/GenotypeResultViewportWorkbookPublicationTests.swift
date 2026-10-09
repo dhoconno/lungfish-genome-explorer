@@ -636,4 +636,76 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         )
     }
 
+    /// Decision D5c of the Phase 2.3 follow-up (finding S3). Reload in the
+    /// manual haplotype editor replaces the annotation store with a fresh
+    /// read of annotations.json, so it must run the reconcile a stale
+    /// publication runs: redraw the cells another writer changed, republish
+    /// the review capability and hand the Inspector the reloaded sidecar.
+    func testManualEditorReloadRedrawsChangedCellsAndRepublishesReviewCapability() throws {
+        let root = try TestTempDirectory.make(prefix: "ManualEditorReloadReconcile")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let first = "01_Mafa_A1_FIRST"
+        let second = "02_Mafa_A1_SECOND"
+        let reviewed = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A", genotype: second, sample: "AnimalA"
+        )
+        let column = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
+        let controller = makeMatrixAnnotationGuardedController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [
+                makeCall(sample: "AnimalA", genotype: first, reads: 12),
+                makeCall(sample: "AnimalA", genotype: second, reads: 10),
+            ]
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        let editor = try XCTUnwrap(
+            controller.testingRetainedManualHaplotypeEditorModel,
+            "Selecting a sample column of a genotype-only bundle mounts the manual editor"
+        )
+        var capabilities: [GenotypeMatrixReviewCapabilityState] = []
+        var sidecars: [GenotypeAnnotationSidecar] = []
+        controller.onMatrixReviewCapabilityChanged = { capabilities.append($0) }
+        controller.onAnnotationSidecarChanged = { sidecars.append($0) }
+        controller.testingResetMatrixReloadCounters()
+
+        // Another window reviews a cell and comments on the selected column.
+        let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
+        try concurrent.setMatrixReviewSynchronously(
+            .falsePositive,
+            targets: [reviewed],
+            evidence: GenotypeMatrixEvidenceIndex([reviewed: 10]),
+            author: "other"
+        )
+        try concurrent.upsertMatrixCommentSynchronously(
+            body: "concurrent",
+            targets: [column],
+            author: "other"
+        )
+
+        editor.reload()
+
+        XCTAssertNil(editor.persistenceErrorMessage)
+        XCTAssertEqual(
+            Set(controller.testingLastMatrixReloadTargets),
+            Set([reviewed, column]),
+            "The reload must redraw exactly the targets the other writer changed"
+        )
+        let capability = try XCTUnwrap(
+            capabilities.last,
+            "The reload must republish the review capability for the current selection"
+        )
+        XCTAssertEqual(capability.commentsByTarget[column]?.body, "concurrent")
+        XCTAssertTrue(capability.removeComments.isEnabled)
+        XCTAssertEqual(sidecars.last?.matrixReviews.map(\.target), [reviewed])
+        XCTAssertEqual(sidecars.last?.resolvedMatrixComments[column]?.body, "concurrent")
+
+        controller.testingSelectMatrixCell(genotype: second, sample: "AnimalA")
+        XCTAssertEqual(controller.testingMatrixReviewCapability.reviewState, .uniform(.falsePositive))
+        XCTAssertTrue(controller.testingMatrixReviewCapability.clearReview.isEnabled)
+    }
 }
