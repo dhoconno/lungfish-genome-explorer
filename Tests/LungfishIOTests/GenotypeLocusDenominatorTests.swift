@@ -89,7 +89,163 @@ final class GenotypeLocusDenominatorTests: XCTestCase {
         XCTAssertTrue(gGenotypes.isSubset(of: Set(atFifty.observedGenotypes)))
         let aboveFifty = try mhcA(locusFraction: 0.5001)
         XCTAssertTrue(gGenotypes.isDisjoint(with: Set(aboveFifty.observedGenotypes)))
-        XCTAssertEqual(GenotypeHaplotypeAnalyzer.callingRulesVersion, 3)
+        // 4: D2 (a tied cluster counts once) and N1 (a zero-read row is not
+        // an observation) change the calls users see.
+        XCTAssertEqual(GenotypeHaplotypeAnalyzer.callingRulesVersion, 4)
+    }
+
+    // MARK: D2, a tied cluster counts once
+
+    /// Full-length results give each equal-best reference of a cluster its
+    /// own call with the full cluster reads and the tie list in
+    /// `ambiguousWith`. A 1,000-read cluster tied between two MHC-A
+    /// references beside a 15-read MHC-A allele.
+    static func tiedClusterCalls(sample: String = "S1") -> [ONTGenotypeCall] {
+        let tie = ["Mamu-A1*001:01", "Mamu-A1*001:02"]
+        return [
+            call(sample, "Mamu-A1*001:01", 1_000, ambiguousWith: tie),
+            call(sample, "Mamu-A1*001:02", 1_000, ambiguousWith: tie),
+            call(sample, "Mamu-A1*002:01", 15),
+        ]
+    }
+
+    static func tiedClusterDefinition() -> GenotypeHaplotypeDefinitionSet {
+        GenotypeHaplotypeDefinitionSet(
+            id: "tied-cluster",
+            assayID: "full-length-test",
+            displayName: "Tied cluster",
+            speciesName: "Test macaque",
+            speciesCode: "TEST",
+            prefix: "",
+            locusDefinitions: [
+                GenotypeHaplotypeLocusDefinition(
+                    locus: "MHC-A",
+                    sourceLocus: "MHC-A",
+                    haplotypes: [
+                        GenotypeHaplotypeDefinition(name: "M1A", diagnosticAlleles: ["Mamu-A1*001:01"], minimumMatches: 1),
+                        GenotypeHaplotypeDefinition(name: "M2A", diagnosticAlleles: ["Mamu-A1*002:01"], minimumMatches: 1),
+                    ]
+                ),
+            ]
+        )
+    }
+
+    /// The locus total counts the tied cluster once, 1,015 reads and not
+    /// 2,015, so the minor allele is 1.48 percent and not 0.74. Each tied
+    /// reference keeps its full reads as its own support.
+    func testATiedClusterCountsOnceInTheLocusTotal() throws {
+        let calls = Self.tiedClusterCalls()
+        for call in calls {
+            XCTAssertEqual(GenotypeLocusDenominator.sourceLocus(for: call), "MHC-A", call.genotype)
+        }
+        let denominator = GenotypeLocusDenominator(calls: calls)
+
+        XCTAssertEqual(denominator.total(for: calls[2]), 1_015)
+        XCTAssertEqual(try XCTUnwrap(denominator.fraction(for: calls[2])), 0.01478, accuracy: 0.00001)
+        XCTAssertEqual(calls[0].passedUniqueReads, 1_000, "a tied reference keeps the full cluster reads")
+        XCTAssertEqual(try XCTUnwrap(denominator.fraction(for: calls[0])), 1_000.0 / 1_015.0, accuracy: 1e-12)
+        XCTAssertEqual(try XCTUnwrap(denominator.fraction(for: calls[1])), 1_000.0 / 1_015.0, accuracy: 1e-12)
+    }
+
+    /// With a 1 percent locus dropout the analyzer keeps the 15-read allele,
+    /// and the sample fraction uses the same once-counted total.
+    func testHaplotypeCallerKeepsTheMinorAlleleBesideATiedClusterAtOnePercent() throws {
+        let calls = Self.tiedClusterCalls()
+        func mhcA(_ evaluator: GenotypeDropoutEvaluator) throws -> GenotypeHaplotypeLocusCall {
+            let analysis = GenotypeHaplotypeAnalyzer.analyze(
+                calls: calls,
+                definitionSet: Self.tiedClusterDefinition(),
+                dropoutFilter: evaluator
+            )
+            return try XCTUnwrap(analysis.samples.first?.calls.first { $0.locus == "MHC-A" })
+        }
+
+        let locusCall = try mhcA(GenotypeDropoutEvaluator(absolute: nil, sampleFraction: nil, locusFraction: 0.01))
+        XCTAssertTrue(locusCall.observedGenotypes.contains("Mamu-A1*002:01"), "\(locusCall.observedGenotypes)")
+        XCTAssertEqual(Set(locusCall.matchedHaplotypes.map(\.name)), ["M1A", "M2A"])
+
+        let sampleCall = try mhcA(GenotypeDropoutEvaluator(absolute: nil, sampleFraction: 0.01, locusFraction: nil))
+        XCTAssertTrue(sampleCall.observedGenotypes.contains("Mamu-A1*002:01"), "\(sampleCall.observedGenotypes)")
+        XCTAssertEqual(Set(sampleCall.matchedHaplotypes.map(\.name)), ["M1A", "M2A"])
+
+        // 1.48 percent is the boundary: dropped just above it.
+        let aboveBoundary = try mhcA(GenotypeDropoutEvaluator(absolute: nil, sampleFraction: nil, locusFraction: 0.0148))
+        XCTAssertFalse(aboveBoundary.observedGenotypes.contains("Mamu-A1*002:01"), "\(aboveBoundary.observedGenotypes)")
+    }
+
+    /// The three-way tie of the pipeline test: refA, refB and refC at 20
+    /// reads each, all tied, plus refD at 7, all at one locus, total 27.
+    func testAThreeWayTieBesideAMinorAlleleCountsOnce() {
+        let tie = ["refA|source_loci=MHC-A", "refB|source_loci=MHC-A", "refC|source_loci=MHC-A"]
+        let calls = tie.map { Self.call("S1", $0, 20, ambiguousWith: tie) }
+            + [Self.call("S1", "refD|source_loci=MHC-A", 7)]
+        let denominator = GenotypeLocusDenominator(calls: calls)
+        for call in calls {
+            XCTAssertEqual(denominator.total(for: call), 27, call.genotype)
+        }
+    }
+
+    /// An amplicon row stands for identical references collapsed before
+    /// mapping, and lists members that are not calls. The total is unchanged.
+    func testAnAmpliconTieGroupNamingCollapsedMembersLeavesTheTotalUnchanged() {
+        let grouped = Self.call(
+            "LF1", "MCM_MHC_MiSeq_0003|source_loci=MHC-G|haplotype_groups=MHC-A", 75,
+            ambiguousWith: [
+                "MCM_MHC_MiSeq_0003|source_loci=MHC-G|haplotype_groups=MHC-A",
+                "MCM_MHC_MiSeq_0005|source_loci=MHC-G|haplotype_groups=MHC-A",
+                "MCM_MHC_MiSeq_0006|source_loci=MHC-G|haplotype_groups=MHC-A",
+            ]
+        )
+        let other = Self.call("LF1", "MCM_MHC_MiSeq_0004|source_loci=MHC-G|haplotype_groups=MHC-A", 75)
+        let denominator = GenotypeLocusDenominator(calls: [grouped, other])
+        XCTAssertEqual(denominator.total(for: grouped), 150)
+        XCTAssertEqual(denominator.total(for: other), 150)
+    }
+
+    /// Tied references at two loci count once at each locus.
+    func testATieSpanningTwoLociCountsOnceAtEachLocus() {
+        let tie = ["Mamu-A1*001:01", "Mamu-B*001:01"]
+        let calls = [
+            Self.call("S1", "Mamu-A1*001:01", 1_000, ambiguousWith: tie),
+            Self.call("S1", "Mamu-B*001:01", 1_000, ambiguousWith: tie),
+            Self.call("S1", "Mamu-A1*002:01", 15),
+            Self.call("S1", "Mamu-B*002:01", 30),
+        ]
+        let denominator = GenotypeLocusDenominator(calls: calls)
+        XCTAssertEqual(GenotypeLocusDenominator.sourceLocus(for: calls[1]), "MHC-B")
+        XCTAssertEqual(denominator.total(sample: "S1", sourceLocus: "MHC-A"), 1_015)
+        XCTAssertEqual(denominator.total(sample: "S1", sourceLocus: "MHC-B"), 1_030)
+    }
+
+    /// Calls that name each other but carry different reads (a reference with
+    /// a cluster of its own beside the shared one) are summed as before.
+    func testTiedCallsWithDifferentReadsAreSummedAsBefore() {
+        let tie = ["Mamu-A1*001:01", "Mamu-A1*001:02"]
+        let calls = [
+            Self.call("S1", "Mamu-A1*001:01", 1_000, ambiguousWith: tie),
+            Self.call("S1", "Mamu-A1*001:02", 600, ambiguousWith: tie),
+            Self.call("S1", "Mamu-A1*002:01", 15),
+        ]
+        XCTAssertEqual(GenotypeLocusDenominator(calls: calls).total(for: calls[2]), 1_615)
+    }
+
+    /// The tie rule is per animal. The same tie in two animals counts once in
+    /// each, and never merges the animals.
+    func testTheTieRuleIsPerAnimal() {
+        let calls = Self.tiedClusterCalls(sample: "S1") + Self.tiedClusterCalls(sample: "S2")
+        let denominator = GenotypeLocusDenominator(calls: calls)
+        XCTAssertEqual(denominator.total(sample: "S1", sourceLocus: "MHC-A"), 1_015)
+        XCTAssertEqual(denominator.total(sample: "S2", sourceLocus: "MHC-A"), 1_015)
+    }
+
+    /// Candidate clusters still add to the once-counted known total.
+    func testCandidateReadsAddToTheOnceCountedKnownTotal() {
+        let document = GenotypeLocusDenominatorFixtures.candidateDocument(
+            candidates: [("novel", "Mamu-A1*900:01_nov", "MHC-A")],
+            observations: [("novel", "S1", 85)]
+        )
+        let denominator = GenotypeLocusDenominator(calls: Self.tiedClusterCalls(), candidateDocument: document)
+        XCTAssertEqual(denominator.total(sample: "S1", sourceLocus: "MHC-A"), 1_100)
     }
 
     func testCandidateClusterReadsCountTowardTheirSourceLocus() throws {
@@ -121,7 +277,9 @@ final class GenotypeLocusDenominatorTests: XCTestCase {
         XCTAssertEqual(result.hiddenSupportCallCount(minimumSupportPercent: 5, denominator: .viewedLocus), 0)
     }
 
-    static func call(_ sample: String, _ genotype: String, _ reads: Int) -> ONTGenotypeCall {
+    static func call(
+        _ sample: String, _ genotype: String, _ reads: Int, ambiguousWith: [String]? = nil
+    ) -> ONTGenotypeCall {
         ONTGenotypeCall(
             sample: sample,
             genotype: genotype,
@@ -132,7 +290,8 @@ final class GenotypeLocusDenominatorTests: XCTestCase {
             sampleUniqueRetainedPercent: nil,
             overallInputReads: nil,
             overallUniqueRetainedReads: nil,
-            overallUniqueRetainedPercent: nil
+            overallUniqueRetainedPercent: nil,
+            ambiguousWith: ambiguousWith
         )
     }
 }

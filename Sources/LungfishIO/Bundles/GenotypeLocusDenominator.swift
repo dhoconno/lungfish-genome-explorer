@@ -36,18 +36,14 @@ public struct GenotypeLocusDenominator: Sendable, Equatable {
 
     /// Builds the denominators from known calls and, when present, the reads
     /// of candidate clusters (novel alleles and interpreted incomplete
-    /// clusters) observed at the same source locus.
+    /// clusters) observed at the same source locus. Known calls enter through
+    /// `knownReadTotals(calls:)`, so a tied cluster counts once (D2).
     public init(
         calls: [ONTGenotypeCall],
         candidateDocument: ONTMHCCandidateAllelesDocument? = nil,
         unnameableDocument: ONTMHCUnnameableClustersDocument? = nil
     ) {
-        var totals: [Key: Int] = [:]
-        totals.reserveCapacity(calls.count)
-        for call in calls {
-            totals[Key(sample: call.sample, sourceLocus: call.locusGroup), default: 0]
-                += max(0, call.passedUniqueReads)
-        }
+        var totals = Self.knownReadTotals(calls: calls)
         if let candidateDocument {
             let locusByCluster = Dictionary(
                 candidateDocument.candidates.map { ($0.stableClusterID, $0.locus) },
@@ -81,6 +77,58 @@ public struct GenotypeLocusDenominator: Sendable, Equatable {
             candidateDocument: result.mhcCandidates,
             unnameableDocument: result.mhcUnnameableClusters
         )
+    }
+
+    // MARK: D2, a tied cluster counts once
+
+    /// The known reads of every sample at every source locus, counting a
+    /// tied cluster once (D2).
+    ///
+    /// A full-length result gives each equal-best reference of a cluster its
+    /// own call with the full cluster reads and the tie list in
+    /// `ambiguousWith`, so summing calls counts a k-way tie k times. Within
+    /// one animal and one source locus, calls that name each other in
+    /// `ambiguousWith` and carry the same passed unique reads describe one
+    /// cluster whose reads fit each tied reference equally, and they count
+    /// once. Calls with different reads are summed as before, which errs high
+    /// and never below the true total. Each tied reference keeps its full
+    /// reads as its own support, with no split and no merged call.
+    ///
+    /// An amplicon row whose `ambiguousWith` names references collapsed before
+    /// mapping is the only call of its group, so its total is unchanged, and a
+    /// tie whose members parse to two loci counts once at each locus. This is
+    /// the one rule behind the locus denominator, the haplotype analyzer's
+    /// sample totals and the observed-loci read totals.
+    public static func knownReadTotals(calls: [ONTGenotypeCall]) -> [Key: Int] {
+        var totals: [Key: Int] = [:]
+        totals.reserveCapacity(calls.count)
+        var countedTies = Set<TieGroup>()
+        for call in calls {
+            let key = Key(sample: call.sample, sourceLocus: call.locusGroup)
+            let reads = max(0, call.passedUniqueReads)
+            if let members = call.ambiguousWith {
+                let tie = TieGroup(key: key, members: Set(members).union([call.genotype]), reads: reads)
+                guard countedTies.insert(tie).inserted else { continue }
+            }
+            totals[key, default: 0] += reads
+        }
+        return totals
+    }
+
+    /// The known reads of every normalized sample across its source loci,
+    /// counting a tied cluster once. The haplotype analyzer's sample fraction
+    /// divides by this total.
+    public static func sampleTotals(calls: [ONTGenotypeCall]) -> [String: Int] {
+        knownReadTotals(calls: calls).reduce(into: [:]) { totals, entry in
+            totals[entry.key.sample, default: 0] += entry.value
+        }
+    }
+
+    /// One tied cluster of one animal at one source locus.
+    private struct TieGroup: Hashable {
+        let key: Key
+        let members: Set<String>
+        let reads: Int
     }
 
     /// The source-locus key for a call: `source_loci` metadata first, the

@@ -1024,17 +1024,17 @@
           "comment" : "",
           "h1" : {
             "baselineAvailable" : true,
-            "effective" : "M2A",
-            "pipeline" : "M2A",
+            "effective" : "ERR: NO HAP",
+            "pipeline" : "ERR: NO HAP",
             "source" : "pipeline",
-            "status" : "called"
+            "status" : "noHaplotype"
           },
           "h2" : {
             "baselineAvailable" : true,
-            "effective" : "M2A",
-            "pipeline" : "-",
+            "effective" : "ERR: NO HAP",
+            "pipeline" : "ERR: NO HAP",
             "source" : "pipeline",
-            "status" : "called"
+            "status" : "noHaplotype"
           },
           "id" : "13773d5c5a9d33648d477eb0fecf40b7c7a738ba6f5b6029bfc426687aa47ed5",
           "locus" : "MHC-A",
@@ -1723,27 +1723,19 @@
                   "aiSlotMetadata" : [
 
                   ],
-                  "haplotype1" : "M2A",
-                  "haplotype2" : "-",
+                  "haplotype1" : "ERR: NO HAP",
+                  "haplotype2" : "ERR: NO HAP",
                   "locus" : "MHC-A",
                   "matchedHaplotypes" : [
-                    {
-                      "diagnosticAlleles" : [
-                        "02_Mafa_A1_002_01"
-                      ],
-                      "name" : "M2A",
-                      "observedDiagnosticAlleles" : [
-                        "02_Mafa_A1_002_01"
-                      ]
-                    }
+
                   ],
                   "notes" : "",
-                  "observedGenotypeCount" : 1,
+                  "observedGenotypeCount" : 0,
                   "observedGenotypes" : [
-                    "02_Mafa_A1_002_01"
+
                   ],
                   "sourceLocus" : "Mafa-A",
-                  "status" : "called"
+                  "status" : "noHaplotype"
                 },
                 {
                   "aiSlotMetadata" : [
@@ -1899,7 +1891,7 @@
               "sample" : "AnimalE"
             }
           ],
-          "schemaVersion" : 3,
+          "schemaVersion" : 4,
           "source" : "deterministic",
           "speciesName" : "Test macaque"
         },
@@ -2308,27 +2300,19 @@
                       "aiSlotMetadata" : [
 
                       ],
-                      "haplotype1" : "M2A",
-                      "haplotype2" : "-",
+                      "haplotype1" : "ERR: NO HAP",
+                      "haplotype2" : "ERR: NO HAP",
                       "locus" : "MHC-A",
                       "matchedHaplotypes" : [
-                        {
-                          "diagnosticAlleles" : [
-                            "02_Mafa_A1_002_01"
-                          ],
-                          "name" : "M2A",
-                          "observedDiagnosticAlleles" : [
-                            "02_Mafa_A1_002_01"
-                          ]
-                        }
+
                       ],
                       "notes" : "",
-                      "observedGenotypeCount" : 1,
+                      "observedGenotypeCount" : 0,
                       "observedGenotypes" : [
-                        "02_Mafa_A1_002_01"
+
                       ],
                       "sourceLocus" : "Mafa-A",
-                      "status" : "called"
+                      "status" : "noHaplotype"
                     },
                     {
                       "aiSlotMetadata" : [
@@ -2484,7 +2468,7 @@
                   "sample" : "AnimalE"
                 }
               ],
-              "schemaVersion" : 3,
+              "schemaVersion" : 4,
               "source" : "deterministic",
               "speciesName" : "Test macaque"
             },
@@ -3086,27 +3070,19 @@
                     "aiSlotMetadata" : [
 
                     ],
-                    "haplotype1" : "M2A",
-                    "haplotype2" : "-",
+                    "haplotype1" : "ERR: NO HAP",
+                    "haplotype2" : "ERR: NO HAP",
                     "locus" : "MHC-A",
                     "matchedHaplotypes" : [
-                      {
-                        "diagnosticAlleles" : [
-                          "02_Mafa_A1_002_01"
-                        ],
-                        "name" : "M2A",
-                        "observedDiagnosticAlleles" : [
-                          "02_Mafa_A1_002_01"
-                        ]
-                      }
+
                     ],
                     "notes" : "",
-                    "observedGenotypeCount" : 1,
+                    "observedGenotypeCount" : 0,
                     "observedGenotypes" : [
-                      "02_Mafa_A1_002_01"
+
                     ],
                     "sourceLocus" : "Mafa-A",
-                    "status" : "called"
+                    "status" : "noHaplotype"
                   },
                   {
                     "aiSlotMetadata" : [
@@ -3262,7 +3238,7 @@
                 "sample" : "AnimalE"
               }
             ],
-            "schemaVersion" : 3,
+            "schemaVersion" : 4,
             "source" : "deterministic",
             "speciesName" : "Test macaque"
           },
@@ -3590,6 +3566,12 @@
           "fillHex" : "#0000FF",
           "fontHex" : "#FFFFFF",
           "locus" : "MHC-B"
+        },
+        {
+          "call" : "ERR: NO HAP",
+          "fillHex" : "#106B42",
+          "fontHex" : "#FFFFFF",
+          "locus" : "MHC-A"
         }
       ],
       "filteredMatrix" : {

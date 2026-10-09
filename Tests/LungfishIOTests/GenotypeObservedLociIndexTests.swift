@@ -81,6 +81,26 @@ final class GenotypeObservedLociIndexTests: XCTestCase {
         XCTAssertEqual(Array(index.loci.prefix(3)), ["MHC-B", "MHC-A", "MHC-DRB"])
     }
 
+    /// D2. Two full-length references tied on one 1,000-read cluster and a
+    /// 15-read allele are 1,015 reads at the locus, not 2,015. The sample
+    /// count and the per-sample call lists keep every tied call.
+    func testATiedClusterCountsOnceInTheLocusReadTotal() {
+        let tie = ["Mamu-A1*001:01", "Mamu-A1*001:02"]
+        let calls = tie.map { reference in
+            ONTGenotypeCall(
+                sample: "S1", genotype: reference, passedAlignments: 1_000, passedUniqueReads: 1_000,
+                sampleTotalReads: nil, sampleUniqueRetainedReads: nil, sampleUniqueRetainedPercent: nil,
+                overallInputReads: nil, overallUniqueRetainedReads: nil, overallUniqueRetainedPercent: nil,
+                ambiguousWith: tie
+            )
+        } + [makeCall(sample: "S1", genotype: "Mamu-A1*002:01", reads: 15)]
+        let index = GenotypeObservedLociIndex.build(from: makeBundle(calls: calls, analyzedLoci: ["MHC-A"]))
+        let mhcA = index.summariesByLocus["MHC-A"]
+        XCTAssertEqual(mhcA?.totalReads, 1_015)
+        XCTAssertEqual(mhcA?.sampleCount, 1)
+        XCTAssertEqual(index.observedCallsBySampleAndLocus["S1"]?["MHC-A"]?.count, 3)
+    }
+
     func testGroupsCallsBySampleAndLocus() {
         let result = makeBundle(
             calls: [

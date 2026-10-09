@@ -113,6 +113,55 @@ final class FullLengthONTMHCGenotypingDenominatorTests: XCTestCase {
         XCTAssertEqual(run.analysis.samples, cli.samples)
     }
 
+    /// D2. The full-length path gives each equal-best reference of a cluster
+    /// its own call with the full cluster reads and the tie list, so a
+    /// 1,000-read cluster tied between A_marker and C_marker beside a 15-read
+    /// cluster of B_marker is 1,015 reads at MHC-A, not 2,015. B_marker is
+    /// 1.48 percent and survives the run's 1 percent threshold, so the sample
+    /// is M-A and M-B. The report rows are written the way the pipeline
+    /// writes a tie, and the run's own analysis and both re-inferences agree.
+    func testATiedClusterCountsOnceOnTheRunAndOnEveryReinference() throws {
+        func genotypeRow(_ reference: String, cluster: String, reads: Int) -> FullLengthONTMHCClusterGenotypeRow {
+            FullLengthONTMHCClusterGenotypeRow(
+                sample: Self.sample, cluster: cluster, clusterReads: reads, allele: reference,
+                alleleLength: 1_000, alignedBases: 1_000, score: 1_000,
+                referenceSequenceID: "\(reference)|source_loci=MHC-A|haplotype_groups=MHC-A", indelBases: 0
+            )
+        }
+        let reportRows = FullLengthONTMHCClusterReportBuilder.reportRows(
+            genotypeRows: [
+                genotypeRow("A_marker", cluster: "Cluster1_ReadCount-1000", reads: 1_000),
+                genotypeRow("C_marker", cluster: "Cluster1_ReadCount-1000", reads: 1_000),
+                genotypeRow("B_marker", cluster: "Cluster2_ReadCount-15", reads: 15),
+            ],
+            sampleReadCounts: [Self.sample: 1_015]
+        )
+        XCTAssertEqual(reportRows.map(\.passedUniqueReads), [1_000, 15, 1_000])
+        XCTAssertEqual(reportRows.compactMap(\.ambiguousWith).count, 2)
+        let fixture = try makeFixture(clusterLocus: "MHC-B", reportRows: reportRows)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let run = try runAnalysisStep(fixture)
+        try publishBundle(fixture)
+        let published = try ONTGenotypeResultBundle.loadResult(from: fixture.request.outputDirectory)
+        XCTAssertTrue(published.integrityWarnings.isEmpty, "\(published.integrityWarnings)")
+        XCTAssertEqual(published.calls.map(\.passedUniqueReads), [1_000, 15, 1_000])
+        XCTAssertEqual(published.calls.compactMap(\.ambiguousWith).count, 2, "the tie survives the round trip")
+        XCTAssertEqual(GenotypeLocusDenominator(result: published).total(sample: "sample", sourceLocus: "MHC-A"), 1_015)
+
+        let cli = try XCTUnwrap(GenotypeHaplotypeAnalysisResolver.activeAnalysis(for: published, sidecar: nil))
+        let gui = GenotypeHaplotypeAnalyzer.analyze(
+            calls: published.calls, definitionSet: definition(), generatedAt: nil,
+            dropoutFilter: GenotypeHaplotypeAnalysisResolver.runHaplotypeDropoutEvaluator(for: published),
+            matrixReviews: [], locusDenominator: GenotypeLocusDenominator(result: published)
+        )
+        let reinferred = try XCTUnwrap(cli.samples.first?.calls.first)
+        XCTAssertEqual([reinferred.haplotype1, reinferred.haplotype2], ["M-A", "M-B"])
+        XCTAssertEqual(gui.samples, cli.samples)
+        XCTAssertEqual(run.analysis.samples, cli.samples, "the run counts the tied cluster once as every re-inference does")
+        XCTAssertEqual(run.analysis.schemaVersion, GenotypeHaplotypeAnalyzer.callingRulesVersion)
+    }
+
     // MARK: Fixture
 
     private struct Fixture {
@@ -179,7 +228,10 @@ final class FullLengthONTMHCGenotypingDenominatorTests: XCTestCase {
     /// threshold, and the candidate artifacts are written and declared with
     /// the digests the published-bundle loader verifies. The candidate cluster
     /// and the interpreted un-nameable cluster sit at `clusterLocus`.
-    private func makeFixture(clusterLocus: String) throws -> Fixture {
+    private func makeFixture(
+        clusterLocus: String,
+        reportRows: [FullLengthONTMHCReportRow]? = nil
+    ) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("FullLengthDenominator-\(UUID().uuidString)", isDirectory: true)
         let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
@@ -208,12 +260,16 @@ final class FullLengthONTMHCGenotypingDenominatorTests: XCTestCase {
             haplotypeDefinitionSetID: "n7-defs"
         )
 
-        let rows = [("A_marker", 150), ("B_marker", 2), ("C_marker", 3)].map {
-            "\(Self.sample),\($0.0)|source_loci=MHC-A|haplotype_groups=MHC-A,\($0.1),\($0.1)"
+        if let reportRows {
+            try FullLengthONTMHCGenotypingPipeline().writeReportCSV(reportRows, to: request.reportCSVURL)
+        } else {
+            let rows = [("A_marker", 150), ("B_marker", 2), ("C_marker", 3)].map {
+                "\(Self.sample),\($0.0)|source_loci=MHC-A|haplotype_groups=MHC-A,\($0.1),\($0.1)"
+            }
+            try (["sample,genotype,passed_alignments,passed_unique_reads"] + rows).joined(separator: "\n")
+                .appending("\n")
+                .write(to: request.reportCSVURL, atomically: true, encoding: .utf8)
         }
-        try (["sample,genotype,passed_alignments,passed_unique_reads"] + rows).joined(separator: "\n")
-            .appending("\n")
-            .write(to: request.reportCSVURL, atomically: true, encoding: .utf8)
         try "sample,passed_alignments,passed_unique_reads\n"
             .write(to: request.sampleSummaryCSVURL, atomically: true, encoding: .utf8)
         try FullLengthONTMHCGenotypingPipeline().writeStatsJSON(request: request, sampleSummaries: [], genotypeRows: [])

@@ -10,7 +10,9 @@ public enum GenotypeHaplotypeAnalyzer {
     /// 3: the dropout locus fraction divides by the unique
     ///    retained reads of the call's own source locus
     ///    (`GenotypeLocusDenominator`), not the pooled haplotype group.
-    public static let callingRulesVersion = 3
+    /// 4: D2, a tied cluster counts once in locus and sample totals, and
+    ///    N1, a zero-read genotype row is not an observation.
+    public static let callingRulesVersion = 4
 
     public static func analyze(
         calls: [ONTGenotypeCall],
@@ -69,7 +71,8 @@ public enum GenotypeHaplotypeAnalyzer {
         matrixReviews: [GenotypeAnnotationSidecar.MatrixReviewAnnotation],
         locusDenominator: GenotypeLocusDenominator
     ) -> GenotypeHaplotypeAnalysis {
-        let reviewedCalls = GenotypeReviewedHaplotypeEvidence.callsForInference(calls, reviews: matrixReviews)
+        // N1: a zero-read genotype row is not an observation, so it never enters matching.
+        let reviewedCalls = GenotypeReviewedHaplotypeEvidence.callsForInference(calls.filter { $0.passedUniqueReads > 0 }, reviews: matrixReviews)
         let filteredCalls = applyDropout(
             reviewedCalls,
             evaluator: dropoutFilter,
@@ -554,11 +557,8 @@ public enum GenotypeHaplotypeAnalyzer {
         locusDenominator: GenotypeLocusDenominator
     ) -> [ONTGenotypeCall] {
         guard let evaluator else { return calls }
-        var sampleTotals: [String: Int] = [:]
+        let sampleTotals = GenotypeLocusDenominator.sampleTotals(calls: calls)
         let canonicalDefinitionLocusByRawLocus = canonicalLocusLookup(for: definitionSet)
-        for call in calls {
-            sampleTotals[normalizedSampleName(call.sample), default: 0] += max(0, call.passedUniqueReads)
-        }
         return calls.filter { call in
             let sample = normalizedSampleName(call.sample)
             let sampleTotal = sampleTotals[sample] ?? 0

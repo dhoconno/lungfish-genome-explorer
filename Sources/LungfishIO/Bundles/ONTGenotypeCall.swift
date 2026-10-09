@@ -14,10 +14,18 @@ public struct ONTGenotypeCall: Codable, Equatable, Sendable {
     public let overallInputReads: Int?
     public let overallUniqueRetainedReads: Int?
     public let overallUniqueRetainedPercent: Double?
-    /// When the reference held identical sequences (including
-    /// reverse complements), they were collapsed onto this row's genotype
-    /// before mapping. Lists every member of that ambiguity group, this
-    /// genotype first. Nil for ordinary rows and for older bundles.
+    /// The references this row cannot be told apart from. Nil for ordinary
+    /// rows and for older bundles.
+    ///
+    /// Amplicon results: the reference held identical sequences (including
+    /// reverse complements), collapsed onto this row's genotype before
+    /// mapping. Lists every member of that ambiguity group, this genotype
+    /// first, and the other members are not calls.
+    ///
+    /// Full-length results: every reference that tied for this call's best
+    /// hit in one of its clusters, sorted. Each tied reference is its own call
+    /// with the full cluster reads, so the read totals count such a group
+    /// once (`GenotypeLocusDenominator.knownReadTotals`, D2).
     public let ambiguousWith: [String]?
     /// Full-length ONT only. Indel bases in the zero-SNP hit
     /// behind this known call (largest over its clusters). Nil for amplicon

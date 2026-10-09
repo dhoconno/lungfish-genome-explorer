@@ -47,28 +47,30 @@ public struct GenotypeObservedLociIndex: Sendable, Equatable {
     ) -> GenotypeObservedLociIndex {
         let analyzedLoci: [String] = result.haplotypeAnalysis?.samples.first?.calls.map(\.locus) ?? []
         let analyzedSet = Set(analyzedLoci)
-        var observedSet: [String: (samples: Set<String>, reads: Int)] = [:]
+        var samplesByLocus: [String: Set<String>] = [:]
         var callsBySampleAndLocus: [String: [String: [ONTGenotypeCall]]] = [:]
         for call in result.calls {
             let locus = call.locusGroup
-            var existing = observedSet[locus] ?? (samples: Set<String>(), reads: 0)
-            existing.samples.insert(call.sample)
-            existing.reads += max(0, call.passedUniqueReads)
-            observedSet[locus] = existing
+            samplesByLocus[locus, default: []].insert(call.sample)
             callsBySampleAndLocus[call.sample, default: [:]][locus, default: []].append(call)
         }
+        // The read total of a locus counts a tied cluster once (D2), through
+        // the same rule as the locus denominator.
+        let readsByLocus = GenotypeLocusDenominator.knownReadTotals(calls: result.calls)
+            .reduce(into: [String: Int]()) { totals, entry in
+                totals[entry.key.sourceLocus, default: 0] += entry.value
+            }
         // Order: analyzed loci (in declaration order), then observed-only,
         // sorted alphabetically.
-        let observedOnly = observedSet.keys.filter { !analyzedSet.contains($0) }
+        let observedOnly = samplesByLocus.keys.filter { !analyzedSet.contains($0) }
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         let orderedLoci = analyzedLoci + observedOnly
         var summaries: [String: LocusSummary] = [:]
         for locus in orderedLoci {
-            let summary = observedSet[locus]
             summaries[locus] = LocusSummary(
                 locus: locus,
-                sampleCount: summary?.samples.count ?? 0,
-                totalReads: summary?.reads ?? 0,
+                sampleCount: samplesByLocus[locus]?.count ?? 0,
+                totalReads: readsByLocus[locus] ?? 0,
                 isAnalyzed: analyzedSet.contains(locus)
             )
         }

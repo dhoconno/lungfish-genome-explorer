@@ -339,17 +339,17 @@
     },
     "haplotypeCalls" : [
       {
-        "baselineHaplotype1" : "M2A",
+        "baselineHaplotype1" : "ERR: NO HAP",
         "baselineHaplotype1Available" : true,
-        "baselineHaplotype2" : "-",
+        "baselineHaplotype2" : "ERR: NO HAP",
         "baselineHaplotype2Available" : true,
         "comment" : "",
-        "haplotype1" : "M2A",
+        "haplotype1" : "ERR: NO HAP",
         "haplotype1Source" : "pipeline",
-        "haplotype1Status" : "called",
-        "haplotype2" : "M2A",
+        "haplotype1Status" : "noHaplotype",
+        "haplotype2" : "ERR: NO HAP",
         "haplotype2Source" : "pipeline",
-        "haplotype2Status" : "called",
+        "haplotype2Status" : "noHaplotype",
         "locus" : "MHC-A",
         "sample" : "AnimalC"
       },
