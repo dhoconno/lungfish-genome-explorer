@@ -1376,7 +1376,14 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         let captures = provider.captures
         XCTAssertEqual(captures.count, 13)
         XCTAssertLessThanOrEqual(checksum.startedAt, try XCTUnwrap(captures.first).startedAt)
-        XCTAssertGreaterThanOrEqual(checksum.completedAt, try XCTUnwrap(captures.last).completedAt)
+        // The writer's end time is its wall-clock start plus monotonic elapsed time
+        // (ProvenanceRunClock), while the captures read Date(). The two clocks drift
+        // apart by a little, so under a loaded unit tier the end could read a few
+        // microseconds before the last capture it follows. Allow that, not more.
+        XCTAssertGreaterThanOrEqual(
+            checksum.completedAt.addingTimeInterval(0.005),
+            try XCTUnwrap(captures.last).completedAt
+        )
         XCTAssertEqual(
             checksum.wallTime,
             checksum.completedAt.timeIntervalSince(checksum.startedAt),
