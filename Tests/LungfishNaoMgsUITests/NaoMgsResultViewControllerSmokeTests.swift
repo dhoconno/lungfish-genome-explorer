@@ -769,7 +769,14 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
             IndexSet(integer: 0),
             byExtendingSelection: false
         )
-        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        // The detail fills in from the database after the selection; wait for its
+        // first and last fields rather than a fixed spin.
+        let detailDeadline = Date().addingTimeInterval(10)
+        while Date() < detailDeadline,
+              Self.descendantTextField(in: controller.testDetailContentView, containing: "Very long complete virus taxon name") == nil
+                || Self.descendantTextField(in: controller.testDetailContentView, containing: "bp covered") == nil {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
         controller.view.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
 
@@ -1008,13 +1015,21 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         XCTAssertEqual(controller.testMiniBAMLoadGeneration, 2)
 
+        // Generation 2 resolves at once, but on a loaded host its write can land
+        // after any fixed spin, so wait for it before timing generation 1's window.
+        let generation2Deadline = Date().addingTimeInterval(10)
+        while !controller.testAppliedFallbackWrites.contains(where: { $0.generation == 2 }),
+              Date() < generation2Deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+
         // Wait past generation 1's injected delay so its (guarded) completion has had
         // every opportunity to run and clobber generation 2's card if the guard is missing.
         let raceResolved = expectation(description: "Stale generation 1 fallback settles")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             raceResolved.fulfill()
         }
-        wait(for: [raceResolved], timeout: 3)
+        wait(for: [raceResolved], timeout: 10)
 
         // Only generation 2's (current, fresh-selection) write should have been applied.
         // Generation 1's late write must have been discarded by the guard.

@@ -730,7 +730,7 @@ final class MappingResultViewControllerTests: XCTestCase {
             NotificationUserInfoKey.visibleAlignmentTrackID: "filtered-track"
         ])
 
-        await fulfillment(of: [filteredBuilderCalled], timeout: 2.0)
+        await fulfillment(of: [filteredBuilderCalled], timeout: 5)
         try await waitUntil {
             vc.testContigTableView.displayedRows.map(\.contigName) == ["gamma"]
         }
@@ -1745,8 +1745,9 @@ final class MappingResultViewControllerTests: XCTestCase {
         return bundleURL
     }
 
+    /// Returns as soon as `predicate` holds; the default leaves room for the parallel unit tier.
     private func waitUntil(
-        timeout: TimeInterval = 2.0,
+        timeout: TimeInterval = 5.0,
         predicate: @MainActor @escaping () -> Bool
     ) async throws {
         let deadline = Date().addingTimeInterval(timeout)

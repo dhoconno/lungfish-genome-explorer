@@ -283,7 +283,7 @@ extension OperationRowActionAccessibilityTests {
 
         // Completing the operation reloads its row; the cell actions follow.
         _ = OperationCenter.shared.complete(id: operationID, detail: "Done")
-        try awaitMainActor(timeout: 2) { firstCellNames() == ["Copy CLI Command", "Clear"] }
+        try awaitMainActor(timeout: 5) { firstCellNames() == ["Copy CLI Command", "Clear"] }
     }
 
     private func awaitMainActor(timeout: TimeInterval, until predicate: () -> Bool) throws {

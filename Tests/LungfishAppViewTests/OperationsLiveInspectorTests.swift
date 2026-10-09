@@ -2,6 +2,7 @@ import AppKit
 import XCTest
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 @testable import LungfishApp
 
 @MainActor
@@ -14,6 +15,20 @@ final class OperationsLiveInspectorTests: XCTestCase {
     private func find<T: NSView>(_ root: NSView, _ identifier: String, as type: T.Type) -> T? {
         if root.accessibilityIdentifier() == identifier { return root as? T }
         return root.subviews.compactMap { find($0, identifier, as: type) }.first
+    }
+
+    /// Whether the open log has loaded and scrolled to its tail. Row reloads are
+    /// coalesced, so tests wait for this instead of sleeping past the delay.
+    private func followsLogTail(in view: NSView) -> Bool {
+        view.layoutSubtreeIfNeeded()
+        guard let scroll = find(view, "operations-inspector-log-text", as: NSTextView.self)?.enclosingScrollView else {
+            return false
+        }
+        return scroll.contentView.bounds.minY > 0
+    }
+
+    private func jumpTitle(in view: NSView) -> String? {
+        find(view, "operations-inspector-jump-latest", as: NSButton.self)?.title
     }
 
     private func panel(id: UUID, frameSizeBeforeOpening: NSSize? = nil) throws -> (OperationsPanelController, NSView, NSTableView) {
@@ -97,7 +112,7 @@ final class OperationsLiveInspectorTests: XCTestCase {
         for index in 0..<120 { OperationCenter.shared.log(id: id, level: .info, message: "Earlier output \(index)") }
         let (controller, view, table) = try panel(id: id)
         defer { controller.close() }
-        try await Task.sleep(for: .milliseconds(200))
+        await waitUntil { followsLogTail(in: view) }
         let text = try XCTUnwrap(find(view, "operations-inspector-log-text", as: NSTextView.self))
         let scroll = try XCTUnwrap(text.enclosingScrollView)
         view.layoutSubtreeIfNeeded()
@@ -107,7 +122,7 @@ final class OperationsLiveInspectorTests: XCTestCase {
         scroll.reflectScrolledClipView(scroll.contentView)
         let selection = text.selectedRange()
         OperationCenter.shared.log(id: id, level: .info, message: "New output while reading")
-        try await Task.sleep(for: .milliseconds(220))
+        await waitUntil { jumpTitle(in: view)?.contains("1 new") == true }
         XCTAssertEqual(text.selectedRange(), selection)
         XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 1)
         let jump = try XCTUnwrap(find(view, "operations-inspector-jump-latest", as: NSButton.self))
@@ -136,7 +151,7 @@ final class OperationsLiveInspectorTests: XCTestCase {
         XCTAssertEqual(text.selectedRange().length, 0)
         XCTAssertGreaterThan(scroll.contentView.bounds.minY, 0)
         OperationCenter.shared.log(id: id, level: .info, message: "Following again")
-        try await Task.sleep(for: .milliseconds(220))
+        await waitUntil { text.string.contains("Following again") }
         XCTAssertTrue(text.string.contains("Following again"))
         XCTAssertFalse(jump.title.contains("new"))
     }
@@ -154,7 +169,7 @@ final class OperationsLiveInspectorTests: XCTestCase {
         for index in 0..<120 { OperationCenter.shared.log(id: id, level: .info, message: "Graph output \(index)") }
         let (controller, view, _) = try panel(id: id)
         defer { controller.close() }
-        try await Task.sleep(for: .milliseconds(200))
+        await waitUntil { followsLogTail(in: view) }
         let window = try XCTUnwrap(controller.window)
         let follow = try XCTUnwrap(find(view, "operations-inspector-follow-latest", as: NSButton.self))
         let text = try XCTUnwrap(find(view, "operations-inspector-log-text", as: NSTextView.self))
@@ -172,7 +187,7 @@ final class OperationsLiveInspectorTests: XCTestCase {
         NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scroll)
         XCTAssertEqual(follow.state, .off)
         OperationCenter.shared.log(id: id, level: .info, message: "Output while scrolled up")
-        try await Task.sleep(for: .milliseconds(220))
+        await waitUntil { jumpTitle(in: view)?.contains("1 new") == true }
         XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 1)
         let jump = try XCTUnwrap(find(view, "operations-inspector-jump-latest", as: NSButton.self))
         XCTAssertTrue(jump.title.contains("1 new"))

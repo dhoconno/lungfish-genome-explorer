@@ -221,7 +221,7 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
         defer { fixture.cleanUp() }
         let vc = fixture.makeController()
         let table = vc.testBatchFlatTableView
-        let deadline = Date().addingTimeInterval(5)
+        let deadline = Date().addingTimeInterval(30)
         while table.contaminationRiskOrganismKeys.isEmpty && Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }
@@ -426,6 +426,13 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
             vc.testBatchFlatTableView.testTableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
             window.layoutIfNeeded()
             vc.view.layoutSubtreeIfNeeded()
+            // The request can arrive after a detached BAM-length read, so wait for
+            // it instead of a fixed spin; the loop ends as soon as it is recorded.
+            let requestDeadline = Date().addingTimeInterval(30)
+            while Date() < requestDeadline,
+                  recorder.requests.last.map({ $0.bamURL != fixture.bamURL(for: sample) || $0.contig.name != contig }) ?? true {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            }
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
             window.layoutIfNeeded()
 

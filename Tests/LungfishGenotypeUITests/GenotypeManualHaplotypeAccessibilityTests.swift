@@ -493,7 +493,7 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
     private func waitForWindow(
         excluding existingWindows: Set<ObjectIdentifier>
     ) -> NSWindow? {
-        let deadline = Date(timeIntervalSinceNow: 1)
+        let deadline = Date(timeIntervalSinceNow: 10)
         repeat {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
             if let window = NSApp.windows.first(where: {

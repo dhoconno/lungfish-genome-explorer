@@ -423,7 +423,7 @@ final class TwelveSTableViewTests: XCTestCase {
         }
         vc.configure(result: bundle)
         vc.selectTargetForTesting(row: 0)
-        wait(for: [gotSequences], timeout: 2.0)
+        wait(for: [gotSequences], timeout: 5)
     }
 
     func testReadColumnsAreFixedSampleRowsNotWideMatrix() {

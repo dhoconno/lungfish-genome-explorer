@@ -1,5 +1,6 @@
 import AppKit
 import LungfishIO
+import LungfishTestSupport
 import LungfishWorkflow
 import XCTest
 @testable import LungfishApp
@@ -2031,10 +2032,7 @@ final class ProjectStorageSheetViewModelTests: XCTestCase {
         while !deferredScan.isWaiting {
             await Task.yield()
         }
-        for _ in 0..<1_000
-        where coordinator.viewModel.scanProgress == nil {
-            await Task.yield()
-        }
+        await waitUntil { coordinator.viewModel.scanProgress != nil }
 
         XCTAssertEqual(coordinator.viewModel.state, .revalidating)
         XCTAssertEqual(coordinator.viewModel.scanProgress, expectedProgress)
@@ -2199,9 +2197,7 @@ final class ProjectStorageSheetViewModelTests: XCTestCase {
         XCTAssertTrue(cleanupCalls.snapshot.isEmpty)
 
         coordinator.viewModel.retryFailed()
-        for _ in 0..<1_000 where scanStarts.snapshot.count < 2 {
-            await Task.yield()
-        }
+        await waitUntil { scanStarts.snapshot.count >= 2 }
         XCTAssertEqual(scanStarts.snapshot.count, 2)
         XCTAssertEqual(coordinator.viewModel.state, .revalidating)
         XCTAssertFalse(coordinator.viewModel.canRetryFailed)

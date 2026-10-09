@@ -265,7 +265,7 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         state.matrixMinimumReads = 100
         controller.testingApplyDisplayStateImmediately(state)
         try XCTUnwrap(save)(root.appendingPathComponent("captured.xlsx"))
-        await fulfillment(of: [exported], timeout: 2)
+        await fulfillment(of: [exported], timeout: 5)
     }
 
     func testExportCapturesLocusSearchSampleAndManualVisibilityWithoutTruncatingAll() throws {

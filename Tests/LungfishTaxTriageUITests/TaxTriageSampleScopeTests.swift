@@ -137,7 +137,7 @@ final class TaxTriageSampleScopeTests: XCTestCase {
         _ = vc.view
         vc.configureFromDatabase(db, resultURL: tempDir)
 
-        let deadline = Date().addingTimeInterval(10)
+        let deadline = Date().addingTimeInterval(30)
         while vc.testBatchFlatTableView.displayedRows.isEmpty
             && sampleCount > 1
             && Date() < deadline {

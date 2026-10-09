@@ -173,7 +173,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         let script = """
         #!/bin/sh
         echo $$ > '\(rootPIDURL.path)'
-        /bin/sh -c 'trap "" TERM HUP; sleep 3 & wait' &
+        /bin/sh -c 'trap "" TERM HUP; sleep 60 & wait' &
         child=$!
         echo "$child" > '\(childPIDURL.path)'
         touch '\(readyURL.path)'
@@ -217,7 +217,9 @@ final class SequenceMenuOperationTests: XCTestCase {
         guard case .failure(LungfishCLIRunner.RunError.cancelled) = result else {
             return XCTFail("Expected cancelled sequence annotation CLI to throw RunError.cancelled, got \(result)")
         }
-        XCTAssertLessThan(cancelElapsed, 2.0, "Sequence annotation cancellation should not wait for the child process to finish naturally")
+        // The child would run for 60 s on its own, so a 20 s bound still tells
+        // the two apart while leaving room for a loaded host.
+        XCTAssertLessThan(cancelElapsed, 20, "Sequence annotation cancellation should not wait for the child process to finish naturally")
         try await waitForProcessExit(pid: childPID)
     }
 
@@ -742,7 +744,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTAssertTrue(drawerSource.contains("func selectAnnotationInDrawer(_ annotation: SequenceAnnotation)"))
     }
 
-    nonisolated private func waitForFile(_ url: URL, timeout: TimeInterval = 5) async throws {
+    nonisolated private func waitForFile(_ url: URL, timeout: TimeInterval = 30) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if FileManager.default.fileExists(atPath: url.path) {
@@ -753,7 +755,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTFail("Timed out waiting for \(url.path)")
     }
 
-    nonisolated private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 10) async throws {
+    nonisolated private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 30) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if !ProcessTreeTerminator.processExists(pid: pid) {

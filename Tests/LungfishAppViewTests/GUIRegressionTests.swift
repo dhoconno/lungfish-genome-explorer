@@ -1043,7 +1043,7 @@ final class OperationsPanelTests: XCTestCase {
     private func waitForOperation(
         _ operationID: UUID,
         toReach state: OperationCenter.Item.State,
-        timeout: TimeInterval = 2
+        timeout: TimeInterval = 5
     ) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {

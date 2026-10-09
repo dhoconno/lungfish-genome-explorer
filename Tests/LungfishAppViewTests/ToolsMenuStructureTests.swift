@@ -1,4 +1,5 @@
 import AppKit
+import LungfishTestSupport
 import LungfishWorkflow
 import XCTest
 @testable import LungfishApp
@@ -740,9 +741,8 @@ final class ToolsMenuStructureTests: XCTestCase {
         XCTAssertEqual(state.pendingToolID, toolID)
         XCTAssertNotEqual(state.selectedToolID, toolID)
 
-        for _ in 0..<200 where state.selectedToolID != toolID {
-            try await Task.sleep(for: .milliseconds(25))
-        }
+        // The refresh validates the package on disk, so allow for a loaded host.
+        await waitUntil(timeout: .seconds(30)) { state.selectedToolID == toolID }
         XCTAssertEqual(state.selectedToolID, toolID)
         XCTAssertNil(state.pendingToolID)
         XCTAssertEqual(state.selectedTool?.title, "Pending Flow")

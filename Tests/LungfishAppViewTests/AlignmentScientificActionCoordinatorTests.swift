@@ -141,7 +141,8 @@ private final class TestMutableBox<Value>: @unchecked Sendable {
         let coordinator = AlignmentScientificActionCoordinator(
             validator: { _ in },
             consensusFetcher: { _, _ in
-                try await Task.sleep(nanoseconds: 2_000_000_000)
+                // Long enough that only cancellation ends it, however slowly the cancel lands.
+                try await Task.sleep(nanoseconds: 60_000_000_000)
                 return .init(sequence: "A", referenceLength: 1, allLowDepth: false)
             }
         )

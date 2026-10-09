@@ -35,20 +35,20 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 |---|---|---|---|---|
 | LungfishAlignmentUITests | Tests/LungfishAlignmentUITests | 9 | 1562 | LungfishAlignmentUI, LungfishIO, LungfishKit, LungfishTestSupport |
 | LungfishAppTests | Tests/LungfishAppTests | 660 | 171152 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
-| LungfishAppViewTests | Tests/LungfishAppViewTests | 38 | 20040 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
+| LungfishAppViewTests | Tests/LungfishAppViewTests | 38 | 20055 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppWorkflowTests | Tests/LungfishAppWorkflowTests | 6 | 5599 | LungfishApp, LungfishKitTestSupport, LungfishWorkflow |
 | LungfishAssemblyUITests | Tests/LungfishAssemblyUITests | 4 | 1394 | LungfishAssemblyUI, LungfishKit |
 | LungfishCLITests | Tests/LungfishCLITests | 188 | 56132 | LungfishCLI, LungfishIO, LungfishTestSupport |
 | LungfishCoreTests | Tests/LungfishCoreTests | 110 | 34246 | LungfishCore, LungfishTestSupport |
-| LungfishEsVirituUITests | Tests/LungfishEsVirituUITests | 4 | 1716 | LungfishEsVirituUI, LungfishKit, LungfishTestSupport |
+| LungfishEsVirituUITests | Tests/LungfishEsVirituUITests | 4 | 1717 | LungfishEsVirituUI, LungfishKit, LungfishTestSupport |
 | LungfishGenotypeUITests | Tests/LungfishGenotypeUITests | 68 | 54126 | LungfishGenotypeUI, LungfishKit, LungfishTestSupport |
 | LungfishIOTests | Tests/LungfishIOTests | 171 | 65951 | LungfishIO, LungfishTestSupport |
 | LungfishIntegrationTests | Tests/LungfishIntegrationTests | 32 | 11462 | LungfishApp, LungfishCLI, LungfishCore, LungfishIO, LungfishTestSupport, LungfishWorkflow |
 | LungfishKitTests | Tests/LungfishKitTests | 42 | 7365 | LungfishCore, LungfishKit, LungfishKitTestSupport, LungfishTestSupport |
-| LungfishNaoMgsUITests | Tests/LungfishNaoMgsUITests | 2 | 1614 | LungfishKit, LungfishNaoMgsUI, LungfishTestSupport |
+| LungfishNaoMgsUITests | Tests/LungfishNaoMgsUITests | 2 | 1629 | LungfishKit, LungfishNaoMgsUI, LungfishTestSupport |
 | LungfishNvdUITests | Tests/LungfishNvdUITests | 3 | 1466 | LungfishKit, LungfishNvdUI, LungfishTestSupport |
 | LungfishPhylogeneticsUITests | Tests/LungfishPhylogeneticsUITests | 4 | 1114 | LungfishIO, LungfishKit, LungfishPhylogeneticsUI, LungfishTestSupport, LungfishWorkflow |
-| LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 10 | 3203 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
+| LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 10 | 3210 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 12 | 2569 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
 | LungfishWorkflowTests | Tests/LungfishWorkflowTests | 400 | 164944 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 

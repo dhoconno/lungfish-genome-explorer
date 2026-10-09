@@ -204,7 +204,8 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
 
         XCTAssertEqual(table.testingFilterApplicationCount, initialFilterCount)
 
-        let deadline = Date().addingTimeInterval(1.0)
+        // The debounced filter returns as soon as it applies; the bound only leaves room for load.
+        let deadline = Date().addingTimeInterval(5)
         while table.testingFilterApplicationCount == initialFilterCount && Date() < deadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         }
