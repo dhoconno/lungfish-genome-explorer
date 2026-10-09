@@ -296,6 +296,11 @@ final class PluginManagerViewModel {
 
     @ObservationIgnored private var storageLocationChangeObserver: StorageLocationChangeObserver?
 
+    /// The experimental setting the current pack list was loaded with. The
+    /// Plugin Manager window outlives a Settings change, so a flip of the
+    /// setting reloads the list instead of waiting for a tab switch.
+    @ObservationIgnored private var observedExperimentalFeaturesEnabled = AppSettings.shared.experimentalFeaturesEnabled
+
     /// True while a "Check for Tool Updates" request is planning, so the button can show
     /// progress and refuse to stack a second plan on top of the first.
     var isCheckingForToolUpdates = false
@@ -393,6 +398,7 @@ final class PluginManagerViewModel {
         ) { [weak self] in
             self?.refreshStorageLocationState()
         }
+        observeExperimentalFeaturesSetting()
 
         if automaticallyRefresh {
             refreshInstalled()
@@ -488,9 +494,14 @@ final class PluginManagerViewModel {
     func loadPackStatuses() async {
         isLoadingPackStatuses = true
         defer { isLoadingPackStatuses = false }
+        let includeExperimental = AppSettings.shared.experimentalFeaturesEnabled
+        observedExperimentalFeaturesEnabled = includeExperimental
         let statuses = await packStatusProvider.visibleStatuses(
-            includeExperimental: AppSettings.shared.experimentalFeaturesEnabled
+            includeExperimental: includeExperimental
         )
+        // A load started before the setting flipped again is stale. The
+        // newer load replaces the list.
+        guard includeExperimental == AppSettings.shared.experimentalFeaturesEnabled else { return }
         requiredSetupPack = statuses.first(where: { $0.pack.isRequiredBeforeLaunch })
         optionalPackStatuses = statuses.filter { !$0.pack.isRequiredBeforeLaunch }
     }
@@ -498,6 +509,25 @@ final class PluginManagerViewModel {
     func refreshPackStatuses() {
         Task {
             await loadPackStatuses()
+        }
+    }
+
+    /// Reloads the pack list whenever Settings turns experimental features on
+    /// or off, re-registering after each change.
+    private func observeExperimentalFeaturesSetting() {
+        withObservationTracking {
+            _ = AppSettings.shared.experimentalFeaturesEnabled
+        } onChange: { [weak self] in
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.observeExperimentalFeaturesSetting()
+                    let enabled = AppSettings.shared.experimentalFeaturesEnabled
+                    guard enabled != self.observedExperimentalFeaturesEnabled else { return }
+                    self.observedExperimentalFeaturesEnabled = enabled
+                    self.refreshPackStatuses()
+                }
+            }
         }
     }
 

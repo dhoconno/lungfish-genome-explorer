@@ -360,6 +360,32 @@ final class PluginPackVisibilityTests: XCTestCase {
         XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping", "gatk-core"])
     }
 
+    func testTogglingExperimentalFeaturesReloadsPackStatusesWithoutTabSwitch() async throws {
+        let previousExperimentalSetting = AppSettings.shared.experimentalFeaturesEnabled
+        AppSettings.shared.experimentalFeaturesEnabled = false
+        defer { AppSettings.shared.experimentalFeaturesEnabled = previousExperimentalSetting }
+
+        let readMapping = try XCTUnwrap(PluginPack.builtInPack(id: "read-mapping"))
+        let gatkCore = try XCTUnwrap(PluginPack.builtInPack(id: "gatk-core"))
+        let viewModel = PluginManagerViewModel(
+            packStatusProvider: StubPluginManagerPackStatusProvider(statuses: [
+                PluginPackStatus(pack: readMapping, state: .ready, toolStatuses: [], failureMessage: nil),
+                PluginPackStatus(pack: gatkCore, state: .ready, toolStatuses: [], failureMessage: nil),
+            ]),
+            automaticallyRefresh: false
+        )
+        await viewModel.loadPackStatuses()
+        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping"])
+
+        AppSettings.shared.experimentalFeaturesEnabled = true
+        await waitUntil { viewModel.optionalPackStatuses.count == 2 }
+        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping", "gatk-core"])
+
+        AppSettings.shared.experimentalFeaturesEnabled = false
+        await waitUntil { viewModel.optionalPackStatuses.count == 1 }
+        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping"])
+    }
+
     func testPBAAIsNotShownAsPluginPack() {
         XCTAssertNil(PluginPack.builtInPack(id: "amplicon-genotyping"))
         XCTAssertFalse(
