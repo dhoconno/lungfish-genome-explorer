@@ -108,6 +108,7 @@ public enum ProvenanceCompatCorpusError: Error, LocalizedError, Equatable {
     case captureNotRequested(String)
     case wouldOverwrite(String)
     case machinePath(id: String, marker: String)
+    case accountName(id: String)
 
     public var errorDescription: String? {
         switch self {
@@ -129,6 +130,8 @@ public enum ProvenanceCompatCorpusError: Error, LocalizedError, Equatable {
             return "Refusing to overwrite an existing corpus file: \(path)"
         case .machinePath(let id, let marker):
             return "Refusing to freeze case \(id): its bytes hold the machine path marker \(marker). Substitute it and document the substitution."
+        case .accountName(let id):
+            return "Refusing to freeze case \(id): a user value in its bytes is not \(ProvenanceCompatCorpus.accountPlaceholder). An account name must not enter a committed fixture, so substitute it and document the substitution."
         }
     }
 }
@@ -146,6 +149,10 @@ public enum ProvenanceCompatCorpus {
     /// Path fragments that tie bytes to one Mac or one test run. No corpus file may hold one,
     /// in the plain spelling or the JSON-escaped spelling (`\/`).
     public static let forbiddenPathMarkers: [String] = ["/Users/", "/private/var/folders", "/var/folders", "/tmp"]
+
+    /// What stands in for the capture account's name in a committed fixture. Older builds recorded
+    /// the account in a `user` value, and the key stays so the readers still read it.
+    public static let accountPlaceholder = "lge-user"
 
     static let manifestHeader = ["id", "path", "shape", "family", "origin", "sha256"]
     private static let shapeCodes: Set<String> = ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8"]
@@ -392,6 +399,9 @@ public enum ProvenanceCompatCorpus {
         if let marker = machinePathMarkers(in: bytes).first {
             throw ProvenanceCompatCorpusError.machinePath(id: id, marker: marker)
         }
+        if !accountNameFindings(in: bytes).isEmpty {
+            throw ProvenanceCompatCorpusError.accountName(id: id)
+        }
         let existing = try cases()
         let destination = root.appendingPathComponent(item.path)
         let caseFolder = root.appendingPathComponent("cases/\(id)", isDirectory: true)
@@ -436,6 +446,22 @@ public enum ProvenanceCompatCorpus {
             let escaped = marker.replacingOccurrences(of: "/", with: "\\/")
             return data.range(of: Data(marker.utf8)) != nil || data.range(of: Data(escaped.utf8)) != nil
         }
+    }
+
+    /// The values of `user` keys in `data` that are not the placeholder, which would be an account
+    /// name. It reads the key in any JSON spacing, so `"user" : "name"` and `"user":"name"` both count.
+    public static func accountNameFindings(in data: Data) -> [String] {
+        let text = String(decoding: data, as: UTF8.self)
+        guard let expression = try? NSRegularExpression(pattern: #""user"\s*:\s*"((?:[^"\\]|\\.)*)""#) else {
+            return []
+        }
+        var values: [String] = []
+        for match in expression.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            guard let range = Range(match.range(at: 1), in: text) else { continue }
+            let value = String(text[range])
+            if value != accountPlaceholder, !values.contains(value) { values.append(value) }
+        }
+        return values
     }
 
     private static func manifestText() throws -> String {

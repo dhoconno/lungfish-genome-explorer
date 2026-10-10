@@ -9,7 +9,7 @@ The folder belongs to Phase 2.4, lane W1A. Write-side lanes never edit it.
 - A case is never edited. MANIFEST.tsv pins every file by SHA-256, and `ProvenanceCompatCorpus.verifyManifest()` fails when a byte moves.
 - Production code never reads a tracked file in place. `ProvenanceCompatCorpus.materialize(_:)` copies a case into a fresh temporary `.lungfish` project and the tests read the copy, because some readers write.
 - Expectations are facts, not whole decoded envelopes. Decoding fills values from the reading Mac, so the facts keep only what the bytes say (see Facts below).
-- No file here holds an account home path, a macOS per-user cache path or a system temporary path. The capture helper refuses to freeze bytes that do.
+- No file here holds an account home path, a macOS per-user cache path, a system temporary path or an account name. The capture helper refuses to freeze bytes that do, and `ProvenanceCompatHygieneTests` scans every file in this folder, this README included, and fails when one does.
 - A recapture of any expectation is its own reviewed commit, made after the change that caused it.
 
 ## Layout
@@ -87,4 +87,4 @@ One field sits outside every set. `stepRecordedContainer` clears only the contai
 LUNGFISH_CAPTURE_PROVENANCE_FACTS=1 swift test --filter ProvenanceCompatFactsCaptureTests
 ```
 
-`addCapturedCase` runs only with `LUNGFISH_CAPTURE_PROVENANCE_COMPAT=1`, refuses to overwrite an existing case, and refuses bytes that hold a machine path. The two capture test files named above show how a test calls it.
+`addCapturedCase` runs only with `LUNGFISH_CAPTURE_PROVENANCE_COMPAT=1`, refuses to overwrite an existing case, and refuses bytes that hold a machine path or a `user` value other than `lge-user`. The two capture test files named above show how a test calls it.
