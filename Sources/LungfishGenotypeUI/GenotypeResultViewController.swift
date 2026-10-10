@@ -1936,13 +1936,14 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         } ?? requestedTargets
         let reloadTargets = uniqueMatrixTargets(broadTargets + targets)
         guard !reloadTargets.isEmpty else { return }
+        let stylesByTarget = matrixStylesByReadTarget(in: store.sidecar)
         let broadEdits = broadTargets.map { target in
-            let current = matrixStyle(for: target, in: store.sidecar)
+            let current = stylesByTarget[target] ?? GenotypeAnnotationSidecar.MatrixStyle()
             let next = matrixStyle(current, removing: request.field)
             return (target: target, style: next)
         }
         let cellEdits = targets.map { target in
-            let current = matrixStyle(for: target, in: store.sidecar)
+            let current = stylesByTarget[target] ?? GenotypeAnnotationSidecar.MatrixStyle()
             let next = matrixStyle(current, applying: request.field)
             return (target: target, style: next)
         }
@@ -2514,20 +2515,13 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         return stableClusterID == selectedStableClusterID
     }
 
-    private func matrixStyle(
-        for target: GenotypeAnnotationSidecar.MatrixTarget,
+    /// Each saved matrix style by the target it is read at, built once per
+    /// edit. The first style saved for a target is the one read.
+    private func matrixStylesByReadTarget(
         in sidecar: GenotypeAnnotationSidecar
-    ) -> GenotypeAnnotationSidecar.MatrixStyle {
-        matrixTargetLocusAlias.readView(of: sidecar).matrixStyles.first { $0.target == target }?.style
-            ?? GenotypeAnnotationSidecar.MatrixStyle(
-                fillColor: nil,
-                textColor: nil,
-                borderColor: nil,
-                isBold: false,
-                isItalic: false,
-                boldOverride: nil,
-                italicOverride: nil
-            )
+    ) -> [GenotypeAnnotationSidecar.MatrixTarget: GenotypeAnnotationSidecar.MatrixStyle] {
+        Dictionary(matrixTargetLocusAlias.readView(of: sidecar).matrixStyles.map { ($0.target, $0.style) },
+                   uniquingKeysWith: { first, _ in first })
     }
 
     private func matrixStyle(
