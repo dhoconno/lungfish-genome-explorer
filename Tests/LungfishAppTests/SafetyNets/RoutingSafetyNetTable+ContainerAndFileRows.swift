@@ -173,7 +173,8 @@ extension RoutingSafetyNetTable {
                     expected: RoutingObservation(
                         mode: .genomics,
                         document: context.render(fasta),
-                        loaded: [context.render(fasta)]
+                        loaded: [context.render(fasta)],
+                        provenance: "sequence \(context.render(fasta))"
                     )
                 )
             },
@@ -209,7 +210,8 @@ extension RoutingSafetyNetTable {
                     expected: RoutingObservation(
                         mode: .genomics,
                         document: "Inputs/MT192765.1.fasta",
-                        loaded: ["Inputs/MT192765.1.fasta"]
+                        loaded: ["Inputs/MT192765.1.fasta"],
+                        provenance: "sequence Inputs/MT192765.1.fasta"
                     )
                 )
             },
@@ -229,7 +231,8 @@ extension RoutingSafetyNetTable {
                     expected: RoutingObservation(
                         mode: .genomics,
                         document: "Inputs/genome.gff3",
-                        loaded: ["Inputs/genome.gff3"]
+                        loaded: ["Inputs/genome.gff3"],
+                        provenance: "annotation Inputs/genome.gff3"
                     )
                 )
             },

@@ -31,6 +31,10 @@ extension MainSplitViewController {
                     self.inspectorController.clearSelection()
                     self.inspectorController.activeContentSelectionIdentity = identity
                     self.viewerController.displayDocument(document)
+                    self.retargetProvenance(
+                        afterDisplaying: document,
+                        sidebarType: SidebarProjectScanner.detectFileType(url: document.url).0
+                    )
                 },
                 failure: { [weak self] error in
                     guard let self else { return }
@@ -71,12 +75,29 @@ extension MainSplitViewController {
                 self.inspectorController.clearSelection()
                 self.inspectorController.activeContentSelectionIdentity = identity
                 self.viewerController.displayDocument(hydrated)
+                // The sidebar lists a project sequence as a sequence row.
+                self.retargetProvenance(afterDisplaying: hydrated, sidebarType: .sequence)
             } catch {
                 guard self.canCommitDisplayRequest(token, identity: identity), !(error is CancellationError) else { return }
                 self.inspectorController.clearSelection()
                 self.viewerController.clearViewport(statusMessage: "Unable to load \(document.name): \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Points the Inspector's Provenance tab at a document the viewer has just shown.
+    ///
+    /// The sidebar click targets the tab at the selected row at once. Publishing the loaded
+    /// document then calls `clearSelection()`, which clears the tab too, and nothing else
+    /// targets it again. Without this a loose file with a sidecar read "No provenance required"
+    /// on its first selection. Call it after `displayDocument` so the item records the genomics
+    /// content mode.
+    private func retargetProvenance(afterDisplaying document: LoadedDocument, sidebarType: SidebarItemType) {
+        inspectorController.updateProvenanceTarget(
+            url: document.url,
+            sidebarType: sidebarType,
+            displayName: document.name
+        )
     }
 
     /// Handles multiple sidebar items being selected.

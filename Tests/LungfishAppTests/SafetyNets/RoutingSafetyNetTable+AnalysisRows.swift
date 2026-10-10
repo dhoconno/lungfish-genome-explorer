@@ -136,7 +136,8 @@ extension RoutingSafetyNetTable {
                     expected: RoutingObservation(
                         mode: .genomics,
                         document: context.render(fasta),
-                        loaded: [context.render(fasta)]
+                        loaded: [context.render(fasta)],
+                        provenance: "sequence \(context.render(fasta))"
                     )
                 )
             },
