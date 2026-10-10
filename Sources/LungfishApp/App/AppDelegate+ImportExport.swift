@@ -38,18 +38,6 @@ extension AppDelegate {
         exportProvenance(format: .json)
     }
 
-    private struct AppProvenanceExportSource {
-        let selectedURL: URL
-        let sourceSidecarURL: URL
-        let envelope: ProvenanceEnvelope
-    }
-
-    private enum AppProvenanceExportResolution {
-        case resolved(AppProvenanceExportSource)
-        case unresolvedSelection(URL)
-        case noCurrentSource
-    }
-
     private func exportProvenance(format: ProvenanceExportFormat) {
         switch currentProvenanceExportResolution() {
         case .resolved(let source):
@@ -88,11 +76,16 @@ extension AppDelegate {
         }
     }
 
-    private func currentProvenanceExportResolution() -> AppProvenanceExportResolution {
+    /// What File > Export > Provenance would export now.
+    ///
+    /// The viewer's candidates are listed in the order the export prefers them. The sidebar
+    /// selection decides unless a candidate is the selection or a bundle that contains it,
+    /// which `AppProvenanceExportSourceResolver` explains. Internal so a test can ask without
+    /// opening the save panel.
+    func currentProvenanceExportResolution() -> AppProvenanceExportResolution {
         let splitViewController = mainWindowController?.mainSplitViewController
-        let sidebarController = splitViewController?.sidebarController
         let viewerController = splitViewController?.viewerController
-        let visibleCandidates = [
+        let viewerCandidates: [URL?] = [
             viewerController?.currentFASTQDatasetURL,
             viewerController?.multipleSequenceAlignmentViewController?.bundleURL,
             viewerController?.phylogeneticTreeViewController?.bundleURL,
@@ -103,46 +96,11 @@ extension AppDelegate {
             viewerController?.mappingResultController?.currentInput?.renderedBundleURL,
             viewerController?.currentDocument?.url,
         ]
-
-        var seen = Set<String>()
-        var firstVisibleCandidate: URL?
-        for candidate in visibleCandidates.compactMap(\.self) {
-            let standardized = candidate.standardizedFileURL
-            guard seen.insert(standardized.path).inserted else {
-                continue
-            }
-            if firstVisibleCandidate == nil {
-                firstVisibleCandidate = standardized
-            }
-            if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: standardized) {
-                return .resolved(
-                    AppProvenanceExportSource(
-                        selectedURL: standardized,
-                        sourceSidecarURL: resolved.sidecarURL,
-                        envelope: resolved.envelope
-                    )
-                )
-            }
-            return .unresolvedSelection(standardized)
-        }
-        if let firstVisibleCandidate {
-            return .unresolvedSelection(firstVisibleCandidate)
-        }
-
-        if let sidebarSelection = sidebarController?.selectedFileURL?.standardizedFileURL,
-           seen.insert(sidebarSelection.path).inserted {
-            if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: sidebarSelection) {
-                return .resolved(
-                    AppProvenanceExportSource(
-                        selectedURL: sidebarSelection,
-                        sourceSidecarURL: resolved.sidecarURL,
-                        envelope: resolved.envelope
-                    )
-                )
-            }
-            return .unresolvedSelection(sidebarSelection)
-        }
-        return .noCurrentSource
+        return AppProvenanceExportSourceResolver.resolve(
+            viewerCandidates: viewerCandidates,
+            sidebarSelection: splitViewController?.sidebarController?.selectedFileURL,
+            findRecord: ProvenanceRecorder.findProvenanceEnvelope(for:)
+        )
     }
 
     private func presentProvenanceExportSheet(source: AppProvenanceExportSource, format: ProvenanceExportFormat) {
