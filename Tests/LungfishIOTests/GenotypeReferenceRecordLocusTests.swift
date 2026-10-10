@@ -110,6 +110,17 @@ final class GenotypeReferenceRecordLocusTests: XCTestCase {
         XCTAssertNil(resolve("*01:01", nil))
     }
 
+    /// Only the macaque prefixes Mafa, Mamu and Mane are stripped from a
+    /// record allele. Widening to HLA, Patr and other species prefixes is
+    /// deferred, so this pins what an HLA record allele resolves to today.
+    func testAnHLARecordAlleleIsNotStrippedYet() {
+        XCTAssertEqual(
+            GenotypeHaplotypeLocusResolver.referenceRecordLocus(alleleName: "HLA-A*02:01", gene: nil),
+            "MHC-HLA-A",
+            "the prefix is kept, so the locus is MHC-HLA-A and not MHC-A"
+        )
+    }
+
     // MARK: Stamping a full-length result
 
     /// Two A alleles of one animal share the MHC-A total, so NHP01270 reads
@@ -211,6 +222,93 @@ final class GenotypeReferenceRecordLocusTests: XCTestCase {
         let noStore = Self.result(calls: [Self.call("S1", "NHP01270", 674)], referenceMetadata: nil)
         XCTAssertEqual(noStore.calls.map(\.locusGroup), ["MHC-NHP01270"], "without a record store nothing is stamped")
         XCTAssertEqual(noStore.integrityWarnings.map(\.code), [.referenceLocusUnresolved])
+    }
+
+    /// N9 review finding 4. A duplicate row is one call, so the warning
+    /// counts the calls after duplicate rows collapse.
+    func testTheUnresolvedWarningCountsADuplicateRowOnce() throws {
+        let result = Self.result(calls: [
+            Self.call("S1", "NHP77777", 20),
+            Self.call("S1", "NHP77777", 4),
+            Self.call("S2", "NHP77777", 30),
+        ])
+        let warning = try XCTUnwrap(result.integrityWarnings.first { $0.code == .referenceLocusUnresolved })
+        XCTAssertTrue(warning.detail.hasPrefix("2 full-length calls name a reference sequence"), warning.detail)
+    }
+
+    /// N9 review finding 5. The wording agrees with one call or many, says
+    /// what a call at its own locus shows, and names the fix that applies.
+    func testTheUnresolvedWarningWordsOneCallAndManyCalls() throws {
+        let one = try XCTUnwrap(Self.result(calls: [Self.call("S1", "NHP77777", 20)]).integrityWarnings.first)
+        XCTAssertEqual(
+            one.detail,
+            "1 full-length call names a reference sequence whose record gives no allele or gene (NHP77777). "
+                + "This call is its own locus, so its percent of locus is always 100. "
+                + "Check that the reference bundle carries a GenBank record for this sequence."
+        )
+        let many = try XCTUnwrap(Self.result(calls: [
+            Self.call("S1", "NHP77777", 20),
+            Self.call("S1", "NHP77778", 5),
+        ]).integrityWarnings.first)
+        XCTAssertEqual(
+            many.detail,
+            "2 full-length calls name a reference sequence whose record gives no allele or gene (NHP77777, NHP77778). "
+                + "Each of these calls is its own locus, so its percent of locus is always 100. "
+                + "Check that the reference bundle carries a GenBank record for each sequence."
+        )
+        let noStore = try XCTUnwrap(Self.result(calls: [
+            Self.call("S1", "NHP01270", 674),
+            Self.call("S2", "NHP01270", 70),
+        ], referenceMetadata: nil).integrityWarnings.first)
+        XCTAssertEqual(
+            noStore.detail,
+            "2 full-length calls name a reference sequence that has no reference record (NHP01270). "
+                + "Each of these calls is its own locus, so its percent of locus is always 100. "
+                + "This result has no reference records. Run the genotyping again to add them."
+        )
+        for detail in [one.detail, many.detail, noStore.detail] {
+            for forbidden in ["\u{2014}", ";", ": "] {
+                XCTAssertFalse(detail.contains(forbidden), "\(forbidden) in \(detail)")
+            }
+        }
+    }
+
+    func testTheConflictWarningWordsOneRecordAndManyRecords() throws {
+        let one = try XCTUnwrap(Self.result(
+            calls: [Self.call("S1", "NHP09001", 10)],
+            referenceMetadata: Self.metadata(["NHP09001": ("Mafa-E*02:01", "G")])
+        ).integrityWarnings.first)
+        XCTAssertEqual(
+            one.detail,
+            "1 reference record names an allele and a gene at different loci (NHP09001). "
+                + "Its calls use the locus of the allele name. Check this record in the reference bundle."
+        )
+        let many = try XCTUnwrap(Self.result(
+            calls: [Self.call("S1", "NHP09001", 10), Self.call("S1", "NHP09002", 10)],
+            referenceMetadata: Self.metadata([
+                "NHP09001": ("Mafa-E*02:01", "G"), "NHP09002": ("Mafa-B*01:01", "A1"),
+            ])
+        ).integrityWarnings.first)
+        XCTAssertEqual(
+            many.detail,
+            "2 reference records name an allele and a gene at different loci (NHP09001, NHP09002). "
+                + "Their calls use the locus of the allele name. Check these records in the reference bundle."
+        )
+    }
+
+    /// N9 review finding 6. A RefSeq-style ID, letters, one underscore and
+    /// digits, is a sequence ID too.
+    func testRefSeqStyleIDsAreAccessionShaped() {
+        typealias Stamp = ONTGenotypeReferenceRecordLocusStamp
+        for accession in ["NHP01270", "AB123456.1", "NM_001234.1", "NM_001234", "XM_015123456.2"] {
+            XCTAssertTrue(Stamp.isAccessionShaped(accession), accession)
+        }
+        for name in ["NM__001234", "N_M_001234", "NM_123", "NM_001234_1", "_001234", "MHC_001g1",
+                     "Mafa-G_02:31:01:01", "16_A102", "Mafa-A1*001:01"] {
+            XCTAssertFalse(Stamp.isAccessionShaped(name), name)
+        }
+        let result = Self.result(calls: [Self.call("S1", "NM_001234.1", 10)], referenceMetadata: Self.metadata([:]))
+        XCTAssertEqual(result.integrityWarnings.map(\.code), [.referenceLocusUnresolved])
     }
 
     func testAnAccessionListLongerThanFiveIsCut() throws {

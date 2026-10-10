@@ -77,7 +77,8 @@ struct ONTGenotypeReferenceRecordLocusStamp {
         var unresolvedCalls = 0
         var unresolvedAccessions = Set<String>()
         var conflictingAccessions = Set<String>()
-        for call in calls {
+        // A duplicate row is one call (D5b), so count after the collapse.
+        for call in ONTGenotypeCall.uniqueOccurrences(calls) {
             switch resolution(for: call.genotype) {
             case .unresolved where call.sourceLocus == nil:
                 unresolvedCalls += 1
@@ -89,7 +90,8 @@ struct ONTGenotypeReferenceRecordLocusStamp {
             }
         }
         if unresolvedCalls > 0 {
-            warnings.append(Self.unresolvedWarning(callCount: unresolvedCalls, accessions: unresolvedAccessions))
+            warnings.append(Self.unresolvedWarning(
+                callCount: unresolvedCalls, accessions: unresolvedAccessions, hasRecords: !records.isEmpty))
         }
         if !conflictingAccessions.isEmpty {
             warnings.append(Self.conflictWarning(accessions: conflictingAccessions))
@@ -129,10 +131,11 @@ struct ONTGenotypeReferenceRecordLocusStamp {
         return .stamp(locus, conflict: conflict)
     }
 
-    /// A sequence ID such as NHP01270 or AB123456.1, letters then at least
-    /// four digits and an optional version. Such a name says nothing about
-    /// its locus, so a missing record is worth a warning. An allele name
-    /// carries its locus and needs no record.
+    /// A sequence ID such as NHP01270, AB123456.1 or the RefSeq-style
+    /// NM_001234.1, letters, an optional underscore, then at least four
+    /// digits and an optional version. Such a name says nothing about its
+    /// locus, so a missing record is worth a warning. An allele name carries
+    /// its locus and needs no record.
     static func isAccessionShaped(_ genotype: String) -> Bool {
         let name = genotype.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
             .first.map(String.init)?
@@ -144,7 +147,8 @@ struct ONTGenotypeReferenceRecordLocusStamp {
             guard !version.isEmpty, version.allSatisfy(\.isASCIIDigitCharacter) else { return false }
         }
         let letters = stem.prefix(while: \.isASCIILetterCharacter)
-        let digits = stem.dropFirst(letters.count)
+        var digits = stem.dropFirst(letters.count)
+        if digits.first == "_" { digits = digits.dropFirst() }
         return (1...6).contains(letters.count) && digits.count >= 4 && digits.allSatisfy(\.isASCIIDigitCharacter)
     }
 
@@ -157,22 +161,34 @@ struct ONTGenotypeReferenceRecordLocusStamp {
         return resultWarnings.filter { !stampCodes.contains($0.code) } + warnings
     }
 
-    static func unresolvedWarning(callCount: Int, accessions: Set<String>) -> ONTGenotypeIntegrityWarning {
+    static func unresolvedWarning(
+        callCount: Int, accessions: Set<String>, hasRecords: Bool
+    ) -> ONTGenotypeIntegrityWarning {
         let calls = callCount == 1 ? "1 full-length call names" : "\(callCount) full-length calls name"
+        let sequence = hasRecords ? "whose record gives no allele or gene" : "that has no reference record"
+        let ownLocus = callCount == 1
+            ? "This call is its own locus, so its percent of locus is always 100."
+            : "Each of these calls is its own locus, so its percent of locus is always 100."
+        let fix = !hasRecords
+            ? "This result has no reference records. Run the genotyping again to add them."
+            : accessions.count == 1
+                ? "Check that the reference bundle carries a GenBank record for this sequence."
+                : "Check that the reference bundle carries a GenBank record for each sequence."
         return ONTGenotypeIntegrityWarning(
             code: .referenceLocusUnresolved,
-            detail: "\(calls) a reference sequence whose record gives no allele or gene (\(listed(accessions))). "
-                + "These calls keep the locus their sequence name gives, so each one counts only its own reads "
-                + "as its locus total. Check that the reference bundle carries a GenBank record for each sequence."
+            detail: "\(calls) a reference sequence \(sequence) (\(listed(accessions))). \(ownLocus) \(fix)"
         )
     }
 
     static func conflictWarning(accessions: Set<String>) -> ONTGenotypeIntegrityWarning {
-        let records = accessions.count == 1 ? "1 reference record names" : "\(accessions.count) reference records name"
+        let one = accessions.count == 1
+        let records = one ? "1 reference record names" : "\(accessions.count) reference records name"
+        let calls = one ? "Its calls use" : "Their calls use"
+        let check = one ? "Check this record in the reference bundle." : "Check these records in the reference bundle."
         return ONTGenotypeIntegrityWarning(
             code: .referenceLocusConflict,
             detail: "\(records) an allele and a gene at different loci (\(listed(accessions))). "
-                + "The call uses the locus of the allele name. Check these records in the reference bundle."
+                + "\(calls) the locus of the allele name. \(check)"
         )
     }
 
