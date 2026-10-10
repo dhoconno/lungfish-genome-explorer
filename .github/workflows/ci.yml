@@ -253,6 +253,12 @@ jobs:
           # ivar and lofreq, needed by ReadsToVariantsEndToEndTests and
           # BAMPrimerTrimSubcommandTests, which the conformance filter runs.
           "$LUNGFISH_CLI" conda install --pack variant-calling
+          # ToolVersionConformanceTests probes every lock entry and, under
+          # --require-tools, fails when a probe executable is missing.
+          "$LUNGFISH_CLI" conda install --pack pcr-primer-design
+          "$LUNGFISH_CLI" conda install --pack gatk-core
+          "$LUNGFISH_CLI" conda install --pack phasing
+          "$LUNGFISH_CLI" conda install --pack wastewater-surveillance
 
       - name: Provision Kraken2 viral DB
         run: '"$LUNGFISH_CLI" conda db download Viral'
