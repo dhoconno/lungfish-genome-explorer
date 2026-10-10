@@ -77,286 +77,6 @@
   ],
   "hostOS" : "macOS <HOST-OS-VERSION> (arm64)",
   "id" : "<UUID-2>",
-  "legacyWorkflowRun" : {
-    "appVersion" : "Lungfish <APP_VERSION> (dev)",
-    "endTime" : "<TIMESTAMP>",
-    "hostOS" : "macOS <HOST-OS-VERSION> (arm64)",
-    "id" : "<UUID-3>",
-    "name" : "lungfish map",
-    "parameters" : {
-      "advancedArguments" : {
-        "type" : "array",
-        "value" : [
-
-        ]
-      },
-      "includeSecondary" : {
-        "type" : "boolean",
-        "value" : false
-      },
-      "includeSupplementary" : {
-        "type" : "boolean",
-        "value" : true
-      },
-      "mapper" : {
-        "type" : "string",
-        "value" : "minimap2"
-      },
-      "mapperRuntime" : {
-        "type" : "string",
-        "value" : "managed conda environment minimap2; executable minimap2"
-      },
-      "minimumMappingQuality" : {
-        "type" : "integer",
-        "value" : 0
-      },
-      "modeID" : {
-        "type" : "string",
-        "value" : "short-read-default"
-      },
-      "pairedEnd" : {
-        "type" : "boolean",
-        "value" : true
-      },
-      "readClassHints" : {
-        "type" : "array",
-        "value" : [
-          {
-            "type" : "string",
-            "value" : "Illumina short reads"
-          }
-        ]
-      },
-      "sampleName" : {
-        "type" : "string",
-        "value" : "sarscov2-test"
-      },
-      "samtoolsRuntime" : {
-        "type" : "string",
-        "value" : "managed conda environment samtools; executable samtools; package bioconda::samtools=1.24=h36b3a25_1"
-      },
-      "threads" : {
-        "type" : "integer",
-        "value" : 2
-      }
-    },
-    "runtime" : {
-      "appVersion" : "Lungfish <APP_VERSION> (dev)",
-      "hostOS" : "macOS <HOST-OS-VERSION> (arm64)"
-    },
-    "startTime" : "<TIMESTAMP>",
-    "status" : "completed",
-    "steps" : [
-      {
-        "command" : [
-          "micromamba",
-          "run",
-          "-n",
-          "minimap2",
-          "minimap2",
-          "-a",
-          "-x",
-          "sr",
-          "-t",
-          "2",
-          "-R",
-          "@RG\\tID:sarscov2-test\\tSM:sarscov2-test\\tLB:sarscov2-test\\tPL:ILLUMINA\\tPU:sarscov2-test",
-          "--secondary=no",
-          "-o",
-          "<RUN_ROOT>\/mapping\/out\/sarscov2-test.raw.sam",
-          "<RUN_ROOT>\/mapping\/tmp\/mapping-reference-stage-<UUID-1>\/reference.fa",
-          "<RUN_ROOT>\/mapping\/inputs\/test_1.fastq.gz",
-          "<RUN_ROOT>\/mapping\/inputs\/test_2.fastq.gz"
-        ],
-        "dependsOn" : [
-
-        ],
-        "endTime" : "<TIMESTAMP>",
-        "exitCode" : 0,
-        "id" : "<UUID-4>",
-        "inputs" : [
-          {
-            "format" : "fastq",
-            "path" : "<RUN_ROOT>\/mapping\/inputs\/test_1.fastq.gz",
-            "role" : "input",
-            "sha256" : "0515ba304cb1bf7abcdd9c156b6affad7e580273f983dfed2e8fe2d918e800ff",
-            "sizeBytes" : 9413
-          },
-          {
-            "format" : "fastq",
-            "path" : "<RUN_ROOT>\/mapping\/inputs\/test_2.fastq.gz",
-            "role" : "input",
-            "sha256" : "0080f40cab58c7e7b85443e37de22775e3ed6b7afdef9a3271ac3147576f3027",
-            "sizeBytes" : 9395
-          },
-          {
-            "format" : "fasta",
-            "path" : "<RUN_ROOT>\/mapping\/tmp\/mapping-reference-stage-<UUID-1>\/reference.fa",
-            "role" : "reference",
-            "sha256" : "1c945301b29bae75e5219f08b5189a56a72a5cdf452873e54bf513468ae091f6",
-            "sizeBytes" : 30214
-          }
-        ],
-        "outputs" : [
-          {
-            "format" : "sam",
-            "path" : "<RUN_ROOT>\/mapping\/out\/sarscov2-test.raw.sam",
-            "role" : "output",
-            "sha256" : "<SHA256-R8>",
-            "sizeBytes" : "<SIZE-R8>"
-          }
-        ],
-        "startTime" : "<TIMESTAMP>",
-        "stderr" : "[M::mm_idx_gen::<DURATION>*<CPU-RATIO>] collected minimizers\n[M::mm_idx_gen::<DURATION>*<CPU-RATIO>] sorted minimizers\n[M::main::<DURATION>*<CPU-RATIO>] loaded\/built the index for 1 target sequence(s)\n[M::mm_mapopt_update::<DURATION>*<CPU-RATIO>] mid_occ = 1000\n[M::mm_idx_stat] kmer size: 21; skip: 11; is_hpc: 0; #seq: 1\n[M::mm_idx_stat::<DURATION>*<CPU-RATIO>] distinct minimizers: 4980 (100.00% are singletons); average occurrences: 1.000; average spacing: 5.990; total length: 29829\n[M::worker_pipeline::<DURATION>*<CPU-RATIO>] mapped 200 sequences\n[M::main] Version: 2.31-r1302\n[M::main] CMD: minimap2 -a -x sr -t 2 -R @RG\\tID:sarscov2-test\\tSM:sarscov2-test\\tLB:sarscov2-test\\tPL:ILLUMINA\\tPU:sarscov2-test --secondary=no -o <RUN_ROOT>\/mapping\/out\/sarscov2-test.raw.sam <RUN_ROOT>\/mapping\/tmp\/mapping-reference-stage-<UUID-1>\/reference.fa <RUN_ROOT>\/mapping\/inputs\/test_1.fastq.gz <RUN_ROOT>\/mapping\/inputs\/test_2.fastq.gz\n[M::main] Real time: <DURATION> sec; CPU: <CPU-SECONDS> sec; Peak RSS: <PEAK-RSS> GB\n",
-        "toolName" : "minimap2",
-        "toolVersion" : "2.31 (managed conda environment minimap2; executable minimap2)",
-        "wallTime" : "<DURATION>"
-      },
-      {
-        "command" : [
-          "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
-          "view",
-          "-b",
-          "-o",
-          "<RUN_ROOT>\/mapping\/out\/sarscov2-test.filtered.bam",
-          "-F",
-          "256",
-          "<RUN_ROOT>\/mapping\/out\/sarscov2-test.raw.sam"
-        ],
-        "dependsOn" : [
-
-        ],
-        "endTime" : "<TIMESTAMP>",
-        "exitCode" : 0,
-        "id" : "<UUID-5>",
-        "inputs" : [
-          {
-            "format" : "sam",
-            "path" : "<RUN_ROOT>\/mapping\/out\/sarscov2-test.raw.sam",
-            "role" : "input",
-            "sha256" : "<SHA256-R8>",
-            "sizeBytes" : "<SIZE-R8>"
-          }
-        ],
-        "outputs" : [
-          {
-            "format" : "bam",
-            "path" : "<RUN_ROOT>\/mapping\/out\/sarscov2-test.filtered.bam",
-            "role" : "output",
-            "sha256" : "<SHA256-R8>",
-            "sizeBytes" : "<SIZE-R8>"
-          }
-        ],
-        "startTime" : "<TIMESTAMP>",
-        "toolName" : "samtools",
-        "toolVersion" : "1.24 (managed conda environment samtools; executable samtools; package bioconda::samtools=1.24=h36b3a25_1)",
-        "wallTime" : "<DURATION>"
-      },
-      {
-        "command" : [
-          "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
-          "sort",
-          "-@",
-          "1",
-          "-o",
-          "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam",
-          "<RUN_ROOT>\/mapping\/out\/sarscov2-test.filtered.bam"
-        ],
-        "dependsOn" : [
-
-        ],
-        "endTime" : "<TIMESTAMP>",
-        "exitCode" : 0,
-        "id" : "<UUID-6>",
-        "inputs" : [
-          {
-            "format" : "bam",
-            "path" : "<RUN_ROOT>\/mapping\/out\/sarscov2-test.filtered.bam",
-            "role" : "input",
-            "sha256" : "<SHA256-R8>",
-            "sizeBytes" : "<SIZE-R8>"
-          }
-        ],
-        "outputs" : [
-          {
-            "format" : "bam",
-            "path" : "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam",
-            "role" : "output",
-            "sha256" : "<SHA256-R8>",
-            "sizeBytes" : "<SIZE-R8>"
-          }
-        ],
-        "startTime" : "<TIMESTAMP>",
-        "toolName" : "samtools",
-        "toolVersion" : "1.24 (managed conda environment samtools; executable samtools; package bioconda::samtools=1.24=h36b3a25_1)",
-        "wallTime" : "<DURATION>"
-      },
-      {
-        "command" : [
-          "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
-          "index",
-          "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam"
-        ],
-        "dependsOn" : [
-
-        ],
-        "endTime" : "<TIMESTAMP>",
-        "exitCode" : 0,
-        "id" : "<UUID-7>",
-        "inputs" : [
-          {
-            "format" : "bam",
-            "path" : "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam",
-            "role" : "input",
-            "sha256" : "<SHA256-R8>",
-            "sizeBytes" : "<SIZE-R8>"
-          }
-        ],
-        "outputs" : [
-          {
-            "format" : "bai",
-            "path" : "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam.bai",
-            "role" : "index",
-            "sha256" : "<SHA256-R8>",
-            "sizeBytes" : "<SIZE-R8>"
-          }
-        ],
-        "startTime" : "<TIMESTAMP>",
-        "toolName" : "samtools",
-        "toolVersion" : "1.24 (managed conda environment samtools; executable samtools; package bioconda::samtools=1.24=h36b3a25_1)",
-        "wallTime" : "<DURATION>"
-      },
-      {
-        "command" : [
-          "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
-          "flagstat",
-          "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam"
-        ],
-        "dependsOn" : [
-
-        ],
-        "endTime" : "<TIMESTAMP>",
-        "exitCode" : 0,
-        "id" : "<UUID-8>",
-        "inputs" : [
-          {
-            "format" : "bam",
-            "path" : "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam",
-            "role" : "input",
-            "sha256" : "<SHA256-R8>",
-            "sizeBytes" : "<SIZE-R8>"
-          }
-        ],
-        "outputs" : [
-
-        ],
-        "startTime" : "<TIMESTAMP>",
-        "toolName" : "samtools",
-        "toolVersion" : "1.24 (managed conda environment samtools; executable samtools; package bioconda::samtools=1.24=h36b3a25_1)",
-        "wallTime" : "<DURATION>"
-      }
-    ]
-  },
   "name" : "lungfish map",
   "options" : {
     "defaults" : {
@@ -588,7 +308,7 @@
       "endTime" : "<TIMESTAMP>",
       "exitCode" : 0,
       "exitStatus" : 0,
-      "id" : "<UUID-4>",
+      "id" : "<UUID-3>",
       "inputs" : [
         {
           "checksumSHA256" : "0515ba304cb1bf7abcdd9c156b6affad7e580273f983dfed2e8fe2d918e800ff",
@@ -669,7 +389,7 @@
       "endTime" : "<TIMESTAMP>",
       "exitCode" : 0,
       "exitStatus" : 0,
-      "id" : "<UUID-5>",
+      "id" : "<UUID-4>",
       "inputs" : [
         {
           "checksumSHA256" : "<SHA256-R8>",
@@ -729,7 +449,7 @@
       "endTime" : "<TIMESTAMP>",
       "exitCode" : 0,
       "exitStatus" : 0,
-      "id" : "<UUID-6>",
+      "id" : "<UUID-5>",
       "inputs" : [
         {
           "checksumSHA256" : "<SHA256-R8>",
@@ -781,7 +501,7 @@
       "endTime" : "<TIMESTAMP>",
       "exitCode" : 0,
       "exitStatus" : 0,
-      "id" : "<UUID-7>",
+      "id" : "<UUID-6>",
       "inputs" : [
         {
           "checksumSHA256" : "<SHA256-R8>",
@@ -833,7 +553,7 @@
       "endTime" : "<TIMESTAMP>",
       "exitCode" : 0,
       "exitStatus" : 0,
-      "id" : "<UUID-8>",
+      "id" : "<UUID-7>",
       "inputs" : [
         {
           "checksumSHA256" : "<SHA256-R8>",

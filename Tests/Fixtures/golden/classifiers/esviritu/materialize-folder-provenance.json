@@ -68,105 +68,6 @@
   ],
   "hostOS" : "macOS <HOST-OS-VERSION> (arm64)",
   "id" : "<UUID-1>",
-  "legacyWorkflowRun" : {
-    "appVersion" : "Lungfish <APP_VERSION> (dev)",
-    "endTime" : "<TIMESTAMP>",
-    "hostOS" : "macOS <HOST-OS-VERSION> (arm64)",
-    "id" : "<UUID-2>",
-    "name" : "lungfish-cli fastq materialize",
-    "parameters" : {
-      "compress" : {
-        "type" : "boolean",
-        "value" : false
-      },
-      "force" : {
-        "type" : "boolean",
-        "value" : false
-      },
-      "inputBundle" : {
-        "type" : "file",
-        "value" : "<RUN_ROOT>\/classifiers\/Golden.lungfish\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq"
-      },
-      "inputPayload" : {
-        "type" : "file",
-        "value" : "<RUN_ROOT>\/classifiers\/Golden.lungfish\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq\/preview.fastq"
-      },
-      "output" : {
-        "type" : "file",
-        "value" : "<RUN_ROOT>\/classifiers\/work\/sarscov2-R1-len150.fastq"
-      },
-      "tempDir" : {
-        "type" : "null"
-      }
-    },
-    "runtime" : {
-      "appVersion" : "Lungfish <APP_VERSION> (dev)",
-      "hostOS" : "macOS <HOST-OS-VERSION> (arm64)"
-    },
-    "startTime" : "<TIMESTAMP>",
-    "status" : "completed",
-    "steps" : [
-      {
-        "command" : [
-          "lungfish-cli",
-          "fastq",
-          "materialize",
-          "<RUN_ROOT>\/classifiers\/Golden.lungfish\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq",
-          "--output",
-          "<RUN_ROOT>\/classifiers\/work\/sarscov2-R1-len150.fastq"
-        ],
-        "dependsOn" : [
-
-        ],
-        "endTime" : "<TIMESTAMP>",
-        "exitCode" : 0,
-        "id" : "<UUID-3>",
-        "inputs" : [
-          {
-            "format" : "unknown",
-            "path" : "<RUN_ROOT>\/classifiers\/Golden.lungfish\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq",
-            "role" : "input",
-            "sha256" : "39afcfde59bce6c648ca86195ae49eff28e78e66cca439664993cee4f96f3bad",
-            "sizeBytes" : 5833
-          },
-          {
-            "format" : "json",
-            "path" : "<RUN_ROOT>\/classifiers\/Golden.lungfish\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq\/derived.manifest.json",
-            "role" : "input",
-            "sha256" : "2df96f5e04308a3cfdcbad54704fe790a198f51254287d4712ed00cdd08bd465",
-            "sizeBytes" : 1111
-          },
-          {
-            "format" : "fastq",
-            "path" : "<RUN_ROOT>\/classifiers\/Golden.lungfish\/Imports\/sarscov2-R1.lungfishfastq\/sarscov2-R1.fastq.gz",
-            "role" : "input",
-            "sha256" : "0515ba304cb1bf7abcdd9c156b6affad7e580273f983dfed2e8fe2d918e800ff",
-            "sizeBytes" : 9413
-          },
-          {
-            "format" : "text",
-            "path" : "<RUN_ROOT>\/classifiers\/Golden.lungfish\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq\/read-ids.txt",
-            "role" : "input",
-            "sha256" : "ed722f3a11314c661b77eb02873217574608ac75a5dc4d2ac45cbea64088ae14",
-            "sizeBytes" : 1031
-          }
-        ],
-        "outputs" : [
-          {
-            "format" : "fastq",
-            "path" : "<RUN_ROOT>\/classifiers\/work\/sarscov2-R1-len150.fastq",
-            "role" : "output",
-            "sha256" : "7835ec14ac217ed29c7dfe9449df8cf6d09654c4eb7df4cc9a54872bd3e2fa44",
-            "sizeBytes" : 20296
-          }
-        ],
-        "startTime" : "<TIMESTAMP>",
-        "toolName" : "lungfish-cli fastq materialize",
-        "toolVersion" : "Lungfish <APP_VERSION> (dev)",
-        "wallTime" : "<DURATION>"
-      }
-    ]
-  },
   "name" : "lungfish-cli fastq materialize",
   "options" : {
     "defaults" : {
@@ -330,7 +231,7 @@
       "endTime" : "<TIMESTAMP>",
       "exitCode" : 0,
       "exitStatus" : 0,
-      "id" : "<UUID-3>",
+      "id" : "<UUID-2>",
       "inputs" : [
         {
           "checksumSHA256" : "39afcfde59bce6c648ca86195ae49eff28e78e66cca439664993cee4f96f3bad",
