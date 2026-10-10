@@ -35,6 +35,10 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
     public let exitStatus: Int?
     public let stderr: String?
     public let signatures: [ProvenanceSignatureReference]
+    /// How the run ended. The exit status cannot say it, because a cancelled run
+    /// can end on a step that exited 0 and only the status says the result is
+    /// partial. It is written under the `status` key.
+    public let status: RunStatus
     public let legacyRun: WorkflowRun?
 
     private enum CodingKeys: String, CodingKey {
@@ -99,6 +103,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         exitStatus: Int? = nil,
         stderr: String? = nil,
         signatures: [ProvenanceSignatureReference] = [],
+        status: RunStatus? = nil,
         legacyWorkflowRun: WorkflowRun? = nil
     ) {
         self.schemaVersion = schemaVersion
@@ -123,6 +128,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         self.exitStatus = exitStatus
         self.stderr = stderr
         self.signatures = signatures
+        self.status = status ?? legacyWorkflowRun?.status ?? Self.derivedStatus(exitStatus: exitStatus)
         self.legacyRun = legacyWorkflowRun
     }
 
@@ -202,6 +208,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         stderr = try container.decodeIfPresent(String.self, forKey: .stderr)
         signatures = try container.decodeIfPresent([ProvenanceSignatureReference].self, forKey: .signatures) ?? []
         legacyRun = try container.decodeIfPresent(WorkflowRun.self, forKey: .legacyRun)
+        status = Self.decodedStatus(from: container) ?? legacyRun?.status ?? Self.derivedStatus(exitStatus: exitStatus)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -210,7 +217,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         try container.encode(id, forKey: .id)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(workflowName, forKey: .legacyName)
-        try container.encode(legacyCompatibilityStatus.rawValue, forKey: .legacyStatus)
+        try container.encode(status.rawValue, forKey: .legacyStatus)
         let compatibilityRun = legacyWorkflowRun()
         try container.encode(compatibilityRun.startTime, forKey: .startTime)
         try container.encodeIfPresent(compatibilityRun.endTime, forKey: .endTime)
@@ -400,14 +407,23 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         }
     }
 
-    private var legacyCompatibilityStatus: RunStatus {
-        if let legacyRun {
-            return legacyRun.status
-        }
+    /// The status a record implies when it stores none. No exit status yet
+    /// means running, 0 means completed and anything else means failed.
+    private static func derivedStatus(exitStatus: Int?) -> RunStatus {
         guard let exitStatus else {
             return .running
         }
         return exitStatus == 0 ? .completed : .failed
+    }
+
+    /// The status the `status` key holds, or nil when the key is absent, is not
+    /// a string or names no `RunStatus`. Decoding never throws here, so a file
+    /// that decoded before this key was read still decodes the same way.
+    private static func decodedStatus(from container: KeyedDecodingContainer<CodingKeys>) -> RunStatus? {
+        guard let word = try? container.decodeIfPresent(String.self, forKey: .legacyStatus) else {
+            return nil
+        }
+        return RunStatus(rawValue: word)
     }
 }
 

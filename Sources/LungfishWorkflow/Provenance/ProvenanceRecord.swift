@@ -265,6 +265,7 @@ extension WorkflowRun {
             wallTimeSeconds: wallTime,
             exitStatus: canonicalExitStatus(outcomeStep: outcomeStep),
             stderr: canonicalStderr(outcomeStep: outcomeStep),
+            status: status,
             legacyWorkflowRun: self
         )
     }
@@ -376,7 +377,7 @@ extension ProvenanceEnvelope {
             name: workflowName,
             startTime: legacySteps.first?.startTime ?? createdAt,
             endTime: legacySteps.compactMap(\.endTime).max() ?? completedAtFromWallTime,
-            status: legacyStatus,
+            status: status,
             appVersion: runtimeIdentity.appVersion,
             hostOS: runtimeIdentity.operatingSystemVersion,
             runtime: WorkflowRuntime(
@@ -387,11 +388,6 @@ extension ProvenanceEnvelope {
             steps: legacySteps,
             parameters: options.explicit
         )
-    }
-
-    private var legacyStatus: RunStatus {
-        guard let exitStatus else { return .running }
-        return exitStatus == 0 ? .completed : .failed
     }
 
     private var completedAtFromWallTime: Date? {

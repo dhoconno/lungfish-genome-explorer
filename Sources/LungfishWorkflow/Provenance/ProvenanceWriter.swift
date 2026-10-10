@@ -1617,7 +1617,7 @@ extension ProvenanceEnvelope {
             exitStatus: exitStatus,
             stderr: stderr,
             signatures: signatures,
-            legacyWorkflowRun: nil
+            status: status
         )
     }
 
@@ -1678,7 +1678,7 @@ extension ProvenanceEnvelope {
             exitStatus: exitStatus,
             stderr: stderr,
             signatures: [],
-            legacyWorkflowRun: nil
+            status: status
         )
     }
 
@@ -1710,7 +1710,7 @@ extension ProvenanceEnvelope {
             exitStatus: exitStatus,
             stderr: stderr,
             signatures: signatures,
-            legacyWorkflowRun: legacyRun
+            status: status, legacyWorkflowRun: legacyRun
         )
     }
 }

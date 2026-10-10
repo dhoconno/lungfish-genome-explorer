@@ -342,7 +342,7 @@ extension TwelveSAmpliconMatchingWorkflow {
             exitStatus: envelope.exitStatus,
             stderr: envelope.stderr,
             signatures: envelope.signatures,
-            legacyWorkflowRun: envelope.legacyRun
+            status: envelope.status, legacyWorkflowRun: envelope.legacyRun
         )
     }
 }

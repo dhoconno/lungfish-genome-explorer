@@ -143,7 +143,7 @@ public enum SequenceProcessingOutputNormalizer {
             output: outputDescriptor, outputs: original.outputs + [outputDescriptor],
             steps: original.steps + [step], wallTimeSeconds: original.wallTimeSeconds,
             exitStatus: original.exitStatus, stderr: original.stderr,
-            signatures: [], legacyWorkflowRun: original.legacyRun
+            signatures: [], status: original.status, legacyWorkflowRun: original.legacyRun
         )
         try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: ProvenanceRecorder.fileSidecarURL(for: output))
         published = true
@@ -183,7 +183,7 @@ public enum SequenceProcessingOutputNormalizer {
             runtimeIdentity: envelope.runtimeIdentity, files: envelope.files + upstreamFiles,
             output: envelope.output, outputs: envelope.outputs, steps: upstreamSteps + envelope.steps,
             wallTimeSeconds: envelope.wallTimeSeconds, exitStatus: envelope.exitStatus, stderr: envelope.stderr,
-            signatures: [], legacyWorkflowRun: envelope.legacyRun)
+            signatures: [], status: envelope.status, legacyWorkflowRun: envelope.legacyRun)
     }
 
     /// Grouped outputs outlive execution materialization cleanup too. Keep bridge
@@ -228,7 +228,8 @@ public enum SequenceProcessingOutputNormalizer {
             reproducibleCommand: durable.map(shellEscape).joined(separator: " "), options: envelope.options,
             runtimeIdentity: envelope.runtimeIdentity, files: envelope.files.map(mapped), output: envelope.output.map(mapped),
             outputs: envelope.outputs.map(mapped), steps: steps, wallTimeSeconds: envelope.wallTimeSeconds,
-            exitStatus: envelope.exitStatus, stderr: envelope.stderr, signatures: [], legacyWorkflowRun: envelope.legacyRun)
+            exitStatus: envelope.exitStatus, stderr: envelope.stderr, signatures: [], status: envelope.status,
+            legacyWorkflowRun: envelope.legacyRun)
     }
 
     private static func descriptor(_ url: URL, format: FileFormat, role: FileRole) throws -> ProvenanceFileDescriptor {

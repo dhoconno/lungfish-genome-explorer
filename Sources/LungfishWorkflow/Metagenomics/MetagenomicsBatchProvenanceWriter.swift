@@ -415,7 +415,7 @@ public enum MetagenomicsBatchProvenanceWriter {
             exitStatus: existing.exitStatus ?? Int(result.exitCode),
             stderr: existing.stderr,
             signatures: [],
-            legacyWorkflowRun: existing.legacyRun
+            status: existing.status, legacyWorkflowRun: existing.legacyRun
         )
 
         return try ProvenanceWriter().write(envelope, to: result.outputDirectory)

@@ -104,7 +104,7 @@ enum FastqDemultiplexSequenceFormat {
             options: base.options, runtimeIdentity: base.runtimeIdentity, files: files,
             output: additions.first?.output ?? base.output, outputs: outputs, steps: steps,
             wallTimeSeconds: base.wallTimeSeconds, exitStatus: base.exitStatus, stderr: base.stderr,
-            signatures: [], legacyWorkflowRun: base.legacyRun
+            signatures: [], status: base.status, legacyWorkflowRun: base.legacyRun
         )
     }
 }

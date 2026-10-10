@@ -234,7 +234,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             exitStatus: 0,
             stderr: envelope.stderr,
             signatures: envelope.signatures,
-            legacyWorkflowRun: envelope.legacyRun
+            status: envelope.status, legacyWorkflowRun: envelope.legacyRun
         )
         try ProvenanceWriter(signingProvider: nil).write(updated, toSidecar: provenanceURL)
     }

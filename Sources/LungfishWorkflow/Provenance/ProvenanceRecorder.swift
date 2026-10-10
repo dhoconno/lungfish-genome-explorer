@@ -260,6 +260,7 @@ private extension ProvenanceEnvelope {
             exitStatus: exitStatus,
             stderr: stderr,
             signatures: signatures,
+            status: status,
             legacyWorkflowRun: legacyRun
         )
     }
