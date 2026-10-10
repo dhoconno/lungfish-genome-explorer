@@ -1,0 +1,4 @@
+# tool-identity baseline: counts under Sources/ outside each count's exempt files. Counts may only fall.
+analysis_id_decisions 135
+tool_named_lookups 11
+unknown_version_fallbacks 35
