@@ -141,6 +141,8 @@ A CSV or TSV export writes a header row reading `Sample` and then `<locus> H1` a
 
 A genotype-only result, such as the demo run with Genotyping only chosen, still exports a table, with allele names in place of haplotypes. Its header names the allele loci, `MHC-DPA1 H1`, `MHC-DRB H1`, `MHC-G H1`, and their H2 columns, and on the demo each H1 holds the sample's one allele at that locus, such as `Mafa-G_02:31:01:01|OR823640`, with H2 empty.
 
+A full-length ONT result with no haplotype analysis lists every allele instead. Its header reads `Sample` and then `<locus> allele 1`, `<locus> allele 2`, and so on for each locus, as many columns as the sample with the most alleles at that locus needs. Each sample's alleles run from the most reads to the fewest. The loci are gene groups taken from each reference's record, such as `MHC-A`, `MHC-AG`, and `MHC-B`, so a reference named by an accession such as `NHP01270` sits under its gene and not under a locus of its own.
+
 A LabKey export writes five files into the folder you name. Each is long format, one row per fact, as the table lists.
 
 | File | One row per |
