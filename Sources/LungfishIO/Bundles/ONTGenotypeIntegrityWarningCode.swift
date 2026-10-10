@@ -23,4 +23,10 @@ public enum ONTGenotypeIntegrityWarningCode: String, Codable, Equatable, Sendabl
     /// Duplicate long-summary rows for one animal, locus and allele were
     /// collapsed to one occurrence when the result was built (D5b).
     case duplicateCallRowsCollapsed = "duplicate-call-rows-collapsed"
+    /// Full-length calls whose reference record names no allele or gene keep
+    /// the locus their sequence name gives (N9).
+    case referenceLocusUnresolved = "reference-locus-unresolved"
+    /// Reference records whose allele prefix and gene name different loci.
+    /// The calls take the allele's locus (N9).
+    case referenceLocusConflict = "reference-locus-conflict"
 }

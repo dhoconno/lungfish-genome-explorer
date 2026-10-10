@@ -16,6 +16,59 @@ public enum GenotypeHaplotypeLocusResolver {
         return canonicalLocusName(firstLocus)
     }
 
+    /// The record field that names a reference record's gene, for example
+    /// "A2" or "B02Ps". It is the fallback when the record has no allele.
+    public static let referenceRecordGeneFieldKey = "feature.gene"
+
+    /// The record field that names a reference record's allele when the
+    /// metadata names none.
+    public static let referenceRecordDefaultAlleleFieldKey = "feature.allele"
+
+    /// The source locus a reference record names (N9). The allele value
+    /// ("Mafa-A2*05:25:01:01") is cut at its first `*` and the prefix
+    /// ("Mafa-A2") goes through `ONTGenotypeCall.sourceLocusGroup`, so it
+    /// lands on the key every other call of that locus uses (MHC-A). The full
+    /// allele never reaches the parser, because a name such as
+    /// "Mafa-I*01:18:01:01" would otherwise become the locus
+    /// "MHC-I*01:18:01:01". Without an allele the gene ("A2") is used the same
+    /// way. Nil when neither names a locus.
+    public static func referenceRecordLocus(alleleName: String?, gene: String?) -> String? {
+        referenceRecordAlleleLocus(alleleName) ?? referenceRecordGeneLocus(gene)
+    }
+
+    /// The source locus of a reference record's allele prefix, or nil when
+    /// the record carries no usable allele.
+    public static func referenceRecordAlleleLocus(_ alleleName: String?) -> String? {
+        guard let alleleName else { return nil }
+        let prefix = alleleName.split(separator: "*", maxSplits: 1, omittingEmptySubsequences: false)
+            .first.map(String.init) ?? ""
+        return referenceRecordLocusGroup(prefix)
+    }
+
+    /// The source locus of a reference record's gene, or nil when the record
+    /// carries no usable gene.
+    public static func referenceRecordGeneLocus(_ gene: String?) -> String? {
+        guard let gene else { return nil }
+        return referenceRecordLocusGroup(gene)
+    }
+
+    /// The source locus a reference record names, read from the record's
+    /// fields. `alleleFieldKey` is the metadata's allele field, and
+    /// `feature.allele` when the metadata names none.
+    public static func referenceRecordLocus(record: [String: String], alleleFieldKey: String?) -> String? {
+        referenceRecordLocus(
+            alleleName: record[alleleFieldKey ?? referenceRecordDefaultAlleleFieldKey],
+            gene: record[referenceRecordGeneFieldKey]
+        )
+    }
+
+    private static func referenceRecordLocusGroup(_ token: String) -> String? {
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("*") else { return nil }
+        let group = ONTGenotypeCall.sourceLocusGroup(forLocusToken: trimmed)
+        return group == "Unknown" ? nil : group
+    }
+
     public static func canonicalLocusName(_ rawLocus: String) -> String {
         let trimmed = rawLocus.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "Unknown" }

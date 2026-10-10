@@ -31,6 +31,23 @@ public struct ONTGenotypeCall: Codable, Equatable, Sendable {
     /// behind this known call (largest over its clusters). Nil for amplicon
     /// calls and for older bundles.
     public let indelBases: Int?
+    /// The source locus the result's reference record names for this call's
+    /// genotype (N9). Nil unless `ONTGenotypeResultBundleData` stamped it.
+    ///
+    /// A full-length call carries its reference sequence ID, for example the
+    /// IPD accession NHP01270, so the genotype alone names no locus. The
+    /// result's reference record does ("Mafa-A2*05:25:01:01"), and the
+    /// result stamps that locus here when it is built. The value is never
+    /// encoded, so encoded calls and goldens stay as they were and a decoded
+    /// result stamps again from its reference metadata.
+    public private(set) var sourceLocus: String? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case sample, genotype, passedAlignments, passedUniqueReads
+        case sampleTotalReads, sampleUniqueRetainedReads, sampleUniqueRetainedPercent
+        case overallInputReads, overallUniqueRetainedReads, overallUniqueRetainedPercent
+        case ambiguousWith, indelBases
+    }
 
     /// A known full-length call whose hit carries indels.
     /// It stays a known call, but needs review.
@@ -63,7 +80,8 @@ public struct ONTGenotypeCall: Codable, Equatable, Sendable {
         overallUniqueRetainedReads: Int?,
         overallUniqueRetainedPercent: Double?,
         ambiguousWith: [String]? = nil,
-        indelBases: Int? = nil
+        indelBases: Int? = nil,
+        sourceLocus: String? = nil
     ) {
         self.sample = sample
         self.genotype = genotype
@@ -77,6 +95,15 @@ public struct ONTGenotypeCall: Codable, Equatable, Sendable {
         self.overallUniqueRetainedPercent = overallUniqueRetainedPercent
         self.ambiguousWith = ambiguousWith
         self.indelBases = indelBases
+        self.sourceLocus = sourceLocus
+    }
+
+    /// The same call with its source locus taken from the reference record
+    /// (N9). Every stored field keeps its value.
+    public func withSourceLocus(_ sourceLocus: String?) -> ONTGenotypeCall {
+        var copy = self
+        copy.sourceLocus = sourceLocus
+        return copy
     }
 
     public var haplotypeTokens: [String] {
@@ -87,10 +114,20 @@ public struct ONTGenotypeCall: Codable, Equatable, Sendable {
         Self.inferLocusToken(from: genotype)
     }
 
-    /// The call's source locus (`source_loci` metadata first, the allele name
-    /// otherwise). This is the grouping key of the per-source-locus read
-    /// denominator, see `GenotypeLocusDenominator`.
+    /// The call's source locus. The locus the result stamped from the
+    /// reference record comes first (N9), then `source_loci` metadata, then
+    /// the allele name. This is the grouping key of the per-source-locus
+    /// read denominator, see `GenotypeLocusDenominator`.
     public var locusGroup: String {
+        if let sourceLocus { return Self.sourceLocusGroup(forLocusToken: sourceLocus) }
+        return genotypeLocusGroup
+    }
+
+    /// The source locus the genotype string alone names, ignoring any stamp.
+    /// It is the locus every result used before N9, so annotations saved
+    /// against an accession's pseudo-locus (MHC-NHP01270) still find the
+    /// call through it (`GenotypeMatrixTargetLocusAlias`).
+    public var genotypeLocusGroup: String {
         Self.sourceLocusGroup(forLocusToken: locusToken ?? "")
     }
 
