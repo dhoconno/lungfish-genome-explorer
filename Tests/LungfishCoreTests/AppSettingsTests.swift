@@ -140,7 +140,7 @@ final class AppSettingsTests: XCTestCase {
 
         XCTAssertEqual(
             AppSettings.databaseStorageDefaultURL(homeDirectory: home, appIdentity: .stable).path,
-            "/Users/example/.lungfish/databases"
+            "/Users/example/.lungfish-stable/databases"
         )
         XCTAssertEqual(
             AppSettings.databaseStorageDefaultURL(homeDirectory: home, appIdentity: .preview).path,
