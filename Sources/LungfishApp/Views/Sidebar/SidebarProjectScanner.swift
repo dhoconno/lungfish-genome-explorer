@@ -773,15 +773,7 @@ enum SidebarProjectScanner {
 
     /// The badge text for a classifier batch sidebar icon, or nil for non-classifier tools.
     static func classifierBatchBadge(for tool: String) -> String? {
-        switch tool {
-        case "kraken2": return "K2"
-        case "esviritu": return "ES"
-        case "taxtriage": return "TT"
-        case "naomgs": return "NM"
-        case "nvd": return "NVD"
-        case "cz-id": return "CZ"
-        default: return nil
-        }
+        AnalysisToolRegistry.descriptor(forRawID: tool)?.classifierBatchBadge
     }
 
     /// Computes the subtitle for a classifier batch sidebar row.
@@ -912,19 +904,7 @@ enum SidebarProjectScanner {
     }
 
     static func analysisIcon(for tool: String) -> String {
-        switch tool {
-        case "esviritu": return "e.circle"
-        case "kraken2": return "k.circle"
-        case "taxtriage": return "t.circle"
-        case "mafft": return "rectangle.grid.1x2"
-        case "spades", "megahit", "skesa", "flye", "hifiasm": return "s.circle"
-        case "minimap2", "bwa-mem2", "bowtie2", "bbmap": return "m.circle"
-        case "naomgs": return "n.circle"
-        case "cz-id": return "c.circle"
-        case "ont-genotyping": return "tablecells.badge.ellipsis"
-        case "viralrecon": return "v.circle"
-        default: return "circle"
-        }
+        AnalysisToolRegistry.descriptor(forRawID: tool)?.sidebarSymbolName ?? "circle"
     }
 
     static func analysisDisplayTitle(for info: AnalysesFolder.AnalysisDirectoryInfo) -> String {
