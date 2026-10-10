@@ -646,11 +646,8 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
         let full = try GenotypeXlsxWorkbookWriter.MatrixBuilder.build(from: result, sidecar: sidecar)
         guard !samples.isEmpty else { return full }
         let allowed = Set(samples)
-        return GenotypeXlsxWorkbookWriter.Matrix(
-            loci: full.loci,
-            rows: full.rows.filter { allowed.contains($0.sample) },
-            alleleColumnCounts: full.alleleColumnCounts
-        )
+        return GenotypeXlsxWorkbookWriter.Matrix(loci: full.loci, rows: full.rows.filter { allowed.contains($0.sample) },
+                                                  alleleColumnCounts: full.alleleColumnCounts)
     }
 
     private struct LoadedViewProjection {
