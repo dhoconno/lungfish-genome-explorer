@@ -203,6 +203,12 @@ public actor ProvenanceRecorder {
     /// - Parameters:
     ///   - runID: The run to save
     ///   - directory: The output directory to write the sidecar into
+    ///   - options: The record's explicit, default and resolved options, in place of the
+    ///     run's own. The run's parameters are merged into the explicit options, so a
+    ///     parameter that only the run carries stays in the record. Kraken2's
+    ///     `readSetPlan` is one. The caller's explicit value wins a clash. A parameter the
+    ///     caller already records as a default or a resolved default with the same value is
+    ///     not copied, because explicit options are what was asked for.
     ///   - dropMissingRunLevelFiles: When true, the run-level `files` and
     ///     `outputs` roll-ups drop paths that no longer exist on disk. Steps keep
     ///     their historically true records. Pipelines that delete an intermediate
@@ -220,7 +226,17 @@ public actor ProvenanceRecorder {
             throw ProvenanceError.runNotFound(runID)
         }
         let canonical = run.canonicalEnvelope()
-        var envelope = options.map { canonical.replacingOptions($0) } ?? canonical
+        var envelope = canonical
+        if let options {
+            let onlyInRun = run.parameters.filter { key, value in
+                options.defaults[key] != value && options.resolvedDefaults[key] != value
+            }
+            envelope = canonical.replacingOptions(ProvenanceOptions(
+                explicit: options.explicit.merging(onlyInRun) { given, _ in given },
+                defaults: options.defaults,
+                resolvedDefaults: options.resolvedDefaults
+            ))
+        }
         if dropMissingRunLevelFiles {
             envelope = envelope.droppingMissingRunLevelFiles()
         }
