@@ -75,6 +75,23 @@ A lane that changes a writer compares facts with `differences(from:ignoring:)` a
 
 One field sits outside every set. `stepRecordedContainer` clears only the container image and the container digest from each step's `recorded` map. A conversion from a bare run drops those two keys by design, because an envelope step holds a container only in a runtime identity of its own, and the image and digest then live in the envelope's runtime identity and in both legacy step views. A lane may name the field only together with an exact comparison of `legacyRunSteps` and `canonicalRunSteps`, since those views are where a lost or changed image or digest still shows.
 
+## Sweeping real data
+
+The corpus holds a few dozen records. `ProvenanceCompatSweepTests` applies the same reader calls to every `.lungfish-provenance.json` and `<name>.lungfish-provenance.json` file under folders you name, and writes one report. Run it at the base commit and again at the final commit, and the two reports must be identical. The sweep test runs only when both variables below are set, and the gate never sets them.
+
+- `LUNGFISH_PROVENANCE_SWEEP_ROOTS` holds folders or single sidecars, separated by colons. A leading `~` is the home folder, and a root that does not exist fails the run.
+- `LUNGFISH_PROVENANCE_SWEEP_OUT` is the folder that receives `provenance-sweep-report.json`. It must lie outside every git work tree and every swept folder, so the report never lands in the repository.
+
+```
+LUNGFISH_PROVENANCE_SWEEP_ROOTS="$HOME/.lungfish:$HOME/Projects/copy" \
+LUNGFISH_PROVENANCE_SWEEP_OUT="$SCRATCH/sweep-base" \
+swift test --filter ProvenanceCompatSweepTests
+```
+
+The sweep only reads. It calls the readers and the corpus projection and never an audit or a rehydrator. Each entry of the report holds the path relative to its root, the SHA-256 of the file, the decoder that accepted it, strict acceptance, the read status, the workflow and tool names, the step count and the SHA-256 of the facts. A file that no reader accepts is listed with the kind of failure and the JSON keys involved, never a path. The tolerant reader accepts any JSON object as a primitive record, so only text that is not JSON and JSON that is not an object come back unreadable.
+
+The report holds the roots as you typed them, no date and no absolute path, so a sweep of unchanged data repeats byte for byte. The other tests of the suite run in the gate. They sweep the materialized corpus and check that each entry agrees with the reviewed facts, that two sweeps write the same bytes, that nothing under a root changes, and that a report folder inside the repository, a git work tree or a root is refused.
+
 ## Adding a case
 
 1. Put the bytes under `cases/<id>/`, laid out as they sit in a project, or reference a tracked file in place with a `repo:` path.
