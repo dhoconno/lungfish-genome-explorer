@@ -8,7 +8,6 @@ Each count is tested for the same behaviors. It passes at its baseline, fails on
 new file, ignores comments and its exempt files, passes under baseline with the --update hint and
 lists its sites with --print.
 """
-import os
 import re
 import shutil
 import subprocess
@@ -151,8 +150,28 @@ WRITER_SPECS = (
     ),
 )
 
-SPECS = WRITER_SPECS
-RATCHETS_UNDER_TEST = (WRITERS,)
+PATHS = Ratchet(
+    script=RATCHETS / "path-helpers.sh",
+    names=(
+        "relative_path_definitions",
+        "relative_path_relatives",
+        "directory_checksum_copies",
+    ),
+    fix_mentions=("docs/contracts/RECORDING-PROVENANCE.md",),
+)
+
+PATH_SPECS = (
+    Spec(PATHS, "relative_path_definitions", 'func relativePath(of url: URL) -> String { "" }'),
+    Spec(PATHS, "relative_path_relatives", 'func storedPath(for url: URL) -> String { "" }'),
+    Spec(
+        PATHS,
+        "directory_checksum_copies",
+        'private func directoryChecksum(from manifest: Manifest) -> String { "" }',
+    ),
+)
+
+SPECS = WRITER_SPECS + PATH_SPECS
+RATCHETS_UNDER_TEST = (WRITERS, PATHS)
 
 EXEMPT_CASES = [(spec, path) for spec in SPECS for path in spec.exempt]
 LOOKALIKE_CASES = [(spec, path) for spec in SPECS for path in spec.lookalikes]
@@ -236,6 +255,23 @@ def test_exempt_files_are_ignored(tmp_path, case):
     assert result.returncode == 0, result.stderr
     assert "at the recorded baseline" in result.stdout
     assert exempt not in run(script, "--print").stdout
+
+
+NO_EXEMPT_FILE_SPECS = [spec for spec in SPECS if not spec.exempt]
+
+
+@pytest.mark.parametrize("spec", NO_EXEMPT_FILE_SPECS, ids=lambda spec: spec.name)
+def test_a_count_with_no_exempt_files_counts_the_provenance_core_too(tmp_path, spec):
+    script = repo_with_one_site(tmp_path, spec)
+    for core in (
+        PROVENANCE + "ProvenanceWriter.swift",
+        PROVENANCE + "ProvenanceRecorder.swift",
+        "Sources/LungfishCore/Process/ToolProcess.swift",
+    ):
+        write(tmp_path, core, swift(spec.site))
+    result = run(script)
+    assert result.returncode == 1
+    assert f"4 for {spec.name}, up from the recorded baseline of 1" in result.stderr
 
 
 @pytest.mark.parametrize("case", LOOKALIKE_CASES, ids=case_id)
@@ -403,30 +439,56 @@ def test_filename_literals_need_provenance_and_a_json_name_in_one_literal(tmp_pa
     assert baseline_of(tmp_path, WRITERS)["provenance_filename_literals"] == counted
 
 
+# A line of Swift and the one count it adds to, or None when it adds to none. The None rows are
+# neighbors of a counted spelling, such as a call where the count wants a definition.
+NEIGHBOR_CASES = [
+    (WRITERS, "func writeProvenance(", "write_provenance_functions"),
+    (WRITERS, "private static func writeProvenance<T>(_ value: T) {}", "write_provenance_functions"),
+    (WRITERS, "func writeProvenanceRecord(", None),
+    (WRITERS, "func rewriteProvenance(", None),
+    (WRITERS, "let f = writeProvenance", None),
+    (WRITERS, "try run.writeSidecar(to: url)", "bare_workflow_run_writes"),
+    (WRITERS, "try writeSidecar(to: url)", None),
+    (WRITERS, "func writeSidecar(to url: URL) throws {", None),
+    (WRITERS, "let e = try ProvenanceJSON.encoder.encode(x)", "envelope_encodes_outside_writer"),
+    (WRITERS, "let e = try ProvenanceJSON.decoder.decode(T.self, from: d)", None),
+    (WRITERS, "let e = try MyProvenanceJSON.encoder.encode(x)", None),
+    (PATHS, "func relativePath(of url: URL) -> String {", "relative_path_definitions"),
+    (PATHS, "static func relativePath<T>(_ value: T) -> String {", "relative_path_definitions"),
+    (PATHS, "private static func projectRelativePath(_ url: URL, projectRoot: URL) -> String? {", "relative_path_definitions"),
+    (PATHS, "func relativePathComponents(of url: URL) -> [String] {", None),
+    (PATHS, "func projectRelativePaths() -> [String] {", None),
+    (PATHS, "let p = relativePath(of: url)", None),
+    (PATHS, "func appRelativePath(from base: URL, to target: URL) -> String {", "relative_path_relatives"),
+    (PATHS, "func bundleRelativePath(for url: URL, in bundle: URL) -> String {", "relative_path_relatives"),
+    (PATHS, "func storedPath(for url: URL, relativeTo directory: URL) -> String {", "relative_path_relatives"),
+    (PATHS, "func relativeDescendantPath(from ancestor: URL, to descendant: URL) -> String? {", "relative_path_relatives"),
+    (PATHS, "func filesystemRelativePath(from base: URL, to target: URL) -> String {", "relative_path_relatives"),
+    (PATHS, "static func relativePathForMigrationProvenance(_ url: URL, root: URL) -> String {", "relative_path_relatives"),
+    (PATHS, "static func relative(_ url: URL, to root: URL) -> String {", "relative_path_relatives"),
+    (PATHS, "public static func relative(path: String, toAny prefixes: [String]) -> String? {", "relative_path_relatives"),
+    (PATHS, "func relative(to base: URL) -> String {", None),
+    (PATHS, "func relativeURL(_ url: URL) -> URL {", None),
+    (PATHS, "func storedPaths() -> [String] {", None),
+    (PATHS, "private func directoryChecksum(from manifest: Manifest) -> String {", "directory_checksum_copies"),
+    (PATHS, "private static func directoryChecksum(at url: URL) throws -> String {", "directory_checksum_copies"),
+    (PATHS, "func directoryChecksums() -> [String] {", None),
+    (PATHS, "let c = directoryChecksum(from: manifest)", None),
+]
+
+
 @pytest.mark.parametrize(
-    ("line", "name"),
-    [
-        ("func writeProvenance(", "write_provenance_functions"),
-        ("private static func writeProvenance<T>(_ value: T) {}", "write_provenance_functions"),
-        ("func writeProvenanceRecord(", None),
-        ("func rewriteProvenance(", None),
-        ("let f = writeProvenance", None),
-        ("try run.writeSidecar(to: url)", "bare_workflow_run_writes"),
-        ("try writeSidecar(to: url)", None),
-        ("func writeSidecar(to url: URL) throws {", None),
-        ("let e = try ProvenanceJSON.encoder.encode(x)", "envelope_encodes_outside_writer"),
-        ("let e = try ProvenanceJSON.decoder.decode(T.self, from: d)", None),
-        ("let e = try MyProvenanceJSON.encoder.encode(x)", None),
-    ],
+    ("ratchet", "line", "name"),
+    NEIGHBOR_CASES,
+    ids=[f"{ratchet.script.stem}:{line}" for ratchet, line, _ in NEIGHBOR_CASES],
 )
-def test_each_pattern_matches_the_call_it_names_and_not_its_neighbors(tmp_path, line, name):
-    script = make_repo(tmp_path, WRITERS_SCRIPT, {"Sources/A/A.swift": swift(line)})
+def test_each_pattern_matches_the_spelling_it_names_and_not_its_neighbors(tmp_path, ratchet, line, name):
+    script = make_repo(tmp_path, ratchet.script, {"Sources/A/A.swift": swift(line)})
     assert run(script, "--update").returncode == 0
-    entries = baseline_of(tmp_path, WRITERS)
-    expected = {count: 0 for count in WRITERS.names}
+    expected = {count: 0 for count in ratchet.names}
     if name is not None:
         expected[name] = 1
-    assert entries == expected
+    assert baseline_of(tmp_path, ratchet) == expected
 
 
 # ------------------------------------------------------------ the real repository
