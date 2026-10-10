@@ -98,7 +98,6 @@
       "name" : "saveTo"
     }
   ],
-  "rawJSONHoldsEmbeddedRun" : true,
   "runtime" : [
     {
       "label" : "App Version",

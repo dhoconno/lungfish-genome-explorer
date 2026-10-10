@@ -61,7 +61,6 @@
   "options" : [
 
   ],
-  "rawJSONHoldsEmbeddedRun" : false,
   "runtime" : [
     {
       "label" : "Executable",

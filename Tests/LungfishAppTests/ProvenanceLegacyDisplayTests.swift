@@ -34,7 +34,7 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
     ///
     /// The tab reads Incomplete with a File metadata incomplete warning, because the NCBI
     /// address the step fetched from has no checksum or size. Both files read as outside the
-    /// project. Raw JSON holds a `legacyWorkflowRun` block, which the conversion adds.
+    /// project.
     func testBareLegacyRunFetchedByLungfishCLIReadsAsConvertedRecord() async throws {
         let project = try makeProject()
         let sidecarName = "MN908947.3.gff3.lungfish-provenance.json"
@@ -67,7 +67,7 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
     /// reference bundle. It is a full envelope and also carries the nested `legacyWorkflowRun`.
     ///
     /// The tab reads Complete with three steps and no warnings. The record carries its whole
-    /// runtime identity. Raw JSON holds the embedded run.
+    /// runtime identity.
     func testReleasedEnvelopeWithEmbeddedRunKeepsItsRecordedDisplay() async throws {
         let project = try makeProject()
         let bundlePath = "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref"
@@ -186,8 +186,7 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
     /// It is also app state, so the file stays beside the mapping result.
     ///
     /// The tab reads Incomplete because the viewer bundle it lists has no checksum, and it
-    /// collapses the two FASTQ files into one bundle row. Raw JSON holds a `legacyWorkflowRun`
-    /// block that the reader builds.
+    /// collapses the two FASTQ files into one bundle row.
     func testSchema3MappingProvenanceReadsAsTypedRecord() async throws {
         let project = try makeProject()
         let analysis = project.appendingPathComponent("Analyses/minimap2-2026-07-14T15-20-00", isDirectory: true)

@@ -97,9 +97,6 @@ struct ProvenanceDisplaySnapshot: Codable, Equatable {
     var files: [FileRow]
     var options: [OptionRow]
     var runtime: [RuntimeRow]
-    /// Whether Raw JSON holds the nested `legacyWorkflowRun` block. Records written
-    /// before the converged writer carry it, and a record keeps reading that way.
-    var rawJSONHoldsEmbeddedRun: Bool
 }
 
 // MARK: - Per-record choices
@@ -183,8 +180,7 @@ extension ProvenanceDisplaySnapshot {
             },
             runtime: model.runtimeRows
                 .filter { displayCase.recordedRuntimeLabels.contains($0.label) }
-                .map { RuntimeRow(label: $0.label, value: redaction($0.value)) },
-            rawJSONHoldsEmbeddedRun: model.rawJSON.contains("\"legacyWorkflowRun\"")
+                .map { RuntimeRow(label: $0.label, value: redaction($0.value)) }
         )
     }
 

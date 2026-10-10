@@ -215,7 +215,6 @@
       "name" : "reference_source"
     }
   ],
-  "rawJSONHoldsEmbeddedRun" : true,
   "runtime" : [
     {
       "label" : "App Version",
