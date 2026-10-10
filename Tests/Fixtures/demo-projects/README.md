@@ -15,7 +15,7 @@ This folder holds released demo project archives, committed byte for byte. Tests
 | Entries | 84, made of 35 folders and 49 files |
 | Provenance files | 27 JSON sidecars. All carry the canonical envelope keys and the eight compatibility keys. One, at the root of the annotated reference bundle, also carries an embedded `legacyWorkflowRun` |
 
-The file is a copy of the archive that the golden genotype capture downloads and checks, which `docs/contracts/MACHINES.md` describes. It was copied after its size and SHA-256 matched the catalogue entry above. Nothing was downloaded for this commit.
+The file is a copy of the archive that the golden genotype capture downloads and checks, which `docs/contracts/MACHINES.md` describes. It was copied after its size and SHA-256 matched the catalogue entry above, and nothing was downloaded to add it.
 
 ## The archive is never edited
 
@@ -36,6 +36,9 @@ It was written once, with `LUNGFISH_CAPTURE_DEMO_PROVENANCE=1`, on code that had
 | Suite | What it does |
 |---|---|
 | `DemoProjectProvenanceLoadTests` | Installs the archive with the real `DemoProjectInstaller`, reads every sidecar with the tolerant and strict readers, asks the finder about every bundle folder and payload file, walks the lineage and exports JSON and shell scripts outside the project, then requires a snapshot of the whole project to be identical before and after. It also compares what the reader decodes with the expected file |
+| `DemoProjectProvenanceSweepTests` | Applies the checks that need no expected file to every archive that the bundled catalogue lists, found by file name in the folder named by `LUNGFISH_DEMO_ARCHIVE_DIR`, when its size and SHA-256 match the catalogue. It skips when the variable is unset, so the unit tier never downloads and never depends on a cache. The nine archives that are not committed are covered this way, from the golden cache or any other local folder |
+
+To run the sweep over a folder of archives, use `LUNGFISH_DEMO_ARCHIVE_DIR=<folder> swift test --filter DemoProjectProvenanceSweepTests`. The test prints one line for each archive it swept or skipped.
 
 ## What the archive holds that a reader should know
 
