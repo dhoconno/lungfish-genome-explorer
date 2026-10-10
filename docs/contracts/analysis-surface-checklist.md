@@ -58,7 +58,7 @@ Tick each one or write "retired" once its program task has landed.
 
 ### Analysis kind
 
-- [ ] One `AnalysisToolDescriptor` in `AnalysisToolRegistry.all` in `Sources/LungfishIO/Analysis/AnalysisToolRegistry.swift`, placed so no id plus a hyphen starts another, with its provenance link to a lock entry or its reason for none. `knownTools` and `displayName(for:)` derive from it.
+- [ ] One `AnalysisToolDescriptor` in `AnalysisToolRegistry.all` in `Sources/LungfishIO/Analysis/AnalysisToolRegistry.swift`, placed so no id plus a hyphen starts another, with its provisioning link to a lock entry or its reason for none. `knownTools` and `displayName(for:)` derive from it.
 - [ ] The pins updated by hand in the same commit, which are `AnalysisToolRegistryTests`, `AnalysesFolderDisplayNamePinTests`, `SidebarPresentationPinTests` and the id list in `SidebarScanSafetyNetProjects.swift`. No snapshot is regenerated to make a test pass. `ToolRegistryAgreementTests` passes, with a new kind that has no lock link added to its exact set with a reason.
 - [ ] No new analysis id literal in a `switch`, `==` or `hasPrefix` outside `Sources/LungfishIO/Analysis/`. `scripts/ratchets/tool-identity.sh` passes without a baseline change.
 
