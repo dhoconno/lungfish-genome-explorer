@@ -5,6 +5,7 @@
 import Foundation
 import SQLite3
 import XCTest
+import LungfishTestSupport
 @testable import LungfishIO
 @testable import LungfishWorkflow
 

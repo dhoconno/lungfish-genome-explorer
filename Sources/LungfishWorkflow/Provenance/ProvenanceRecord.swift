@@ -474,24 +474,3 @@ extension ProvenanceStep {
 }
 
 // Note: Uses ParameterValue from WorkflowParameters.swift for workflow parameters.
-
-// MARK: - Sidecar writing
-
-extension WorkflowRun {
-    /// Writes this run as a pretty, sorted JSON sidecar at `url`. Inside a
-    /// project or bundle the account's home, the managed tool root and
-    /// scratch directories are rewritten (see `PortablePath`);
-    /// `ProvenanceEnvelopeReader` resolves them again on load.
-    public func writeSidecar(to url: URL, workspaceURLs: [URL] = []) throws {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = PortablePath.sanitizeJSON(
-            try encoder.encode(self),
-            forFileAt: url,
-            workspaceURLs: workspaceURLs,
-            encoder: encoder
-        )
-        try data.write(to: url, options: .atomic)
-    }
-}
