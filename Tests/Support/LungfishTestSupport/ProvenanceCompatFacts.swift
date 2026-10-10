@@ -12,15 +12,21 @@
 // say, passed through the production readers, and rewrites the machine-bound
 // path prefixes to fixed tokens. A runtime key or a date appears only when the
 // key is present in the source bytes.
+//
+// Facts version 2 adds, per step, the durable replay argv, the reproducible
+// command, the step graph as positions, the wall time, the resolved options and
+// the container and conda identity the step's bytes hold, and adds two views of
+// the steps as the legacy readers see them (`legacyRunSteps`, `canonicalRunSteps`).
 
 import Foundation
 import LungfishCore
 import LungfishWorkflow
 
 public struct ProvenanceCompatFacts: Codable, Equatable, Sendable {
-    public static let currentFactsVersion = 1
+    public static let currentFactsVersion = 2
 
-    /// Which step of the tolerant reader accepted the bytes.
+    /// Which step of the tolerant reader accepts the bytes. It is decided by trying the
+    /// decoders in the reader's order on the path-resolved bytes.
     public enum DecodedBy: String, Codable, Sendable {
         /// Step 1, the canonical envelope.
         case envelope
@@ -48,15 +54,42 @@ public struct ProvenanceCompatFacts: Codable, Equatable, Sendable {
         public var format: String?
     }
 
+    /// One step of the envelope as the reader presents it.
     public struct StepFact: Codable, Equatable, Sendable {
         public var toolName: String
         public var toolVersion: String
         public var argv: [String]
+        public var durableReplayArgv: [String]?
+        public var reproducibleCommand: String
+        /// The steps this step depends on, as positions in `steps`, so step ids drop out.
+        /// A reference to an id that is not among the steps reads -1.
+        public var dependsOn: [Int]
         public var exitStatus: Int?
+        public var wallTimeSeconds: Double?
         public var peakMemoryBytes: UInt64?
         public var stderr: String?
+        public var resolvedOptions: Value
+        /// `containerImage`, `containerDigest` and `condaEnvironment`, present only when the
+        /// step's own bytes hold the key, either on the step or in its runtime identity.
+        public var recorded: [String: String]
         public var inputs: [FileFact]
         public var outputs: [FileFact]
+    }
+
+    /// One step of the `WorkflowRun` that `legacyWorkflowRun()` returns, which is what Copy
+    /// Command, `provenance bibliography`, `ops stats` and the exporters read.
+    public struct LegacyStepFact: Codable, Equatable, Sendable {
+        public var toolName: String
+        public var toolVersion: String
+        public var command: [String]
+        public var durableReplayArgv: [String]?
+        public var containerImage: String?
+        public var containerDigest: String?
+        public var exitCode: Int?
+        public var wallTime: Double?
+        public var peakMemoryBytes: UInt64?
+        /// Positions in this view's own step list.
+        public var dependsOn: [Int]
     }
 
     public var factsVersion: Int
@@ -89,6 +122,12 @@ public struct ProvenanceCompatFacts: Codable, Equatable, Sendable {
     public var output: FileFact?
     public var outputs: [FileFact]
     public var steps: [StepFact]
+    /// The steps of `envelope.legacyWorkflowRun()`. A run-bearing envelope or a bare run shows
+    /// the run's own steps, any other record shows steps rebuilt from the envelope's.
+    public var legacyRunSteps: [LegacyStepFact]
+    /// The steps of `envelope.legacyWorkflowRun(preferCanonicalSteps: true)`, which the
+    /// exporters read. They are always rebuilt from the envelope's own steps.
+    public var canonicalRunSteps: [LegacyStepFact]
     /// Values the bytes record for the keys a reader would otherwise fill from the
     /// reading machine (`createdAt`, `workflowVersion`, `appVersion`, `hostOS`, and every
     /// scalar in `runtimeIdentity` and `runtime`), present only when the key is in the bytes.
@@ -148,14 +187,15 @@ public struct ProvenanceCompatFacts: Codable, Equatable, Sendable {
         let normalize = PathNormalizer(projectRoot: projectRoot)
 
         let strictAccepts = (try? ProvenanceEnvelopeReader.loadCanonical(fromSidecar: sidecar)) != nil
-        let decodedBy: DecodedBy = strictAccepts ? .envelope : (envelope.legacyRun != nil ? .workflowRun : .primitive)
-
         let legacyView = envelope.legacyWorkflowRun()
+        let canonicalView = envelope.legacyWorkflowRun(preferCanonicalSteps: true)
         let embeddedRun = json["legacyWorkflowRun"] as? [String: Any]
+        let rawSteps = rawStepObjects(in: json)
+        let stepIDs = envelope.steps.map(\.id)
 
         return ProvenanceCompatFacts(
             factsVersion: currentFactsVersion,
-            decodedBy: decodedBy,
+            decodedBy: decodedBy(ofResolvedBytes: resolvedBytes),
             strictAccepts: strictAccepts,
             opsStats: try opsStatsFacts(rawBytes: rawBytes),
             status: json["status"] as? String,
@@ -170,16 +210,36 @@ public struct ProvenanceCompatFacts: Codable, Equatable, Sendable {
             exitStatus: envelope.exitStatus,
             wallTimeSeconds: envelope.wallTimeSeconds,
             stderr: envelope.stderr.map { normalize($0) },
-            explicitOptions: try value(of: envelope.options.explicit, normalize: normalize),
-            defaultOptions: try value(of: envelope.options.defaults, normalize: normalize),
-            resolvedDefaultOptions: try value(of: envelope.options.resolvedDefaults, normalize: normalize),
-            legacyRunParameters: try value(of: legacyView.parameters, normalize: normalize),
+            explicitOptions: typedValue(of: envelope.options.explicit, normalize: normalize),
+            defaultOptions: typedValue(of: envelope.options.defaults, normalize: normalize),
+            resolvedDefaultOptions: typedValue(of: envelope.options.resolvedDefaults, normalize: normalize),
+            legacyRunParameters: typedValue(of: legacyView.parameters, normalize: normalize),
             files: envelope.files.map { fileFact($0, normalize: normalize) },
             output: envelope.output.map { fileFact($0, normalize: normalize) },
             outputs: envelope.outputs.map { fileFact($0, normalize: normalize) },
-            steps: envelope.steps.map { stepFact($0, normalize: normalize) },
+            steps: envelope.steps.enumerated().map { index, step in
+                stepFact(
+                    step,
+                    stepIDs: stepIDs,
+                    rawStep: index < rawSteps.count ? rawSteps[index] : nil,
+                    normalize: normalize
+                )
+            },
+            legacyRunSteps: legacyStepFacts(legacyView.steps, normalize: normalize),
+            canonicalRunSteps: legacyStepFacts(canonicalView.steps, normalize: normalize),
             recorded: recordedValues(in: json, normalize: normalize)
         )
+    }
+
+    /// Tries the decoders on the path-resolved bytes in the reader's order.
+    private static func decodedBy(ofResolvedBytes bytes: Data) -> DecodedBy {
+        if (try? ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: bytes)) != nil {
+            return .envelope
+        }
+        if (try? ProvenanceJSON.decoder.decode(WorkflowRun.self, from: bytes)) != nil {
+            return .workflowRun
+        }
+        return .primitive
     }
 
     private static func opsStatsFacts(rawBytes: Data) throws -> OpsStats {
@@ -214,24 +274,100 @@ public struct ProvenanceCompatFacts: Codable, Equatable, Sendable {
         )
     }
 
-    private static func stepFact(_ step: ProvenanceStep, normalize: PathNormalizer) -> StepFact {
+    private static func stepFact(
+        _ step: ProvenanceStep,
+        stepIDs: [UUID],
+        rawStep: [String: Any]?,
+        normalize: PathNormalizer
+    ) -> StepFact {
         StepFact(
             toolName: normalize(step.toolName),
             toolVersion: normalize(step.toolVersion),
             argv: step.argv.map { normalize($0) },
+            durableReplayArgv: step.durableReplayArgv?.map { normalize($0) },
+            reproducibleCommand: normalize(step.reproducibleCommand),
+            dependsOn: step.dependsOn.map { stepIDs.firstIndex(of: $0) ?? -1 },
             exitStatus: step.exitStatus,
+            wallTimeSeconds: step.wallTimeSeconds,
             peakMemoryBytes: step.peakMemoryBytes,
             stderr: step.stderr.map { normalize($0) },
+            resolvedOptions: typedValue(of: step.resolvedOptions, normalize: normalize),
+            recorded: stepRecordedValues(in: rawStep, normalize: normalize),
             inputs: step.inputs.map { fileFact($0, normalize: normalize) },
             outputs: step.outputs.map { fileFact($0, normalize: normalize) }
         )
     }
 
-    private static func value(of parameters: [String: ParameterValue], normalize: PathNormalizer) throws -> Value {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        let data = try encoder.encode(parameters)
-        return try JSONDecoder().decode(Value.self, from: data).mappingStrings { normalize($0) }
+    private static func legacyStepFacts(_ steps: [StepExecution], normalize: PathNormalizer) -> [LegacyStepFact] {
+        let ids = steps.map(\.id)
+        return steps.map { step in
+            LegacyStepFact(
+                toolName: normalize(step.toolName),
+                toolVersion: normalize(step.toolVersion),
+                command: step.command.map { normalize($0) },
+                durableReplayArgv: step.durableReplayArgv?.map { normalize($0) },
+                containerImage: step.containerImage.map { normalize($0) },
+                containerDigest: step.containerDigest.map { normalize($0) },
+                exitCode: step.exitCode.map(Int.init),
+                wallTime: step.wallTime,
+                peakMemoryBytes: step.peakMemoryBytes,
+                dependsOn: step.dependsOn.map { ids.firstIndex(of: $0) ?? -1 }
+            )
+        }
+    }
+
+    /// Options and parameters as typed JSON, built straight from the model so the result does
+    /// not depend on the working directory. A file value that was recorded as a relative path
+    /// keeps that path, where `URL.path` would prepend the current directory.
+    private static func typedValue(of parameters: [String: ParameterValue], normalize: PathNormalizer) -> Value {
+        .object(parameters.mapValues { typedValue(of: $0, normalize: normalize) })
+    }
+
+    private static func typedValue(of parameter: ParameterValue, normalize: PathNormalizer) -> Value {
+        func typed(_ type: String, _ value: Value? = nil) -> Value {
+            var members: [String: Value] = ["type": .string(type)]
+            if let value { members["value"] = value }
+            return .object(members)
+        }
+        switch parameter {
+        case .string(let text):
+            return typed("string", .string(normalize(text)))
+        case .integer(let number):
+            return typed("integer", .integer(Int64(number)))
+        case .number(let number):
+            return typed("number", .number(number))
+        case .boolean(let flag):
+            return typed("boolean", .bool(flag))
+        case .file(let url):
+            return typed("file", .string(normalize(url.baseURL != nil ? url.relativePath : url.path)))
+        case .array(let items):
+            return typed("array", .array(items.map { typedValue(of: $0, normalize: normalize) }))
+        case .dictionary(let members):
+            return typed("dictionary", .object(members.mapValues { typedValue(of: $0, normalize: normalize) }))
+        case .null:
+            return typed("null")
+        }
+    }
+
+    /// The step objects in the bytes, in the order the envelope decoder reads them.
+    private static func rawStepObjects(in json: [String: Any]) -> [[String: Any]] {
+        for key in ["steps", "workflowSteps", "externalToolInvocations"] {
+            if let steps = json[key] as? [[String: Any]], !steps.isEmpty { return steps }
+        }
+        if let single = json["externalTool"] as? [String: Any] { return [single] }
+        return []
+    }
+
+    private static func stepRecordedValues(in rawStep: [String: Any]?, normalize: PathNormalizer) -> [String: String] {
+        guard let rawStep else { return [:] }
+        let identity = rawStep["runtimeIdentity"] as? [String: Any] ?? rawStep["runtime"] as? [String: Any]
+        var result: [String: String] = [:]
+        for key in ["containerImage", "containerDigest", "condaEnvironment"] {
+            if let text = scalarText(identity?[key]) ?? scalarText(rawStep[key]) {
+                result[key] = normalize(text)
+            }
+        }
+        return result
     }
 
     /// The top-level keys a reader fills when they are missing, and every scalar of the
@@ -328,17 +464,15 @@ extension ProvenanceCompatFacts {
     /// Rewrites the path prefixes that belong to the machine or the test run to fixed tokens.
     ///
     /// In this order: the temporary project (`<project>`), the managed tool root
-    /// (`<tool-root>`), the managed storage root (`<storage-root>`), the working directory
-    /// (`<cwd>`), the temporary folders (`<tmp>`), and the account folder of any user
-    /// (`<home>`). A prefix matches only on a path boundary, and both spellings of a
-    /// symlinked prefix (`/var` and `/private/var`) are tried.
+    /// (`<tool-root>`), the managed storage root (`<storage-root>`), the temporary folders
+    /// (`<tmp>`), and the account folder of any user (`<home>`). A prefix matches only on a
+    /// path boundary, and both spellings of a symlinked prefix (`/var` and `/private/var`)
+    /// are tried. The working directory is not an anchor, because a test started from a
+    /// home folder would turn every `<home>` path into it.
     public struct PathNormalizer: Sendable {
         private let anchors: [(path: String, token: String)]
 
-        public init(
-            projectRoot: URL,
-            workingDirectory: String = FileManager.default.currentDirectoryPath
-        ) {
+        public init(projectRoot: URL) {
             var candidates: [(path: String, token: String)] = []
             func add(_ path: String, _ token: String) {
                 for spelling in Self.spellings(of: path) {
@@ -349,7 +483,6 @@ extension ProvenanceCompatFacts {
             let managed = PortablePath.defaultManagedRoots
             add(managed.toolRoot.path, "<tool-root>")
             add(managed.storageRoot.path, "<storage-root>")
-            if workingDirectory.count > 1 { add(workingDirectory, "<cwd>") }
             add(FileManager.default.temporaryDirectory.path, "<tmp>")
             add(NSTemporaryDirectory(), "<tmp>")
             if let tmpdir = ProcessInfo.processInfo.environment["TMPDIR"], tmpdir.count > 1 { add(tmpdir, "<tmp>") }

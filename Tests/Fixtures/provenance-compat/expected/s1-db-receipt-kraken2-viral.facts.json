@@ -2,6 +2,23 @@
   "argv" : [
 
   ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+
+      ],
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "kraken2",
+      "toolVersion" : "unknown",
+      "wallTime" : 13.609868884086609
+    }
+  ],
   "decodedBy" : "envelope",
   "defaultOptions" : {
 
@@ -16,7 +33,7 @@
       "value" : "kraken2-viral"
     }
   },
-  "factsVersion" : 1,
+  "factsVersion" : 2,
   "files" : [
     {
       "path" : "/home/corpus/.lungfish/databases/kraken2/viral/database100mers.kmer_distrib",
@@ -121,6 +138,23 @@
       "value" : "kraken2-viral"
     }
   },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+
+      ],
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "kraken2",
+      "toolVersion" : "unknown",
+      "wallTime" : 13.609868884086609
+    }
+  ],
   "opsStats" : {
     "completedRunCount" : 1,
     "decodesAsWorkflowRun" : true,

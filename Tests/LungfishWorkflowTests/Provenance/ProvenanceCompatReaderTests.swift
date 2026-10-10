@@ -249,9 +249,18 @@ struct ProvenanceCompatReaderTests {
         #expect(envelope.legacyRunParameters == bare.legacyRunParameters)
         #expect(envelope.output == bare.output)
         #expect(envelope.outputs == bare.outputs)
+        // Steps compare in full, so a lost replay argv, step graph, wall time or container identity shows.
         #expect(envelope.steps == bare.steps)
         #expect(envelope.steps.count == 2)
         #expect(envelope.steps.last?.argv.first?.hasPrefix("<tool-root>/") == true)
+        // The run's only replayable command is the second step's durable argv, and the second step depends on the first.
+        #expect(envelope.steps[1].durableReplayArgv == bare.steps[1].durableReplayArgv)
+        #expect(envelope.steps[1].durableReplayArgv?.first == "lungfish-cli")
+        #expect(envelope.steps[1].dependsOn == [0])
+        #expect(bare.steps[1].dependsOn == [0])
+        #expect(envelope.steps.map(\.wallTimeSeconds) == bare.steps.map(\.wallTimeSeconds))
+        #expect(envelope.legacyRunSteps == bare.legacyRunSteps)
+        #expect(envelope.canonicalRunSteps == bare.canonicalRunSteps)
 
         // The declared differences.
         #expect(bare.decodedBy == .workflowRun)
@@ -261,10 +270,15 @@ struct ProvenanceCompatReaderTests {
         #expect(bare.embeddedRunStatus == nil)
         #expect(envelope.embeddedRunStatus == "completed")
         // The envelope keeps the run's exact wall time. The bare file keeps whole-second dates.
+        // The run wall times agree within one second and the step wall times agree exactly (above).
         #expect(envelope.wallTimeSeconds == 41.5)
         #expect(bare.wallTimeSeconds == 41)
+        if let converted = envelope.wallTimeSeconds, let original = bare.wallTimeSeconds {
+            #expect(abs(converted - original) <= 1)
+        }
         // A bare run converted in memory lists a file once per step, the envelope read back lists it once.
-        #expect(Self.uniqueByRoleAndPath(bare.files) == envelope.files)
+        // Files compare as a set on path, role, SHA-256 and size.
+        #expect(Self.fileKeys(bare.files) == Self.fileKeys(envelope.files))
         #expect(bare.files.count == envelope.files.count + 1)
     }
 
@@ -281,9 +295,11 @@ struct ProvenanceCompatReaderTests {
         return members[key]
     }
 
-    private static func uniqueByRoleAndPath(_ files: [ProvenanceCompatFacts.FileFact]) -> [ProvenanceCompatFacts.FileFact] {
-        var seen = Set<String>()
-        return files.filter { seen.insert("\($0.role)\u{0}\($0.path)").inserted }
+    /// A file identified by path, role, SHA-256 and size, which is how the parity ruling compares files.
+    private static func fileKeys(_ files: [ProvenanceCompatFacts.FileFact]) -> Set<String> {
+        Set(files.map { file in
+            [file.path, file.role, file.sha256 ?? "-", file.size.map(String.init) ?? "-"].joined(separator: "\u{0}")
+        })
     }
 
     private static func sameFile(_ lhs: URL, _ rhs: URL) -> Bool {

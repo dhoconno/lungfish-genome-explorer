@@ -11,6 +11,58 @@
     "--native-pair-hmm-threads",
     "2"
   ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "<tool-root>/envs/gatk4/bin/gatk",
+        "HaplotypeCaller",
+        "-R",
+        "<project>/Inputs/reference.fasta",
+        "-I",
+        "<project>/Alignments/sample.bam",
+        "-O",
+        "<project>/Analyses/variants-phase/raw.vcf",
+        "--native-pair-hmm-threads",
+        "2"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "peakMemoryBytes" : 2100000000,
+      "toolName" : "gatk",
+      "toolVersion" : "4.6.1.0",
+      "wallTime" : 30
+    },
+    {
+      "command" : [
+        "<tool-root>/envs/whatshap/bin/whatshap",
+        "phase",
+        "-o",
+        "<project>/Analyses/variants-phase/phased.vcf",
+        "--reference",
+        "<project>/Inputs/reference.fasta",
+        "<project>/Analyses/variants-phase/raw.vcf",
+        "<project>/Alignments/sample.bam"
+      ],
+      "dependsOn" : [
+        0
+      ],
+      "durableReplayArgv" : [
+        "lungfish-cli",
+        "variants",
+        "phase",
+        "--reference",
+        "<project>/Inputs/reference.fasta",
+        "--bam",
+        "<project>/Alignments/sample.bam"
+      ],
+      "exitCode" : 0,
+      "toolName" : "whatshap",
+      "toolVersion" : "2.3",
+      "wallTime" : 11.5
+    }
+  ],
   "decodedBy" : "envelope",
   "defaultOptions" : {
 
@@ -47,7 +99,7 @@
       "value" : 2
     }
   },
-  "factsVersion" : 1,
+  "factsVersion" : 2,
   "files" : [
     {
       "format" : "fasta",
@@ -115,6 +167,58 @@
       "value" : 2
     }
   },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "<tool-root>/envs/gatk4/bin/gatk",
+        "HaplotypeCaller",
+        "-R",
+        "<project>/Inputs/reference.fasta",
+        "-I",
+        "<project>/Alignments/sample.bam",
+        "-O",
+        "<project>/Analyses/variants-phase/raw.vcf",
+        "--native-pair-hmm-threads",
+        "2"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "peakMemoryBytes" : 2100000000,
+      "toolName" : "gatk",
+      "toolVersion" : "4.6.1.0",
+      "wallTime" : 30
+    },
+    {
+      "command" : [
+        "<tool-root>/envs/whatshap/bin/whatshap",
+        "phase",
+        "-o",
+        "<project>/Analyses/variants-phase/phased.vcf",
+        "--reference",
+        "<project>/Inputs/reference.fasta",
+        "<project>/Analyses/variants-phase/raw.vcf",
+        "<project>/Alignments/sample.bam"
+      ],
+      "dependsOn" : [
+        0
+      ],
+      "durableReplayArgv" : [
+        "lungfish-cli",
+        "variants",
+        "phase",
+        "--reference",
+        "<project>/Inputs/reference.fasta",
+        "--bam",
+        "<project>/Alignments/sample.bam"
+      ],
+      "exitCode" : 0,
+      "toolName" : "whatshap",
+      "toolVersion" : "2.3",
+      "wallTime" : 11.5
+    }
+  ],
   "opsStats" : {
     "completedRunCount" : 1,
     "decodesAsWorkflowRun" : true,
@@ -178,6 +282,9 @@
         "--native-pair-hmm-threads",
         "2"
       ],
+      "dependsOn" : [
+
+      ],
       "exitStatus" : 0,
       "inputs" : [
         {
@@ -205,9 +312,17 @@
         }
       ],
       "peakMemoryBytes" : 2100000000,
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "<tool-root>/envs/gatk4/bin/gatk HaplotypeCaller -R <project>/Inputs/reference.fasta -I <project>/Alignments/sample.bam -O <project>/Analyses/variants-phase/raw.vcf --native-pair-hmm-threads 2",
+      "resolvedOptions" : {
+
+      },
       "stderr" : "HaplotypeCaller done.",
       "toolName" : "gatk",
-      "toolVersion" : "4.6.1.0"
+      "toolVersion" : "4.6.1.0",
+      "wallTimeSeconds" : 30
     },
     {
       "argv" : [
@@ -218,6 +333,18 @@
         "--reference",
         "<project>/Inputs/reference.fasta",
         "<project>/Analyses/variants-phase/raw.vcf",
+        "<project>/Alignments/sample.bam"
+      ],
+      "dependsOn" : [
+        0
+      ],
+      "durableReplayArgv" : [
+        "lungfish-cli",
+        "variants",
+        "phase",
+        "--reference",
+        "<project>/Inputs/reference.fasta",
+        "--bam",
         "<project>/Alignments/sample.bam"
       ],
       "exitStatus" : 0,
@@ -246,8 +373,16 @@
           "size" : 35
         }
       ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lungfish-cli variants phase --reference <project>/Inputs/reference.fasta --bam <project>/Alignments/sample.bam",
+      "resolvedOptions" : {
+
+      },
       "toolName" : "whatshap",
-      "toolVersion" : "2.3"
+      "toolVersion" : "2.3",
+      "wallTimeSeconds" : 11.5
     }
   ],
   "strictAccepts" : true,

@@ -11,6 +11,29 @@
     "outputs/mcm-mhc-miseq-reference-20260617",
     "--force"
   ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "scripts/analysis/build_mcm_mhc_miseq_reference.py",
+        "--workbook",
+        "sources/MCM_IPD_names_Acc#_Haplotype.xlsx",
+        "--ipd-fasta",
+        "sources/IPD-MHC_NHKIR_Mafa_genomic.fasta",
+        "--template-fasta",
+        "sources/MCM_MHC-all_mRNA-MiSeq_singles-RENAME_DPBupdated_1Jun26 (1).fasta",
+        "--output-dir",
+        "outputs/mcm-mhc-miseq-reference-20260617",
+        "--force"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "build_mcm_mhc_miseq_reference.py",
+      "toolVersion" : "2026-06-17.1",
+      "wallTime" : 3.002702458994463
+    }
+  ],
   "decodedBy" : "primitive",
   "defaultOptions" : {
 
@@ -79,7 +102,7 @@
       "value" : "sources/MCM_IPD_names_Acc#_Haplotype.xlsx"
     }
   },
-  "factsVersion" : 1,
+  "factsVersion" : 2,
   "files" : [
     {
       "path" : "sources/MCM_IPD_names_Acc#_Haplotype.xlsx",
@@ -205,6 +228,29 @@
       "value" : "sources/MCM_IPD_names_Acc#_Haplotype.xlsx"
     }
   },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "scripts/analysis/build_mcm_mhc_miseq_reference.py",
+        "--workbook",
+        "sources/MCM_IPD_names_Acc#_Haplotype.xlsx",
+        "--ipd-fasta",
+        "sources/IPD-MHC_NHKIR_Mafa_genomic.fasta",
+        "--template-fasta",
+        "sources/MCM_MHC-all_mRNA-MiSeq_singles-RENAME_DPBupdated_1Jun26 (1).fasta",
+        "--output-dir",
+        "outputs/mcm-mhc-miseq-reference-20260617",
+        "--force"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "build_mcm_mhc_miseq_reference.py",
+      "toolVersion" : "2026-06-17.1",
+      "wallTime" : 3.002702458994463
+    }
+  ],
   "opsStats" : {
     "completedRunCount" : 0,
     "decodesAsWorkflowRun" : false,
@@ -287,6 +333,9 @@
         "outputs/mcm-mhc-miseq-reference-20260617",
         "--force"
       ],
+      "dependsOn" : [
+
+      ],
       "exitStatus" : 0,
       "inputs" : [
         {
@@ -352,8 +401,16 @@
           "size" : 7456373
         }
       ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "scripts/analysis/build_mcm_mhc_miseq_reference.py --workbook 'sources/MCM_IPD_names_Acc#_Haplotype.xlsx' --ipd-fasta sources/IPD-MHC_NHKIR_Mafa_genomic.fasta --template-fasta 'sources/MCM_MHC-all_mRNA-MiSeq_singles-RENAME_DPBupdated_1Jun26 (1).fasta' --output-dir outputs/mcm-mhc-miseq-reference-20260617 --force",
+      "resolvedOptions" : {
+
+      },
       "toolName" : "build_mcm_mhc_miseq_reference.py",
-      "toolVersion" : "2026-06-17.1"
+      "toolVersion" : "2026-06-17.1",
+      "wallTimeSeconds" : 3.002702458994463
     }
   ],
   "strictAccepts" : false,

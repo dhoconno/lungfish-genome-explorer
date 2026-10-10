@@ -25,6 +25,27 @@
     "--format",
     "json"
   ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "mafft",
+        "--auto",
+        "--thread",
+        "2",
+        "--threadit",
+        "0",
+        "--inputorder",
+        "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/input.unaligned.fasta"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "mafft",
+      "toolVersion" : "7.526",
+      "wallTime" : 1.7744510173797607
+    }
+  ],
   "decodedBy" : "primitive",
   "defaultOptions" : {
 
@@ -65,7 +86,7 @@
       "value" : true
     }
   },
-  "factsVersion" : 1,
+  "factsVersion" : 2,
   "files" : [
     {
       "path" : "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/source.original",
@@ -193,6 +214,27 @@
       "value" : true
     }
   },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "mafft",
+        "--auto",
+        "--thread",
+        "2",
+        "--threadit",
+        "0",
+        "--inputorder",
+        "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/input.unaligned.fasta"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "mafft",
+      "toolVersion" : "7.526",
+      "wallTime" : 1.7744510173797607
+    }
+  ],
   "opsStats" : {
     "completedRunCount" : 0,
     "decodesAsWorkflowRun" : false,
@@ -237,6 +279,9 @@
         "--inputorder",
         "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/input.unaligned.fasta"
       ],
+      "dependsOn" : [
+
+      ],
       "exitStatus" : 0,
       "inputs" : [
         {
@@ -260,9 +305,17 @@
           "size" : 4982460
         }
       ],
+      "recorded" : {
+        "condaEnvironment" : "mafft"
+      },
+      "reproducibleCommand" : "mafft --auto --thread 2 --threadit 0 --inputorder '/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/input.unaligned.fasta' > '/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/primary.aligned.fasta'",
+      "resolvedOptions" : {
+
+      },
       "stderr" : "nthread = 2\nnthreadpair = 2\nnthreadtb = 2\nppenalty_ex = 0\nstacksize: 8176 kb\ngenerating a scoring matrix for nucleotide (dist=200) ... done\nGap Penalty = -1.53, +0.00, +0.00\n\n\n\nMaking a distance matrix ..\n\r    1 / 5 (thread    0)\ndone.\n\nConstructing a UPGMA tree (efffree=0) ... \n\r    0 / 5\ndone.\n\nProgressive alignment 1/2... \n\rSTEP     1 / 4 (thread    1) f\b\b\rSTEP     2 / 4 (thread    0) f\b\b\rSTEP     3 / 4 (thread    1) f\b\b\rSTEP     4 / 4 (thread    0) f\b\b\ndone.\n\nMaking a distance matrix from msa.. \n\r    0 / 5 (thread    0)\ndone.\n\nConstructing a UPGMA tree (efffree=1) ... \n\r    0 / 5\ndone.\n\nProgressive alignment 2/2... \n\rSTEP     1 / 4 (thread    1) f\b\b\rSTEP     2 / 4 (thread    0) f\b\b\rSTEP     3 / 4 (thread    1) f\b\b\rSTEP     4 / 4 (thread    0) f\b\b\ndone.\n\ndisttbfast (nuc) Version 7.526\nalg=A, model=DNA200 (2), 1.53 (4.59), -0.00 (-0.00), noshift, amax=0.0\n2 thread(s)\n\n\nStrategy:\n FFT-NS-2 (Fast but rough)\n Progressive method (guide trees were built 2 times.)\n\nIf unsure which option to use, try 'mafft --auto input > output'.\nFor more information, see 'mafft --help', 'mafft --man' and the mafft page.\n\nThe default gap scoring scheme has been changed in version 7.110 (2013 Oct).\nIt tends to insert more gaps into gap-rich regions than previous versions.\nTo disable this change, add the --leavegappyregion option.\n\n",
       "toolName" : "mafft",
-      "toolVersion" : "7.526"
+      "toolVersion" : "7.526",
+      "wallTimeSeconds" : 1.7744510173797607
     }
   ],
   "strictAccepts" : false,

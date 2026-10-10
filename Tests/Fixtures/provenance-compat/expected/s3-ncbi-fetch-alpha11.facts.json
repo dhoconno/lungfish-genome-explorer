@@ -13,6 +13,31 @@
     "--format",
     "text"
   ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "lungfish",
+        "fetch",
+        "ncbi",
+        "MN908947.3",
+        "--db",
+        "nucleotide",
+        "--fetch-format",
+        "gff3",
+        "--save-to",
+        "<home>/Documents/lungfish-genome-explorer-worktrees/quizzical-antonelli-6cfbb0/docs/user-manual/fixtures/sarscov2-srr36291587/MN908947.3.gff3",
+        "--format",
+        "text"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "ncbi-efetch",
+      "toolVersion" : "NCBI E-utilities API",
+      "wallTime" : 0.468485951423645
+    }
+  ],
   "decodedBy" : "workflowRun",
   "defaultOptions" : {
 
@@ -69,7 +94,7 @@
       "value" : "<home>/Documents/lungfish-genome-explorer-worktrees/quizzical-antonelli-6cfbb0/docs/user-manual/fixtures/sarscov2-srr36291587/MN908947.3.gff3"
     }
   },
-  "factsVersion" : 1,
+  "factsVersion" : 2,
   "files" : [
     {
       "format" : "gff3",
@@ -135,6 +160,31 @@
       "value" : "<home>/Documents/lungfish-genome-explorer-worktrees/quizzical-antonelli-6cfbb0/docs/user-manual/fixtures/sarscov2-srr36291587/MN908947.3.gff3"
     }
   },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "lungfish",
+        "fetch",
+        "ncbi",
+        "MN908947.3",
+        "--db",
+        "nucleotide",
+        "--fetch-format",
+        "gff3",
+        "--save-to",
+        "<home>/Documents/lungfish-genome-explorer-worktrees/quizzical-antonelli-6cfbb0/docs/user-manual/fixtures/sarscov2-srr36291587/MN908947.3.gff3",
+        "--format",
+        "text"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "ncbi-efetch",
+      "toolVersion" : "NCBI E-utilities API",
+      "wallTime" : 0.468485951423645
+    }
+  ],
   "opsStats" : {
     "completedRunCount" : 1,
     "decodesAsWorkflowRun" : true,
@@ -182,6 +232,9 @@
         "--format",
         "text"
       ],
+      "dependsOn" : [
+
+      ],
       "exitStatus" : 0,
       "inputs" : [
         {
@@ -199,8 +252,16 @@
           "size" : 4040
         }
       ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lungfish fetch ncbi MN908947.3 --db nucleotide --fetch-format gff3 --save-to <home>/Documents/lungfish-genome-explorer-worktrees/quizzical-antonelli-6cfbb0/docs/user-manual/fixtures/sarscov2-srr36291587/MN908947.3.gff3 --format text",
+      "resolvedOptions" : {
+
+      },
       "toolName" : "ncbi-efetch",
-      "toolVersion" : "NCBI E-utilities API"
+      "toolVersion" : "NCBI E-utilities API",
+      "wallTimeSeconds" : 0.468485951423645
     }
   ],
   "strictAccepts" : false,

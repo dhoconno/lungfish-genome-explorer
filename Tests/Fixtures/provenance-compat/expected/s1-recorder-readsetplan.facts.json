@@ -13,6 +13,54 @@
     "--report",
     "<project>/Analyses/kraken2-classification/classification.kreport"
   ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "<tool-root>/envs/kraken2/bin/kraken2",
+        "--db",
+        "<storage-root>/databases/kraken2/viral",
+        "--threads",
+        "4",
+        "--paired",
+        "<project>/Inputs/sample_R1.fastq",
+        "<project>/Inputs/sample_R2.fastq",
+        "--output",
+        "<project>/Analyses/kraken2-classification/classification.kraken",
+        "--report",
+        "<project>/Analyses/kraken2-classification/classification.kreport"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "peakMemoryBytes" : 3400000000,
+      "toolName" : "kraken2",
+      "toolVersion" : "2.1.3",
+      "wallTime" : 12.5
+    },
+    {
+      "command" : [
+        "<tool-root>/envs/bracken/bin/bracken",
+        "-d",
+        "<storage-root>/databases/kraken2/viral",
+        "-i",
+        "<project>/Analyses/kraken2-classification/classification.kreport",
+        "-o",
+        "<project>/Analyses/kraken2-classification/classification.bracken",
+        "-r",
+        "150",
+        "-l",
+        "S"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "bracken",
+      "toolVersion" : "3.0",
+      "wallTime" : 1.5
+    }
+  ],
   "decodedBy" : "envelope",
   "defaultOptions" : {
     "minimumHitGroups" : {
@@ -48,7 +96,7 @@
       "value" : 4
     }
   },
-  "factsVersion" : 1,
+  "factsVersion" : 2,
   "files" : [
     {
       "format" : "fastq",
@@ -157,6 +205,54 @@
       "value" : 4
     }
   },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "<tool-root>/envs/kraken2/bin/kraken2",
+        "--db",
+        "<storage-root>/databases/kraken2/viral",
+        "--threads",
+        "4",
+        "--paired",
+        "<project>/Inputs/sample_R1.fastq",
+        "<project>/Inputs/sample_R2.fastq",
+        "--output",
+        "<project>/Analyses/kraken2-classification/classification.kraken",
+        "--report",
+        "<project>/Analyses/kraken2-classification/classification.kreport"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "peakMemoryBytes" : 3400000000,
+      "toolName" : "kraken2",
+      "toolVersion" : "2.1.3",
+      "wallTime" : 12.5
+    },
+    {
+      "command" : [
+        "<tool-root>/envs/bracken/bin/bracken",
+        "-d",
+        "<storage-root>/databases/kraken2/viral",
+        "-i",
+        "<project>/Analyses/kraken2-classification/classification.kreport",
+        "-o",
+        "<project>/Analyses/kraken2-classification/classification.bracken",
+        "-r",
+        "150",
+        "-l",
+        "S"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "bracken",
+      "toolVersion" : "3.0",
+      "wallTime" : 1.5
+    }
+  ],
   "opsStats" : {
     "completedRunCount" : 1,
     "decodesAsWorkflowRun" : true,
@@ -237,6 +333,9 @@
         "--report",
         "<project>/Analyses/kraken2-classification/classification.kreport"
       ],
+      "dependsOn" : [
+
+      ],
       "exitStatus" : 0,
       "inputs" : [
         {
@@ -271,9 +370,17 @@
         }
       ],
       "peakMemoryBytes" : 3400000000,
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "<tool-root>/envs/kraken2/bin/kraken2 --db <storage-root>/databases/kraken2/viral --threads 4 --paired <project>/Inputs/sample_R1.fastq <project>/Inputs/sample_R2.fastq --output <project>/Analyses/kraken2-classification/classification.kraken --report <project>/Analyses/kraken2-classification/classification.kreport",
+      "resolvedOptions" : {
+
+      },
       "stderr" : "Loading database information... done.\n1 sequences (0.00 Mbp) processed in 0.012s (0.1 Kseq/m, 0.0 Mbp/m).\n",
       "toolName" : "kraken2",
-      "toolVersion" : "2.1.3"
+      "toolVersion" : "2.1.3",
+      "wallTimeSeconds" : 12.5
     },
     {
       "argv" : [
@@ -288,6 +395,9 @@
         "150",
         "-l",
         "S"
+      ],
+      "dependsOn" : [
+
       ],
       "exitStatus" : 0,
       "inputs" : [
@@ -308,9 +418,17 @@
           "size" : 17
         }
       ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "<tool-root>/envs/bracken/bin/bracken -d <storage-root>/databases/kraken2/viral -i <project>/Analyses/kraken2-classification/classification.kreport -o <project>/Analyses/kraken2-classification/classification.bracken -r 150 -l S",
+      "resolvedOptions" : {
+
+      },
       "stderr" : "",
       "toolName" : "bracken",
-      "toolVersion" : "3.0"
+      "toolVersion" : "3.0",
+      "wallTimeSeconds" : 1.5
     }
   ],
   "strictAccepts" : true,

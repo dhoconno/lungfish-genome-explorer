@@ -2,6 +2,20 @@
   "argv" : [
     "scripts/testing/write-analysis-fixture-provenance.py"
   ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "scripts/testing/write-analysis-fixture-provenance.py"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "write-analysis-fixture-provenance.py",
+      "toolVersion" : "0.4.0-alpha.12",
+      "wallTime" : 0
+    }
+  ],
   "decodedBy" : "envelope",
   "defaultOptions" : {
 
@@ -39,7 +53,7 @@
       "value" : "kraken2"
     }
   },
-  "factsVersion" : 1,
+  "factsVersion" : 2,
   "files" : [
     {
       "path" : "classification-result.json",
@@ -98,6 +112,20 @@
       "value" : "kraken2"
     }
   },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "scripts/testing/write-analysis-fixture-provenance.py"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "write-analysis-fixture-provenance.py",
+      "toolVersion" : "0.4.0-alpha.12",
+      "wallTime" : 0
+    }
+  ],
   "opsStats" : {
     "completedRunCount" : 0,
     "decodesAsWorkflowRun" : false,

@@ -7,6 +7,26 @@
     "--output",
     "<project>/Analyses/fastq-trim-cancelled/trimmed.fastq"
   ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "fastq",
+        "trim",
+        "<project>/Inputs/reads.fastq",
+        "--output",
+        "<project>/Analyses/fastq-trim-cancelled/trimmed.fastq"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "peakMemoryBytes" : 42000000,
+      "toolName" : "fastp",
+      "toolVersion" : "0.24.0",
+      "wallTime" : 0.25
+    }
+  ],
   "decodedBy" : "envelope",
   "defaultOptions" : {
     "threads" : {
@@ -34,7 +54,7 @@
       "value" : 20
     }
   },
-  "factsVersion" : 1,
+  "factsVersion" : 2,
   "files" : [
     {
       "format" : "fastq",
@@ -61,6 +81,26 @@
       "value" : 20
     }
   },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "fastq",
+        "trim",
+        "<project>/Inputs/reads.fastq",
+        "--output",
+        "<project>/Analyses/fastq-trim-cancelled/trimmed.fastq"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "peakMemoryBytes" : 42000000,
+      "toolName" : "fastp",
+      "toolVersion" : "0.24.0",
+      "wallTime" : 0.25
+    }
+  ],
   "opsStats" : {
     "completedRunCount" : 0,
     "decodesAsWorkflowRun" : true,
@@ -124,6 +164,9 @@
         "--output",
         "<project>/Analyses/fastq-trim-cancelled/trimmed.fastq"
       ],
+      "dependsOn" : [
+
+      ],
       "exitStatus" : 0,
       "inputs" : [
         {
@@ -144,9 +187,17 @@
         }
       ],
       "peakMemoryBytes" : 42000000,
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lungfish-cli fastq trim <project>/Inputs/reads.fastq --output <project>/Analyses/fastq-trim-cancelled/trimmed.fastq",
+      "resolvedOptions" : {
+
+      },
       "stderr" : "cancelled by user",
       "toolName" : "fastp",
-      "toolVersion" : "0.24.0"
+      "toolVersion" : "0.24.0",
+      "wallTimeSeconds" : 0.25
     }
   ],
   "strictAccepts" : true,
