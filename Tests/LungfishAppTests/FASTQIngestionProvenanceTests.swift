@@ -146,7 +146,10 @@ final class FASTQIngestionProvenanceTests: XCTestCase {
         XCTAssertEqual(run.status, .completed)
         XCTAssertEqual(run.steps.map(\.toolName), ["clumpify.sh", "lungfish-app"])
         XCTAssertEqual(run.parameters["qualityBinning"]?.stringValue, "illumina4")
-        XCTAssertEqual(run.allOutputFiles.map(\.path).last, FASTQMetadataStore.metadataURL(for: outputURL).path)
+        // The run above is rebuilt from the envelope, and its last step also takes the earlier
+        // step's output after its own, so the last output is read from the envelope's own steps.
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundleURL))
+        XCTAssertEqual(envelope.steps.last?.outputs.last?.path, FASTQMetadataStore.metadataURL(for: outputURL).path)
     }
 
     func testInPlaceFASTQIngestionPreservesImportedCLIProvenanceAndAppendsOptimizationSteps() async throws {
