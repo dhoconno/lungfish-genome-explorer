@@ -77,8 +77,6 @@ final class VersionParserOutputPinTests: XCTestCase {
         Capture(name: "fasterq-dump", exitCode: 0,
                 stdout: "\(root)/envs/sra-tools/bin/fasterq-dump : 3.4.1\n\n", stderr: "",
                 native: "3.4.1", detect: "3.4.1", correct: "3.4.1"),
-        Capture(name: "bwa-mem2 version subcommand", exitCode: 0, stdout: "2.2.1\n", stderr: "",
-                native: "2.2.1", detect: "2.2.1", correct: "2.2.1"),
         // Right for the wrong reason in the native parser, which reads 40.02 out of the bbmap-40.02-0
         // install directory in the echoed java line. The detect parser skips the path and reads the banner.
         Capture(name: "reformat.sh", exitCode: 0, stdout: "",
@@ -135,7 +133,11 @@ final class VersionParserOutputPinTests: XCTestCase {
         // bwa-mem2 rejects --version, and the detect parser records the error line (2.6).
         Capture(name: "bwa-mem2 --version", exitCode: 1, stdout: "",
                 stderr: "ERROR: unknown command '--version'\n",
-                native: nil, detect: "ERROR: unknown command '--version'", correct: "2.2.1"),
+                native: nil, detect: "ERROR: unknown command '--version'", correct: "2.3"),
+        // The installed 2.3 build prints a stale 2.2.1 from the version subcommand, so both parsers
+        // read a version the package does not have. Only conda-meta says 2.3 (the lock pin).
+        Capture(name: "bwa-mem2 version subcommand", exitCode: 0, stdout: "2.2.1\n", stderr: "",
+                native: "2.2.1", detect: "2.2.1", correct: "2.3"),
         // vsearch prints its citation first. The native parser records the DOI prefix 10.7717 and the
         // detect parser records zlib's 1.2.12 (2.6).
         Capture(name: "vsearch citation", exitCode: 0,
