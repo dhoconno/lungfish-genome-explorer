@@ -30,21 +30,25 @@ final class MapRecordedMapperIdentityTests: XCTestCase {
         TestTempDirectory.cleanup(root)
     }
 
-    /// BEFORE THE FIX. This pins the defect, not the wanted value. The probe
-    /// runs `micromamba run -n bbmap`, an environment the lock never builds,
-    /// and the record names micromamba's error line as the BBMap version and
-    /// `bbmap` as its environment. The fix commit flips this test.
-    func testBBMapRecordsTheMicromambaErrorBeforeTheFix() async throws {
-        let error = "critical libmamba The given prefix does not exist: \"\(standIn.condaRootURL.path)/envs/bbmap\""
+    /// BBMap records the version the BBTools environment it runs in prints,
+    /// and that environment, in standard and PacBio mode. Before the fix the
+    /// probe ran `micromamba run -n bbmap`, an environment the lock never
+    /// builds, and every record named micromamba's error line,
+    /// `critical libmamba The given prefix does not exist: "<root>/envs/bbmap"`,
+    /// as the BBMap version and `bbmap` as its environment. Renaming the
+    /// environment alone would have recorded `0.40` in PacBio mode, read from
+    /// the `minratio=0.40` that `mapPacBio.sh` echoes.
+    func testBBMapRecordsTheBBToolsVersionAndEnvironment() async throws {
+        let version = MapReadSetStandIn.bbToolsVersion
         for (mode, executable) in [(MappingMode.bbmapStandard, "bbmap.sh"), (.bbmapPacBio, "mapPacBio.sh")] {
             let recorded = try await mapAndRead(tool: .bbmap, mode: mode, executable: executable)
-            XCTAssertEqual(recorded.mapperVersion, error, mode.id)
-            XCTAssertEqual(recorded.envelopeVersion, error, mode.id)
-            XCTAssertEqual(recorded.toolIdentityVersion, error, mode.id)
-            XCTAssertEqual(recorded.condaEnvironment, "bbmap", mode.id)
+            XCTAssertEqual(recorded.mapperVersion, version, mode.id)
+            XCTAssertEqual(recorded.envelopeVersion, version, mode.id)
+            XCTAssertEqual(recorded.toolIdentityVersion, version, mode.id)
+            XCTAssertEqual(recorded.condaEnvironment, "bbtools", mode.id)
             XCTAssertEqual(
                 recorded.stepVersionPrefix,
-                "\(error) (managed conda environment bbtools; executable \(executable); package ",
+                "\(version) (managed conda environment bbtools; executable \(executable); package ",
                 mode.id
             )
         }

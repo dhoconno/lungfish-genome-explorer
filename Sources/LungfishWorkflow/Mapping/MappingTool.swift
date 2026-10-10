@@ -20,7 +20,15 @@ public enum MappingTool: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    public var environmentName: String { rawValue }
+    /// The lock environment the mapper is installed in. BBMap ships in the
+    /// BBTools environment, and MappingToolIdentityTests ties each value to
+    /// the lock.
+    public var environmentName: String {
+        switch self {
+        case .minimap2, .bwaMem2, .bowtie2: return rawValue
+        case .bbmap: return "bbtools"
+        }
+    }
 
     public var executableName: String {
         switch self {

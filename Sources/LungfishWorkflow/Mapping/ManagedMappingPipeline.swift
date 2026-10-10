@@ -121,10 +121,9 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
 
         try await validateInputs(for: prepared.request)
         try FileManager.default.createDirectory(at: prepared.request.outputDirectory, withIntermediateDirectories: true)
-        let mapperVersion = try await detectToolVersion(
-            toolName: command.executable,
-            environment: prepared.request.tool.environmentName,
-            condaManager: condaManager
+        let mapperVersion = try await MappingToolVersionProbe.version(
+            of: prepared.request.tool, executable: command.executable,
+            condaManager: condaManager, nativeToolRunner: nativeToolRunner
         )
         let samtoolsVersion = await nativeToolRunner.getToolVersion(.samtools) ?? "unknown"
         let indexSteps = try await prepareReferenceIndexesIfNeeded(

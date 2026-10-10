@@ -584,7 +584,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
                 appVersion: WorkflowRun.currentAppVersion,
                 executablePath: mapperInvocation.argv.first ?? mapper.rawValue,
                 operatingSystemVersion: WorkflowRun.currentHostOS,
-                condaEnvironment: mapper.rawValue
+                condaEnvironment: mapper.environmentName
             ),
             files: allFiles.map { ProvenanceFileDescriptor(fileRecord: $0) },
             output: primaryOutput,
