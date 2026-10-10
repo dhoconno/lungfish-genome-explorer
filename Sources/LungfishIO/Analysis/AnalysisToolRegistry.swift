@@ -29,12 +29,12 @@ extension AnalysisToolID {
 }
 
 /// The directory name prefixes of one analysis kind, precomputed in registry order.
-public struct AnalysisDirectoryPrefix: Sendable, Hashable {
-    public let id: AnalysisToolID
+struct AnalysisDirectoryPrefix: Sendable, Hashable {
+    let id: AnalysisToolID
     /// `"<id>-"`.
-    public let single: String
+    let single: String
     /// `"<id>-batch-"`.
-    public let batch: String
+    let batch: String
 }
 
 /// The known analysis kinds. The order is fixed and is the order name parsing tries them in.
@@ -109,11 +109,11 @@ public enum AnalysisToolRegistry {
         Dictionary(all.map { ($0.id.rawValue, $0) }, uniquingKeysWith: { first, _ in first })
 
     /// The ids of kinds whose imported results use `{id}-{sampleName}` naming.
-    public static let importedResultIDs: Set<String> =
+    static let importedResultIDs: Set<String> =
         Set(all.filter(\.acceptsImportedSampleNames).map { $0.id.rawValue })
 
     /// The directory prefixes of every kind in registry order.
-    public static let directoryPrefixes: [AnalysisDirectoryPrefix] = all.map {
+    static let directoryPrefixes: [AnalysisDirectoryPrefix] = all.map {
         AnalysisDirectoryPrefix(
             id: $0.id,
             single: "\($0.id.rawValue)-",

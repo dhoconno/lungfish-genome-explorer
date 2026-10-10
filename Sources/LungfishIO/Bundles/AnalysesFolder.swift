@@ -22,7 +22,7 @@ public enum AnalysesFolder {
     /// Filename for the analysis metadata sidecar written at directory creation time.
     public static let metadataFilename = "analysis-metadata.json"
 
-    /// The set of recognised tool names used to parse directory entries.
+    /// The ids of the registry's kinds, for membership checks. Name parsing walks `AnalysisToolRegistry.directoryPrefixes`.
     public static let knownTools: Set<String> = Set(AnalysisToolRegistry.all.map { $0.id.rawValue })
 
     // MARK: - Analysis Metadata
