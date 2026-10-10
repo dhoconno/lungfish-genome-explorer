@@ -267,24 +267,18 @@ struct ProvenanceCompatReaderTests {
         let envelope = try Self.liveFacts("s1-canonical-envelope-run")
         let bare = try Self.liveFacts("s3-write-sidecar-bare-run")
 
-        // Facts a migration from writeSidecar to canonicalEnvelope must keep.
-        #expect(envelope.argv == bare.argv)
-        #expect(envelope.durableReplayArgv == bare.durableReplayArgv)
-        #expect(envelope.reproducibleCommand == bare.reproducibleCommand)
-        #expect(envelope.workflowName == bare.workflowName)
-        #expect(envelope.toolName == bare.toolName)
-        #expect(envelope.toolVersion == bare.toolVersion)
-        #expect(envelope.exitStatus == bare.exitStatus)
-        #expect(envelope.status == bare.status)
-        #expect(envelope.readStatus == bare.readStatus)
-        #expect(envelope.explicitOptions == bare.explicitOptions)
-        #expect(envelope.defaultOptions == bare.defaultOptions)
-        #expect(envelope.resolvedDefaultOptions == bare.resolvedDefaultOptions)
-        #expect(envelope.legacyRunParameters == bare.legacyRunParameters)
-        #expect(envelope.output == bare.output)
-        #expect(envelope.outputs == bare.outputs)
-        // Steps compare in full, so a lost replay argv, step graph, wall time or container identity shows.
-        #expect(envelope.steps == bare.steps)
+        // A migration from writeSidecar to canonicalEnvelope must keep every fact except the shape
+        // changes (decoder, strict acceptance, the embedded run's status, repeated files), the host
+        // values under `recorded`, and a run wall time that moves by under a second (below). Steps
+        // compare in full, wall times included, so a lost replay argv, step graph, wall time or
+        // container identity shows.
+        let differences = envelope.differences(
+            from: bare,
+            ignoring: ProvenanceCompatFacts.shapeChange.union([.recorded]),
+            runWallTimeTolerance: 1
+        )
+        #expect(differences.isEmpty, "unexpected differences: \(differences)")
+
         #expect(envelope.steps.count == 2)
         #expect(envelope.steps.last?.argv.first?.hasPrefix("<tool-root>/") == true)
         // The run's only replayable command is the second step's durable argv, and the second step depends on the first.
@@ -293,8 +287,6 @@ struct ProvenanceCompatReaderTests {
         #expect(envelope.steps[1].dependsOn == [0])
         #expect(bare.steps[1].dependsOn == [0])
         #expect(envelope.steps.map(\.wallTimeSeconds) == bare.steps.map(\.wallTimeSeconds))
-        #expect(envelope.legacyRunSteps == bare.legacyRunSteps)
-        #expect(envelope.canonicalRunSteps == bare.canonicalRunSteps)
 
         // The declared differences.
         #expect(bare.decodedBy == .workflowRun)
@@ -311,9 +303,9 @@ struct ProvenanceCompatReaderTests {
             #expect(abs(converted - original) <= 1)
         }
         // A bare run converted in memory lists a file once per step, the envelope read back lists it once.
-        // Files compare as a set on path, role, SHA-256 and size.
-        #expect(Self.fileKeys(bare.files) == Self.fileKeys(envelope.files))
+        // Files compare as a set on path, role, SHA-256 and size (the shape-change rule above).
         #expect(bare.files.count == envelope.files.count + 1)
+        #expect(!envelope.differences(from: bare, ignoring: [.recorded]).isEmpty)
     }
 
     // MARK: Helpers
@@ -327,13 +319,6 @@ struct ProvenanceCompatReaderTests {
     private static func member(_ value: ProvenanceCompatFacts.Value, _ key: String) -> ProvenanceCompatFacts.Value? {
         guard case .object(let members) = value else { return nil }
         return members[key]
-    }
-
-    /// A file identified by path, role, SHA-256 and size, which is how the parity ruling compares files.
-    private static func fileKeys(_ files: [ProvenanceCompatFacts.FileFact]) -> Set<String> {
-        Set(files.map { file in
-            [file.path, file.role, file.sha256 ?? "-", file.size.map(String.init) ?? "-"].joined(separator: "\u{0}")
-        })
     }
 
     private static func sameFile(_ lhs: URL, _ rhs: URL) -> Bool {

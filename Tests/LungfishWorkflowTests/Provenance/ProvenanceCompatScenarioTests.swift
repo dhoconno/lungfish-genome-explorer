@@ -59,17 +59,7 @@ struct ProvenanceCompatScenarioTests {
         let frozen = try ProvenanceCompatFacts.decode(
             try #require(ProvenanceCompatCorpus.expectedFactsData(for: id), "case \(id) has no expected facts")
         )
-        #expect(
-            String(decoding: try withoutRunSpecificFields(live).canonicalJSON(), as: UTF8.self)
-                == String(decoding: try withoutRunSpecificFields(frozen).canonicalJSON(), as: UTF8.self)
-        )
-    }
-
-    private static func withoutRunSpecificFields(_ facts: ProvenanceCompatFacts) -> ProvenanceCompatFacts {
-        var copy = facts
-        copy.recorded = [:]
-        copy.wallTimeSeconds = nil
-        copy.opsStats.totalWallTimeSeconds = 0
-        return copy
+        let differences = live.differences(from: frozen, ignoring: ProvenanceCompatFacts.runSpecific)
+        #expect(differences.isEmpty, "scenario for \(id) drifted: \(differences)")
     }
 }

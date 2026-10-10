@@ -24,19 +24,9 @@ final class ProvenanceCompatCLIScenarioTests: XCTestCase {
         let frozen = try ProvenanceCompatFacts.decode(
             try XCTUnwrap(ProvenanceCompatCorpus.expectedFactsData(for: "s1-cancelled-single-step"))
         )
-        XCTAssertEqual(
-            String(decoding: try withoutRunSpecificFields(live).canonicalJSON(), as: UTF8.self),
-            String(decoding: try withoutRunSpecificFields(frozen).canonicalJSON(), as: UTF8.self)
-        )
+        let differences = live.differences(from: frozen, ignoring: ProvenanceCompatFacts.runSpecific)
+        XCTAssertTrue(differences.isEmpty, "scenario drifted from its case: \(differences)")
         XCTAssertEqual(live.status, "cancelled")
         XCTAssertEqual(live.exitStatus, 0)
-    }
-
-    private func withoutRunSpecificFields(_ facts: ProvenanceCompatFacts) -> ProvenanceCompatFacts {
-        var copy = facts
-        copy.recorded = [:]
-        copy.wallTimeSeconds = nil
-        copy.opsStats.totalWallTimeSeconds = 0
-        return copy
     }
 }

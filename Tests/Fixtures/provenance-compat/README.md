@@ -69,6 +69,8 @@ The projection leaves out every value a reader fills from the reading machine, w
 
 Each expected facts file is written once, with `LUNGFISH_CAPTURE_PROVENANCE_FACTS=1`, on unchanged code. A reviewer reads it against the source bytes. Afterwards `ProvenanceCompatReaderTests` compares the live facts with it byte for byte. The gate never sets the variable.
 
+A lane that changes a writer compares facts with `differences(from:ignoring:)` and never keeps its own list of allowed differences. The helper returns one line per difference, each starting with the path of the field, and takes a set of named fields to ignore. Two documented sets cover the common cases. `ProvenanceCompatFacts.runSpecific` holds what two runs of one writer decide for themselves, which is the host values under `recorded`, the run's wall time, each step's wall time and the total wall time `ops stats` derives. `ProvenanceCompatFacts.shapeChange` holds what a conversion from a bare run to a run-bearing envelope changes by design, which is the decoder, strict acceptance, the embedded run's status and repeated files, so files compare as a set on path, role, SHA-256 and size. Step wall times compare exactly and the run wall time can be compared within one second.
+
 ## Adding a case
 
 1. Put the bytes under `cases/<id>/`, laid out as they sit in a project, or reference a tracked file in place with a `repo:` path.
