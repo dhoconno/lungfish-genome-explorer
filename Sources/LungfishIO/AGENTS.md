@@ -20,6 +20,7 @@ LungfishCore, SystemPackage, AsyncAlgorithms, SQLite3 and system frameworks. Nev
 | `AnalysesFolder` (analysis folder lifecycle) | Sources/LungfishIO/Bundles/AnalysesFolder.swift line 17 |
 | `AnalysisToolRegistry` and `AnalysisToolDescriptor`, the one table of analysis kinds (id, display name, imported-sample naming, sidebar symbol, batch badge and lock link) | Sources/LungfishIO/Analysis/AnalysisToolRegistry.swift, AnalysisToolDescriptor.swift |
 | `AnalysisToolID` and `ManagedToolID`, the two typed tool ids | Sources/LungfishIO/Analysis/ToolIdentity.swift |
+| `BundleKindRegistry`, `BundleKindDescriptor` and `BundleKindID`, the one table of bundle kinds (folder extension, manifest, UTType id, sidebar symbol, package presentation, deletion and copy facts, app state, record names and producing analysis) | Sources/LungfishIO/Bundles/BundleKindRegistry.swift, BundleKind.swift |
 | `VariantDatabase`, `AnnotationDatabase` | Sources/LungfishIO/Bundles/VariantDatabase.swift line 40, AnnotationDatabase.swift line 44 |
 | `AlignmentDataProvider` | Sources/LungfishIO/Bundles/AlignmentDataProvider.swift line 87 |
 | `ProjectTempDirectory` | Sources/LungfishIO/Bundles/ProjectTempDirectory.swift line 65 |
@@ -36,6 +37,14 @@ LungfishCore, SystemPackage, AsyncAlgorithms, SQLite3 and system frameworks. Nev
 - Streaming readers pull per demand with `AsyncThrowingStream(unfolding:)` (FASTQReader.swift line 76). An unbounded producer task is a memory bomb (memory file known-issues.md). The viewer's samtools reads in `AlignmentDataProvider` and the gzip decompression of a VCF in `VariantDatabase+RegionExtraction.swift` run on `ToolProcess` in LungfishCore with `stdout: .stream`, so the reader gets raw bytes at its own pace and a cancel stops the whole tree. Neither creates a `Process()`, and a new tool run in this module uses the same primitive (docs/contracts/RUNNING-A-TOOL.md).
 - Genotype workbook and matrix exports stay byte-identical across any refactor (REVIEW.md R6).
 - A tree manifest's `supportLabels` name the tests behind "a/b[/c]" node labels in IQ-TREE's order, and normalisation splits the label against them. Without labels the old single-value guess is kept. Derived trees pass the inference summary explicitly. Reroot clears the outgroup, extract passes none and relabel keeps it. Line numbers for the IQ-TREE rows above were checked at commit 58370dd8e.
+
+## Bundle kinds
+
+`BundleKindRegistry.all` holds one `BundleKindDescriptor` for each of the 15 folder kinds a project can hold, from `.lungfish` to `.lungfishflowpkg`. A descriptor gives the id, the folder extension, the manifest file name, the UTType id that `Lungfish-Info.plist` declares, the sidebar symbol, whether the sidebar shows the folder as one package or walks it, how the deletion planner and the cross-project copier treat it, the file names that hold app state, the provenance record names and the analysis that writes it. The registry converts no caller yet. Eleven older tables still decide the same facts and they disagree.
+
+`BundleKindID` is a string-backed struct, so an id from a newer build decodes and finds no descriptor. A lookup by extension reads no file. `descriptor(forExactExtension:)` keeps the answer of a site that compares case-sensitively and `descriptor(forLowercasedExtension:)` keeps the answer of a site that lowercases, so a converted site keeps its own case rule until a reviewed change says otherwise. `recognizedKind(at:)` is the only lookup that touches the file system, and it asks for the manifest only when the kind needs one. A package with no viewer, such as `.lungfish12sref`, `.lungfishflow`, `.lungfishflowpkg` and a `.lungfishtax` folder with no manifest, stays walked. `.lungfish12sref` is its own kind and not a genome reference.
+
+Changing a fact here changes nothing until a caller reads it. `BundleKindParityTests` in Tests/LungfishAppTests/SafetyNets fails when the answer of any older table moves, so convert one table at a time and review each diff of the files in Tests/Fixtures/bundle-kinds. `BundleKindRegistryTests` ties the descriptors to the typed constants, the Info.plist and those recorded answers. `BundleKindAgreementTests` in LungfishWorkflowTests ties them to the Workflow constants and to `AnalysisToolRegistry`.
 
 ## Tests
 

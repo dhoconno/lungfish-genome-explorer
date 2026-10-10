@@ -1,0 +1,228 @@
+// BundleKindRegistry.swift - The table of known bundle kinds
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import Foundation
+
+/// The known kinds of Lungfish folder, with the facts today's code applies to each.
+///
+/// Eleven tables across the app map a folder extension to a fact about a bundle, and they
+/// disagree. This registry holds the facts once. It converts no caller yet. Every value here is
+/// frozen by `BundleKindParityTests` in the App tests, which records what each table answers, and
+/// `BundleKindRegistryTests` checks the facts below against that record. A caller that reads the
+/// registry must keep the answer its old table gave, case rules included.
+///
+/// The order is the order of the Phase 2.6 inventory. The extension index is built from it
+/// once. A lookup by extension does no file system access. The functions that read the file
+/// system are ``recognizedKind(at:fileManager:)`` and
+/// ``BundleKindDescriptor/recognizes(folder:fileManager:)``.
+public enum BundleKindRegistry {
+    /// The root record name that the alignment and tree formats write in their own schema.
+    private static let rootRecord = BundleKindDescriptor.SidecarNaming.rootRecordFileName
+
+    public static let all: [BundleKindDescriptor] = [
+        // The project folder. Its row is the sidebar root. Nested in another project it is a walked package.
+        BundleKindDescriptor(
+            id: .project, role: .project, folderExtensions: ["lungfish"],
+            manifestFileName: "metadata.json", recognition: .extensionOnly, utTypeIdentifier: nil,
+            sidebarSymbolName: "folder.badge.gearshape", presentation: .walkedPackage,
+            deletion: .init(isOpaqueProjectObject: false), copy: .refused,
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: nil
+        ),
+        // A reference has many writers (import, mapping, Viral Recon), so producedBy stays nil.
+        BundleKindDescriptor(
+            id: .reference, role: .bundle, folderExtensions: ["lungfishref"],
+            manifestFileName: "manifest.json", recognition: .extensionOnly,
+            utTypeIdentifier: "org.lungfish.reference-bundle",
+            sidebarSymbolName: "cylinder.split.1x2", presentation: .atomicPackage,
+            deletion: .init(isOpaqueProjectObject: true),
+            copy: .copied(toFolder: "Reference Sequences", requiresAnalysesFolder: false),
+            appStateFileNames: [".viewstate.json"], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: nil
+        ),
+        // A read bundle has no single manifest. A derived bundle has derived.manifest.json, a
+        // multi-file bundle has read-manifest.json, and each FASTQ file has a .lungfish-meta.json beside it.
+        BundleKindDescriptor(
+            id: .fastq, role: .bundle, folderExtensions: ["lungfishfastq"],
+            manifestFileName: nil, recognition: .extensionOnly, utTypeIdentifier: nil,
+            sidebarSymbolName: "doc.text", presentation: .atomicPackage,
+            deletion: .init(isOpaqueProjectObject: true),
+            copy: .copied(toFolder: "Imports", requiresAnalysesFolder: false),
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: nil
+        ),
+        // The alignment, tree, primer and primer analysis formats keep their own record names.
+        // An alignment also writes metadata/annotation-edit-provenance.json after an annotation edit.
+        // The alignment and tree .viewstate.json is created with the bundle and covered by the
+        // manifest checksums, so it stays a frozen exception to the rule that app state sits
+        // outside checksums. A reference bundle's .viewstate.json is outside them.
+        BundleKindDescriptor(
+            id: .multipleSequenceAlignment, role: .bundle, folderExtensions: ["lungfishmsa"],
+            manifestFileName: "manifest.json", recognition: .extensionOnly,
+            utTypeIdentifier: "org.lungfish.msa-bundle",
+            sidebarSymbolName: "rectangle.grid.1x2", presentation: .atomicPackage,
+            deletion: .init(isOpaqueProjectObject: true),
+            copy: .copied(toFolder: "Analyses/Multiple Sequence Alignments", requiresAnalysesFolder: false),
+            appStateFileNames: [".viewstate.json"],
+            sidecarNaming: .frozenException(recordPaths: [rootRecord]),
+            producedBy: .mafft
+        ),
+        BundleKindDescriptor(
+            id: .phylogeneticTree, role: .bundle, folderExtensions: ["lungfishtree"],
+            manifestFileName: "manifest.json", recognition: .extensionOnly,
+            utTypeIdentifier: "org.lungfish.tree-bundle",
+            sidebarSymbolName: "point.3.connected.trianglepath.dotted", presentation: .atomicPackage,
+            deletion: .init(isOpaqueProjectObject: true),
+            copy: .copied(toFolder: "Phylogenetic Trees", requiresAnalysesFolder: false),
+            appStateFileNames: [".viewstate.json"],
+            sidecarNaming: .frozenException(recordPaths: [rootRecord]),
+            producedBy: nil
+        ),
+        BundleKindDescriptor(
+            id: .primerScheme, role: .bundle, folderExtensions: ["lungfishprimers"],
+            manifestFileName: "manifest.json", recognition: .extensionOnly, utTypeIdentifier: nil,
+            sidebarSymbolName: "line.horizontal.3.decrease.circle", presentation: .atomicPackage,
+            deletion: .init(isOpaqueProjectObject: true),
+            copy: .copied(toFolder: "Primer Schemes", requiresAnalysesFolder: false),
+            appStateFileNames: [], sidecarNaming: .frozenException(recordPaths: ["PROVENANCE.md"]), producedBy: nil
+        ),
+        BundleKindDescriptor(
+            id: .primerAnalysis, role: .bundle, folderExtensions: ["lungfishprimeranalysis"],
+            manifestFileName: "manifest.json", recognition: .extensionOnly,
+            utTypeIdentifier: "org.lungfish.primer-analysis",
+            sidebarSymbolName: "list.bullet.rectangle", presentation: .atomicPackage,
+            deletion: .init(isOpaqueProjectObject: true),
+            copy: .copied(toFolder: "Analyses", requiresAnalysesFolder: false),
+            appStateFileNames: [], sidecarNaming: .frozenException(recordPaths: [BundleKindDescriptor.SidecarNaming.layoutPath("wrapper.json")]), producedBy: nil
+        ),
+        // The MHC reference database is imported through its own path, so the copier refuses it.
+        BundleKindDescriptor(
+            id: .mhcReference, role: .bundle, folderExtensions: ["lungfishmhcref"],
+            manifestFileName: "mhc-reference.json", recognition: .extensionAndManifest,
+            utTypeIdentifier: "org.lungfish.mhc-reference-bundle",
+            sidebarSymbolName: "cylinder.split.1x2", presentation: .atomicPackage,
+            deletion: .init(isOpaqueProjectObject: true), copy: .refused,
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: nil
+        ),
+        BundleKindDescriptor(
+            id: .genotypeResult, role: .bundle, folderExtensions: ["lungfishgenotype"],
+            manifestFileName: "genotype-result.json", recognition: .extensionOnly, utTypeIdentifier: nil,
+            sidebarSymbolName: "tablecells.badge.ellipsis", presentation: .atomicPackage,
+            deletion: .init(isOpaqueProjectObject: true),
+            copy: .copied(toFolder: "Analyses", requiresAnalysesFolder: true),
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: .ontGenotyping
+        ),
+        BundleKindDescriptor(
+            id: .twelveSResult, role: .bundle, folderExtensions: ["lungfish12s"],
+            manifestFileName: "12s-result.json", recognition: .extensionOnly, utTypeIdentifier: nil,
+            sidebarSymbolName: "tablecells", presentation: .atomicPackage,
+            deletion: .init(isOpaqueProjectObject: true),
+            copy: .copied(toFolder: "Analyses", requiresAnalysesFolder: false),
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: nil
+        ),
+        // The 12S reference database is its own kind (plan row S10). The sidebar has no viewport for it
+        // yet, so it stays a walked document row, and FileTypeUtility calling it a genome reference is a known mismatch.
+        BundleKindDescriptor(
+            id: .twelveSReference, role: .bundle, folderExtensions: ["lungfish12sref"],
+            manifestFileName: "12s-reference.json", recognition: .extensionAndManifest, utTypeIdentifier: nil,
+            sidebarSymbolName: "shippingbox", presentation: .walkedPackage,
+            deletion: .init(isOpaqueProjectObject: true),
+            copy: .copied(toFolder: "", requiresAnalysesFolder: false),
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: nil
+        ),
+        // Without cz-id-manifest.json the sidebar shows a walked document row, and the copier treats the
+        // folder as an other native bundle that lands in the project root.
+        BundleKindDescriptor(
+            id: .czIdResult, role: .bundle, folderExtensions: ["lungfishtax"],
+            manifestFileName: "cz-id-manifest.json", recognition: .extensionAndManifest, utTypeIdentifier: nil,
+            sidebarSymbolName: "c.circle", presentation: .atomicPackage,
+            deletion: .init(isOpaqueProjectObject: true),
+            copy: .copied(toFolder: "Classifications", requiresAnalysesFolder: false),
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: .czId
+        ),
+        // A run bundle is a working artifact of a pipeline. The sidebar hides it by its lowercase extension only.
+        BundleKindDescriptor(
+            id: .workflowRun, role: .bundle, folderExtensions: ["lungfishrun"],
+            manifestFileName: "manifest.json", recognition: .extensionOnly, utTypeIdentifier: nil,
+            sidebarSymbolName: "shippingbox", presentation: .hiddenPackage,
+            deletion: .init(isOpaqueProjectObject: false),
+            copy: .copied(toFolder: "", requiresAnalysesFolder: false),
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: nil
+        ),
+        // Retired. Nothing creates it, but the Info.plist still declares the type and the copier still lands it.
+        BundleKindDescriptor(
+            id: .workflowBundle, role: .bundle, folderExtensions: ["lungfishflow"],
+            manifestFileName: nil, recognition: .extensionOnly, utTypeIdentifier: "org.lungfish.workflow",
+            sidebarSymbolName: "shippingbox", presentation: .walkedPackage,
+            deletion: .init(isOpaqueProjectObject: false),
+            copy: .copied(toFolder: "Workflows", requiresAnalysesFolder: false),
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: nil
+        ),
+        BundleKindDescriptor(
+            id: .workflowPackage, role: .bundle, folderExtensions: ["lungfishflowpkg"],
+            manifestFileName: "manifest.json", recognition: .extensionOnly, utTypeIdentifier: nil,
+            sidebarSymbolName: "shippingbox", presentation: .walkedPackage,
+            deletion: .init(isOpaqueProjectObject: false), copy: .refused,
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: nil
+        ),
+    ]
+
+    /// The one index. Every folder extension, already lowercase, maps to its descriptor.
+    private static let byFolderExtension: [String: BundleKindDescriptor] = Dictionary(
+        all.flatMap { descriptor in descriptor.folderExtensions.map { ($0, descriptor) } },
+        uniquingKeysWith: { first, _ in first }
+    )
+
+    // MARK: - Lookup without file system access
+
+    public static func descriptor(for id: BundleKindID) -> BundleKindDescriptor? {
+        all.first { $0.id == id }
+    }
+
+    /// The kind whose folder extension is exactly `ext`. The registry spells extensions in
+    /// lowercase, so `LUNGFISHREF` finds nothing. This is the lookup for a site that compares
+    /// case-sensitively today and keeps that answer until a reviewed change.
+    public static func descriptor(forExactExtension ext: String) -> BundleKindDescriptor? {
+        byFolderExtension[ext]
+    }
+
+    /// The kind whose folder extension equals `ext` after lowercasing it, so `LUNGFISHREF` finds the
+    /// reference kind. This is the lookup for a site that lowercases today.
+    public static func descriptor(forLowercasedExtension ext: String) -> BundleKindDescriptor? {
+        byFolderExtension[ext.lowercased()]
+    }
+
+    /// ``descriptor(forExactExtension:)`` for the path extension of `url`.
+    public static func descriptor(forExactExtensionOf url: URL) -> BundleKindDescriptor? {
+        descriptor(forExactExtension: url.pathExtension)
+    }
+
+    /// ``descriptor(forLowercasedExtension:)`` for the path extension of `url`.
+    public static func descriptor(forLowercasedExtensionOf url: URL) -> BundleKindDescriptor? {
+        descriptor(forLowercasedExtension: url.pathExtension)
+    }
+
+    // MARK: - Recognition that reads the file system
+
+    /// The kind of a folder, ignoring the case of its extension.
+    ///
+    /// A kind whose recognition is `.extensionAndManifest` is returned only when its manifest exists
+    /// in the folder. A kind recognized by extension alone is returned without touching the file
+    /// system. A scan loop that needs no gate calls ``descriptor(forLowercasedExtensionOf:)`` instead.
+    public static func recognizedKind(at url: URL, fileManager: FileManager = .default) -> BundleKindDescriptor? {
+        guard let descriptor = descriptor(forLowercasedExtensionOf: url),
+              descriptor.recognizes(folder: url, fileManager: fileManager) else {
+            return nil
+        }
+        return descriptor
+    }
+}
+
+extension BundleKindDescriptor {
+    /// True when `url` passes this kind's recognition rule.
+    ///
+    /// The extension is not checked. Reads the file system only for `.extensionAndManifest`, and then
+    /// only to ask whether the manifest file exists.
+    public func recognizes(folder url: URL, fileManager: FileManager = .default) -> Bool {
+        guard recognition == .extensionAndManifest, let manifestFileName else { return true }
+        return fileManager.fileExists(atPath: url.appendingPathComponent(manifestFileName).path)
+    }
+}
