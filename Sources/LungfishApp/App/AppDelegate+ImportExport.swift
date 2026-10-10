@@ -114,8 +114,6 @@ extension AppDelegate {
             if firstVisibleCandidate == nil {
                 firstVisibleCandidate = standardized
             }
-            _ = try? MetagenomicsBatchProvenanceWriter.ensureEsVirituBatchProvenanceIfPossible(batchRoot: standardized)
-            _ = try? MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(resultDirectory: standardized)
             if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: standardized) {
                 return .resolved(
                     AppProvenanceExportSource(
@@ -133,8 +131,6 @@ extension AppDelegate {
 
         if let sidebarSelection = sidebarController?.selectedFileURL?.standardizedFileURL,
            seen.insert(sidebarSelection.path).inserted {
-            _ = try? MetagenomicsBatchProvenanceWriter.ensureEsVirituBatchProvenanceIfPossible(batchRoot: sidebarSelection)
-            _ = try? MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(resultDirectory: sidebarSelection)
             if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: sidebarSelection) {
                 return .resolved(
                     AppProvenanceExportSource(

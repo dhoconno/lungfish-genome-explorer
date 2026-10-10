@@ -266,22 +266,6 @@ final class InspectorProvenanceTabTests: XCTestCase {
     }
 
     func testGenotypeOnlyInspectorConfigurePreservesEveryPreexistingBundleByte() throws {
-        func recursiveBytes(at root: URL) throws -> [String: Data] {
-            let keys: [URLResourceKey] = [.isRegularFileKey]
-            guard let enumerator = FileManager.default.enumerator(
-                at: root,
-                includingPropertiesForKeys: keys
-            ) else { return [:] }
-            var bytes: [String: Data] = [:]
-            for case let url as URL in enumerator {
-                guard try url.resourceValues(forKeys: Set(keys))
-                    .isRegularFile == true else { continue }
-                bytes[String(url.path.dropFirst(root.path.count + 1))] =
-                    try Data(contentsOf: url)
-            }
-            return bytes
-        }
-
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "inspector-genotype-only-nonseeding-\(UUID().uuidString).lungfishgenotype",
@@ -313,7 +297,7 @@ final class InspectorProvenanceTabTests: XCTestCase {
         try Data("opaque artifact".utf8).write(
             to: bundleURL.appendingPathComponent("custom/opaque.bin")
         )
-        let before = try recursiveBytes(at: bundleURL)
+        let before = try ProjectTreeSnapshot(of: bundleURL).fileBytes
         let call = ONTGenotypeCall(
             sample: "AnimalA",
             genotype: "01_Mafa_A1_001_01",
@@ -338,7 +322,7 @@ final class InspectorProvenanceTabTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(try recursiveBytes(at: bundleURL), before)
+        XCTAssertEqual(try ProjectTreeSnapshot(of: bundleURL).fileBytes, before)
     }
 
     func testAmbiguousLegacyONTBarcodeResultIsNotTreatedAsGenotypeOnly() {

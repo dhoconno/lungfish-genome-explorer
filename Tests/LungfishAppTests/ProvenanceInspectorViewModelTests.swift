@@ -364,7 +364,10 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.copyableText.contains("[0m"))
     }
 
-    func testEsVirituInspectorBackfillsRootProvenanceFromSampleSidecar() async throws {
+    /// Before Phase 2.4 the audit wrote a batch record, a manifest and a summary table when it found a
+    /// batch with sample records and no root record. Reading never writes (ruling V6), so the batch
+    /// shows Missing provenance and its folder keeps every byte.
+    func testEsVirituInspectorShowsMissingProvenanceForBatchWithoutRootRecord() async throws {
         let root = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let batchRoot = root.appendingPathComponent("esviritu-batch-test", isDirectory: true)
@@ -403,6 +406,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
             stderr: ""
         )
         try ProvenanceWriter(signingProvider: nil).write(envelope, to: sampleDirectory)
+        let before = try ProjectTreeSnapshot(of: root)
 
         let viewModel = ProvenanceInspectorViewModel()
         viewModel.load(
@@ -415,12 +419,20 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         )
         try await waitUntilLoadCompletes(viewModel)
 
-        XCTAssertEqual(viewModel.audit.status, .present)
-        XCTAssertEqual(viewModel.summary.workflowName, "EsViritu Batch")
-        XCTAssertNotNil(ProvenanceRecorder.findProvenanceEnvelope(for: batchRoot))
+        XCTAssertEqual(viewModel.audit.status, .missing)
+        XCTAssertEqual(viewModel.summary.statusLabel, "Missing provenance")
+        XCTAssertNil(viewModel.resolvedEnvelope)
+        XCTAssertNil(ProvenanceRecorder.findProvenanceEnvelope(for: batchRoot))
+        XCTAssertEqual(
+            try ProjectTreeSnapshot(of: root).differences(from: before), [],
+            "Selecting a batch without a root record must not write one."
+        )
     }
 
-    func testTaxTriageInspectorBackfillsRootProvenanceFromResultSidecar() async throws {
+    /// Before Phase 2.4 the audit wrote a record for a TaxTriage result that had none, stamped with
+    /// the reading app's version and the moment of reading. Reading never writes (ruling V6), so the
+    /// result shows Missing provenance and its folder keeps every byte.
+    func testTaxTriageInspectorShowsMissingProvenanceForResultWithoutRecord() async throws {
         let resultDirectory = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: resultDirectory) }
 
@@ -444,6 +456,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
             allOutputFiles: [reportURL]
         )
         try result.save()
+        let before = try ProjectTreeSnapshot(of: resultDirectory)
 
         let viewModel = ProvenanceInspectorViewModel()
         viewModel.load(
@@ -456,9 +469,14 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         )
         try await waitUntilLoadCompletes(viewModel)
 
-        XCTAssertEqual(viewModel.audit.status, .present)
-        XCTAssertEqual(viewModel.summary.workflowName, "TaxTriage")
-        XCTAssertNotNil(ProvenanceRecorder.findProvenanceEnvelope(for: resultDirectory))
+        XCTAssertEqual(viewModel.audit.status, .missing)
+        XCTAssertEqual(viewModel.summary.statusLabel, "Missing provenance")
+        XCTAssertNil(viewModel.resolvedEnvelope)
+        XCTAssertNil(ProvenanceRecorder.findProvenanceEnvelope(for: resultDirectory))
+        XCTAssertEqual(
+            try ProjectTreeSnapshot(of: resultDirectory).differences(from: before), [],
+            "Selecting a result without a record must not write one."
+        )
     }
 
     /// Capture on 9.64: the HG002 bcftools track's record read "Incomplete"

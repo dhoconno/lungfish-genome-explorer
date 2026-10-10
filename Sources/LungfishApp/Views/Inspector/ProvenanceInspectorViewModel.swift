@@ -104,6 +104,9 @@ struct ProvenanceCoverageMonitor {
         return .notRequired
     }
 
+    /// Reads the record that applies to `item` and reports whether it is there and complete.
+    ///
+    /// The audit only reads. A result with no record is Missing, and nothing is written to fill the gap.
     func audit(_ item: ProvenanceInspectableItem) -> ProvenanceAuditResult {
         let requirement = requirement(for: item)
         guard let url = item.url else {
@@ -116,8 +119,6 @@ struct ProvenanceCoverageMonitor {
             )
         }
 
-        _ = try? MetagenomicsBatchProvenanceWriter.ensureEsVirituBatchProvenanceIfPossible(batchRoot: url)
-        _ = try? MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(resultDirectory: url)
         guard let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: url) else {
             guard !requirement.isNotRequired else { return .notRequired }
             return ProvenanceAuditResult(
@@ -512,8 +513,8 @@ final class ProvenanceInspectorViewModel {
         }
     }
 
-    /// The heavy, off-main portion of `load(item:)`: coverage audit (which may write missing
-    /// sidecars via `MetagenomicsBatchProvenanceWriter`), the multi-level sidecar directory
+    /// The heavy, off-main portion of `load(item:)`: the coverage audit (which only reads, so
+    /// selecting a result never writes to the project), the multi-level sidecar directory
     /// walk (`ProvenanceRecorder.findProvenanceEnvelope`), and JSON decode of the resolved
     /// envelope. Pure with respect to `self` -- takes a value-type snapshot of `item` and
     /// `monitor` and returns a value-type outcome -- so it is safe to run detached from the
