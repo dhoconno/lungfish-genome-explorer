@@ -4,6 +4,7 @@
 
 import Foundation
 import Testing
+import LungfishCore
 import LungfishTestSupport
 @testable import LungfishWorkflow
 

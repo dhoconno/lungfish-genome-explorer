@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 private struct RawProvenanceToolIdentity: Decodable {
     let name: String?
