@@ -23,15 +23,7 @@ public enum AnalysesFolder {
     public static let metadataFilename = "analysis-metadata.json"
 
     /// The set of recognised tool names used to parse directory entries.
-    public static let knownTools: Set<String> = [
-        "esviritu", "kraken2", "taxtriage", "minimap2", "bwa-mem2", "bowtie2", "bbmap",
-        "spades", "megahit", "skesa", "flye", "hifiasm", "naomgs", "nvd", "cz-id",
-        "mafft", "ont-genotyping", "viralrecon", "primer-order", "pbaa", "savont",
-    ]
-
-    /// Tools whose imported results use `{tool}-{sampleName}` naming
-    /// instead of the standard `{tool}-{timestamp}` convention.
-    private static let importedResultTools: Set<String> = ["naomgs", "nvd", "cz-id"]
+    public static let knownTools: Set<String> = Set(AnalysisToolRegistry.all.map { $0.id.rawValue })
 
     // MARK: - Analysis Metadata
 
@@ -80,30 +72,7 @@ public enum AnalysesFolder {
 
     /// Human-readable display name for a tool identifier.
     public static func displayName(for tool: String) -> String {
-        switch tool {
-        case "esviritu": return "EsViritu"
-        case "kraken2": return "Kraken2"
-        case "taxtriage": return "TaxTriage"
-        case "spades": return "SPAdes"
-        case "megahit": return "MEGAHIT"
-        case "skesa": return "SKESA"
-        case "flye": return "Flye"
-        case "hifiasm": return "Hifiasm"
-        case "minimap2": return "Minimap2"
-        case "bwa-mem2": return "BWA-MEM2"
-        case "bowtie2": return "Bowtie2"
-        case "bbmap": return "BBMap"
-        case "naomgs": return "NAO-MGS"
-        case "nvd": return "NVD"
-        case "cz-id": return "CZ-ID"
-        case "ont-genotyping": return "ONT Genotyping"
-        case "mafft": return "MAFFT"
-        case "viralrecon": return "Viral Recon"
-        case "primer-order": return "Primer Order"
-        case "pbaa": return "pbAA"
-        case "savont": return "Savont"
-        default: return tool.capitalized
-        }
+        AnalysisToolRegistry.displayName(forRawID: tool)
     }
 
     // MARK: - Directory Management
@@ -640,23 +609,21 @@ public enum AnalysesFolder {
         }
 
         // 2. Try batch pattern first: {tool}-batch-{timestamp}
-        for tool in knownTools {
-            let batchPrefix = "\(tool)-batch-"
-            if name.hasPrefix(batchPrefix) {
-                let timestampPart = String(name.dropFirst(batchPrefix.count))
+        for entry in AnalysisToolRegistry.directoryPrefixes {
+            if name.hasPrefix(entry.batch) {
+                let timestampPart = String(name.dropFirst(entry.batch.count))
                 if let date = parseTimestamp(timestampPart) {
-                    return AnalysisDirectoryInfo(url: url, tool: tool, timestamp: date, isBatch: true)
+                    return AnalysisDirectoryInfo(url: url, tool: entry.id.rawValue, timestamp: date, isBatch: true)
                 }
             }
         }
 
         // Try single pattern: {tool}-{timestamp}
-        for tool in knownTools {
-            let prefix = "\(tool)-"
-            if name.hasPrefix(prefix) {
-                let timestampPart = String(name.dropFirst(prefix.count))
+        for entry in AnalysisToolRegistry.directoryPrefixes {
+            if name.hasPrefix(entry.single) {
+                let timestampPart = String(name.dropFirst(entry.single.count))
                 if let date = parseTimestamp(timestampPart) {
-                    return AnalysisDirectoryInfo(url: url, tool: tool, timestamp: date, isBatch: false)
+                    return AnalysisDirectoryInfo(url: url, tool: entry.id.rawValue, timestamp: date, isBatch: false)
                 }
             }
         }
@@ -664,11 +631,11 @@ public enum AnalysesFolder {
         // Fallback for imported results that use {tool}-{sampleName} naming
         // (e.g. naomgs-MU-CASPER-2026-03-31-a-..., nvd-SampleName).
         // Uses the directory's filesystem creation date as the timestamp.
-        for tool in importedResultTools {
-            let prefix = "\(tool)-"
-            if name.hasPrefix(prefix), !String(name.dropFirst(prefix.count)).isEmpty {
+        for entry in AnalysisToolRegistry.directoryPrefixes
+        where AnalysisToolRegistry.importedResultIDs.contains(entry.id.rawValue) {
+            if name.hasPrefix(entry.single), !String(name.dropFirst(entry.single.count)).isEmpty {
                 let date = (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? Date()
-                return AnalysisDirectoryInfo(url: url, tool: tool, timestamp: date, isBatch: false)
+                return AnalysisDirectoryInfo(url: url, tool: entry.id.rawValue, timestamp: date, isBatch: false)
             }
         }
 
