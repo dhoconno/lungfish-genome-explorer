@@ -1,0 +1,691 @@
+{
+  "formatVersion": 1,
+  "readingNotes": [
+    "Captured once with LUNGFISH_CAPTURE_DEMO_PROVENANCE=1 on code that had not changed any writer (Phase 2.4 lane W1B). The test refuses to overwrite this file. Later lanes leave it unedited.",
+    "Each sidecar entry is what the tolerant reader decodes from the released bytes. It holds no value the reading Mac fills in, such as runtime identity, appVersion, operating system or createdAt.",
+    "A path that starts with @/ is inside the installed project. <tool-root> and <storage-root> are the managed roots. <tmp> is any system temporary folder, whether the bytes record it literally or as the <workspace> placeholder.",
+    "decodedBy names the first reader step that accepts the bytes. strictAccepts is the result of loadCanonical. rawStatus is the top-level status string of the file. embeddedRun is the legacyWorkflowRun block, when the file has one.",
+    "finder lists the sidecar that findProvenanceEnvelope returns for each bundle folder and each payload file, with no sidecar when it finds none. lineage lists the records ProvenanceLineageResolver walks for each sidecar, upstream first."
+  ],
+  "archive": {"id": "mhc-genotyping", "version": "2026.9.58", "bytes": 110747, "sha256": "f11b808067437ae3182efe31d50fc0a047857ae0a14cd20f564abd15b673fba0"},
+  "sidecars": [
+    {
+      "sidecar": "Haplotype Definitions/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json.provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "Haplotype definition import",
+      "toolName": "lungfish-cli",
+      "toolVersion": "Lungfish dev (0)",
+      "argv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "import", "<tmp>/lge-demo-build/inputs/mhc-simulated/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json", "--project", "@/", "--change-note", "Definition set shipped with the MHC Genotyping demo project"],
+      "durableReplayArgv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "import", "<tmp>/lge-demo-build/inputs/mhc-simulated/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json", "--project", "@/", "--change-note", "Definition set shipped with the MHC Genotyping demo project"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json", "role": "input", "sha256": "b4f47d6be7053cd5ce26479ad4ed919aa401f7c12a515238f74d19f91d0871b4", "size": 1643},
+        {"path": "@/Haplotype Definitions/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json", "role": "output", "sha256": "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3", "size": 1811}
+      ],
+      "outputs": [
+        {"path": "@/Haplotype Definitions/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json", "role": "output", "sha256": "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3", "size": 1811}
+      ]
+    },
+    {
+      "sidecar": "Imports/SIMULATED-MHC-A-pairs.lungfishfastq/.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish import fastq",
+      "toolName": "lungfish import fastq",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["lungfish-cli", "import", "fastq", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-A-pairs.fastq", "--project", "@/", "--platform", "illumina", "--recipe", "none", "--quality-binning", "none", "--clumping-tool", "auto", "--compression", "balanced", "--threads", "14"],
+      "durableReplayArgv": ["lungfish-cli", "import", "fastq", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-A-pairs.fastq", "--project", "@/", "--platform", "illumina", "--recipe", "none", "--quality-binning", "none", "--clumping-tool", "auto", "--compression", "balanced", "--threads", "14"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-A-pairs.fastq", "role": "input", "sha256": "1b8a66b482ff41346c410174ead948206a9d7e1f98bc6e30e101fb8b03c64bf5", "size": 141576},
+        {"path": "@/Imports/SIMULATED-MHC-A-pairs.lungfishfastq/SIMULATED-MHC-A-pairs.fastq.gz", "role": "output", "sha256": "f5f35142e77656f0b3b637099d74fbe48ab6733b788e200920ddf58aebeaf11a", "size": 2989},
+        {"path": "@/Imports/SIMULATED-MHC-A-pairs.lungfishfastq/SIMULATED-MHC-A-pairs.fastq.gz.lungfish-meta.json", "role": "output", "sha256": "7dc3978ff6793a116852df35264c7a3ce8696edfd139eeb9a4bdb8792a4b5a75", "size": 31683},
+        {"path": "@/Imports/SIMULATED-MHC-A-pairs.lungfishfastq/SIMULATED-MHC-A-pairs.fastq.gz", "role": "input", "sha256": "f5f35142e77656f0b3b637099d74fbe48ab6733b788e200920ddf58aebeaf11a", "size": 2989}
+      ],
+      "outputs": [
+        {"path": "@/Imports/SIMULATED-MHC-A-pairs.lungfishfastq/SIMULATED-MHC-A-pairs.fastq.gz", "role": "output", "sha256": "f5f35142e77656f0b3b637099d74fbe48ab6733b788e200920ddf58aebeaf11a", "size": 2989},
+        {"path": "@/Imports/SIMULATED-MHC-A-pairs.lungfishfastq/SIMULATED-MHC-A-pairs.fastq.gz.lungfish-meta.json", "role": "output", "sha256": "7dc3978ff6793a116852df35264c7a3ce8696edfd139eeb9a4bdb8792a4b5a75", "size": 31683}
+      ]
+    },
+    {
+      "sidecar": "Imports/SIMULATED-MHC-A-pairs.lungfishfastq/provenance/SIMULATED-MHC-A-pairs.fastq.gz.lungfish-meta.json.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish import fastq",
+      "toolName": "lungfish import fastq",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["lungfish-cli", "import", "fastq", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-A-pairs.fastq", "--project", "@/", "--platform", "illumina", "--recipe", "none", "--quality-binning", "none", "--clumping-tool", "auto", "--compression", "balanced", "--threads", "14"],
+      "durableReplayArgv": ["lungfish-cli", "import", "fastq", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-A-pairs.fastq", "--project", "@/", "--platform", "illumina", "--recipe", "none", "--quality-binning", "none", "--clumping-tool", "auto", "--compression", "balanced", "--threads", "14"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-A-pairs.fastq", "role": "input", "sha256": "1b8a66b482ff41346c410174ead948206a9d7e1f98bc6e30e101fb8b03c64bf5", "size": 141576},
+        {"path": "@/Imports/SIMULATED-MHC-A-pairs.lungfishfastq/SIMULATED-MHC-A-pairs.fastq.gz.lungfish-meta.json", "role": "output", "sha256": "7dc3978ff6793a116852df35264c7a3ce8696edfd139eeb9a4bdb8792a4b5a75", "size": 31683},
+        {"path": "@/Imports/SIMULATED-MHC-A-pairs.lungfishfastq/SIMULATED-MHC-A-pairs.fastq.gz", "role": "input", "sha256": "f5f35142e77656f0b3b637099d74fbe48ab6733b788e200920ddf58aebeaf11a", "size": 2989}
+      ],
+      "outputs": [
+        {"path": "@/Imports/SIMULATED-MHC-A-pairs.lungfishfastq/SIMULATED-MHC-A-pairs.fastq.gz.lungfish-meta.json", "role": "output", "sha256": "7dc3978ff6793a116852df35264c7a3ce8696edfd139eeb9a4bdb8792a4b5a75", "size": 31683}
+      ]
+    },
+    {
+      "sidecar": "Imports/SIMULATED-MHC-A-pairs.lungfishfastq/provenance/SIMULATED-MHC-A-pairs.fastq.gz.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish import fastq",
+      "toolName": "lungfish import fastq",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["lungfish-cli", "import", "fastq", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-A-pairs.fastq", "--project", "@/", "--platform", "illumina", "--recipe", "none", "--quality-binning", "none", "--clumping-tool", "auto", "--compression", "balanced", "--threads", "14"],
+      "durableReplayArgv": ["lungfish-cli", "import", "fastq", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-A-pairs.fastq", "--project", "@/", "--platform", "illumina", "--recipe", "none", "--quality-binning", "none", "--clumping-tool", "auto", "--compression", "balanced", "--threads", "14"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-A-pairs.fastq", "role": "input", "sha256": "1b8a66b482ff41346c410174ead948206a9d7e1f98bc6e30e101fb8b03c64bf5", "size": 141576},
+        {"path": "@/Imports/SIMULATED-MHC-A-pairs.lungfishfastq/SIMULATED-MHC-A-pairs.fastq.gz", "role": "output", "sha256": "f5f35142e77656f0b3b637099d74fbe48ab6733b788e200920ddf58aebeaf11a", "size": 2989}
+      ],
+      "outputs": [
+        {"path": "@/Imports/SIMULATED-MHC-A-pairs.lungfishfastq/SIMULATED-MHC-A-pairs.fastq.gz", "role": "output", "sha256": "f5f35142e77656f0b3b637099d74fbe48ab6733b788e200920ddf58aebeaf11a", "size": 2989}
+      ]
+    },
+    {
+      "sidecar": "Imports/SIMULATED-MHC-A-pairs.lungfishfastq/provenance/bundle.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish import fastq",
+      "toolName": "lungfish import fastq",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["lungfish-cli", "import", "fastq", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-A-pairs.fastq", "--project", "@/", "--platform", "illumina", "--recipe", "none", "--quality-binning", "none", "--clumping-tool", "auto", "--compression", "balanced", "--threads", "14"],
+      "durableReplayArgv": ["lungfish-cli", "import", "fastq", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-A-pairs.fastq", "--project", "@/", "--platform", "illumina", "--recipe", "none", "--quality-binning", "none", "--clumping-tool", "auto", "--compression", "balanced", "--threads", "14"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-A-pairs.fastq", "role": "input", "sha256": "1b8a66b482ff41346c410174ead948206a9d7e1f98bc6e30e101fb8b03c64bf5", "size": 141576},
+        {"path": "@/Imports/SIMULATED-MHC-A-pairs.lungfishfastq/SIMULATED-MHC-A-pairs.fastq.gz", "role": "output", "sha256": "f5f35142e77656f0b3b637099d74fbe48ab6733b788e200920ddf58aebeaf11a", "size": 2989},
+        {"path": "@/Imports/SIMULATED-MHC-A-pairs.lungfishfastq/SIMULATED-MHC-A-pairs.fastq.gz.lungfish-meta.json", "role": "output", "sha256": "7dc3978ff6793a116852df35264c7a3ce8696edfd139eeb9a4bdb8792a4b5a75", "size": 31683},
+        {"path": "@/Imports/SIMULATED-MHC-A-pairs.lungfishfastq/SIMULATED-MHC-A-pairs.fastq.gz", "role": "input", "sha256": "f5f35142e77656f0b3b637099d74fbe48ab6733b788e200920ddf58aebeaf11a", "size": 2989}
+      ],
+      "outputs": [
+        {"path": "@/Imports/SIMULATED-MHC-A-pairs.lungfishfastq/SIMULATED-MHC-A-pairs.fastq.gz", "role": "output", "sha256": "f5f35142e77656f0b3b637099d74fbe48ab6733b788e200920ddf58aebeaf11a", "size": 2989},
+        {"path": "@/Imports/SIMULATED-MHC-A-pairs.lungfishfastq/SIMULATED-MHC-A-pairs.fastq.gz.lungfish-meta.json", "role": "output", "sha256": "7dc3978ff6793a116852df35264c7a3ce8696edfd139eeb9a4bdb8792a4b5a75", "size": 31683}
+      ]
+    },
+    {
+      "sidecar": "Imports/SIMULATED-MHC-B-pairs.lungfishfastq/.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish import fastq",
+      "toolName": "lungfish import fastq",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["lungfish-cli", "import", "fastq", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-B-pairs.fastq", "--project", "@/", "--platform", "illumina", "--recipe", "none", "--quality-binning", "none", "--clumping-tool", "auto", "--compression", "balanced", "--threads", "14"],
+      "durableReplayArgv": ["lungfish-cli", "import", "fastq", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-B-pairs.fastq", "--project", "@/", "--platform", "illumina", "--recipe", "none", "--quality-binning", "none", "--clumping-tool", "auto", "--compression", "balanced", "--threads", "14"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-B-pairs.fastq", "role": "input", "sha256": "0e1a460fe69d85122fe268b7046a1aa8633932b0e8f35758f68e6c0b1437a375", "size": 119368},
+        {"path": "@/Imports/SIMULATED-MHC-B-pairs.lungfishfastq/SIMULATED-MHC-B-pairs.fastq.gz", "role": "output", "sha256": "28472b0486d40b4f83a2a988acd9cb95ccf3131b64552fb417fb917880bdc72f", "size": 2451},
+        {"path": "@/Imports/SIMULATED-MHC-B-pairs.lungfishfastq/SIMULATED-MHC-B-pairs.fastq.gz.lungfish-meta.json", "role": "output", "sha256": "12e2342f8b8bc829a15f8627003f67ece48366e9e4c45b0769e4427912d553a0", "size": 31683},
+        {"path": "@/Imports/SIMULATED-MHC-B-pairs.lungfishfastq/SIMULATED-MHC-B-pairs.fastq.gz", "role": "input", "sha256": "28472b0486d40b4f83a2a988acd9cb95ccf3131b64552fb417fb917880bdc72f", "size": 2451}
+      ],
+      "outputs": [
+        {"path": "@/Imports/SIMULATED-MHC-B-pairs.lungfishfastq/SIMULATED-MHC-B-pairs.fastq.gz", "role": "output", "sha256": "28472b0486d40b4f83a2a988acd9cb95ccf3131b64552fb417fb917880bdc72f", "size": 2451},
+        {"path": "@/Imports/SIMULATED-MHC-B-pairs.lungfishfastq/SIMULATED-MHC-B-pairs.fastq.gz.lungfish-meta.json", "role": "output", "sha256": "12e2342f8b8bc829a15f8627003f67ece48366e9e4c45b0769e4427912d553a0", "size": 31683}
+      ]
+    },
+    {
+      "sidecar": "Imports/SIMULATED-MHC-B-pairs.lungfishfastq/provenance/SIMULATED-MHC-B-pairs.fastq.gz.lungfish-meta.json.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish import fastq",
+      "toolName": "lungfish import fastq",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["lungfish-cli", "import", "fastq", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-B-pairs.fastq", "--project", "@/", "--platform", "illumina", "--recipe", "none", "--quality-binning", "none", "--clumping-tool", "auto", "--compression", "balanced", "--threads", "14"],
+      "durableReplayArgv": ["lungfish-cli", "import", "fastq", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-B-pairs.fastq", "--project", "@/", "--platform", "illumina", "--recipe", "none", "--quality-binning", "none", "--clumping-tool", "auto", "--compression", "balanced", "--threads", "14"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-B-pairs.fastq", "role": "input", "sha256": "0e1a460fe69d85122fe268b7046a1aa8633932b0e8f35758f68e6c0b1437a375", "size": 119368},
+        {"path": "@/Imports/SIMULATED-MHC-B-pairs.lungfishfastq/SIMULATED-MHC-B-pairs.fastq.gz.lungfish-meta.json", "role": "output", "sha256": "12e2342f8b8bc829a15f8627003f67ece48366e9e4c45b0769e4427912d553a0", "size": 31683},
+        {"path": "@/Imports/SIMULATED-MHC-B-pairs.lungfishfastq/SIMULATED-MHC-B-pairs.fastq.gz", "role": "input", "sha256": "28472b0486d40b4f83a2a988acd9cb95ccf3131b64552fb417fb917880bdc72f", "size": 2451}
+      ],
+      "outputs": [
+        {"path": "@/Imports/SIMULATED-MHC-B-pairs.lungfishfastq/SIMULATED-MHC-B-pairs.fastq.gz.lungfish-meta.json", "role": "output", "sha256": "12e2342f8b8bc829a15f8627003f67ece48366e9e4c45b0769e4427912d553a0", "size": 31683}
+      ]
+    },
+    {
+      "sidecar": "Imports/SIMULATED-MHC-B-pairs.lungfishfastq/provenance/SIMULATED-MHC-B-pairs.fastq.gz.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish import fastq",
+      "toolName": "lungfish import fastq",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["lungfish-cli", "import", "fastq", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-B-pairs.fastq", "--project", "@/", "--platform", "illumina", "--recipe", "none", "--quality-binning", "none", "--clumping-tool", "auto", "--compression", "balanced", "--threads", "14"],
+      "durableReplayArgv": ["lungfish-cli", "import", "fastq", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-B-pairs.fastq", "--project", "@/", "--platform", "illumina", "--recipe", "none", "--quality-binning", "none", "--clumping-tool", "auto", "--compression", "balanced", "--threads", "14"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-B-pairs.fastq", "role": "input", "sha256": "0e1a460fe69d85122fe268b7046a1aa8633932b0e8f35758f68e6c0b1437a375", "size": 119368},
+        {"path": "@/Imports/SIMULATED-MHC-B-pairs.lungfishfastq/SIMULATED-MHC-B-pairs.fastq.gz", "role": "output", "sha256": "28472b0486d40b4f83a2a988acd9cb95ccf3131b64552fb417fb917880bdc72f", "size": 2451}
+      ],
+      "outputs": [
+        {"path": "@/Imports/SIMULATED-MHC-B-pairs.lungfishfastq/SIMULATED-MHC-B-pairs.fastq.gz", "role": "output", "sha256": "28472b0486d40b4f83a2a988acd9cb95ccf3131b64552fb417fb917880bdc72f", "size": 2451}
+      ]
+    },
+    {
+      "sidecar": "Imports/SIMULATED-MHC-B-pairs.lungfishfastq/provenance/bundle.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish import fastq",
+      "toolName": "lungfish import fastq",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["lungfish-cli", "import", "fastq", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-B-pairs.fastq", "--project", "@/", "--platform", "illumina", "--recipe", "none", "--quality-binning", "none", "--clumping-tool", "auto", "--compression", "balanced", "--threads", "14"],
+      "durableReplayArgv": ["lungfish-cli", "import", "fastq", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-B-pairs.fastq", "--project", "@/", "--platform", "illumina", "--recipe", "none", "--quality-binning", "none", "--clumping-tool", "auto", "--compression", "balanced", "--threads", "14"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-B-pairs.fastq", "role": "input", "sha256": "0e1a460fe69d85122fe268b7046a1aa8633932b0e8f35758f68e6c0b1437a375", "size": 119368},
+        {"path": "@/Imports/SIMULATED-MHC-B-pairs.lungfishfastq/SIMULATED-MHC-B-pairs.fastq.gz", "role": "output", "sha256": "28472b0486d40b4f83a2a988acd9cb95ccf3131b64552fb417fb917880bdc72f", "size": 2451},
+        {"path": "@/Imports/SIMULATED-MHC-B-pairs.lungfishfastq/SIMULATED-MHC-B-pairs.fastq.gz.lungfish-meta.json", "role": "output", "sha256": "12e2342f8b8bc829a15f8627003f67ece48366e9e4c45b0769e4427912d553a0", "size": 31683},
+        {"path": "@/Imports/SIMULATED-MHC-B-pairs.lungfishfastq/SIMULATED-MHC-B-pairs.fastq.gz", "role": "input", "sha256": "28472b0486d40b4f83a2a988acd9cb95ccf3131b64552fb417fb917880bdc72f", "size": 2451}
+      ],
+      "outputs": [
+        {"path": "@/Imports/SIMULATED-MHC-B-pairs.lungfishfastq/SIMULATED-MHC-B-pairs.fastq.gz", "role": "output", "sha256": "28472b0486d40b4f83a2a988acd9cb95ccf3131b64552fb417fb917880bdc72f", "size": 2451},
+        {"path": "@/Imports/SIMULATED-MHC-B-pairs.lungfishfastq/SIMULATED-MHC-B-pairs.fastq.gz.lungfish-meta.json", "role": "output", "sha256": "12e2342f8b8bc829a15f8627003f67ece48366e9e4c45b0769e4427912d553a0", "size": 31683}
+      ]
+    },
+    {
+      "sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish import fasta",
+      "toolName": "lungfish import fasta",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["lungfish-cli", "import", "fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "--output-dir", "@/", "--name", "SIMULATED-MHC-annotated-reference"],
+      "durableReplayArgv": ["lungfish-cli", "import", "fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "--output-dir", "@/", "--name", "SIMULATED-MHC-annotated-reference"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "embeddedRun": {"status": "completed", "stepCount": 3},
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "role": "input", "sha256": "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d", "size": 3461},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/annotations/imported_annotations.db", "role": "output", "sha256": "a1441dca58ccf6ab0aac754c26ef2d8406204c2d623f6856ec99bd53592a047c", "size": 36864},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/annotations/imported_annotations.gff3", "role": "output", "sha256": "2bd30210b03610776de2c2463638692319ba2423447360217fb0f4a8b19c720b", "size": 386},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz", "role": "output", "sha256": "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1", "size": 439},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.fai", "role": "output", "sha256": "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82", "size": 133},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.gzi", "role": "output", "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc", "size": 8},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/manifest.json", "role": "output", "sha256": "63e3576176963d62f4c610c39bc907ce6b5421c181b3bb9fe29d8eee8281be18", "size": 3795},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/metadata/genbank_records.sqlite", "role": "output", "sha256": "a51dd075c83f290408a19f3618cd7937cfe1290af761a7ac0c717809b9454e08", "size": 45056},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz", "role": "input", "sha256": "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1", "size": 439}
+      ],
+      "outputs": [
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/annotations/imported_annotations.db", "role": "output", "sha256": "a1441dca58ccf6ab0aac754c26ef2d8406204c2d623f6856ec99bd53592a047c", "size": 36864},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/annotations/imported_annotations.gff3", "role": "output", "sha256": "2bd30210b03610776de2c2463638692319ba2423447360217fb0f4a8b19c720b", "size": 386},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz", "role": "output", "sha256": "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1", "size": 439},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.fai", "role": "output", "sha256": "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82", "size": 133},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.gzi", "role": "output", "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc", "size": 8},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/manifest.json", "role": "output", "sha256": "63e3576176963d62f4c610c39bc907ce6b5421c181b3bb9fe29d8eee8281be18", "size": 3795},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/metadata/genbank_records.sqlite", "role": "output", "sha256": "a51dd075c83f290408a19f3618cd7937cfe1290af761a7ac0c717809b9454e08", "size": 45056},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz", "role": "output", "sha256": "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1", "size": 439},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.fai", "role": "output", "sha256": "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82", "size": 133},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.gzi", "role": "output", "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc", "size": 8}
+      ]
+    },
+    {
+      "sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/annotations/imported_annotations.db.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish import fasta",
+      "toolName": "lungfish import fasta",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["lungfish-cli", "import", "fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "--output-dir", "@/", "--name", "SIMULATED-MHC-annotated-reference"],
+      "durableReplayArgv": ["lungfish-cli", "import", "fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "--output-dir", "@/", "--name", "SIMULATED-MHC-annotated-reference"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "role": "input", "sha256": "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d", "size": 3461},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/annotations/imported_annotations.db", "role": "output", "sha256": "a1441dca58ccf6ab0aac754c26ef2d8406204c2d623f6856ec99bd53592a047c", "size": 36864}
+      ],
+      "outputs": [
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/annotations/imported_annotations.db", "role": "output", "sha256": "a1441dca58ccf6ab0aac754c26ef2d8406204c2d623f6856ec99bd53592a047c", "size": 36864}
+      ]
+    },
+    {
+      "sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/annotations/imported_annotations.gff3.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish import fasta",
+      "toolName": "lungfish import fasta",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["lungfish-cli", "import", "fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "--output-dir", "@/", "--name", "SIMULATED-MHC-annotated-reference"],
+      "durableReplayArgv": ["lungfish-cli", "import", "fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "--output-dir", "@/", "--name", "SIMULATED-MHC-annotated-reference"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "role": "input", "sha256": "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d", "size": 3461},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/annotations/imported_annotations.gff3", "role": "output", "sha256": "2bd30210b03610776de2c2463638692319ba2423447360217fb0f4a8b19c720b", "size": 386}
+      ],
+      "outputs": [
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/annotations/imported_annotations.gff3", "role": "output", "sha256": "2bd30210b03610776de2c2463638692319ba2423447360217fb0f4a8b19c720b", "size": 386}
+      ]
+    },
+    {
+      "sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/bundle.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish import fasta",
+      "toolName": "lungfish import fasta",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["lungfish-cli", "import", "fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "--output-dir", "@/", "--name", "SIMULATED-MHC-annotated-reference"],
+      "durableReplayArgv": ["lungfish-cli", "import", "fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "--output-dir", "@/", "--name", "SIMULATED-MHC-annotated-reference"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "role": "input", "sha256": "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d", "size": 3461},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/annotations/imported_annotations.db", "role": "output", "sha256": "a1441dca58ccf6ab0aac754c26ef2d8406204c2d623f6856ec99bd53592a047c", "size": 36864},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/annotations/imported_annotations.gff3", "role": "output", "sha256": "2bd30210b03610776de2c2463638692319ba2423447360217fb0f4a8b19c720b", "size": 386},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz", "role": "output", "sha256": "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1", "size": 439},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.fai", "role": "output", "sha256": "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82", "size": 133},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.gzi", "role": "output", "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc", "size": 8},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/manifest.json", "role": "output", "sha256": "63e3576176963d62f4c610c39bc907ce6b5421c181b3bb9fe29d8eee8281be18", "size": 3795},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/metadata/genbank_records.sqlite", "role": "output", "sha256": "a51dd075c83f290408a19f3618cd7937cfe1290af761a7ac0c717809b9454e08", "size": 45056},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz", "role": "input", "sha256": "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1", "size": 439}
+      ],
+      "outputs": [
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/annotations/imported_annotations.db", "role": "output", "sha256": "a1441dca58ccf6ab0aac754c26ef2d8406204c2d623f6856ec99bd53592a047c", "size": 36864},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/annotations/imported_annotations.gff3", "role": "output", "sha256": "2bd30210b03610776de2c2463638692319ba2423447360217fb0f4a8b19c720b", "size": 386},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz", "role": "output", "sha256": "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1", "size": 439},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.fai", "role": "output", "sha256": "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82", "size": 133},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.gzi", "role": "output", "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc", "size": 8},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/manifest.json", "role": "output", "sha256": "63e3576176963d62f4c610c39bc907ce6b5421c181b3bb9fe29d8eee8281be18", "size": 3795},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/metadata/genbank_records.sqlite", "role": "output", "sha256": "a51dd075c83f290408a19f3618cd7937cfe1290af761a7ac0c717809b9454e08", "size": 45056}
+      ]
+    },
+    {
+      "sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/genome/sequence.fa.gz.fai.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish import fasta",
+      "toolName": "lungfish import fasta",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["lungfish-cli", "import", "fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "--output-dir", "@/", "--name", "SIMULATED-MHC-annotated-reference"],
+      "durableReplayArgv": ["lungfish-cli", "import", "fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "--output-dir", "@/", "--name", "SIMULATED-MHC-annotated-reference"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "role": "input", "sha256": "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d", "size": 3461},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.fai", "role": "output", "sha256": "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82", "size": 133},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz", "role": "input", "sha256": "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1", "size": 439}
+      ],
+      "outputs": [
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.fai", "role": "output", "sha256": "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82", "size": 133}
+      ]
+    },
+    {
+      "sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/genome/sequence.fa.gz.gzi.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish import fasta",
+      "toolName": "lungfish import fasta",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["lungfish-cli", "import", "fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "--output-dir", "@/", "--name", "SIMULATED-MHC-annotated-reference"],
+      "durableReplayArgv": ["lungfish-cli", "import", "fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "--output-dir", "@/", "--name", "SIMULATED-MHC-annotated-reference"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "role": "input", "sha256": "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d", "size": 3461},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.gzi", "role": "output", "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc", "size": 8},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz", "role": "input", "sha256": "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1", "size": 439}
+      ],
+      "outputs": [
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.gzi", "role": "output", "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc", "size": 8}
+      ]
+    },
+    {
+      "sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/genome/sequence.fa.gz.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish import fasta",
+      "toolName": "lungfish import fasta",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["lungfish-cli", "import", "fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "--output-dir", "@/", "--name", "SIMULATED-MHC-annotated-reference"],
+      "durableReplayArgv": ["lungfish-cli", "import", "fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "--output-dir", "@/", "--name", "SIMULATED-MHC-annotated-reference"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "role": "input", "sha256": "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d", "size": 3461},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz", "role": "output", "sha256": "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1", "size": 439}
+      ],
+      "outputs": [
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz", "role": "output", "sha256": "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1", "size": 439}
+      ]
+    },
+    {
+      "sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/manifest.json.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish import fasta",
+      "toolName": "lungfish import fasta",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["lungfish-cli", "import", "fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "--output-dir", "@/", "--name", "SIMULATED-MHC-annotated-reference"],
+      "durableReplayArgv": ["lungfish-cli", "import", "fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "--output-dir", "@/", "--name", "SIMULATED-MHC-annotated-reference"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "role": "input", "sha256": "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d", "size": 3461},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/manifest.json", "role": "output", "sha256": "63e3576176963d62f4c610c39bc907ce6b5421c181b3bb9fe29d8eee8281be18", "size": 3795}
+      ],
+      "outputs": [
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/manifest.json", "role": "output", "sha256": "63e3576176963d62f4c610c39bc907ce6b5421c181b3bb9fe29d8eee8281be18", "size": 3795}
+      ]
+    },
+    {
+      "sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/metadata/genbank_records.sqlite.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish import fasta",
+      "toolName": "lungfish import fasta",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["lungfish-cli", "import", "fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "--output-dir", "@/", "--name", "SIMULATED-MHC-annotated-reference"],
+      "durableReplayArgv": ["lungfish-cli", "import", "fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "--output-dir", "@/", "--name", "SIMULATED-MHC-annotated-reference"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-annotated-reference.gb", "role": "input", "sha256": "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d", "size": 3461},
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/metadata/genbank_records.sqlite", "role": "output", "sha256": "a51dd075c83f290408a19f3618cd7937cfe1290af761a7ac0c717809b9454e08", "size": 45056}
+      ],
+      "outputs": [
+        {"path": "@/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/metadata/genbank_records.sqlite", "role": "output", "sha256": "a51dd075c83f290408a19f3618cd7937cfe1290af761a7ac0c717809b9454e08", "size": 45056}
+      ]
+    },
+    {
+      "sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "MHC reference bundle install",
+      "toolName": "Lungfish Genome Explorer",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "bundle-install", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "--project", "@/"],
+      "durableReplayArgv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "bundle-install", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "--project", "@/"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "role": "input", "sha256": "c2518ae35706e9a05dd52b738c2f49ba24de68c83c59783dd56ac1702ba536b7", "size": 132151},
+        {"path": "@/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "role": "output", "sha256": "c2518ae35706e9a05dd52b738c2f49ba24de68c83c59783dd56ac1702ba536b7", "size": 132151}
+      ],
+      "outputs": [
+        {"path": "@/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "role": "output", "sha256": "c2518ae35706e9a05dd52b738c2f49ba24de68c83c59783dd56ac1702ba536b7", "size": 132151}
+      ]
+    },
+    {
+      "sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/bundle.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "MHC reference bundle install",
+      "toolName": "Lungfish Genome Explorer",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "bundle-install", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "--project", "@/"],
+      "durableReplayArgv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "bundle-install", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "--project", "@/"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "role": "input", "sha256": "c2518ae35706e9a05dd52b738c2f49ba24de68c83c59783dd56ac1702ba536b7", "size": 132151},
+        {"path": "@/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "role": "output", "sha256": "c2518ae35706e9a05dd52b738c2f49ba24de68c83c59783dd56ac1702ba536b7", "size": 132151}
+      ],
+      "outputs": [
+        {"path": "@/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "role": "output", "sha256": "c2518ae35706e9a05dd52b738c2f49ba24de68c83c59783dd56ac1702ba536b7", "size": 132151}
+      ]
+    },
+    {
+      "sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/haplotypes/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish haplotypes bundle-create",
+      "toolName": "lungfish-cli",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "bundle-create", "--definition", "mhc-simulated-mcm-teaching", "--assay", "SIMULATED-MHC-three-amplicon", "--species", "MCM", "--reference-fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "--output", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "--name", "SIMULATED-MHC-MCM-teaching", "--default-definition", "mhc-simulated-mcm-teaching", "--project", "<tmp>/lge-demo-build/projects/MHC Genotyping.lungfish", "--force"],
+      "durableReplayArgv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "bundle-create", "--definition", "mhc-simulated-mcm-teaching", "--assay", "SIMULATED-MHC-three-amplicon", "--species", "MCM", "--reference-fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "--output", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "--name", "SIMULATED-MHC-MCM-teaching", "--default-definition", "mhc-simulated-mcm-teaching", "--project", "<tmp>/lge-demo-build/projects/MHC Genotyping.lungfish", "--force"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "role": "reference", "sha256": "7962855e3e80aa6ec8d450ea05451ddb5470b972dc9f0e5a6c1f8a7410a3c191", "size": 670},
+        {"path": "@/Haplotype Definitions/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json", "role": "reference", "sha256": "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3", "size": 1811},
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref/haplotypes/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json", "role": "output", "sha256": "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3", "size": 1811}
+      ],
+      "outputs": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref/haplotypes/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json", "role": "output", "sha256": "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3", "size": 1811}
+      ]
+    },
+    {
+      "sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/mhc-reference.json.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish haplotypes bundle-create",
+      "toolName": "lungfish-cli",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "bundle-create", "--definition", "mhc-simulated-mcm-teaching", "--assay", "SIMULATED-MHC-three-amplicon", "--species", "MCM", "--reference-fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "--output", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "--name", "SIMULATED-MHC-MCM-teaching", "--default-definition", "mhc-simulated-mcm-teaching", "--project", "<tmp>/lge-demo-build/projects/MHC Genotyping.lungfish", "--force"],
+      "durableReplayArgv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "bundle-create", "--definition", "mhc-simulated-mcm-teaching", "--assay", "SIMULATED-MHC-three-amplicon", "--species", "MCM", "--reference-fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "--output", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "--name", "SIMULATED-MHC-MCM-teaching", "--default-definition", "mhc-simulated-mcm-teaching", "--project", "<tmp>/lge-demo-build/projects/MHC Genotyping.lungfish", "--force"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "role": "reference", "sha256": "7962855e3e80aa6ec8d450ea05451ddb5470b972dc9f0e5a6c1f8a7410a3c191", "size": 670},
+        {"path": "@/Haplotype Definitions/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json", "role": "reference", "sha256": "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3", "size": 1811},
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref/mhc-reference.json", "role": "output", "sha256": "061d75ebaff73200aedcf9441f59b3448c16c16a397f0968ba3a5a1eefdd2652", "size": 1183}
+      ],
+      "outputs": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref/mhc-reference.json", "role": "output", "sha256": "061d75ebaff73200aedcf9441f59b3448c16c16a397f0968ba3a5a1eefdd2652", "size": 1183}
+      ]
+    },
+    {
+      "sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz.fai.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish haplotypes bundle-create",
+      "toolName": "lungfish-cli",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "bundle-create", "--definition", "mhc-simulated-mcm-teaching", "--assay", "SIMULATED-MHC-three-amplicon", "--species", "MCM", "--reference-fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "--output", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "--name", "SIMULATED-MHC-MCM-teaching", "--default-definition", "mhc-simulated-mcm-teaching", "--project", "<tmp>/lge-demo-build/projects/MHC Genotyping.lungfish", "--force"],
+      "durableReplayArgv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "bundle-create", "--definition", "mhc-simulated-mcm-teaching", "--assay", "SIMULATED-MHC-three-amplicon", "--species", "MCM", "--reference-fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "--output", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "--name", "SIMULATED-MHC-MCM-teaching", "--default-definition", "mhc-simulated-mcm-teaching", "--project", "<tmp>/lge-demo-build/projects/MHC Genotyping.lungfish", "--force"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "role": "reference", "sha256": "7962855e3e80aa6ec8d450ea05451ddb5470b972dc9f0e5a6c1f8a7410a3c191", "size": 670},
+        {"path": "@/Haplotype Definitions/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json", "role": "reference", "sha256": "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3", "size": 1811},
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz.fai", "role": "output", "sha256": "119603ffd53ca82aef56005c849b68a4b361f2802000a723e99ce3094ea02fea", "size": 138}
+      ],
+      "outputs": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz.fai", "role": "output", "sha256": "119603ffd53ca82aef56005c849b68a4b361f2802000a723e99ce3094ea02fea", "size": 138}
+      ]
+    },
+    {
+      "sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz.gzi.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish haplotypes bundle-create",
+      "toolName": "lungfish-cli",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "bundle-create", "--definition", "mhc-simulated-mcm-teaching", "--assay", "SIMULATED-MHC-three-amplicon", "--species", "MCM", "--reference-fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "--output", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "--name", "SIMULATED-MHC-MCM-teaching", "--default-definition", "mhc-simulated-mcm-teaching", "--project", "<tmp>/lge-demo-build/projects/MHC Genotyping.lungfish", "--force"],
+      "durableReplayArgv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "bundle-create", "--definition", "mhc-simulated-mcm-teaching", "--assay", "SIMULATED-MHC-three-amplicon", "--species", "MCM", "--reference-fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "--output", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "--name", "SIMULATED-MHC-MCM-teaching", "--default-definition", "mhc-simulated-mcm-teaching", "--project", "<tmp>/lge-demo-build/projects/MHC Genotyping.lungfish", "--force"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "role": "reference", "sha256": "7962855e3e80aa6ec8d450ea05451ddb5470b972dc9f0e5a6c1f8a7410a3c191", "size": 670},
+        {"path": "@/Haplotype Definitions/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json", "role": "reference", "sha256": "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3", "size": 1811},
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz.gzi", "role": "output", "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc", "size": 8}
+      ],
+      "outputs": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz.gzi", "role": "output", "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc", "size": 8}
+      ]
+    },
+    {
+      "sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish haplotypes bundle-create",
+      "toolName": "lungfish-cli",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "bundle-create", "--definition", "mhc-simulated-mcm-teaching", "--assay", "SIMULATED-MHC-three-amplicon", "--species", "MCM", "--reference-fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "--output", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "--name", "SIMULATED-MHC-MCM-teaching", "--default-definition", "mhc-simulated-mcm-teaching", "--project", "<tmp>/lge-demo-build/projects/MHC Genotyping.lungfish", "--force"],
+      "durableReplayArgv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "bundle-create", "--definition", "mhc-simulated-mcm-teaching", "--assay", "SIMULATED-MHC-three-amplicon", "--species", "MCM", "--reference-fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "--output", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "--name", "SIMULATED-MHC-MCM-teaching", "--default-definition", "mhc-simulated-mcm-teaching", "--project", "<tmp>/lge-demo-build/projects/MHC Genotyping.lungfish", "--force"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "role": "reference", "sha256": "7962855e3e80aa6ec8d450ea05451ddb5470b972dc9f0e5a6c1f8a7410a3c191", "size": 670},
+        {"path": "@/Haplotype Definitions/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json", "role": "reference", "sha256": "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3", "size": 1811},
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz", "role": "output", "sha256": "2e99286be42570d843f22ab0e63c0bc97aa3a173f893344e7c631af5a0d5e325", "size": 330}
+      ],
+      "outputs": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz", "role": "output", "sha256": "2e99286be42570d843f22ab0e63c0bc97aa3a173f893344e7c631af5a0d5e325", "size": 330}
+      ]
+    },
+    {
+      "sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/reference/SIMULATED-MHC-MCM-teaching.lungfishref/manifest.json.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish haplotypes bundle-create",
+      "toolName": "lungfish-cli",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "bundle-create", "--definition", "mhc-simulated-mcm-teaching", "--assay", "SIMULATED-MHC-three-amplicon", "--species", "MCM", "--reference-fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "--output", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "--name", "SIMULATED-MHC-MCM-teaching", "--default-definition", "mhc-simulated-mcm-teaching", "--project", "<tmp>/lge-demo-build/projects/MHC Genotyping.lungfish", "--force"],
+      "durableReplayArgv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "bundle-create", "--definition", "mhc-simulated-mcm-teaching", "--assay", "SIMULATED-MHC-three-amplicon", "--species", "MCM", "--reference-fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "--output", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "--name", "SIMULATED-MHC-MCM-teaching", "--default-definition", "mhc-simulated-mcm-teaching", "--project", "<tmp>/lge-demo-build/projects/MHC Genotyping.lungfish", "--force"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "role": "reference", "sha256": "7962855e3e80aa6ec8d450ea05451ddb5470b972dc9f0e5a6c1f8a7410a3c191", "size": 670},
+        {"path": "@/Haplotype Definitions/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json", "role": "reference", "sha256": "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3", "size": 1811},
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref/manifest.json", "role": "output", "sha256": "905886c9e1c668c418343ee3caa791b676e2196f4e2d6be2a6250a852690cb15", "size": 2509}
+      ],
+      "outputs": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref/manifest.json", "role": "output", "sha256": "905886c9e1c668c418343ee3caa791b676e2196f4e2d6be2a6250a852690cb15", "size": 2509}
+      ]
+    },
+    {
+      "sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/sources/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json.lungfish-provenance.json",
+      "decodedBy": "envelope",
+      "strictAccepts": true,
+      "workflowName": "lungfish haplotypes bundle-create",
+      "toolName": "lungfish-cli",
+      "toolVersion": "Lungfish 2026.9.58 (5822)",
+      "argv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "bundle-create", "--definition", "mhc-simulated-mcm-teaching", "--assay", "SIMULATED-MHC-three-amplicon", "--species", "MCM", "--reference-fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "--output", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "--name", "SIMULATED-MHC-MCM-teaching", "--default-definition", "mhc-simulated-mcm-teaching", "--project", "<tmp>/lge-demo-build/projects/MHC Genotyping.lungfish", "--force"],
+      "durableReplayArgv": ["/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli", "haplotypes", "bundle-create", "--definition", "mhc-simulated-mcm-teaching", "--assay", "SIMULATED-MHC-three-amplicon", "--species", "MCM", "--reference-fasta", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "--output", "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "--name", "SIMULATED-MHC-MCM-teaching", "--default-definition", "mhc-simulated-mcm-teaching", "--project", "<tmp>/lge-demo-build/projects/MHC Genotyping.lungfish", "--force"],
+      "exitStatus": 0,
+      "rawStatus": "completed",
+      "files": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-reference.fasta", "role": "reference", "sha256": "7962855e3e80aa6ec8d450ea05451ddb5470b972dc9f0e5a6c1f8a7410a3c191", "size": 670},
+        {"path": "@/Haplotype Definitions/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json", "role": "reference", "sha256": "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3", "size": 1811},
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref/sources/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json", "role": "output", "sha256": "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3", "size": 1811}
+      ],
+      "outputs": [
+        {"path": "<tmp>/lge-demo-build/inputs/mhc-simulated/SIMULATED-MHC-MCM-teaching.lungfishmhcref/sources/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json", "role": "output", "sha256": "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3", "size": 1811}
+      ]
+    }
+  ],
+  "finder": [
+    {"selection": "Haplotype Definitions/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json", "isBundle": false},
+    {"selection": "Imports/SIMULATED-MHC-A-pairs.lungfishfastq", "isBundle": true, "sidecar": "Imports/SIMULATED-MHC-A-pairs.lungfishfastq/.lungfish-provenance.json"},
+    {"selection": "Imports/SIMULATED-MHC-A-pairs.lungfishfastq/SIMULATED-MHC-A-pairs.fastq.gz", "isBundle": false, "sidecar": "Imports/SIMULATED-MHC-A-pairs.lungfishfastq/provenance/SIMULATED-MHC-A-pairs.fastq.gz.lungfish-provenance.json"},
+    {"selection": "Imports/SIMULATED-MHC-A-pairs.lungfishfastq/SIMULATED-MHC-A-pairs.fastq.gz.lungfish-meta.json", "isBundle": false, "sidecar": "Imports/SIMULATED-MHC-A-pairs.lungfishfastq/provenance/SIMULATED-MHC-A-pairs.fastq.gz.lungfish-meta.json.lungfish-provenance.json"},
+    {"selection": "Imports/SIMULATED-MHC-B-pairs.lungfishfastq", "isBundle": true, "sidecar": "Imports/SIMULATED-MHC-B-pairs.lungfishfastq/.lungfish-provenance.json"},
+    {"selection": "Imports/SIMULATED-MHC-B-pairs.lungfishfastq/SIMULATED-MHC-B-pairs.fastq.gz", "isBundle": false, "sidecar": "Imports/SIMULATED-MHC-B-pairs.lungfishfastq/provenance/SIMULATED-MHC-B-pairs.fastq.gz.lungfish-provenance.json"},
+    {"selection": "Imports/SIMULATED-MHC-B-pairs.lungfishfastq/SIMULATED-MHC-B-pairs.fastq.gz.lungfish-meta.json", "isBundle": false, "sidecar": "Imports/SIMULATED-MHC-B-pairs.lungfishfastq/provenance/SIMULATED-MHC-B-pairs.fastq.gz.lungfish-meta.json.lungfish-provenance.json"},
+    {"selection": "README.md", "isBundle": false},
+    {"selection": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref", "isBundle": true, "sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/.lungfish-provenance.json"},
+    {"selection": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/annotations/imported_annotations.db", "isBundle": false, "sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/annotations/imported_annotations.db.lungfish-provenance.json"},
+    {"selection": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/annotations/imported_annotations.gff3", "isBundle": false, "sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/annotations/imported_annotations.gff3.lungfish-provenance.json"},
+    {"selection": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz", "isBundle": false, "sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/genome/sequence.fa.gz.lungfish-provenance.json"},
+    {"selection": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.fai", "isBundle": false, "sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/genome/sequence.fa.gz.fai.lungfish-provenance.json"},
+    {"selection": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.gzi", "isBundle": false, "sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/genome/sequence.fa.gz.gzi.lungfish-provenance.json"},
+    {"selection": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/manifest.json", "isBundle": false, "sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/manifest.json.lungfish-provenance.json"},
+    {"selection": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/metadata/genbank_records.sqlite", "isBundle": false, "sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/metadata/genbank_records.sqlite.lungfish-provenance.json"},
+    {"selection": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref", "isBundle": true, "sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/.lungfish-provenance.json"},
+    {"selection": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/haplotypes/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json", "isBundle": false, "sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/.lungfish-provenance.json"},
+    {"selection": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/mhc-reference.json", "isBundle": false, "sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/.lungfish-provenance.json"},
+    {"selection": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/reference/SIMULATED-MHC-MCM-teaching.lungfishref", "isBundle": true, "sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/reference/SIMULATED-MHC-MCM-teaching.lungfishref/manifest.json.lungfish-provenance.json"},
+    {"selection": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref", "isBundle": true, "sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/.lungfish-provenance.json"},
+    {"selection": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz", "isBundle": false, "sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/.lungfish-provenance.json"},
+    {"selection": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz.fai", "isBundle": false, "sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/.lungfish-provenance.json"},
+    {"selection": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz.gzi", "isBundle": false, "sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/.lungfish-provenance.json"},
+    {"selection": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref/manifest.json", "isBundle": false, "sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/.lungfish-provenance.json"},
+    {"selection": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/sources/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json", "isBundle": false, "sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/.lungfish-provenance.json"},
+    {"selection": "metadata.json", "isBundle": false}
+  ],
+  "lineage": [
+    {"sidecar": "Haplotype Definitions/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json.provenance.json", "chain": [
+      {"sidecar": "Haplotype Definitions/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json.provenance.json", "workflowName": "Haplotype definition import"}
+    ]},
+    {"sidecar": "Imports/SIMULATED-MHC-A-pairs.lungfishfastq/.lungfish-provenance.json", "chain": [
+      {"sidecar": "Imports/SIMULATED-MHC-A-pairs.lungfishfastq/.lungfish-provenance.json", "workflowName": "lungfish import fastq"}
+    ]},
+    {"sidecar": "Imports/SIMULATED-MHC-A-pairs.lungfishfastq/provenance/SIMULATED-MHC-A-pairs.fastq.gz.lungfish-meta.json.lungfish-provenance.json", "chain": [
+      {"sidecar": "Imports/SIMULATED-MHC-A-pairs.lungfishfastq/provenance/SIMULATED-MHC-A-pairs.fastq.gz.lungfish-meta.json.lungfish-provenance.json", "workflowName": "lungfish import fastq"}
+    ]},
+    {"sidecar": "Imports/SIMULATED-MHC-A-pairs.lungfishfastq/provenance/SIMULATED-MHC-A-pairs.fastq.gz.lungfish-provenance.json", "chain": [
+      {"sidecar": "Imports/SIMULATED-MHC-A-pairs.lungfishfastq/provenance/SIMULATED-MHC-A-pairs.fastq.gz.lungfish-provenance.json", "workflowName": "lungfish import fastq"}
+    ]},
+    {"sidecar": "Imports/SIMULATED-MHC-A-pairs.lungfishfastq/provenance/bundle.lungfish-provenance.json", "chain": [
+      {"sidecar": "Imports/SIMULATED-MHC-A-pairs.lungfishfastq/provenance/bundle.lungfish-provenance.json", "workflowName": "lungfish import fastq"}
+    ]},
+    {"sidecar": "Imports/SIMULATED-MHC-B-pairs.lungfishfastq/.lungfish-provenance.json", "chain": [
+      {"sidecar": "Imports/SIMULATED-MHC-B-pairs.lungfishfastq/.lungfish-provenance.json", "workflowName": "lungfish import fastq"}
+    ]},
+    {"sidecar": "Imports/SIMULATED-MHC-B-pairs.lungfishfastq/provenance/SIMULATED-MHC-B-pairs.fastq.gz.lungfish-meta.json.lungfish-provenance.json", "chain": [
+      {"sidecar": "Imports/SIMULATED-MHC-B-pairs.lungfishfastq/provenance/SIMULATED-MHC-B-pairs.fastq.gz.lungfish-meta.json.lungfish-provenance.json", "workflowName": "lungfish import fastq"}
+    ]},
+    {"sidecar": "Imports/SIMULATED-MHC-B-pairs.lungfishfastq/provenance/SIMULATED-MHC-B-pairs.fastq.gz.lungfish-provenance.json", "chain": [
+      {"sidecar": "Imports/SIMULATED-MHC-B-pairs.lungfishfastq/provenance/SIMULATED-MHC-B-pairs.fastq.gz.lungfish-provenance.json", "workflowName": "lungfish import fastq"}
+    ]},
+    {"sidecar": "Imports/SIMULATED-MHC-B-pairs.lungfishfastq/provenance/bundle.lungfish-provenance.json", "chain": [
+      {"sidecar": "Imports/SIMULATED-MHC-B-pairs.lungfishfastq/provenance/bundle.lungfish-provenance.json", "workflowName": "lungfish import fastq"}
+    ]},
+    {"sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/.lungfish-provenance.json", "chain": [
+      {"sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/.lungfish-provenance.json", "workflowName": "lungfish import fasta"}
+    ]},
+    {"sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/annotations/imported_annotations.db.lungfish-provenance.json", "chain": [
+      {"sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/annotations/imported_annotations.db.lungfish-provenance.json", "workflowName": "lungfish import fasta"}
+    ]},
+    {"sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/annotations/imported_annotations.gff3.lungfish-provenance.json", "chain": [
+      {"sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/annotations/imported_annotations.gff3.lungfish-provenance.json", "workflowName": "lungfish import fasta"}
+    ]},
+    {"sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/bundle.lungfish-provenance.json", "chain": [
+      {"sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/bundle.lungfish-provenance.json", "workflowName": "lungfish import fasta"}
+    ]},
+    {"sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/genome/sequence.fa.gz.fai.lungfish-provenance.json", "chain": [
+      {"sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/genome/sequence.fa.gz.fai.lungfish-provenance.json", "workflowName": "lungfish import fasta"}
+    ]},
+    {"sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/genome/sequence.fa.gz.gzi.lungfish-provenance.json", "chain": [
+      {"sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/genome/sequence.fa.gz.gzi.lungfish-provenance.json", "workflowName": "lungfish import fasta"}
+    ]},
+    {"sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/genome/sequence.fa.gz.lungfish-provenance.json", "chain": [
+      {"sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/genome/sequence.fa.gz.lungfish-provenance.json", "workflowName": "lungfish import fasta"}
+    ]},
+    {"sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/manifest.json.lungfish-provenance.json", "chain": [
+      {"sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/manifest.json.lungfish-provenance.json", "workflowName": "lungfish import fasta"}
+    ]},
+    {"sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/metadata/genbank_records.sqlite.lungfish-provenance.json", "chain": [
+      {"sidecar": "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/provenance/metadata/genbank_records.sqlite.lungfish-provenance.json", "workflowName": "lungfish import fasta"}
+    ]},
+    {"sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/.lungfish-provenance.json", "chain": [
+      {"sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/.lungfish-provenance.json", "workflowName": "MHC reference bundle install"}
+    ]},
+    {"sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/bundle.lungfish-provenance.json", "chain": [
+      {"sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/bundle.lungfish-provenance.json", "workflowName": "MHC reference bundle install"}
+    ]},
+    {"sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/haplotypes/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json.lungfish-provenance.json", "chain": [
+      {"sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/haplotypes/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json.lungfish-provenance.json", "workflowName": "lungfish haplotypes bundle-create"}
+    ]},
+    {"sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/mhc-reference.json.lungfish-provenance.json", "chain": [
+      {"sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/mhc-reference.json.lungfish-provenance.json", "workflowName": "lungfish haplotypes bundle-create"}
+    ]},
+    {"sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz.fai.lungfish-provenance.json", "chain": [
+      {"sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz.fai.lungfish-provenance.json", "workflowName": "lungfish haplotypes bundle-create"}
+    ]},
+    {"sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz.gzi.lungfish-provenance.json", "chain": [
+      {"sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz.gzi.lungfish-provenance.json", "workflowName": "lungfish haplotypes bundle-create"}
+    ]},
+    {"sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz.lungfish-provenance.json", "chain": [
+      {"sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz.lungfish-provenance.json", "workflowName": "lungfish haplotypes bundle-create"}
+    ]},
+    {"sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/reference/SIMULATED-MHC-MCM-teaching.lungfishref/manifest.json.lungfish-provenance.json", "chain": [
+      {"sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/reference/SIMULATED-MHC-MCM-teaching.lungfishref/manifest.json.lungfish-provenance.json", "workflowName": "lungfish haplotypes bundle-create"}
+    ]},
+    {"sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/sources/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json.lungfish-provenance.json", "chain": [
+      {"sidecar": "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/sources/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json.lungfish-provenance.json", "workflowName": "lungfish haplotypes bundle-create"}
+    ]}
+  ]
+}
