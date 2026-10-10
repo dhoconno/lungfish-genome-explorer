@@ -3,4 +3,4 @@ write_provenance_functions 25
 bare_workflow_run_writes 0
 legacy_run_embeds 17
 envelope_encodes_outside_writer 13
-provenance_filename_literals 178
+provenance_filename_literals 177

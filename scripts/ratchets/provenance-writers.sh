@@ -32,7 +32,7 @@ Blind spots. The scan reads one line at a time and does not parse Swift, so revi
     - A renamed writer function escapes write_provenance_functions.
     - An envelope encoded with a plain JSONEncoder escapes envelope_encodes_outside_writer. The known
       cases are PrimerAnalysisNativeInspectionService.swift:219, PrimalScheme3DesignPipeline.swift:618
-      and :651, PrimalScheme3AlleleLabelMap.swift:170 and AnalysesMigration.swift:441.
+      and :651 and PrimalScheme3AlleleLabelMap.swift:170.
 The other counts are sinks, so they still carry the invariant when a writer escapes by name.
 
 Baseline file: one "<name> <count>" line per count. Lower it with --update after a count falls.
