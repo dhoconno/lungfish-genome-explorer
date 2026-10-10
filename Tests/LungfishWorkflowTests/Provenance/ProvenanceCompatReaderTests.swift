@@ -168,7 +168,7 @@ struct ProvenanceCompatReaderTests {
             "--fetch-format", "gff3", "--save-to",
         ])
         #expect(Array(envelope.argv.suffix(2)) == ["--format", "text"])
-        #expect(envelope.argv.count == 12)
+        try #require(envelope.argv.count == 12, "the alpha.11 argv no longer reads as 12 tokens")
         #expect(envelope.argv[9].hasSuffix("/MN908947.3.gff3"))
 
         let recordedOutput = try #require(envelope.outputs.first)
@@ -279,7 +279,7 @@ struct ProvenanceCompatReaderTests {
         )
         #expect(differences.isEmpty, "unexpected differences: \(differences)")
 
-        #expect(envelope.steps.count == 2)
+        try #require(envelope.steps.count == 2 && bare.steps.count == 2, "a variants phase run lost a step")
         #expect(envelope.steps.last?.argv.first?.hasPrefix("<tool-root>/") == true)
         // The run's only replayable command is the second step's durable argv, and the second step depends on the first.
         #expect(envelope.steps[1].durableReplayArgv == bare.steps[1].durableReplayArgv)

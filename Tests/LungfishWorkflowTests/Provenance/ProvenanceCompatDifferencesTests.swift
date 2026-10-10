@@ -8,14 +8,14 @@ import LungfishTestSupport
 struct ProvenanceCompatDifferencesTests {
     @Test("identical facts have no differences")
     func identicalFactsHaveNoDifferences() throws {
-        let facts = try Self.liveFacts("s3-write-sidecar-bare-run")
+        let facts = try Self.frozenFacts("s3-write-sidecar-bare-run")
         #expect(facts.differences(from: facts).isEmpty)
         #expect(facts.differences(from: facts, ignoring: Set(ProvenanceCompatFacts.Field.allCases)).isEmpty)
     }
 
     @Test("an edited copy of a case's facts yields lines that name the field")
     func editedCopyYieldsFieldNamedLines() throws {
-        let original = try Self.liveFacts("s3-write-sidecar-bare-run")
+        let original = try Self.frozenFacts("s3-write-sidecar-bare-run")
         var edited = original
         edited.exitStatus = 1
         edited.steps[1].durableReplayArgv = nil
@@ -43,7 +43,7 @@ struct ProvenanceCompatDifferencesTests {
 
     @Test("the run-specific set hides what two runs of one writer decide for themselves and nothing else")
     func runSpecificSetHidesOnlyRunSpecificFacts() throws {
-        let original = try Self.liveFacts("s3-write-sidecar-bare-run")
+        let original = try Self.frozenFacts("s3-write-sidecar-bare-run")
         var rerun = original
         rerun.recorded["createdAt"] = "2031-01-01T00:00:00Z"
         rerun.recorded["runtimeIdentity.processIdentifier"] = "1"
@@ -67,7 +67,7 @@ struct ProvenanceCompatDifferencesTests {
     @Test("a scenario re-run compares step wall times exactly, in the steps and in both legacy views")
     func runSpecificSetComparesStepWallTimesExactly() throws {
         #expect(!ProvenanceCompatFacts.runSpecific.contains(.stepWallTimeSeconds))
-        let original = try Self.liveFacts("s3-write-sidecar-bare-run")
+        let original = try Self.frozenFacts("s3-write-sidecar-bare-run")
         let recordedStepTime = try #require(original.steps[0].wallTimeSeconds)
 
         // A step wall time that is lost or altered shows in all three places it is recorded.
@@ -89,7 +89,7 @@ struct ProvenanceCompatDifferencesTests {
         #expect(ProvenanceCompatFacts.realToolRun == ProvenanceCompatFacts.runSpecific.union([.stepWallTimeSeconds]))
         #expect(ProvenanceCompatFacts.realToolRun.subtracting(ProvenanceCompatFacts.runSpecific) == [.stepWallTimeSeconds])
 
-        let original = try Self.liveFacts("s3-write-sidecar-bare-run")
+        let original = try Self.frozenFacts("s3-write-sidecar-bare-run")
         var measured = original
         measured.steps[0].wallTimeSeconds = 999
         measured.legacyRunSteps[0].wallTime = 999
@@ -103,7 +103,7 @@ struct ProvenanceCompatDifferencesTests {
 
     @Test("the narrow container field clears only the container keys of each step's recorded map")
     func stepRecordedContainerClearsOnlyTheStepContainerKeys() throws {
-        let frozen = try Self.liveFacts("s3-gatk-container-bare-run")
+        let frozen = try Self.frozenFacts("s3-gatk-container-bare-run")
         // The frozen bare run holds a container image and digest on each of its two steps.
         #expect(frozen.steps.count == 2)
         for step in frozen.steps {
@@ -170,7 +170,7 @@ struct ProvenanceCompatDifferencesTests {
 
     @Test("the shape-change set compares files as a set on path, role, SHA-256 and size")
     func shapeChangeSetComparesFilesAsASet() throws {
-        let original = try Self.liveFacts("s3-write-sidecar-bare-run")
+        let original = try Self.frozenFacts("s3-write-sidecar-bare-run")
         var converted = original
         converted.decodedBy = .envelope
         converted.strictAccepts = true
@@ -200,7 +200,7 @@ struct ProvenanceCompatDifferencesTests {
 
     @Test("the run wall time tolerance forgives a second and no more")
     func runWallTimeToleranceForgivesASecond() throws {
-        let original = try Self.liveFacts("s3-write-sidecar-bare-run")
+        let original = try Self.frozenFacts("s3-write-sidecar-bare-run")
         #expect(original.wallTimeSeconds == 41)
         var converted = original
         converted.wallTimeSeconds = 41.5
@@ -217,7 +217,7 @@ struct ProvenanceCompatDifferencesTests {
 
     @Test("every field the comparison can ignore names a key the facts encode")
     func everyIgnorableFieldNamesAFactsKey() throws {
-        let facts = try Self.liveFacts("s1-cancelled-single-step")
+        let facts = try Self.frozenFacts("s1-cancelled-single-step")
         let json = try #require(
             try JSONSerialization.jsonObject(with: facts.canonicalJSON()) as? [String: Any]
         )
@@ -234,9 +234,11 @@ struct ProvenanceCompatDifferencesTests {
 
     // MARK: Helpers
 
-    private static func liveFacts(_ id: String) throws -> ProvenanceCompatFacts {
-        let materialized = try ProvenanceCompatCorpus.materialize(id)
-        defer { materialized.cleanup() }
-        return try ProvenanceCompatFacts.project(sidecar: materialized.sidecar, projectRoot: materialized.projectRoot)
+    /// The reviewed facts of a case. They come from the expected facts file and not from the readers,
+    /// so a reader change cannot break these tests of the comparison.
+    private static func frozenFacts(_ id: String) throws -> ProvenanceCompatFacts {
+        try ProvenanceCompatFacts.decode(
+            try #require(ProvenanceCompatCorpus.expectedFactsData(for: id), "case \(id) has no expected facts")
+        )
     }
 }

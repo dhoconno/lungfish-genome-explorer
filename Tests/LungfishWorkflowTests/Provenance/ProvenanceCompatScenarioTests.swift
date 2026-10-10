@@ -63,6 +63,7 @@ struct ProvenanceCompatScenarioTests {
         #expect(differences.isEmpty, "scenario for s3-gatk-container-bare-run drifted: \(differences)")
 
         // A container that one step loses or changes in either legacy view still fails.
+        try #require(live.legacyRunSteps.count == 2 && live.canonicalRunSteps.count == 2)
         #expect(ignored.isDisjoint(with: [.legacyRunSteps, .canonicalRunSteps]))
         var lostDigest = live
         lostDigest.legacyRunSteps[1].containerDigest = nil
