@@ -74,23 +74,29 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
     @Published private var snapshot: Snapshot
     @Published private var draftValues: [Address: String]
     @Published private(set) var persistenceErrorMessage: String?
+    @Published private(set) var persistenceFailure:
+        GenotypeHaplotypeAssignmentPersistenceFailure = .save
     @Published private(set) var draftRevisionToken = UUID()
 
     private let onSave: ([Address: String]) throws -> Snapshot
     private let onReload: () throws -> Snapshot
     private let onDidSave: () -> Void
+    private let announcementPoster: any AccessibilityAnnouncementPosting
 
     init(
         snapshot: Snapshot,
         onSave: @escaping ([Address: String]) throws -> Snapshot,
         onReload: @escaping () throws -> Snapshot,
-        onDidSave: @escaping () -> Void = {}
+        onDidSave: @escaping () -> Void = {},
+        announcementPoster: any AccessibilityAnnouncementPosting =
+            AccessibilityAnnouncementPoster()
     ) {
         self.snapshot = snapshot
         self.draftValues = snapshot.values
         self.onSave = onSave
         self.onReload = onReload
         self.onDidSave = onDidSave
+        self.announcementPoster = announcementPoster
     }
 
     var sample: String { snapshot.sample }
@@ -184,7 +190,12 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
             onDidSave()
             return true
         } catch {
+            persistenceFailure = .save
             persistenceErrorMessage = error.localizedDescription
+            announcementPoster.post(
+                "Could not save haplotype assignments for \(sample). \(error.localizedDescription)",
+                priority: .high
+            )
             return false
         }
     }
@@ -208,6 +219,7 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
             apply(try onReload())
             persistenceErrorMessage = nil
         } catch {
+            persistenceFailure = .reload
             persistenceErrorMessage = error.localizedDescription
         }
     }
@@ -276,6 +288,7 @@ struct GenotypeEffectiveHaplotypeEditor: View {
             emptyStateMessage: nil,
             warning: nil,
             persistenceErrorMessage: model.persistenceErrorMessage,
+            persistenceFailure: model.persistenceFailure,
             accessibilityPrefix: "effective-haplotype",
             typographyModel: typographyModel,
             compareAndCopyIsEnabled: nil,

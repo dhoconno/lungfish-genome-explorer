@@ -178,6 +178,8 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
 
     @Published private var editorState: EditorState
     @Published private(set) var persistenceErrorMessage: String?
+    @Published private(set) var persistenceFailure:
+        GenotypeHaplotypeAssignmentPersistenceFailure = .save
     @Published private(set) var copySearchText = ""
     @Published private(set) var draftRevisionToken = UUID()
 
@@ -396,6 +398,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
             return true
         } catch {
             preparedDraft = nil
+            persistenceFailure = .save
             persistenceErrorMessage = error.localizedDescription
             announcementPoster.post(
                 "Could not save haplotype assignments for \(draft.sample). \(error.localizedDescription)",
@@ -421,6 +424,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
             return true
         } catch {
             self.preparedDraft = nil
+            persistenceFailure = .save
             persistenceErrorMessage = error.localizedDescription
             announcementPoster.post(
                 "Could not save haplotype assignments for \(draft.sample). \(error.localizedDescription)",
@@ -465,6 +469,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
                 priority: .high
             )
         } catch {
+            persistenceFailure = .reload
             persistenceErrorMessage = error.localizedDescription
             announcementPoster.post(
                 "Could not reload haplotype assignments for \(draft.sample). \(error.localizedDescription)",

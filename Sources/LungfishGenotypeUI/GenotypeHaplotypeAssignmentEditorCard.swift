@@ -58,6 +58,14 @@ struct GenotypeHaplotypeAssignmentEditorRow: Identifiable, Sendable {
     var id: String { locusLabel }
 }
 
+/// What failed when the card shows a persistence message. The message slot
+/// serves a failed Save and a failed Reload, and only a failed Save may be
+/// spoken as not saved.
+enum GenotypeHaplotypeAssignmentPersistenceFailure: Equatable, Sendable {
+    case save
+    case reload
+}
+
 struct GenotypeHaplotypeAssignmentEditorWarning: Sendable {
     let message: String
     let details: [String]
@@ -80,6 +88,7 @@ struct GenotypeHaplotypeAssignmentEditorCard: View {
     let emptyStateMessage: String?
     let warning: GenotypeHaplotypeAssignmentEditorWarning?
     let persistenceErrorMessage: String?
+    let persistenceFailure: GenotypeHaplotypeAssignmentPersistenceFailure
     let accessibilityPrefix: String
     let typographyModel: ContentTypographyModel
     let compareAndCopyIsEnabled: Bool?
@@ -175,10 +184,6 @@ struct GenotypeHaplotypeAssignmentEditorCard: View {
                     action: onCompareAndCopy
                 )
             }
-
-            if let persistenceErrorMessage {
-                persistenceError(persistenceErrorMessage)
-            }
         }
         .padding(10)
         .background(
@@ -198,27 +203,38 @@ struct GenotypeHaplotypeAssignmentEditorCard: View {
     }
 
     private var header: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Haplotype Assignments")
-                    .font(headingFont)
-                Text(completenessSummary)
-                    .font(captionFont)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Haplotype Assignments")
+                        .font(headingFont)
+                    Text(completenessSummary)
+                        .font(captionFont)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if isDirty {
+                    Text("Unsaved")
+                        .font(captionFont)
+                        .foregroundStyle(.secondary)
+                }
+                Button("Save Assignments", action: onSave)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!canSave)
+                    .accessibilityIdentifier(
+                        "\(accessibilityPrefix)-save"
+                    )
             }
-            Spacer()
-            if isDirty {
-                Text("Unsaved")
-                    .font(captionFont)
-                    .foregroundStyle(.secondary)
+            // A failed save shows under the button that failed. The detail
+            // pane shows the top of the card without scrolling, and the end of
+            // a seven-locus card sits far below it.
+            if let persistenceErrorMessage {
+                persistenceError(persistenceErrorMessage)
             }
-            Button("Save Assignments", action: onSave)
-                .keyboardShortcut(.defaultAction)
-                .disabled(!canSave)
-                .accessibilityIdentifier(
-                    "\(accessibilityPrefix)-save"
-                )
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Haplotype assignment save status")
+        .accessibilityIdentifier("\(accessibilityPrefix)-header")
     }
 
     private func warningView(
@@ -321,6 +337,10 @@ struct GenotypeHaplotypeAssignmentEditorCard: View {
             Label(message, systemImage: "exclamationmark.triangle.fill")
                 .font(captionFont)
                 .foregroundStyle(.secondary)
+                .accessibilityLabel(persistenceErrorSpokenLabel(message))
+                .accessibilityIdentifier(
+                    "\(accessibilityPrefix)-persistence-error"
+                )
             HStack {
                 Button("Retry", action: onRetry)
                     .accessibilityIdentifier(
@@ -332,6 +352,21 @@ struct GenotypeHaplotypeAssignmentEditorCard: View {
                     )
             }
         }
+        .background(
+            PersistenceErrorRevealAnchor(
+                message: message,
+                identifier: "\(accessibilityPrefix)-persistence-error-region"
+            )
+        )
+    }
+
+    private func persistenceErrorSpokenLabel(_ message: String) -> String {
+        switch persistenceFailure {
+        case .save:
+            return "Haplotype assignments were not saved. \(message)"
+        case .reload:
+            return "Haplotype assignments could not be reloaded. \(message)"
+        }
     }
 
     private func color(forTokenIndex index: Int) -> Color {
@@ -342,6 +377,43 @@ struct GenotypeHaplotypeAssignmentEditorCard: View {
             green: token.fillColor.green,
             blue: token.fillColor.blue
         )
+    }
+}
+
+/// Brings a failed save's message into view when it appears. Save Assignments
+/// is the default button, so Return saves while the analyst edits a lower
+/// locus with the header scrolled out of the detail pane. The anchor sits
+/// behind the message and scrolls the enclosing AppKit scroll view to it once
+/// per new message, never while the analyst keeps editing.
+@MainActor
+private struct PersistenceErrorRevealAnchor: NSViewRepresentable {
+    let message: String
+    let identifier: String
+
+    func makeNSView(context: Context) -> RevealingView {
+        let view = RevealingView()
+        view.setAccessibilityElement(false)
+        view.setAccessibilityIdentifier(identifier)
+        return view
+    }
+
+    func updateNSView(_ view: RevealingView, context: Context) {
+        view.reveal(message)
+    }
+
+    @MainActor
+    final class RevealingView: NSView {
+        private var revealedMessage: String?
+
+        func reveal(_ message: String) {
+            guard message != revealedMessage else { return }
+            revealedMessage = message
+            // After SwiftUI has sized the hosting view for the new row.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.window != nil else { return }
+                self.scrollToVisible(self.bounds)
+            }
+        }
     }
 }
 

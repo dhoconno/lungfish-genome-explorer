@@ -42,6 +42,7 @@ struct GenotypeManualHaplotypeEditor: View {
             emptyStateMessage: model.emptyStateMessage,
             warning: sharedWarning,
             persistenceErrorMessage: model.persistenceErrorMessage,
+            persistenceFailure: model.persistenceFailure,
             accessibilityPrefix: "manual-haplotype",
             typographyModel: typographyModel,
             compareAndCopyIsEnabled: !model.copyCandidates.isEmpty,
