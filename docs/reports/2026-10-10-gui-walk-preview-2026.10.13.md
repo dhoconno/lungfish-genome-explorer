@@ -77,6 +77,32 @@ Observations O1 (a step command shows `<tool-root>` resolved to this Mac's stora
 
 **Corrections made in place.** The release notes of 2026.10.13 said that selecting a result no longer changes the project. That sentence and the summary line now name the EsViritu and TaxTriage backfills they meant, and a dated correction lists the three writes the walk found. `docs/contracts/RECORDING-PROVENANCE.md` no longer calls the search index the one read-time write, scopes the stored status to envelope records and names the CLI single-step recorder that keeps a step's stderr whole. The Phase 2.4 plan records the walk and carries the scheduled findings in its deferred table.
 
+## Owner-present walk of the remaining stars (2026-10-10 afternoon)
+
+The owner sat at the Mac and approved full-screen control. The checks ran on Debug builds of main against `~/.lungfish-stable`, on fresh copies of the walk project under `~/LGE-GUI-Walk/2026-10-10-owner`, `-owner2` and `-owner3`. The first pass ran on `9fb0b82d4`, found two defects, and the 2026.10.11 baseline app separated new from old. The panel had both fixed test-first and reviewed, and the second pass ran on `ed28a621c`.
+
+| Star | First pass on `9fb0b82d4` | Second pass on `ed28a621c` |
+|---|---|---|
+| 2 Unsaved draft and Export to Excel | Fail. The alert and Cancel behaved, but Save, and Save Assignments itself, did nothing visible on a bundle with no `annotations.json`. The save had failed since 900c0fabb in July, and its message sat below the visible part of the card | Pass on a copy with no sidecar. Save kept `WALK3`, the Export Genotype View sheet opened, and `annotations.json` and its record hold the assignment |
+| 5 Genotype Call menu and shortcuts | Fail on both this build and the 2026.10.11 baseline. A click selected a cell without giving the matrix keyboard focus, so the menu items stayed dimmed and the shortcuts went to the sidebar. The context menu worked | Pass. Mark False Positive and Edit Comment are enabled, Mark False Negative stays dimmed, ⌥⌘P shows `[4]` and ⌥⌘R clears it |
+| 6 Genotype Sample menu, undo and Sample Detail | Fail for the same reason | Pass. ⌘R, then Undo reads `Undo Mark Sample Reviewed`, Redo works and ⇧⌘O opens the Sample Detail sheet |
+| 7 Context menus | Pass. Cell and column header menus list their items in order with their shortcuts, the dimmed Mark False Negative explains itself, and Add Comment opens Add Matrix Comment | Not rerun |
+| 9 Manual band and Compare & Copy | Blocked by star 2 | Pass. The band shows `WALK3 · —`, the draft alert's Cancel and Discard behave as named, and Compare & Copy offers the saved sample |
+| 10 Smart cohorts | Partial. A cohort filters the view (Incomplete haplotypes empties the matrix), and saving then removing a `Filter:` row works. No control shows which cohort is active, and clicking it again does not clear it | Not rerun |
+
+The fixes are on main as `16d56e21d` (the matrix and Haplotype Calls take the keyboard focus on a click) and `58ef690e4` to `ed28a621c` (the first manual save publishes the viewed sidecar first, a failed save shows under Save Assignments and under Export to Excel, and it is logged). The panel reviewed both and asked for four changes to the second, which were made before it landed.
+
+Smaller findings, scheduled with the 2.6 display pass.
+
+| Finding | Severity |
+|---|---|
+| Star 10 shows no active cohort and has no way to clear it except choosing another cohort | S3 |
+| The quit alert reads "The requested appQuit change will close the current sample editor" | S4 |
+| Two different projects with the same name both get the window title "MHC Genotyping [1]" | S3 |
+| Compare & Copy opens at the top of the detail pane, out of view of the button that opened it | S4 |
+| A click on a row selector, a column header chiclet or a band target still leaves the focus in the sidebar | S3 |
+| The first matrix review or comment on a bundle without a sidecar records no embedded prior, so its recorded replay command refuses | S3, 2.6 with the provenance spec |
+
 ## For the next Preview's release notes
 
 | Area | What to say |
