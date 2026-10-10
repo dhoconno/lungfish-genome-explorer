@@ -1,0 +1,1389 @@
+# Bundle kind parity answers, Phase 2.6 lane B1. Recorded from the real functions, never written by hand.
+# Lines are tab separated. A probe line is: probe, id, source. An answer line is: table, probe id, answer.
+# Rewrite with LUNGFISH_UPDATE_BUNDLE_KIND_PARITY=1 swift test --skip-update --filter LungfishAppTests.BundleKindParityTests
+# and review the diff before committing it. Tables:
+#   sidebar.classification: SidebarProjectScanner.bundleClassification(for:), the sidebar type and symbol
+#   sidebar.isNativePackage: SidebarProjectScanner.isNativePackage(_:)
+#   sidebar.listed: SidebarProjectScanner.shouldIncludeEntry(_:isDirectory:context:) in a regular folder
+#   sidebar.scanNode: SidebarProjectScanner.scanTree(from:), the row type, symbol and whether the children are shown
+#   sidebar.scanRoot: SidebarProjectScanner.scanTree(from:isRoot: true), only for a project folder
+#   sidebar.isBundle: SidebarItemType.isBundle of the classified type
+#   sidebar.capabilities: SidebarItemType.bundleCapabilities of the classified type
+#   sidebar.tint: SidebarItemType.tintColor of the classified type
+#   deletion.object: ProjectDeletionPlanner.impact(ofDeleting:in:), opaque object or walked
+#   copier.kind: CrossProjectItemCopier.kind(of:) with its default folder
+#   document.type: DocumentType.detect(from:) with isDirectoryFormat
+#   provenance.coverage: ProvenanceCoverageMonitor.requirement(for:) for the URL alone
+#   msa.nativeBundleOutput: CLIMSAActionRunner, whether its returned output URL is a directory
+#   openPanel.accepts: AppFilePanelFactory.documentOpenPanel().allowedContentTypes
+#   fileType.detect: FileTypeUtility.detect(url:)
+#   format.identifier: the FormatIdentifier bundle constants, by lowercased extension
+#   provenanceWriter.isBundleDirectory: ProvenanceWriter.isBundleDirectory(_:)
+#   typedRecognizers: the isBundleURL recognizers of the typed bundle enums
+probe	fixture-ref-testgenome	TestData/TestGenome.lungfishref
+probe	fixture-ref-hepatitisb	TestData/HepatitisB.lungfishref
+probe	fixture-ref-simulated-mhc-released	Tests/Fixtures/provenance-display/Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref
+probe	fixture-project-sarscov2-mafft	Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish
+probe	fixture-msa-in-project	inside fixture-project-sarscov2-mafft, Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa
+probe	fixture-msa-compat-record-only	Tests/Fixtures/provenance-compat/cases/s4-msa-mafft-2026-05/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa
+probe	fixture-mhcref-compat-record-only	Tests/Fixtures/provenance-compat/cases/s4-mcm-mhcref-shipped/MCM-MHC-miSeq-20260617.lungfishmhcref
+probe	fixture-mhcref-mcm-resource	Sources/LungfishWorkflow/Resources/MCMHaplotyping/MCM-MHC-miSeq-20260617.lungfishmhcref
+probe	fixture-primers-artic-sars-cov-2-v4.1	Sources/LungfishApp/Resources/PrimerSchemes/ARTIC-SARS-CoV-2-V4.1.lungfishprimers
+probe	fixture-primers-artic-sars-cov-2-v4	Sources/LungfishApp/Resources/PrimerSchemes/ARTIC-SARS-CoV-2-V4.lungfishprimers
+probe	fixture-primers-artic-sars-cov-2-v5.3.2	Sources/LungfishApp/Resources/PrimerSchemes/ARTIC-SARS-CoV-2-V5.3.2.lungfishprimers
+probe	fixture-primers-artic-ncov-2019-v3	Sources/LungfishApp/Resources/PrimerSchemes/ARTIC-nCoV-2019-V3.lungfishprimers
+probe	fixture-primers-midnight-1200-v1	Sources/LungfishApp/Resources/PrimerSchemes/Midnight-1200-V1.lungfishprimers
+probe	fixture-primers-neb-varskip-long-vsl1	Sources/LungfishApp/Resources/PrimerSchemes/NEB-VarSkip-Long-vsl1.lungfishprimers
+probe	fixture-primers-neb-varskip-vss1	Sources/LungfishApp/Resources/PrimerSchemes/NEB-VarSkip-vss1.lungfishprimers
+probe	fixture-primers-qiaseqdirect-sars2	Sources/LungfishApp/Resources/PrimerSchemes/QIASeqDIRECT-SARS2.lungfishprimers
+probe	fixture-primers-iotests-valid-simple	Tests/LungfishIOTests/Resources/primerschemes/valid-simple.lungfishprimers
+probe	fixture-primers-workflowtests-mt192765	Tests/LungfishWorkflowTests/Resources/primerschemes/mt192765-integration.lungfishprimers
+probe	fixture-primers-workflowtests-valid-simple	Tests/LungfishWorkflowTests/Resources/primerschemes/valid-simple.lungfishprimers
+probe	fixture-flowpkg-hello-nextflow	Examples/WorkflowPackages/hello-world-nextflow.lungfishflowpkg
+probe	fixture-flowpkg-hello-snakemake	Examples/WorkflowPackages/hello-world-snakemake.lungfishflowpkg
+probe	demo-project	lge-demo-mhc-genotyping-2026.9.58.zip, MHC Genotyping.lungfish
+probe	demo-fastq-a	lge-demo-mhc-genotyping-2026.9.58.zip, Imports/SIMULATED-MHC-A-pairs.lungfishfastq
+probe	demo-fastq-b	lge-demo-mhc-genotyping-2026.9.58.zip, Imports/SIMULATED-MHC-B-pairs.lungfishfastq
+probe	demo-ref	lge-demo-mhc-genotyping-2026.9.58.zip, Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref
+probe	demo-mhcref	lge-demo-mhc-genotyping-2026.9.58.zip, Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref
+probe	demo-mhcref-nested-ref	lge-demo-mhc-genotyping-2026.9.58.zip, Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref
+probe	demo-mhcref-record-only-ref	lge-demo-mhc-genotyping-2026.9.58.zip, Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/provenance/reference/SIMULATED-MHC-MCM-teaching.lungfishref
+probe	lower-lungfish	copy of fixture-project-sarscov2-mafft
+probe	upper-lungfish	lower-lungfish under an uppercase extension
+probe	nomanifest-lungfish	lower-lungfish without metadata.json, .project.db
+probe	lower-lungfishref	copy of fixture-ref-testgenome
+probe	upper-lungfishref	lower-lungfishref under an uppercase extension
+probe	nomanifest-lungfishref	lower-lungfishref without manifest.json
+probe	lower-lungfishfastq	copy of demo-fastq-a
+probe	upper-lungfishfastq	lower-lungfishfastq under an uppercase extension
+probe	nomanifest-lungfishfastq	lower-lungfishfastq without derived.manifest.json, read-manifest.json, *.lungfish-meta.json
+probe	lower-lungfishmsa	copy of fixture-msa-in-project
+probe	upper-lungfishmsa	lower-lungfishmsa under an uppercase extension
+probe	nomanifest-lungfishmsa	lower-lungfishmsa without manifest.json
+probe	lower-lungfishtree	small stand-in with the manifest
+probe	upper-lungfishtree	lower-lungfishtree under an uppercase extension
+probe	nomanifest-lungfishtree	lower-lungfishtree without manifest.json
+probe	lower-lungfishprimers	copy of fixture-primers-qiaseqdirect-sars2
+probe	upper-lungfishprimers	lower-lungfishprimers under an uppercase extension
+probe	nomanifest-lungfishprimers	lower-lungfishprimers without manifest.json, PROVENANCE.md
+probe	lower-lungfishprimeranalysis	small stand-in with the manifest
+probe	upper-lungfishprimeranalysis	lower-lungfishprimeranalysis under an uppercase extension
+probe	nomanifest-lungfishprimeranalysis	lower-lungfishprimeranalysis without manifest.json
+probe	lower-lungfishmhcref	copy of fixture-mhcref-mcm-resource
+probe	upper-lungfishmhcref	lower-lungfishmhcref under an uppercase extension
+probe	nomanifest-lungfishmhcref	lower-lungfishmhcref without mhc-reference.json
+probe	lower-lungfishgenotype	small stand-in with the manifest
+probe	upper-lungfishgenotype	lower-lungfishgenotype under an uppercase extension
+probe	nomanifest-lungfishgenotype	lower-lungfishgenotype without genotype-result.json
+probe	lower-lungfish12s	small stand-in with the manifest
+probe	upper-lungfish12s	lower-lungfish12s under an uppercase extension
+probe	nomanifest-lungfish12s	lower-lungfish12s without 12s-result.json
+probe	lower-lungfish12sref	small stand-in with the manifest
+probe	upper-lungfish12sref	lower-lungfish12sref under an uppercase extension
+probe	nomanifest-lungfish12sref	lower-lungfish12sref without 12s-reference.json
+probe	lower-lungfishtax	small stand-in with the manifest
+probe	upper-lungfishtax	lower-lungfishtax under an uppercase extension
+probe	nomanifest-lungfishtax	lower-lungfishtax without cz-id-manifest.json
+probe	lower-lungfishrun	small stand-in with the manifest
+probe	upper-lungfishrun	lower-lungfishrun under an uppercase extension
+probe	nomanifest-lungfishrun	lower-lungfishrun without manifest.json
+probe	lower-lungfishflow	small stand-in with the manifest
+probe	upper-lungfishflow	lower-lungfishflow under an uppercase extension
+probe	nomanifest-lungfishflow	lower-lungfishflow without a manifest (it has none)
+probe	lower-lungfishflowpkg	copy of fixture-flowpkg-hello-nextflow
+probe	upper-lungfishflowpkg	lower-lungfishflowpkg under an uppercase extension
+probe	nomanifest-lungfishflowpkg	lower-lungfishflowpkg without manifest.json
+probe	control-plain-folder	an empty stand-in named plain-folder
+probe	control-unknown-lungfish-extension	an empty stand-in named unknown.lungfishbundle
+probe	control-near-miss-extension	an empty stand-in named near-miss.zlungfishref
+sidebar.classification	fixture-ref-testgenome	referenceBundle cylinder.split.1x2
+sidebar.classification	fixture-ref-hepatitisb	referenceBundle cylinder.split.1x2
+sidebar.classification	fixture-ref-simulated-mhc-released	referenceBundle cylinder.split.1x2
+sidebar.classification	fixture-project-sarscov2-mafft	document shippingbox
+sidebar.classification	fixture-msa-in-project	multipleSequenceAlignmentBundle rectangle.grid.1x2
+sidebar.classification	fixture-msa-compat-record-only	multipleSequenceAlignmentBundle rectangle.grid.1x2
+sidebar.classification	fixture-mhcref-compat-record-only	mhcReferenceBundle cylinder.split.1x2
+sidebar.classification	fixture-mhcref-mcm-resource	mhcReferenceBundle cylinder.split.1x2
+sidebar.classification	fixture-primers-artic-sars-cov-2-v4.1	primerSchemeBundle line.horizontal.3.decrease.circle
+sidebar.classification	fixture-primers-artic-sars-cov-2-v4	primerSchemeBundle line.horizontal.3.decrease.circle
+sidebar.classification	fixture-primers-artic-sars-cov-2-v5.3.2	primerSchemeBundle line.horizontal.3.decrease.circle
+sidebar.classification	fixture-primers-artic-ncov-2019-v3	primerSchemeBundle line.horizontal.3.decrease.circle
+sidebar.classification	fixture-primers-midnight-1200-v1	primerSchemeBundle line.horizontal.3.decrease.circle
+sidebar.classification	fixture-primers-neb-varskip-long-vsl1	primerSchemeBundle line.horizontal.3.decrease.circle
+sidebar.classification	fixture-primers-neb-varskip-vss1	primerSchemeBundle line.horizontal.3.decrease.circle
+sidebar.classification	fixture-primers-qiaseqdirect-sars2	primerSchemeBundle line.horizontal.3.decrease.circle
+sidebar.classification	fixture-primers-iotests-valid-simple	primerSchemeBundle line.horizontal.3.decrease.circle
+sidebar.classification	fixture-primers-workflowtests-mt192765	primerSchemeBundle line.horizontal.3.decrease.circle
+sidebar.classification	fixture-primers-workflowtests-valid-simple	primerSchemeBundle line.horizontal.3.decrease.circle
+sidebar.classification	fixture-flowpkg-hello-nextflow	document shippingbox
+sidebar.classification	fixture-flowpkg-hello-snakemake	document shippingbox
+sidebar.classification	demo-project	document shippingbox
+sidebar.classification	demo-fastq-a	fastqBundle doc.text
+sidebar.classification	demo-fastq-b	fastqBundle doc.text
+sidebar.classification	demo-ref	referenceBundle cylinder.split.1x2
+sidebar.classification	demo-mhcref	mhcReferenceBundle cylinder.split.1x2
+sidebar.classification	demo-mhcref-nested-ref	referenceBundle cylinder.split.1x2
+sidebar.classification	demo-mhcref-record-only-ref	referenceBundle cylinder.split.1x2
+sidebar.classification	lower-lungfish	document shippingbox
+sidebar.classification	upper-lungfish	document shippingbox
+sidebar.classification	nomanifest-lungfish	document shippingbox
+sidebar.classification	lower-lungfishref	referenceBundle cylinder.split.1x2
+sidebar.classification	upper-lungfishref	referenceBundle cylinder.split.1x2
+sidebar.classification	nomanifest-lungfishref	referenceBundle cylinder.split.1x2
+sidebar.classification	lower-lungfishfastq	fastqBundle doc.text
+sidebar.classification	upper-lungfishfastq	fastqBundle doc.text
+sidebar.classification	nomanifest-lungfishfastq	fastqBundle doc.text
+sidebar.classification	lower-lungfishmsa	multipleSequenceAlignmentBundle rectangle.grid.1x2
+sidebar.classification	upper-lungfishmsa	multipleSequenceAlignmentBundle rectangle.grid.1x2
+sidebar.classification	nomanifest-lungfishmsa	multipleSequenceAlignmentBundle rectangle.grid.1x2
+sidebar.classification	lower-lungfishtree	phylogeneticTreeBundle point.3.connected.trianglepath.dotted
+sidebar.classification	upper-lungfishtree	phylogeneticTreeBundle point.3.connected.trianglepath.dotted
+sidebar.classification	nomanifest-lungfishtree	phylogeneticTreeBundle point.3.connected.trianglepath.dotted
+sidebar.classification	lower-lungfishprimers	primerSchemeBundle line.horizontal.3.decrease.circle
+sidebar.classification	upper-lungfishprimers	primerSchemeBundle line.horizontal.3.decrease.circle
+sidebar.classification	nomanifest-lungfishprimers	primerSchemeBundle line.horizontal.3.decrease.circle
+sidebar.classification	lower-lungfishprimeranalysis	primerAnalysisBundle list.bullet.rectangle
+sidebar.classification	upper-lungfishprimeranalysis	primerAnalysisBundle list.bullet.rectangle
+sidebar.classification	nomanifest-lungfishprimeranalysis	primerAnalysisBundle list.bullet.rectangle
+sidebar.classification	lower-lungfishmhcref	mhcReferenceBundle cylinder.split.1x2
+sidebar.classification	upper-lungfishmhcref	mhcReferenceBundle cylinder.split.1x2
+sidebar.classification	nomanifest-lungfishmhcref	mhcReferenceBundle cylinder.split.1x2
+sidebar.classification	lower-lungfishgenotype	genotypeResultBundle tablecells.badge.ellipsis
+sidebar.classification	upper-lungfishgenotype	genotypeResultBundle tablecells.badge.ellipsis
+sidebar.classification	nomanifest-lungfishgenotype	genotypeResultBundle tablecells.badge.ellipsis
+sidebar.classification	lower-lungfish12s	twelveSAmpliconResultBundle tablecells
+sidebar.classification	upper-lungfish12s	twelveSAmpliconResultBundle tablecells
+sidebar.classification	nomanifest-lungfish12s	twelveSAmpliconResultBundle tablecells
+sidebar.classification	lower-lungfish12sref	document shippingbox
+sidebar.classification	upper-lungfish12sref	document shippingbox
+sidebar.classification	nomanifest-lungfish12sref	document shippingbox
+sidebar.classification	lower-lungfishtax	czIdResult c.circle
+sidebar.classification	upper-lungfishtax	czIdResult c.circle
+sidebar.classification	nomanifest-lungfishtax	document shippingbox
+sidebar.classification	lower-lungfishrun	document shippingbox
+sidebar.classification	upper-lungfishrun	document shippingbox
+sidebar.classification	nomanifest-lungfishrun	document shippingbox
+sidebar.classification	lower-lungfishflow	document shippingbox
+sidebar.classification	upper-lungfishflow	document shippingbox
+sidebar.classification	nomanifest-lungfishflow	document shippingbox
+sidebar.classification	lower-lungfishflowpkg	document shippingbox
+sidebar.classification	upper-lungfishflowpkg	document shippingbox
+sidebar.classification	nomanifest-lungfishflowpkg	document shippingbox
+sidebar.classification	control-plain-folder	nil
+sidebar.classification	control-unknown-lungfish-extension	document shippingbox
+sidebar.classification	control-near-miss-extension	nil
+sidebar.isNativePackage	fixture-ref-testgenome	true
+sidebar.isNativePackage	fixture-ref-hepatitisb	true
+sidebar.isNativePackage	fixture-ref-simulated-mhc-released	true
+sidebar.isNativePackage	fixture-project-sarscov2-mafft	true
+sidebar.isNativePackage	fixture-msa-in-project	true
+sidebar.isNativePackage	fixture-msa-compat-record-only	true
+sidebar.isNativePackage	fixture-mhcref-compat-record-only	true
+sidebar.isNativePackage	fixture-mhcref-mcm-resource	true
+sidebar.isNativePackage	fixture-primers-artic-sars-cov-2-v4.1	true
+sidebar.isNativePackage	fixture-primers-artic-sars-cov-2-v4	true
+sidebar.isNativePackage	fixture-primers-artic-sars-cov-2-v5.3.2	true
+sidebar.isNativePackage	fixture-primers-artic-ncov-2019-v3	true
+sidebar.isNativePackage	fixture-primers-midnight-1200-v1	true
+sidebar.isNativePackage	fixture-primers-neb-varskip-long-vsl1	true
+sidebar.isNativePackage	fixture-primers-neb-varskip-vss1	true
+sidebar.isNativePackage	fixture-primers-qiaseqdirect-sars2	true
+sidebar.isNativePackage	fixture-primers-iotests-valid-simple	true
+sidebar.isNativePackage	fixture-primers-workflowtests-mt192765	true
+sidebar.isNativePackage	fixture-primers-workflowtests-valid-simple	true
+sidebar.isNativePackage	fixture-flowpkg-hello-nextflow	true
+sidebar.isNativePackage	fixture-flowpkg-hello-snakemake	true
+sidebar.isNativePackage	demo-project	true
+sidebar.isNativePackage	demo-fastq-a	true
+sidebar.isNativePackage	demo-fastq-b	true
+sidebar.isNativePackage	demo-ref	true
+sidebar.isNativePackage	demo-mhcref	true
+sidebar.isNativePackage	demo-mhcref-nested-ref	true
+sidebar.isNativePackage	demo-mhcref-record-only-ref	true
+sidebar.isNativePackage	lower-lungfish	true
+sidebar.isNativePackage	upper-lungfish	true
+sidebar.isNativePackage	nomanifest-lungfish	true
+sidebar.isNativePackage	lower-lungfishref	true
+sidebar.isNativePackage	upper-lungfishref	true
+sidebar.isNativePackage	nomanifest-lungfishref	true
+sidebar.isNativePackage	lower-lungfishfastq	true
+sidebar.isNativePackage	upper-lungfishfastq	true
+sidebar.isNativePackage	nomanifest-lungfishfastq	true
+sidebar.isNativePackage	lower-lungfishmsa	true
+sidebar.isNativePackage	upper-lungfishmsa	true
+sidebar.isNativePackage	nomanifest-lungfishmsa	true
+sidebar.isNativePackage	lower-lungfishtree	true
+sidebar.isNativePackage	upper-lungfishtree	true
+sidebar.isNativePackage	nomanifest-lungfishtree	true
+sidebar.isNativePackage	lower-lungfishprimers	true
+sidebar.isNativePackage	upper-lungfishprimers	true
+sidebar.isNativePackage	nomanifest-lungfishprimers	true
+sidebar.isNativePackage	lower-lungfishprimeranalysis	true
+sidebar.isNativePackage	upper-lungfishprimeranalysis	true
+sidebar.isNativePackage	nomanifest-lungfishprimeranalysis	true
+sidebar.isNativePackage	lower-lungfishmhcref	true
+sidebar.isNativePackage	upper-lungfishmhcref	true
+sidebar.isNativePackage	nomanifest-lungfishmhcref	true
+sidebar.isNativePackage	lower-lungfishgenotype	true
+sidebar.isNativePackage	upper-lungfishgenotype	true
+sidebar.isNativePackage	nomanifest-lungfishgenotype	true
+sidebar.isNativePackage	lower-lungfish12s	true
+sidebar.isNativePackage	upper-lungfish12s	true
+sidebar.isNativePackage	nomanifest-lungfish12s	true
+sidebar.isNativePackage	lower-lungfish12sref	true
+sidebar.isNativePackage	upper-lungfish12sref	true
+sidebar.isNativePackage	nomanifest-lungfish12sref	true
+sidebar.isNativePackage	lower-lungfishtax	true
+sidebar.isNativePackage	upper-lungfishtax	true
+sidebar.isNativePackage	nomanifest-lungfishtax	true
+sidebar.isNativePackage	lower-lungfishrun	true
+sidebar.isNativePackage	upper-lungfishrun	true
+sidebar.isNativePackage	nomanifest-lungfishrun	true
+sidebar.isNativePackage	lower-lungfishflow	true
+sidebar.isNativePackage	upper-lungfishflow	true
+sidebar.isNativePackage	nomanifest-lungfishflow	true
+sidebar.isNativePackage	lower-lungfishflowpkg	true
+sidebar.isNativePackage	upper-lungfishflowpkg	true
+sidebar.isNativePackage	nomanifest-lungfishflowpkg	true
+sidebar.isNativePackage	control-plain-folder	false
+sidebar.isNativePackage	control-unknown-lungfish-extension	true
+sidebar.isNativePackage	control-near-miss-extension	false
+sidebar.listed	fixture-ref-testgenome	true
+sidebar.listed	fixture-ref-hepatitisb	true
+sidebar.listed	fixture-ref-simulated-mhc-released	true
+sidebar.listed	fixture-project-sarscov2-mafft	true
+sidebar.listed	fixture-msa-in-project	false
+sidebar.listed	fixture-msa-compat-record-only	true
+sidebar.listed	fixture-mhcref-compat-record-only	true
+sidebar.listed	fixture-mhcref-mcm-resource	true
+sidebar.listed	fixture-primers-artic-sars-cov-2-v4.1	true
+sidebar.listed	fixture-primers-artic-sars-cov-2-v4	true
+sidebar.listed	fixture-primers-artic-sars-cov-2-v5.3.2	true
+sidebar.listed	fixture-primers-artic-ncov-2019-v3	true
+sidebar.listed	fixture-primers-midnight-1200-v1	true
+sidebar.listed	fixture-primers-neb-varskip-long-vsl1	true
+sidebar.listed	fixture-primers-neb-varskip-vss1	true
+sidebar.listed	fixture-primers-qiaseqdirect-sars2	true
+sidebar.listed	fixture-primers-iotests-valid-simple	true
+sidebar.listed	fixture-primers-workflowtests-mt192765	true
+sidebar.listed	fixture-primers-workflowtests-valid-simple	true
+sidebar.listed	fixture-flowpkg-hello-nextflow	true
+sidebar.listed	fixture-flowpkg-hello-snakemake	true
+sidebar.listed	demo-project	true
+sidebar.listed	demo-fastq-a	true
+sidebar.listed	demo-fastq-b	true
+sidebar.listed	demo-ref	true
+sidebar.listed	demo-mhcref	true
+sidebar.listed	demo-mhcref-nested-ref	true
+sidebar.listed	demo-mhcref-record-only-ref	true
+sidebar.listed	lower-lungfish	true
+sidebar.listed	upper-lungfish	true
+sidebar.listed	nomanifest-lungfish	true
+sidebar.listed	lower-lungfishref	true
+sidebar.listed	upper-lungfishref	true
+sidebar.listed	nomanifest-lungfishref	true
+sidebar.listed	lower-lungfishfastq	true
+sidebar.listed	upper-lungfishfastq	true
+sidebar.listed	nomanifest-lungfishfastq	true
+sidebar.listed	lower-lungfishmsa	false
+sidebar.listed	upper-lungfishmsa	false
+sidebar.listed	nomanifest-lungfishmsa	false
+sidebar.listed	lower-lungfishtree	true
+sidebar.listed	upper-lungfishtree	true
+sidebar.listed	nomanifest-lungfishtree	true
+sidebar.listed	lower-lungfishprimers	true
+sidebar.listed	upper-lungfishprimers	true
+sidebar.listed	nomanifest-lungfishprimers	true
+sidebar.listed	lower-lungfishprimeranalysis	true
+sidebar.listed	upper-lungfishprimeranalysis	true
+sidebar.listed	nomanifest-lungfishprimeranalysis	true
+sidebar.listed	lower-lungfishmhcref	true
+sidebar.listed	upper-lungfishmhcref	true
+sidebar.listed	nomanifest-lungfishmhcref	true
+sidebar.listed	lower-lungfishgenotype	true
+sidebar.listed	upper-lungfishgenotype	true
+sidebar.listed	nomanifest-lungfishgenotype	true
+sidebar.listed	lower-lungfish12s	true
+sidebar.listed	upper-lungfish12s	true
+sidebar.listed	nomanifest-lungfish12s	true
+sidebar.listed	lower-lungfish12sref	true
+sidebar.listed	upper-lungfish12sref	true
+sidebar.listed	nomanifest-lungfish12sref	true
+sidebar.listed	lower-lungfishtax	true
+sidebar.listed	upper-lungfishtax	true
+sidebar.listed	nomanifest-lungfishtax	true
+sidebar.listed	lower-lungfishrun	false
+sidebar.listed	upper-lungfishrun	true
+sidebar.listed	nomanifest-lungfishrun	false
+sidebar.listed	lower-lungfishflow	true
+sidebar.listed	upper-lungfishflow	true
+sidebar.listed	nomanifest-lungfishflow	true
+sidebar.listed	lower-lungfishflowpkg	true
+sidebar.listed	upper-lungfishflowpkg	true
+sidebar.listed	nomanifest-lungfishflowpkg	true
+sidebar.listed	control-plain-folder	true
+sidebar.listed	control-unknown-lungfish-extension	true
+sidebar.listed	control-near-miss-extension	true
+sidebar.scanNode	fixture-ref-testgenome	referenceBundle symbol cylinder.split.1x2 atomic
+sidebar.scanNode	fixture-ref-hepatitisb	referenceBundle symbol cylinder.split.1x2 atomic
+sidebar.scanNode	fixture-ref-simulated-mhc-released	referenceBundle symbol cylinder.split.1x2 atomic
+sidebar.scanNode	fixture-project-sarscov2-mafft	document symbol shippingbox walked
+sidebar.scanNode	fixture-msa-in-project	multipleSequenceAlignmentBundle symbol rectangle.grid.1x2 atomic
+sidebar.scanNode	fixture-msa-compat-record-only	multipleSequenceAlignmentBundle symbol rectangle.grid.1x2 atomic
+sidebar.scanNode	fixture-mhcref-compat-record-only	mhcReferenceBundle symbol cylinder.split.1x2 atomic
+sidebar.scanNode	fixture-mhcref-mcm-resource	mhcReferenceBundle symbol cylinder.split.1x2 atomic
+sidebar.scanNode	fixture-primers-artic-sars-cov-2-v4.1	primerSchemeBundle symbol line.horizontal.3.decrease.circle atomic
+sidebar.scanNode	fixture-primers-artic-sars-cov-2-v4	primerSchemeBundle symbol line.horizontal.3.decrease.circle atomic
+sidebar.scanNode	fixture-primers-artic-sars-cov-2-v5.3.2	primerSchemeBundle symbol line.horizontal.3.decrease.circle atomic
+sidebar.scanNode	fixture-primers-artic-ncov-2019-v3	primerSchemeBundle symbol line.horizontal.3.decrease.circle atomic
+sidebar.scanNode	fixture-primers-midnight-1200-v1	primerSchemeBundle symbol line.horizontal.3.decrease.circle atomic
+sidebar.scanNode	fixture-primers-neb-varskip-long-vsl1	primerSchemeBundle symbol line.horizontal.3.decrease.circle atomic
+sidebar.scanNode	fixture-primers-neb-varskip-vss1	primerSchemeBundle symbol line.horizontal.3.decrease.circle atomic
+sidebar.scanNode	fixture-primers-qiaseqdirect-sars2	primerSchemeBundle symbol line.horizontal.3.decrease.circle atomic
+sidebar.scanNode	fixture-primers-iotests-valid-simple	primerSchemeBundle symbol line.horizontal.3.decrease.circle atomic
+sidebar.scanNode	fixture-primers-workflowtests-mt192765	primerSchemeBundle symbol line.horizontal.3.decrease.circle atomic
+sidebar.scanNode	fixture-primers-workflowtests-valid-simple	primerSchemeBundle symbol line.horizontal.3.decrease.circle atomic
+sidebar.scanNode	fixture-flowpkg-hello-nextflow	document symbol shippingbox walked
+sidebar.scanNode	fixture-flowpkg-hello-snakemake	document symbol shippingbox walked
+sidebar.scanNode	demo-project	document symbol shippingbox walked
+sidebar.scanNode	demo-fastq-a	fastqBundle symbol doc.text atomic
+sidebar.scanNode	demo-fastq-b	fastqBundle symbol doc.text atomic
+sidebar.scanNode	demo-ref	referenceBundle symbol cylinder.split.1x2 atomic
+sidebar.scanNode	demo-mhcref	mhcReferenceBundle symbol cylinder.split.1x2 atomic
+sidebar.scanNode	demo-mhcref-nested-ref	referenceBundle symbol cylinder.split.1x2 atomic
+sidebar.scanNode	demo-mhcref-record-only-ref	referenceBundle symbol cylinder.split.1x2 atomic
+sidebar.scanNode	lower-lungfish	document symbol shippingbox walked
+sidebar.scanNode	upper-lungfish	document symbol shippingbox walked
+sidebar.scanNode	nomanifest-lungfish	document symbol shippingbox walked
+sidebar.scanNode	lower-lungfishref	referenceBundle symbol cylinder.split.1x2 atomic
+sidebar.scanNode	upper-lungfishref	referenceBundle symbol cylinder.split.1x2 atomic
+sidebar.scanNode	nomanifest-lungfishref	referenceBundle symbol cylinder.split.1x2 atomic
+sidebar.scanNode	lower-lungfishfastq	fastqBundle symbol doc.text atomic
+sidebar.scanNode	upper-lungfishfastq	fastqBundle symbol doc.text atomic
+sidebar.scanNode	nomanifest-lungfishfastq	fastqBundle symbol doc.text atomic
+sidebar.scanNode	lower-lungfishmsa	multipleSequenceAlignmentBundle symbol rectangle.grid.1x2 atomic
+sidebar.scanNode	upper-lungfishmsa	multipleSequenceAlignmentBundle symbol rectangle.grid.1x2 atomic
+sidebar.scanNode	nomanifest-lungfishmsa	multipleSequenceAlignmentBundle symbol rectangle.grid.1x2 atomic
+sidebar.scanNode	lower-lungfishtree	phylogeneticTreeBundle symbol point.3.connected.trianglepath.dotted atomic
+sidebar.scanNode	upper-lungfishtree	phylogeneticTreeBundle symbol point.3.connected.trianglepath.dotted atomic
+sidebar.scanNode	nomanifest-lungfishtree	phylogeneticTreeBundle symbol point.3.connected.trianglepath.dotted atomic
+sidebar.scanNode	lower-lungfishprimers	primerSchemeBundle symbol line.horizontal.3.decrease.circle atomic
+sidebar.scanNode	upper-lungfishprimers	primerSchemeBundle symbol line.horizontal.3.decrease.circle atomic
+sidebar.scanNode	nomanifest-lungfishprimers	primerSchemeBundle symbol line.horizontal.3.decrease.circle atomic
+sidebar.scanNode	lower-lungfishprimeranalysis	primerAnalysisBundle symbol list.bullet.rectangle atomic
+sidebar.scanNode	upper-lungfishprimeranalysis	primerAnalysisBundle symbol list.bullet.rectangle atomic
+sidebar.scanNode	nomanifest-lungfishprimeranalysis	primerAnalysisBundle symbol list.bullet.rectangle atomic
+sidebar.scanNode	lower-lungfishmhcref	mhcReferenceBundle symbol cylinder.split.1x2 atomic
+sidebar.scanNode	upper-lungfishmhcref	mhcReferenceBundle symbol cylinder.split.1x2 atomic
+sidebar.scanNode	nomanifest-lungfishmhcref	mhcReferenceBundle symbol cylinder.split.1x2 atomic
+sidebar.scanNode	lower-lungfishgenotype	genotypeResultBundle symbol tablecells.badge.ellipsis atomic
+sidebar.scanNode	upper-lungfishgenotype	genotypeResultBundle symbol tablecells.badge.ellipsis atomic
+sidebar.scanNode	nomanifest-lungfishgenotype	genotypeResultBundle symbol tablecells.badge.ellipsis atomic
+sidebar.scanNode	lower-lungfish12s	twelveSAmpliconResultBundle symbol tablecells atomic
+sidebar.scanNode	upper-lungfish12s	twelveSAmpliconResultBundle symbol tablecells atomic
+sidebar.scanNode	nomanifest-lungfish12s	twelveSAmpliconResultBundle symbol tablecells atomic
+sidebar.scanNode	lower-lungfish12sref	document symbol shippingbox walked
+sidebar.scanNode	upper-lungfish12sref	document symbol shippingbox walked
+sidebar.scanNode	nomanifest-lungfish12sref	document symbol shippingbox walked
+sidebar.scanNode	lower-lungfishtax	czIdResult symbol c.circle atomic
+sidebar.scanNode	upper-lungfishtax	czIdResult symbol c.circle atomic
+sidebar.scanNode	nomanifest-lungfishtax	document symbol shippingbox walked
+sidebar.scanNode	lower-lungfishrun	document symbol shippingbox walked
+sidebar.scanNode	upper-lungfishrun	document symbol shippingbox walked
+sidebar.scanNode	nomanifest-lungfishrun	document symbol shippingbox walked
+sidebar.scanNode	lower-lungfishflow	document symbol shippingbox walked
+sidebar.scanNode	upper-lungfishflow	document symbol shippingbox walked
+sidebar.scanNode	nomanifest-lungfishflow	document symbol shippingbox walked
+sidebar.scanNode	lower-lungfishflowpkg	document symbol shippingbox walked
+sidebar.scanNode	upper-lungfishflowpkg	document symbol shippingbox walked
+sidebar.scanNode	nomanifest-lungfishflowpkg	document symbol shippingbox walked
+sidebar.scanNode	control-plain-folder	folder symbol folder walked
+sidebar.scanNode	control-unknown-lungfish-extension	document symbol shippingbox walked
+sidebar.scanNode	control-near-miss-extension	folder symbol folder walked
+sidebar.scanRoot	fixture-project-sarscov2-mafft	project symbol folder.badge.gearshape walked
+sidebar.scanRoot	demo-project	project symbol folder.badge.gearshape walked
+sidebar.scanRoot	lower-lungfish	project symbol folder.badge.gearshape walked
+sidebar.scanRoot	upper-lungfish	project symbol folder.badge.gearshape walked
+sidebar.scanRoot	nomanifest-lungfish	project symbol folder.badge.gearshape walked
+sidebar.isBundle	fixture-ref-testgenome	true
+sidebar.isBundle	fixture-ref-hepatitisb	true
+sidebar.isBundle	fixture-ref-simulated-mhc-released	true
+sidebar.isBundle	fixture-project-sarscov2-mafft	false
+sidebar.isBundle	fixture-msa-in-project	true
+sidebar.isBundle	fixture-msa-compat-record-only	true
+sidebar.isBundle	fixture-mhcref-compat-record-only	true
+sidebar.isBundle	fixture-mhcref-mcm-resource	true
+sidebar.isBundle	fixture-primers-artic-sars-cov-2-v4.1	true
+sidebar.isBundle	fixture-primers-artic-sars-cov-2-v4	true
+sidebar.isBundle	fixture-primers-artic-sars-cov-2-v5.3.2	true
+sidebar.isBundle	fixture-primers-artic-ncov-2019-v3	true
+sidebar.isBundle	fixture-primers-midnight-1200-v1	true
+sidebar.isBundle	fixture-primers-neb-varskip-long-vsl1	true
+sidebar.isBundle	fixture-primers-neb-varskip-vss1	true
+sidebar.isBundle	fixture-primers-qiaseqdirect-sars2	true
+sidebar.isBundle	fixture-primers-iotests-valid-simple	true
+sidebar.isBundle	fixture-primers-workflowtests-mt192765	true
+sidebar.isBundle	fixture-primers-workflowtests-valid-simple	true
+sidebar.isBundle	fixture-flowpkg-hello-nextflow	false
+sidebar.isBundle	fixture-flowpkg-hello-snakemake	false
+sidebar.isBundle	demo-project	false
+sidebar.isBundle	demo-fastq-a	true
+sidebar.isBundle	demo-fastq-b	true
+sidebar.isBundle	demo-ref	true
+sidebar.isBundle	demo-mhcref	true
+sidebar.isBundle	demo-mhcref-nested-ref	true
+sidebar.isBundle	demo-mhcref-record-only-ref	true
+sidebar.isBundle	lower-lungfish	false
+sidebar.isBundle	upper-lungfish	false
+sidebar.isBundle	nomanifest-lungfish	false
+sidebar.isBundle	lower-lungfishref	true
+sidebar.isBundle	upper-lungfishref	true
+sidebar.isBundle	nomanifest-lungfishref	true
+sidebar.isBundle	lower-lungfishfastq	true
+sidebar.isBundle	upper-lungfishfastq	true
+sidebar.isBundle	nomanifest-lungfishfastq	true
+sidebar.isBundle	lower-lungfishmsa	true
+sidebar.isBundle	upper-lungfishmsa	true
+sidebar.isBundle	nomanifest-lungfishmsa	true
+sidebar.isBundle	lower-lungfishtree	true
+sidebar.isBundle	upper-lungfishtree	true
+sidebar.isBundle	nomanifest-lungfishtree	true
+sidebar.isBundle	lower-lungfishprimers	true
+sidebar.isBundle	upper-lungfishprimers	true
+sidebar.isBundle	nomanifest-lungfishprimers	true
+sidebar.isBundle	lower-lungfishprimeranalysis	true
+sidebar.isBundle	upper-lungfishprimeranalysis	true
+sidebar.isBundle	nomanifest-lungfishprimeranalysis	true
+sidebar.isBundle	lower-lungfishmhcref	true
+sidebar.isBundle	upper-lungfishmhcref	true
+sidebar.isBundle	nomanifest-lungfishmhcref	true
+sidebar.isBundle	lower-lungfishgenotype	true
+sidebar.isBundle	upper-lungfishgenotype	true
+sidebar.isBundle	nomanifest-lungfishgenotype	true
+sidebar.isBundle	lower-lungfish12s	true
+sidebar.isBundle	upper-lungfish12s	true
+sidebar.isBundle	nomanifest-lungfish12s	true
+sidebar.isBundle	lower-lungfish12sref	false
+sidebar.isBundle	upper-lungfish12sref	false
+sidebar.isBundle	nomanifest-lungfish12sref	false
+sidebar.isBundle	lower-lungfishtax	true
+sidebar.isBundle	upper-lungfishtax	true
+sidebar.isBundle	nomanifest-lungfishtax	false
+sidebar.isBundle	lower-lungfishrun	false
+sidebar.isBundle	upper-lungfishrun	false
+sidebar.isBundle	nomanifest-lungfishrun	false
+sidebar.isBundle	lower-lungfishflow	false
+sidebar.isBundle	upper-lungfishflow	false
+sidebar.isBundle	nomanifest-lungfishflow	false
+sidebar.isBundle	lower-lungfishflowpkg	false
+sidebar.isBundle	upper-lungfishflowpkg	false
+sidebar.isBundle	nomanifest-lungfishflowpkg	false
+sidebar.isBundle	control-unknown-lungfish-extension	false
+sidebar.capabilities	fixture-ref-testgenome	open,package,info,inspector,exportSequences,exportAnnotations
+sidebar.capabilities	fixture-ref-hepatitisb	open,package,info,inspector,exportSequences,exportAnnotations
+sidebar.capabilities	fixture-ref-simulated-mhc-released	open,package,info,inspector,exportSequences,exportAnnotations
+sidebar.capabilities	fixture-project-sarscov2-mafft	none
+sidebar.capabilities	fixture-msa-in-project	open,package,info,inspector,exportAlignment
+sidebar.capabilities	fixture-msa-compat-record-only	open,package,info,inspector,exportAlignment
+sidebar.capabilities	fixture-mhcref-compat-record-only	open,package,info,inspector
+sidebar.capabilities	fixture-mhcref-mcm-resource	open,package,info,inspector
+sidebar.capabilities	fixture-primers-artic-sars-cov-2-v4.1	open,package,info,inspector
+sidebar.capabilities	fixture-primers-artic-sars-cov-2-v4	open,package,info,inspector
+sidebar.capabilities	fixture-primers-artic-sars-cov-2-v5.3.2	open,package,info,inspector
+sidebar.capabilities	fixture-primers-artic-ncov-2019-v3	open,package,info,inspector
+sidebar.capabilities	fixture-primers-midnight-1200-v1	open,package,info,inspector
+sidebar.capabilities	fixture-primers-neb-varskip-long-vsl1	open,package,info,inspector
+sidebar.capabilities	fixture-primers-neb-varskip-vss1	open,package,info,inspector
+sidebar.capabilities	fixture-primers-qiaseqdirect-sars2	open,package,info,inspector
+sidebar.capabilities	fixture-primers-iotests-valid-simple	open,package,info,inspector
+sidebar.capabilities	fixture-primers-workflowtests-mt192765	open,package,info,inspector
+sidebar.capabilities	fixture-primers-workflowtests-valid-simple	open,package,info,inspector
+sidebar.capabilities	fixture-flowpkg-hello-nextflow	none
+sidebar.capabilities	fixture-flowpkg-hello-snakemake	none
+sidebar.capabilities	demo-project	none
+sidebar.capabilities	demo-fastq-a	open,package,info,inspector
+sidebar.capabilities	demo-fastq-b	open,package,info,inspector
+sidebar.capabilities	demo-ref	open,package,info,inspector,exportSequences,exportAnnotations
+sidebar.capabilities	demo-mhcref	open,package,info,inspector
+sidebar.capabilities	demo-mhcref-nested-ref	open,package,info,inspector,exportSequences,exportAnnotations
+sidebar.capabilities	demo-mhcref-record-only-ref	open,package,info,inspector,exportSequences,exportAnnotations
+sidebar.capabilities	lower-lungfish	none
+sidebar.capabilities	upper-lungfish	none
+sidebar.capabilities	nomanifest-lungfish	none
+sidebar.capabilities	lower-lungfishref	open,package,info,inspector,exportSequences,exportAnnotations
+sidebar.capabilities	upper-lungfishref	open,package,info,inspector,exportSequences,exportAnnotations
+sidebar.capabilities	nomanifest-lungfishref	open,package,info,inspector,exportSequences,exportAnnotations
+sidebar.capabilities	lower-lungfishfastq	open,package,info,inspector
+sidebar.capabilities	upper-lungfishfastq	open,package,info,inspector
+sidebar.capabilities	nomanifest-lungfishfastq	open,package,info,inspector
+sidebar.capabilities	lower-lungfishmsa	open,package,info,inspector,exportAlignment
+sidebar.capabilities	upper-lungfishmsa	open,package,info,inspector,exportAlignment
+sidebar.capabilities	nomanifest-lungfishmsa	open,package,info,inspector,exportAlignment
+sidebar.capabilities	lower-lungfishtree	open,package,info,inspector
+sidebar.capabilities	upper-lungfishtree	open,package,info,inspector
+sidebar.capabilities	nomanifest-lungfishtree	open,package,info,inspector
+sidebar.capabilities	lower-lungfishprimers	open,package,info,inspector
+sidebar.capabilities	upper-lungfishprimers	open,package,info,inspector
+sidebar.capabilities	nomanifest-lungfishprimers	open,package,info,inspector
+sidebar.capabilities	lower-lungfishprimeranalysis	open,package,info
+sidebar.capabilities	upper-lungfishprimeranalysis	open,package,info
+sidebar.capabilities	nomanifest-lungfishprimeranalysis	open,package,info
+sidebar.capabilities	lower-lungfishmhcref	open,package,info,inspector
+sidebar.capabilities	upper-lungfishmhcref	open,package,info,inspector
+sidebar.capabilities	nomanifest-lungfishmhcref	open,package,info,inspector
+sidebar.capabilities	lower-lungfishgenotype	open,package,info,inspector
+sidebar.capabilities	upper-lungfishgenotype	open,package,info,inspector
+sidebar.capabilities	nomanifest-lungfishgenotype	open,package,info,inspector
+sidebar.capabilities	lower-lungfish12s	open,package,info,inspector
+sidebar.capabilities	upper-lungfish12s	open,package,info,inspector
+sidebar.capabilities	nomanifest-lungfish12s	open,package,info,inspector
+sidebar.capabilities	lower-lungfish12sref	none
+sidebar.capabilities	upper-lungfish12sref	none
+sidebar.capabilities	nomanifest-lungfish12sref	none
+sidebar.capabilities	lower-lungfishtax	open,package,info,inspector
+sidebar.capabilities	upper-lungfishtax	open,package,info,inspector
+sidebar.capabilities	nomanifest-lungfishtax	none
+sidebar.capabilities	lower-lungfishrun	none
+sidebar.capabilities	upper-lungfishrun	none
+sidebar.capabilities	nomanifest-lungfishrun	none
+sidebar.capabilities	lower-lungfishflow	none
+sidebar.capabilities	upper-lungfishflow	none
+sidebar.capabilities	nomanifest-lungfishflow	none
+sidebar.capabilities	lower-lungfishflowpkg	none
+sidebar.capabilities	upper-lungfishflowpkg	none
+sidebar.capabilities	nomanifest-lungfishflowpkg	none
+sidebar.capabilities	control-unknown-lungfish-extension	none
+sidebar.tint	fixture-ref-testgenome	System/systemIndigoColor
+sidebar.tint	fixture-ref-hepatitisb	System/systemIndigoColor
+sidebar.tint	fixture-ref-simulated-mhc-released	System/systemIndigoColor
+sidebar.tint	fixture-project-sarscov2-mafft	System/systemBrownColor
+sidebar.tint	fixture-msa-in-project	System/systemPurpleColor
+sidebar.tint	fixture-msa-compat-record-only	System/systemPurpleColor
+sidebar.tint	fixture-mhcref-compat-record-only	System/systemIndigoColor
+sidebar.tint	fixture-mhcref-mcm-resource	System/systemIndigoColor
+sidebar.tint	fixture-primers-artic-sars-cov-2-v4.1	System/systemYellowColor
+sidebar.tint	fixture-primers-artic-sars-cov-2-v4	System/systemYellowColor
+sidebar.tint	fixture-primers-artic-sars-cov-2-v5.3.2	System/systemYellowColor
+sidebar.tint	fixture-primers-artic-ncov-2019-v3	System/systemYellowColor
+sidebar.tint	fixture-primers-midnight-1200-v1	System/systemYellowColor
+sidebar.tint	fixture-primers-neb-varskip-long-vsl1	System/systemYellowColor
+sidebar.tint	fixture-primers-neb-varskip-vss1	System/systemYellowColor
+sidebar.tint	fixture-primers-qiaseqdirect-sars2	System/systemYellowColor
+sidebar.tint	fixture-primers-iotests-valid-simple	System/systemYellowColor
+sidebar.tint	fixture-primers-workflowtests-mt192765	System/systemYellowColor
+sidebar.tint	fixture-primers-workflowtests-valid-simple	System/systemYellowColor
+sidebar.tint	fixture-flowpkg-hello-nextflow	System/systemBrownColor
+sidebar.tint	fixture-flowpkg-hello-snakemake	System/systemBrownColor
+sidebar.tint	demo-project	System/systemBrownColor
+sidebar.tint	demo-fastq-a	System/systemGreenColor
+sidebar.tint	demo-fastq-b	System/systemGreenColor
+sidebar.tint	demo-ref	System/systemIndigoColor
+sidebar.tint	demo-mhcref	System/systemIndigoColor
+sidebar.tint	demo-mhcref-nested-ref	System/systemIndigoColor
+sidebar.tint	demo-mhcref-record-only-ref	System/systemIndigoColor
+sidebar.tint	lower-lungfish	System/systemBrownColor
+sidebar.tint	upper-lungfish	System/systemBrownColor
+sidebar.tint	nomanifest-lungfish	System/systemBrownColor
+sidebar.tint	lower-lungfishref	System/systemIndigoColor
+sidebar.tint	upper-lungfishref	System/systemIndigoColor
+sidebar.tint	nomanifest-lungfishref	System/systemIndigoColor
+sidebar.tint	lower-lungfishfastq	System/systemGreenColor
+sidebar.tint	upper-lungfishfastq	System/systemGreenColor
+sidebar.tint	nomanifest-lungfishfastq	System/systemGreenColor
+sidebar.tint	lower-lungfishmsa	System/systemPurpleColor
+sidebar.tint	upper-lungfishmsa	System/systemPurpleColor
+sidebar.tint	nomanifest-lungfishmsa	System/systemPurpleColor
+sidebar.tint	lower-lungfishtree	System/systemMintColor
+sidebar.tint	upper-lungfishtree	System/systemMintColor
+sidebar.tint	nomanifest-lungfishtree	System/systemMintColor
+sidebar.tint	lower-lungfishprimers	System/systemYellowColor
+sidebar.tint	upper-lungfishprimers	System/systemYellowColor
+sidebar.tint	nomanifest-lungfishprimers	System/systemYellowColor
+sidebar.tint	lower-lungfishprimeranalysis	System/systemYellowColor
+sidebar.tint	upper-lungfishprimeranalysis	System/systemYellowColor
+sidebar.tint	nomanifest-lungfishprimeranalysis	System/systemYellowColor
+sidebar.tint	lower-lungfishmhcref	System/systemIndigoColor
+sidebar.tint	upper-lungfishmhcref	System/systemIndigoColor
+sidebar.tint	nomanifest-lungfishmhcref	System/systemIndigoColor
+sidebar.tint	lower-lungfishgenotype	#$customDynamic/LungfishOrange
+sidebar.tint	upper-lungfishgenotype	#$customDynamic/LungfishOrange
+sidebar.tint	nomanifest-lungfishgenotype	#$customDynamic/LungfishOrange
+sidebar.tint	lower-lungfish12s	System/systemTealColor
+sidebar.tint	upper-lungfish12s	System/systemTealColor
+sidebar.tint	nomanifest-lungfish12s	System/systemTealColor
+sidebar.tint	lower-lungfish12sref	System/systemBrownColor
+sidebar.tint	upper-lungfish12sref	System/systemBrownColor
+sidebar.tint	nomanifest-lungfish12sref	System/systemBrownColor
+sidebar.tint	lower-lungfishtax	#$customDynamic/LungfishOrange
+sidebar.tint	upper-lungfishtax	#$customDynamic/LungfishOrange
+sidebar.tint	nomanifest-lungfishtax	System/systemBrownColor
+sidebar.tint	lower-lungfishrun	System/systemBrownColor
+sidebar.tint	upper-lungfishrun	System/systemBrownColor
+sidebar.tint	nomanifest-lungfishrun	System/systemBrownColor
+sidebar.tint	lower-lungfishflow	System/systemBrownColor
+sidebar.tint	upper-lungfishflow	System/systemBrownColor
+sidebar.tint	nomanifest-lungfishflow	System/systemBrownColor
+sidebar.tint	lower-lungfishflowpkg	System/systemBrownColor
+sidebar.tint	upper-lungfishflowpkg	System/systemBrownColor
+sidebar.tint	nomanifest-lungfishflowpkg	System/systemBrownColor
+sidebar.tint	control-unknown-lungfish-extension	System/systemBrownColor
+deletion.object	fixture-ref-testgenome	opaqueObject
+deletion.object	fixture-ref-hepatitisb	opaqueObject
+deletion.object	fixture-ref-simulated-mhc-released	opaqueObject
+deletion.object	fixture-project-sarscov2-mafft	walkedInside
+deletion.object	fixture-msa-in-project	opaqueObject
+deletion.object	fixture-msa-compat-record-only	opaqueObject
+deletion.object	fixture-mhcref-compat-record-only	opaqueObject
+deletion.object	fixture-mhcref-mcm-resource	opaqueObject
+deletion.object	fixture-primers-artic-sars-cov-2-v4.1	opaqueObject
+deletion.object	fixture-primers-artic-sars-cov-2-v4	opaqueObject
+deletion.object	fixture-primers-artic-sars-cov-2-v5.3.2	opaqueObject
+deletion.object	fixture-primers-artic-ncov-2019-v3	opaqueObject
+deletion.object	fixture-primers-midnight-1200-v1	opaqueObject
+deletion.object	fixture-primers-neb-varskip-long-vsl1	opaqueObject
+deletion.object	fixture-primers-neb-varskip-vss1	opaqueObject
+deletion.object	fixture-primers-qiaseqdirect-sars2	opaqueObject
+deletion.object	fixture-primers-iotests-valid-simple	opaqueObject
+deletion.object	fixture-primers-workflowtests-mt192765	opaqueObject
+deletion.object	fixture-primers-workflowtests-valid-simple	opaqueObject
+deletion.object	fixture-flowpkg-hello-nextflow	walkedInside
+deletion.object	fixture-flowpkg-hello-snakemake	walkedInside
+deletion.object	demo-project	walkedInside
+deletion.object	demo-fastq-a	opaqueObject
+deletion.object	demo-fastq-b	opaqueObject
+deletion.object	demo-ref	opaqueObject
+deletion.object	demo-mhcref	opaqueObject
+deletion.object	demo-mhcref-nested-ref	opaqueObject
+deletion.object	demo-mhcref-record-only-ref	opaqueObject
+deletion.object	lower-lungfish	walkedInside
+deletion.object	upper-lungfish	walkedInside
+deletion.object	nomanifest-lungfish	walkedInside
+deletion.object	lower-lungfishref	opaqueObject
+deletion.object	upper-lungfishref	opaqueObject
+deletion.object	nomanifest-lungfishref	opaqueObject
+deletion.object	lower-lungfishfastq	opaqueObject
+deletion.object	upper-lungfishfastq	opaqueObject
+deletion.object	nomanifest-lungfishfastq	opaqueObject
+deletion.object	lower-lungfishmsa	opaqueObject
+deletion.object	upper-lungfishmsa	opaqueObject
+deletion.object	nomanifest-lungfishmsa	opaqueObject
+deletion.object	lower-lungfishtree	opaqueObject
+deletion.object	upper-lungfishtree	opaqueObject
+deletion.object	nomanifest-lungfishtree	opaqueObject
+deletion.object	lower-lungfishprimers	opaqueObject
+deletion.object	upper-lungfishprimers	opaqueObject
+deletion.object	nomanifest-lungfishprimers	opaqueObject
+deletion.object	lower-lungfishprimeranalysis	opaqueObject
+deletion.object	upper-lungfishprimeranalysis	opaqueObject
+deletion.object	nomanifest-lungfishprimeranalysis	opaqueObject
+deletion.object	lower-lungfishmhcref	opaqueObject
+deletion.object	upper-lungfishmhcref	opaqueObject
+deletion.object	nomanifest-lungfishmhcref	opaqueObject
+deletion.object	lower-lungfishgenotype	opaqueObject
+deletion.object	upper-lungfishgenotype	opaqueObject
+deletion.object	nomanifest-lungfishgenotype	opaqueObject
+deletion.object	lower-lungfish12s	opaqueObject
+deletion.object	upper-lungfish12s	opaqueObject
+deletion.object	nomanifest-lungfish12s	opaqueObject
+deletion.object	lower-lungfish12sref	opaqueObject
+deletion.object	upper-lungfish12sref	opaqueObject
+deletion.object	nomanifest-lungfish12sref	opaqueObject
+deletion.object	lower-lungfishtax	opaqueObject
+deletion.object	upper-lungfishtax	opaqueObject
+deletion.object	nomanifest-lungfishtax	opaqueObject
+deletion.object	lower-lungfishrun	walkedInside
+deletion.object	upper-lungfishrun	walkedInside
+deletion.object	nomanifest-lungfishrun	walkedInside
+deletion.object	lower-lungfishflow	walkedInside
+deletion.object	upper-lungfishflow	walkedInside
+deletion.object	nomanifest-lungfishflow	walkedInside
+deletion.object	lower-lungfishflowpkg	walkedInside
+deletion.object	upper-lungfishflowpkg	walkedInside
+deletion.object	nomanifest-lungfishflowpkg	walkedInside
+deletion.object	control-plain-folder	walkedInside
+deletion.object	control-unknown-lungfish-extension	walkedInside
+deletion.object	control-near-miss-extension	walkedInside
+copier.kind	fixture-ref-testgenome	referenceBundle folder="Reference Sequences" analysesOnly=false
+copier.kind	fixture-ref-hepatitisb	referenceBundle folder="Reference Sequences" analysesOnly=false
+copier.kind	fixture-ref-simulated-mhc-released	referenceBundle folder="Reference Sequences" analysesOnly=false
+copier.kind	fixture-project-sarscov2-mafft	nil
+copier.kind	fixture-msa-in-project	multipleSequenceAlignmentBundle folder="Analyses/Multiple Sequence Alignments" analysesOnly=false
+copier.kind	fixture-msa-compat-record-only	multipleSequenceAlignmentBundle folder="Analyses/Multiple Sequence Alignments" analysesOnly=false
+copier.kind	fixture-mhcref-compat-record-only	nil
+copier.kind	fixture-mhcref-mcm-resource	nil
+copier.kind	fixture-primers-artic-sars-cov-2-v4.1	primerSchemeBundle folder="Primer Schemes" analysesOnly=false
+copier.kind	fixture-primers-artic-sars-cov-2-v4	primerSchemeBundle folder="Primer Schemes" analysesOnly=false
+copier.kind	fixture-primers-artic-sars-cov-2-v5.3.2	primerSchemeBundle folder="Primer Schemes" analysesOnly=false
+copier.kind	fixture-primers-artic-ncov-2019-v3	primerSchemeBundle folder="Primer Schemes" analysesOnly=false
+copier.kind	fixture-primers-midnight-1200-v1	primerSchemeBundle folder="Primer Schemes" analysesOnly=false
+copier.kind	fixture-primers-neb-varskip-long-vsl1	primerSchemeBundle folder="Primer Schemes" analysesOnly=false
+copier.kind	fixture-primers-neb-varskip-vss1	primerSchemeBundle folder="Primer Schemes" analysesOnly=false
+copier.kind	fixture-primers-qiaseqdirect-sars2	primerSchemeBundle folder="Primer Schemes" analysesOnly=false
+copier.kind	fixture-primers-iotests-valid-simple	primerSchemeBundle folder="Primer Schemes" analysesOnly=false
+copier.kind	fixture-primers-workflowtests-mt192765	primerSchemeBundle folder="Primer Schemes" analysesOnly=false
+copier.kind	fixture-primers-workflowtests-valid-simple	primerSchemeBundle folder="Primer Schemes" analysesOnly=false
+copier.kind	fixture-flowpkg-hello-nextflow	nil
+copier.kind	fixture-flowpkg-hello-snakemake	nil
+copier.kind	demo-project	nil
+copier.kind	demo-fastq-a	fastqBundle folder="Imports" analysesOnly=false
+copier.kind	demo-fastq-b	fastqBundle folder="Imports" analysesOnly=false
+copier.kind	demo-ref	referenceBundle folder="Reference Sequences" analysesOnly=false
+copier.kind	demo-mhcref	nil
+copier.kind	demo-mhcref-nested-ref	referenceBundle folder="Reference Sequences" analysesOnly=false
+copier.kind	demo-mhcref-record-only-ref	referenceBundle folder="Reference Sequences" analysesOnly=false
+copier.kind	lower-lungfish	nil
+copier.kind	upper-lungfish	nil
+copier.kind	nomanifest-lungfish	nil
+copier.kind	lower-lungfishref	referenceBundle folder="Reference Sequences" analysesOnly=false
+copier.kind	upper-lungfishref	referenceBundle folder="Reference Sequences" analysesOnly=false
+copier.kind	nomanifest-lungfishref	referenceBundle folder="Reference Sequences" analysesOnly=false
+copier.kind	lower-lungfishfastq	fastqBundle folder="Imports" analysesOnly=false
+copier.kind	upper-lungfishfastq	fastqBundle folder="Imports" analysesOnly=false
+copier.kind	nomanifest-lungfishfastq	fastqBundle folder="Imports" analysesOnly=false
+copier.kind	lower-lungfishmsa	multipleSequenceAlignmentBundle folder="Analyses/Multiple Sequence Alignments" analysesOnly=false
+copier.kind	upper-lungfishmsa	multipleSequenceAlignmentBundle folder="Analyses/Multiple Sequence Alignments" analysesOnly=false
+copier.kind	nomanifest-lungfishmsa	multipleSequenceAlignmentBundle folder="Analyses/Multiple Sequence Alignments" analysesOnly=false
+copier.kind	lower-lungfishtree	phylogeneticTreeBundle folder="Phylogenetic Trees" analysesOnly=false
+copier.kind	upper-lungfishtree	phylogeneticTreeBundle folder="Phylogenetic Trees" analysesOnly=false
+copier.kind	nomanifest-lungfishtree	phylogeneticTreeBundle folder="Phylogenetic Trees" analysesOnly=false
+copier.kind	lower-lungfishprimers	primerSchemeBundle folder="Primer Schemes" analysesOnly=false
+copier.kind	upper-lungfishprimers	primerSchemeBundle folder="Primer Schemes" analysesOnly=false
+copier.kind	nomanifest-lungfishprimers	primerSchemeBundle folder="Primer Schemes" analysesOnly=false
+copier.kind	lower-lungfishprimeranalysis	primerAnalysisBundle folder="Analyses" analysesOnly=false
+copier.kind	upper-lungfishprimeranalysis	primerAnalysisBundle folder="Analyses" analysesOnly=false
+copier.kind	nomanifest-lungfishprimeranalysis	primerAnalysisBundle folder="Analyses" analysesOnly=false
+copier.kind	lower-lungfishmhcref	nil
+copier.kind	upper-lungfishmhcref	nil
+copier.kind	nomanifest-lungfishmhcref	nil
+copier.kind	lower-lungfishgenotype	genotypeResultBundle folder="Analyses" analysesOnly=true
+copier.kind	upper-lungfishgenotype	genotypeResultBundle folder="Analyses" analysesOnly=true
+copier.kind	nomanifest-lungfishgenotype	genotypeResultBundle folder="Analyses" analysesOnly=true
+copier.kind	lower-lungfish12s	twelveSResultBundle folder="Analyses" analysesOnly=false
+copier.kind	upper-lungfish12s	twelveSResultBundle folder="Analyses" analysesOnly=false
+copier.kind	nomanifest-lungfish12s	twelveSResultBundle folder="Analyses" analysesOnly=false
+copier.kind	lower-lungfish12sref	otherNativeBundle folder="" analysesOnly=false
+copier.kind	upper-lungfish12sref	otherNativeBundle folder="" analysesOnly=false
+copier.kind	nomanifest-lungfish12sref	otherNativeBundle folder="" analysesOnly=false
+copier.kind	lower-lungfishtax	czIdResult folder="Classifications" analysesOnly=false
+copier.kind	upper-lungfishtax	czIdResult folder="Classifications" analysesOnly=false
+copier.kind	nomanifest-lungfishtax	otherNativeBundle folder="" analysesOnly=false
+copier.kind	lower-lungfishrun	otherNativeBundle folder="" analysesOnly=false
+copier.kind	upper-lungfishrun	otherNativeBundle folder="" analysesOnly=false
+copier.kind	nomanifest-lungfishrun	otherNativeBundle folder="" analysesOnly=false
+copier.kind	lower-lungfishflow	workflowBundle folder="Workflows" analysesOnly=false
+copier.kind	upper-lungfishflow	workflowBundle folder="Workflows" analysesOnly=false
+copier.kind	nomanifest-lungfishflow	workflowBundle folder="Workflows" analysesOnly=false
+copier.kind	lower-lungfishflowpkg	nil
+copier.kind	upper-lungfishflowpkg	nil
+copier.kind	nomanifest-lungfishflowpkg	nil
+copier.kind	control-plain-folder	nil
+copier.kind	control-unknown-lungfish-extension	otherNativeBundle folder="" analysesOnly=false
+copier.kind	control-near-miss-extension	nil
+document.type	fixture-ref-testgenome	lungfishReferenceBundle directory=true
+document.type	fixture-ref-hepatitisb	lungfishReferenceBundle directory=true
+document.type	fixture-ref-simulated-mhc-released	lungfishReferenceBundle directory=true
+document.type	fixture-project-sarscov2-mafft	lungfishProject directory=true
+document.type	fixture-msa-in-project	lungfishMultipleSequenceAlignmentBundle directory=true
+document.type	fixture-msa-compat-record-only	lungfishMultipleSequenceAlignmentBundle directory=true
+document.type	fixture-mhcref-compat-record-only	lungfishMHCReferenceBundle directory=true
+document.type	fixture-mhcref-mcm-resource	lungfishMHCReferenceBundle directory=true
+document.type	fixture-primers-artic-sars-cov-2-v4.1	nil
+document.type	fixture-primers-artic-sars-cov-2-v4	nil
+document.type	fixture-primers-artic-sars-cov-2-v5.3.2	nil
+document.type	fixture-primers-artic-ncov-2019-v3	nil
+document.type	fixture-primers-midnight-1200-v1	nil
+document.type	fixture-primers-neb-varskip-long-vsl1	nil
+document.type	fixture-primers-neb-varskip-vss1	nil
+document.type	fixture-primers-qiaseqdirect-sars2	nil
+document.type	fixture-primers-iotests-valid-simple	nil
+document.type	fixture-primers-workflowtests-mt192765	nil
+document.type	fixture-primers-workflowtests-valid-simple	nil
+document.type	fixture-flowpkg-hello-nextflow	nil
+document.type	fixture-flowpkg-hello-snakemake	nil
+document.type	demo-project	lungfishProject directory=true
+document.type	demo-fastq-a	fastq directory=false
+document.type	demo-fastq-b	fastq directory=false
+document.type	demo-ref	lungfishReferenceBundle directory=true
+document.type	demo-mhcref	lungfishMHCReferenceBundle directory=true
+document.type	demo-mhcref-nested-ref	lungfishReferenceBundle directory=true
+document.type	demo-mhcref-record-only-ref	lungfishReferenceBundle directory=true
+document.type	lower-lungfish	lungfishProject directory=true
+document.type	upper-lungfish	lungfishProject directory=true
+document.type	nomanifest-lungfish	lungfishProject directory=true
+document.type	lower-lungfishref	lungfishReferenceBundle directory=true
+document.type	upper-lungfishref	lungfishReferenceBundle directory=true
+document.type	nomanifest-lungfishref	lungfishReferenceBundle directory=true
+document.type	lower-lungfishfastq	fastq directory=false
+document.type	upper-lungfishfastq	fastq directory=false
+document.type	nomanifest-lungfishfastq	fastq directory=false
+document.type	lower-lungfishmsa	lungfishMultipleSequenceAlignmentBundle directory=true
+document.type	upper-lungfishmsa	lungfishMultipleSequenceAlignmentBundle directory=true
+document.type	nomanifest-lungfishmsa	lungfishMultipleSequenceAlignmentBundle directory=true
+document.type	lower-lungfishtree	lungfishPhylogeneticTreeBundle directory=true
+document.type	upper-lungfishtree	lungfishPhylogeneticTreeBundle directory=true
+document.type	nomanifest-lungfishtree	lungfishPhylogeneticTreeBundle directory=true
+document.type	lower-lungfishprimers	nil
+document.type	upper-lungfishprimers	nil
+document.type	nomanifest-lungfishprimers	nil
+document.type	lower-lungfishprimeranalysis	lungfishPrimerAnalysisBundle directory=true
+document.type	upper-lungfishprimeranalysis	lungfishPrimerAnalysisBundle directory=true
+document.type	nomanifest-lungfishprimeranalysis	lungfishPrimerAnalysisBundle directory=true
+document.type	lower-lungfishmhcref	lungfishMHCReferenceBundle directory=true
+document.type	upper-lungfishmhcref	lungfishMHCReferenceBundle directory=true
+document.type	nomanifest-lungfishmhcref	lungfishMHCReferenceBundle directory=true
+document.type	lower-lungfishgenotype	nil
+document.type	upper-lungfishgenotype	nil
+document.type	nomanifest-lungfishgenotype	nil
+document.type	lower-lungfish12s	nil
+document.type	upper-lungfish12s	nil
+document.type	nomanifest-lungfish12s	nil
+document.type	lower-lungfish12sref	nil
+document.type	upper-lungfish12sref	nil
+document.type	nomanifest-lungfish12sref	nil
+document.type	lower-lungfishtax	nil
+document.type	upper-lungfishtax	nil
+document.type	nomanifest-lungfishtax	nil
+document.type	lower-lungfishrun	nil
+document.type	upper-lungfishrun	nil
+document.type	nomanifest-lungfishrun	nil
+document.type	lower-lungfishflow	nil
+document.type	upper-lungfishflow	nil
+document.type	nomanifest-lungfishflow	nil
+document.type	lower-lungfishflowpkg	nil
+document.type	upper-lungfishflowpkg	nil
+document.type	nomanifest-lungfishflowpkg	nil
+document.type	control-plain-folder	nil
+document.type	control-unknown-lungfish-extension	nil
+document.type	control-near-miss-extension	nil
+provenance.coverage	fixture-ref-testgenome	required
+provenance.coverage	fixture-ref-hepatitisb	required
+provenance.coverage	fixture-ref-simulated-mhc-released	required
+provenance.coverage	fixture-project-sarscov2-mafft	notRequired
+provenance.coverage	fixture-msa-in-project	required
+provenance.coverage	fixture-msa-compat-record-only	required
+provenance.coverage	fixture-mhcref-compat-record-only	notRequired
+provenance.coverage	fixture-mhcref-mcm-resource	notRequired
+provenance.coverage	fixture-primers-artic-sars-cov-2-v4.1	required
+provenance.coverage	fixture-primers-artic-sars-cov-2-v4	required
+provenance.coverage	fixture-primers-artic-sars-cov-2-v5.3.2	required
+provenance.coverage	fixture-primers-artic-ncov-2019-v3	required
+provenance.coverage	fixture-primers-midnight-1200-v1	required
+provenance.coverage	fixture-primers-neb-varskip-long-vsl1	required
+provenance.coverage	fixture-primers-neb-varskip-vss1	required
+provenance.coverage	fixture-primers-qiaseqdirect-sars2	required
+provenance.coverage	fixture-primers-iotests-valid-simple	required
+provenance.coverage	fixture-primers-workflowtests-mt192765	required
+provenance.coverage	fixture-primers-workflowtests-valid-simple	required
+provenance.coverage	fixture-flowpkg-hello-nextflow	notRequired
+provenance.coverage	fixture-flowpkg-hello-snakemake	notRequired
+provenance.coverage	demo-project	notRequired
+provenance.coverage	demo-fastq-a	required
+provenance.coverage	demo-fastq-b	required
+provenance.coverage	demo-ref	required
+provenance.coverage	demo-mhcref	notRequired
+provenance.coverage	demo-mhcref-nested-ref	required
+provenance.coverage	demo-mhcref-record-only-ref	required
+provenance.coverage	lower-lungfish	notRequired
+provenance.coverage	upper-lungfish	notRequired
+provenance.coverage	nomanifest-lungfish	notRequired
+provenance.coverage	lower-lungfishref	required
+provenance.coverage	upper-lungfishref	required
+provenance.coverage	nomanifest-lungfishref	required
+provenance.coverage	lower-lungfishfastq	required
+provenance.coverage	upper-lungfishfastq	required
+provenance.coverage	nomanifest-lungfishfastq	required
+provenance.coverage	lower-lungfishmsa	required
+provenance.coverage	upper-lungfishmsa	required
+provenance.coverage	nomanifest-lungfishmsa	required
+provenance.coverage	lower-lungfishtree	required
+provenance.coverage	upper-lungfishtree	required
+provenance.coverage	nomanifest-lungfishtree	required
+provenance.coverage	lower-lungfishprimers	required
+provenance.coverage	upper-lungfishprimers	required
+provenance.coverage	nomanifest-lungfishprimers	required
+provenance.coverage	lower-lungfishprimeranalysis	notRequired
+provenance.coverage	upper-lungfishprimeranalysis	notRequired
+provenance.coverage	nomanifest-lungfishprimeranalysis	notRequired
+provenance.coverage	lower-lungfishmhcref	notRequired
+provenance.coverage	upper-lungfishmhcref	notRequired
+provenance.coverage	nomanifest-lungfishmhcref	notRequired
+provenance.coverage	lower-lungfishgenotype	notRequired
+provenance.coverage	upper-lungfishgenotype	notRequired
+provenance.coverage	nomanifest-lungfishgenotype	notRequired
+provenance.coverage	lower-lungfish12s	notRequired
+provenance.coverage	upper-lungfish12s	notRequired
+provenance.coverage	nomanifest-lungfish12s	notRequired
+provenance.coverage	lower-lungfish12sref	notRequired
+provenance.coverage	upper-lungfish12sref	notRequired
+provenance.coverage	nomanifest-lungfish12sref	notRequired
+provenance.coverage	lower-lungfishtax	notRequired
+provenance.coverage	upper-lungfishtax	notRequired
+provenance.coverage	nomanifest-lungfishtax	notRequired
+provenance.coverage	lower-lungfishrun	notRequired
+provenance.coverage	upper-lungfishrun	notRequired
+provenance.coverage	nomanifest-lungfishrun	notRequired
+provenance.coverage	lower-lungfishflow	notRequired
+provenance.coverage	upper-lungfishflow	notRequired
+provenance.coverage	nomanifest-lungfishflow	notRequired
+provenance.coverage	lower-lungfishflowpkg	notRequired
+provenance.coverage	upper-lungfishflowpkg	notRequired
+provenance.coverage	nomanifest-lungfishflowpkg	notRequired
+provenance.coverage	control-plain-folder	notRequired
+provenance.coverage	control-unknown-lungfish-extension	notRequired
+provenance.coverage	control-near-miss-extension	notRequired
+msa.nativeBundleOutput	fixture-ref-testgenome	true
+msa.nativeBundleOutput	fixture-ref-hepatitisb	true
+msa.nativeBundleOutput	fixture-ref-simulated-mhc-released	true
+msa.nativeBundleOutput	fixture-project-sarscov2-mafft	false
+msa.nativeBundleOutput	fixture-msa-in-project	true
+msa.nativeBundleOutput	fixture-msa-compat-record-only	true
+msa.nativeBundleOutput	fixture-mhcref-compat-record-only	false
+msa.nativeBundleOutput	fixture-mhcref-mcm-resource	false
+msa.nativeBundleOutput	fixture-primers-artic-sars-cov-2-v4.1	false
+msa.nativeBundleOutput	fixture-primers-artic-sars-cov-2-v4	false
+msa.nativeBundleOutput	fixture-primers-artic-sars-cov-2-v5.3.2	false
+msa.nativeBundleOutput	fixture-primers-artic-ncov-2019-v3	false
+msa.nativeBundleOutput	fixture-primers-midnight-1200-v1	false
+msa.nativeBundleOutput	fixture-primers-neb-varskip-long-vsl1	false
+msa.nativeBundleOutput	fixture-primers-neb-varskip-vss1	false
+msa.nativeBundleOutput	fixture-primers-qiaseqdirect-sars2	false
+msa.nativeBundleOutput	fixture-primers-iotests-valid-simple	false
+msa.nativeBundleOutput	fixture-primers-workflowtests-mt192765	false
+msa.nativeBundleOutput	fixture-primers-workflowtests-valid-simple	false
+msa.nativeBundleOutput	fixture-flowpkg-hello-nextflow	false
+msa.nativeBundleOutput	fixture-flowpkg-hello-snakemake	false
+msa.nativeBundleOutput	demo-project	false
+msa.nativeBundleOutput	demo-fastq-a	false
+msa.nativeBundleOutput	demo-fastq-b	false
+msa.nativeBundleOutput	demo-ref	true
+msa.nativeBundleOutput	demo-mhcref	false
+msa.nativeBundleOutput	demo-mhcref-nested-ref	true
+msa.nativeBundleOutput	demo-mhcref-record-only-ref	true
+msa.nativeBundleOutput	lower-lungfish	false
+msa.nativeBundleOutput	upper-lungfish	false
+msa.nativeBundleOutput	nomanifest-lungfish	false
+msa.nativeBundleOutput	lower-lungfishref	true
+msa.nativeBundleOutput	upper-lungfishref	true
+msa.nativeBundleOutput	nomanifest-lungfishref	true
+msa.nativeBundleOutput	lower-lungfishfastq	false
+msa.nativeBundleOutput	upper-lungfishfastq	false
+msa.nativeBundleOutput	nomanifest-lungfishfastq	false
+msa.nativeBundleOutput	lower-lungfishmsa	true
+msa.nativeBundleOutput	upper-lungfishmsa	true
+msa.nativeBundleOutput	nomanifest-lungfishmsa	true
+msa.nativeBundleOutput	lower-lungfishtree	true
+msa.nativeBundleOutput	upper-lungfishtree	true
+msa.nativeBundleOutput	nomanifest-lungfishtree	true
+msa.nativeBundleOutput	lower-lungfishprimers	false
+msa.nativeBundleOutput	upper-lungfishprimers	false
+msa.nativeBundleOutput	nomanifest-lungfishprimers	false
+msa.nativeBundleOutput	lower-lungfishprimeranalysis	false
+msa.nativeBundleOutput	upper-lungfishprimeranalysis	false
+msa.nativeBundleOutput	nomanifest-lungfishprimeranalysis	false
+msa.nativeBundleOutput	lower-lungfishmhcref	false
+msa.nativeBundleOutput	upper-lungfishmhcref	false
+msa.nativeBundleOutput	nomanifest-lungfishmhcref	false
+msa.nativeBundleOutput	lower-lungfishgenotype	false
+msa.nativeBundleOutput	upper-lungfishgenotype	false
+msa.nativeBundleOutput	nomanifest-lungfishgenotype	false
+msa.nativeBundleOutput	lower-lungfish12s	false
+msa.nativeBundleOutput	upper-lungfish12s	false
+msa.nativeBundleOutput	nomanifest-lungfish12s	false
+msa.nativeBundleOutput	lower-lungfish12sref	false
+msa.nativeBundleOutput	upper-lungfish12sref	false
+msa.nativeBundleOutput	nomanifest-lungfish12sref	false
+msa.nativeBundleOutput	lower-lungfishtax	false
+msa.nativeBundleOutput	upper-lungfishtax	false
+msa.nativeBundleOutput	nomanifest-lungfishtax	false
+msa.nativeBundleOutput	lower-lungfishrun	false
+msa.nativeBundleOutput	upper-lungfishrun	false
+msa.nativeBundleOutput	nomanifest-lungfishrun	false
+msa.nativeBundleOutput	lower-lungfishflow	false
+msa.nativeBundleOutput	upper-lungfishflow	false
+msa.nativeBundleOutput	nomanifest-lungfishflow	false
+msa.nativeBundleOutput	lower-lungfishflowpkg	false
+msa.nativeBundleOutput	upper-lungfishflowpkg	false
+msa.nativeBundleOutput	nomanifest-lungfishflowpkg	false
+msa.nativeBundleOutput	control-plain-folder	false
+msa.nativeBundleOutput	control-unknown-lungfish-extension	false
+msa.nativeBundleOutput	control-near-miss-extension	false
+openPanel.accepts	fixture-ref-testgenome	false
+openPanel.accepts	fixture-ref-hepatitisb	false
+openPanel.accepts	fixture-ref-simulated-mhc-released	false
+openPanel.accepts	fixture-project-sarscov2-mafft	false
+openPanel.accepts	fixture-msa-in-project	false
+openPanel.accepts	fixture-msa-compat-record-only	false
+openPanel.accepts	fixture-mhcref-compat-record-only	false
+openPanel.accepts	fixture-mhcref-mcm-resource	false
+openPanel.accepts	fixture-primers-artic-sars-cov-2-v4.1	false
+openPanel.accepts	fixture-primers-artic-sars-cov-2-v4	false
+openPanel.accepts	fixture-primers-artic-sars-cov-2-v5.3.2	false
+openPanel.accepts	fixture-primers-artic-ncov-2019-v3	false
+openPanel.accepts	fixture-primers-midnight-1200-v1	false
+openPanel.accepts	fixture-primers-neb-varskip-long-vsl1	false
+openPanel.accepts	fixture-primers-neb-varskip-vss1	false
+openPanel.accepts	fixture-primers-qiaseqdirect-sars2	false
+openPanel.accepts	fixture-primers-iotests-valid-simple	false
+openPanel.accepts	fixture-primers-workflowtests-mt192765	false
+openPanel.accepts	fixture-primers-workflowtests-valid-simple	false
+openPanel.accepts	fixture-flowpkg-hello-nextflow	false
+openPanel.accepts	fixture-flowpkg-hello-snakemake	false
+openPanel.accepts	demo-project	false
+openPanel.accepts	demo-fastq-a	true
+openPanel.accepts	demo-fastq-b	true
+openPanel.accepts	demo-ref	false
+openPanel.accepts	demo-mhcref	false
+openPanel.accepts	demo-mhcref-nested-ref	false
+openPanel.accepts	demo-mhcref-record-only-ref	false
+openPanel.accepts	lower-lungfish	false
+openPanel.accepts	upper-lungfish	false
+openPanel.accepts	nomanifest-lungfish	false
+openPanel.accepts	lower-lungfishref	false
+openPanel.accepts	upper-lungfishref	false
+openPanel.accepts	nomanifest-lungfishref	false
+openPanel.accepts	lower-lungfishfastq	true
+openPanel.accepts	upper-lungfishfastq	true
+openPanel.accepts	nomanifest-lungfishfastq	true
+openPanel.accepts	lower-lungfishmsa	false
+openPanel.accepts	upper-lungfishmsa	false
+openPanel.accepts	nomanifest-lungfishmsa	false
+openPanel.accepts	lower-lungfishtree	false
+openPanel.accepts	upper-lungfishtree	false
+openPanel.accepts	nomanifest-lungfishtree	false
+openPanel.accepts	lower-lungfishprimers	false
+openPanel.accepts	upper-lungfishprimers	false
+openPanel.accepts	nomanifest-lungfishprimers	false
+openPanel.accepts	lower-lungfishprimeranalysis	true
+openPanel.accepts	upper-lungfishprimeranalysis	true
+openPanel.accepts	nomanifest-lungfishprimeranalysis	true
+openPanel.accepts	lower-lungfishmhcref	false
+openPanel.accepts	upper-lungfishmhcref	false
+openPanel.accepts	nomanifest-lungfishmhcref	false
+openPanel.accepts	lower-lungfishgenotype	false
+openPanel.accepts	upper-lungfishgenotype	false
+openPanel.accepts	nomanifest-lungfishgenotype	false
+openPanel.accepts	lower-lungfish12s	false
+openPanel.accepts	upper-lungfish12s	false
+openPanel.accepts	nomanifest-lungfish12s	false
+openPanel.accepts	lower-lungfish12sref	false
+openPanel.accepts	upper-lungfish12sref	false
+openPanel.accepts	nomanifest-lungfish12sref	false
+openPanel.accepts	lower-lungfishtax	false
+openPanel.accepts	upper-lungfishtax	false
+openPanel.accepts	nomanifest-lungfishtax	false
+openPanel.accepts	lower-lungfishrun	false
+openPanel.accepts	upper-lungfishrun	false
+openPanel.accepts	nomanifest-lungfishrun	false
+openPanel.accepts	lower-lungfishflow	false
+openPanel.accepts	upper-lungfishflow	false
+openPanel.accepts	nomanifest-lungfishflow	false
+openPanel.accepts	lower-lungfishflowpkg	false
+openPanel.accepts	upper-lungfishflowpkg	false
+openPanel.accepts	nomanifest-lungfishflowpkg	false
+openPanel.accepts	control-plain-folder	false
+openPanel.accepts	control-unknown-lungfish-extension	false
+openPanel.accepts	control-near-miss-extension	false
+fileType.detect	fixture-ref-testgenome	referenceBundle cylinder.split.1x2 quickLook=false
+fileType.detect	fixture-ref-hepatitisb	referenceBundle cylinder.split.1x2 quickLook=false
+fileType.detect	fixture-ref-simulated-mhc-released	referenceBundle cylinder.split.1x2 quickLook=false
+fileType.detect	fixture-project-sarscov2-mafft	unknown doc.questionmark quickLook=true
+fileType.detect	fixture-msa-in-project	unknown doc.questionmark quickLook=true
+fileType.detect	fixture-msa-compat-record-only	unknown doc.questionmark quickLook=true
+fileType.detect	fixture-mhcref-compat-record-only	referenceBundle cylinder.split.1x2 quickLook=false
+fileType.detect	fixture-mhcref-mcm-resource	referenceBundle cylinder.split.1x2 quickLook=false
+fileType.detect	fixture-primers-artic-sars-cov-2-v4.1	unknown doc.questionmark quickLook=true
+fileType.detect	fixture-primers-artic-sars-cov-2-v4	unknown doc.questionmark quickLook=true
+fileType.detect	fixture-primers-artic-sars-cov-2-v5.3.2	unknown doc.questionmark quickLook=true
+fileType.detect	fixture-primers-artic-ncov-2019-v3	unknown doc.questionmark quickLook=true
+fileType.detect	fixture-primers-midnight-1200-v1	unknown doc.questionmark quickLook=true
+fileType.detect	fixture-primers-neb-varskip-long-vsl1	unknown doc.questionmark quickLook=true
+fileType.detect	fixture-primers-neb-varskip-vss1	unknown doc.questionmark quickLook=true
+fileType.detect	fixture-primers-qiaseqdirect-sars2	unknown doc.questionmark quickLook=true
+fileType.detect	fixture-primers-iotests-valid-simple	unknown doc.questionmark quickLook=true
+fileType.detect	fixture-primers-workflowtests-mt192765	unknown doc.questionmark quickLook=true
+fileType.detect	fixture-primers-workflowtests-valid-simple	unknown doc.questionmark quickLook=true
+fileType.detect	fixture-flowpkg-hello-nextflow	unknown doc.questionmark quickLook=true
+fileType.detect	fixture-flowpkg-hello-snakemake	unknown doc.questionmark quickLook=true
+fileType.detect	demo-project	unknown doc.questionmark quickLook=true
+fileType.detect	demo-fastq-a	sequence doc.text quickLook=false
+fileType.detect	demo-fastq-b	sequence doc.text quickLook=false
+fileType.detect	demo-ref	referenceBundle cylinder.split.1x2 quickLook=false
+fileType.detect	demo-mhcref	referenceBundle cylinder.split.1x2 quickLook=false
+fileType.detect	demo-mhcref-nested-ref	referenceBundle cylinder.split.1x2 quickLook=false
+fileType.detect	demo-mhcref-record-only-ref	referenceBundle cylinder.split.1x2 quickLook=false
+fileType.detect	lower-lungfish	unknown doc.questionmark quickLook=true
+fileType.detect	upper-lungfish	unknown doc.questionmark quickLook=true
+fileType.detect	nomanifest-lungfish	unknown doc.questionmark quickLook=true
+fileType.detect	lower-lungfishref	referenceBundle cylinder.split.1x2 quickLook=false
+fileType.detect	upper-lungfishref	referenceBundle cylinder.split.1x2 quickLook=false
+fileType.detect	nomanifest-lungfishref	referenceBundle cylinder.split.1x2 quickLook=false
+fileType.detect	lower-lungfishfastq	sequence doc.text quickLook=false
+fileType.detect	upper-lungfishfastq	sequence doc.text quickLook=false
+fileType.detect	nomanifest-lungfishfastq	sequence doc.text quickLook=false
+fileType.detect	lower-lungfishmsa	unknown doc.questionmark quickLook=true
+fileType.detect	upper-lungfishmsa	unknown doc.questionmark quickLook=true
+fileType.detect	nomanifest-lungfishmsa	unknown doc.questionmark quickLook=true
+fileType.detect	lower-lungfishtree	unknown doc.questionmark quickLook=true
+fileType.detect	upper-lungfishtree	unknown doc.questionmark quickLook=true
+fileType.detect	nomanifest-lungfishtree	unknown doc.questionmark quickLook=true
+fileType.detect	lower-lungfishprimers	unknown doc.questionmark quickLook=true
+fileType.detect	upper-lungfishprimers	unknown doc.questionmark quickLook=true
+fileType.detect	nomanifest-lungfishprimers	unknown doc.questionmark quickLook=true
+fileType.detect	lower-lungfishprimeranalysis	unknown doc.questionmark quickLook=true
+fileType.detect	upper-lungfishprimeranalysis	unknown doc.questionmark quickLook=true
+fileType.detect	nomanifest-lungfishprimeranalysis	unknown doc.questionmark quickLook=true
+fileType.detect	lower-lungfishmhcref	referenceBundle cylinder.split.1x2 quickLook=false
+fileType.detect	upper-lungfishmhcref	referenceBundle cylinder.split.1x2 quickLook=false
+fileType.detect	nomanifest-lungfishmhcref	referenceBundle cylinder.split.1x2 quickLook=false
+fileType.detect	lower-lungfishgenotype	unknown doc.questionmark quickLook=true
+fileType.detect	upper-lungfishgenotype	unknown doc.questionmark quickLook=true
+fileType.detect	nomanifest-lungfishgenotype	unknown doc.questionmark quickLook=true
+fileType.detect	lower-lungfish12s	unknown doc.questionmark quickLook=true
+fileType.detect	upper-lungfish12s	unknown doc.questionmark quickLook=true
+fileType.detect	nomanifest-lungfish12s	unknown doc.questionmark quickLook=true
+fileType.detect	lower-lungfish12sref	referenceBundle cylinder.split.1x2 quickLook=false
+fileType.detect	upper-lungfish12sref	referenceBundle cylinder.split.1x2 quickLook=false
+fileType.detect	nomanifest-lungfish12sref	referenceBundle cylinder.split.1x2 quickLook=false
+fileType.detect	lower-lungfishtax	unknown doc.questionmark quickLook=true
+fileType.detect	upper-lungfishtax	unknown doc.questionmark quickLook=true
+fileType.detect	nomanifest-lungfishtax	unknown doc.questionmark quickLook=true
+fileType.detect	lower-lungfishrun	unknown doc.questionmark quickLook=true
+fileType.detect	upper-lungfishrun	unknown doc.questionmark quickLook=true
+fileType.detect	nomanifest-lungfishrun	unknown doc.questionmark quickLook=true
+fileType.detect	lower-lungfishflow	unknown doc.questionmark quickLook=true
+fileType.detect	upper-lungfishflow	unknown doc.questionmark quickLook=true
+fileType.detect	nomanifest-lungfishflow	unknown doc.questionmark quickLook=true
+fileType.detect	lower-lungfishflowpkg	unknown doc.questionmark quickLook=true
+fileType.detect	upper-lungfishflowpkg	unknown doc.questionmark quickLook=true
+fileType.detect	nomanifest-lungfishflowpkg	unknown doc.questionmark quickLook=true
+fileType.detect	control-plain-folder	unknown doc.questionmark quickLook=true
+fileType.detect	control-unknown-lungfish-extension	unknown doc.questionmark quickLook=true
+fileType.detect	control-near-miss-extension	unknown doc.questionmark quickLook=true
+format.identifier	fixture-ref-testgenome	lungfishref
+format.identifier	fixture-ref-hepatitisb	lungfishref
+format.identifier	fixture-ref-simulated-mhc-released	lungfishref
+format.identifier	fixture-project-sarscov2-mafft	nil
+format.identifier	fixture-msa-in-project	nil
+format.identifier	fixture-msa-compat-record-only	nil
+format.identifier	fixture-mhcref-compat-record-only	lungfishmhcref
+format.identifier	fixture-mhcref-mcm-resource	lungfishmhcref
+format.identifier	fixture-primers-artic-sars-cov-2-v4.1	nil
+format.identifier	fixture-primers-artic-sars-cov-2-v4	nil
+format.identifier	fixture-primers-artic-sars-cov-2-v5.3.2	nil
+format.identifier	fixture-primers-artic-ncov-2019-v3	nil
+format.identifier	fixture-primers-midnight-1200-v1	nil
+format.identifier	fixture-primers-neb-varskip-long-vsl1	nil
+format.identifier	fixture-primers-neb-varskip-vss1	nil
+format.identifier	fixture-primers-qiaseqdirect-sars2	nil
+format.identifier	fixture-primers-iotests-valid-simple	nil
+format.identifier	fixture-primers-workflowtests-mt192765	nil
+format.identifier	fixture-primers-workflowtests-valid-simple	nil
+format.identifier	fixture-flowpkg-hello-nextflow	nil
+format.identifier	fixture-flowpkg-hello-snakemake	nil
+format.identifier	demo-project	nil
+format.identifier	demo-fastq-a	nil
+format.identifier	demo-fastq-b	nil
+format.identifier	demo-ref	lungfishref
+format.identifier	demo-mhcref	lungfishmhcref
+format.identifier	demo-mhcref-nested-ref	lungfishref
+format.identifier	demo-mhcref-record-only-ref	lungfishref
+format.identifier	lower-lungfish	nil
+format.identifier	upper-lungfish	nil
+format.identifier	nomanifest-lungfish	nil
+format.identifier	lower-lungfishref	lungfishref
+format.identifier	upper-lungfishref	lungfishref
+format.identifier	nomanifest-lungfishref	lungfishref
+format.identifier	lower-lungfishfastq	nil
+format.identifier	upper-lungfishfastq	nil
+format.identifier	nomanifest-lungfishfastq	nil
+format.identifier	lower-lungfishmsa	nil
+format.identifier	upper-lungfishmsa	nil
+format.identifier	nomanifest-lungfishmsa	nil
+format.identifier	lower-lungfishtree	nil
+format.identifier	upper-lungfishtree	nil
+format.identifier	nomanifest-lungfishtree	nil
+format.identifier	lower-lungfishprimers	nil
+format.identifier	upper-lungfishprimers	nil
+format.identifier	nomanifest-lungfishprimers	nil
+format.identifier	lower-lungfishprimeranalysis	nil
+format.identifier	upper-lungfishprimeranalysis	nil
+format.identifier	nomanifest-lungfishprimeranalysis	nil
+format.identifier	lower-lungfishmhcref	lungfishmhcref
+format.identifier	upper-lungfishmhcref	lungfishmhcref
+format.identifier	nomanifest-lungfishmhcref	lungfishmhcref
+format.identifier	lower-lungfishgenotype	nil
+format.identifier	upper-lungfishgenotype	nil
+format.identifier	nomanifest-lungfishgenotype	nil
+format.identifier	lower-lungfish12s	nil
+format.identifier	upper-lungfish12s	nil
+format.identifier	nomanifest-lungfish12s	nil
+format.identifier	lower-lungfish12sref	lungfish12sref
+format.identifier	upper-lungfish12sref	lungfish12sref
+format.identifier	nomanifest-lungfish12sref	lungfish12sref
+format.identifier	lower-lungfishtax	nil
+format.identifier	upper-lungfishtax	nil
+format.identifier	nomanifest-lungfishtax	nil
+format.identifier	lower-lungfishrun	nil
+format.identifier	upper-lungfishrun	nil
+format.identifier	nomanifest-lungfishrun	nil
+format.identifier	lower-lungfishflow	nil
+format.identifier	upper-lungfishflow	nil
+format.identifier	nomanifest-lungfishflow	nil
+format.identifier	lower-lungfishflowpkg	nil
+format.identifier	upper-lungfishflowpkg	nil
+format.identifier	nomanifest-lungfishflowpkg	nil
+format.identifier	control-plain-folder	nil
+format.identifier	control-unknown-lungfish-extension	nil
+format.identifier	control-near-miss-extension	nil
+provenanceWriter.isBundleDirectory	fixture-ref-testgenome	true
+provenanceWriter.isBundleDirectory	fixture-ref-hepatitisb	true
+provenanceWriter.isBundleDirectory	fixture-ref-simulated-mhc-released	true
+provenanceWriter.isBundleDirectory	fixture-project-sarscov2-mafft	true
+provenanceWriter.isBundleDirectory	fixture-msa-in-project	true
+provenanceWriter.isBundleDirectory	fixture-msa-compat-record-only	true
+provenanceWriter.isBundleDirectory	fixture-mhcref-compat-record-only	true
+provenanceWriter.isBundleDirectory	fixture-mhcref-mcm-resource	true
+provenanceWriter.isBundleDirectory	fixture-primers-artic-sars-cov-2-v4.1	true
+provenanceWriter.isBundleDirectory	fixture-primers-artic-sars-cov-2-v4	true
+provenanceWriter.isBundleDirectory	fixture-primers-artic-sars-cov-2-v5.3.2	true
+provenanceWriter.isBundleDirectory	fixture-primers-artic-ncov-2019-v3	true
+provenanceWriter.isBundleDirectory	fixture-primers-midnight-1200-v1	true
+provenanceWriter.isBundleDirectory	fixture-primers-neb-varskip-long-vsl1	true
+provenanceWriter.isBundleDirectory	fixture-primers-neb-varskip-vss1	true
+provenanceWriter.isBundleDirectory	fixture-primers-qiaseqdirect-sars2	true
+provenanceWriter.isBundleDirectory	fixture-primers-iotests-valid-simple	true
+provenanceWriter.isBundleDirectory	fixture-primers-workflowtests-mt192765	true
+provenanceWriter.isBundleDirectory	fixture-primers-workflowtests-valid-simple	true
+provenanceWriter.isBundleDirectory	fixture-flowpkg-hello-nextflow	true
+provenanceWriter.isBundleDirectory	fixture-flowpkg-hello-snakemake	true
+provenanceWriter.isBundleDirectory	demo-project	true
+provenanceWriter.isBundleDirectory	demo-fastq-a	true
+provenanceWriter.isBundleDirectory	demo-fastq-b	true
+provenanceWriter.isBundleDirectory	demo-ref	true
+provenanceWriter.isBundleDirectory	demo-mhcref	true
+provenanceWriter.isBundleDirectory	demo-mhcref-nested-ref	true
+provenanceWriter.isBundleDirectory	demo-mhcref-record-only-ref	true
+provenanceWriter.isBundleDirectory	lower-lungfish	true
+provenanceWriter.isBundleDirectory	upper-lungfish	true
+provenanceWriter.isBundleDirectory	nomanifest-lungfish	true
+provenanceWriter.isBundleDirectory	lower-lungfishref	true
+provenanceWriter.isBundleDirectory	upper-lungfishref	true
+provenanceWriter.isBundleDirectory	nomanifest-lungfishref	true
+provenanceWriter.isBundleDirectory	lower-lungfishfastq	true
+provenanceWriter.isBundleDirectory	upper-lungfishfastq	true
+provenanceWriter.isBundleDirectory	nomanifest-lungfishfastq	true
+provenanceWriter.isBundleDirectory	lower-lungfishmsa	true
+provenanceWriter.isBundleDirectory	upper-lungfishmsa	true
+provenanceWriter.isBundleDirectory	nomanifest-lungfishmsa	true
+provenanceWriter.isBundleDirectory	lower-lungfishtree	true
+provenanceWriter.isBundleDirectory	upper-lungfishtree	true
+provenanceWriter.isBundleDirectory	nomanifest-lungfishtree	true
+provenanceWriter.isBundleDirectory	lower-lungfishprimers	true
+provenanceWriter.isBundleDirectory	upper-lungfishprimers	true
+provenanceWriter.isBundleDirectory	nomanifest-lungfishprimers	true
+provenanceWriter.isBundleDirectory	lower-lungfishprimeranalysis	true
+provenanceWriter.isBundleDirectory	upper-lungfishprimeranalysis	true
+provenanceWriter.isBundleDirectory	nomanifest-lungfishprimeranalysis	true
+provenanceWriter.isBundleDirectory	lower-lungfishmhcref	true
+provenanceWriter.isBundleDirectory	upper-lungfishmhcref	true
+provenanceWriter.isBundleDirectory	nomanifest-lungfishmhcref	true
+provenanceWriter.isBundleDirectory	lower-lungfishgenotype	true
+provenanceWriter.isBundleDirectory	upper-lungfishgenotype	true
+provenanceWriter.isBundleDirectory	nomanifest-lungfishgenotype	true
+provenanceWriter.isBundleDirectory	lower-lungfish12s	true
+provenanceWriter.isBundleDirectory	upper-lungfish12s	true
+provenanceWriter.isBundleDirectory	nomanifest-lungfish12s	true
+provenanceWriter.isBundleDirectory	lower-lungfish12sref	true
+provenanceWriter.isBundleDirectory	upper-lungfish12sref	true
+provenanceWriter.isBundleDirectory	nomanifest-lungfish12sref	true
+provenanceWriter.isBundleDirectory	lower-lungfishtax	true
+provenanceWriter.isBundleDirectory	upper-lungfishtax	true
+provenanceWriter.isBundleDirectory	nomanifest-lungfishtax	true
+provenanceWriter.isBundleDirectory	lower-lungfishrun	true
+provenanceWriter.isBundleDirectory	upper-lungfishrun	true
+provenanceWriter.isBundleDirectory	nomanifest-lungfishrun	true
+provenanceWriter.isBundleDirectory	lower-lungfishflow	true
+provenanceWriter.isBundleDirectory	upper-lungfishflow	true
+provenanceWriter.isBundleDirectory	nomanifest-lungfishflow	true
+provenanceWriter.isBundleDirectory	lower-lungfishflowpkg	true
+provenanceWriter.isBundleDirectory	upper-lungfishflowpkg	true
+provenanceWriter.isBundleDirectory	nomanifest-lungfishflowpkg	true
+provenanceWriter.isBundleDirectory	control-plain-folder	false
+provenanceWriter.isBundleDirectory	control-unknown-lungfish-extension	true
+provenanceWriter.isBundleDirectory	control-near-miss-extension	false
+typedRecognizers	fixture-ref-testgenome	none
+typedRecognizers	fixture-ref-hepatitisb	none
+typedRecognizers	fixture-ref-simulated-mhc-released	none
+typedRecognizers	fixture-project-sarscov2-mafft	none
+typedRecognizers	fixture-msa-in-project	none
+typedRecognizers	fixture-msa-compat-record-only	none
+typedRecognizers	fixture-mhcref-compat-record-only	none
+typedRecognizers	fixture-mhcref-mcm-resource	mhcref
+typedRecognizers	fixture-primers-artic-sars-cov-2-v4.1	none
+typedRecognizers	fixture-primers-artic-sars-cov-2-v4	none
+typedRecognizers	fixture-primers-artic-sars-cov-2-v5.3.2	none
+typedRecognizers	fixture-primers-artic-ncov-2019-v3	none
+typedRecognizers	fixture-primers-midnight-1200-v1	none
+typedRecognizers	fixture-primers-neb-varskip-long-vsl1	none
+typedRecognizers	fixture-primers-neb-varskip-vss1	none
+typedRecognizers	fixture-primers-qiaseqdirect-sars2	none
+typedRecognizers	fixture-primers-iotests-valid-simple	none
+typedRecognizers	fixture-primers-workflowtests-mt192765	none
+typedRecognizers	fixture-primers-workflowtests-valid-simple	none
+typedRecognizers	fixture-flowpkg-hello-nextflow	none
+typedRecognizers	fixture-flowpkg-hello-snakemake	none
+typedRecognizers	demo-project	none
+typedRecognizers	demo-fastq-a	fastq
+typedRecognizers	demo-fastq-b	fastq
+typedRecognizers	demo-ref	none
+typedRecognizers	demo-mhcref	mhcref
+typedRecognizers	demo-mhcref-nested-ref	none
+typedRecognizers	demo-mhcref-record-only-ref	none
+typedRecognizers	lower-lungfish	none
+typedRecognizers	upper-lungfish	none
+typedRecognizers	nomanifest-lungfish	none
+typedRecognizers	lower-lungfishref	none
+typedRecognizers	upper-lungfishref	none
+typedRecognizers	nomanifest-lungfishref	none
+typedRecognizers	lower-lungfishfastq	fastq
+typedRecognizers	upper-lungfishfastq	fastq
+typedRecognizers	nomanifest-lungfishfastq	fastq
+typedRecognizers	lower-lungfishmsa	none
+typedRecognizers	upper-lungfishmsa	none
+typedRecognizers	nomanifest-lungfishmsa	none
+typedRecognizers	lower-lungfishtree	none
+typedRecognizers	upper-lungfishtree	none
+typedRecognizers	nomanifest-lungfishtree	none
+typedRecognizers	lower-lungfishprimers	none
+typedRecognizers	upper-lungfishprimers	none
+typedRecognizers	nomanifest-lungfishprimers	none
+typedRecognizers	lower-lungfishprimeranalysis	none
+typedRecognizers	upper-lungfishprimeranalysis	none
+typedRecognizers	nomanifest-lungfishprimeranalysis	none
+typedRecognizers	lower-lungfishmhcref	mhcref
+typedRecognizers	upper-lungfishmhcref	mhcref
+typedRecognizers	nomanifest-lungfishmhcref	none
+typedRecognizers	lower-lungfishgenotype	genotype
+typedRecognizers	upper-lungfishgenotype	genotype
+typedRecognizers	nomanifest-lungfishgenotype	genotype
+typedRecognizers	lower-lungfish12s	12s
+typedRecognizers	upper-lungfish12s	12s
+typedRecognizers	nomanifest-lungfish12s	12s
+typedRecognizers	lower-lungfish12sref	12sref
+typedRecognizers	upper-lungfish12sref	12sref
+typedRecognizers	nomanifest-lungfish12sref	none
+typedRecognizers	lower-lungfishtax	none
+typedRecognizers	upper-lungfishtax	none
+typedRecognizers	nomanifest-lungfishtax	none
+typedRecognizers	lower-lungfishrun	none
+typedRecognizers	upper-lungfishrun	none
+typedRecognizers	nomanifest-lungfishrun	none
+typedRecognizers	lower-lungfishflow	none
+typedRecognizers	upper-lungfishflow	none
+typedRecognizers	nomanifest-lungfishflow	none
+typedRecognizers	lower-lungfishflowpkg	none
+typedRecognizers	upper-lungfishflowpkg	none
+typedRecognizers	nomanifest-lungfishflowpkg	none
+typedRecognizers	control-plain-folder	none
+typedRecognizers	control-unknown-lungfish-extension	none
+typedRecognizers	control-near-miss-extension	none

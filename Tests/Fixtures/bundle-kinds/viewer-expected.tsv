@@ -1,0 +1,37 @@
+# Viewer route answers, Phase 2.6 lane B1. Recorded from the real code, never written by hand.
+# Lines are tab separated: group, row id, answer. Rewrite and review as in parity-expected.tsv.
+# referenceWithTracks and rawGenotypeBAM are the settled state of the sidebar router.
+# rawGenotypeBAMSibling is MainSplitViewController.ontGenotypingViewerBundleURL(forRawBAM:).
+# viralReconLocator is ViralReconAnalysisBundleLocator.viewableBundleURL(in:).
+# documentLoaderPackageGate is DocumentLoader.scanFolder(at:).
+referenceWithTracks	lower	viewports: ReferenceBundleViewportController ; mode: mapping ; reference: directBundle bundle=Reference Sequences/MT192765.1.lungfishref genome=genome/sequence.fa[MT192765.1] alignments=[sample-alignment:alignments/sample.sorted.bam] variants=[sample-variants:variants/sample.vcf.gz] annotations=[] signals=[] ; bamContext: Reference Sequences/MT192765.1.lungfishref samples=[sample] ; inspector: bundle=Reference Sequences/MT192765.1.lungfishref ; provenance: referenceBundle Reference Sequences/MT192765.1.lungfishref
+referenceWithTracks	upper	viewports: ReferenceBundleViewportController ; mode: mapping ; reference: directBundle bundle=Reference Sequences/upper-sample.LUNGFISHREF genome=genome/sequence.fa[MT192765.1] alignments=[sample-alignment:alignments/sample.sorted.bam] variants=[sample-variants:variants/sample.vcf.gz] annotations=[] signals=[] ; bamContext: Reference Sequences/upper-sample.LUNGFISHREF samples=[sample] ; inspector: bundle=Reference Sequences/upper-sample.LUNGFISHREF ; provenance: referenceBundle Reference Sequences/upper-sample.LUNGFISHREF
+referenceWithTracks	nomanifest	viewports: none ; mode: empty ; status: Unable to load reference bundle.
+rawGenotypeBAM	md-lower	viewports: ReferenceBundleViewportController ; mode: mapping ; reference: directBundle bundle=Genotyping/DW472.mapped.lungfishref genome=genome/sequence.fa[MT192765.1] alignments=[sample-alignment:alignments/sample.sorted.bam] variants=[sample-variants:variants/sample.vcf.gz] annotations=[] signals=[] ; bamContext: Genotyping/DW472.mapped.lungfishref samples=[sample] ; inspector: bundle=Genotyping/DW472.mapped.lungfishref ; provenance: referenceBundle Genotyping/DW472.mapped.lungfishref
+rawGenotypeBAM	md-sibling-upper	viewports: ReferenceBundleViewportController ; mode: mapping ; reference: directBundle bundle=Genotyping/DW472.mapped.lungfishref genome=genome/sequence.fa[MT192765.1] alignments=[sample-alignment:alignments/sample.sorted.bam] variants=[sample-variants:variants/sample.vcf.gz] annotations=[] signals=[] ; bamContext: Genotyping/DW472.mapped.lungfishref samples=[sample] ; inspector: bundle=Genotyping/DW472.mapped.lungfishref ; provenance: referenceBundle Genotyping/DW472.mapped.lungfishref
+rawGenotypeBAM	md-sibling-nomanifest	viewports: none ; mode: empty ; status: Unable to load reference bundle.
+rawGenotypeBAM	md-bam-upper	viewports: none ; mode: empty ; status: Unable to load DW472.MD.SORTED.BAM: Unsupported file format: BAM/CRAM files are imported as alignment tracks. Use File › Import Center… with a bundle open. ; loaded: Genotyping/DW472.MD.SORTED.BAM
+rawGenotypeBAM	retained-lower	viewports: ReferenceBundleViewportController ; mode: mapping ; reference: directBundle bundle=Genotyping/DW472.retained-demux.lungfishref genome=genome/sequence.fa[MT192765.1] alignments=[sample-alignment:alignments/sample.sorted.bam] variants=[sample-variants:variants/sample.vcf.gz] annotations=[] signals=[] ; bamContext: Genotyping/DW472.retained-demux.lungfishref samples=[sample] ; inspector: bundle=Genotyping/DW472.retained-demux.lungfishref ; provenance: referenceBundle Genotyping/DW472.retained-demux.lungfishref
+rawGenotypeBAM	retained-sibling-upper	viewports: ReferenceBundleViewportController ; mode: mapping ; reference: directBundle bundle=Genotyping/DW472.retained-demux.lungfishref genome=genome/sequence.fa[MT192765.1] alignments=[sample-alignment:alignments/sample.sorted.bam] variants=[sample-variants:variants/sample.vcf.gz] annotations=[] signals=[] ; bamContext: Genotyping/DW472.retained-demux.lungfishref samples=[sample] ; inspector: bundle=Genotyping/DW472.retained-demux.lungfishref ; provenance: referenceBundle Genotyping/DW472.retained-demux.lungfishref
+rawGenotypeBAM	retained-sibling-nomanifest	viewports: none ; mode: empty ; status: Unable to load reference bundle.
+rawGenotypeBAMSibling	s.md.sorted.bam	s.mapped.lungfishref
+rawGenotypeBAMSibling	s.retained.demuxed.bam	s.retained-demux.lungfishref
+rawGenotypeBAMSibling	s.MD.SORTED.BAM	nil
+rawGenotypeBAMSibling	s.Md.Sorted.Bam	nil
+rawGenotypeBAMSibling	s.RETAINED.DEMUXED.BAM	nil
+rawGenotypeBAMSibling	s.sorted.bam	nil
+rawGenotypeBAMSibling	s.bam	nil
+viralReconLocator	lower	sample.lungfishref
+viralReconLocator	upper	nil
+viralReconLocator	nomanifest	sample.lungfishref
+viralReconLocator	lower-and-upper	b.lungfishref
+viralReconLocator	two-lower	a.lungfishref
+viralReconLocator	empty	nil
+documentLoaderPackageGate	lungfishref-lower	lungfishReferenceBundle:sample.lungfishref
+documentLoaderPackageGate	lungfishref-upper	lungfishReferenceBundle:sample.LUNGFISHREF
+documentLoaderPackageGate	lungfishmsa-lower	lungfishMultipleSequenceAlignmentBundle:sample.lungfishmsa
+documentLoaderPackageGate	lungfishmsa-upper	lungfishMultipleSequenceAlignmentBundle:sample.LUNGFISHMSA
+documentLoaderPackageGate	lungfishtree-lower	lungfishPhylogeneticTreeBundle:sample.lungfishtree
+documentLoaderPackageGate	lungfishtree-upper	lungfishPhylogeneticTreeBundle:sample.LUNGFISHTREE
+documentLoaderPackageGate	lungfishfastq-lower	fastq:sample.lungfishfastq
+documentLoaderPackageGate	lungfishfastq-upper	fastq:sample.LUNGFISHFASTQ
