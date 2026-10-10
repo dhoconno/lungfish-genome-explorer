@@ -37,7 +37,7 @@ struct FastqTwelveSReferenceBundleSubcommand: AsyncParsableCommand {
                 FileHandle.standardError.write(Data(Self.progressLine(fraction: fraction, message: message).utf8))
             }
         )
-        FileHandle.standardError.write(Data("12S reference bundle written to \(result.bundleURL.path)\n".utf8))
+        TwelveSCLISuccessLine.referenceBundle(result.bundleURL).write()
     }
 
     func configurationForTesting() -> TwelveSReferenceBundleBuildConfiguration {

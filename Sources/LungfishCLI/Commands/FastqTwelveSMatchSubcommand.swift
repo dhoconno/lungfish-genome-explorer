@@ -98,7 +98,7 @@ struct FastqTwelveSMatchSubcommand: AsyncParsableCommand {
                 FileHandle.standardError.write(Data(Self.progressLine(fraction: fraction, message: message).utf8))
             }
         )
-        FileHandle.standardError.write(Data("12S amplicon result bundle written to \(result.bundleURL.path)\n".utf8))
+        TwelveSCLISuccessLine.matchResult(result.bundleURL).write()
     }
 
     func configurationForTesting() throws -> TwelveSAmpliconMatchingConfiguration {

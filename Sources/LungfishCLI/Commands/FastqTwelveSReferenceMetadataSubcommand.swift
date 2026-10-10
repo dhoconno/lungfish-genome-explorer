@@ -23,7 +23,7 @@ struct FastqTwelveSReferenceMetadataSubcommand: AsyncParsableCommand {
 
     func run() async throws {
         let result = try await TwelveSReferenceMetadataBuilder().build(configurationForTesting())
-        FileHandle.standardError.write(Data("12S target metadata written to \(result.metadataURL.path)\n".utf8))
+        TwelveSCLISuccessLine.targetMetadata(result.metadataURL).write()
     }
 
     func configurationForTesting() -> TwelveSReferenceMetadataBuildConfiguration {

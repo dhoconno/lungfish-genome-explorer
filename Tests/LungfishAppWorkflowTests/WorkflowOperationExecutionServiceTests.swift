@@ -724,6 +724,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         let item = try XCTUnwrap(operationCenter.items.first)
         XCTAssertEqual(item.title, "12S Amplicon Matching")
         XCTAssertEqual(item.state, .completed)
+        XCTAssertEqual(item.displayStateLabel, "Completed")
         XCTAssertTrue(item.cliCommand?.contains("lungfish-cli fastq 12s-match") == true)
         XCTAssertTrue(item.outputURLs.contains(bundleURL))
         let operationLogMessages = item.logEntries.map(\.message)
@@ -831,6 +832,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         let item = try XCTUnwrap(operationCenter.items.first)
         XCTAssertEqual(item.title, "12S Reference Bundle")
         XCTAssertEqual(item.state, .completed)
+        XCTAssertEqual(item.displayStateLabel, "Completed")
         XCTAssertTrue(item.cliCommand?.contains("lungfish-cli fastq 12s-reference-bundle") == true)
         XCTAssertTrue(item.outputURLs.contains(outputURL.standardizedFileURL))
         XCTAssertTrue(item.logEntries.contains { $0.message == "Building 12S target metadata." })
@@ -881,6 +883,305 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(item.state, .failed)
         XCTAssertEqual(item.errorMessage, "12S amplicon matching failed")
         XCTAssertTrue(item.errorDetail?.contains(".lungfish-provenance.json") == true)
+    }
+
+    // MARK: - Walk F7, a clean 12S run reads Completed
+
+    /// The 12S commands print progress lines on standard error and, since walk
+    /// F7, their last line on standard output. The app logs every standard
+    /// error line that is not progress as a warning, so these runs assert the
+    /// label the Operations panel shows and not only the state.
+
+    private static let twelveSMatchProgress = """
+    [  2%] Validating 12S amplicon matching inputs.
+    [ 40%] Matching reads to 12S references.
+    [100%] 12S amplicon matching complete.
+    """
+
+    private static let twelveSReferenceProgress = """
+    [  2%] Validating 12S reference bundle inputs.
+    [ 35%] Building 12S target metadata.
+    [100%] 12S reference bundle creation complete.
+    """
+
+    private struct TwelveSMatchRun {
+        let service: WorkflowOperationExecutionService
+        let operationCenter: OperationCenter
+        let resultRefresher: StubWorkflowOperationResultRefresher
+        let configuration: TwelveSAmpliconMatchingConfiguration
+        let bundleURL: URL
+
+        var lastLine: String { TwelveSCLISuccessLine.matchResult(bundleURL).text }
+    }
+
+    private func makeTwelveSMatchRun(
+        in temp: URL,
+        outputName: String = "hilo-12s",
+        runner: StubWorkflowOperationCLIProcessRunner
+    ) throws -> TwelveSMatchRun {
+        let readsURL = temp.appendingPathComponent("hilo-f09.lungfishfastq", isDirectory: true)
+        let referenceURL = temp.appendingPathComponent("amplicons_12s.fa")
+        let outputDirectory = temp.appendingPathComponent("Analyses/12S amplicon results", isDirectory: true)
+        try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        try Data(">target\nACGT\n".utf8).write(to: referenceURL)
+        let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
+        let resultRefresher = StubWorkflowOperationResultRefresher()
+        let service = WorkflowOperationExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner,
+            viewerBundlePreparer: StubWorkflowOperationViewerBundlePreparer(),
+            bamImporter: StubWorkflowOperationBAMImporter(),
+            resultRefresher: resultRefresher
+        )
+        return TwelveSMatchRun(
+            service: service,
+            operationCenter: operationCenter,
+            resultRefresher: resultRefresher,
+            configuration: TwelveSAmpliconMatchingConfiguration(
+                inputFASTQs: [readsURL],
+                referenceFASTA: referenceURL,
+                outputDirectory: outputDirectory,
+                outputName: outputName
+            ),
+            bundleURL: outputDirectory
+                .appendingPathComponent("\(outputName).lungfish12s", isDirectory: true)
+                .standardizedFileURL
+        )
+    }
+
+    private struct TwelveSReferenceRun {
+        let service: WorkflowOperationExecutionService
+        let operationCenter: OperationCenter
+        let resultRefresher: StubWorkflowOperationResultRefresher
+        let configuration: TwelveSReferenceBundleBuildConfiguration
+        let bundleURL: URL
+
+        var lastLine: String { TwelveSCLISuccessLine.referenceBundle(bundleURL).text }
+
+        /// What the app reports for a bundle the CLI wrote.
+        var outputs: [URL] {
+            [
+                bundleURL,
+                bundleURL.appendingPathComponent("12s-reference.json"),
+                bundleURL.appendingPathComponent("target-metadata.tsv"),
+                bundleURL.appendingPathComponent(".lungfish-provenance.json"),
+            ].map(\.standardizedFileURL)
+        }
+    }
+
+    private func makeTwelveSReferenceRun(
+        in temp: URL,
+        bundleName: String = "MIDORI-12S",
+        runner: StubWorkflowOperationCLIProcessRunner
+    ) throws -> TwelveSReferenceRun {
+        let fastaURL = temp.appendingPathComponent("amplicons_12s_deduplicated.fa")
+        let metadataURL = temp.appendingPathComponent("12s_reference.tsv")
+        let outputURL = temp.appendingPathComponent(
+            "Reference Sequences/\(bundleName).lungfish12sref",
+            isDirectory: true
+        )
+        try Data(">target\nACGT\n".utf8).write(to: fastaURL)
+        try Data("seq_id\tlatin_name\tgroup\ttaxid\tcommon_name\n".utf8).write(to: metadataURL)
+        let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
+        let resultRefresher = StubWorkflowOperationResultRefresher()
+        let service = WorkflowOperationExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner,
+            viewerBundlePreparer: StubWorkflowOperationViewerBundlePreparer(),
+            bamImporter: StubWorkflowOperationBAMImporter(),
+            resultRefresher: resultRefresher
+        )
+        return TwelveSReferenceRun(
+            service: service,
+            operationCenter: operationCenter,
+            resultRefresher: resultRefresher,
+            configuration: TwelveSReferenceBundleBuildConfiguration(
+                deduplicatedFASTA: fastaURL,
+                midoriMetadataTSV: metadataURL,
+                outputURL: outputURL,
+                name: bundleName
+            ),
+            bundleURL: outputURL.standardizedFileURL
+        )
+    }
+
+    func testACleanTwelveSAmpliconMatchReadsCompletedWithNoWarning() async throws {
+        let run = try makeTwelveSMatchRun(
+            in: try temporaryDirectory(),
+            runner: StubWorkflowOperationCLIProcessRunner(stderr: Self.twelveSMatchProgress)
+        )
+
+        _ = try await run.service.run(.twelveSAmpliconMatching(run.configuration))
+
+        let item = try XCTUnwrap(run.operationCenter.items.first)
+        XCTAssertEqual(item.state, .completed)
+        XCTAssertEqual(item.displayStateLabel, "Completed")
+        XCTAssertEqual(item.logEntries.filter { $0.level == .warning }.map(\.message), [])
+        XCTAssertTrue(
+            item.logEntries.contains { $0.level == .info && $0.message == run.lastLine },
+            "the last line is logged as information: \(item.logEntries.map(\.message))"
+        )
+    }
+
+    func testACleanTwelveSReferenceBundleBuildReadsCompletedWithNoWarning() async throws {
+        let run = try makeTwelveSReferenceRun(
+            in: try temporaryDirectory(),
+            runner: StubWorkflowOperationCLIProcessRunner(stderr: Self.twelveSReferenceProgress)
+        )
+
+        _ = try await run.service.runTwelveSReferenceBundleBuild(run.configuration)
+
+        let item = try XCTUnwrap(run.operationCenter.items.first)
+        XCTAssertEqual(item.state, .completed)
+        XCTAssertEqual(item.displayStateLabel, "Completed")
+        XCTAssertEqual(item.logEntries.filter { $0.level == .warning }.map(\.message), [])
+        XCTAssertTrue(
+            item.logEntries.contains { $0.level == .info && $0.message == run.lastLine },
+            "the last line is logged as information: \(item.logEntries.map(\.message))"
+        )
+    }
+
+    func testARealWarningLineStillReadsCompletedWithWarnings() async throws {
+        let matchWarning = "Warning: 2 discordant pairs were left out because their mates name different targets."
+        let match = try makeTwelveSMatchRun(
+            in: try temporaryDirectory(),
+            runner: StubWorkflowOperationCLIProcessRunner(stderr: Self.twelveSMatchProgress + "\n" + matchWarning)
+        )
+        _ = try await match.service.run(.twelveSAmpliconMatching(match.configuration))
+        let matchItem = try XCTUnwrap(match.operationCenter.items.first)
+        XCTAssertEqual(matchItem.state, .completed)
+        XCTAssertEqual(matchItem.displayStateLabel, "Completed with Warnings")
+        XCTAssertEqual(matchItem.logEntries.filter { $0.level == .warning }.map(\.message), [matchWarning])
+
+        let referenceWarning = "Warning: 1 reference record has no row in the MIDORI table."
+        let reference = try makeTwelveSReferenceRun(
+            in: try temporaryDirectory(),
+            runner: StubWorkflowOperationCLIProcessRunner(stderr: Self.twelveSReferenceProgress + "\n" + referenceWarning)
+        )
+        _ = try await reference.service.runTwelveSReferenceBundleBuild(reference.configuration)
+        let referenceItem = try XCTUnwrap(reference.operationCenter.items.first)
+        XCTAssertEqual(referenceItem.state, .completed)
+        XCTAssertEqual(referenceItem.displayStateLabel, "Completed with Warnings")
+        XCTAssertEqual(referenceItem.logEntries.filter { $0.level == .warning }.map(\.message), [referenceWarning])
+    }
+
+    // MARK: Walk F7, an earlier 12S bundle in the same folder
+
+    func testTwelveSReferenceBuildAdoptsTheBundleTheCLIWroteBesideAnEarlierBundle() async throws {
+        let temp = try temporaryDirectory()
+        let earlier = try makeTwelveSReferenceRun(
+            in: temp,
+            bundleName: "Earlier-12S",
+            runner: StubWorkflowOperationCLIProcessRunner(stderr: Self.twelveSReferenceProgress)
+        )
+        _ = try await earlier.service.runTwelveSReferenceBundleBuild(earlier.configuration)
+        let earlierFiles = try FileManager.default.contentsOfDirectory(atPath: earlier.bundleURL.path).sorted()
+        XCTAssertFalse(earlierFiles.isEmpty)
+
+        let run = try makeTwelveSReferenceRun(
+            in: temp,
+            runner: StubWorkflowOperationCLIProcessRunner(stderr: Self.twelveSReferenceProgress)
+        )
+        let outputs = try await run.service.runTwelveSReferenceBundleBuild(run.configuration)
+
+        XCTAssertEqual(outputs.map(\.path), run.outputs.map(\.path))
+        XCTAssertTrue(outputs.allSatisfy { !$0.path.hasPrefix(earlier.bundleURL.path) })
+        XCTAssertEqual(run.resultRefresher.invocations.map(\.path), [run.bundleURL.path])
+        let item = try XCTUnwrap(run.operationCenter.items.first)
+        XCTAssertEqual(item.displayStateLabel, "Completed")
+        XCTAssertEqual(item.targetBundleURL?.standardizedFileURL.path, run.bundleURL.path)
+        XCTAssertEqual(item.outputURLs.map(\.path), run.outputs.map(\.path))
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: earlier.bundleURL.path).sorted(),
+            earlierFiles,
+            "the earlier bundle is not touched"
+        )
+    }
+
+    func testTwelveSReferenceBuildDoesNotAdoptAnEarlierBundlesRecordWhenTheCLIWroteNone() async throws {
+        let temp = try temporaryDirectory()
+        let earlier = try makeTwelveSReferenceRun(
+            in: temp,
+            bundleName: "Earlier-12S",
+            runner: StubWorkflowOperationCLIProcessRunner(stderr: Self.twelveSReferenceProgress)
+        )
+        _ = try await earlier.service.runTwelveSReferenceBundleBuild(earlier.configuration)
+        let run = try makeTwelveSReferenceRun(
+            in: temp,
+            runner: StubWorkflowOperationCLIProcessRunner(stderr: Self.twelveSReferenceProgress, writesTwelveSProvenance: false)
+        )
+
+        do {
+            _ = try await run.service.runTwelveSReferenceBundleBuild(run.configuration)
+            XCTFail("a bundle with no record of its own must fail the run, whatever sits beside it")
+        } catch LocalWorkflowExecutionError.missingProvenance(let path) {
+            XCTAssertEqual(path, run.bundleURL.appendingPathComponent(".lungfish-provenance.json").path)
+        }
+
+        let item = try XCTUnwrap(run.operationCenter.items.first)
+        XCTAssertEqual(item.state, .failed)
+        XCTAssertTrue(run.resultRefresher.invocations.isEmpty)
+    }
+
+    func testTwelveSMatchAdoptsTheBundleTheCLIWroteBesideAnEarlierBundle() async throws {
+        let temp = try temporaryDirectory()
+        let earlier = try makeTwelveSMatchRun(
+            in: temp,
+            outputName: "earlier-12s",
+            runner: StubWorkflowOperationCLIProcessRunner(stderr: Self.twelveSMatchProgress)
+        )
+        _ = try await earlier.service.run(.twelveSAmpliconMatching(earlier.configuration))
+        let earlierFiles = try FileManager.default.contentsOfDirectory(atPath: earlier.bundleURL.path).sorted()
+        XCTAssertFalse(earlierFiles.isEmpty)
+
+        let run = try makeTwelveSMatchRun(
+            in: temp,
+            runner: StubWorkflowOperationCLIProcessRunner(stderr: Self.twelveSMatchProgress)
+        )
+        let outputs = try await run.service.run(.twelveSAmpliconMatching(run.configuration))
+
+        XCTAssertEqual(outputs.map(\.path), [
+            run.bundleURL.path,
+            run.bundleURL.appendingPathComponent("12s-result.json").path,
+            run.bundleURL.appendingPathComponent(".lungfish-provenance.json").path,
+        ])
+        XCTAssertEqual(run.resultRefresher.invocations.map(\.path), [run.bundleURL.path])
+        let item = try XCTUnwrap(run.operationCenter.items.first)
+        XCTAssertEqual(item.displayStateLabel, "Completed")
+        XCTAssertEqual(item.targetBundleURL?.standardizedFileURL.path, run.bundleURL.path)
+        XCTAssertTrue(item.outputURLs.allSatisfy { !$0.path.hasPrefix(earlier.bundleURL.path) })
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: earlier.bundleURL.path).sorted(),
+            earlierFiles,
+            "the earlier bundle is not touched"
+        )
+    }
+
+    func testTwelveSMatchDoesNotAdoptAnEarlierBundlesRecordWhenTheCLIWroteNone() async throws {
+        let temp = try temporaryDirectory()
+        let earlier = try makeTwelveSMatchRun(
+            in: temp,
+            outputName: "earlier-12s",
+            runner: StubWorkflowOperationCLIProcessRunner(stderr: Self.twelveSMatchProgress)
+        )
+        _ = try await earlier.service.run(.twelveSAmpliconMatching(earlier.configuration))
+        let run = try makeTwelveSMatchRun(
+            in: temp,
+            runner: StubWorkflowOperationCLIProcessRunner(stderr: Self.twelveSMatchProgress, writesTwelveSProvenance: false)
+        )
+
+        do {
+            _ = try await run.service.run(.twelveSAmpliconMatching(run.configuration))
+            XCTFail("a bundle with no record of its own must fail the run, whatever sits beside it")
+        } catch LocalWorkflowExecutionError.missingProvenance(let path) {
+            XCTAssertEqual(path, run.bundleURL.appendingPathComponent(".lungfish-provenance.json").path)
+        }
+
+        XCTAssertEqual(try XCTUnwrap(run.operationCenter.items.first).state, .failed)
+        XCTAssertTrue(run.resultRefresher.invocations.isEmpty)
     }
 
     func testONTGenotypingArgumentsIncludeExplicitHaplotypeDefinitionWhenSelected() throws {
@@ -1124,6 +1425,24 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
         onCancel?()
     }
 
+    /// The result of a 12S command that succeeded, split into streams as the
+    /// shipped command splits them. The progress lines the stub streamed first
+    /// stay on standard error, and the command's last line, which it builds
+    /// through the same `TwelveSCLISuccessLine` the command does, goes to
+    /// standard output (walk F7).
+    private func twelveSResult(
+        lastLine: TwelveSCLISuccessLine,
+        outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
+    ) -> LocalWorkflowCLIProcessResult {
+        outputHandler?(.standardOutput(lastLine.text))
+        return LocalWorkflowCLIProcessResult(
+            exitCode: exitCode,
+            standardOutput: lastLine.text + "\n",
+            standardError: stderr,
+            didStreamOutput: outputHandler != nil
+        )
+    }
+
     func runLungfishCLI(
         arguments: [String],
         workingDirectory: URL,
@@ -1176,29 +1495,26 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
                 createdAt: "2026-05-30T00:00:00Z"
             )
             try TwelveSReferenceBundle.writeManifest(manifest, to: outputURL)
-            let argv = ["lungfish-cli"] + arguments
-            let envelope = ProvenanceEnvelope(
-                workflowName: "lungfish fastq 12s-reference-bundle",
-                workflowVersion: "1",
-                toolName: "lungfish-cli",
-                toolVersion: "1",
-                argv: argv,
-                durableReplayArgv: argv,
-                runtimeIdentity: ProvenanceRuntimeIdentity(user: "tests"),
-                outputs: [
-                    ProvenanceFileDescriptor(path: outputURL.path, role: .output),
-                ],
-                exitStatus: 0
-            )
-            try ProvenanceJSON.encoder.encode(envelope).write(
-                to: outputURL.appendingPathComponent(".lungfish-provenance.json")
-            )
-            return LocalWorkflowCLIProcessResult(
-                exitCode: exitCode,
-                standardOutput: "12S reference bundle written to \(outputURL.path)\n",
-                standardError: stderr,
-                didStreamOutput: outputHandler != nil
-            )
+            if writesTwelveSProvenance {
+                let argv = ["lungfish-cli"] + arguments
+                let envelope = ProvenanceEnvelope(
+                    workflowName: "lungfish fastq 12s-reference-bundle",
+                    workflowVersion: "1",
+                    toolName: "lungfish-cli",
+                    toolVersion: "1",
+                    argv: argv,
+                    durableReplayArgv: argv,
+                    runtimeIdentity: ProvenanceRuntimeIdentity(user: "tests"),
+                    outputs: [
+                        ProvenanceFileDescriptor(path: outputURL.path, role: .output),
+                    ],
+                    exitStatus: 0
+                )
+                try ProvenanceJSON.encoder.encode(envelope).write(
+                    to: outputURL.appendingPathComponent(".lungfish-provenance.json")
+                )
+            }
+            return twelveSResult(lastLine: .referenceBundle(outputURL), outputHandler: outputHandler)
         }
         if arguments.prefix(2) == ["fastq", "12s-match"] {
             let outputDirectory = URL(fileURLWithPath: try value(after: "--output-dir", in: arguments))
@@ -1230,12 +1546,7 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
                     to: bundleURL.appendingPathComponent(".lungfish-provenance.json")
                 )
             }
-            return LocalWorkflowCLIProcessResult(
-                exitCode: exitCode,
-                standardOutput: "12S amplicon result bundle written to \(bundleURL.path)\n",
-                standardError: stderr,
-                didStreamOutput: outputHandler != nil
-            )
+            return twelveSResult(lastLine: .matchResult(bundleURL), outputHandler: outputHandler)
         }
         if arguments.prefix(2) == ["fastq", "full-length-ont-mhc-genotype"] {
             let outputDirectory = URL(fileURLWithPath: try value(after: "--output-dir", in: arguments))

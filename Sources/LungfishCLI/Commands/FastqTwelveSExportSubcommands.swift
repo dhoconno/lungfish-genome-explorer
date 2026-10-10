@@ -50,7 +50,7 @@ struct FastqTwelveSExportSubcommand: AsyncParsableCommand {
 
     func run() async throws {
         let result = try await TwelveSResultExportWorkflow().export(configurationForTesting())
-        FileHandle.standardError.write(Data("12S export written to \(result.outputURL.path)\n".utf8))
+        TwelveSCLISuccessLine.export(result.outputURL).write()
     }
 
     func configurationForTesting() -> TwelveSResultExportConfiguration {
@@ -138,7 +138,7 @@ struct FastqTwelveSExportUnresolvedSubcommand: AsyncParsableCommand {
 
     func run() async throws {
         let result = try await TwelveSUnresolvedFastaExportWorkflow().export(configurationForTesting())
-        FileHandle.standardError.write(Data("12S unresolved FASTA written to \(result.outputURL.path)\n".utf8))
+        TwelveSCLISuccessLine.unresolvedFASTA(result.outputURL).write()
     }
 
     func configurationForTesting() -> TwelveSUnresolvedFastaExportConfiguration {
