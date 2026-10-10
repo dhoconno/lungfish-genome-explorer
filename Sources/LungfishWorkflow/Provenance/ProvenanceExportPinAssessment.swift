@@ -9,9 +9,14 @@
 // from the environment name or the lock, or the bare package when the version
 // is not a number. Nothing checks that spec against the managed tool lock.
 //
-// This assessment reads a record and says, for every step, whether the spec
-// today's export would write is the lock's pin, and if not why not. It is pure
-// and changes no exporter, writer or record. Phase 2.6 decides what to refuse.
+// This assessment reads the steps a record holds and says, for each step that
+// names a managed environment, whether the spec `ProvenanceExportPlan.pinned`
+// writes for it is the lock's pin, and if not why not. It does not expand a
+// provenance chain, synthesize the one step `legacyWorkflowRun` builds for a
+// record with no steps, or merge steps per environment as the plan does, so it
+// characterizes records and does not reproduce `exportBundle`. The refusal in
+// 2.6 checks the export plan itself. The assessment is pure and changes no
+// exporter, writer or record.
 
 import Foundation
 import LungfishIO
@@ -120,10 +125,18 @@ public struct ProvenanceExportPinAssessment: Sendable, Hashable {
         steps.reduce(into: [:]) { $0[$1.status.code, default: 0] += 1 }
     }
 
+    /// Assesses the steps the envelope records, with no chain expansion and no synthesized step.
+    ///
+    /// - Parameter lock: The lock the steps are compared with. The exported spec always comes
+    ///   from `ProvenanceExportPlan.pinned`, which reads the bundled lock.
     public static func assess(_ envelope: ProvenanceEnvelope, lock: ManagedToolLock = .bundled) -> ProvenanceExportPinAssessment {
         assess(steps: envelope.steps, lock: lock)
     }
 
+    /// Assesses the given steps one by one.
+    ///
+    /// - Parameter lock: The lock the steps are compared with. The exported spec always comes
+    ///   from `ProvenanceExportPlan.pinned`, which reads the bundled lock.
     public static func assess(steps: [ProvenanceStep], lock: ManagedToolLock = .bundled) -> ProvenanceExportPinAssessment {
         ProvenanceExportPinAssessment(steps: steps.enumerated().map { offset, step in
             assess(step, number: offset + 1, lock: lock)
