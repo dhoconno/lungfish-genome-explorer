@@ -130,7 +130,7 @@ final class SRADownloadRunChecksTests: XCTestCase {
         )
         XCTAssertEqual(run.steps.map(\.toolName), ["https-download", "prefetch", "fasterq-dump", "lungfish-cli"])
         XCTAssertEqual(run.steps[0].resolvedOptions?["attempt"], .string("failed"), "mate 1 arrived in a failed attempt")
-        XCTAssertNil(run.steps[1].resolvedOptions)
+        XCTAssertNil(run.steps[1].resolvedOptions?["attempt"], "the toolkit step that served the run is not marked failed")
         let version = try XCTUnwrap(ManagedToolLock.loadFromBundle().tool(named: "sra-tools")?.version)
         XCTAssertEqual(run.steps[1].toolVersion, "sra-tools \(version)")
         XCTAssertEqual(run.steps.last?.dependsOn, [run.steps[1].id, run.steps[2].id])
