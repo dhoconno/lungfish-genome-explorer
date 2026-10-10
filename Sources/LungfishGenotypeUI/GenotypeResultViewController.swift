@@ -340,7 +340,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
 #endif
     private let manualHaplotypeEditorTypographyModel =
         ContentTypographyModel.shared
-    private lazy var manualHaplotypeDraftCoordinator =
+    lazy var manualHaplotypeDraftCoordinator =
         GenotypeManualHaplotypeDraftCoordinator(
             hasUnsavedChanges: { [weak self] in
                 self?.manualHaplotypeEditorModel?.draft.isDirty == true

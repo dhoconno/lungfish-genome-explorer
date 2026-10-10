@@ -13,6 +13,9 @@ enum GenotypeExcelExportRefusal: LocalizedError, Equatable {
     /// Native annotations have not finished saving, so the capture would
     /// freeze a state the file does not hold yet.
     case annotationsStillSaving
+    /// The analyst chose Save in the unsaved haplotype draft alert and the
+    /// save failed, so no sheet opens. The editor card says why.
+    case haplotypeAssignmentsNotSaved
 
     var errorDescription: String? {
         switch self {
@@ -20,6 +23,8 @@ enum GenotypeExcelExportRefusal: LocalizedError, Equatable {
             return "The workbook would not match the matrix on screen, so nothing was written (\(detail)). Please report this."
         case .annotationsStillSaving:
             return "Annotations are still saving. Wait for the save to finish, then export again."
+        case .haplotypeAssignmentsNotSaved:
+            return "Haplotype assignments were not saved. Use Retry or Reload in the editor, then export again."
         }
     }
 

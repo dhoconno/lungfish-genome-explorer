@@ -97,6 +97,11 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
         self.discard = discard
     }
 
+    /// Whether the Save the analyst chose for the latest transition ran and
+    /// failed, so a caller whose transition was refused can say why. A new
+    /// `prepare` clears it, and a Cancel or a Discard never sets it.
+    public private(set) var lastSaveFailed = false
+
     public var hasPendingResolution: Bool {
         pendingDecision != nil
             || outstandingResolution != nil
@@ -120,6 +125,7 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
         decision: @escaping @MainActor ()
             async -> GenotypeManualHaplotypeDraftDecision
     ) async -> Bool {
+        lastSaveFailed = false
         let resolution = await resolve(
             for: transition,
             decision: decision
@@ -234,6 +240,9 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
         }
         pendingCommit = task
         let committed = await task.value
+        if decision == .save, !committed.allowed {
+            lastSaveFailed = true
+        }
         if resolutionGeneration == generation {
             pendingCommit = nil
             outstandingResolution = nil
@@ -282,6 +291,7 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
             }
             allowed = finalizePreparedSave()
             preparedSaveGeneration = nil
+            lastSaveFailed = !allowed
         case .discard:
             allowed = await discard()
         case .cancel:

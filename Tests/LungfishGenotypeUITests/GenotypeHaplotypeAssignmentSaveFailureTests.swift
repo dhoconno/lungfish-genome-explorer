@@ -216,6 +216,102 @@ final class GenotypeHaplotypeAssignmentSaveFailureTests: GenotypeResultViewportT
         )
     }
 
+    // MARK: - Export to Excel
+
+    func testAnExportWhoseSaveFailsSaysTheAssignmentsWereNotSaved() async throws {
+        let fixture = try makeBundleWithSidecar()
+        defer { TestTempDirectory.cleanup(fixture.root) }
+        let controller = makeManualHaplotypeGuardedController()
+        _ = controller.view
+        controller.configure(result: fixture.result)
+        controller.testingShowMatrixTargetSelection([.column(sample: sample)])
+        controller.testingUpdateManualHaplotypeLabel("WALK3")
+        try writeSidecarFromAnotherProcess(fixture)
+        controller.testingSetManualHaplotypeDraftDecisionProvider { _ in .save }
+        var panels = 0
+        controller.excelSavePanelPresenter = { _, _, completion in
+            panels += 1
+            completion(nil)
+        }
+        var events: [String] = []
+        controller.onExcelExportEvent = { events.append(Self.describe($0)) }
+
+        controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
+        await controller.testingWaitForManualHaplotypeTransitions()
+
+        XCTAssertEqual(
+            events,
+            ["failed: Haplotype assignments were not saved. Use Retry or Reload in the editor, then export again."]
+        )
+        XCTAssertEqual(panels, 0, "no export sheet opens")
+        XCTAssertTrue(controller.testingManualHaplotypeEditorIsDirty)
+        XCTAssertEqual(controller.testingManualHaplotypeEditorPersistenceError, staleMessage)
+    }
+
+    func testCancelInTheExportAlertReportsNothingEvenAfterAFailedSave() async throws {
+        let fixture = try makeBundleWithSidecar()
+        defer { TestTempDirectory.cleanup(fixture.root) }
+        let controller = makeManualHaplotypeGuardedController()
+        _ = controller.view
+        controller.configure(result: fixture.result)
+        controller.testingShowMatrixTargetSelection([.column(sample: sample)])
+        controller.testingUpdateManualHaplotypeLabel("WALK3")
+        try writeSidecarFromAnotherProcess(fixture)
+        controller.testingSaveManualHaplotypeDraft()
+        XCTAssertEqual(controller.testingManualHaplotypeEditorPersistenceError, staleMessage)
+        controller.testingSetManualHaplotypeDraftDecisionProvider { _ in .cancel }
+        var panels = 0
+        controller.excelSavePanelPresenter = { _, _, completion in
+            panels += 1
+            completion(nil)
+        }
+        var events: [String] = []
+        controller.onExcelExportEvent = { events.append(Self.describe($0)) }
+
+        controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
+        await controller.testingWaitForManualHaplotypeTransitions()
+
+        XCTAssertEqual(events, [], "Cancel stops the export without a failure")
+        XCTAssertEqual(panels, 0)
+        XCTAssertTrue(controller.testingManualHaplotypeEditorIsDirty)
+    }
+
+    func testTheDraftCoordinatorRemembersOnlyAChosenSaveThatFailed() async {
+        var saveSucceeds = false
+        var discardSucceeds = false
+        let coordinator = GenotypeManualHaplotypeDraftCoordinator(
+            hasUnsavedChanges: { true },
+            save: { saveSucceeds },
+            discard: { discardSucceeds }
+        )
+
+        let refusedBySave = await coordinator.prepare(for: .export) { .save }
+        XCTAssertFalse(refusedBySave)
+        XCTAssertTrue(coordinator.lastSaveFailed)
+
+        let refusedByCancel = await coordinator.prepare(for: .export) { .cancel }
+        XCTAssertFalse(refusedByCancel)
+        XCTAssertFalse(coordinator.lastSaveFailed, "a new decision clears it")
+
+        let refusedByDiscard = await coordinator.prepare(for: .export) { .discard }
+        XCTAssertFalse(refusedByDiscard)
+        XCTAssertFalse(coordinator.lastSaveFailed, "a failed Discard is not a failed save")
+
+        saveSucceeds = true
+        discardSucceeds = true
+        let allowedBySave = await coordinator.prepare(for: .export) { .save }
+        XCTAssertTrue(allowedBySave)
+        XCTAssertFalse(coordinator.lastSaveFailed)
+    }
+
+    private static func describe(_ event: GenotypeExcelExportEvent) -> String {
+        switch event {
+        case .started: return "started"
+        case .succeeded(let url): return "succeeded: \(url.lastPathComponent)"
+        case .failed(let message): return "failed: \(message)"
+        }
+    }
+
     // MARK: - Fixtures
 
     private struct Fixture {

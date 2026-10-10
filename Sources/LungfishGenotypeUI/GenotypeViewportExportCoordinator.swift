@@ -20,15 +20,15 @@ import LungfishKit
 final class GenotypeViewportExportCoordinator {
     /// The controller this coordinator reads, held without a retain because
     /// the controller is the coordinator's only owner. Two invariants keep
-    /// that safe. The three `[weak self]` captures in presentExcelExportPanel
-    /// and presentViewExportPanel must stay weak, so a closure that runs after
-    /// the controller is gone finds a nil coordinator and returns before any
-    /// forwarder reads the controller. And no callback the export path calls,
-    /// which are originStillCurrent, settleDisplayState, onExcelExportEvent
-    /// and excelSavePanelPresenter, may release the controller synchronously,
-    /// because the forwarder read that follows the call would reach a freed
-    /// controller. GenotypeViewportExportCoordinatorLifetimeTests pins the
-    /// first invariant.
+    /// that safe. The four `[weak self]` captures in presentExcelExportPanel,
+    /// its rejection handler among them, and presentViewExportPanel must stay
+    /// weak, so a closure that runs after the controller is gone finds a nil
+    /// coordinator and returns before any forwarder reads the controller. And
+    /// no callback the export path calls, which are originStillCurrent,
+    /// settleDisplayState, onExcelExportEvent and excelSavePanelPresenter, may
+    /// release the controller synchronously, because the forwarder read that
+    /// follows the call would reach a freed controller.
+    /// GenotypeViewportExportCoordinatorLifetimeTests pins the first invariant.
     private unowned let host: GenotypeResultViewController
 
     init(host: GenotypeResultViewController) {
@@ -61,7 +61,14 @@ final class GenotypeViewportExportCoordinator {
                 self.publishExcelExportEvent(.failed(GenotypeExcelExportRefusal.message(for: error)))
             }
         }
-        if !deferManualHaplotypeTransition(.export, mutation: capture) { capture() }
+        // A Save chosen in the unsaved draft alert that fails refuses the
+        // export, and the Inspector says so under Export to Excel. A Cancel
+        // or a newer request refuses it too, and says nothing.
+        let rejection: @MainActor () -> Void = { [weak self] in
+            guard let self, self.manualHaplotypeDraftSaveFailed else { return }
+            self.publishExcelExportEvent(.failed(GenotypeExcelExportRefusal.haplotypeAssignmentsNotSaved.localizedDescription))
+        }
+        if !deferManualHaplotypeTransition(.export, mutation: capture, rejection: rejection) { capture() }
     }
 
     /// The retained scientific model and native annotations are authoritative.
@@ -294,10 +301,11 @@ private extension GenotypeViewportExportCoordinator {
     var excelSavePanelPresenter: (NSSavePanel, NSWindow, @escaping (URL?) -> Void) -> Void { host.excelSavePanelPresenter }
     var viewportExportRunner: (GenotypeViewportExportSnapshot, URL) async throws -> Void { host.viewportExportRunner }
     var onExcelExportEvent: ((GenotypeExcelExportEvent) -> Void)? { host.onExcelExportEvent }
+    var manualHaplotypeDraftSaveFailed: Bool { host.manualHaplotypeDraftCoordinator.lastSaveFailed }
 
     func activeHaplotypeAnalysis() -> GenotypeHaplotypeAnalysis? { host.activeHaplotypeAnalysis() }
     func definitionSetForResult(_ result: ONTGenotypeResultBundleData) -> GenotypeHaplotypeDefinitionSet? { host.definitionSetForResult(result) }
     func ensureComparisonMatrixConfigured() { host.ensureComparisonMatrixConfigured() }
     func ownsDesiredResultConfiguration(_ authority: GenotypeResultDesiredConfigurationAuthority) -> Bool { host.ownsDesiredResultConfiguration(authority) }
-    func deferManualHaplotypeTransition(_ transition: GenotypeManualHaplotypeDraftCoordinator.Transition, mutation: @escaping @MainActor () -> Void) -> Bool { host.deferManualHaplotypeTransition(transition, mutation: mutation) }
+    func deferManualHaplotypeTransition(_ transition: GenotypeManualHaplotypeDraftCoordinator.Transition, mutation: @escaping @MainActor () -> Void, rejection: @escaping @MainActor () -> Void) -> Bool { host.deferManualHaplotypeTransition(transition, mutation: mutation, rejection: rejection) }
 }
