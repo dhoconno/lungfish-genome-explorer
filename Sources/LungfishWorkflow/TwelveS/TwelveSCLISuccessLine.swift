@@ -51,8 +51,7 @@ public struct TwelveSCLISuccessLine: Equatable, Sendable {
 
     /// Writes the line and its newline to standard output, unbuffered, so a
     /// reader on a pipe has it as soon as the command ends. A write that fails
-    /// is ignored, because the result is already on disk and a closed pipe
-    /// must not turn a finished run into a failed one.
+    /// is ignored, because the result is already on disk.
     public func write() {
         try? FileHandle.standardOutput.write(contentsOf: Data((text + "\n").utf8))
     }

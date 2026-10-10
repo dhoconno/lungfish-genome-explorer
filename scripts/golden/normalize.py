@@ -226,9 +226,10 @@ APP_VERSION_KEYS = ("appVersion", "toolVersion", "version", "workflowVersion")
 # inside a line whose position depends on the length of every masked number
 # around it, so the partial line on each side of the marker is dropped.
 STDERR_TRUNCATION_MARKER = "\n... [truncated] ...\n"
-# Two producers outside ProvenanceStderr still keep only the first characters of
-# a stderr and append this marker (the recipe step result in LungfishIO and the
-# human scrubber command). Their partial last line is dropped the same way.
+# Records written before Phase 2.6 by two producers (the recipe step result in
+# LungfishIO and the human scrubber command) end with this marker, because they
+# kept only the first characters of a stderr. Their partial last line is
+# dropped the same way.
 STDERR_HEAD_ONLY_MARKER = "\n... [truncated]"
 
 
