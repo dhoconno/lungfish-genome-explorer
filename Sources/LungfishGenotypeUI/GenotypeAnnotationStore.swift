@@ -131,6 +131,11 @@ public final class GenotypeAnnotationStore {
         try persist(action: "seedBuiltInSmartCohorts")
     }
 
+    /// Publishes the sidecar the analyst sees as it stands, cohorts or none.
+    func publishViewedSidecar() throws {
+        try persist(action: unsavedBuiltInSmartCohorts.isEmpty ? "publishViewedSidecar" : "seedBuiltInSmartCohorts")
+    }
+
     private func now() -> String { isoFormatter.string(from: Date()) }
 
     func applyOverride(sample: String, locus: String, slot: HaplotypeSlot,
@@ -1047,7 +1052,8 @@ public final class GenotypeAnnotationStore {
             updated: [],
             removed: []
         )
-
+        // The replay starts from the file, so a bundle without one publishes the viewed sidecar first.
+        guard try preparePriorSidecarForReplay(changesSomething: !draftByKey.isEmpty) else { return unchangedResult }
         let runClock = ProvenanceRunClock()
         var publishedSidecar: GenotypeAnnotationSidecar?
         var replacementResult = unchangedResult
@@ -1377,16 +1383,9 @@ public final class GenotypeAnnotationStore {
             didChange: false,
             changedKeys: []
         )
-        // The replay of this edit starts from the bytes of the sidecar in the
-        // bundle. A bundle opened fresh has none, so its first override
-        // publishes the sidecar the analyst sees and then edits that file. An
-        // edit that changes nothing needs no file and writes nothing.
-        if !unsavedBuiltInSmartCohorts.isEmpty,
-           !FileManager.default.fileExists(
-               atPath: ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL).path
-           ) {
-            guard mutations.contains(where: { $0.after != $0.baseline }) else { return unchanged }
-            try publishUnsavedBuiltInSmartCohorts()
+        // The replay starts from the file, so a bundle without one publishes the viewed sidecar first.
+        guard try preparePriorSidecarForReplay(changesSomething: mutations.contains { $0.after != $0.baseline }) else {
+            return unchanged
         }
         let runClock = ProvenanceRunClock()
         var publishedSidecar: GenotypeAnnotationSidecar?
