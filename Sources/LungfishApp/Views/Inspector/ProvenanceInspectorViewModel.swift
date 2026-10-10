@@ -128,7 +128,7 @@ struct ProvenanceCoverageMonitor {
             )
         }
 
-        let completenessMessages = completenessIssues(in: resolved.envelope)
+        let completenessMessages = ProvenanceCompleteness.issues(in: resolved.envelope)
         if !completenessMessages.isEmpty {
             return ProvenanceAuditResult(
                 status: .incomplete,
@@ -201,99 +201,6 @@ struct ProvenanceCoverageMonitor {
         case .empty:
             return false
         }
-    }
-
-    private func completenessIssues(in envelope: ProvenanceEnvelope) -> [String] {
-        var issues: [String] = []
-
-        if envelope.workflowName.isBlankOrUnknown {
-            issues.append("Workflow name is missing.")
-        }
-        if envelope.workflowVersion.isBlankOrUnknown {
-            issues.append("Workflow version is missing.")
-        }
-        if envelope.toolName.isBlankOrUnknown {
-            issues.append("Tool name is missing.")
-        }
-        if envelope.toolVersion.isBlankOrUnknown {
-            issues.append("Tool version is missing.")
-        }
-        if envelope.argv.isEmpty && envelope.reproducibleCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            issues.append("Exact argv or reproducible command is missing.")
-        }
-        if envelope.files.isEmpty {
-            issues.append("Input/reference/output file descriptors are missing.")
-        }
-        if envelope.output == nil && envelope.outputs.isEmpty && !envelope.files.contains(where: { $0.role == .output }) {
-            issues.append("Output descriptors are missing.")
-        }
-        if envelope.steps.isEmpty {
-            issues.append("Workflow step list is missing.")
-        }
-        if envelope.exitStatus == nil {
-            issues.append("Exit status is missing.")
-        }
-        if envelope.wallTimeSeconds == nil {
-            issues.append("Wall time is missing.")
-        }
-        if let exitStatus = envelope.exitStatus,
-           exitStatus != 0,
-           envelope.stderr == nil {
-            issues.append("stderr is missing for the failed workflow.")
-        }
-        if envelope.steps.contains(where: { ($0.exitStatus ?? 0) != 0 && $0.stderr == nil }) {
-            issues.append("stderr is missing for one or more failed workflow steps.")
-        }
-
-        let descriptorIssues = missingFileMetadataDescriptors(in: envelope)
-        if !descriptorIssues.isEmpty {
-            issues.append(missingFileMetadataMessage(for: descriptorIssues))
-        }
-
-        return Array(OrderedSet(issues))
-    }
-
-    private func allFileDescriptors(in envelope: ProvenanceEnvelope) -> [ProvenanceFileDescriptor] {
-        envelope.files
-            + (envelope.output.map { [$0] } ?? [])
-            + envelope.outputs
-            + envelope.steps.flatMap { $0.inputs + $0.outputs }
-    }
-
-    private func descriptorLooksLikeDirectory(_ descriptor: ProvenanceFileDescriptor) -> Bool {
-        var isDirectory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: descriptor.path, isDirectory: &isDirectory) && isDirectory.boolValue
-    }
-
-    private func missingFileMetadataDescriptors(in envelope: ProvenanceEnvelope) -> [ProvenanceFileDescriptor] {
-        let failedOutputPaths = Set(
-            envelope.steps
-                .filter { ($0.exitStatus ?? 0) != 0 }
-                .flatMap { $0.outputs.map(\.path) }
-        )
-        var seen = Set<String>()
-        return allFileDescriptors(in: envelope).filter { descriptor in
-            let path = descriptor.path.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !path.isEmpty, !descriptorLooksLikeDirectory(descriptor) else { return false }
-            // A stream between two piped steps (`pipe:stdout:bcftools-mpileup`)
-            // is not a file, so it has no checksum or size to record.
-            guard !path.hasPrefix("pipe:") else { return false }
-            guard descriptor.checksumSHA256 == nil || descriptor.fileSize == nil else { return false }
-            if failedOutputPaths.contains(descriptor.path),
-               !FileManager.default.fileExists(atPath: descriptor.path) {
-                return false
-            }
-            return seen.insert(descriptor.path).inserted
-        }
-    }
-
-    private func missingFileMetadataMessage(for descriptors: [ProvenanceFileDescriptor]) -> String {
-        let count = descriptors.count
-        let examples = descriptors.prefix(4).map { URL(fileURLWithPath: $0.path).lastPathComponent }
-        let remaining = count - examples.count
-        let suffix = remaining > 0 ? " and \(remaining) more" : ""
-        let noun = count == 1 ? "file descriptor" : "file descriptors"
-        return "Missing checksum or size for \(count) \(noun): \(examples.joined(separator: ", "))\(suffix)."
     }
 }
 
@@ -1429,18 +1336,5 @@ private extension ParameterValue {
         case .null:
             return "null"
         }
-    }
-}
-
-private struct OrderedSet<Element: Hashable>: Swift.Sequence {
-    private let values: [Element]
-
-    init(_ input: [Element]) {
-        var seen = Set<Element>()
-        values = input.filter { seen.insert($0).inserted }
-    }
-
-    func makeIterator() -> IndexingIterator<[Element]> {
-        values.makeIterator()
     }
 }
