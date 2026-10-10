@@ -86,21 +86,25 @@ public struct TwelveSReferenceBundleBuilder: Sendable {
 
             let metadataURL = config.outputURL.appendingPathComponent("target-metadata.tsv")
             progressHandler?(0.35, "Building 12S target metadata.")
-            _ = try await TwelveSReferenceMetadataBuilder().build(
-                TwelveSReferenceMetadataBuildConfiguration(
-                    deduplicatedFASTA: referenceURL,
-                    midoriMetadataTSV: config.midoriMetadataTSV,
-                    outputURL: metadataURL,
-                    forceOverwrite: true,
-                    argv: [
-                        CLICommandIdentity.executableName, "fastq", "12s-reference-metadata",
-                        "--dedup-fasta", referenceURL.path,
-                        "--midori-metadata", config.midoriMetadataTSV.path,
-                        "--output", metadataURL.path,
-                        "--force",
-                    ]
-                )
+            // The table is written without a record of its own. A record beside it
+            // would be listed as one of the bundle's outputs and get a record of its
+            // own (walk F6), so the run becomes the first step of the bundle's record.
+            let metadataBuilder = TwelveSReferenceMetadataBuilder()
+            let metadataConfiguration = TwelveSReferenceMetadataBuildConfiguration(
+                deduplicatedFASTA: referenceURL,
+                midoriMetadataTSV: config.midoriMetadataTSV,
+                outputURL: metadataURL,
+                forceOverwrite: true,
+                argv: [
+                    CLICommandIdentity.executableName, "fastq", "12s-reference-metadata",
+                    "--dedup-fasta", referenceURL.path,
+                    "--midori-metadata", config.midoriMetadataTSV.path,
+                    "--output", metadataURL.path,
+                    "--force",
+                ]
             )
+            let metadataRun = try await metadataBuilder.buildTable(metadataConfiguration)
+            let metadataStep = try metadataBuilder.provenanceStep(for: metadataConfiguration, run: metadataRun)
 
             progressHandler?(0.58, "Copying 12S reference source files.")
             var sourceFiles: [TwelveSReferenceBundleSourceFile] = [
@@ -141,6 +145,7 @@ public struct TwelveSReferenceBundleBuilder: Sendable {
             let provenanceURL = try writeProvenance(
                 config: config,
                 bundleURL: config.outputURL,
+                metadataStep: metadataStep,
                 startedAt: runClock.startedAt,
                 completedAt: runClock.now
             )
@@ -238,6 +243,7 @@ public struct TwelveSReferenceBundleBuilder: Sendable {
     private func writeProvenance(
         config: TwelveSReferenceBundleBuildConfiguration,
         bundleURL: URL,
+        metadataStep: ProvenanceStep,
         startedAt: Date,
         completedAt: Date
     ) throws -> URL {
@@ -279,6 +285,7 @@ public struct TwelveSReferenceBundleBuilder: Sendable {
             outputs: outputs,
             exitStatus: 0,
             wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            dependsOn: [metadataStep.id],
             startedAt: startedAt,
             completedAt: completedAt
         )
@@ -301,16 +308,19 @@ public struct TwelveSReferenceBundleBuilder: Sendable {
                 ]
             ),
             runtimeIdentity: ProvenanceRuntimeIdentity(user: WorkflowRun.currentUser),
-            files: inputs + outputs,
+            files: deduplicated(inputs + outputs + metadataStep.inputs + metadataStep.outputs),
             output: outputs.first,
             outputs: outputs,
-            steps: [step],
+            steps: [metadataStep, step],
             wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
             exitStatus: 0
         )
         return try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
     }
 
+    /// The bundle and each file in it that the build produced. A provenance record
+    /// is not one. The layout writes a record for every output, so a record listed
+    /// here would get a record of its own, which is a record of a record (walk F6).
     private func bundleOutputDescriptors(_ bundleURL: URL) throws -> [ProvenanceFileDescriptor] {
         var descriptors = [try directoryDescriptor(url: bundleURL, role: .output)]
         guard let enumerator = FileManager.default.enumerator(
@@ -322,11 +332,21 @@ public struct TwelveSReferenceBundleBuilder: Sendable {
         }
         for case let url as URL in enumerator {
             guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+            guard !url.lastPathComponent.hasSuffix(ProvenanceWriter.provenanceFilename) else { continue }
+            // The standardized path, as the bundle's own descriptor and the metadata step
+            // spell it. The enumerator spells a path under /var as /private/var, and the
+            // focused record of an output is found by the path its steps record.
             descriptors.append(
-                try ProvenanceFileDescriptor.file(url: url, format: fileFormat(for: url), role: .output)
+                try ProvenanceFileDescriptor.file(url: url.standardizedFileURL, format: fileFormat(for: url), role: .output)
             )
         }
         return descriptors
+    }
+
+    /// The files once each, by role and path, in first-seen order.
+    private func deduplicated(_ files: [ProvenanceFileDescriptor]) -> [ProvenanceFileDescriptor] {
+        var seen = Set<String>()
+        return files.filter { seen.insert("\($0.role.rawValue)\u{0}\($0.path)").inserted }
     }
 
     private func loadTSVRows(from url: URL) throws -> [[String: String]] {

@@ -302,6 +302,20 @@ final class FastqTwelveSMatchSubcommandTests: XCTestCase {
         )
     }
 
+    /// Every regular file under `root`, hidden files and subfolders included.
+    private func regularFiles(under root: URL) throws -> [URL] {
+        let enumerator = try XCTUnwrap(FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: []
+        ))
+        var files: [URL] = []
+        for case let url as URL in enumerator where (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
+            files.append(url)
+        }
+        return files
+    }
+
     /// Fails for any standard error line that the app would log as a warning.
     private func assertOnlyProgressLines(_ standardError: String, file: StaticString = #filePath, line: UInt = #line) {
         for text in standardError.split(separator: "\n") {
@@ -468,5 +482,48 @@ final class FastqTwelveSMatchSubcommandTests: XCTestCase {
 
         XCTAssertEqual(streams.standardOutput, TwelveSCLISuccessLine.unresolvedFASTA(fasta.standardizedFileURL).text + "\n")
         XCTAssertEqual(streams.standardError, "")
+    }
+
+    // MARK: Walk F6, the command's bundle holds no record of a record
+
+    func testTheReferenceBundleCommandWritesNoRecordOfARecordAndNoRootRecordOfItsMetadataTable() async throws {
+        let fixtures = try makeTwelveSFixtures()
+        let bundle = fixtures.root.appendingPathComponent("MIDORI-12S.lungfish12sref", isDirectory: true)
+
+        _ = try await capturingStandardStreams {
+            try await FastqTwelveSReferenceBundleSubcommand.parse([
+                "--dedup-fasta", fixtures.reference.path,
+                "--midori-metadata", fixtures.midori.path,
+                "--output", bundle.path,
+            ]).run()
+        }
+
+        let files = try regularFiles(under: bundle)
+        let allFiles = files.map(\.lastPathComponent)
+        let rootFiles = files
+            .filter { $0.deletingLastPathComponent().standardizedFileURL.path == bundle.standardizedFileURL.path }
+            .map(\.lastPathComponent)
+        let record = ".lungfish-provenance.json"
+        XCTAssertEqual(allFiles.filter { $0.hasSuffix(record + record) }, [], "a record of a record: \(allFiles.sorted())")
+        XCTAssertFalse(rootFiles.contains("target-metadata.tsv" + record), "a root record of the metadata table: \(rootFiles.sorted())")
+        XCTAssertTrue(allFiles.contains("target-metadata.tsv" + record), "the table's focused record under provenance/")
+    }
+
+    /// `fastq 12s-reference-metadata` on its own still writes the record of its table,
+    /// because nothing else records that run.
+    func testTheMetadataCommandOnItsOwnStillWritesItsOwnRecord() async throws {
+        let fixtures = try makeTwelveSFixtures()
+        let table = fixtures.root.appendingPathComponent("12s-target-metadata.tsv")
+
+        _ = try await capturingStandardStreams {
+            try await FastqTwelveSReferenceMetadataSubcommand.parse([
+                "--dedup-fasta", fixtures.reference.path,
+                "--midori-metadata", fixtures.midori.path,
+                "--output", table.path,
+            ]).run()
+        }
+
+        let record = fixtures.root.appendingPathComponent("12s-target-metadata.tsv.lungfish-provenance.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: record.path))
     }
 }

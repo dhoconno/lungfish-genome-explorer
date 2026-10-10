@@ -4,7 +4,16 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class TwelveSReferenceBundleBuilderTests: XCTestCase {
-    func testBuildsReferenceBundleWithMetadataProvenanceAndResolvableReferenceIndex() async throws {
+    private static let recordSuffix = ".lungfish-provenance.json"
+
+    private struct Inputs {
+        let fastaURL: URL
+        let midoriURL: URL
+        let notesURL: URL
+        let bundleURL: URL
+    }
+
+    private func makeInputs() throws -> Inputs {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("TwelveSReferenceBundleBuilderTests-\(UUID().uuidString)", isDirectory: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
@@ -27,26 +36,56 @@ final class TwelveSReferenceBundleBuilderTests: XCTestCase {
         AB3\trainbow trout\tOncorhynchus mykiss\tFish\t8022\tfishbase\troot; Eukaryota; Chordata; Actinopteri; Salmoniformes; Salmonidae; Oncorhynchus; Oncorhynchus mykiss
         """.write(to: midoriURL, atomically: true, encoding: .utf8)
         try "build log\n".write(to: notesURL, atomically: true, encoding: .utf8)
+        return Inputs(fastaURL: fastaURL, midoriURL: midoriURL, notesURL: notesURL, bundleURL: bundleURL)
+    }
 
-        let result = try await TwelveSReferenceBundleBuilder().build(
+    private func build(_ inputs: Inputs) async throws -> TwelveSReferenceBundleBuildResult {
+        try await TwelveSReferenceBundleBuilder().build(
             TwelveSReferenceBundleBuildConfiguration(
-                deduplicatedFASTA: fastaURL,
-                midoriMetadataTSV: midoriURL,
-                outputURL: bundleURL,
+                deduplicatedFASTA: inputs.fastaURL,
+                midoriMetadataTSV: inputs.midoriURL,
+                outputURL: inputs.bundleURL,
                 name: "MIDORI 12S",
-                sourceFiles: [notesURL],
+                sourceFiles: [inputs.notesURL],
                 forceOverwrite: true,
                 argv: [
                     "lungfish-cli", "fastq", "12s-reference-bundle",
-                    "--dedup-fasta", fastaURL.path,
-                    "--midori-metadata", midoriURL.path,
-                    "--output", bundleURL.path,
+                    "--dedup-fasta", inputs.fastaURL.path,
+                    "--midori-metadata", inputs.midoriURL.path,
+                    "--output", inputs.bundleURL.path,
                     "--name", "MIDORI 12S",
-                    "--source-file", notesURL.path,
+                    "--source-file", inputs.notesURL.path,
                     "--force",
                 ]
             )
         )
+    }
+
+    /// Every regular file under `root`, hidden ones and the `provenance` folder
+    /// included, as a path relative to `root`.
+    private func relativeFilePaths(under root: URL) throws -> [String] {
+        let rootPath = root.standardizedFileURL.path + "/"
+        let enumerator = try XCTUnwrap(FileManager.default.enumerator(
+            at: root.standardizedFileURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: []
+        ))
+        var paths: [String] = []
+        for case let url as URL in enumerator {
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+            let path = url.standardizedFileURL.path
+            paths.append(path.hasPrefix(rootPath) ? String(path.dropFirst(rootPath.count)) : path)
+        }
+        return paths.sorted()
+    }
+
+    func testBuildsReferenceBundleWithMetadataProvenanceAndResolvableReferenceIndex() async throws {
+        let inputs = try makeInputs()
+        let bundleURL = inputs.bundleURL
+        let fastaURL = inputs.fastaURL
+        let midoriURL = inputs.midoriURL
+
+        let result = try await build(inputs)
 
         XCTAssertEqual(result.bundleURL, bundleURL.standardizedFileURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.provenanceURL.path))
@@ -74,15 +113,118 @@ final class TwelveSReferenceBundleBuilderTests: XCTestCase {
         XCTAssertTrue(provenance.files.contains { $0.path == fastaURL.path })
         XCTAssertTrue(provenance.files.contains { $0.path == midoriURL.path })
         XCTAssertTrue(provenance.outputs.contains { $0.path == bundleURL.path })
-        XCTAssertEqual(provenance.steps.count, 1)
-        XCTAssertEqual(provenance.steps.first?.exitStatus, 0)
-        XCTAssertTrue(provenance.steps.first?.inputs.contains { $0.path == fastaURL.path } == true)
-        XCTAssertTrue(provenance.steps.first?.outputs.contains { $0.path == bundleURL.path } == true)
+        // The metadata run is the first step and the bundle build the second.
+        XCTAssertEqual(provenance.steps.count, 2)
+        let bundleStep = try XCTUnwrap(provenance.steps.last)
+        XCTAssertEqual(bundleStep.toolName, "lungfish fastq 12s-reference-bundle")
+        XCTAssertEqual(bundleStep.exitStatus, 0)
+        XCTAssertTrue(bundleStep.inputs.contains { $0.path == fastaURL.path })
+        XCTAssertTrue(bundleStep.outputs.contains { $0.path == bundleURL.path })
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: bundleURL
                 .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
                 .appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
                 .path
         ))
+    }
+
+    // MARK: Walk F6, a record of a record
+
+    /// The bundle writer used to record its own records. The metadata run wrote
+    /// `target-metadata.tsv.lungfish-provenance.json` at the bundle root, the
+    /// writer listed every visible file as an output, and the layout then wrote
+    /// a record of that record under `provenance/`.
+    func testBundleHoldsNoRecordOfARecordAndNoRootRecordOfItsMetadataTable() async throws {
+        let inputs = try makeInputs()
+
+        _ = try await build(inputs)
+
+        let files = try relativeFilePaths(under: inputs.bundleURL)
+        let recordsOfRecords = files.filter { $0.hasSuffix(Self.recordSuffix + Self.recordSuffix) }
+        XCTAssertEqual(recordsOfRecords, [], "a record of a record: \(files)")
+        XCTAssertFalse(
+            files.contains("target-metadata.tsv" + Self.recordSuffix),
+            "the metadata run is a step of the bundle record, so it writes no record of its own: \(files)"
+        )
+        // A bundle holds its own record, its roll-up and one record for each output.
+        for expected in [
+            ".lungfish-provenance.json",
+            "provenance/bundle.lungfish-provenance.json",
+            "provenance/12s-reference.json.lungfish-provenance.json",
+            "provenance/reference.fa.lungfish-provenance.json",
+            "provenance/target-metadata.tsv.lungfish-provenance.json",
+        ] {
+            XCTAssertTrue(files.contains(expected), "missing \(expected) in \(files)")
+        }
+    }
+
+    func testNoRecordFileIsAnOutputOfTheBundleRecord() async throws {
+        let inputs = try makeInputs()
+
+        let result = try await build(inputs)
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
+        let listed = provenance.outputs + provenance.steps.flatMap(\.outputs) + provenance.files.filter { $0.role == .output }
+        XCTAssertEqual(listed.map(\.path).filter { $0.hasSuffix(Self.recordSuffix) }, [])
+        // The reference manifest is a scientific output and stays listed.
+        let manifestPath = inputs.bundleURL.standardizedFileURL.appendingPathComponent("12s-reference.json").path
+        XCTAssertTrue(provenance.outputs.contains { $0.path == manifestPath }, "\(provenance.outputs.map(\.path))")
+    }
+
+    func testTheMetadataRunIsTheFirstStepOfTheBundleRecord() async throws {
+        let inputs = try makeInputs()
+        let bundleURL = inputs.bundleURL.standardizedFileURL
+
+        let result = try await build(inputs)
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
+        XCTAssertEqual(provenance.steps.map(\.toolName), [
+            "lungfish fastq 12s-reference-metadata",
+            "lungfish fastq 12s-reference-bundle",
+        ])
+        let metadataStep = try XCTUnwrap(provenance.steps.first { $0.toolName == "lungfish fastq 12s-reference-metadata" })
+        let bundleStep = try XCTUnwrap(provenance.steps.first { $0.toolName == "lungfish fastq 12s-reference-bundle" })
+
+        let referenceCopy = bundleURL.appendingPathComponent("reference.fa").path
+        let metadataTable = bundleURL.appendingPathComponent("target-metadata.tsv").path
+        XCTAssertEqual(metadataStep.argv, [
+            "lungfish-cli", "fastq", "12s-reference-metadata",
+            "--dedup-fasta", referenceCopy,
+            "--midori-metadata", inputs.midoriURL.standardizedFileURL.path,
+            "--output", metadataTable,
+            "--force",
+        ])
+        XCTAssertEqual(metadataStep.exitStatus, 0)
+        XCTAssertEqual(metadataStep.inputs.map(\.path), [referenceCopy, inputs.midoriURL.standardizedFileURL.path])
+        XCTAssertTrue(metadataStep.inputs.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
+        XCTAssertEqual(metadataStep.outputs.map(\.path), [metadataTable])
+        XCTAssertNotNil(metadataStep.outputs.first?.checksumSHA256)
+        XCTAssertNotNil(metadataStep.startedAt)
+        XCTAssertNotNil(metadataStep.completedAt)
+        XCTAssertEqual(bundleStep.dependsOn, [metadataStep.id], "the bundle build uses the table the metadata run wrote")
+
+        // The table's own focused record names both steps.
+        let focusedURL = bundleURL
+            .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+            .appendingPathComponent("target-metadata.tsv" + Self.recordSuffix)
+        let focused = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: focusedURL))
+        XCTAssertEqual(focused.steps.map(\.toolName), [
+            "lungfish fastq 12s-reference-metadata",
+            "lungfish fastq 12s-reference-bundle",
+        ])
+    }
+
+    func testAFailedBuildLeavesNoBundleAndNoRecord() async throws {
+        let inputs = try makeInputs()
+        try "seq_id\tcommon_name\n".write(to: inputs.midoriURL, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await build(inputs)
+            XCTFail("a MIDORI table without the required columns must fail the build")
+        } catch TwelveSReferenceMetadataBuildError.missingColumn {
+            // expected
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: inputs.bundleURL.path))
     }
 }

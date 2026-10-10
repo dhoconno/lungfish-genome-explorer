@@ -81,6 +81,7 @@ final class TwelveSEarlierResultRestoreFailureTests: XCTestCase {
     private struct Fixtures {
         let root: URL
         let reference: URL
+        let midori: URL
         let reads: URL
         let outputDirectory: URL
 
@@ -109,11 +110,15 @@ final class TwelveSEarlierResultRestoreFailureTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
         let reference = root.appendingPathComponent("reference.fa")
         try ">human (Homo sapiens)|locus=12S|len=8\nACGTACGT\n".write(to: reference, atomically: true, encoding: .utf8)
+        let midori = root.appendingPathComponent("midori.tsv")
+        try "seq_id\tcommon_name\tlatin_name\tgroup\ttaxid\tname_source\ttaxonomy\nAB1\thuman\tHomo sapiens\tMammal\t9606\tncbi_common\troot; Homo sapiens\n"
+            .write(to: midori, atomically: true, encoding: .utf8)
         let reads = root.appendingPathComponent("sampleA.fastq")
         try "@read1\nTTACGTACGTGG\n+\nIIIIIIIIIIII\n".write(to: reads, atomically: true, encoding: .utf8)
         return Fixtures(
             root: root,
             reference: reference,
+            midori: midori,
             reads: reads,
             outputDirectory: root.appendingPathComponent("results", isDirectory: true)
         )
@@ -131,14 +136,58 @@ final class TwelveSEarlierResultRestoreFailureTests: XCTestCase {
 
     private func makeService(
         _ operationCenter: OperationCenter,
-        resultRefresher: RecordingResultRefresher
+        resultRefresher: RecordingResultRefresher,
+        runner: LocalWorkflowCLIProcessRunning = InProcessTwelveSMatchCLI()
     ) -> WorkflowOperationExecutionService {
         operationCenter.failureReportStore = .temporaryForTesting()
         return WorkflowOperationExecutionService(
             operationCenter: operationCenter,
-            processRunner: InProcessTwelveSMatchCLI(),
+            processRunner: runner,
             resultRefresher: resultRefresher
         )
+    }
+
+    /// The reference build is run by the same command the app records, with an earlier
+    /// bundle in the same folder. The app checks the new bundle's record, which now
+    /// holds the metadata run as its first step, and adopts the bundle.
+    func testACleanReferenceBundleBuildBesideAnEarlierBundleReadsCompletedAndTheAppAcceptsItsRecord() async throws {
+        let fixtures = try makeFixtures()
+        let folder = fixtures.root.appendingPathComponent("Reference Sequences", isDirectory: true)
+        func configuration(_ name: String) -> TwelveSReferenceBundleBuildConfiguration {
+            TwelveSReferenceBundleBuildConfiguration(
+                deduplicatedFASTA: fixtures.reference,
+                midoriMetadataTSV: fixtures.midori,
+                outputURL: folder.appendingPathComponent("\(name).lungfish12sref", isDirectory: true),
+                name: name
+            )
+        }
+        _ = try await makeService(
+            OperationCenter(),
+            resultRefresher: RecordingResultRefresher(),
+            runner: InProcessTwelveSReferenceBundleCLI()
+        ).runTwelveSReferenceBundleBuild(configuration("Earlier-12S"))
+
+        let operationCenter = OperationCenter()
+        let refresher = RecordingResultRefresher()
+        let outputs = try await makeService(
+            operationCenter,
+            resultRefresher: refresher,
+            runner: InProcessTwelveSReferenceBundleCLI()
+        ).runTwelveSReferenceBundleBuild(configuration("MIDORI-12S"))
+
+        let bundle = configuration("MIDORI-12S").outputURL.standardizedFileURL
+        let item = try XCTUnwrap(operationCenter.items.first)
+        XCTAssertEqual(item.state, .completed)
+        XCTAssertEqual(item.displayStateLabel, "Completed")
+        XCTAssertEqual(item.logEntries.filter { $0.level == .warning }.map(\.message), [])
+        XCTAssertEqual(outputs.first?.path, bundle.path)
+        XCTAssertTrue(outputs.allSatisfy { $0.path.hasPrefix(bundle.path) }, "\(outputs)")
+        XCTAssertEqual(refresher.invocations.map(\.path), [bundle.path])
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundle))
+        XCTAssertEqual(record.steps.map(\.toolName), [
+            "lungfish fastq 12s-reference-metadata",
+            "lungfish fastq 12s-reference-bundle",
+        ])
     }
 
     func testACleanForcedRerunOverAnEarlierResultReadsCompletedAndAdoptsTheBundleItWrote() async throws {
@@ -200,9 +249,10 @@ final class TwelveSEarlierResultRestoreFailureTests: XCTestCase {
 /// with the command's configuration and writes the CLI's progress lines to
 /// standard error, a success ends with the command's last line on standard
 /// output, and a failure ends with the text `lungfish-cli` prints for its
-/// error and exit status 1. When the run starts writing its bundle, the reference is removed,
-/// so writing fails, and a folder that cannot be emptied is left in the new
-/// bundle, so the earlier result cannot take its place again.
+/// error and exit status 1. A run built with a reference and a locked folder
+/// disturbs itself. When it starts writing its bundle, the reference is
+/// removed, so writing fails, and a folder that cannot be emptied is left in
+/// the new bundle, so the earlier result cannot take its place again.
 private final class InProcessTwelveSMatchCLI: LocalWorkflowCLIProcessRunning {
     private let sabotage: (reference: URL, locked: URL)?
 
@@ -237,6 +287,38 @@ private final class InProcessTwelveSMatchCLI: LocalWorkflowCLIProcessRunning {
             return LocalWorkflowCLIProcessResult(
                 exitCode: 0,
                 standardOutput: TwelveSCLISuccessLine.matchResult(result.bundleURL).text + "\n",
+                standardError: standardError.withLock { $0 }
+            )
+        } catch {
+            standardError.withLock { $0 += LungfishCLI.fullMessage(for: error) + "\n" }
+            return LocalWorkflowCLIProcessResult(exitCode: 1, standardOutput: "", standardError: standardError.withLock { $0 })
+        }
+    }
+
+    func cancel() {}
+}
+
+/// `lungfish-cli fastq 12s-reference-bundle` run in this process as the shipped CLI
+/// runs it. The app's arguments are parsed by the CLI's parser, the builder runs with
+/// the command's configuration and writes the CLI's progress lines to standard error,
+/// a success ends with the command's last line on standard output, and a failure
+/// ends with the text `lungfish-cli` prints for its error and exit status 1.
+private final class InProcessTwelveSReferenceBundleCLI: LocalWorkflowCLIProcessRunning {
+    func runLungfishCLI(
+        arguments: [String],
+        workingDirectory: URL,
+        outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
+    ) async throws -> LocalWorkflowCLIProcessResult {
+        XCTAssertEqual(Array(arguments.prefix(2)), ["fastq", "12s-reference-bundle"])
+        let command = try FastqTwelveSReferenceBundleSubcommand.parse(Array(arguments.dropFirst(2)))
+        let standardError = OSAllocatedUnfairLock(initialState: "")
+        do {
+            let result = try await TwelveSReferenceBundleBuilder().build(command.configurationForTesting()) { fraction, message in
+                standardError.withLock { $0 += FastqTwelveSReferenceBundleSubcommand.progressLine(fraction: fraction, message: message) }
+            }
+            return LocalWorkflowCLIProcessResult(
+                exitCode: 0,
+                standardOutput: TwelveSCLISuccessLine.referenceBundle(result.bundleURL).text + "\n",
                 standardError: standardError.withLock { $0 }
             )
         } catch {
