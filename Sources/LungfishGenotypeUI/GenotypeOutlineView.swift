@@ -456,9 +456,7 @@ final class GenotypeOutlineView: NSView {
         container.addArrangedSubview(leading)
         container.addArrangedSubview(tape)
 
-        // Row-level click selects the row; cell-level click on the tape
-        // opens a per-locus evidence popover so the analyst can inspect
-        // a call without going through the Selection tab.
+        // A row click selects the sample and a tape click selects one call.
         let rowClick = NSClickGestureRecognizer(target: self, action: #selector(handleClick(_:)))
         leading.addGestureRecognizer(rowClick)
         let tapeClick = TapeClickRecognizer(
@@ -529,8 +527,10 @@ final class GenotypeOutlineView: NSView {
         let columnWidth = tape.bounds.width / CGFloat(recognizer.loci.count)
         guard columnWidth > 0 else { return }
         let index = max(0, min(recognizer.loci.count - 1, Int(location.x / columnWidth)))
-        let locus = recognizer.loci[index]
-        onLocusCellClicked?(recognizer.animalId, locus)
+        // The recognizer holds back the mouseDown that would focus anything, so
+        // focus the table, which outlives the row reload the selection causes.
+        window?.makeFirstResponder(tableView)
+        onLocusCellClicked?(recognizer.animalId, recognizer.loci[index])
     }
 
     /// Specialised gesture recognizer that carries the row's locus list
@@ -576,8 +576,8 @@ final class GenotypeOutlineView: NSView {
     }
 
     @objc private func handleClick(_ recognizer: NSClickGestureRecognizer) {
-        guard let view = recognizer.view,
-              let id = view.identifier?.rawValue else { return }
+        guard let id = recognizer.view?.identifier?.rawValue else { return }
+        window?.makeFirstResponder(tableView) // as in handleTapeClick
         onRowSelected?(id)
     }
 

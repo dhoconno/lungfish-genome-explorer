@@ -17,7 +17,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
 | LungfishCore | library | Sources/LungfishCore | 157 | 42727 | 318 | none |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | 5588 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 133 | 51322 | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
+| LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 133 | 51321 | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 392 | 101928 | 644 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 81 | 18352 | 146 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 5 | 4039 | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -41,7 +41,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishCLITests | Tests/LungfishCLITests | 197 | 57487 | LungfishCLI, LungfishIO, LungfishTestSupport |
 | LungfishCoreTests | Tests/LungfishCoreTests | 110 | 34246 | LungfishCore, LungfishTestSupport |
 | LungfishEsVirituUITests | Tests/LungfishEsVirituUITests | 4 | 1717 | LungfishEsVirituUI, LungfishKit, LungfishTestSupport |
-| LungfishGenotypeUITests | Tests/LungfishGenotypeUITests | 77 | 56269 | LungfishGenotypeUI, LungfishKit, LungfishTestSupport |
+| LungfishGenotypeUITests | Tests/LungfishGenotypeUITests | 78 | 56513 | LungfishGenotypeUI, LungfishKit, LungfishTestSupport |
 | LungfishIOTests | Tests/LungfishIOTests | 181 | 67770 | LungfishIO, LungfishTestSupport |
 | LungfishIntegrationTests | Tests/LungfishIntegrationTests | 31 | 11188 | LungfishApp, LungfishCLI, LungfishCore, LungfishIO, LungfishTestSupport, LungfishWorkflow |
 | LungfishKitTests | Tests/LungfishKitTests | 42 | 7365 | LungfishCore, LungfishKit, LungfishKitTestSupport, LungfishTestSupport |
@@ -794,7 +794,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishGenotypeUI
-- Swift files. 133, lines 51322
+- Swift files. 133, lines 51321
 - Depends on. LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow
 - External products. none
 - Used by. LungfishApp

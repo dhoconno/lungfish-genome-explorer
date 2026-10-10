@@ -6788,12 +6788,11 @@ private final class GenotypeMatrixTableView: NSTableView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        // NSTableView.mouseDown gives a table the keyboard focus before it acts
+        // on a click, and a click that onCellClick handles never reaches it.
+        window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
-        let row = self.row(at: point)
-        let column = self.column(at: point)
-        if onCellClick?(row, column, event.modifierFlags) == true {
-            return
-        }
+        if onCellClick?(row(at: point), column(at: point), event.modifierFlags) == true { return }
         super.mouseDown(with: event)
     }
 
