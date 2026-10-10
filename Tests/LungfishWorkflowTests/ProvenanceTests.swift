@@ -149,12 +149,14 @@ struct ProvenanceRecordingTests {
         #expect(stepID == nil)
     }
 
-    @Test("Stderr is truncated to 10 KB")
+    @Test("Stderr keeps its first 2,048 and last 8,192 characters")
     func testStderrTruncation() async {
         let recorder = ProvenanceRecorder()
         let runID = await recorder.beginRun(name: "Truncation Test")
 
-        let longStderr = String(repeating: "x", count: 20_000)
+        let longStderr = String(repeating: "a", count: 3_000)
+            + String(repeating: "x", count: 9_000)
+            + String(repeating: "z", count: 8_000)
         await recorder.recordStep(
             runID: runID,
             toolName: "test",
@@ -169,8 +171,12 @@ struct ProvenanceRecordingTests {
 
         let run = await recorder.getRun(runID)
         let stored = run?.steps[0].stderr ?? ""
+        let expected = String(repeating: "a", count: 2_048)
+            + "\n... [truncated] ...\n"
+            + String(repeating: "x", count: 192)
+            + String(repeating: "z", count: 8_000)
         #expect(stored.count < 20_000)
-        #expect(stored.hasSuffix("... [truncated]"))
+        #expect(stored == expected)
     }
 
     @Test("Multiple steps with dependencies")

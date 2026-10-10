@@ -747,15 +747,31 @@ struct ProvenanceBuilderTests {
         #expect(envelope.stderr == "fastp warning\n")
     }
 
-    @Test("Long stderr is truncated with marker")
-    func longStderrIsTruncatedWithMarker() throws {
-        let longStderr = String(repeating: "x", count: 10_241)
-        let expected = String(repeating: "x", count: 10_240) + "\n... [truncated]"
+    @Test("Long stderr keeps its head and its tail around the marker")
+    func longStderrKeepsHeadAndTailAroundMarker() throws {
+        let longStderr = String(repeating: "a", count: 2_048)
+            + String(repeating: "b", count: 5_000)
+            + String(repeating: "c", count: 8_192)
+        let expected = String(repeating: "a", count: 2_048)
+            + "\n... [truncated] ...\n"
+            + String(repeating: "c", count: 8_192)
 
         let envelope = try successfulEnvelope(stderr: longStderr)
 
         #expect(envelope.stderr == expected)
-        #expect(envelope.stderr?.hasSuffix("\n... [truncated]") == true)
+        #expect(envelope.stderr?.contains("\n... [truncated] ...\n") == true)
+    }
+
+    @Test("Stderr just over the bound keeps the first 2,048 and last 8,192 characters")
+    func stderrJustOverTheBoundIsTruncated() throws {
+        let longStderr = String(repeating: "x", count: 10_241)
+        let expected = String(repeating: "x", count: 2_048)
+            + "\n... [truncated] ...\n"
+            + String(repeating: "x", count: 8_192)
+
+        #expect(try successfulEnvelope(stderr: longStderr).stderr == expected)
+        let atTheBound = String(repeating: "x", count: 10_240)
+        #expect(try successfulEnvelope(stderr: atTheBound).stderr == atTheBound)
     }
 
     @Test("Writer replaces stale signature references for the same provider")

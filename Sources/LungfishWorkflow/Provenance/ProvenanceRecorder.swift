@@ -115,7 +115,7 @@ public actor ProvenanceRecorder {
     ///   - exitCode: Process exit code
     ///   - wallTime: Execution time in seconds
     ///   - peakMemoryBytes: Peak resident memory in bytes, when available
-    ///   - stderr: Standard error output (truncated to 10 KB)
+    ///   - stderr: Standard error output (the first 2,048 and last 8,192 characters when longer than 10,240)
     ///   - dependsOn: IDs of upstream steps
     /// - Returns: The step ID
     @discardableResult

@@ -827,7 +827,9 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         let summaryStderr = try XCTUnwrap(envelope.stderr)
         XCTAssertEqual(attemptStderr, processStderr)
         XCTAssertLessThan(summaryStderr.count, attemptStderr.count)
-        XCTAssertTrue(summaryStderr.hasSuffix("... [truncated]"))
+        XCTAssertTrue(summaryStderr.hasPrefix(String(processStderr.prefix(2_048))))
+        XCTAssertTrue(summaryStderr.hasSuffix(String(processStderr.suffix(8_192))))
+        XCTAssertEqual(summaryStderr.components(separatedBy: "\n... [truncated] ...\n").count, 2)
 
         let importer = BundleFASTQOperationImporter(destinationDirectory: fixture.directory)
         let imported = try await importer.importOutputs(

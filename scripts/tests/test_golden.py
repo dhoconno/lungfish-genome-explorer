@@ -246,14 +246,92 @@ def test_hash_only_registration_keeps_the_size():
     assert result["files"][0]["sizeBytes"] == 796
 
 
-def test_truncated_stderr_drops_only_the_partial_last_line():
-    stderr = "line one\nCompleted x in 1.5 seconds\nkeeping temp files in /a/b/sarscov2-R1-le" + normalize.STDERR_TRUNCATION_MARKER
+def swift_truncation(stderr: str) -> str:
+    """ProvenanceStderr.truncated: the first 2,048 and the last 8,192 characters around the marker."""
+    if len(stderr) <= 10_240:
+        return stderr
+    return stderr[:2_048] + normalize.STDERR_TRUNCATION_MARKER + stderr[-8_192:]
+
+
+def test_the_stderr_marker_is_the_one_provenance_writes():
+    assert normalize.STDERR_TRUNCATION_MARKER == "\n... [truncated] ...\n"
+    assert normalize.STDERR_HEAD_ONLY_MARKER == "\n... [truncated]"
+
+
+def test_truncated_stderr_drops_the_partial_line_on_each_side_of_the_marker():
+    head = "banner line\nCompleted x in 1.5 seconds\nkeeping temp files in /a/b/sarscov2-R1-le"
+    tail = "ngth-4 partial start\nCompleted y in 2.5 seconds\nERROR final failure\n"
+    text = json.dumps({"stderr": head + normalize.STDERR_TRUNCATION_MARKER + tail, "other": "keep\nme"})
+    result = json.loads(normalizer().text(text))
+    assert result["stderr"] == (
+        "banner line\nCompleted x in <DURATION> seconds\n<TRUNCATED-LINE>"
+        + normalize.STDERR_TRUNCATION_MARKER
+        + "<TRUNCATED-LINE>\nCompleted y in <DURATION> seconds\nERROR final failure\n"
+    )
+    assert result["other"] == "keep\nme"
+
+
+def test_truncated_stderr_with_one_line_on_a_side_drops_that_whole_side():
+    # Neither the head nor the tail holds a newline, so each is one partial line.
+    stderr = "only a partial head" + normalize.STDERR_TRUNCATION_MARKER + "only a partial tail"
+    result = json.loads(normalizer().text(json.dumps({"stderr": stderr})))
+    assert result["stderr"] == (
+        "\n<TRUNCATED-LINE>" + normalize.STDERR_TRUNCATION_MARKER + "<TRUNCATED-LINE>\n"
+    )
+
+
+def test_truncated_stderr_is_normalized_the_same_way_again():
+    stderr = "head one\nhead partial" + normalize.STDERR_TRUNCATION_MARKER + "tail partial\ntail two\n"
+    once = normalizer().text(json.dumps({"stderr": stderr}))
+    assert normalizer().text(once) == once
+
+
+def test_two_cuts_of_the_same_log_normalize_to_the_same_text():
+    # The runs differ only in the digits of two durations, one near the start and
+    # one near the end. Each cut then falls on another character of the same line
+    # in the head and in the tail, which is what R13 hides.
+    def log(long_durations: bool) -> str:
+        banner = "mytool 1.2.3 starting with 8 threads\n"
+        lines = [
+            f"Completed step_{n:05d} in {'12.5' if long_durations and n in (3, 2_400) else '1.5'} seconds\n"
+            for n in range(1, 2_500)
+        ]
+        return banner + "".join(lines) + "ERROR: final failure, exit 1\n"
+
+    runs = [log(False), log(True)]
+    for run in runs:
+        # A cut exactly between two lines leaves no partial line, which no rule can tell.
+        assert run[2_047] != "\n" and run[-8_193] != "\n"
+    cuts = [swift_truncation(run) for run in runs]
+    assert cuts[0] != cuts[1]
+    assert all(normalize.STDERR_TRUNCATION_MARKER in cut for cut in cuts)
+
+    normalized = [json.loads(normalizer().text(json.dumps({"stderr": cut})))["stderr"] for cut in cuts]
+    assert normalized[0] == normalized[1]
+    assert normalized[0].startswith("mytool 1.2.3 starting with 8 threads\n")
+    assert normalized[0].endswith("ERROR: final failure, exit 1\n")
+    assert normalized[0].count("<TRUNCATED-LINE>") == 2
+
+
+def test_a_stderr_that_keeps_only_its_head_drops_the_partial_last_line():
+    stderr = "line one\nCompleted x in 1.5 seconds\nkeeping temp files in /a/b/sarscov2-R1-le" + normalize.STDERR_HEAD_ONLY_MARKER
     text = json.dumps({"stderr": stderr, "other": "keep\nme"})
     result = json.loads(normalizer().text(text))
     assert result["stderr"] == (
-        "line one\nCompleted x in <DURATION> seconds\n<TRUNCATED-LINE>" + normalize.STDERR_TRUNCATION_MARKER
+        "line one\nCompleted x in <DURATION> seconds\n<TRUNCATED-LINE>" + normalize.STDERR_HEAD_ONLY_MARKER
     )
     assert result["other"] == "keep\nme"
+
+
+def test_truncated_stderr_keeps_the_json_escaping_of_the_original_literal():
+    stderr = "see /a/b/head\npartial head" + normalize.STDERR_TRUNCATION_MARKER + "partial tail\nsee /a/b/tail\n"
+    # Foundation writes '/' as '\/'.
+    text = '{"stderr" : ' + json.dumps(stderr).replace("/", "\\/") + "}"
+    result = normalizer().text(text)
+    assert "\\/a\\/b\\/head" in result and "\\/a\\/b\\/tail" in result
+    assert json.loads(result)["stderr"] == (
+        "see /a/b/head\n<TRUNCATED-LINE>" + normalize.STDERR_TRUNCATION_MARKER + "<TRUNCATED-LINE>\nsee /a/b/tail\n"
+    )
 
 
 def test_stderr_that_was_not_truncated_is_kept_whole():

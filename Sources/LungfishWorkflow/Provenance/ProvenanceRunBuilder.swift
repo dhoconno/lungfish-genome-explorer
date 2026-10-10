@@ -5,8 +5,15 @@
 import Foundation
 
 public enum ProvenanceStderr {
-    static let maxLength = 10_240
-    static let truncationMarker = "\n... [truncated]"
+    /// Tools print their banner first and their errors, versions and summaries
+    /// last, so a stderr over `maxLength` keeps its first `headLength` and its last
+    /// `tailLength` characters. Anything at or under `maxLength` is kept whole.
+    static let headLength = 2_048
+    static let tailLength = 8_192
+    static let maxLength = headLength + tailLength
+    /// Joins the head and the tail. It carries no count, so two cuts of
+    /// different lengths read the same.
+    static let truncationMarker = "\n... [truncated] ...\n"
 
     static func truncated(_ stderr: String?) -> String? {
         guard let stderr else {
@@ -15,7 +22,7 @@ public enum ProvenanceStderr {
         guard stderr.count > maxLength else {
             return stderr
         }
-        return String(stderr.prefix(maxLength)) + truncationMarker
+        return String(stderr.prefix(headLength)) + truncationMarker + String(stderr.suffix(tailLength))
     }
 
     public static func normalized(_ stderr: String?) -> String? {

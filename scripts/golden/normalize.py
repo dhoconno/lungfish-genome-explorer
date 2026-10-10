@@ -221,10 +221,15 @@ _KRAKEN2_RATES = re.compile(r"\((" + _NUMBER + r") Kseq(\\?/)m, (" + _NUMBER + r
 # the two shapes LGE writes ("2026.9.78" and "Lungfish 2026.9.78 (dev)").
 APP_VERSION_KEYS = ("appVersion", "toolVersion", "version", "workflowVersion")
 
-# R13: ProvenanceStderr.truncated keeps the first 10,240 characters of a tool's
-# stderr and appends this marker. The cut lands inside a line whose position
-# depends on the length of every masked number before it.
-STDERR_TRUNCATION_MARKER = "\n... [truncated]"
+# R13: ProvenanceStderr.truncated keeps the first 2,048 and the last 8,192
+# characters of a tool's stderr and joins them with this marker. Each cut lands
+# inside a line whose position depends on the length of every masked number
+# around it, so the partial line on each side of the marker is dropped.
+STDERR_TRUNCATION_MARKER = "\n... [truncated] ...\n"
+# Two producers outside ProvenanceStderr still keep only the first characters of
+# a stderr and append this marker (the recipe step result in LungfishIO and the
+# human scrubber command). Their partial last line is dropped the same way.
+STDERR_HEAD_ONLY_MARKER = "\n... [truncated]"
 
 
 def mask_process_identifiers(text: str) -> str:
@@ -489,16 +494,42 @@ def mask_records_by_path(root: Node, rules: Iterable[PathRule]) -> dict[tuple[in
     return edits
 
 
+def _without_last_line(text: str) -> str:
+    newline = text.rfind("\n")
+    return text[:newline] if newline >= 0 else ""
+
+
+def _without_first_line(text: str) -> str:
+    newline = text.find("\n")
+    return text[newline + 1:] if newline >= 0 else ""
+
+
 def drop_truncated_partial_lines(text: str, root: Node) -> dict[tuple[int, int], str]:
-    """R13: drop the partial last line of a stderr value the app truncated."""
+    """R13: drop the partial line on each side of the marker in a stderr value the app truncated.
+
+    The head loses its partial last line and the tail its partial first line.
+    A stderr that keeps only its head and ends with the older marker loses its
+    partial last line."""
     edits = {}
     for key, node in root.walk():
-        if key != "stderr" or node.kind != "string" or not str(node.value).endswith(STDERR_TRUNCATION_MARKER):
+        if key != "stderr" or node.kind != "string":
             continue
-        kept = str(node.value)[: -len(STDERR_TRUNCATION_MARKER)]
-        newline = kept.rfind("\n")
-        kept = kept[:newline] if newline >= 0 else ""
-        literal = escape_like(kept + "\n" + TRUNCATED_LINE_TOKEN + STDERR_TRUNCATION_MARKER, text[node.start:node.end])
+        value = str(node.value)
+        head, middle, tail = value.partition(STDERR_TRUNCATION_MARKER)
+        if middle:
+            replacement = (
+                _without_last_line(head) + "\n" + TRUNCATED_LINE_TOKEN
+                + STDERR_TRUNCATION_MARKER
+                + TRUNCATED_LINE_TOKEN + "\n" + _without_first_line(tail)
+            )
+        elif value.endswith(STDERR_HEAD_ONLY_MARKER):
+            replacement = (
+                _without_last_line(value[: -len(STDERR_HEAD_ONLY_MARKER)]) + "\n" + TRUNCATED_LINE_TOKEN
+                + STDERR_HEAD_ONLY_MARKER
+            )
+        else:
+            continue
+        literal = escape_like(replacement, text[node.start:node.end])
         if literal is not None:
             edits[(node.start, node.end)] = literal
     return edits
