@@ -56,11 +56,8 @@ public actor ProvenanceRecorder {
 
     /// Clocks timing the runs this recorder began, keyed by run ID. A step's
     /// end and the run's end are read from them, so a wall-clock step cannot
-    /// make a run end before it began. Imported runs have none.
+    /// make a run end before it began.
     private var runClocks: [UUID: ProvenanceRunClock] = [:]
-
-    /// Maps output file paths to the run ID that produced them.
-    private var outputIndex: [String: UUID] = [:]
 
     /// Optional signer used after JSON sidecars are written.
     private var signingProvider: (any ProvenanceSigningProvider)?
@@ -166,11 +163,6 @@ public actor ProvenanceRecorder {
 
         runs[runID]?.steps.append(step)
 
-        // Index output files for lookup
-        for output in outputs {
-            outputIndex[output.path] = runID
-        }
-
         logger.info("Provenance: recorded \(toolName) step in run \(runID) (exit \(exitCode))")
         return step.id
     }
@@ -190,20 +182,9 @@ public actor ProvenanceRecorder {
         runs[runID]
     }
 
-    /// Finds the run that produced the given output file path.
-    public func findRun(forOutputPath path: String) -> WorkflowRun? {
-        guard let runID = outputIndex[path] else { return nil }
-        return runs[runID]
-    }
-
     /// Returns all runs, most recent first.
     public func allRuns() -> [WorkflowRun] {
         runs.values.sorted { $0.startTime > $1.startTime }
-    }
-
-    /// Returns runs that are still in progress.
-    public func activeRuns() -> [WorkflowRun] {
-        runs.values.filter { $0.status == .running }
     }
 
     // MARK: - Persistence
@@ -604,16 +585,6 @@ public actor ProvenanceRecorder {
 
     public static func fileSidecarURL(for outputURL: URL) -> URL {
         URL(fileURLWithPath: "\(outputURL.path).lungfish-provenance.json")
-    }
-
-    /// Imports a previously saved provenance record into memory.
-    public func importRun(_ run: WorkflowRun) {
-        runs[run.id] = run
-        for step in run.steps {
-            for output in step.outputs {
-                outputIndex[output.path] = run.id
-            }
-        }
     }
 
     // MARK: - Checksum Helpers

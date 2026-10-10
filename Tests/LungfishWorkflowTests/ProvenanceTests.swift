@@ -149,29 +149,6 @@ struct ProvenanceRecordingTests {
         #expect(stepID == nil)
     }
 
-    @Test("Find run by output path")
-    func testFindRunByOutput() async {
-        let recorder = ProvenanceRecorder()
-        let runID = await recorder.beginRun(name: "VCF Import")
-
-        await recorder.recordStep(
-            runID: runID,
-            toolName: "bcftools",
-            toolVersion: "1.21",
-            command: ["bcftools", "view", "-Oz", "input.vcf"],
-            inputs: [FileRecord(path: "/data/input.vcf", format: .vcf)],
-            outputs: [FileRecord(path: "/output/variants.vcf.gz", format: .vcf, role: .output)],
-            exitCode: 0,
-            wallTime: 5.0
-        )
-
-        let found = await recorder.findRun(forOutputPath: "/output/variants.vcf.gz")
-        #expect(found?.id == runID)
-
-        let notFound = await recorder.findRun(forOutputPath: "/other/file.txt")
-        #expect(notFound == nil)
-    }
-
     @Test("Stderr is truncated to 10 KB")
     func testStderrTruncation() async {
         let recorder = ProvenanceRecorder()
