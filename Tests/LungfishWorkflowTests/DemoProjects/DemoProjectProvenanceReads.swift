@@ -120,12 +120,19 @@ enum DemoProvenanceReads {
             }
             let strictAccepts = (try? ProvenanceEnvelopeReader.loadCanonical(fromSidecar: url)) != nil
             let raw = try Data(contentsOf: url)
+            var explicitOptions = ""
+            do {
+                explicitOptions = try explicitOptionsText(envelope.options.explicit, mask: mask)
+            } catch {
+                outcome.problems.append("encoding the explicit options of \(relative) threw \(error)")
+            }
             outcome.sidecars.append(project(
                 relative: relative,
                 envelope: envelope,
                 strictAccepts: strictAccepts,
                 route: decodeRoute(of: raw, sidecar: url),
                 raw: raw,
+                explicitOptions: explicitOptions,
                 mask: mask
             ))
             guard deep.contains(index) else { continue }
@@ -247,6 +254,7 @@ enum DemoProvenanceReads {
         strictAccepts: Bool,
         route: String,
         raw: Data,
+        explicitOptions: String,
         mask: DemoProvenancePathMask
     ) -> DemoProvenanceExpectedFile.Sidecar {
         func descriptor(_ file: ProvenanceFileDescriptor) -> DemoProvenanceExpectedFile.Descriptor {
@@ -267,14 +275,39 @@ enum DemoProvenanceReads {
             toolVersion: envelope.toolVersion,
             argv: envelope.argv.map { mask.apply($0) },
             durableReplayArgv: envelope.durableReplayArgv.map { $0.map { mask.apply($0) } },
+            reproducibleCommand: mask.apply(envelope.reproducibleCommand),
             exitStatus: envelope.exitStatus,
             rawStatus: rawObject?["status"] as? String,
+            // The status the decoded record reports. The stored run answers when there is one,
+            // otherwise the exit status does, so it must not move when a writer drops the run.
+            decodedStatus: envelope.legacyWorkflowRun().status.rawValue,
             embeddedRun: envelope.legacyRun.map {
                 DemoProvenanceExpectedFile.EmbeddedRun(status: $0.status.rawValue, stepCount: $0.steps.count)
             },
+            explicitOptions: explicitOptions,
             files: envelope.files.map(descriptor),
-            outputs: envelope.outputs.map(descriptor)
+            outputs: envelope.outputs.map(descriptor),
+            steps: envelope.steps.map { step in
+                DemoProvenanceExpectedFile.Step(
+                    toolName: step.toolName,
+                    toolVersion: step.toolVersion,
+                    argv: step.argv.map { mask.apply($0) },
+                    durableReplayArgv: step.durableReplayArgv.map { $0.map { mask.apply($0) } },
+                    exitStatus: step.exitStatus,
+                    inputs: step.inputs.map(descriptor),
+                    outputs: step.outputs.map(descriptor)
+                )
+            }
         )
+    }
+
+    /// `options.explicit` encoded with `ProvenanceJSON.encoder` and sorted keys,
+    /// then masked. The encoder escapes slashes unless told not to, and an
+    /// escaped path would slip past the mask, so slashes stay as they are.
+    static func explicitOptionsText(_ explicit: [String: ParameterValue], mask: DemoProvenancePathMask) throws -> String {
+        let encoder = ProvenanceJSON.encoder
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return mask.apply(String(decoding: try encoder.encode(explicit), as: UTF8.self))
     }
 
     /// The reader does not say which of its steps accepted the bytes, so this

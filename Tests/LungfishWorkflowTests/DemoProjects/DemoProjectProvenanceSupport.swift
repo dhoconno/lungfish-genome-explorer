@@ -214,10 +214,17 @@ struct DemoProjectTreeSnapshot: Equatable {
 ///
 /// - `@/` stands for the installed project folder.
 /// - `<tool-root>` and `<storage-root>` stand for the managed roots.
-/// - `<tmp>` stands for any system temporary folder, whether the bytes record
-///   it literally (as the demo build recorded its scratch folder) or as the
-///   `<workspace>` placeholder, because a placeholder resolves to a literal
-///   temporary path on a Mac that still has the scratch file.
+/// - `<tmp>` stands for any system temporary folder that the bytes record
+///   literally, as the demo build recorded its scratch folder.
+/// - `<workspace>` stands for itself. The reader leaves the placeholder alone
+///   while the scratch file it names is missing, and a reader that began to
+///   resolve it to a path that does not exist would show in the comparison.
+///   The comparison is skipped on a Mac where the scratch file exists.
+/// - A file parameter is the one place where the working directory sneaks in.
+///   The decoder reads it with `URL(fileURLWithPath:)`, which puts the working
+///   directory in front of a relative placeholder, so
+///   `<working directory>/<workspace>/...` is turned back into
+///   `<workspace>/...`.
 struct DemoProvenancePathMask {
     private struct Rule {
         let prefix: String
@@ -233,19 +240,17 @@ struct DemoProvenancePathMask {
     private let rules: [Rule]
     /// Every spelling of the project folder the masker removes.
     let projectPaths: [String]
+    /// Every spelling of the working directory, apart from the root folder.
+    private let workingDirectoryPaths: [String]
 
-    init(projectURL: URL) {
+    init(
+        projectURL: URL,
+        workingDirectory: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+    ) {
         var found: [(prefix: String, token: String, bare: String)] = []
         var seen = Set<String>()
         func add(_ url: URL, token: String, bare: String) {
-            // `standardizedFileURL` and `resolvingSymlinksInPath` both drop a
-            // leading /private, so the physical spelling is added on its own.
-            for candidate in [
-                url.standardizedFileURL.path,
-                url.resolvingSymlinksInPath().path,
-                CanonicalFilePath.path(for: url),
-            ] {
-                let prefix = candidate.count > 1 && candidate.hasSuffix("/") ? String(candidate.dropLast()) : candidate
+            for prefix in Self.spellings(of: url) {
                 guard prefix.count > 1, seen.insert(prefix).inserted else { continue }
                 found.append((prefix, token, bare))
             }
@@ -257,6 +262,15 @@ struct DemoProvenancePathMask {
         for root in PortablePath.defaultTemporaryRoots {
             add(root, token: "<tmp>", bare: "<tmp>")
         }
+        // The working directory in front of a relative placeholder. At the
+        // root folder the prefix is the placeholder with its leading slash.
+        let workingSpellings = Self.spellings(of: workingDirectory)
+        for spelling in workingSpellings {
+            let prefix = (spelling == "/" ? "" : spelling) + "/<workspace>"
+            guard seen.insert(prefix).inserted else { continue }
+            found.append((prefix, "<workspace>", "<workspace>"))
+        }
+        workingDirectoryPaths = workingSpellings.filter { $0.count > 1 }
         // The longest prefix first, so the project wins over the temporary
         // folder it sits in.
         found.sort { $0.prefix.count > $1.prefix.count }
@@ -278,23 +292,30 @@ struct DemoProvenancePathMask {
     }
 
     func apply(_ text: String) -> String {
-        guard text.contains("/") || text.contains("<workspace>") else { return text }
+        guard text.contains("/") else { return text }
         var result = text
         for rule in rules where result.contains(rule.prefix) {
             result = Self.replace(rule.followedBySlash, with: rule.slashToken, in: result)
             result = Self.replace(rule.bare, with: rule.bareToken, in: result)
         }
-        return result.replacingOccurrences(of: "<workspace>", with: "<tmp>")
+        return result
     }
 
     /// Machine-specific text that survived masking in `text`.
     func leaks(in text: String) -> [String] {
-        var needles = projectPaths
+        var needles = projectPaths + workingDirectoryPaths
         needles.append(NSHomeDirectory())
         needles.append(contentsOf: ["/Users/", "/private/", "/var/folders", "/tmp"])
         let temporary = NSTemporaryDirectory()
         needles.append(temporary.hasSuffix("/") ? String(temporary.dropLast()) : temporary)
         return Set(needles.filter { $0.count > 1 && text.contains($0) }).sorted()
+    }
+
+    /// `standardizedFileURL` and `resolvingSymlinksInPath` both drop a leading
+    /// /private, so the physical spelling is added on its own.
+    private static func spellings(of url: URL) -> [String] {
+        [url.standardizedFileURL.path, url.resolvingSymlinksInPath().path, CanonicalFilePath.path(for: url)]
+            .map { $0.count > 1 && $0.hasSuffix("/") ? String($0.dropLast()) : $0 }
     }
 
     private static func replace(_ regex: NSRegularExpression, with template: String, in text: String) -> String {

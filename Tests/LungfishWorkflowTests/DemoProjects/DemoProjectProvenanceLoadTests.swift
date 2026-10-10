@@ -159,7 +159,8 @@ final class DemoProjectProvenanceLoadTests: XCTestCase {
     /// is tested on its own.
     func testPathMaskTurnsEachRootBackIntoItsToken() throws {
         let project = workRoot.appendingPathComponent("mask/LGE Demo Projects/Demo.lungfish", isDirectory: true)
-        let mask = DemoProvenancePathMask(projectURL: project)
+        let working = URL(fileURLWithPath: "/work/space", isDirectory: true)
+        let mask = DemoProvenancePathMask(projectURL: project, workingDirectory: working)
         let projectPath = project.standardizedFileURL.path
 
         XCTAssertEqual(mask.apply(projectPath), "@/")
@@ -168,18 +169,35 @@ final class DemoProjectProvenanceLoadTests: XCTestCase {
         XCTAssertEqual(mask.apply("/tmp/scratch/in.fastq"), "<tmp>/scratch/in.fastq")
         XCTAssertEqual(mask.apply("/private/tmp/scratch/in.fastq"), "<tmp>/scratch/in.fastq")
         XCTAssertEqual(mask.apply("/var/tmp/scratch/in.fastq"), "<tmp>/scratch/in.fastq")
-        XCTAssertEqual(mask.apply("<workspace>/scratch/in.fastq"), "<tmp>/scratch/in.fastq")
         XCTAssertEqual(mask.apply("@/Imports/reads.fastq.gz"), "@/Imports/reads.fastq.gz")
         XCTAssertEqual(mask.apply("<tool-root>/envs/samtools/bin/samtools"), "<tool-root>/envs/samtools/bin/samtools")
+
+        // The placeholder keeps its own spelling, so a reader that began to
+        // resolve it to a path that does not exist would show.
+        XCTAssertEqual(mask.apply("<workspace>/scratch/in.fastq"), "<workspace>/scratch/in.fastq")
+        // A file parameter is read with URL(fileURLWithPath:), which puts the
+        // working directory in front of a relative placeholder.
+        XCTAssertEqual(mask.apply("/work/space/<workspace>/scratch/in.fastq"), "<workspace>/scratch/in.fastq")
+        XCTAssertEqual(
+            mask.apply("{\"type\":\"file\",\"value\":\"/work/space/<workspace>/in.fastq\"}"),
+            "{\"type\":\"file\",\"value\":\"<workspace>/in.fastq\"}"
+        )
+        let atRoot = DemoProvenancePathMask(
+            projectURL: project,
+            workingDirectory: URL(fileURLWithPath: "/", isDirectory: true)
+        )
+        XCTAssertEqual(atRoot.apply("/<workspace>/scratch/in.fastq"), "<workspace>/scratch/in.fastq")
 
         // Paths that only look like a root stay as they are.
         XCTAssertEqual(mask.apply("/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli"), "/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli")
         XCTAssertEqual(mask.apply("/usr/local/tmp/tool"), "/usr/local/tmp/tool")
         XCTAssertEqual(mask.apply("/tmpfiles/tool"), "/tmpfiles/tool")
+        XCTAssertEqual(mask.apply("/work/space/other/file"), "/work/space/other/file")
         XCTAssertEqual(mask.apply("lungfish-cli"), "lungfish-cli")
 
-        XCTAssertEqual(mask.leaks(in: "<tmp>/scratch and @/Imports"), [])
+        XCTAssertEqual(mask.leaks(in: "<tmp>/scratch and @/Imports and <workspace>/in.fastq"), [])
         XCTAssertEqual(mask.leaks(in: "/tmp/scratch"), ["/tmp"])
+        XCTAssertEqual(mask.leaks(in: "/work/space/other/file"), ["/work/space"])
         XCTAssertTrue(mask.leaks(in: projectPath + "/Imports").contains(projectPath))
     }
 
@@ -237,7 +255,19 @@ final class DemoProjectProvenanceLoadTests: XCTestCase {
             XCTAssertFalse(sidecar.argv.isEmpty, sidecar.sidecar)
             XCTAssertEqual(sidecar.durableReplayArgv, sidecar.argv, "\(sidecar.sidecar) records its replay command as run")
             XCTAssertFalse(sidecar.outputs.isEmpty, sidecar.sidecar)
+            XCTAssertFalse(sidecar.reproducibleCommand.isEmpty, sidecar.sidecar)
+            XCTAssertEqual(sidecar.decodedStatus, "completed", "\(sidecar.sidecar) decodes as a completed run")
+            XCTAssertFalse(sidecar.steps.isEmpty, sidecar.sidecar)
+            XCTAssertTrue(sidecar.steps.allSatisfy { $0.exitStatus == 0 }, "\(sidecar.sidecar) records every step as exit 0")
         }
+        // The third-party tools and versions that the demo ran live only in the steps.
+        let thirdParty = Set(
+            outcome.sidecars.flatMap(\.steps)
+                .filter { !$0.toolVersion.hasPrefix("Lungfish") }
+                .map { "\($0.toolName) \($0.toolVersion)" }
+        )
+        XCTAssertEqual(thirdParty, ["bgzip 1.24", "clumpify.sh 40.02", "samtools 1.24", "seqkit 2.13.0"])
+        XCTAssertEqual(outcome.sidecars.flatMap(\.steps).count, 46)
         // The one embedded legacy run is the annotated reference's root record.
         XCTAssertEqual(
             outcome.sidecars.filter { $0.embeddedRun != nil }.map(\.sidecar),
