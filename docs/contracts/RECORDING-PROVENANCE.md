@@ -1,0 +1,123 @@
+# Recording provenance
+
+This contract says what a provenance record is in Lungfish Genome Explorer (LGE), which code writes one, and what may change while the writers converge. It answers review finding R8, where each new tool copied the nearest writer and picked its own file name. Provenance had 183 distinct writer code paths when sub-phase 2.4 began. Sub-phase 2.4 stopped LGE writing the two legacy run shapes, a bare `WorkflowRun` and a run nested in an envelope, and it froze every other writer and path helper behind two ratchets until the sub-phase that moves it.
+
+## What a record is
+
+A record is one `ProvenanceEnvelope` (`Sources/LungfishWorkflow/Provenance/ProvenanceEnvelope.swift`). One encoder, `ProvenanceEnvelope.encode(to:)`, turns it into JSON. One writer, `ProvenanceWriter` (`Sources/LungfishWorkflow/Provenance/ProvenanceWriter.swift`), rewrites its paths for the project, signs it when a provider is set and publishes it, so an envelope encoded anywhere else skips all three. `ProvenanceRunBuilder` assembles a record, `ProvenanceEnvelopeReader` reads one, and the `ProvenanceRecorder` actor gathers the steps of a multi-step pipeline until sub-phase 2.7.
+
+## Rules
+
+| Rule | Why |
+|---|---|
+| Write a record with `ProvenanceRunBuilder` and `ProvenanceWriter`, or with `CLIProvenanceSupport.recordSingleStepRun` in a CLI command | One encoder and one writer keep every record readable by the same readers |
+| Never write a bare `WorkflowRun` or a nested `legacyWorkflowRun`, and never add a sidecar file name | Every shape and every name is one more thing each reader must learn |
+| Never let a read write into a project | A read once rewrote a real TaxTriage record and cleared its signatures |
+| Store the full SHA-256 of every byte, and never change a path helper that feeds a digest without a science review | A partial hash hides a cut file, and other records cite those digests |
+| Never drop a compat key before schema version 2 | `ops stats`, tests and older LGE builds read them |
+| Capture a writer's facts before changing it, and never edit a frozen or expected file to make a test pass | A fixture edited to pass proves nothing about the bytes users already have |
+| Never record the inherited environment | It holds API keys and home folders, and sidecars travel with shared projects |
+| Never raise a ratchet count without a reviewed reason | The counts are the only thing that stops the next copy |
+
+## What envelope-only means in 2.4
+
+| Rule | What it means |
+|---|---|
+| No new record nests a run | The encoder no longer writes `legacyWorkflowRun`. The decoder still reads it, so old files read as before and `ProvenanceEnvelope.legacyRun` stays. New code outside the Provenance folder passes no `legacyWorkflowRun:` argument, and the sites that still pass one are counted by `legacy_run_embeds` and move onto the builder in 2.7. |
+| No bare `WorkflowRun` is written | The eleven bare-run writers now write `run.canonicalEnvelope()` through `ProvenanceWriter(signingProvider: nil)`, so they still never sign. `WorkflowRun.writeSidecar` moved unchanged to `Tests/Support/LungfishTestSupport`, where a test can fabricate an old file and production code cannot. |
+| The eight compat keys stay | The encoder still derives and writes `name`, `status`, `startTime`, `endTime`, `appVersion`, `hostOS`, `runtime` and `parameters`, the step aliases `command`, `exitCode`, `wallTime`, `startTime` and `endTime`, and the descriptor aliases `sha256` and `sizeBytes`. `lungfish-cli ops stats`, 16 test files, the manual's file-formats appendix and any older LGE that decodes a `WorkflowRun` read them, and new code reads the canonical fields. `status` is canonical now, and the other seven leave in 2.6 with schema version 2. A reader must never reject version 1, and dates keep whole seconds because the `.iso8601` decoder rejects fractions. |
+| Typed records stay | A record that is also application state, such as `mapping-provenance.json`, keeps its own schema. 2.4 does not change it. |
+
+## What a record must hold
+
+| Content | Why | When it is complete |
+|---|---|---|
+| Terminal status, exit status, termination and stop reason, output completeness | A partial output must never read as a result | Status is stored in 2.4. Termination, stop reason and output completeness per step come with the hook in 2.7 |
+| A run-level command that reproduces the run, and `durableReplayArgv` when argv names scratch files | Replay and CLI equivalence (`docs/contracts/CLI-EQUIVALENCE.md`) | Each writer keeps its own value in 2.4. Kraken2 and EsViritu record the `lungfish-cli` command in 2.7, and TaxTriage, `assemble`, the operations dialog's dispatcher and mapping in 2.8 |
+| Per step the tool name, version as reported, argv as executed, environment or container, inputs and outputs with SHA-256, size and role, wall time, start time, peak memory, bounded stderr and `dependsOn` | A reader can rerun one step and check it | Kept as they are. Environment changes come with the hook in 2.7 |
+| The installed package as `channel::name=version=build` beside the locked spec | The lock says what was meant and conda-meta says what ran | 2.5 builds the typed tool identity and version source, and 2.6 writes them |
+| Explicit, default and resolved parameters, including `readSetPlan` | `docs/contracts/READ-PAIRING.md` promises them | `readSetPlan` survives through the options merge below. The CLI `conda classify` record carries it in 2.7 |
+| Reference and database identity by checksum, cited from the reference bundle or install receipt | Results change with the database release | Kraken2 records it today. EsViritu, TaxTriage and NAO-MGS follow in 2.7 and 2.8 |
+| Lock identity (dependency set, lock version, lock file SHA-256) and the app version with build | It names the pins in force | The app version is recorded today. 2.5 computes the lock hash and 2.6 writes it |
+
+## Status, parameters, stderr and hashes
+
+| Field | Rule |
+|---|---|
+| Status | `ProvenanceEnvelope.status` is a stored `RunStatus` (`running`, `completed`, `failed` or `cancelled`) under the existing `status` key. The bytes do not change when it equals the status derived from `exitStatus` (nil is running, 0 is completed, anything else is failed). The decoder reads the key tolerantly and never throws over it. Cancelled is never derived, because a run cancelled in Bracken preparation can end with the exit status 0 of its last step. A writer records `cancelled` itself when the user cancels, and the CLI `conda classify` record still says failed until 2.7. Code that rebuilds an envelope from another passes `status: source.status`. The rehydrators do not yet, so a copied cancelled run can read failed, and 2.7 ends that with one copy helper. |
+| Parameters | `ProvenanceRecorder.save(runID:to:bundleLayoutRoot:options:dropMissingRunLevelFiles:)` merges the run's parameters into the explicit options, and the caller's value wins on a clash. Kraken2's `readSetPlan` is a run parameter, so it reads back from the envelope's options although the nested run is gone. |
+| Stderr | A stored stderr keeps its first 2,048 and last 8,192 characters, because tools print banners and versions first and errors and summaries last. A value of 10,240 characters or fewer is kept whole. The omission marker carries no count, so the golden normalizer (rule R13 in `scripts/golden/normalize.py`) can mask it. `ProvenanceStderr` in `ProvenanceRunBuilder.swift` applies the bound. |
+| Hashes | A named file carries the full SHA-256 and size of every byte, through `ProvenanceFileHasher`. A partial hash is never right, because a cut or appended file differs only at its end. A digest cache may come in 2.7 under one key rule, which is volume UUID, inode, size, nanosecond times, a 2 second racy window and APFS or HFS+ volumes only. |
+| Path helpers | Four helpers put a path string into a recorded digest. They are `relativePath(for:relativeTo:)` in `ProvenanceFileHasher.swift`, `relativePath(of:from:)` in `MetagenomicsDatabaseInstallProvenance.swift`, `relative(_:to:)` in `PrimalScheme3DesignPipeline.swift` and `relativePath(from:to:)` in `FASTQPBAAArtifactStore.swift`. Other records cite those digests, so none changes without a science review, even to fix a bug. |
+
+## How to write a record today
+
+| You are writing | Use |
+|---|---|
+| One run in Workflow code | `ProvenanceRunBuilder`, completed with `complete(exitStatus:stderr:startedAt:endedAt:)`, then `ProvenanceWriter.write(_:to:)` or `write(_:toSidecar:)` |
+| One tool run in a `lungfish-cli` command | `CLIProvenanceSupport.recordSingleStepRun` in `Sources/LungfishCLI/Support/CLIProvenanceSupport.swift`, which takes `status:` and writes the record |
+| A multi-step pipeline of the seven that already record | `ProvenanceRecorder.shared` with `beginRun`, `recordStep`, `completeRun` and `save`. The callers are `ClassificationPipeline`, `EsVirituPipeline`, `TaxonomyExtractionPipeline`, `TaxTriagePipeline`, `TaxTriageSerialBatchRunner`, `NativeBundleBuilder` and `FastqDeaconRiboSubcommand` |
+
+The recorder's API is frozen and 2.7 rebuilds it on the builder, so each new caller is one more site to move. `NativeToolRunner` and the other runners never call it, so a tool run through one leaves no step unless its caller records it. Take the file name from `ProvenanceRecorder.provenanceFilename` or `ProvenanceRecorder.fileSidecarURL(for:)` and add no new sidecar name, because the finder and every reader would have to learn it. The recorder's lookup sits in `ProvenanceRecorder+SidecarLookup.swift`, its file records in `ProvenanceRecorder+FileRecords.swift`, `ProvenanceError` in `ProvenanceError.swift` and `droppingMissingRunLevelFiles` in `ProvenanceEnvelope+RunLevelFiles.swift`. A writer's file-system changes follow `docs/contracts/EXTERNAL-VOLUMES.md`.
+
+A test that builds a writer passes `signingProvider: nil`, because a default writer signs whenever `LUNGFISH_PROVENANCE_SIGNING_KEY` or `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` is set. A writer's test asserts that the file passes `ProvenanceEnvelopeReader.decodeCanonical`, which rejects a bare run, that the file holds no `legacyWorkflowRun` key, and that `ProvenanceCompleteness.issues(in:)` is empty for the success record or the test lists each known gap. Nothing refuses a write at run time, because a refusal at the last step would fail a finished analysis.
+
+## Reading never writes
+
+Finding, loading, listing, displaying and exporting a record never creates or changes a file in a project. The Inspector audit and the File > Export > Provenance items once called backfills that wrote a record dated at the read with the reading app's version, and that rewrote a real TaxTriage record with an invented step and its signatures cleared. Those calls are gone. A result with no batch record shows Missing provenance, and the Raw JSON pane shows the sidecar's own bytes. The backfills stay inside the operations that made a result until 2.8 deletes them. `ProvenanceReadOnlyTests` and `DemoProjectProvenanceLoadTests` fail when a read changes a byte.
+
+## The frozen legacy corpus
+
+Old records are evidence and must keep reading as they do. Three sets freeze them. A writer change keeps all three green unless the change declares a difference and a reviewer accepts it.
+
+| Set | What it freezes |
+|---|---|
+| `Tests/Fixtures/provenance-compat/`, with `ProvenanceCompatCorpus` and `ProvenanceCompatFacts` in `Tests/Support/LungfishTestSupport` and the `ProvenanceCompat*` suites | Real legacy bytes such as the 0.4.0-alpha.11 bare run and an early MSA sidecar, and captures of the shapes writers produced before 2.4, each with expected facts |
+| `Tests/Fixtures/demo-projects/lge-demo-mhc-genotyping-2026.9.58.zip`, with `DemoProjectProvenanceLoadTests` and `DemoProjectProvenanceSweepTests` | The released MHC demo. Reading, finding, lineage and export leave every byte of the installed project unchanged. The sweep covers the other demo archives in the folder `LUNGFISH_DEMO_ARCHIVE_DIR` names |
+| `Tests/Fixtures/provenance-display/`, with `ProvenanceLegacyDisplayTests` and `ClassificationCommandParityTests` | What the Inspector's Provenance tab shows for each legacy shape, and that Copy Classification Command prints the same text with and without a nested run |
+
+Freeze, then change. A change to a writer starts with a commit of the facts its current output holds, captured on unchanged code with `ProvenanceCompatFacts` and green before anything moves. The change follows in its own commit, and the new output's facts must equal the captured ones except the fields the commit declares, such as the record shape. Facts leave out what the reader fills in from the reading Mac, which is the executable path, process ID, architecture, dependency set and a date taken from the file's modification time. A test copies a case to a temporary folder before anything reads it, because some readers write. A difference in a frozen or expected file is a reviewed commit that says which behavior moved. Bytes that a golden holds change in a commit of their own, and `python3 scripts/golden/golden.py compare` must confirm it.
+
+## The ratchets
+
+`scripts/ratchets/provenance-writers.sh` and `scripts/ratchets/path-helpers.sh` run in the pre-push hook. Run `bash scripts/install-git-hooks.sh` again to add them to a hook installed before 2.4. Each count may only fall, counts occurrences and not files, and ignores text after `//`. Each script keeps its baseline in a `.baseline` file beside it.
+
+| Count | What it counts | Do this instead |
+|---|---|---|
+| `write_provenance_functions` | `func writeProvenance`, a private copy of a writer | Build with `ProvenanceRunBuilder` and write with `ProvenanceWriter`, or call `CLIProvenanceSupport.recordSingleStepRun` |
+| `bare_workflow_run_writes` | `.writeSidecar(`, which writes a bare `WorkflowRun` | Write `run.canonicalEnvelope()` through `ProvenanceWriter.write(_:toSidecar:)`. The count is 0 once 2.4 lands |
+| `legacy_run_embeds` | `legacyWorkflowRun:` followed by anything but `nil`. The core in `Sources/LungfishWorkflow/Provenance/` is exempt, namely `ProvenanceEnvelope.swift`, its `ProvenanceEnvelope+<Part>.swift` extensions, `ProvenanceRecord.swift`, `ProvenanceRecorder*.swift`, `ProvenanceRunBuilder.swift` and `ProvenanceWriter.swift` | Complete the envelope with `ProvenanceRunBuilder.complete(exitStatus:stderr:startedAt:endedAt:)` |
+| `envelope_encodes_outside_writer` | `ProvenanceJSON.encoder`. `ProvenanceWriter.swift` and `ProvenanceEnvelopeReader.swift` are exempt, and so is the Inspector's `ProvenanceInspectorViewModel.swift`, which encodes only to display | Pass the envelope to `ProvenanceWriter` |
+| `provenance_filename_literals` | A string literal that names a provenance `.json` file. The names file that 2.6 adds becomes its exemption | `ProvenanceRecorder.provenanceFilename` or `ProvenanceRecorder.fileSidecarURL(for:)` |
+| `relative_path_definitions` (`path-helpers.sh`) | `func relativePath` and `func projectRelativePath` | `CanonicalFilePath.relativePath(of:within:)` in LungfishCore, or the helper your module already has, and say which in review |
+| `relative_path_relatives` (`path-helpers.sh`) | `func appRelativePath`, `bundleRelativePath`, `storedPath`, `relativeDescendantPath`, `filesystemRelativePath`, `relativePathForMigrationProvenance`, `func relative(_` and `func relative(path:` | The same |
+| `directory_checksum_copies` (`path-helpers.sh`) | `func directoryChecksum` | `ProvenanceRecorder.fileOrDirectoryRecord(url:format:role:)`, or reuse an existing copy and say which in review |
+
+The scan reads one line at a time, so review catches the rest. A renamed writer function escapes `write_provenance_functions`, a plain `JSONEncoder` escapes `envelope_encodes_outside_writer`, and an inline `dropFirst(base.count + 1)` escapes the path counts. Run a script with `--print` to list every counted site. A count under its baseline passes with a hint. Lower the baseline in the commit that removes the sites by running the script with `--update`, and commit the `.baseline` file. Raising a count needs a reviewed reason, and `--update` is never the way to make a push pass. A sub-phase that edits a file holding counted sites moves them in a commit of their own, never inside a pure move.
+
+## The ToolProcess observer hook
+
+Sub-phase 2.7 builds the hook, with the recorder rebuilt on `ProvenanceRunBuilder` and the run executor as its first consumers. Nothing records through it before then, because a hook with no consumer cannot be tested. It follows these rules.
+
+| Rule | Detail |
+|---|---|
+| A task-local read once per launch | The observer is a `@TaskLocal` in `Sources/LungfishCore/Process/`, as `NativeProcessObservation.onEvent` is and as `docs/contracts/CONCURRENCY-PLAYBOOK.md` asks, and not a static variable. It is read where a run starts, whether a single run, a handle or a pipeline, and it adds no stored field to `ToolProcessSpec`. |
+| Opt-in for each run | A caller sets the observer for a scope together with a step context that holds the tool name, the version, and the input and output files with their roles. A launch outside that scope records nothing, so a version probe, `micromamba --version` or `docker info` never becomes a step. The observation fills the exit status, times, termination and stderr of the declared step and never replaces its argv. |
+| Delivered once per stage | One observation for each process or pipeline stage, after it ends and before `ToolProcess.run`, `ToolProcessRun.result()` or `waitBlocking()` returns. A launch failure and a cancellation deliver one too. |
+| Never from these places | Line delivery or a drain callback, `cancel()` or a stop request, or while a run holds its lock. Output stops being read during a handler, `cancel()` must return at once and a call under the lock blocks every waiter. The hook never turns on line framing. |
+| Nothing slow inside | No hashing, no version probe, no file access and no waiting. The observer appends to a buffer and returns, and the recorder does the rest later. |
+| What it carries | Label, executed argv, working directory, wall-clock start, monotonic wall time, termination (exited with a code, or signaled), the stop reason (`cancelled`, `timedOut` or `pipelineStageFailed`), whether the output was complete, the stderr tail, the stage index and an identity hint from the adapter such as the conda environment or the `NativeTool` name. |
+| Environment | `ToolProcessSpec.environment` stays the whole child environment, and a record never holds the inherited environment. It records the name of every variable the caller changed, and a value only for a variable on an allowlist of those LGE's own adapters set. A name pattern fails open, because a secret can sit in a value such as a proxy address or a `DATABASE_URL`. Values pass through `PortablePath` sanitizing first. |
+
+## What comes later
+
+| Work | Where it goes |
+|---|---|
+| Writer durability. A rewrite moves the old sidecar aside before the new one moves in, so a crash between the two leaves none. The fix is a rewrite through `PortableRename.swap`, a record-of-truth fsync policy and directory sync through the anchored walk only | The first task of the session after 2.4 |
+| The hook above, termination detail per step, the recorder rebuilt on `ProvenanceRunBuilder` with bounded retention, and one envelope copy helper that keeps `status` for the rehydrators | 2.7 |
+| A digest cache under the key rule above, and hashing off the main actor in GUI exports | 2.7 for the cache, 2.9 for the GUI sites |
+| The CLI `conda classify` record carrying `readSetPlan` and status, and one record for GUI and CLI Kraken2 | 2.7 |
+| Typed tool identity, the version source, an unknown version flagged and refused by unpinned exports, and the lock hash on run records | 2.5 computes, 2.6 writes |
+| Schema version 2 without the compat keys, `ops stats` on the envelope reader, the honest-runtime read fix, the "Older record format" status, a provenance spec in `docs/formats`, one sidecar name rule per bundle kind and the features.yaml ownership gaps | 2.6 |
+| The 39 path helpers, 18 relatives and 11 `directoryChecksum` copies, family by family behind characterization tests | A sub-phase after 2.6, under `path-helpers.sh` |
+| The nine demo archives that are not committed | A session where the owner approves the download, then the sweep covers all ten |

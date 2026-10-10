@@ -6,6 +6,7 @@ These documents are the written rules for extending Lungfish Genome Explorer (LG
 |---|---|
 | `docs/contracts/ADDING-AN-OPERATION.md` | add or change anything that runs a tool or writes scientific output, including a new tool in the FASTQ operations dialog or a new CLI command that needs a provenance policy |
 | `docs/contracts/RUNNING-A-TOOL.md` | launch any external program, pick between `NativeToolRunner`, `CondaManager.runTool`, `ProcessManager`, `CLIProcessLauncher` and `ToolProcess`, cancel a tool tree, or add a tool golden |
+| `docs/contracts/RECORDING-PROVENANCE.md` | write or change a provenance record or its writer, read a record, change what the encoder writes, touch a path helper that feeds a checksum, lower a provenance ratchet baseline, or build the ToolProcess observer hook |
 | `docs/contracts/CLI-EQUIVALENCE.md` | record or change the command an Operations panel row shows, pin a CLI parity gap, or write a replay test |
 | `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md` | add a new kind of result with its own viewport, Inspector sections and sidebar entry, including the RNA-seq surface |
 | `docs/contracts/analysis-surface-checklist.md` | need the copyable per-surface checklist to paste into a plan |
