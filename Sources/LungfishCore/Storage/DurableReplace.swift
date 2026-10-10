@@ -226,8 +226,9 @@ public enum DurableReplace {
     }
 
     /// The folders a transaction has synchronized, one open descriptor per
-    /// volume, flushed once when the transaction ends.
-    public final class Transaction: Sendable {
+    /// volume, flushed once when the transaction ends. Callers reach it only
+    /// through ``transaction(_:)``.
+    final class Transaction: Sendable {
         private let folders = Mutex<[UInt64: Int32]>([:])
 
         init() {}
