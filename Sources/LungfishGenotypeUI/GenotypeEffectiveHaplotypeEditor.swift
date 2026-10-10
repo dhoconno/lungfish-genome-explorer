@@ -82,6 +82,7 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
     private let onReload: () throws -> Snapshot
     private let onDidSave: () -> Void
     private let announcementPoster: any AccessibilityAnnouncementPosting
+    private let saveFailureLog: any GenotypeHaplotypeAssignmentSaveFailureLogging
 
     init(
         snapshot: Snapshot,
@@ -89,7 +90,9 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
         onReload: @escaping () throws -> Snapshot,
         onDidSave: @escaping () -> Void = {},
         announcementPoster: any AccessibilityAnnouncementPosting =
-            AccessibilityAnnouncementPoster()
+            AccessibilityAnnouncementPoster(),
+        saveFailureLog: any GenotypeHaplotypeAssignmentSaveFailureLogging =
+            GenotypeHaplotypeAssignmentSaveLog()
     ) {
         self.snapshot = snapshot
         self.draftValues = snapshot.values
@@ -97,6 +100,7 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
         self.onReload = onReload
         self.onDidSave = onDidSave
         self.announcementPoster = announcementPoster
+        self.saveFailureLog = saveFailureLog
     }
 
     var sample: String { snapshot.sample }
@@ -192,6 +196,7 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
         } catch {
             persistenceFailure = .save
             persistenceErrorMessage = error.localizedDescription
+            saveFailureLog.saveFailed(sample: sample, reason: error.localizedDescription)
             announcementPoster.post(
                 "Could not save haplotype assignments for \(sample). \(error.localizedDescription)",
                 priority: .high

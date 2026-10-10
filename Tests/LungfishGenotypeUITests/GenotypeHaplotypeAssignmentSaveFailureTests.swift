@@ -304,6 +304,112 @@ final class GenotypeHaplotypeAssignmentSaveFailureTests: GenotypeResultViewportT
         XCTAssertFalse(coordinator.lastSaveFailed)
     }
 
+    // MARK: - Logging
+
+    func testEachEditorReportsARefusedSaveToItsLog() {
+        let manualLog = RecordingSaveFailureLog()
+        let manual = makeManualModel(
+            onSave: { _ in throw Refusal() },
+            saveFailureLog: manualLog
+        )
+        manual.updateLabel("WALK3", locus: .a, slot: .h1)
+        manual.save()
+        XCTAssertEqual(
+            manualLog.entries,
+            [.init(sample: "Animal-1", reason: "Sidecar changed elsewhere.")]
+        )
+
+        let effectiveLog = RecordingSaveFailureLog()
+        let effective = makeEffectiveModel(
+            onSave: { _ in throw Refusal() },
+            saveFailureLog: effectiveLog
+        )
+        effective.updateLabel("M3A", locus: "MHC-A", slot: .h1)
+        effective.save()
+        XCTAssertEqual(
+            effectiveLog.entries,
+            [.init(sample: "Animal-1", reason: "Sidecar changed elsewhere.")]
+        )
+    }
+
+    func testAFailedReloadIsNotReportedAsAFailedSave() {
+        let manualLog = RecordingSaveFailureLog()
+        let manual = makeManualModel(onReload: { throw Refusal() }, saveFailureLog: manualLog)
+        manual.reload()
+        let effectiveLog = RecordingSaveFailureLog()
+        let effective = makeEffectiveModel(onReload: { throw Refusal() }, saveFailureLog: effectiveLog)
+        effective.reload()
+
+        XCTAssertEqual(manual.persistenceErrorMessage, "Sidecar changed elsewhere.")
+        XCTAssertEqual(effective.persistenceErrorMessage, "Sidecar changed elsewhere.")
+        XCTAssertEqual(manualLog.entries, [])
+        XCTAssertEqual(effectiveLog.entries, [])
+    }
+
+    /// The line the default log writes under LogSubsystem.app, worded as the
+    /// card and the announcement word a failed save.
+    func testTheDefaultLogLineNamesTheSampleAndTheReason() {
+        XCTAssertEqual(
+            GenotypeHaplotypeAssignmentSaveLog.message(
+                sample: "SIMULATED-MHC-A-pairs",
+                reason: staleMessage
+            ),
+            "Haplotype assignments were not saved for SIMULATED-MHC-A-pairs. \(staleMessage)"
+        )
+    }
+
+    private struct Refusal: LocalizedError {
+        var errorDescription: String? { "Sidecar changed elsewhere." }
+    }
+
+    private func makeManualModel(
+        onSave: @escaping (GenotypeManualHaplotypeDraft) throws -> GenotypeManualHaplotypeDraft = { $0 },
+        onReload: (() throws -> GenotypeManualHaplotypeEditorModel.Snapshot)? = nil,
+        saveFailureLog: RecordingSaveFailureLog
+    ) -> GenotypeManualHaplotypeEditorModel {
+        let draft = GenotypeManualHaplotypeDraft(
+            sample: "Animal-1",
+            index: GenotypeManualHaplotypeAssignmentIndex(assignments: [])
+        )
+        let snapshot = GenotypeManualHaplotypeEditorModel.Snapshot(
+            draft: draft,
+            copyCandidates: [],
+            isReadOnly: false
+        )
+        return GenotypeManualHaplotypeEditorModel(
+            snapshot: snapshot,
+            onSave: onSave,
+            onReload: onReload ?? { snapshot },
+            announcementPoster: RecordingGenotypeSearchAnnouncements(),
+            saveFailureLog: saveFailureLog
+        )
+    }
+
+    private func makeEffectiveModel(
+        onSave: @escaping ([GenotypeEffectiveHaplotypeEditorModel.Address: String]) throws
+            -> GenotypeEffectiveHaplotypeEditorModel.Snapshot = { _ in throw Refusal() },
+        onReload: (() throws -> GenotypeEffectiveHaplotypeEditorModel.Snapshot)? = nil,
+        saveFailureLog: RecordingSaveFailureLog
+    ) -> GenotypeEffectiveHaplotypeEditorModel {
+        let snapshot = GenotypeEffectiveHaplotypeEditorModel.Snapshot(
+            sample: "Animal-1",
+            orderedLoci: ["MHC-A"],
+            values: [
+                .init(locus: "MHC-A", slot: .h1): "M1A",
+                .init(locus: "MHC-A", slot: .h2): "M2A",
+            ],
+            suggestions: [],
+            isReadOnly: false
+        )
+        return GenotypeEffectiveHaplotypeEditorModel(
+            snapshot: snapshot,
+            onSave: onSave,
+            onReload: onReload ?? { snapshot },
+            announcementPoster: RecordingGenotypeSearchAnnouncements(),
+            saveFailureLog: saveFailureLog
+        )
+    }
+
     private static func describe(_ event: GenotypeExcelExportEvent) -> String {
         switch event {
         case .started: return "started"
@@ -409,5 +515,20 @@ final class GenotypeHaplotypeAssignmentSaveFailureTests: GenotypeResultViewportT
             if let match = descendant(of: subview, identifier: identifier) { return match }
         }
         return nil
+    }
+}
+
+/// Records what an editor reports as a failed save, in place of the system log.
+@MainActor
+private final class RecordingSaveFailureLog: GenotypeHaplotypeAssignmentSaveFailureLogging {
+    struct Entry: Equatable {
+        let sample: String
+        let reason: String
+    }
+
+    private(set) var entries: [Entry] = []
+
+    func saveFailed(sample: String, reason: String) {
+        entries.append(Entry(sample: sample, reason: reason))
     }
 }

@@ -189,6 +189,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
     private let onReload: () throws -> Snapshot
     private let onDidSave: () -> Void
     private let announcementPoster: any AccessibilityAnnouncementPosting
+    private let saveFailureLog: any GenotypeHaplotypeAssignmentSaveFailureLogging
     private var preparedDraft: GenotypeManualHaplotypeDraft?
 
     private(set) var copyCandidatePresentationBuildCount: Int
@@ -203,7 +204,9 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
         onReload: @escaping () throws -> Snapshot,
         onDidSave: @escaping () -> Void = {},
         announcementPoster: any AccessibilityAnnouncementPosting =
-            AccessibilityAnnouncementPoster()
+            AccessibilityAnnouncementPoster(),
+        saveFailureLog: any GenotypeHaplotypeAssignmentSaveFailureLogging =
+            GenotypeHaplotypeAssignmentSaveLog()
     ) {
         self.editorState = EditorState(
             snapshot: snapshot,
@@ -215,6 +218,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
         self.onReload = onReload
         self.onDidSave = onDidSave
         self.announcementPoster = announcementPoster
+        self.saveFailureLog = saveFailureLog
     }
 
     private var snapshot: Snapshot { editorState.snapshot }
@@ -400,6 +404,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
             preparedDraft = nil
             persistenceFailure = .save
             persistenceErrorMessage = error.localizedDescription
+            saveFailureLog.saveFailed(sample: draft.sample, reason: error.localizedDescription)
             announcementPoster.post(
                 "Could not save haplotype assignments for \(draft.sample). \(error.localizedDescription)",
                 priority: .high
@@ -426,6 +431,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
             self.preparedDraft = nil
             persistenceFailure = .save
             persistenceErrorMessage = error.localizedDescription
+            saveFailureLog.saveFailed(sample: draft.sample, reason: error.localizedDescription)
             announcementPoster.post(
                 "Could not save haplotype assignments for \(draft.sample). \(error.localizedDescription)",
                 priority: .high
