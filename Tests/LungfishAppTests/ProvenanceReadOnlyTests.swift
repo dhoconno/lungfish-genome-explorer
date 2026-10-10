@@ -2,7 +2,9 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import AppKit
 import XCTest
+import ViewInspector
 @testable import LungfishApp
 import LungfishCore
 import LungfishIO
@@ -27,27 +29,8 @@ final class ProvenanceReadOnlyTests: XCTestCase {
     /// cleared the signatures. Reading shows the record as recorded.
     func testTaxTriageRecordWithoutItsSQLiteOutputIsReadAndNotRewritten() async throws {
         let project = try makeProject()
-        let result = project.appendingPathComponent("Analyses/taxtriage-2026-10-09T12-00-00", isDirectory: true)
-        let fastq = result.appendingPathComponent("SampleE.fastq")
-        let report = result.appendingPathComponent("SampleE.organisms.report.txt")
-        try place(Data("@r\nACGT\n+\n!!!!\n".utf8), at: fastq)
-        try place(Data("organism\treads\nExample virus\t4\n".utf8), at: report)
+        let (result, fastq, report) = try makeTaxTriageResult(in: project, folder: "taxtriage-2026-10-09T12-00-00")
         try place(Data("SQLite format 3\u{0}".utf8), at: result.appendingPathComponent("taxtriage.sqlite"))
-
-        let config = TaxTriageConfig(
-            samples: [TaxTriageSample(sampleId: "SampleE", fastq1: fastq)],
-            outputDirectory: result,
-            maxCpus: 2,
-            profile: "docker"
-        )
-        try TaxTriageResult(
-            config: config,
-            runtime: 3,
-            exitCode: 0,
-            outputDirectory: result,
-            reportFiles: [report],
-            allOutputFiles: [report]
-        ).save()
 
         let input = try ProvenanceFileDescriptor.file(url: fastq, format: .fastq, role: .input)
         let reportOutput = try ProvenanceFileDescriptor.file(url: report, format: .text, role: .report)
@@ -106,24 +89,7 @@ final class ProvenanceReadOnlyTests: XCTestCase {
     /// provenance and writes none.
     func testTaxTriageResultWithoutARecordShowsMissingProvenance() async throws {
         let project = try makeProject()
-        let result = project.appendingPathComponent("Analyses/taxtriage-2026-10-09T13-00-00", isDirectory: true)
-        let fastq = result.appendingPathComponent("SampleF.fastq")
-        let report = result.appendingPathComponent("SampleF.organisms.report.txt")
-        try place(Data("@r\nACGT\n+\n!!!!\n".utf8), at: fastq)
-        try place(Data("organism\treads\nExample virus\t4\n".utf8), at: report)
-        try TaxTriageResult(
-            config: TaxTriageConfig(
-                samples: [TaxTriageSample(sampleId: "SampleF", fastq1: fastq)],
-                outputDirectory: result,
-                maxCpus: 2,
-                profile: "docker"
-            ),
-            runtime: 3,
-            exitCode: 0,
-            outputDirectory: result,
-            reportFiles: [report],
-            allOutputFiles: [report]
-        ).save()
+        let (result, _, _) = try makeTaxTriageResult(in: project, folder: "taxtriage-2026-10-09T13-00-00")
 
         let model = try await assertReadingLeavesProjectUnchanged(
             ProvenanceInspectableItem(
@@ -207,22 +173,9 @@ final class ProvenanceReadOnlyTests: XCTestCase {
     /// `legacyWorkflowRun`.
     func testReferenceBundleWhoseRecordHoldsANestedRunIsReadWithoutWriting() async throws {
         let project = try makeProject()
-        let bundlePath = "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref"
-        let bundle = project.appendingPathComponent(bundlePath, isDirectory: true)
-        try copyFixture(
-            ProvenanceDisplayFixtures.directory.appendingPathComponent("\(bundlePath)/.lungfish-provenance.json"),
-            to: bundle.appendingPathComponent(".lungfish-provenance.json")
-        )
+        let released = try placeReleasedMHCRecord(in: project)
 
-        let model = try await assertReadingLeavesProjectUnchanged(
-            ProvenanceInspectableItem(
-                url: bundle,
-                sidebarType: .referenceBundle,
-                contentMode: .genomics,
-                displayName: "SIMULATED-MHC-annotated-reference"
-            ),
-            in: project
-        )
+        let model = try await assertReadingLeavesProjectUnchanged(released.item, in: project)
 
         XCTAssertNotNil(model.resolvedEnvelope?.legacyRun, "The record carries its embedded legacy run.")
         XCTAssertEqual(model.summary.stepCount, 3)
@@ -270,6 +223,160 @@ final class ProvenanceReadOnlyTests: XCTestCase {
         )
 
         XCTAssertEqual(model.resolvedSidecarURL?.lastPathComponent, sidecarName)
+    }
+
+    // MARK: - Raw JSON
+
+    /// The Raw JSON pane shows the file. The released record holds project-relative paths and a
+    /// nested `legacyWorkflowRun`, and the pane keeps both, because the file is what the manual
+    /// says it shows. A record re-encoded after the Inspector resolved its paths would differ.
+    func testRawJSONShowsTheSidecarsOwnBytesIncludingTheNestedRun() async throws {
+        let project = try makeProject()
+        let released = try placeReleasedMHCRecord(in: project)
+        let fileBytes = try Data(contentsOf: released.sidecar)
+
+        let model = try await assertReadingLeavesProjectUnchanged(released.item, in: project)
+
+        XCTAssertEqual(Data(model.rawJSON.utf8), fileBytes, "Raw JSON is the file, not the record encoded again.")
+        XCTAssertTrue(model.rawJSON.contains("\"legacyWorkflowRun\""), "The nested run block is in Raw JSON.")
+        XCTAssertTrue(
+            model.rawJSON.contains("@\\/Reference Sequences"),
+            "Project-relative paths stay as the file wrote them."
+        )
+        let reencoded = try ProvenanceJSON.encoder.encode(try XCTUnwrap(model.resolvedEnvelope))
+        XCTAssertNotEqual(
+            reencoded, fileBytes,
+            "The record encoded again differs from the file, so this case separates the two views."
+        )
+    }
+
+    /// A bare legacy run is not an envelope. The pane shows the bare run as the file holds it,
+    /// not the envelope the reader converts it to.
+    func testRawJSONOfABareRunIsTheBareRunFile() async throws {
+        let project = try makeProject()
+        let sidecarName = "MN908947.3.gff3.lungfish-provenance.json"
+        let gff3 = try copyFixture(
+            ProvenanceDisplayFixtures.sarscov2Directory.appendingPathComponent("MN908947.3.gff3"),
+            to: project.appendingPathComponent("Imports/MN908947.3.gff3")
+        )
+        let sidecar = try copyFixture(
+            ProvenanceDisplayFixtures.sarscov2Directory.appendingPathComponent(sidecarName),
+            to: project.appendingPathComponent("Imports/\(sidecarName)")
+        )
+
+        let model = try await assertReadingLeavesProjectUnchanged(
+            ProvenanceInspectableItem(
+                url: gff3, sidebarType: .annotation, contentMode: .genomics, displayName: "MN908947.3.gff3"
+            ),
+            in: project
+        )
+
+        XCTAssertEqual(Data(model.rawJSON.utf8), try Data(contentsOf: sidecar))
+        XCTAssertFalse(model.rawJSON.contains("\"schemaVersion\""), "The converted envelope is not what the file holds.")
+    }
+
+    /// The Copy button in the pane puts the file's bytes on the pasteboard. The case taps the
+    /// real button and reads a pasteboard of its own, so it never touches the general one.
+    func testRawJSONCopyButtonPutsTheSidecarsBytesOnThePasteboard() async throws {
+        let project = try makeProject()
+        let released = try placeReleasedMHCRecord(in: project)
+        let fileBytes = try Data(contentsOf: released.sidecar)
+        let model = try await assertReadingLeavesProjectUnchanged(released.item, in: project)
+        let pasteboard = NSPasteboard.withUniqueName()
+        addTeardownBlock { pasteboard.releaseGlobally() }
+        model.pasteboard = pasteboard
+
+        try ProvenanceSection(viewModel: model).inspect()
+            .find(viewWithAccessibilityIdentifier: "provenance-raw-json")
+            .find(viewWithAccessibilityIdentifier: "provenance-copy-json")
+            .button()
+            .tap()
+
+        XCTAssertEqual(pasteboard.data(forType: .string), fileBytes)
+    }
+
+    /// A file that is not text that reproduces its own bytes cannot be shown as the file. A
+    /// leading byte order mark reads as JSON, but the text drops it, so the pane falls back to
+    /// the record encoded again and Copy copies that.
+    func testRawJSONFallsBackToTheRecordWhenTheFileIsNotExactText() async throws {
+        let project = try makeProject()
+        let folder = project.appendingPathComponent("Analyses/bom-result", isDirectory: true)
+        let sidecar = folder.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let reads = folder.appendingPathComponent("reads.fastq")
+        try place(Data("@r\nACGT\n+\n!!!!\n".utf8), at: reads)
+        let record = makeImportRecord(files: [try ProvenanceFileDescriptor.file(url: reads, format: .fastq, role: .input)])
+        try place(Data([0xEF, 0xBB, 0xBF]) + ProvenanceJSON.encoder.encode(record), at: sidecar)
+
+        let model = try await assertReadingLeavesProjectUnchanged(
+            ProvenanceInspectableItem(
+                url: folder, sidebarType: .analysisResult, contentMode: .genomics, displayName: "bom-result"
+            ),
+            in: project
+        )
+
+        let envelope = try XCTUnwrap(model.resolvedEnvelope, "A file with a byte order mark still reads as a record.")
+        XCTAssertEqual(model.rawJSON, String(decoding: try ProvenanceJSON.encoder.encode(envelope), as: UTF8.self))
+        XCTAssertNotEqual(Data(model.rawJSON.utf8), try Data(contentsOf: sidecar))
+
+        let pasteboard = NSPasteboard.withUniqueName()
+        addTeardownBlock { pasteboard.releaseGlobally() }
+        model.pasteboard = pasteboard
+        model.copyRawJSON()
+        XCTAssertEqual(pasteboard.string(forType: .string), model.rawJSON)
+    }
+
+    /// A record past the pane's caps shows nothing in Raw JSON, whatever the file holds.
+    func testRawJSONStaysEmptyForARecordPastTheDisplayCap() async throws {
+        let project = try makeProject()
+        let folder = project.appendingPathComponent("Analyses/large-result", isDirectory: true)
+        let descriptors = (0..<650).map { index in
+            ProvenanceFileDescriptor(
+                path: folder.appendingPathComponent("reads-\(index).fastq").path,
+                checksumSHA256: String(repeating: "a", count: 64),
+                fileSize: UInt64(index + 1),
+                format: .fastq,
+                role: .input
+            )
+        }
+        try place(
+            ProvenanceJSON.encoder.encode(makeImportRecord(files: descriptors)),
+            at: folder.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        )
+
+        let model = try await assertReadingLeavesProjectUnchanged(
+            ProvenanceInspectableItem(
+                url: folder, sidebarType: .analysisResult, contentMode: .genomics, displayName: "large-result"
+            ),
+            in: project
+        )
+
+        XCTAssertNotNil(model.resolvedEnvelope)
+        XCTAssertEqual(model.rawJSON, "")
+    }
+
+    /// A native bundle loader hands the Inspector a record it has already verified, with no lookup
+    /// to read the file in. That record shows encoded again, as before.
+    func testRawJSONOfAVerifiedBundleRecordIsTheRecordEncodedAgain() throws {
+        let record = ProvenanceEnvelope.fixture()
+        let sidecar = URL(fileURLWithPath: "/nowhere/Primers.lungfishprimers/provenance.json")
+        let model = ProvenanceInspectorViewModel()
+
+        model.configureVerifiedSources([
+            ProvenanceSource(
+                id: sidecar.path,
+                name: "Analysis",
+                item: ProvenanceInspectableItem(
+                    url: sidecar.deletingLastPathComponent(),
+                    sidebarType: .primerAnalysisBundle,
+                    contentMode: .genomics,
+                    displayName: "Analysis"
+                ),
+                verifiedRecord: VerifiedProvenanceRecord(envelope: record, sidecarURL: sidecar)
+            ),
+        ])
+
+        XCTAssertEqual(model.rawJSON, String(decoding: try ProvenanceJSON.encoder.encode(record), as: UTF8.self))
+        XCTAssertFalse(model.rawJSON.isEmpty)
     }
 
     // MARK: - The snapshot itself
@@ -363,6 +470,74 @@ final class ProvenanceReadOnlyTests: XCTestCase {
         XCTAssertTrue(
             model.warnings.contains { $0.title == "Missing provenance" },
             "\(model.warnings)", file: file, line: line
+        )
+    }
+
+    /// The record `lungfish import fasta` of Lungfish 2026.9.58 wrote for the MHC demo's reference
+    /// bundle, copied to its project-relative place so the paths in it resolve. It is a full
+    /// envelope that also holds the nested `legacyWorkflowRun`.
+    private func placeReleasedMHCRecord(
+        in project: URL
+    ) throws -> (item: ProvenanceInspectableItem, sidecar: URL) {
+        let bundlePath = "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref"
+        let bundle = project.appendingPathComponent(bundlePath, isDirectory: true)
+        let sidecar = try copyFixture(
+            ProvenanceDisplayFixtures.directory.appendingPathComponent("\(bundlePath)/.lungfish-provenance.json"),
+            to: bundle.appendingPathComponent(".lungfish-provenance.json")
+        )
+        return (
+            ProvenanceInspectableItem(
+                url: bundle,
+                sidebarType: .referenceBundle,
+                contentMode: .genomics,
+                displayName: "SIMULATED-MHC-annotated-reference"
+            ),
+            sidecar
+        )
+    }
+
+    /// A TaxTriage result folder with its reads, a report and `taxtriage-result.json`, and no record.
+    private func makeTaxTriageResult(
+        in project: URL,
+        folder: String
+    ) throws -> (folder: URL, fastq: URL, report: URL) {
+        let result = project.appendingPathComponent("Analyses/\(folder)", isDirectory: true)
+        let fastq = result.appendingPathComponent("SampleE.fastq")
+        let report = result.appendingPathComponent("SampleE.organisms.report.txt")
+        try place(Data("@r\nACGT\n+\n!!!!\n".utf8), at: fastq)
+        try place(Data("organism\treads\nExample virus\t4\n".utf8), at: report)
+        try TaxTriageResult(
+            config: TaxTriageConfig(
+                samples: [TaxTriageSample(sampleId: "SampleE", fastq1: fastq)],
+                outputDirectory: result,
+                maxCpus: 2,
+                profile: "docker"
+            ),
+            runtime: 3,
+            exitCode: 0,
+            outputDirectory: result,
+            reportFiles: [report],
+            allOutputFiles: [report]
+        ).save()
+        return (result, fastq, report)
+    }
+
+    /// A complete record with one step, listing `files`. Its output is the first file.
+    private func makeImportRecord(files: [ProvenanceFileDescriptor]) -> ProvenanceEnvelope {
+        ProvenanceEnvelope(
+            workflowName: "lungfish import fastq",
+            workflowVersion: "2026.10.1",
+            toolName: "clumpify.sh",
+            toolVersion: "40.02",
+            argv: ["clumpify.sh"],
+            runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
+            files: files,
+            output: files.first,
+            outputs: Array(files.prefix(1)),
+            steps: [ProvenanceStep(toolName: "clumpify.sh", toolVersion: "40.02", argv: ["clumpify.sh"], exitStatus: 0)],
+            wallTimeSeconds: 1,
+            exitStatus: 0,
+            stderr: ""
         )
     }
 

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import AppKit
 import Foundation
 import SwiftUI
 import LungfishCore
@@ -327,8 +328,8 @@ struct VerifiedProvenanceRecord {
 @Observable
 @MainActor
 final class ProvenanceInspectorViewModel {
-    private static let maximumDisplayedFileRows = 500
-    private static let maximumDisplayedStepPaths = 200
+    nonisolated private static let maximumDisplayedFileRows = 500
+    nonisolated private static let maximumDisplayedStepPaths = 200
 
     var currentItem: ProvenanceInspectableItem?
     private(set) var sources: [ProvenanceSource] = []
@@ -428,6 +429,9 @@ final class ProvenanceInspectorViewModel {
     var fileRows: [ProvenanceFileRow] = []
     var optionRows: [ProvenanceOptionRow] = []
     var runtimeRows: [ProvenanceRuntimeRow] = []
+    /// The Raw JSON pane's text, and what its Copy button copies. It is the sidecar file's own text
+    /// when the lookup could read it, and the record encoded again when it could not. It is empty
+    /// for a record past the display caps.
     var rawJSON: String = ""
     var copyableText: String = ""
     var resolvedEnvelope: ProvenanceEnvelope?
@@ -435,6 +439,9 @@ final class ProvenanceInspectorViewModel {
     var searchText: String = ""
     var isLoading: Bool = false
     var onExportRequested: ((ProvenanceExportFormat) -> Void)?
+
+    /// The pasteboard the Raw JSON Copy button writes. Tests substitute a private one.
+    @ObservationIgnored var pasteboard: NSPasteboard = .general
 
     private let monitor: ProvenanceCoverageMonitor
 
@@ -542,8 +549,26 @@ final class ProvenanceInspectorViewModel {
             audit: audit,
             resolvedEnvelope: resolved.envelope,
             resolvedSidecarURL: resolved.sidecarURL,
-            upstreamRuns: upstream.map { ProvenanceUpstreamRun(envelope: $0.envelope, sidecarURL: $0.sidecarURL) }
+            upstreamRuns: upstream.map { ProvenanceUpstreamRun(envelope: $0.envelope, sidecarURL: $0.sidecarURL) },
+            sidecarText: sidecarText(at: resolved.sidecarURL, for: resolved.envelope)
         )
+    }
+
+    /// The sidecar's own text for the Raw JSON pane, or nil when the pane shows the record encoded again.
+    ///
+    /// It is read here, off the main actor, and only for a record the pane shows at all. The text is
+    /// returned only when its UTF-8 bytes are the file's bytes, so a file that cannot be read, is not
+    /// UTF-8, or starts with a byte order mark falls back to the encoded record instead of showing
+    /// something the file does not hold.
+    nonisolated private static func sidecarText(at url: URL, for envelope: ProvenanceEnvelope) -> String? {
+        let fileRowCount = deduplicatedFileDescriptors(allFileDescriptors(in: envelope)).count
+        guard shouldInlineRawJSON(fileRowCount: fileRowCount, envelope: envelope),
+              let bytes = try? Data(contentsOf: url),
+              let text = String(data: bytes, encoding: .utf8),
+              Data(text.utf8) == bytes else {
+            return nil
+        }
+        return text
     }
 
     struct ProvenanceUpstreamRun: Sendable {
@@ -556,6 +581,8 @@ final class ProvenanceInspectorViewModel {
         var resolvedEnvelope: ProvenanceEnvelope?
         var resolvedSidecarURL: URL?
         var upstreamRuns: [ProvenanceUpstreamRun]
+        /// The sidecar file's text for Raw JSON. Nil when the pane shows the encoded record.
+        var sidecarText: String? = nil
     }
 
     /// Applies a completed off-main lookup's result to published state. Must only be called
@@ -571,7 +598,12 @@ final class ProvenanceInspectorViewModel {
 
         resolvedEnvelope = envelope
         resolvedSidecarURL = sidecarURL
-        buildPresentState(envelope: envelope, sidecarURL: sidecarURL, upstreamRuns: outcome.upstreamRuns)
+        buildPresentState(
+            envelope: envelope,
+            sidecarURL: sidecarURL,
+            upstreamRuns: outcome.upstreamRuns,
+            sidecarText: outcome.sidecarText
+        )
     }
 
     #if DEBUG
@@ -596,6 +628,13 @@ final class ProvenanceInspectorViewModel {
 
     func export(format: ProvenanceExportFormat) {
         onExportRequested?(format)
+    }
+
+    /// Puts the Raw JSON text, as the pane shows it, on `pasteboard`.
+    func copyRawJSON() {
+        guard !rawJSON.isEmpty else { return }
+        pasteboard.clearContents()
+        pasteboard.setString(rawJSON, forType: .string)
     }
 
     private func buildMissingState(item: ProvenanceInspectableItem) {
@@ -633,12 +672,13 @@ final class ProvenanceInspectorViewModel {
     private func buildPresentState(
         envelope: ProvenanceEnvelope,
         sidecarURL: URL,
-        upstreamRuns: [ProvenanceUpstreamRun] = []
+        upstreamRuns: [ProvenanceUpstreamRun] = [],
+        sidecarText: String? = nil
     ) {
         // Paths are shown relative to the project the sidecar lies in; the
         // recorded path stays in the copy text, the tooltip and accessibility.
         let projectURL = PortablePath.anchors(for: sidecarURL).project
-        let deduplicatedDescriptors = deduplicatedFileDescriptors(allFileDescriptors(in: envelope))
+        let deduplicatedDescriptors = Self.deduplicatedFileDescriptors(Self.allFileDescriptors(in: envelope))
         let fastqPresentation = ProvenanceFASTQBundlePresentation(
             envelope: envelope,
             descriptors: deduplicatedDescriptors
@@ -682,8 +722,8 @@ final class ProvenanceInspectorViewModel {
         fileRows = Array(completeFileRows.prefix(Self.maximumDisplayedFileRows))
         optionRows = buildOptionRows(envelope.options, projectURL: projectURL)
         runtimeRows = buildRuntimeRows(envelope.runtimeIdentity)
-        rawJSON = shouldInlineRawJSON(fileRowCount: deduplicatedDescriptors.count, envelope: envelope)
-            ? encodedJSON(envelope)
+        rawJSON = Self.shouldInlineRawJSON(fileRowCount: deduplicatedDescriptors.count, envelope: envelope)
+            ? (sidecarText ?? encodedJSON(envelope))
             : ""
         copyableText = buildCopyableText()
     }
@@ -764,29 +804,29 @@ final class ProvenanceInspectorViewModel {
     }
 
     private func inputDescriptors(in envelope: ProvenanceEnvelope) -> [ProvenanceFileDescriptor] {
-        deduplicatedFileDescriptors(
-            allFileDescriptors(in: envelope).filter {
+        Self.deduplicatedFileDescriptors(
+            Self.allFileDescriptors(in: envelope).filter {
                 $0.role == .input || $0.role == .reference || $0.role == .index
             }
         )
     }
 
     private func outputDescriptors(in envelope: ProvenanceEnvelope) -> [ProvenanceFileDescriptor] {
-        deduplicatedFileDescriptors(
-            allFileDescriptors(in: envelope).filter {
+        Self.deduplicatedFileDescriptors(
+            Self.allFileDescriptors(in: envelope).filter {
                 $0.role == .output || $0.role == .report || $0.role == .log
             }
         )
     }
 
-    private func allFileDescriptors(in envelope: ProvenanceEnvelope) -> [ProvenanceFileDescriptor] {
+    nonisolated private static func allFileDescriptors(in envelope: ProvenanceEnvelope) -> [ProvenanceFileDescriptor] {
         envelope.files
             + (envelope.output.map { [$0] } ?? [])
             + envelope.outputs
             + envelope.steps.flatMap { $0.inputs + $0.outputs }
     }
 
-    private func deduplicatedFileDescriptors(_ descriptors: [ProvenanceFileDescriptor]) -> [ProvenanceFileDescriptor] {
+    nonisolated private static func deduplicatedFileDescriptors(_ descriptors: [ProvenanceFileDescriptor]) -> [ProvenanceFileDescriptor] {
         var seen = Set<String>()
         return descriptors.filter { descriptor in
             let key = "\(descriptor.role.rawValue)|\(descriptor.path)"
@@ -910,7 +950,7 @@ final class ProvenanceInspectorViewModel {
         ]
     }
 
-    private func shouldInlineRawJSON(fileRowCount: Int, envelope: ProvenanceEnvelope) -> Bool {
+    nonisolated private static func shouldInlineRawJSON(fileRowCount: Int, envelope: ProvenanceEnvelope) -> Bool {
         guard fileRowCount <= Self.maximumDisplayedFileRows else {
             return false
         }

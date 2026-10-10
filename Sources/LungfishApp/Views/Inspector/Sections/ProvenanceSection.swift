@@ -325,7 +325,7 @@ struct ProvenanceSection: View {
                 HStack {
                     Spacer()
                     Button {
-                        copyToPasteboard(viewModel.rawJSON)
+                        viewModel.copyRawJSON()
                     } label: {
                         Label("Copy", systemImage: "doc.on.doc")
                     }
