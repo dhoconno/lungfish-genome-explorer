@@ -176,7 +176,14 @@ enum SidebarScanSafetyNetProjects {
     /// Batch folders hold one sample, the least a batch needs to be listed.
     /// Classifier batches hold the result sidecar their sample count reads.
     static func writeKnownToolFolders(in analyses: URL) throws {
-        for tool in AnalysesFolder.knownTools.sorted() {
+        // A literal list, not AnalysesFolder.knownTools, so a registry change alters the
+        // code under test and not its input. These are the 21 ids in today's sorted order.
+        let tools = [
+            "bbmap", "bowtie2", "bwa-mem2", "cz-id", "esviritu", "flye", "hifiasm", "kraken2",
+            "mafft", "megahit", "minimap2", "naomgs", "nvd", "ont-genotyping", "pbaa",
+            "primer-order", "savont", "skesa", "spades", "taxtriage", "viralrecon",
+        ]
+        for tool in tools {
             try SafetyNetFiles.makeDirectory(analyses.appendingPathComponent("\(tool)-2026-01-15T10-00-00", isDirectory: true))
             let batch = try SafetyNetFiles.makeDirectory(
                 analyses.appendingPathComponent("\(tool)-batch-2026-01-15T11-00-00", isDirectory: true)
