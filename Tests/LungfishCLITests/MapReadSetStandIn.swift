@@ -15,10 +15,20 @@ import LungfishTestSupport
 /// mapper and samtools call writes its argv to `logDirectory`, one file per
 /// call in call order, and writes a header-only SAM where the real tool
 /// writes its alignments.
+///
+/// The stand-ins answer version probes the way the real tools do. The
+/// micromamba fails with real micromamba's message for an environment that
+/// does not exist under its root. The BBTools wrappers echo their `java`
+/// command line with the install path on stderr, `mapPacBio.sh` with its
+/// `minratio=0.40`, then print `BBTools version 39.01`, a version unlike the
+/// lock pin.
 struct MapReadSetStandIn {
+    static let bbToolsVersion = "39.01"
+
     let rootURL: URL
     let logDirectory: URL
     let referenceURL: URL
+    let condaRootURL: URL
     let pipeline: ManagedMappingPipeline
 
     static func make(in rootURL: URL) throws -> MapReadSetStandIn {
@@ -54,19 +64,32 @@ struct MapReadSetStandIn {
             namePrefix: "home",
             script: samtoolsScript(logDirectory: logDirectory.path)
         )
-        let bbmap = CoreToolLocator.executableURL(
-            environment: "bbtools",
-            executableName: "bbmap.sh",
-            homeDirectory: home.homeURL
-        )
-        try fileManager.createDirectory(at: bbmap.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try writeExecutable(bbmapScript(logDirectory: logDirectory.path), to: bbmap)
+        for (executable, javaArguments) in [
+            ("bbmap.sh", "-Xmx27928m -Xms27928m -cp %@ align2.BBMap build=1 overwrite=true fastareadlen=500"),
+            ("mapPacBio.sh", "-Xmx27928m -Xms27928m -cp %@ align2.BBMapPacBio build=1 overwrite=true minratio=0.40 fastareadlen=6000"),
+            ("reformat.sh", "-Xmx300m -Xms300m -cp %@ jgi.ReformatReads"),
+        ] {
+            let url = CoreToolLocator.executableURL(
+                environment: "bbtools",
+                executableName: executable,
+                homeDirectory: home.homeURL
+            )
+            try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let installPath = url.deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("opt/bbmap-\(bbToolsVersion)-0/current", isDirectory: true).path + "/"
+            let javaLine = "java -ea   " + javaArguments.replacingOccurrences(of: "%@", with: installPath) + " --version"
+            try writeExecutable(
+                bbToolsScript(executable: executable, javaLine: javaLine, logDirectory: logDirectory.path),
+                to: url
+            )
+        }
         let runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: home.homeURL)
 
         return MapReadSetStandIn(
             rootURL: rootURL,
             logDirectory: logDirectory,
             referenceURL: referenceURL,
+            condaRootURL: condaRoot,
             pipeline: ManagedMappingPipeline(condaManager: condaManager, nativeToolRunner: runner)
         )
     }
@@ -180,7 +203,14 @@ struct MapReadSetStandIn {
         if [ "$1" = "--version" ]; then echo "2.0.0"; exit 0; fi
         [ "$1" = "run" ] || exit 64
         shift
-        if [ "$1" = "-n" ]; then shift 2; fi
+        if [ "$1" = "-n" ]; then
+          prefix="$MAMBA_ROOT_PREFIX/envs/$2"
+          if [ ! -d "$prefix" ]; then
+            echo "critical libmamba The given prefix does not exist: \\"$prefix\\"" >&2
+            exit 1
+          fi
+          shift 2
+        fi
         tool="$1"
         shift
         case "$1" in --version|-v|version) echo "2.2.1"; exit 0 ;; esac
@@ -198,12 +228,21 @@ struct MapReadSetStandIn {
         """
     }
 
-    private static func bbmapScript(logDirectory: String) -> String {
+    /// A BBTools wrapper. Like the real one it echoes its `java` command line
+    /// on stderr, then the tool prints its version there.
+    private static func bbToolsScript(executable: String, javaLine: String, logDirectory: String) -> String {
         """
         #!/bin/sh
         \(logFunction(logDirectory))
-        case "$1" in --version|-v|version) echo "BBMap version 39.01"; exit 0 ;; esac
-        log_call "bbmap.sh" "$@"
+        case "$1" in
+          --version|-v|version)
+            echo '\(javaLine)' >&2
+            echo "BBTools version \(bbToolsVersion)" >&2
+            echo "For help, please run the shellscript with no parameters, or look in /docs/." >&2
+            exit 0
+            ;;
+        esac
+        log_call "\(executable)" "$@"
         for arg in "$@"; do
           case "$arg" in out=*) header > "${arg#out=}" ;; esac
         done
