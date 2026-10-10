@@ -65,7 +65,7 @@ final class SRADownloadSubcommandProvenanceTests: XCTestCase {
 
     /// Runs `fetch sra download SRR200` into `folder` and returns the
     /// provenance it wrote there.
-    private static func download(into folder: URL, portal: ScriptedENAClient.Portal) async throws -> WorkflowRun {
+    static func download(into folder: URL, portal: ScriptedENAClient.Portal) async throws -> WorkflowRun {
         let client = ScriptedENAClient(portal: portal)
         let service = SRAService(
             ncbiService: NCBIService(httpClient: client, environment: [:]),
@@ -105,7 +105,7 @@ final class SRADownloadSubcommandProvenanceTests: XCTestCase {
 
 /// Answers ENA's portal as the test scripts it and serves each mirror file
 /// as an empty gzip stream of the size the portal lists.
-private actor ScriptedENAClient: HTTPClient {
+actor ScriptedENAClient: HTTPClient {
     enum Portal: Sendable {
         /// ENA's portal answers HTTP 500 with an error page.
         case outage

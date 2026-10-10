@@ -1,0 +1,651 @@
+{
+  "argv" : [
+    "<tool-root>/bin/micromamba",
+    "run",
+    "-n",
+    "gatk-core",
+    "gatk",
+    "HaplotypeCaller",
+    "-R",
+    "<project>/Inputs/ref.fa",
+    "-I",
+    "<project>/Inputs/sample.bam",
+    "-O",
+    "<project>/Analyses/phase-execute/gatk-unphased.vcf.gz",
+    "-ERC",
+    "NONE",
+    "--native-pair-hmm-threads",
+    "2"
+  ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "<tool-root>/bin/micromamba",
+        "run",
+        "-n",
+        "gatk-core",
+        "gatk",
+        "HaplotypeCaller",
+        "-R",
+        "<project>/Inputs/ref.fa",
+        "-I",
+        "<project>/Inputs/sample.bam",
+        "-O",
+        "<project>/Analyses/phase-execute/gatk-unphased.vcf.gz",
+        "-ERC",
+        "NONE",
+        "--native-pair-hmm-threads",
+        "2"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "gatk",
+      "toolVersion" : "<gatk-version>"
+    },
+    {
+      "command" : [
+        "<tool-root>/bin/micromamba",
+        "run",
+        "-n",
+        "phasing",
+        "whatshap",
+        "phase",
+        "--reference",
+        "<project>/Inputs/ref.fa",
+        "-o",
+        "<project>/Analyses/phase-execute/phased.vcf.gz",
+        "<project>/Analyses/phase-execute/gatk-unphased.vcf.gz",
+        "<project>/Inputs/sample.bam"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "whatshap",
+      "toolVersion" : "<whatshap-version>"
+    },
+    {
+      "command" : [
+        "lungfish-cli",
+        "variants",
+        "phase",
+        "--reference",
+        "<project>/Inputs/ref.fa",
+        "--bam",
+        "<project>/Inputs/sample.bam",
+        "--output-vcf",
+        "<project>/Analyses/phase-execute/phased.vcf.gz",
+        "--output-dir",
+        "<project>/Analyses/phase-execute",
+        "--threads",
+        "2",
+        "--execute"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish variants phase",
+      "toolVersion" : "lungfish-cli <cli-version>"
+    }
+  ],
+  "decodedBy" : "workflowRun",
+  "defaultOptions" : {
+
+  },
+  "exitStatus" : 0,
+  "explicitOptions" : {
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "execute" : {
+      "type" : "string",
+      "value" : "true"
+    },
+    "gatkRuntime" : {
+      "type" : "string",
+      "value" : "<tool-root>/envs/gatk-core"
+    },
+    "options" : {
+      "type" : "dictionary",
+      "value" : {
+        "extraGATKArguments" : {
+          "type" : "string",
+          "value" : "[]"
+        },
+        "extraWhatsHapArguments" : {
+          "type" : "string",
+          "value" : "[]"
+        },
+        "sampleName" : {
+          "type" : "string",
+          "value" : ""
+        },
+        "threads" : {
+          "type" : "string",
+          "value" : "2"
+        }
+      }
+    },
+    "packIDs" : {
+      "type" : "string",
+      "value" : "gatk-core,phasing"
+    },
+    "resolvedDefaults" : {
+      "type" : "dictionary",
+      "value" : {
+        "emitReferenceConfidence" : {
+          "type" : "string",
+          "value" : "NONE"
+        },
+        "extraGATKArguments" : {
+          "type" : "string",
+          "value" : "[]"
+        },
+        "extraWhatsHapArguments" : {
+          "type" : "string",
+          "value" : "[]"
+        },
+        "sampleName" : {
+          "type" : "string",
+          "value" : ""
+        },
+        "threads" : {
+          "type" : "string",
+          "value" : "1"
+        }
+      }
+    },
+    "threads" : {
+      "type" : "string",
+      "value" : "2"
+    },
+    "whatsHapRuntime" : {
+      "type" : "string",
+      "value" : "<tool-root>/envs/phasing"
+    }
+  },
+  "factsVersion" : 2,
+  "files" : [
+    {
+      "format" : "fasta",
+      "path" : "<project>/Inputs/ref.fa",
+      "role" : "reference",
+      "sha256" : "f8150f1ddacb6623f83c304530699161ded29f02b133389fdd990dbfd7139b1a",
+      "size" : 11
+    },
+    {
+      "format" : "bam",
+      "path" : "<project>/Inputs/sample.bam",
+      "role" : "input",
+      "sha256" : "2e020ec1a2c73ce4606f16467f8dadbbbedc7e19e2b4b29b4101f52447a3920d",
+      "size" : 9
+    },
+    {
+      "format" : "vcf",
+      "path" : "<project>/Analyses/phase-execute/gatk-unphased.vcf.gz",
+      "role" : "output",
+      "sha256" : "badc772845fcc508700e0bbf05a429f4f400ee2f0a3c6604ebcc6cfb81db0f09",
+      "size" : 13
+    },
+    {
+      "format" : "fasta",
+      "path" : "<project>/Inputs/ref.fa",
+      "role" : "reference",
+      "sha256" : "f8150f1ddacb6623f83c304530699161ded29f02b133389fdd990dbfd7139b1a",
+      "size" : 11
+    },
+    {
+      "format" : "bam",
+      "path" : "<project>/Inputs/sample.bam",
+      "role" : "input",
+      "sha256" : "2e020ec1a2c73ce4606f16467f8dadbbbedc7e19e2b4b29b4101f52447a3920d",
+      "size" : 9
+    },
+    {
+      "format" : "vcf",
+      "path" : "<project>/Analyses/phase-execute/gatk-unphased.vcf.gz",
+      "role" : "input",
+      "sha256" : "badc772845fcc508700e0bbf05a429f4f400ee2f0a3c6604ebcc6cfb81db0f09",
+      "size" : 13
+    },
+    {
+      "format" : "vcf",
+      "path" : "<project>/Analyses/phase-execute/phased.vcf.gz",
+      "role" : "output",
+      "sha256" : "4b371fbef60ce426096c79fd4848eac848da9380af0e776161fbc172b58efda6",
+      "size" : 11
+    },
+    {
+      "format" : "fasta",
+      "path" : "<project>/Inputs/ref.fa",
+      "role" : "reference",
+      "sha256" : "f8150f1ddacb6623f83c304530699161ded29f02b133389fdd990dbfd7139b1a",
+      "size" : 11
+    },
+    {
+      "format" : "bam",
+      "path" : "<project>/Inputs/sample.bam",
+      "role" : "input",
+      "sha256" : "2e020ec1a2c73ce4606f16467f8dadbbbedc7e19e2b4b29b4101f52447a3920d",
+      "size" : 9
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/Analyses/phase-execute/phased-variant-command-plan.json",
+      "role" : "output"
+    },
+    {
+      "format" : "vcf",
+      "path" : "<project>/Analyses/phase-execute/gatk-unphased.vcf.gz",
+      "role" : "output",
+      "sha256" : "badc772845fcc508700e0bbf05a429f4f400ee2f0a3c6604ebcc6cfb81db0f09",
+      "size" : 13
+    },
+    {
+      "format" : "vcf",
+      "path" : "<project>/Analyses/phase-execute/phased.vcf.gz",
+      "role" : "output",
+      "sha256" : "4b371fbef60ce426096c79fd4848eac848da9380af0e776161fbc172b58efda6",
+      "size" : 11
+    }
+  ],
+  "legacyRunParameters" : {
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "execute" : {
+      "type" : "string",
+      "value" : "true"
+    },
+    "gatkRuntime" : {
+      "type" : "string",
+      "value" : "<tool-root>/envs/gatk-core"
+    },
+    "options" : {
+      "type" : "dictionary",
+      "value" : {
+        "extraGATKArguments" : {
+          "type" : "string",
+          "value" : "[]"
+        },
+        "extraWhatsHapArguments" : {
+          "type" : "string",
+          "value" : "[]"
+        },
+        "sampleName" : {
+          "type" : "string",
+          "value" : ""
+        },
+        "threads" : {
+          "type" : "string",
+          "value" : "2"
+        }
+      }
+    },
+    "packIDs" : {
+      "type" : "string",
+      "value" : "gatk-core,phasing"
+    },
+    "resolvedDefaults" : {
+      "type" : "dictionary",
+      "value" : {
+        "emitReferenceConfidence" : {
+          "type" : "string",
+          "value" : "NONE"
+        },
+        "extraGATKArguments" : {
+          "type" : "string",
+          "value" : "[]"
+        },
+        "extraWhatsHapArguments" : {
+          "type" : "string",
+          "value" : "[]"
+        },
+        "sampleName" : {
+          "type" : "string",
+          "value" : ""
+        },
+        "threads" : {
+          "type" : "string",
+          "value" : "1"
+        }
+      }
+    },
+    "threads" : {
+      "type" : "string",
+      "value" : "2"
+    },
+    "whatsHapRuntime" : {
+      "type" : "string",
+      "value" : "<tool-root>/envs/phasing"
+    }
+  },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "<tool-root>/bin/micromamba",
+        "run",
+        "-n",
+        "gatk-core",
+        "gatk",
+        "HaplotypeCaller",
+        "-R",
+        "<project>/Inputs/ref.fa",
+        "-I",
+        "<project>/Inputs/sample.bam",
+        "-O",
+        "<project>/Analyses/phase-execute/gatk-unphased.vcf.gz",
+        "-ERC",
+        "NONE",
+        "--native-pair-hmm-threads",
+        "2"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "gatk",
+      "toolVersion" : "<gatk-version>"
+    },
+    {
+      "command" : [
+        "<tool-root>/bin/micromamba",
+        "run",
+        "-n",
+        "phasing",
+        "whatshap",
+        "phase",
+        "--reference",
+        "<project>/Inputs/ref.fa",
+        "-o",
+        "<project>/Analyses/phase-execute/phased.vcf.gz",
+        "<project>/Analyses/phase-execute/gatk-unphased.vcf.gz",
+        "<project>/Inputs/sample.bam"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "whatshap",
+      "toolVersion" : "<whatshap-version>"
+    },
+    {
+      "command" : [
+        "lungfish-cli",
+        "variants",
+        "phase",
+        "--reference",
+        "<project>/Inputs/ref.fa",
+        "--bam",
+        "<project>/Inputs/sample.bam",
+        "--output-vcf",
+        "<project>/Analyses/phase-execute/phased.vcf.gz",
+        "--output-dir",
+        "<project>/Analyses/phase-execute",
+        "--threads",
+        "2",
+        "--execute"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish variants phase",
+      "toolVersion" : "lungfish-cli <cli-version>"
+    }
+  ],
+  "opsStats" : {
+    "completedRunCount" : 1,
+    "decodesAsWorkflowRun" : true,
+    "totalWallTimeSeconds" : 0
+  },
+  "output" : {
+    "format" : "json",
+    "path" : "<project>/Analyses/phase-execute/phased-variant-command-plan.json",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "format" : "vcf",
+      "path" : "<project>/Analyses/phase-execute/gatk-unphased.vcf.gz",
+      "role" : "output",
+      "sha256" : "badc772845fcc508700e0bbf05a429f4f400ee2f0a3c6604ebcc6cfb81db0f09",
+      "size" : 13
+    },
+    {
+      "format" : "vcf",
+      "path" : "<project>/Analyses/phase-execute/phased.vcf.gz",
+      "role" : "output",
+      "sha256" : "4b371fbef60ce426096c79fd4848eac848da9380af0e776161fbc172b58efda6",
+      "size" : 11
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/Analyses/phase-execute/phased-variant-command-plan.json",
+      "role" : "output"
+    },
+    {
+      "format" : "vcf",
+      "path" : "<project>/Analyses/phase-execute/gatk-unphased.vcf.gz",
+      "role" : "output",
+      "sha256" : "badc772845fcc508700e0bbf05a429f4f400ee2f0a3c6604ebcc6cfb81db0f09",
+      "size" : 13
+    },
+    {
+      "format" : "vcf",
+      "path" : "<project>/Analyses/phase-execute/phased.vcf.gz",
+      "role" : "output",
+      "sha256" : "4b371fbef60ce426096c79fd4848eac848da9380af0e776161fbc172b58efda6",
+      "size" : 11
+    }
+  ],
+  "readStatus" : "completed",
+  "recorded" : {
+
+  },
+  "reproducibleCommand" : "<tool-root>/bin/micromamba run -n gatk-core gatk HaplotypeCaller -R <project>/Inputs/ref.fa -I <project>/Inputs/sample.bam -O <project>/Analyses/phase-execute/gatk-unphased.vcf.gz -ERC NONE --native-pair-hmm-threads 2",
+  "resolvedDefaultOptions" : {
+
+  },
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "<tool-root>/bin/micromamba",
+        "run",
+        "-n",
+        "gatk-core",
+        "gatk",
+        "HaplotypeCaller",
+        "-R",
+        "<project>/Inputs/ref.fa",
+        "-I",
+        "<project>/Inputs/sample.bam",
+        "-O",
+        "<project>/Analyses/phase-execute/gatk-unphased.vcf.gz",
+        "-ERC",
+        "NONE",
+        "--native-pair-hmm-threads",
+        "2"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "fasta",
+          "path" : "<project>/Inputs/ref.fa",
+          "role" : "reference",
+          "sha256" : "f8150f1ddacb6623f83c304530699161ded29f02b133389fdd990dbfd7139b1a",
+          "size" : 11
+        },
+        {
+          "format" : "bam",
+          "path" : "<project>/Inputs/sample.bam",
+          "role" : "input",
+          "sha256" : "2e020ec1a2c73ce4606f16467f8dadbbbedc7e19e2b4b29b4101f52447a3920d",
+          "size" : 9
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "vcf",
+          "path" : "<project>/Analyses/phase-execute/gatk-unphased.vcf.gz",
+          "role" : "output",
+          "sha256" : "badc772845fcc508700e0bbf05a429f4f400ee2f0a3c6604ebcc6cfb81db0f09",
+          "size" : 13
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "<tool-root>/bin/micromamba run -n gatk-core gatk HaplotypeCaller -R <project>/Inputs/ref.fa -I <project>/Inputs/sample.bam -O <project>/Analyses/phase-execute/gatk-unphased.vcf.gz -ERC NONE --native-pair-hmm-threads 2",
+      "resolvedOptions" : {
+
+      },
+      "stderr" : "gatk stderr",
+      "toolName" : "gatk",
+      "toolVersion" : "<gatk-version>"
+    },
+    {
+      "argv" : [
+        "<tool-root>/bin/micromamba",
+        "run",
+        "-n",
+        "phasing",
+        "whatshap",
+        "phase",
+        "--reference",
+        "<project>/Inputs/ref.fa",
+        "-o",
+        "<project>/Analyses/phase-execute/phased.vcf.gz",
+        "<project>/Analyses/phase-execute/gatk-unphased.vcf.gz",
+        "<project>/Inputs/sample.bam"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "fasta",
+          "path" : "<project>/Inputs/ref.fa",
+          "role" : "reference",
+          "sha256" : "f8150f1ddacb6623f83c304530699161ded29f02b133389fdd990dbfd7139b1a",
+          "size" : 11
+        },
+        {
+          "format" : "bam",
+          "path" : "<project>/Inputs/sample.bam",
+          "role" : "input",
+          "sha256" : "2e020ec1a2c73ce4606f16467f8dadbbbedc7e19e2b4b29b4101f52447a3920d",
+          "size" : 9
+        },
+        {
+          "format" : "vcf",
+          "path" : "<project>/Analyses/phase-execute/gatk-unphased.vcf.gz",
+          "role" : "input",
+          "sha256" : "badc772845fcc508700e0bbf05a429f4f400ee2f0a3c6604ebcc6cfb81db0f09",
+          "size" : 13
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "vcf",
+          "path" : "<project>/Analyses/phase-execute/phased.vcf.gz",
+          "role" : "output",
+          "sha256" : "4b371fbef60ce426096c79fd4848eac848da9380af0e776161fbc172b58efda6",
+          "size" : 11
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "<tool-root>/bin/micromamba run -n phasing whatshap phase --reference <project>/Inputs/ref.fa -o <project>/Analyses/phase-execute/phased.vcf.gz <project>/Analyses/phase-execute/gatk-unphased.vcf.gz <project>/Inputs/sample.bam",
+      "resolvedOptions" : {
+
+      },
+      "stderr" : "whatshap stderr",
+      "toolName" : "whatshap",
+      "toolVersion" : "<whatshap-version>"
+    },
+    {
+      "argv" : [
+        "lungfish-cli",
+        "variants",
+        "phase",
+        "--reference",
+        "<project>/Inputs/ref.fa",
+        "--bam",
+        "<project>/Inputs/sample.bam",
+        "--output-vcf",
+        "<project>/Analyses/phase-execute/phased.vcf.gz",
+        "--output-dir",
+        "<project>/Analyses/phase-execute",
+        "--threads",
+        "2",
+        "--execute"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "fasta",
+          "path" : "<project>/Inputs/ref.fa",
+          "role" : "reference",
+          "sha256" : "f8150f1ddacb6623f83c304530699161ded29f02b133389fdd990dbfd7139b1a",
+          "size" : 11
+        },
+        {
+          "format" : "bam",
+          "path" : "<project>/Inputs/sample.bam",
+          "role" : "input",
+          "sha256" : "2e020ec1a2c73ce4606f16467f8dadbbbedc7e19e2b4b29b4101f52447a3920d",
+          "size" : 9
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "json",
+          "path" : "<project>/Analyses/phase-execute/phased-variant-command-plan.json",
+          "role" : "output"
+        },
+        {
+          "format" : "vcf",
+          "path" : "<project>/Analyses/phase-execute/gatk-unphased.vcf.gz",
+          "role" : "output",
+          "sha256" : "badc772845fcc508700e0bbf05a429f4f400ee2f0a3c6604ebcc6cfb81db0f09",
+          "size" : 13
+        },
+        {
+          "format" : "vcf",
+          "path" : "<project>/Analyses/phase-execute/phased.vcf.gz",
+          "role" : "output",
+          "sha256" : "4b371fbef60ce426096c79fd4848eac848da9380af0e776161fbc172b58efda6",
+          "size" : 11
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lungfish-cli variants phase --reference <project>/Inputs/ref.fa --bam <project>/Inputs/sample.bam --output-vcf <project>/Analyses/phase-execute/phased.vcf.gz --output-dir <project>/Analyses/phase-execute --threads 2 --execute",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "lungfish variants phase",
+      "toolVersion" : "lungfish-cli <cli-version>"
+    }
+  ],
+  "strictAccepts" : false,
+  "toolName" : "gatk",
+  "toolVersion" : "<gatk-version>",
+  "workflowName" : "lungfish variants phase"
+}

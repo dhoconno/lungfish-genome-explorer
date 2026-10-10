@@ -1,0 +1,369 @@
+{
+  "argv" : [
+    "lungfish-cli",
+    "variants",
+    "phase",
+    "--reference",
+    "<project>/Inputs/ref.fa",
+    "--bam",
+    "<project>/Inputs/sample.bam",
+    "--output-vcf",
+    "<project>/Analyses/phase-plan/phased.vcf.gz",
+    "--output-dir",
+    "<project>/Analyses/phase-plan",
+    "--threads",
+    "2",
+    "--extra-gatk-args",
+    "--sample-ploidy 1",
+    "--extra-whatshap-args",
+    "--ignore-read-groups"
+  ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "variants",
+        "phase",
+        "--reference",
+        "<project>/Inputs/ref.fa",
+        "--bam",
+        "<project>/Inputs/sample.bam",
+        "--output-vcf",
+        "<project>/Analyses/phase-plan/phased.vcf.gz",
+        "--output-dir",
+        "<project>/Analyses/phase-plan",
+        "--threads",
+        "2",
+        "--extra-gatk-args",
+        "--sample-ploidy 1",
+        "--extra-whatshap-args",
+        "--ignore-read-groups"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish variants phase",
+      "toolVersion" : "lungfish-cli <cli-version>"
+    }
+  ],
+  "decodedBy" : "workflowRun",
+  "defaultOptions" : {
+
+  },
+  "exitStatus" : 0,
+  "explicitOptions" : {
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "execute" : {
+      "type" : "string",
+      "value" : "false"
+    },
+    "gatkRuntime" : {
+      "type" : "string",
+      "value" : "<tool-root>/envs/gatk-core"
+    },
+    "options" : {
+      "type" : "dictionary",
+      "value" : {
+        "extraGATKArguments" : {
+          "type" : "string",
+          "value" : "[\"--sample-ploidy\",\"1\"]"
+        },
+        "extraWhatsHapArguments" : {
+          "type" : "string",
+          "value" : "[\"--ignore-read-groups\"]"
+        },
+        "sampleName" : {
+          "type" : "string",
+          "value" : ""
+        },
+        "threads" : {
+          "type" : "string",
+          "value" : "2"
+        }
+      }
+    },
+    "packIDs" : {
+      "type" : "string",
+      "value" : "gatk-core,phasing"
+    },
+    "resolvedDefaults" : {
+      "type" : "dictionary",
+      "value" : {
+        "emitReferenceConfidence" : {
+          "type" : "string",
+          "value" : "NONE"
+        },
+        "extraGATKArguments" : {
+          "type" : "string",
+          "value" : "[]"
+        },
+        "extraWhatsHapArguments" : {
+          "type" : "string",
+          "value" : "[]"
+        },
+        "sampleName" : {
+          "type" : "string",
+          "value" : ""
+        },
+        "threads" : {
+          "type" : "string",
+          "value" : "1"
+        }
+      }
+    },
+    "threads" : {
+      "type" : "string",
+      "value" : "2"
+    },
+    "whatsHapRuntime" : {
+      "type" : "string",
+      "value" : "<tool-root>/envs/phasing"
+    }
+  },
+  "factsVersion" : 2,
+  "files" : [
+    {
+      "format" : "fasta",
+      "path" : "<project>/Inputs/ref.fa",
+      "role" : "reference",
+      "sha256" : "f8150f1ddacb6623f83c304530699161ded29f02b133389fdd990dbfd7139b1a",
+      "size" : 11
+    },
+    {
+      "format" : "bam",
+      "path" : "<project>/Inputs/sample.bam",
+      "role" : "input",
+      "sha256" : "2e020ec1a2c73ce4606f16467f8dadbbbedc7e19e2b4b29b4101f52447a3920d",
+      "size" : 9
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/Analyses/phase-plan/phased-variant-command-plan.json",
+      "role" : "output"
+    },
+    {
+      "format" : "vcf",
+      "path" : "<project>/Analyses/phase-plan/gatk-unphased.vcf.gz",
+      "role" : "output"
+    },
+    {
+      "format" : "vcf",
+      "path" : "<project>/Analyses/phase-plan/phased.vcf.gz",
+      "role" : "output"
+    }
+  ],
+  "legacyRunParameters" : {
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "execute" : {
+      "type" : "string",
+      "value" : "false"
+    },
+    "gatkRuntime" : {
+      "type" : "string",
+      "value" : "<tool-root>/envs/gatk-core"
+    },
+    "options" : {
+      "type" : "dictionary",
+      "value" : {
+        "extraGATKArguments" : {
+          "type" : "string",
+          "value" : "[\"--sample-ploidy\",\"1\"]"
+        },
+        "extraWhatsHapArguments" : {
+          "type" : "string",
+          "value" : "[\"--ignore-read-groups\"]"
+        },
+        "sampleName" : {
+          "type" : "string",
+          "value" : ""
+        },
+        "threads" : {
+          "type" : "string",
+          "value" : "2"
+        }
+      }
+    },
+    "packIDs" : {
+      "type" : "string",
+      "value" : "gatk-core,phasing"
+    },
+    "resolvedDefaults" : {
+      "type" : "dictionary",
+      "value" : {
+        "emitReferenceConfidence" : {
+          "type" : "string",
+          "value" : "NONE"
+        },
+        "extraGATKArguments" : {
+          "type" : "string",
+          "value" : "[]"
+        },
+        "extraWhatsHapArguments" : {
+          "type" : "string",
+          "value" : "[]"
+        },
+        "sampleName" : {
+          "type" : "string",
+          "value" : ""
+        },
+        "threads" : {
+          "type" : "string",
+          "value" : "1"
+        }
+      }
+    },
+    "threads" : {
+      "type" : "string",
+      "value" : "2"
+    },
+    "whatsHapRuntime" : {
+      "type" : "string",
+      "value" : "<tool-root>/envs/phasing"
+    }
+  },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "variants",
+        "phase",
+        "--reference",
+        "<project>/Inputs/ref.fa",
+        "--bam",
+        "<project>/Inputs/sample.bam",
+        "--output-vcf",
+        "<project>/Analyses/phase-plan/phased.vcf.gz",
+        "--output-dir",
+        "<project>/Analyses/phase-plan",
+        "--threads",
+        "2",
+        "--extra-gatk-args",
+        "--sample-ploidy 1",
+        "--extra-whatshap-args",
+        "--ignore-read-groups"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish variants phase",
+      "toolVersion" : "lungfish-cli <cli-version>"
+    }
+  ],
+  "opsStats" : {
+    "completedRunCount" : 1,
+    "decodesAsWorkflowRun" : true,
+    "totalWallTimeSeconds" : 0
+  },
+  "output" : {
+    "format" : "json",
+    "path" : "<project>/Analyses/phase-plan/phased-variant-command-plan.json",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "format" : "json",
+      "path" : "<project>/Analyses/phase-plan/phased-variant-command-plan.json",
+      "role" : "output"
+    },
+    {
+      "format" : "vcf",
+      "path" : "<project>/Analyses/phase-plan/gatk-unphased.vcf.gz",
+      "role" : "output"
+    },
+    {
+      "format" : "vcf",
+      "path" : "<project>/Analyses/phase-plan/phased.vcf.gz",
+      "role" : "output"
+    }
+  ],
+  "readStatus" : "completed",
+  "recorded" : {
+
+  },
+  "reproducibleCommand" : "lungfish-cli variants phase --reference <project>/Inputs/ref.fa --bam <project>/Inputs/sample.bam --output-vcf <project>/Analyses/phase-plan/phased.vcf.gz --output-dir <project>/Analyses/phase-plan --threads 2 --extra-gatk-args '--sample-ploidy 1' --extra-whatshap-args --ignore-read-groups",
+  "resolvedDefaultOptions" : {
+
+  },
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "variants",
+        "phase",
+        "--reference",
+        "<project>/Inputs/ref.fa",
+        "--bam",
+        "<project>/Inputs/sample.bam",
+        "--output-vcf",
+        "<project>/Analyses/phase-plan/phased.vcf.gz",
+        "--output-dir",
+        "<project>/Analyses/phase-plan",
+        "--threads",
+        "2",
+        "--extra-gatk-args",
+        "--sample-ploidy 1",
+        "--extra-whatshap-args",
+        "--ignore-read-groups"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "fasta",
+          "path" : "<project>/Inputs/ref.fa",
+          "role" : "reference",
+          "sha256" : "f8150f1ddacb6623f83c304530699161ded29f02b133389fdd990dbfd7139b1a",
+          "size" : 11
+        },
+        {
+          "format" : "bam",
+          "path" : "<project>/Inputs/sample.bam",
+          "role" : "input",
+          "sha256" : "2e020ec1a2c73ce4606f16467f8dadbbbedc7e19e2b4b29b4101f52447a3920d",
+          "size" : 9
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "json",
+          "path" : "<project>/Analyses/phase-plan/phased-variant-command-plan.json",
+          "role" : "output"
+        },
+        {
+          "format" : "vcf",
+          "path" : "<project>/Analyses/phase-plan/gatk-unphased.vcf.gz",
+          "role" : "output"
+        },
+        {
+          "format" : "vcf",
+          "path" : "<project>/Analyses/phase-plan/phased.vcf.gz",
+          "role" : "output"
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lungfish-cli variants phase --reference <project>/Inputs/ref.fa --bam <project>/Inputs/sample.bam --output-vcf <project>/Analyses/phase-plan/phased.vcf.gz --output-dir <project>/Analyses/phase-plan --threads 2 --extra-gatk-args '--sample-ploidy 1' --extra-whatshap-args --ignore-read-groups",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "lungfish variants phase",
+      "toolVersion" : "lungfish-cli <cli-version>"
+    }
+  ],
+  "strictAccepts" : false,
+  "toolName" : "lungfish variants phase",
+  "toolVersion" : "lungfish-cli <cli-version>",
+  "workflowName" : "lungfish variants phase"
+}

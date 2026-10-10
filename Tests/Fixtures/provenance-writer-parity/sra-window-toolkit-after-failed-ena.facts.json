@@ -1,0 +1,460 @@
+{
+  "argv" : [
+    "prefetch",
+    "SRR1"
+  ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "prefetch",
+        "SRR1"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "prefetch",
+      "toolVersion" : "sra-tools <sra-tools-version>",
+      "wallTime" : 1
+    },
+    {
+      "command" : [
+        "fasterq-dump",
+        "SRR1"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 3,
+      "toolName" : "fasterq-dump",
+      "toolVersion" : "sra-tools <sra-tools-version>",
+      "wallTime" : 1
+    },
+    {
+      "command" : [
+        "curl"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "https-download",
+      "toolVersion" : "URLSession",
+      "wallTime" : 1
+    },
+    {
+      "command" : [
+        "<external>/lungfish-cli",
+        "import",
+        "fastq"
+      ],
+      "dependsOn" : [
+        2
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "<app-version>",
+      "wallTime" : 1
+    }
+  ],
+  "decodedBy" : "workflowRun",
+  "defaultOptions" : {
+
+  },
+  "exitStatus" : 0,
+  "explicitOptions" : {
+    "accession" : {
+      "type" : "string",
+      "value" : "SRR1"
+    },
+    "cliCommand" : {
+      "type" : "string",
+      "value" : "lungfish-cli import fastq"
+    },
+    "compression" : {
+      "type" : "string",
+      "value" : "fast"
+    },
+    "condaEnvironment" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "downloadSource" : {
+      "type" : "string",
+      "value" : "ENA (SRA Toolkit failed)"
+    },
+    "enaFastqURLs" : {
+      "type" : "array",
+      "value" : [
+
+      ]
+    },
+    "fallbackMessage" : {
+      "type" : "string",
+      "value" : "The SRA Toolkit failed for SRR1, so ENA serves it instead. disk full"
+    },
+    "finalBundlePath" : {
+      "type" : "string",
+      "value" : "<project>/Imports/SRR1.lungfishfastq"
+    },
+    "finalFASTQPath" : {
+      "type" : "string",
+      "value" : "<project>/Imports/SRR1.lungfishfastq/reads.fastq.gz"
+    },
+    "optimizeStorage" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "platform" : {
+      "type" : "string",
+      "value" : "illumina"
+    },
+    "preferredSource" : {
+      "type" : "string",
+      "value" : "ncbi"
+    },
+    "qualityBinning" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "recipe" : {
+      "type" : "null"
+    },
+    "requestedStrategy" : {
+      "type" : "string",
+      "value" : "sra-toolkit-first"
+    },
+    "selectedStrategy" : {
+      "type" : "string",
+      "value" : "ena-fallback"
+    },
+    "stagingInputs" : {
+      "type" : "array",
+      "value" : [
+
+      ]
+    },
+    "workflow" : {
+      "type" : "string",
+      "value" : "gui-sra-fastq-import"
+    }
+  },
+  "factsVersion" : 2,
+  "files" : [
+    {
+      "path" : "SRR1",
+      "role" : "input"
+    },
+    {
+      "path" : "SRR1",
+      "role" : "input"
+    },
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/SRR1.lungfishfastq/reads.fastq.gz",
+      "role" : "output",
+      "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size" : 0
+    }
+  ],
+  "legacyRunParameters" : {
+    "accession" : {
+      "type" : "string",
+      "value" : "SRR1"
+    },
+    "cliCommand" : {
+      "type" : "string",
+      "value" : "lungfish-cli import fastq"
+    },
+    "compression" : {
+      "type" : "string",
+      "value" : "fast"
+    },
+    "condaEnvironment" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "downloadSource" : {
+      "type" : "string",
+      "value" : "ENA (SRA Toolkit failed)"
+    },
+    "enaFastqURLs" : {
+      "type" : "array",
+      "value" : [
+
+      ]
+    },
+    "fallbackMessage" : {
+      "type" : "string",
+      "value" : "The SRA Toolkit failed for SRR1, so ENA serves it instead. disk full"
+    },
+    "finalBundlePath" : {
+      "type" : "string",
+      "value" : "<project>/Imports/SRR1.lungfishfastq"
+    },
+    "finalFASTQPath" : {
+      "type" : "string",
+      "value" : "<project>/Imports/SRR1.lungfishfastq/reads.fastq.gz"
+    },
+    "optimizeStorage" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "platform" : {
+      "type" : "string",
+      "value" : "illumina"
+    },
+    "preferredSource" : {
+      "type" : "string",
+      "value" : "ncbi"
+    },
+    "qualityBinning" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "recipe" : {
+      "type" : "null"
+    },
+    "requestedStrategy" : {
+      "type" : "string",
+      "value" : "sra-toolkit-first"
+    },
+    "selectedStrategy" : {
+      "type" : "string",
+      "value" : "ena-fallback"
+    },
+    "stagingInputs" : {
+      "type" : "array",
+      "value" : [
+
+      ]
+    },
+    "workflow" : {
+      "type" : "string",
+      "value" : "gui-sra-fastq-import"
+    }
+  },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "prefetch",
+        "SRR1"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "prefetch",
+      "toolVersion" : "sra-tools <sra-tools-version>",
+      "wallTime" : 1
+    },
+    {
+      "command" : [
+        "fasterq-dump",
+        "SRR1"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 3,
+      "toolName" : "fasterq-dump",
+      "toolVersion" : "sra-tools <sra-tools-version>",
+      "wallTime" : 1
+    },
+    {
+      "command" : [
+        "curl"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "https-download",
+      "toolVersion" : "URLSession",
+      "wallTime" : 1
+    },
+    {
+      "command" : [
+        "<external>/lungfish-cli",
+        "import",
+        "fastq"
+      ],
+      "dependsOn" : [
+        2
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "<app-version>",
+      "wallTime" : 1
+    }
+  ],
+  "opsStats" : {
+    "completedRunCount" : 1,
+    "decodesAsWorkflowRun" : true,
+    "totalWallTimeSeconds" : 1001
+  },
+  "output" : {
+    "format" : "fastq",
+    "path" : "<project>/Imports/SRR1.lungfishfastq/reads.fastq.gz",
+    "role" : "output",
+    "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size" : 0
+  },
+  "outputs" : [
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/SRR1.lungfishfastq/reads.fastq.gz",
+      "role" : "output",
+      "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size" : 0
+    }
+  ],
+  "readStatus" : "completed",
+  "recorded" : {
+
+  },
+  "reproducibleCommand" : "prefetch SRR1",
+  "resolvedDefaultOptions" : {
+
+  },
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "prefetch",
+        "SRR1"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "path" : "SRR1",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "prefetch SRR1",
+      "resolvedOptions" : {
+        "attempt" : {
+          "type" : "string",
+          "value" : "failed"
+        }
+      },
+      "stderr" : "",
+      "toolName" : "prefetch",
+      "toolVersion" : "sra-tools <sra-tools-version>",
+      "wallTimeSeconds" : 1
+    },
+    {
+      "argv" : [
+        "fasterq-dump",
+        "SRR1"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 3,
+      "inputs" : [
+        {
+          "path" : "SRR1",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "fasterq-dump SRR1",
+      "resolvedOptions" : {
+        "attempt" : {
+          "type" : "string",
+          "value" : "failed"
+        }
+      },
+      "stderr" : "disk full",
+      "toolName" : "fasterq-dump",
+      "toolVersion" : "sra-tools <sra-tools-version>",
+      "wallTimeSeconds" : 1
+    },
+    {
+      "argv" : [
+        "curl"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+
+      ],
+      "outputs" : [
+
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "curl",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "https-download",
+      "toolVersion" : "URLSession",
+      "wallTimeSeconds" : 1
+    },
+    {
+      "argv" : [
+        "<external>/lungfish-cli",
+        "import",
+        "fastq"
+      ],
+      "dependsOn" : [
+        2
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+
+      ],
+      "outputs" : [
+        {
+          "format" : "fastq",
+          "path" : "<project>/Imports/SRR1.lungfishfastq/reads.fastq.gz",
+          "role" : "output",
+          "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size" : 0
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "'<external>/lungfish-cli' import fastq",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "<app-version>",
+      "wallTimeSeconds" : 1
+    }
+  ],
+  "strictAccepts" : false,
+  "toolName" : "prefetch",
+  "toolVersion" : "sra-tools <sra-tools-version>",
+  "wallTimeSeconds" : 1001,
+  "workflowName" : "gui-sra-fastq-import"
+}

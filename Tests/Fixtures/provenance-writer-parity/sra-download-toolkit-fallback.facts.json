@@ -1,0 +1,509 @@
+{
+  "argv" : [
+    "<external>/prefetch",
+    "SRR200",
+    "-O",
+    "<project>/Imports/sra-download"
+  ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "<external>/prefetch",
+        "SRR200",
+        "-O",
+        "<project>/Imports/sra-download"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "prefetch",
+      "toolVersion" : "sra-tools <sra-tools-version>"
+    },
+    {
+      "command" : [
+        "<external>/fasterq-dump",
+        "<project>/Imports/sra-download/SRR200/SRR200.sra",
+        "-O",
+        "<project>/Imports/sra-download",
+        "-t",
+        "<project>/.tmp/fasterq-<UUID>",
+        "--split-3",
+        "--threads",
+        "4"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "fasterq-dump",
+      "toolVersion" : "sra-tools <sra-tools-version>"
+    },
+    {
+      "command" : [
+        "lungfish-cli",
+        "fetch",
+        "sra",
+        "download",
+        "SRR200",
+        "--output-dir",
+        "<project>/Imports/sra-download",
+        "--format",
+        "text",
+        "--quiet"
+      ],
+      "dependsOn" : [
+        0,
+        1
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "<cli-version>"
+    }
+  ],
+  "decodedBy" : "workflowRun",
+  "defaultOptions" : {
+
+  },
+  "exitStatus" : 0,
+  "explicitOptions" : {
+    "accession" : {
+      "type" : "string",
+      "value" : "SRR200"
+    },
+    "condaEnvironment" : {
+      "type" : "string",
+      "value" : "managed sra-tools"
+    },
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "downloadSource" : {
+      "type" : "string",
+      "value" : "SRA Toolkit"
+    },
+    "executedStepCount" : {
+      "type" : "integer",
+      "value" : 2
+    },
+    "fallbackMessage" : {
+      "type" : "string",
+      "value" : "ENA could not serve SRR200, so the SRA Toolkit (prefetch + fasterq-dump) fetches it instead. ENA returned HTTP 500 (server error) for SRR200"
+    },
+    "outputDir" : {
+      "type" : "string",
+      "value" : "<project>/Imports/sra-download"
+    },
+    "outputFormat" : {
+      "type" : "string",
+      "value" : "text"
+    },
+    "preferredSource" : {
+      "type" : "string",
+      "value" : "ena"
+    },
+    "quiet" : {
+      "type" : "boolean",
+      "value" : true
+    },
+    "requestedStrategy" : {
+      "type" : "string",
+      "value" : "ena-direct"
+    },
+    "selectedStrategy" : {
+      "type" : "string",
+      "value" : "sra-toolkit-fallback"
+    },
+    "sourceInputs" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "string",
+          "value" : "<project>/Imports/sra-download/SRR200/SRR200.sra"
+        },
+        {
+          "type" : "string",
+          "value" : "SRR200"
+        }
+      ]
+    }
+  },
+  "factsVersion" : 2,
+  "files" : [
+    {
+      "path" : "SRR200",
+      "role" : "input"
+    },
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/sra-download/SRR200/SRR200.sra",
+      "role" : "output"
+    },
+    {
+      "format" : "unknown",
+      "path" : "<project>/Imports/sra-download/SRR200/SRR200.sra",
+      "role" : "input"
+    },
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/sra-download/SRR200_1.fastq",
+      "role" : "output",
+      "sha256" : "f147027c937e82bf26fa18a3f00c8d1aacc1c2cc419274b0290ee656653d83f9",
+      "size" : 30
+    },
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/sra-download/SRR200_2.fastq",
+      "role" : "output",
+      "sha256" : "02dc1e9b42a0a31d72fd8eea1f72f4ec052e66537dd651b7e0b9abb93bc2d58f",
+      "size" : 30
+    },
+    {
+      "format" : "unknown",
+      "path" : "<project>/Imports/sra-download/SRR200/SRR200.sra",
+      "role" : "input"
+    },
+    {
+      "path" : "SRR200",
+      "role" : "input"
+    },
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/sra-download/SRR200_1.fastq",
+      "role" : "output",
+      "sha256" : "f147027c937e82bf26fa18a3f00c8d1aacc1c2cc419274b0290ee656653d83f9",
+      "size" : 30
+    },
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/sra-download/SRR200_2.fastq",
+      "role" : "output",
+      "sha256" : "02dc1e9b42a0a31d72fd8eea1f72f4ec052e66537dd651b7e0b9abb93bc2d58f",
+      "size" : 30
+    }
+  ],
+  "legacyRunParameters" : {
+    "accession" : {
+      "type" : "string",
+      "value" : "SRR200"
+    },
+    "condaEnvironment" : {
+      "type" : "string",
+      "value" : "managed sra-tools"
+    },
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "downloadSource" : {
+      "type" : "string",
+      "value" : "SRA Toolkit"
+    },
+    "executedStepCount" : {
+      "type" : "integer",
+      "value" : 2
+    },
+    "fallbackMessage" : {
+      "type" : "string",
+      "value" : "ENA could not serve SRR200, so the SRA Toolkit (prefetch + fasterq-dump) fetches it instead. ENA returned HTTP 500 (server error) for SRR200"
+    },
+    "outputDir" : {
+      "type" : "string",
+      "value" : "<project>/Imports/sra-download"
+    },
+    "outputFormat" : {
+      "type" : "string",
+      "value" : "text"
+    },
+    "preferredSource" : {
+      "type" : "string",
+      "value" : "ena"
+    },
+    "quiet" : {
+      "type" : "boolean",
+      "value" : true
+    },
+    "requestedStrategy" : {
+      "type" : "string",
+      "value" : "ena-direct"
+    },
+    "selectedStrategy" : {
+      "type" : "string",
+      "value" : "sra-toolkit-fallback"
+    },
+    "sourceInputs" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "string",
+          "value" : "<project>/Imports/sra-download/SRR200/SRR200.sra"
+        },
+        {
+          "type" : "string",
+          "value" : "SRR200"
+        }
+      ]
+    }
+  },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "<external>/prefetch",
+        "SRR200",
+        "-O",
+        "<project>/Imports/sra-download"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "prefetch",
+      "toolVersion" : "sra-tools <sra-tools-version>"
+    },
+    {
+      "command" : [
+        "<external>/fasterq-dump",
+        "<project>/Imports/sra-download/SRR200/SRR200.sra",
+        "-O",
+        "<project>/Imports/sra-download",
+        "-t",
+        "<project>/.tmp/fasterq-<UUID>",
+        "--split-3",
+        "--threads",
+        "4"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "fasterq-dump",
+      "toolVersion" : "sra-tools <sra-tools-version>"
+    },
+    {
+      "command" : [
+        "lungfish-cli",
+        "fetch",
+        "sra",
+        "download",
+        "SRR200",
+        "--output-dir",
+        "<project>/Imports/sra-download",
+        "--format",
+        "text",
+        "--quiet"
+      ],
+      "dependsOn" : [
+        0,
+        1
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "<cli-version>"
+    }
+  ],
+  "opsStats" : {
+    "completedRunCount" : 1,
+    "decodesAsWorkflowRun" : true,
+    "totalWallTimeSeconds" : 0
+  },
+  "output" : {
+    "format" : "fastq",
+    "path" : "<project>/Imports/sra-download/SRR200_1.fastq",
+    "role" : "output",
+    "sha256" : "f147027c937e82bf26fa18a3f00c8d1aacc1c2cc419274b0290ee656653d83f9",
+    "size" : 30
+  },
+  "outputs" : [
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/sra-download/SRR200/SRR200.sra",
+      "role" : "output"
+    },
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/sra-download/SRR200_1.fastq",
+      "role" : "output",
+      "sha256" : "f147027c937e82bf26fa18a3f00c8d1aacc1c2cc419274b0290ee656653d83f9",
+      "size" : 30
+    },
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/sra-download/SRR200_2.fastq",
+      "role" : "output",
+      "sha256" : "02dc1e9b42a0a31d72fd8eea1f72f4ec052e66537dd651b7e0b9abb93bc2d58f",
+      "size" : 30
+    },
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/sra-download/SRR200_1.fastq",
+      "role" : "output",
+      "sha256" : "f147027c937e82bf26fa18a3f00c8d1aacc1c2cc419274b0290ee656653d83f9",
+      "size" : 30
+    },
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/sra-download/SRR200_2.fastq",
+      "role" : "output",
+      "sha256" : "02dc1e9b42a0a31d72fd8eea1f72f4ec052e66537dd651b7e0b9abb93bc2d58f",
+      "size" : 30
+    }
+  ],
+  "readStatus" : "completed",
+  "recorded" : {
+
+  },
+  "reproducibleCommand" : "'<external>/prefetch' SRR200 -O <project>/Imports/sra-download",
+  "resolvedDefaultOptions" : {
+
+  },
+  "status" : "completed",
+  "stderr" : "ENA could not serve SRR200, so the SRA Toolkit (prefetch + fasterq-dump) fetches it instead. ENA returned HTTP 500 (server error) for SRR200",
+  "steps" : [
+    {
+      "argv" : [
+        "<external>/prefetch",
+        "SRR200",
+        "-O",
+        "<project>/Imports/sra-download"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "path" : "SRR200",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "fastq",
+          "path" : "<project>/Imports/sra-download/SRR200/SRR200.sra",
+          "role" : "output"
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "'<external>/prefetch' SRR200 -O <project>/Imports/sra-download",
+      "resolvedOptions" : {
+
+      },
+      "stderr" : "",
+      "toolName" : "prefetch",
+      "toolVersion" : "sra-tools <sra-tools-version>"
+    },
+    {
+      "argv" : [
+        "<external>/fasterq-dump",
+        "<project>/Imports/sra-download/SRR200/SRR200.sra",
+        "-O",
+        "<project>/Imports/sra-download",
+        "-t",
+        "<project>/.tmp/fasterq-<UUID>",
+        "--split-3",
+        "--threads",
+        "4"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "unknown",
+          "path" : "<project>/Imports/sra-download/SRR200/SRR200.sra",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "fastq",
+          "path" : "<project>/Imports/sra-download/SRR200_1.fastq",
+          "role" : "output",
+          "sha256" : "f147027c937e82bf26fa18a3f00c8d1aacc1c2cc419274b0290ee656653d83f9",
+          "size" : 30
+        },
+        {
+          "format" : "fastq",
+          "path" : "<project>/Imports/sra-download/SRR200_2.fastq",
+          "role" : "output",
+          "sha256" : "02dc1e9b42a0a31d72fd8eea1f72f4ec052e66537dd651b7e0b9abb93bc2d58f",
+          "size" : 30
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "'<external>/fasterq-dump' <project>/Imports/sra-download/SRR200/SRR200.sra -O <project>/Imports/sra-download -t <project>/.tmp/fasterq-<UUID> --split-3 --threads 4",
+      "resolvedOptions" : {
+
+      },
+      "stderr" : "",
+      "toolName" : "fasterq-dump",
+      "toolVersion" : "sra-tools <sra-tools-version>"
+    },
+    {
+      "argv" : [
+        "lungfish-cli",
+        "fetch",
+        "sra",
+        "download",
+        "SRR200",
+        "--output-dir",
+        "<project>/Imports/sra-download",
+        "--format",
+        "text",
+        "--quiet"
+      ],
+      "dependsOn" : [
+        0,
+        1
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "unknown",
+          "path" : "<project>/Imports/sra-download/SRR200/SRR200.sra",
+          "role" : "input"
+        },
+        {
+          "path" : "SRR200",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "fastq",
+          "path" : "<project>/Imports/sra-download/SRR200_1.fastq",
+          "role" : "output",
+          "sha256" : "f147027c937e82bf26fa18a3f00c8d1aacc1c2cc419274b0290ee656653d83f9",
+          "size" : 30
+        },
+        {
+          "format" : "fastq",
+          "path" : "<project>/Imports/sra-download/SRR200_2.fastq",
+          "role" : "output",
+          "sha256" : "02dc1e9b42a0a31d72fd8eea1f72f4ec052e66537dd651b7e0b9abb93bc2d58f",
+          "size" : 30
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lungfish-cli fetch sra download SRR200 --output-dir <project>/Imports/sra-download --format text --quiet",
+      "resolvedOptions" : {
+
+      },
+      "stderr" : "ENA could not serve SRR200, so the SRA Toolkit (prefetch + fasterq-dump) fetches it instead. ENA returned HTTP 500 (server error) for SRR200",
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "<cli-version>"
+    }
+  ],
+  "strictAccepts" : false,
+  "toolName" : "prefetch",
+  "toolVersion" : "sra-tools <sra-tools-version>",
+  "workflowName" : "sra-fastq-download"
+}

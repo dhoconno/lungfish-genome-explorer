@@ -152,4 +152,64 @@ struct BAMAdoptMappingIntegrationTests {
         })
         #expect(provenanceRun.allOutputFiles.contains { $0.path == adoptedBAMURL.path })
     }
+
+    /// Phase 2.4, lane W2B: the record keeps the facts it had when it was a bare run. The run sits in a
+    /// temporary `.lungfish` project, and the facts are in Tests/Fixtures/provenance-writer-parity.
+    @Test("adopt-mapping keeps the facts of its provenance record")
+    func adoptMappingProvenanceFacts() async throws {
+        let project = try ProvenanceCompatScenarios.makeProject()
+        defer { project.cleanup() }
+        let toolsFolder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("adopt-mapping-parity-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: toolsFolder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: toolsFolder) }
+
+        let managedHome = try ManagedSamtoolsHome.makeReal(rootURL: toolsFolder)
+        let fixture = try BundleAlignmentFixture.make(
+            rootURL: project.root,
+            samtoolsPath: managedHome.samtoolsPath,
+            includeMappingResult: false
+        )
+        let mappingDir = try project.folder("Analyses/mapping")
+        try FileManager.default.copyItem(at: fixture.sourceBAMURL, to: mappingDir.appendingPathComponent("sorted.bam"))
+        try FileManager.default.copyItem(at: fixture.sourceIndexURL, to: mappingDir.appendingPathComponent("sorted.bam.bai"))
+        try "{}".write(
+            to: mappingDir.appendingPathComponent("mapping-provenance.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let command = try BAMCommand.AdoptMappingSubcommand.parse([
+            "--bundle", fixture.bundleURL.path,
+            "--mapping-result", mappingDir.path,
+            "--name", "minimap2 mapping",
+            "--track-id", "adopted-mapping",
+            "--quiet",
+        ])
+        try await command.run()
+
+        let manifest = try BundleManifest.load(from: fixture.bundleURL)
+        let adopted = try #require(manifest.alignments.first { $0.id == "adopted-mapping" })
+        let sidecar = fixture.bundleURL
+            .appendingPathComponent(adopted.sourcePath)
+            .deletingPathExtension()
+            .appendingPathExtension("adopt-mapping-provenance.json")
+        let version = LungfishCLI.configuration.version
+        let facts = try BareRunWriterParity.facts(
+            of: sidecar,
+            in: project,
+            scenario: BareRunWriterParity.Scenarios.bamAdoptMapping,
+            replacing: [
+                .literal("lungfish-cli \(version)", as: "lungfish-cli <cli-version>"),
+                .version(version, as: "<cli-version>"),
+                // BundleAlignmentFixture names its bundle with a fresh UUID.
+                .regularExpression(#"BundleAlignmentFixture-[0-9A-Fa-f-]{36}"#, as: "BundleAlignmentFixture-<UUID>"),
+            ]
+        )
+        let problems = try BareRunWriterParity.problemsBeforeConversion(
+            facts,
+            scenario: BareRunWriterParity.Scenarios.bamAdoptMapping
+        )
+        #expect(problems.isEmpty, "bam-adopt-mapping changed: \(problems)")
+    }
 }

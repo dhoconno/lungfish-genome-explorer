@@ -1,0 +1,224 @@
+{
+  "argv" : [
+    "lungfish-cli",
+    "conda",
+    "lock",
+    "--pack",
+    "fixture"
+  ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "conda",
+        "lock",
+        "--pack",
+        "fixture"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish conda lock",
+      "toolVersion" : "<app-version>"
+    }
+  ],
+  "decodedBy" : "workflowRun",
+  "defaultOptions" : {
+
+  },
+  "exitStatus" : 0,
+  "explicitOptions" : {
+    "channels" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "string",
+          "value" : "conda-forge"
+        }
+      ]
+    },
+    "documentKind" : {
+      "type" : "string",
+      "value" : "lungfish.conda-request-specification"
+    },
+    "outputPath" : {
+      "type" : "string",
+      "value" : "<project>/Exports/requested-environment.json"
+    },
+    "packID" : {
+      "type" : "string",
+      "value" : "fixture"
+    },
+    "packName" : {
+      "type" : "string",
+      "value" : "Fixture"
+    },
+    "platforms" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "string",
+          "value" : "osx-arm64"
+        },
+        {
+          "type" : "string",
+          "value" : "linux-64"
+        }
+      ]
+    },
+    "resolution" : {
+      "type" : "string",
+      "value" : "unresolved"
+    },
+    "runtimeHostName" : {
+      "type" : "string",
+      "value" : "<host-name>"
+    }
+  },
+  "factsVersion" : 2,
+  "files" : [
+    {
+      "format" : "text",
+      "path" : "<project>/Exports/requested-environment.json",
+      "role" : "output",
+      "sha256" : "4c0eb0a66d497f7baa412dd606986d90353f94f0d0a4a270c4115c45e36845bb",
+      "size" : 815
+    }
+  ],
+  "legacyRunParameters" : {
+    "channels" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "string",
+          "value" : "conda-forge"
+        }
+      ]
+    },
+    "documentKind" : {
+      "type" : "string",
+      "value" : "lungfish.conda-request-specification"
+    },
+    "outputPath" : {
+      "type" : "string",
+      "value" : "<project>/Exports/requested-environment.json"
+    },
+    "packID" : {
+      "type" : "string",
+      "value" : "fixture"
+    },
+    "packName" : {
+      "type" : "string",
+      "value" : "Fixture"
+    },
+    "platforms" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "string",
+          "value" : "osx-arm64"
+        },
+        {
+          "type" : "string",
+          "value" : "linux-64"
+        }
+      ]
+    },
+    "resolution" : {
+      "type" : "string",
+      "value" : "unresolved"
+    },
+    "runtimeHostName" : {
+      "type" : "string",
+      "value" : "<host-name>"
+    }
+  },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "conda",
+        "lock",
+        "--pack",
+        "fixture"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish conda lock",
+      "toolVersion" : "<app-version>"
+    }
+  ],
+  "opsStats" : {
+    "completedRunCount" : 1,
+    "decodesAsWorkflowRun" : true,
+    "totalWallTimeSeconds" : 0
+  },
+  "output" : {
+    "format" : "text",
+    "path" : "<project>/Exports/requested-environment.json",
+    "role" : "output",
+    "sha256" : "4c0eb0a66d497f7baa412dd606986d90353f94f0d0a4a270c4115c45e36845bb",
+    "size" : 815
+  },
+  "outputs" : [
+    {
+      "format" : "text",
+      "path" : "<project>/Exports/requested-environment.json",
+      "role" : "output",
+      "sha256" : "4c0eb0a66d497f7baa412dd606986d90353f94f0d0a4a270c4115c45e36845bb",
+      "size" : 815
+    }
+  ],
+  "readStatus" : "completed",
+  "recorded" : {
+
+  },
+  "reproducibleCommand" : "lungfish-cli conda lock --pack fixture",
+  "resolvedDefaultOptions" : {
+
+  },
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "conda",
+        "lock",
+        "--pack",
+        "fixture"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+
+      ],
+      "outputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Exports/requested-environment.json",
+          "role" : "output",
+          "sha256" : "4c0eb0a66d497f7baa412dd606986d90353f94f0d0a4a270c4115c45e36845bb",
+          "size" : 815
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lungfish-cli conda lock --pack fixture",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "lungfish conda lock",
+      "toolVersion" : "<app-version>"
+    }
+  ],
+  "strictAccepts" : false,
+  "toolName" : "lungfish conda lock",
+  "toolVersion" : "<app-version>",
+  "workflowName" : "Conda Requested Specification Export"
+}

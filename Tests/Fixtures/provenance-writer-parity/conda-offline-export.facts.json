@@ -1,0 +1,236 @@
+{
+  "argv" : [
+    "lungfish-cli",
+    "conda",
+    "offline-export",
+    "--pack",
+    "read-mapping"
+  ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "conda",
+        "offline-export",
+        "--pack",
+        "read-mapping"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "<app-version>"
+    }
+  ],
+  "decodedBy" : "workflowRun",
+  "defaultOptions" : {
+
+  },
+  "exitStatus" : 0,
+  "explicitOptions" : {
+    "environments" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "string",
+          "value" : "samtools"
+        }
+      ]
+    },
+    "outputBundle" : {
+      "type" : "string",
+      "value" : "<project>/Exports/offline-packs/read-mapping-conda-offline-pack"
+    },
+    "outputDirectory" : {
+      "type" : "string",
+      "value" : "<project>/Exports/offline-packs/read-mapping-conda-offline-pack"
+    },
+    "outputKind" : {
+      "type" : "string",
+      "value" : "directory"
+    },
+    "packID" : {
+      "type" : "string",
+      "value" : "read-mapping"
+    },
+    "packName" : {
+      "type" : "string",
+      "value" : "Read Mapping"
+    },
+    "packVersion" : {
+      "type" : "string",
+      "value" : "<app-version>"
+    },
+    "runtimeHostName" : {
+      "type" : "string",
+      "value" : "<host-name>"
+    },
+    "sourceCondaRoot" : {
+      "type" : "string",
+      "value" : "<project>/Tools/source-conda"
+    }
+  },
+  "factsVersion" : 2,
+  "files" : [
+    {
+      "path" : "<project>/Tools/source-conda/envs/samtools",
+      "role" : "input"
+    },
+    {
+      "format" : "unknown",
+      "path" : "<project>/Exports/offline-packs/read-mapping-conda-offline-pack/envs/samtools/samtools",
+      "role" : "output",
+      "sha256" : "129cc67022a211234bb74006eb581a45647ca8cd227830a69a6546d8654fbb59",
+      "size" : 16
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/Exports/offline-packs/read-mapping-conda-offline-pack/offline-pack-manifest.json",
+      "role" : "output"
+    }
+  ],
+  "legacyRunParameters" : {
+    "environments" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "string",
+          "value" : "samtools"
+        }
+      ]
+    },
+    "outputBundle" : {
+      "type" : "string",
+      "value" : "<project>/Exports/offline-packs/read-mapping-conda-offline-pack"
+    },
+    "outputDirectory" : {
+      "type" : "string",
+      "value" : "<project>/Exports/offline-packs/read-mapping-conda-offline-pack"
+    },
+    "outputKind" : {
+      "type" : "string",
+      "value" : "directory"
+    },
+    "packID" : {
+      "type" : "string",
+      "value" : "read-mapping"
+    },
+    "packName" : {
+      "type" : "string",
+      "value" : "Read Mapping"
+    },
+    "packVersion" : {
+      "type" : "string",
+      "value" : "<app-version>"
+    },
+    "runtimeHostName" : {
+      "type" : "string",
+      "value" : "<host-name>"
+    },
+    "sourceCondaRoot" : {
+      "type" : "string",
+      "value" : "<project>/Tools/source-conda"
+    }
+  },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "conda",
+        "offline-export",
+        "--pack",
+        "read-mapping"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "<app-version>"
+    }
+  ],
+  "opsStats" : {
+    "completedRunCount" : 1,
+    "decodesAsWorkflowRun" : true,
+    "totalWallTimeSeconds" : 0
+  },
+  "output" : {
+    "format" : "unknown",
+    "path" : "<project>/Exports/offline-packs/read-mapping-conda-offline-pack/envs/samtools/samtools",
+    "role" : "output",
+    "sha256" : "129cc67022a211234bb74006eb581a45647ca8cd227830a69a6546d8654fbb59",
+    "size" : 16
+  },
+  "outputs" : [
+    {
+      "format" : "unknown",
+      "path" : "<project>/Exports/offline-packs/read-mapping-conda-offline-pack/envs/samtools/samtools",
+      "role" : "output",
+      "sha256" : "129cc67022a211234bb74006eb581a45647ca8cd227830a69a6546d8654fbb59",
+      "size" : 16
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/Exports/offline-packs/read-mapping-conda-offline-pack/offline-pack-manifest.json",
+      "role" : "output"
+    }
+  ],
+  "readStatus" : "completed",
+  "recorded" : {
+
+  },
+  "reproducibleCommand" : "lungfish-cli conda offline-export --pack read-mapping",
+  "resolvedDefaultOptions" : {
+
+  },
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "conda",
+        "offline-export",
+        "--pack",
+        "read-mapping"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "path" : "<project>/Tools/source-conda/envs/samtools",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "unknown",
+          "path" : "<project>/Exports/offline-packs/read-mapping-conda-offline-pack/envs/samtools/samtools",
+          "role" : "output",
+          "sha256" : "129cc67022a211234bb74006eb581a45647ca8cd227830a69a6546d8654fbb59",
+          "size" : 16
+        },
+        {
+          "format" : "json",
+          "path" : "<project>/Exports/offline-packs/read-mapping-conda-offline-pack/offline-pack-manifest.json",
+          "role" : "output"
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lungfish-cli conda offline-export --pack read-mapping",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "<app-version>"
+    }
+  ],
+  "strictAccepts" : false,
+  "toolName" : "lungfish-cli",
+  "toolVersion" : "<app-version>",
+  "workflowName" : "Conda Offline Pack Export"
+}

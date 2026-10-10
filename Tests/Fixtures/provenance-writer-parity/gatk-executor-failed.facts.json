@@ -1,0 +1,282 @@
+{
+  "argv" : [
+    "gatk",
+    "HaplotypeCaller",
+    "-R",
+    "<project>/Inputs/reference.fa",
+    "-I",
+    "<project>/Inputs/sample.bam",
+    "-O",
+    "<project>/Analyses/gatk-haplotype-caller/sample.g.vcf.gz",
+    "--sample-ploidy",
+    "2",
+    "--max-alternate-alleles",
+    "6",
+    "--pcr-indel-model",
+    "CONSERVATIVE",
+    "--native-pair-hmm-threads",
+    "4",
+    "-ERC",
+    "GVCF"
+  ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "gatk",
+        "HaplotypeCaller",
+        "-R",
+        "<project>/Inputs/reference.fa",
+        "-I",
+        "<project>/Inputs/sample.bam",
+        "-O",
+        "<project>/Analyses/gatk-haplotype-caller/sample.g.vcf.gz",
+        "--sample-ploidy",
+        "2",
+        "--max-alternate-alleles",
+        "6",
+        "--pcr-indel-model",
+        "CONSERVATIVE",
+        "--native-pair-hmm-threads",
+        "4",
+        "-ERC",
+        "GVCF"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 7,
+      "toolName" : "gatk-haplotype-caller",
+      "toolVersion" : "4.6.2.0",
+      "wallTime" : 0.25
+    }
+  ],
+  "decodedBy" : "workflowRun",
+  "defaultOptions" : {
+
+  },
+  "exitStatus" : 7,
+  "explicitOptions" : {
+    "condaEnvironment" : {
+      "type" : "string",
+      "value" : "/opt/lungfish/envs/gatk-core"
+    },
+    "default.ploidy" : {
+      "type" : "string",
+      "value" : "2"
+    },
+    "packID" : {
+      "type" : "string",
+      "value" : "gatk-core"
+    },
+    "packVersion" : {
+      "type" : "string",
+      "value" : "1.0.0"
+    },
+    "shellCommand" : {
+      "type" : "string",
+      "value" : "gatk HaplotypeCaller -R <project>/Inputs/reference.fa -I <project>/Inputs/sample.bam -O <project>/Analyses/gatk-haplotype-caller/sample.g.vcf.gz --sample-ploidy 2 --max-alternate-alleles 6 --pcr-indel-model CONSERVATIVE --native-pair-hmm-threads 4 -ERC GVCF"
+    },
+    "shellCommands" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "string",
+          "value" : "gatk HaplotypeCaller -R <project>/Inputs/reference.fa -I <project>/Inputs/sample.bam -O <project>/Analyses/gatk-haplotype-caller/sample.g.vcf.gz --sample-ploidy 2 --max-alternate-alleles 6 --pcr-indel-model CONSERVATIVE --native-pair-hmm-threads 4 -ERC GVCF"
+        }
+      ]
+    },
+    "toolEnvironment" : {
+      "type" : "string",
+      "value" : "gatk-core"
+    },
+    "toolExecutable" : {
+      "type" : "string",
+      "value" : "gatk"
+    }
+  },
+  "factsVersion" : 2,
+  "files" : [
+    {
+      "format" : "fasta",
+      "path" : "<project>/Inputs/reference.fa",
+      "role" : "reference",
+      "sha256" : "f8150f1ddacb6623f83c304530699161ded29f02b133389fdd990dbfd7139b1a",
+      "size" : 11
+    },
+    {
+      "format" : "bam",
+      "path" : "<project>/Inputs/sample.bam",
+      "role" : "input",
+      "sha256" : "2e020ec1a2c73ce4606f16467f8dadbbbedc7e19e2b4b29b4101f52447a3920d",
+      "size" : 9
+    },
+    {
+      "format" : "vcf",
+      "path" : "<project>/Analyses/gatk-haplotype-caller/sample.g.vcf.gz",
+      "role" : "output"
+    }
+  ],
+  "legacyRunParameters" : {
+    "condaEnvironment" : {
+      "type" : "string",
+      "value" : "/opt/lungfish/envs/gatk-core"
+    },
+    "default.ploidy" : {
+      "type" : "string",
+      "value" : "2"
+    },
+    "packID" : {
+      "type" : "string",
+      "value" : "gatk-core"
+    },
+    "packVersion" : {
+      "type" : "string",
+      "value" : "1.0.0"
+    },
+    "shellCommand" : {
+      "type" : "string",
+      "value" : "gatk HaplotypeCaller -R <project>/Inputs/reference.fa -I <project>/Inputs/sample.bam -O <project>/Analyses/gatk-haplotype-caller/sample.g.vcf.gz --sample-ploidy 2 --max-alternate-alleles 6 --pcr-indel-model CONSERVATIVE --native-pair-hmm-threads 4 -ERC GVCF"
+    },
+    "shellCommands" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "string",
+          "value" : "gatk HaplotypeCaller -R <project>/Inputs/reference.fa -I <project>/Inputs/sample.bam -O <project>/Analyses/gatk-haplotype-caller/sample.g.vcf.gz --sample-ploidy 2 --max-alternate-alleles 6 --pcr-indel-model CONSERVATIVE --native-pair-hmm-threads 4 -ERC GVCF"
+        }
+      ]
+    },
+    "toolEnvironment" : {
+      "type" : "string",
+      "value" : "gatk-core"
+    },
+    "toolExecutable" : {
+      "type" : "string",
+      "value" : "gatk"
+    }
+  },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "gatk",
+        "HaplotypeCaller",
+        "-R",
+        "<project>/Inputs/reference.fa",
+        "-I",
+        "<project>/Inputs/sample.bam",
+        "-O",
+        "<project>/Analyses/gatk-haplotype-caller/sample.g.vcf.gz",
+        "--sample-ploidy",
+        "2",
+        "--max-alternate-alleles",
+        "6",
+        "--pcr-indel-model",
+        "CONSERVATIVE",
+        "--native-pair-hmm-threads",
+        "4",
+        "-ERC",
+        "GVCF"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 7,
+      "toolName" : "gatk-haplotype-caller",
+      "toolVersion" : "4.6.2.0",
+      "wallTime" : 0.25
+    }
+  ],
+  "opsStats" : {
+    "completedRunCount" : 0,
+    "decodesAsWorkflowRun" : true,
+    "totalWallTimeSeconds" : 0
+  },
+  "output" : {
+    "format" : "vcf",
+    "path" : "<project>/Analyses/gatk-haplotype-caller/sample.g.vcf.gz",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "format" : "vcf",
+      "path" : "<project>/Analyses/gatk-haplotype-caller/sample.g.vcf.gz",
+      "role" : "output"
+    }
+  ],
+  "readStatus" : "failed",
+  "recorded" : {
+
+  },
+  "reproducibleCommand" : "gatk HaplotypeCaller -R <project>/Inputs/reference.fa -I <project>/Inputs/sample.bam -O <project>/Analyses/gatk-haplotype-caller/sample.g.vcf.gz --sample-ploidy 2 --max-alternate-alleles 6 --pcr-indel-model CONSERVATIVE --native-pair-hmm-threads 4 -ERC GVCF",
+  "resolvedDefaultOptions" : {
+
+  },
+  "status" : "failed",
+  "stderr" : "missing sequence dictionary",
+  "steps" : [
+    {
+      "argv" : [
+        "gatk",
+        "HaplotypeCaller",
+        "-R",
+        "<project>/Inputs/reference.fa",
+        "-I",
+        "<project>/Inputs/sample.bam",
+        "-O",
+        "<project>/Analyses/gatk-haplotype-caller/sample.g.vcf.gz",
+        "--sample-ploidy",
+        "2",
+        "--max-alternate-alleles",
+        "6",
+        "--pcr-indel-model",
+        "CONSERVATIVE",
+        "--native-pair-hmm-threads",
+        "4",
+        "-ERC",
+        "GVCF"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 7,
+      "inputs" : [
+        {
+          "format" : "fasta",
+          "path" : "<project>/Inputs/reference.fa",
+          "role" : "reference",
+          "sha256" : "f8150f1ddacb6623f83c304530699161ded29f02b133389fdd990dbfd7139b1a",
+          "size" : 11
+        },
+        {
+          "format" : "bam",
+          "path" : "<project>/Inputs/sample.bam",
+          "role" : "input",
+          "sha256" : "2e020ec1a2c73ce4606f16467f8dadbbbedc7e19e2b4b29b4101f52447a3920d",
+          "size" : 9
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "vcf",
+          "path" : "<project>/Analyses/gatk-haplotype-caller/sample.g.vcf.gz",
+          "role" : "output"
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "gatk HaplotypeCaller -R <project>/Inputs/reference.fa -I <project>/Inputs/sample.bam -O <project>/Analyses/gatk-haplotype-caller/sample.g.vcf.gz --sample-ploidy 2 --max-alternate-alleles 6 --pcr-indel-model CONSERVATIVE --native-pair-hmm-threads 4 -ERC GVCF",
+      "resolvedOptions" : {
+
+      },
+      "stderr" : "missing sequence dictionary",
+      "toolName" : "gatk-haplotype-caller",
+      "toolVersion" : "4.6.2.0",
+      "wallTimeSeconds" : 0.25
+    }
+  ],
+  "strictAccepts" : false,
+  "toolName" : "gatk-haplotype-caller",
+  "toolVersion" : "4.6.2.0",
+  "workflowName" : "GATK HaplotypeCaller"
+}

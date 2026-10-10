@@ -1,0 +1,279 @@
+{
+  "argv" : [
+    "lungfish-cli",
+    "import",
+    "fastq",
+    "reads.fastq.gz"
+  ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "import",
+        "fastq",
+        "reads.fastq.gz"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "test",
+      "wallTime" : 1
+    }
+  ],
+  "decodedBy" : "workflowRun",
+  "defaultOptions" : {
+
+  },
+  "exitStatus" : 0,
+  "explicitOptions" : {
+    "accession" : {
+      "type" : "string",
+      "value" : "SRR1"
+    },
+    "cliCommand" : {
+      "type" : "string",
+      "value" : "lungfish-cli import fastq"
+    },
+    "compression" : {
+      "type" : "string",
+      "value" : "fast"
+    },
+    "condaEnvironment" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "downloadSource" : {
+      "type" : "string",
+      "value" : "ENA"
+    },
+    "enaFastqURLs" : {
+      "type" : "array",
+      "value" : [
+
+      ]
+    },
+    "fallbackMessage" : {
+      "type" : "null"
+    },
+    "finalBundlePath" : {
+      "type" : "string",
+      "value" : "<project>/Imports/SRR1.lungfishfastq"
+    },
+    "finalFASTQPath" : {
+      "type" : "string",
+      "value" : "<project>/Imports/SRR1.lungfishfastq/reads.fastq.gz"
+    },
+    "optimizeStorage" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "platform" : {
+      "type" : "string",
+      "value" : "illumina"
+    },
+    "preferredSource" : {
+      "type" : "string",
+      "value" : "ena"
+    },
+    "preservedCLIProvenanceID" : {
+      "type" : "string",
+      "value" : "5E0A0000-0000-4000-8000-0000000000A0"
+    },
+    "preservedCLIWorkflowName" : {
+      "type" : "string",
+      "value" : "fastq-import"
+    },
+    "qualityBinning" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "recipe" : {
+      "type" : "null"
+    },
+    "requestedStrategy" : {
+      "type" : "string",
+      "value" : "ena-direct"
+    },
+    "selectedStrategy" : {
+      "type" : "string",
+      "value" : "ena-direct"
+    },
+    "stagingInputs" : {
+      "type" : "array",
+      "value" : [
+
+      ]
+    },
+    "workflow" : {
+      "type" : "string",
+      "value" : "gui-sra-fastq-import"
+    }
+  },
+  "factsVersion" : 2,
+  "files" : [
+
+  ],
+  "legacyRunParameters" : {
+    "accession" : {
+      "type" : "string",
+      "value" : "SRR1"
+    },
+    "cliCommand" : {
+      "type" : "string",
+      "value" : "lungfish-cli import fastq"
+    },
+    "compression" : {
+      "type" : "string",
+      "value" : "fast"
+    },
+    "condaEnvironment" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "downloadSource" : {
+      "type" : "string",
+      "value" : "ENA"
+    },
+    "enaFastqURLs" : {
+      "type" : "array",
+      "value" : [
+
+      ]
+    },
+    "fallbackMessage" : {
+      "type" : "null"
+    },
+    "finalBundlePath" : {
+      "type" : "string",
+      "value" : "<project>/Imports/SRR1.lungfishfastq"
+    },
+    "finalFASTQPath" : {
+      "type" : "string",
+      "value" : "<project>/Imports/SRR1.lungfishfastq/reads.fastq.gz"
+    },
+    "optimizeStorage" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "platform" : {
+      "type" : "string",
+      "value" : "illumina"
+    },
+    "preferredSource" : {
+      "type" : "string",
+      "value" : "ena"
+    },
+    "preservedCLIProvenanceID" : {
+      "type" : "string",
+      "value" : "5E0A0000-0000-4000-8000-0000000000A0"
+    },
+    "preservedCLIWorkflowName" : {
+      "type" : "string",
+      "value" : "fastq-import"
+    },
+    "qualityBinning" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "recipe" : {
+      "type" : "null"
+    },
+    "requestedStrategy" : {
+      "type" : "string",
+      "value" : "ena-direct"
+    },
+    "selectedStrategy" : {
+      "type" : "string",
+      "value" : "ena-direct"
+    },
+    "stagingInputs" : {
+      "type" : "array",
+      "value" : [
+
+      ]
+    },
+    "workflow" : {
+      "type" : "string",
+      "value" : "gui-sra-fastq-import"
+    }
+  },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "import",
+        "fastq",
+        "reads.fastq.gz"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "test",
+      "wallTime" : 1
+    }
+  ],
+  "opsStats" : {
+    "completedRunCount" : 1,
+    "decodesAsWorkflowRun" : true,
+    "totalWallTimeSeconds" : 1
+  },
+  "outputs" : [
+
+  ],
+  "readStatus" : "completed",
+  "recorded" : {
+
+  },
+  "reproducibleCommand" : "lungfish-cli import fastq reads.fastq.gz",
+  "resolvedDefaultOptions" : {
+
+  },
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "import",
+        "fastq",
+        "reads.fastq.gz"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+
+      ],
+      "outputs" : [
+
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lungfish-cli import fastq reads.fastq.gz",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "test",
+      "wallTimeSeconds" : 1
+    }
+  ],
+  "strictAccepts" : false,
+  "toolName" : "lungfish-cli",
+  "toolVersion" : "test",
+  "wallTimeSeconds" : 1,
+  "workflowName" : "gui-sra-fastq-import"
+}

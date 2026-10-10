@@ -1,0 +1,371 @@
+{
+  "argv" : [
+    "lofreq",
+    "call-parallel",
+    "sample.bam"
+  ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "lofreq",
+        "call-parallel",
+        "sample.bam"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lofreq",
+      "toolVersion" : "2.1.5",
+      "wallTime" : 2
+    },
+    {
+      "command" : [
+        "lungfish",
+        "variants",
+        "call",
+        "--caller",
+        "lofreq"
+      ],
+      "dependsOn" : [
+        0
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "lungfish-cli test",
+      "wallTime" : 5
+    }
+  ],
+  "decodedBy" : "workflowRun",
+  "defaultOptions" : {
+
+  },
+  "exitStatus" : 0,
+  "explicitOptions" : {
+    "alignmentTrackID" : {
+      "type" : "string",
+      "value" : "aln-1"
+    },
+    "alignmentTrackName" : {
+      "type" : "string",
+      "value" : "Sample BAM"
+    },
+    "bundleIdentifier" : {
+      "type" : "string",
+      "value" : "test.bundle"
+    },
+    "bundleName" : {
+      "type" : "string",
+      "value" : "Test Bundle"
+    },
+    "bundlePath" : {
+      "type" : "string",
+      "value" : "<project>/Reference Sequences/test.lungfishref"
+    },
+    "caller" : {
+      "type" : "string",
+      "value" : "lofreq"
+    },
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "outputTrackID" : {
+      "type" : "string",
+      "value" : "variant-track-1"
+    },
+    "outputTrackName" : {
+      "type" : "string",
+      "value" : "Sample BAM LoFreq"
+    },
+    "referenceStagedFASTASHA256" : {
+      "type" : "string",
+      "value" : "ref-sha-256"
+    },
+    "variantCallerVersion" : {
+      "type" : "string",
+      "value" : "2.1.5"
+    }
+  },
+  "factsVersion" : 2,
+  "files" : [
+    {
+      "format" : "vcf",
+      "path" : "<project>/Staging/variant-call/staged.vcf.gz",
+      "role" : "output",
+      "sha256" : "aa08d4f848a0b03f1d4dec609dd3806c5371694d278244853396ca1aa7b6be50",
+      "size" : 10
+    },
+    {
+      "format" : "vcf",
+      "path" : "<project>/Staging/variant-call/staged.vcf.gz",
+      "role" : "input",
+      "sha256" : "aa08d4f848a0b03f1d4dec609dd3806c5371694d278244853396ca1aa7b6be50",
+      "size" : 10
+    },
+    {
+      "format" : "tbi",
+      "path" : "<project>/Staging/variant-call/staged.vcf.gz.tbi",
+      "role" : "index",
+      "sha256" : "38bb8fd13ac919a7f5f89d597f6d0f22ddab9cd7624e0e8b79fb4196d58f6f71",
+      "size" : 10
+    },
+    {
+      "format" : "sqlite",
+      "path" : "<project>/Staging/variant-call/staged.db",
+      "role" : "input"
+    },
+    {
+      "format" : "vcf",
+      "path" : "<project>/Reference Sequences/test.lungfishref/variants/variant-track-1.vcf.gz",
+      "role" : "output",
+      "sha256" : "aa08d4f848a0b03f1d4dec609dd3806c5371694d278244853396ca1aa7b6be50",
+      "size" : 10
+    },
+    {
+      "format" : "tbi",
+      "path" : "<project>/Reference Sequences/test.lungfishref/variants/variant-track-1.vcf.gz.tbi",
+      "role" : "index",
+      "sha256" : "38bb8fd13ac919a7f5f89d597f6d0f22ddab9cd7624e0e8b79fb4196d58f6f71",
+      "size" : 10
+    },
+    {
+      "format" : "sqlite",
+      "path" : "<project>/Reference Sequences/test.lungfishref/variants/variant-track-1.db",
+      "role" : "output"
+    }
+  ],
+  "legacyRunParameters" : {
+    "alignmentTrackID" : {
+      "type" : "string",
+      "value" : "aln-1"
+    },
+    "alignmentTrackName" : {
+      "type" : "string",
+      "value" : "Sample BAM"
+    },
+    "bundleIdentifier" : {
+      "type" : "string",
+      "value" : "test.bundle"
+    },
+    "bundleName" : {
+      "type" : "string",
+      "value" : "Test Bundle"
+    },
+    "bundlePath" : {
+      "type" : "string",
+      "value" : "<project>/Reference Sequences/test.lungfishref"
+    },
+    "caller" : {
+      "type" : "string",
+      "value" : "lofreq"
+    },
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "outputTrackID" : {
+      "type" : "string",
+      "value" : "variant-track-1"
+    },
+    "outputTrackName" : {
+      "type" : "string",
+      "value" : "Sample BAM LoFreq"
+    },
+    "referenceStagedFASTASHA256" : {
+      "type" : "string",
+      "value" : "ref-sha-256"
+    },
+    "variantCallerVersion" : {
+      "type" : "string",
+      "value" : "2.1.5"
+    }
+  },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "lofreq",
+        "call-parallel",
+        "sample.bam"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lofreq",
+      "toolVersion" : "2.1.5",
+      "wallTime" : 2
+    },
+    {
+      "command" : [
+        "lungfish",
+        "variants",
+        "call",
+        "--caller",
+        "lofreq"
+      ],
+      "dependsOn" : [
+        0
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "lungfish-cli test",
+      "wallTime" : 5
+    }
+  ],
+  "opsStats" : {
+    "completedRunCount" : 1,
+    "decodesAsWorkflowRun" : true,
+    "totalWallTimeSeconds" : 10
+  },
+  "output" : {
+    "format" : "vcf",
+    "path" : "<project>/Reference Sequences/test.lungfishref/variants/variant-track-1.vcf.gz",
+    "role" : "output",
+    "sha256" : "aa08d4f848a0b03f1d4dec609dd3806c5371694d278244853396ca1aa7b6be50",
+    "size" : 10
+  },
+  "outputs" : [
+    {
+      "format" : "vcf",
+      "path" : "<project>/Staging/variant-call/staged.vcf.gz",
+      "role" : "output",
+      "sha256" : "aa08d4f848a0b03f1d4dec609dd3806c5371694d278244853396ca1aa7b6be50",
+      "size" : 10
+    },
+    {
+      "format" : "vcf",
+      "path" : "<project>/Reference Sequences/test.lungfishref/variants/variant-track-1.vcf.gz",
+      "role" : "output",
+      "sha256" : "aa08d4f848a0b03f1d4dec609dd3806c5371694d278244853396ca1aa7b6be50",
+      "size" : 10
+    },
+    {
+      "format" : "tbi",
+      "path" : "<project>/Reference Sequences/test.lungfishref/variants/variant-track-1.vcf.gz.tbi",
+      "role" : "index",
+      "sha256" : "38bb8fd13ac919a7f5f89d597f6d0f22ddab9cd7624e0e8b79fb4196d58f6f71",
+      "size" : 10
+    },
+    {
+      "format" : "sqlite",
+      "path" : "<project>/Reference Sequences/test.lungfishref/variants/variant-track-1.db",
+      "role" : "output"
+    }
+  ],
+  "readStatus" : "completed",
+  "recorded" : {
+
+  },
+  "reproducibleCommand" : "lofreq call-parallel sample.bam",
+  "resolvedDefaultOptions" : {
+
+  },
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "lofreq",
+        "call-parallel",
+        "sample.bam"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+
+      ],
+      "outputs" : [
+        {
+          "format" : "vcf",
+          "path" : "<project>/Staging/variant-call/staged.vcf.gz",
+          "role" : "output",
+          "sha256" : "aa08d4f848a0b03f1d4dec609dd3806c5371694d278244853396ca1aa7b6be50",
+          "size" : 10
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lofreq call-parallel sample.bam",
+      "resolvedOptions" : {
+
+      },
+      "stderr" : "",
+      "toolName" : "lofreq",
+      "toolVersion" : "2.1.5",
+      "wallTimeSeconds" : 2
+    },
+    {
+      "argv" : [
+        "lungfish",
+        "variants",
+        "call",
+        "--caller",
+        "lofreq"
+      ],
+      "dependsOn" : [
+        0
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "vcf",
+          "path" : "<project>/Staging/variant-call/staged.vcf.gz",
+          "role" : "input",
+          "sha256" : "aa08d4f848a0b03f1d4dec609dd3806c5371694d278244853396ca1aa7b6be50",
+          "size" : 10
+        },
+        {
+          "format" : "tbi",
+          "path" : "<project>/Staging/variant-call/staged.vcf.gz.tbi",
+          "role" : "index",
+          "sha256" : "38bb8fd13ac919a7f5f89d597f6d0f22ddab9cd7624e0e8b79fb4196d58f6f71",
+          "size" : 10
+        },
+        {
+          "format" : "sqlite",
+          "path" : "<project>/Staging/variant-call/staged.db",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "vcf",
+          "path" : "<project>/Reference Sequences/test.lungfishref/variants/variant-track-1.vcf.gz",
+          "role" : "output",
+          "sha256" : "aa08d4f848a0b03f1d4dec609dd3806c5371694d278244853396ca1aa7b6be50",
+          "size" : 10
+        },
+        {
+          "format" : "tbi",
+          "path" : "<project>/Reference Sequences/test.lungfishref/variants/variant-track-1.vcf.gz.tbi",
+          "role" : "index",
+          "sha256" : "38bb8fd13ac919a7f5f89d597f6d0f22ddab9cd7624e0e8b79fb4196d58f6f71",
+          "size" : 10
+        },
+        {
+          "format" : "sqlite",
+          "path" : "<project>/Reference Sequences/test.lungfishref/variants/variant-track-1.db",
+          "role" : "output"
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lungfish variants call --caller lofreq",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "lungfish-cli test",
+      "wallTimeSeconds" : 5
+    }
+  ],
+  "strictAccepts" : false,
+  "toolName" : "lofreq",
+  "toolVersion" : "2.1.5",
+  "wallTimeSeconds" : 10,
+  "workflowName" : "lungfish variants call"
+}

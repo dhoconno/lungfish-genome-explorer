@@ -1,0 +1,290 @@
+{
+  "argv" : [
+    "lungfish-cli",
+    "freyja",
+    "demix",
+    "--variants",
+    "<project>/Inputs/variants.tsv",
+    "--depths",
+    "<project>/Inputs/depths.tsv",
+    "--output-dir",
+    "<project>/Analyses/freyja-plan",
+    "--sample",
+    "WW-001",
+    "--extra-args",
+    "--eps 0.001"
+  ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "freyja",
+        "demix",
+        "--variants",
+        "<project>/Inputs/variants.tsv",
+        "--depths",
+        "<project>/Inputs/depths.tsv",
+        "--output-dir",
+        "<project>/Analyses/freyja-plan",
+        "--sample",
+        "WW-001",
+        "--extra-args",
+        "--eps 0.001"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish freyja demix",
+      "toolVersion" : "lungfish-cli <cli-version>"
+    }
+  ],
+  "decodedBy" : "workflowRun",
+  "defaultOptions" : {
+
+  },
+  "exitStatus" : 0,
+  "explicitOptions" : {
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "execute" : {
+      "type" : "string",
+      "value" : "false"
+    },
+    "options" : {
+      "type" : "dictionary",
+      "value" : {
+        "extraArguments" : {
+          "type" : "string",
+          "value" : "[\"--eps\",\"0.001\"]"
+        },
+        "sampleName" : {
+          "type" : "string",
+          "value" : "WW-001"
+        }
+      }
+    },
+    "packID" : {
+      "type" : "string",
+      "value" : "wastewater-surveillance"
+    },
+    "resolvedDefaults" : {
+      "type" : "dictionary",
+      "value" : {
+        "extraArguments" : {
+          "type" : "string",
+          "value" : "[]"
+        },
+        "sampleName" : {
+          "type" : "string",
+          "value" : ""
+        }
+      }
+    },
+    "runtime" : {
+      "type" : "string",
+      "value" : "<tool-root>/envs/freyja"
+    },
+    "sampleName" : {
+      "type" : "string",
+      "value" : "WW-001"
+    }
+  },
+  "factsVersion" : 2,
+  "files" : [
+    {
+      "format" : "text",
+      "path" : "<project>/Inputs/variants.tsv",
+      "role" : "input",
+      "sha256" : "3aa13f5d4d63882f9d744fd8a2bb5cdf358396141043f784768af22c6a23afda",
+      "size" : 11
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Inputs/depths.tsv",
+      "role" : "input",
+      "sha256" : "3aa13f5d4d63882f9d744fd8a2bb5cdf358396141043f784768af22c6a23afda",
+      "size" : 11
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/Analyses/freyja-plan/freyja-command-plan.json",
+      "role" : "output"
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/freyja-plan/freyja-demix.tsv",
+      "role" : "output"
+    }
+  ],
+  "legacyRunParameters" : {
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "execute" : {
+      "type" : "string",
+      "value" : "false"
+    },
+    "options" : {
+      "type" : "dictionary",
+      "value" : {
+        "extraArguments" : {
+          "type" : "string",
+          "value" : "[\"--eps\",\"0.001\"]"
+        },
+        "sampleName" : {
+          "type" : "string",
+          "value" : "WW-001"
+        }
+      }
+    },
+    "packID" : {
+      "type" : "string",
+      "value" : "wastewater-surveillance"
+    },
+    "resolvedDefaults" : {
+      "type" : "dictionary",
+      "value" : {
+        "extraArguments" : {
+          "type" : "string",
+          "value" : "[]"
+        },
+        "sampleName" : {
+          "type" : "string",
+          "value" : ""
+        }
+      }
+    },
+    "runtime" : {
+      "type" : "string",
+      "value" : "<tool-root>/envs/freyja"
+    },
+    "sampleName" : {
+      "type" : "string",
+      "value" : "WW-001"
+    }
+  },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "freyja",
+        "demix",
+        "--variants",
+        "<project>/Inputs/variants.tsv",
+        "--depths",
+        "<project>/Inputs/depths.tsv",
+        "--output-dir",
+        "<project>/Analyses/freyja-plan",
+        "--sample",
+        "WW-001",
+        "--extra-args",
+        "--eps 0.001"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish freyja demix",
+      "toolVersion" : "lungfish-cli <cli-version>"
+    }
+  ],
+  "opsStats" : {
+    "completedRunCount" : 1,
+    "decodesAsWorkflowRun" : true,
+    "totalWallTimeSeconds" : 0
+  },
+  "output" : {
+    "format" : "json",
+    "path" : "<project>/Analyses/freyja-plan/freyja-command-plan.json",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "format" : "json",
+      "path" : "<project>/Analyses/freyja-plan/freyja-command-plan.json",
+      "role" : "output"
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/freyja-plan/freyja-demix.tsv",
+      "role" : "output"
+    }
+  ],
+  "readStatus" : "completed",
+  "recorded" : {
+
+  },
+  "reproducibleCommand" : "lungfish-cli freyja demix --variants <project>/Inputs/variants.tsv --depths <project>/Inputs/depths.tsv --output-dir <project>/Analyses/freyja-plan --sample WW-001 --extra-args '--eps 0.001'",
+  "resolvedDefaultOptions" : {
+
+  },
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "freyja",
+        "demix",
+        "--variants",
+        "<project>/Inputs/variants.tsv",
+        "--depths",
+        "<project>/Inputs/depths.tsv",
+        "--output-dir",
+        "<project>/Analyses/freyja-plan",
+        "--sample",
+        "WW-001",
+        "--extra-args",
+        "--eps 0.001"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Inputs/variants.tsv",
+          "role" : "input",
+          "sha256" : "3aa13f5d4d63882f9d744fd8a2bb5cdf358396141043f784768af22c6a23afda",
+          "size" : 11
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Inputs/depths.tsv",
+          "role" : "input",
+          "sha256" : "3aa13f5d4d63882f9d744fd8a2bb5cdf358396141043f784768af22c6a23afda",
+          "size" : 11
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "json",
+          "path" : "<project>/Analyses/freyja-plan/freyja-command-plan.json",
+          "role" : "output"
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/freyja-plan/freyja-demix.tsv",
+          "role" : "output"
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lungfish-cli freyja demix --variants <project>/Inputs/variants.tsv --depths <project>/Inputs/depths.tsv --output-dir <project>/Analyses/freyja-plan --sample WW-001 --extra-args '--eps 0.001'",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "lungfish freyja demix",
+      "toolVersion" : "lungfish-cli <cli-version>"
+    }
+  ],
+  "strictAccepts" : false,
+  "toolName" : "lungfish freyja demix",
+  "toolVersion" : "lungfish-cli <cli-version>",
+  "workflowName" : "lungfish freyja demix"
+}

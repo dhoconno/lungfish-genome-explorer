@@ -1,0 +1,247 @@
+{
+  "argv" : [
+    "lungfish-cli",
+    "variants",
+    "extract-sample",
+    "<project>/Reference Sequences/Cohort.lungfishref",
+    "--sample",
+    "NA12878",
+    "--output",
+    "<project>/Exports/NA12878.vcf",
+    "--format",
+    "text",
+    "--quiet"
+  ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "variants",
+        "extract-sample",
+        "<project>/Reference Sequences/Cohort.lungfishref",
+        "--sample",
+        "NA12878",
+        "--output",
+        "<project>/Exports/NA12878.vcf",
+        "--format",
+        "text",
+        "--quiet"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish variants extract-sample",
+      "toolVersion" : "<cli-version>"
+    }
+  ],
+  "decodedBy" : "workflowRun",
+  "defaultOptions" : {
+
+  },
+  "exitStatus" : 0,
+  "explicitOptions" : {
+    "bundlePath" : {
+      "type" : "string",
+      "value" : "<project>/Reference Sequences/Cohort.lungfishref"
+    },
+    "condaEnvironment" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "databasePath" : {
+      "type" : "string",
+      "value" : "<project>/Reference Sequences/Cohort.lungfishref/variants/cohort.db"
+    },
+    "outputFormat" : {
+      "type" : "string",
+      "value" : "text"
+    },
+    "outputPath" : {
+      "type" : "string",
+      "value" : "<project>/Exports/NA12878.vcf"
+    },
+    "quiet" : {
+      "type" : "boolean",
+      "value" : true
+    },
+    "sample" : {
+      "type" : "string",
+      "value" : "NA12878"
+    },
+    "variantTrackID" : {
+      "type" : "string",
+      "value" : "cohort"
+    }
+  },
+  "factsVersion" : 2,
+  "files" : [
+    {
+      "format" : "unknown",
+      "path" : "<project>/Reference Sequences/Cohort.lungfishref",
+      "role" : "input"
+    },
+    {
+      "format" : "sqlite",
+      "path" : "<project>/Reference Sequences/Cohort.lungfishref/variants/cohort.db",
+      "role" : "input"
+    },
+    {
+      "format" : "vcf",
+      "path" : "<project>/Exports/NA12878.vcf",
+      "role" : "output",
+      "sha256" : "70be6cd540c11e5c4ce2e0ff43684534d96a2398f16f3d0bae4a25fde66cbb89",
+      "size" : 530
+    }
+  ],
+  "legacyRunParameters" : {
+    "bundlePath" : {
+      "type" : "string",
+      "value" : "<project>/Reference Sequences/Cohort.lungfishref"
+    },
+    "condaEnvironment" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "databasePath" : {
+      "type" : "string",
+      "value" : "<project>/Reference Sequences/Cohort.lungfishref/variants/cohort.db"
+    },
+    "outputFormat" : {
+      "type" : "string",
+      "value" : "text"
+    },
+    "outputPath" : {
+      "type" : "string",
+      "value" : "<project>/Exports/NA12878.vcf"
+    },
+    "quiet" : {
+      "type" : "boolean",
+      "value" : true
+    },
+    "sample" : {
+      "type" : "string",
+      "value" : "NA12878"
+    },
+    "variantTrackID" : {
+      "type" : "string",
+      "value" : "cohort"
+    }
+  },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "variants",
+        "extract-sample",
+        "<project>/Reference Sequences/Cohort.lungfishref",
+        "--sample",
+        "NA12878",
+        "--output",
+        "<project>/Exports/NA12878.vcf",
+        "--format",
+        "text",
+        "--quiet"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish variants extract-sample",
+      "toolVersion" : "<cli-version>"
+    }
+  ],
+  "opsStats" : {
+    "completedRunCount" : 1,
+    "decodesAsWorkflowRun" : true,
+    "totalWallTimeSeconds" : 0
+  },
+  "output" : {
+    "format" : "vcf",
+    "path" : "<project>/Exports/NA12878.vcf",
+    "role" : "output",
+    "sha256" : "70be6cd540c11e5c4ce2e0ff43684534d96a2398f16f3d0bae4a25fde66cbb89",
+    "size" : 530
+  },
+  "outputs" : [
+    {
+      "format" : "vcf",
+      "path" : "<project>/Exports/NA12878.vcf",
+      "role" : "output",
+      "sha256" : "70be6cd540c11e5c4ce2e0ff43684534d96a2398f16f3d0bae4a25fde66cbb89",
+      "size" : 530
+    }
+  ],
+  "readStatus" : "completed",
+  "recorded" : {
+
+  },
+  "reproducibleCommand" : "lungfish-cli variants extract-sample '<project>/Reference Sequences/Cohort.lungfishref' --sample NA12878 --output <project>/Exports/NA12878.vcf --format text --quiet",
+  "resolvedDefaultOptions" : {
+
+  },
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "variants",
+        "extract-sample",
+        "<project>/Reference Sequences/Cohort.lungfishref",
+        "--sample",
+        "NA12878",
+        "--output",
+        "<project>/Exports/NA12878.vcf",
+        "--format",
+        "text",
+        "--quiet"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "unknown",
+          "path" : "<project>/Reference Sequences/Cohort.lungfishref",
+          "role" : "input"
+        },
+        {
+          "format" : "sqlite",
+          "path" : "<project>/Reference Sequences/Cohort.lungfishref/variants/cohort.db",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "vcf",
+          "path" : "<project>/Exports/NA12878.vcf",
+          "role" : "output",
+          "sha256" : "70be6cd540c11e5c4ce2e0ff43684534d96a2398f16f3d0bae4a25fde66cbb89",
+          "size" : 530
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lungfish-cli variants extract-sample '<project>/Reference Sequences/Cohort.lungfishref' --sample NA12878 --output <project>/Exports/NA12878.vcf --format text --quiet",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "lungfish variants extract-sample",
+      "toolVersion" : "<cli-version>"
+    }
+  ],
+  "strictAccepts" : false,
+  "toolName" : "lungfish variants extract-sample",
+  "toolVersion" : "<cli-version>",
+  "workflowName" : "lungfish variants extract-sample"
+}

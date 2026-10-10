@@ -1,0 +1,264 @@
+{
+  "argv" : [
+    "lungfish-cli",
+    "project",
+    "migrate",
+    "<project>"
+  ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "project",
+        "migrate",
+        "<project>"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish project migrate",
+      "toolVersion" : "lungfish-cli <cli-version>"
+    }
+  ],
+  "decodedBy" : "workflowRun",
+  "defaultOptions" : {
+
+  },
+  "exitStatus" : 0,
+  "explicitOptions" : {
+    "backupManifest" : {
+      "type" : "file",
+      "value" : "<project>/LegacySummary.lungfishref/.lungfish/migrations/<run-start>.manifest.json.backup"
+    },
+    "bundlePath" : {
+      "type" : "file",
+      "value" : "<project>/LegacySummary.lungfishref"
+    },
+    "currentReferenceFormatVersion" : {
+      "type" : "string",
+      "value" : "1.0"
+    },
+    "dryRun" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "projectPath" : {
+      "type" : "file",
+      "value" : "<project>"
+    },
+    "sourceManifest" : {
+      "type" : "file",
+      "value" : "<project>/LegacySummary.lungfishref/manifest.json"
+    },
+    "sourceSchema" : {
+      "type" : "string",
+      "value" : "format_version=1.0 missing browser_summary"
+    },
+    "targetManifest" : {
+      "type" : "file",
+      "value" : "<project>/LegacySummary.lungfishref/manifest.json"
+    },
+    "targetSchema" : {
+      "type" : "string",
+      "value" : "format_version=1.0 with browser_summary"
+    },
+    "transformer" : {
+      "type" : "string",
+      "value" : "reference-manifest-browser-summary-v1"
+    },
+    "workflowName" : {
+      "type" : "string",
+      "value" : "lungfish project migrate"
+    }
+  },
+  "factsVersion" : 2,
+  "files" : [
+    {
+      "format" : "json",
+      "path" : "<project>/LegacySummary.lungfishref/manifest.json",
+      "role" : "input",
+      "sha256" : "c7bb2f8c6674af34aa1498cda5057aac3944958668ad009721c1098524e1ec44",
+      "size" : 791
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/LegacySummary.lungfishref/.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "c30b57267f5967c7cbc0ffa2a7d241268152281b25dea94311184041fbc41cc2",
+      "size" : 51
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/LegacySummary.lungfishref/manifest.json",
+      "role" : "output",
+      "sha256" : "48a6edb2ed29fa58f22bd8d919a94bed5833e2a9fc311e59b5af4618dd4250eb",
+      "size" : 1154
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/LegacySummary.lungfishref/.lungfish/migrations/<run-start>.manifest.json.backup",
+      "role" : "output",
+      "sha256" : "c7bb2f8c6674af34aa1498cda5057aac3944958668ad009721c1098524e1ec44",
+      "size" : 791
+    }
+  ],
+  "legacyRunParameters" : {
+    "backupManifest" : {
+      "type" : "file",
+      "value" : "<project>/LegacySummary.lungfishref/.lungfish/migrations/<run-start>.manifest.json.backup"
+    },
+    "bundlePath" : {
+      "type" : "file",
+      "value" : "<project>/LegacySummary.lungfishref"
+    },
+    "currentReferenceFormatVersion" : {
+      "type" : "string",
+      "value" : "1.0"
+    },
+    "dryRun" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "projectPath" : {
+      "type" : "file",
+      "value" : "<project>"
+    },
+    "sourceManifest" : {
+      "type" : "file",
+      "value" : "<project>/LegacySummary.lungfishref/manifest.json"
+    },
+    "sourceSchema" : {
+      "type" : "string",
+      "value" : "format_version=1.0 missing browser_summary"
+    },
+    "targetManifest" : {
+      "type" : "file",
+      "value" : "<project>/LegacySummary.lungfishref/manifest.json"
+    },
+    "targetSchema" : {
+      "type" : "string",
+      "value" : "format_version=1.0 with browser_summary"
+    },
+    "transformer" : {
+      "type" : "string",
+      "value" : "reference-manifest-browser-summary-v1"
+    },
+    "workflowName" : {
+      "type" : "string",
+      "value" : "lungfish project migrate"
+    }
+  },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "project",
+        "migrate",
+        "<project>"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish project migrate",
+      "toolVersion" : "lungfish-cli <cli-version>"
+    }
+  ],
+  "opsStats" : {
+    "completedRunCount" : 1,
+    "decodesAsWorkflowRun" : true,
+    "totalWallTimeSeconds" : 0
+  },
+  "output" : {
+    "format" : "json",
+    "path" : "<project>/LegacySummary.lungfishref/manifest.json",
+    "role" : "output",
+    "sha256" : "48a6edb2ed29fa58f22bd8d919a94bed5833e2a9fc311e59b5af4618dd4250eb",
+    "size" : 1154
+  },
+  "outputs" : [
+    {
+      "format" : "json",
+      "path" : "<project>/LegacySummary.lungfishref/manifest.json",
+      "role" : "output",
+      "sha256" : "48a6edb2ed29fa58f22bd8d919a94bed5833e2a9fc311e59b5af4618dd4250eb",
+      "size" : 1154
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/LegacySummary.lungfishref/.lungfish/migrations/<run-start>.manifest.json.backup",
+      "role" : "output",
+      "sha256" : "c7bb2f8c6674af34aa1498cda5057aac3944958668ad009721c1098524e1ec44",
+      "size" : 791
+    }
+  ],
+  "readStatus" : "completed",
+  "recorded" : {
+
+  },
+  "reproducibleCommand" : "lungfish-cli project migrate <project>",
+  "resolvedDefaultOptions" : {
+
+  },
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "project",
+        "migrate",
+        "<project>"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "json",
+          "path" : "<project>/LegacySummary.lungfishref/manifest.json",
+          "role" : "input",
+          "sha256" : "c7bb2f8c6674af34aa1498cda5057aac3944958668ad009721c1098524e1ec44",
+          "size" : 791
+        },
+        {
+          "format" : "json",
+          "path" : "<project>/LegacySummary.lungfishref/.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "c30b57267f5967c7cbc0ffa2a7d241268152281b25dea94311184041fbc41cc2",
+          "size" : 51
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "json",
+          "path" : "<project>/LegacySummary.lungfishref/manifest.json",
+          "role" : "output",
+          "sha256" : "48a6edb2ed29fa58f22bd8d919a94bed5833e2a9fc311e59b5af4618dd4250eb",
+          "size" : 1154
+        },
+        {
+          "format" : "json",
+          "path" : "<project>/LegacySummary.lungfishref/.lungfish/migrations/<run-start>.manifest.json.backup",
+          "role" : "output",
+          "sha256" : "c7bb2f8c6674af34aa1498cda5057aac3944958668ad009721c1098524e1ec44",
+          "size" : 791
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lungfish-cli project migrate <project>",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "lungfish project migrate",
+      "toolVersion" : "lungfish-cli <cli-version>"
+    }
+  ],
+  "strictAccepts" : false,
+  "toolName" : "lungfish project migrate",
+  "toolVersion" : "lungfish-cli <cli-version>",
+  "workflowName" : "lungfish project migrate browser-summary"
+}

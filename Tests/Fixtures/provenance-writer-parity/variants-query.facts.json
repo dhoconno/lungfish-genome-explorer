@@ -1,0 +1,263 @@
+{
+  "argv" : [
+    "lungfish-cli",
+    "variants",
+    "query",
+    "<project>/Reference Sequences/Cohort.lungfishref",
+    "--filter",
+    "Sample[NA12878].GT=1/1",
+    "--output",
+    "<project>/Exports/filtered.vcf",
+    "--limit",
+    "5000",
+    "--format",
+    "text",
+    "--quiet"
+  ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "variants",
+        "query",
+        "<project>/Reference Sequences/Cohort.lungfishref",
+        "--filter",
+        "Sample[NA12878].GT=1/1",
+        "--output",
+        "<project>/Exports/filtered.vcf",
+        "--limit",
+        "5000",
+        "--format",
+        "text",
+        "--quiet"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish variants query",
+      "toolVersion" : "<cli-version>"
+    }
+  ],
+  "decodedBy" : "workflowRun",
+  "defaultOptions" : {
+
+  },
+  "exitStatus" : 0,
+  "explicitOptions" : {
+    "bundlePath" : {
+      "type" : "string",
+      "value" : "<project>/Reference Sequences/Cohort.lungfishref"
+    },
+    "condaEnvironment" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "databasePath" : {
+      "type" : "string",
+      "value" : "<project>/Reference Sequences/Cohort.lungfishref/variants/cohort.db"
+    },
+    "filter" : {
+      "type" : "string",
+      "value" : "Sample[NA12878].GT=1/1"
+    },
+    "limit" : {
+      "type" : "integer",
+      "value" : 5000
+    },
+    "outputFormat" : {
+      "type" : "string",
+      "value" : "text"
+    },
+    "outputPath" : {
+      "type" : "string",
+      "value" : "<project>/Exports/filtered.vcf"
+    },
+    "quiet" : {
+      "type" : "boolean",
+      "value" : true
+    },
+    "variantTrackID" : {
+      "type" : "string",
+      "value" : "cohort"
+    }
+  },
+  "factsVersion" : 2,
+  "files" : [
+    {
+      "format" : "unknown",
+      "path" : "<project>/Reference Sequences/Cohort.lungfishref",
+      "role" : "input"
+    },
+    {
+      "format" : "sqlite",
+      "path" : "<project>/Reference Sequences/Cohort.lungfishref/variants/cohort.db",
+      "role" : "input"
+    },
+    {
+      "format" : "vcf",
+      "path" : "<project>/Exports/filtered.vcf",
+      "role" : "output",
+      "sha256" : "f8ac6fefe34cc1d6dc07ff158b6afe2dabd6e8b2ba6298225db9f7324d65e75e",
+      "size" : 508
+    }
+  ],
+  "legacyRunParameters" : {
+    "bundlePath" : {
+      "type" : "string",
+      "value" : "<project>/Reference Sequences/Cohort.lungfishref"
+    },
+    "condaEnvironment" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "databasePath" : {
+      "type" : "string",
+      "value" : "<project>/Reference Sequences/Cohort.lungfishref/variants/cohort.db"
+    },
+    "filter" : {
+      "type" : "string",
+      "value" : "Sample[NA12878].GT=1/1"
+    },
+    "limit" : {
+      "type" : "integer",
+      "value" : 5000
+    },
+    "outputFormat" : {
+      "type" : "string",
+      "value" : "text"
+    },
+    "outputPath" : {
+      "type" : "string",
+      "value" : "<project>/Exports/filtered.vcf"
+    },
+    "quiet" : {
+      "type" : "boolean",
+      "value" : true
+    },
+    "variantTrackID" : {
+      "type" : "string",
+      "value" : "cohort"
+    }
+  },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "variants",
+        "query",
+        "<project>/Reference Sequences/Cohort.lungfishref",
+        "--filter",
+        "Sample[NA12878].GT=1/1",
+        "--output",
+        "<project>/Exports/filtered.vcf",
+        "--limit",
+        "5000",
+        "--format",
+        "text",
+        "--quiet"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish variants query",
+      "toolVersion" : "<cli-version>"
+    }
+  ],
+  "opsStats" : {
+    "completedRunCount" : 1,
+    "decodesAsWorkflowRun" : true,
+    "totalWallTimeSeconds" : 0
+  },
+  "output" : {
+    "format" : "vcf",
+    "path" : "<project>/Exports/filtered.vcf",
+    "role" : "output",
+    "sha256" : "f8ac6fefe34cc1d6dc07ff158b6afe2dabd6e8b2ba6298225db9f7324d65e75e",
+    "size" : 508
+  },
+  "outputs" : [
+    {
+      "format" : "vcf",
+      "path" : "<project>/Exports/filtered.vcf",
+      "role" : "output",
+      "sha256" : "f8ac6fefe34cc1d6dc07ff158b6afe2dabd6e8b2ba6298225db9f7324d65e75e",
+      "size" : 508
+    }
+  ],
+  "readStatus" : "completed",
+  "recorded" : {
+
+  },
+  "reproducibleCommand" : "lungfish-cli variants query '<project>/Reference Sequences/Cohort.lungfishref' --filter 'Sample[NA12878].GT=1/1' --output <project>/Exports/filtered.vcf --limit 5000 --format text --quiet",
+  "resolvedDefaultOptions" : {
+
+  },
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "variants",
+        "query",
+        "<project>/Reference Sequences/Cohort.lungfishref",
+        "--filter",
+        "Sample[NA12878].GT=1/1",
+        "--output",
+        "<project>/Exports/filtered.vcf",
+        "--limit",
+        "5000",
+        "--format",
+        "text",
+        "--quiet"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "unknown",
+          "path" : "<project>/Reference Sequences/Cohort.lungfishref",
+          "role" : "input"
+        },
+        {
+          "format" : "sqlite",
+          "path" : "<project>/Reference Sequences/Cohort.lungfishref/variants/cohort.db",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "vcf",
+          "path" : "<project>/Exports/filtered.vcf",
+          "role" : "output",
+          "sha256" : "f8ac6fefe34cc1d6dc07ff158b6afe2dabd6e8b2ba6298225db9f7324d65e75e",
+          "size" : 508
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lungfish-cli variants query '<project>/Reference Sequences/Cohort.lungfishref' --filter 'Sample[NA12878].GT=1/1' --output <project>/Exports/filtered.vcf --limit 5000 --format text --quiet",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "lungfish variants query",
+      "toolVersion" : "<cli-version>"
+    }
+  ],
+  "strictAccepts" : false,
+  "toolName" : "lungfish variants query",
+  "toolVersion" : "<cli-version>",
+  "workflowName" : "lungfish variants query"
+}

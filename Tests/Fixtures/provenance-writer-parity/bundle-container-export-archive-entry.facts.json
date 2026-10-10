@@ -1,0 +1,296 @@
+{
+  "argv" : [
+    "lungfish",
+    "bundle",
+    "export",
+    "<project>/Reference Sequences/Example.lungfishref",
+    "--format",
+    "container",
+    "--output",
+    "<project>/Exports/bundle.oci.tar"
+  ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "lungfish",
+        "bundle",
+        "export",
+        "<project>/Reference Sequences/Example.lungfishref",
+        "--format",
+        "container",
+        "--output",
+        "<project>/Exports/bundle.oci.tar"
+      ],
+      "containerDigest" : "sha256:ba36a27f50d8d940f2eb7b2d10fafe1fd43516e08417b0e66766076795652f89",
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish bundle export",
+      "toolVersion" : "<app-version>"
+    }
+  ],
+  "decodedBy" : "workflowRun",
+  "defaultOptions" : {
+
+  },
+  "exitStatus" : 0,
+  "explicitOptions" : {
+    "bundlePath" : {
+      "type" : "string",
+      "value" : "<project>/Reference Sequences/Example.lungfishref"
+    },
+    "format" : {
+      "type" : "string",
+      "value" : "container"
+    },
+    "imageDigest" : {
+      "type" : "string",
+      "value" : "sha256:ba36a27f50d8d940f2eb7b2d10fafe1fd43516e08417b0e66766076795652f89"
+    },
+    "outputPath" : {
+      "type" : "string",
+      "value" : "<project>/Exports/bundle.oci.tar"
+    },
+    "pluginPacks" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "string",
+          "value" : "read-mapping"
+        }
+      ]
+    },
+    "runtimeHostName" : {
+      "type" : "string",
+      "value" : "<host-name>"
+    }
+  },
+  "factsVersion" : 2,
+  "files" : [
+    {
+      "format" : "unknown",
+      "path" : "<project>/Reference Sequences/Example.lungfishref",
+      "role" : "input"
+    },
+    {
+      "format" : "fasta",
+      "path" : "<project>/Reference Sequences/Example.lungfishref/genome.fa",
+      "role" : "input",
+      "sha256" : "f8150f1ddacb6623f83c304530699161ded29f02b133389fdd990dbfd7139b1a",
+      "size" : 11
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/Reference Sequences/Example.lungfishref/manifest.json",
+      "role" : "input",
+      "sha256" : "10cf5000afbaae8ea3b95c9081f5428d03c5939c801fbec0829f13bccb67e1b9",
+      "size" : 41
+    },
+    {
+      "format" : "unknown",
+      "path" : "<project>/Exports/bundle.oci.tar",
+      "role" : "output"
+    },
+    {
+      "format" : "json",
+      "path" : "oci://config.json",
+      "role" : "output",
+      "sha256" : "5a1c7601ff5581eb69ba27ca2ed418af7393e95ac5ce9bc0dc571e1b1047fa87",
+      "size" : 234
+    },
+    {
+      "format" : "json",
+      "path" : "oci://manifest.json",
+      "role" : "output",
+      "sha256" : "ba36a27f50d8d940f2eb7b2d10fafe1fd43516e08417b0e66766076795652f89",
+      "size" : 514
+    },
+    {
+      "format" : "unknown",
+      "path" : "oci://layer.tar",
+      "role" : "output",
+      "sha256" : "e096565be5074857b9c41211880ce2ef2ead600217127b379adab00b57c122d1",
+      "size" : 4096
+    }
+  ],
+  "legacyRunParameters" : {
+    "bundlePath" : {
+      "type" : "string",
+      "value" : "<project>/Reference Sequences/Example.lungfishref"
+    },
+    "format" : {
+      "type" : "string",
+      "value" : "container"
+    },
+    "imageDigest" : {
+      "type" : "string",
+      "value" : "sha256:ba36a27f50d8d940f2eb7b2d10fafe1fd43516e08417b0e66766076795652f89"
+    },
+    "outputPath" : {
+      "type" : "string",
+      "value" : "<project>/Exports/bundle.oci.tar"
+    },
+    "pluginPacks" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "string",
+          "value" : "read-mapping"
+        }
+      ]
+    },
+    "runtimeHostName" : {
+      "type" : "string",
+      "value" : "<host-name>"
+    }
+  },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "lungfish",
+        "bundle",
+        "export",
+        "<project>/Reference Sequences/Example.lungfishref",
+        "--format",
+        "container",
+        "--output",
+        "<project>/Exports/bundle.oci.tar"
+      ],
+      "containerDigest" : "sha256:ba36a27f50d8d940f2eb7b2d10fafe1fd43516e08417b0e66766076795652f89",
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish bundle export",
+      "toolVersion" : "<app-version>"
+    }
+  ],
+  "opsStats" : {
+    "completedRunCount" : 1,
+    "decodesAsWorkflowRun" : true,
+    "totalWallTimeSeconds" : 0
+  },
+  "output" : {
+    "format" : "unknown",
+    "path" : "<project>/Exports/bundle.oci.tar",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "format" : "unknown",
+      "path" : "<project>/Exports/bundle.oci.tar",
+      "role" : "output"
+    },
+    {
+      "format" : "json",
+      "path" : "oci://config.json",
+      "role" : "output",
+      "sha256" : "5a1c7601ff5581eb69ba27ca2ed418af7393e95ac5ce9bc0dc571e1b1047fa87",
+      "size" : 234
+    },
+    {
+      "format" : "json",
+      "path" : "oci://manifest.json",
+      "role" : "output",
+      "sha256" : "ba36a27f50d8d940f2eb7b2d10fafe1fd43516e08417b0e66766076795652f89",
+      "size" : 514
+    },
+    {
+      "format" : "unknown",
+      "path" : "oci://layer.tar",
+      "role" : "output",
+      "sha256" : "e096565be5074857b9c41211880ce2ef2ead600217127b379adab00b57c122d1",
+      "size" : 4096
+    }
+  ],
+  "readStatus" : "completed",
+  "recorded" : {
+
+  },
+  "reproducibleCommand" : "lungfish bundle export '<project>/Reference Sequences/Example.lungfishref' --format container --output <project>/Exports/bundle.oci.tar",
+  "resolvedDefaultOptions" : {
+
+  },
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish",
+        "bundle",
+        "export",
+        "<project>/Reference Sequences/Example.lungfishref",
+        "--format",
+        "container",
+        "--output",
+        "<project>/Exports/bundle.oci.tar"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "unknown",
+          "path" : "<project>/Reference Sequences/Example.lungfishref",
+          "role" : "input"
+        },
+        {
+          "format" : "fasta",
+          "path" : "<project>/Reference Sequences/Example.lungfishref/genome.fa",
+          "role" : "input",
+          "sha256" : "f8150f1ddacb6623f83c304530699161ded29f02b133389fdd990dbfd7139b1a",
+          "size" : 11
+        },
+        {
+          "format" : "json",
+          "path" : "<project>/Reference Sequences/Example.lungfishref/manifest.json",
+          "role" : "input",
+          "sha256" : "10cf5000afbaae8ea3b95c9081f5428d03c5939c801fbec0829f13bccb67e1b9",
+          "size" : 41
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "unknown",
+          "path" : "<project>/Exports/bundle.oci.tar",
+          "role" : "output"
+        },
+        {
+          "format" : "json",
+          "path" : "oci://config.json",
+          "role" : "output",
+          "sha256" : "5a1c7601ff5581eb69ba27ca2ed418af7393e95ac5ce9bc0dc571e1b1047fa87",
+          "size" : 234
+        },
+        {
+          "format" : "json",
+          "path" : "oci://manifest.json",
+          "role" : "output",
+          "sha256" : "ba36a27f50d8d940f2eb7b2d10fafe1fd43516e08417b0e66766076795652f89",
+          "size" : 514
+        },
+        {
+          "format" : "unknown",
+          "path" : "oci://layer.tar",
+          "role" : "output",
+          "sha256" : "e096565be5074857b9c41211880ce2ef2ead600217127b379adab00b57c122d1",
+          "size" : 4096
+        }
+      ],
+      "recorded" : {
+        "containerDigest" : "sha256:ba36a27f50d8d940f2eb7b2d10fafe1fd43516e08417b0e66766076795652f89"
+      },
+      "reproducibleCommand" : "lungfish bundle export '<project>/Reference Sequences/Example.lungfishref' --format container --output <project>/Exports/bundle.oci.tar",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "lungfish bundle export",
+      "toolVersion" : "<app-version>"
+    }
+  ],
+  "strictAccepts" : false,
+  "toolName" : "lungfish bundle export",
+  "toolVersion" : "<app-version>",
+  "workflowName" : "Bundle Container Export"
+}

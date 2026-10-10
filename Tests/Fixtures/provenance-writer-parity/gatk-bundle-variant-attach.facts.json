@@ -1,0 +1,500 @@
+{
+  "argv" : [
+    "lungfish-app",
+    "gatk-attach",
+    "--bundle",
+    "<project>/Reference Sequences/sample.lungfishref",
+    "--alignment-track",
+    "aln-1",
+    "--vcf",
+    "<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf",
+    "--output-track",
+    "gatk-track",
+    "--name",
+    "Sample GATK",
+    "--import-semantics",
+    "standard",
+    "--import-profile",
+    "fast"
+  ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "lungfish-app",
+        "gatk-attach",
+        "--bundle",
+        "<project>/Reference Sequences/sample.lungfishref",
+        "--alignment-track",
+        "aln-1",
+        "--vcf",
+        "<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf",
+        "--output-track",
+        "gatk-track",
+        "--name",
+        "Sample GATK",
+        "--import-semantics",
+        "standard",
+        "--import-profile",
+        "fast"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish gatk bundle attach",
+      "toolVersion" : "<app-version>"
+    }
+  ],
+  "decodedBy" : "workflowRun",
+  "defaultOptions" : {
+
+  },
+  "exitStatus" : 0,
+  "explicitOptions" : {
+    "alignmentTrackID" : {
+      "type" : "string",
+      "value" : "aln-1"
+    },
+    "alignmentTrackName" : {
+      "type" : "string",
+      "value" : "Sample BAM"
+    },
+    "bundleIdentifier" : {
+      "type" : "string",
+      "value" : "sample-bundle"
+    },
+    "bundleName" : {
+      "type" : "string",
+      "value" : "Sample"
+    },
+    "bundlePath" : {
+      "type" : "string",
+      "value" : "<project>/Reference Sequences/sample.lungfishref"
+    },
+    "condaEnvironment" : {
+      "type" : "string",
+      "value" : "/opt/lungfish/envs/gatk-core"
+    },
+    "default.emitReferenceConfidence" : {
+      "type" : "string",
+      "value" : "GVCF"
+    },
+    "default.extraArguments" : {
+      "type" : "string",
+      "value" : "[]"
+    },
+    "default.maxAlternateAlleles" : {
+      "type" : "string",
+      "value" : "6"
+    },
+    "default.nativePairHMMThreads" : {
+      "type" : "string",
+      "value" : "4"
+    },
+    "default.pcrIndelModel" : {
+      "type" : "string",
+      "value" : "CONSERVATIVE"
+    },
+    "default.ploidy" : {
+      "type" : "string",
+      "value" : "2"
+    },
+    "default.standardMinConfidenceThresholdForCalling" : {
+      "type" : "string",
+      "value" : "30.0"
+    },
+    "importProfile" : {
+      "type" : "string",
+      "value" : "fast"
+    },
+    "importSemantics" : {
+      "type" : "string",
+      "value" : "standard"
+    },
+    "option.emitReferenceConfidence" : {
+      "type" : "string",
+      "value" : "NONE"
+    },
+    "option.extraArguments" : {
+      "type" : "string",
+      "value" : "[]"
+    },
+    "option.maxAlternateAlleles" : {
+      "type" : "string",
+      "value" : "6"
+    },
+    "option.nativePairHMMThreads" : {
+      "type" : "string",
+      "value" : "4"
+    },
+    "option.pcrIndelModel" : {
+      "type" : "string",
+      "value" : "CONSERVATIVE"
+    },
+    "option.ploidy" : {
+      "type" : "string",
+      "value" : "2"
+    },
+    "option.standardMinConfidenceThresholdForCalling" : {
+      "type" : "string",
+      "value" : "30.0"
+    },
+    "outputTrackID" : {
+      "type" : "string",
+      "value" : "gatk-track"
+    },
+    "outputTrackName" : {
+      "type" : "string",
+      "value" : "Sample GATK"
+    },
+    "shellCommand" : {
+      "type" : "string",
+      "value" : "gatk HaplotypeCaller -R '<project>/Reference Sequences/sample.lungfishref/genome/reference.fa' -I '<project>/Reference Sequences/sample.lungfishref/alignments/sample.bam' -O '<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf' --sample-ploidy 2 --max-alternate-alleles 6 --pcr-indel-model CONSERVATIVE --native-pair-hmm-threads 4 --standard-min-confidence-threshold-for-calling 30.0"
+    },
+    "sourceExecutionProvenance" : {
+      "type" : "string",
+      "value" : "<project>/Reference Sequences/sample.lungfishref/variants/gatk/.lungfish-provenance.json"
+    },
+    "variantCaller" : {
+      "type" : "string",
+      "value" : "gatk-haplotype-caller"
+    },
+    "variantCallerVersion" : {
+      "type" : "string",
+      "value" : "4.5.0.0"
+    },
+    "variantCount" : {
+      "type" : "integer",
+      "value" : 1
+    }
+  },
+  "factsVersion" : 2,
+  "files" : [
+    {
+      "format" : "vcf",
+      "path" : "<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf",
+      "role" : "input",
+      "sha256" : "9772735291318eea5f0d71b5bdd3879e1956051600ff5276ab97d6ffbb373434",
+      "size" : 142
+    },
+    {
+      "format" : "unknown",
+      "path" : "<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf.idx",
+      "role" : "index",
+      "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size" : 0
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/Reference Sequences/sample.lungfishref/variants/gatk/.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "size" : 2
+    },
+    {
+      "format" : "vcf",
+      "path" : "<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf",
+      "role" : "output",
+      "sha256" : "9772735291318eea5f0d71b5bdd3879e1956051600ff5276ab97d6ffbb373434",
+      "size" : 142
+    },
+    {
+      "format" : "unknown",
+      "path" : "<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf.idx",
+      "role" : "index",
+      "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size" : 0
+    },
+    {
+      "format" : "unknown",
+      "path" : "<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.db",
+      "role" : "output"
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/Reference Sequences/sample.lungfishref/manifest.json",
+      "role" : "output"
+    }
+  ],
+  "legacyRunParameters" : {
+    "alignmentTrackID" : {
+      "type" : "string",
+      "value" : "aln-1"
+    },
+    "alignmentTrackName" : {
+      "type" : "string",
+      "value" : "Sample BAM"
+    },
+    "bundleIdentifier" : {
+      "type" : "string",
+      "value" : "sample-bundle"
+    },
+    "bundleName" : {
+      "type" : "string",
+      "value" : "Sample"
+    },
+    "bundlePath" : {
+      "type" : "string",
+      "value" : "<project>/Reference Sequences/sample.lungfishref"
+    },
+    "condaEnvironment" : {
+      "type" : "string",
+      "value" : "/opt/lungfish/envs/gatk-core"
+    },
+    "default.emitReferenceConfidence" : {
+      "type" : "string",
+      "value" : "GVCF"
+    },
+    "default.extraArguments" : {
+      "type" : "string",
+      "value" : "[]"
+    },
+    "default.maxAlternateAlleles" : {
+      "type" : "string",
+      "value" : "6"
+    },
+    "default.nativePairHMMThreads" : {
+      "type" : "string",
+      "value" : "4"
+    },
+    "default.pcrIndelModel" : {
+      "type" : "string",
+      "value" : "CONSERVATIVE"
+    },
+    "default.ploidy" : {
+      "type" : "string",
+      "value" : "2"
+    },
+    "default.standardMinConfidenceThresholdForCalling" : {
+      "type" : "string",
+      "value" : "30.0"
+    },
+    "importProfile" : {
+      "type" : "string",
+      "value" : "fast"
+    },
+    "importSemantics" : {
+      "type" : "string",
+      "value" : "standard"
+    },
+    "option.emitReferenceConfidence" : {
+      "type" : "string",
+      "value" : "NONE"
+    },
+    "option.extraArguments" : {
+      "type" : "string",
+      "value" : "[]"
+    },
+    "option.maxAlternateAlleles" : {
+      "type" : "string",
+      "value" : "6"
+    },
+    "option.nativePairHMMThreads" : {
+      "type" : "string",
+      "value" : "4"
+    },
+    "option.pcrIndelModel" : {
+      "type" : "string",
+      "value" : "CONSERVATIVE"
+    },
+    "option.ploidy" : {
+      "type" : "string",
+      "value" : "2"
+    },
+    "option.standardMinConfidenceThresholdForCalling" : {
+      "type" : "string",
+      "value" : "30.0"
+    },
+    "outputTrackID" : {
+      "type" : "string",
+      "value" : "gatk-track"
+    },
+    "outputTrackName" : {
+      "type" : "string",
+      "value" : "Sample GATK"
+    },
+    "shellCommand" : {
+      "type" : "string",
+      "value" : "gatk HaplotypeCaller -R '<project>/Reference Sequences/sample.lungfishref/genome/reference.fa' -I '<project>/Reference Sequences/sample.lungfishref/alignments/sample.bam' -O '<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf' --sample-ploidy 2 --max-alternate-alleles 6 --pcr-indel-model CONSERVATIVE --native-pair-hmm-threads 4 --standard-min-confidence-threshold-for-calling 30.0"
+    },
+    "sourceExecutionProvenance" : {
+      "type" : "string",
+      "value" : "<project>/Reference Sequences/sample.lungfishref/variants/gatk/.lungfish-provenance.json"
+    },
+    "variantCaller" : {
+      "type" : "string",
+      "value" : "gatk-haplotype-caller"
+    },
+    "variantCallerVersion" : {
+      "type" : "string",
+      "value" : "4.5.0.0"
+    },
+    "variantCount" : {
+      "type" : "integer",
+      "value" : 1
+    }
+  },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "lungfish-app",
+        "gatk-attach",
+        "--bundle",
+        "<project>/Reference Sequences/sample.lungfishref",
+        "--alignment-track",
+        "aln-1",
+        "--vcf",
+        "<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf",
+        "--output-track",
+        "gatk-track",
+        "--name",
+        "Sample GATK",
+        "--import-semantics",
+        "standard",
+        "--import-profile",
+        "fast"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish gatk bundle attach",
+      "toolVersion" : "<app-version>"
+    }
+  ],
+  "opsStats" : {
+    "completedRunCount" : 1,
+    "decodesAsWorkflowRun" : true,
+    "totalWallTimeSeconds" : 0
+  },
+  "output" : {
+    "format" : "vcf",
+    "path" : "<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf",
+    "role" : "output",
+    "sha256" : "9772735291318eea5f0d71b5bdd3879e1956051600ff5276ab97d6ffbb373434",
+    "size" : 142
+  },
+  "outputs" : [
+    {
+      "format" : "vcf",
+      "path" : "<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf",
+      "role" : "output",
+      "sha256" : "9772735291318eea5f0d71b5bdd3879e1956051600ff5276ab97d6ffbb373434",
+      "size" : 142
+    },
+    {
+      "format" : "unknown",
+      "path" : "<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf.idx",
+      "role" : "index",
+      "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size" : 0
+    },
+    {
+      "format" : "unknown",
+      "path" : "<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.db",
+      "role" : "output"
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/Reference Sequences/sample.lungfishref/manifest.json",
+      "role" : "output"
+    }
+  ],
+  "readStatus" : "completed",
+  "recorded" : {
+
+  },
+  "reproducibleCommand" : "lungfish-app gatk-attach --bundle '<project>/Reference Sequences/sample.lungfishref' --alignment-track aln-1 --vcf '<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf' --output-track gatk-track --name 'Sample GATK' --import-semantics standard --import-profile fast",
+  "resolvedDefaultOptions" : {
+
+  },
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-app",
+        "gatk-attach",
+        "--bundle",
+        "<project>/Reference Sequences/sample.lungfishref",
+        "--alignment-track",
+        "aln-1",
+        "--vcf",
+        "<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf",
+        "--output-track",
+        "gatk-track",
+        "--name",
+        "Sample GATK",
+        "--import-semantics",
+        "standard",
+        "--import-profile",
+        "fast"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "vcf",
+          "path" : "<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf",
+          "role" : "input",
+          "sha256" : "9772735291318eea5f0d71b5bdd3879e1956051600ff5276ab97d6ffbb373434",
+          "size" : 142
+        },
+        {
+          "format" : "unknown",
+          "path" : "<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf.idx",
+          "role" : "index",
+          "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size" : 0
+        },
+        {
+          "format" : "json",
+          "path" : "<project>/Reference Sequences/sample.lungfishref/variants/gatk/.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "size" : 2
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "vcf",
+          "path" : "<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf",
+          "role" : "output",
+          "sha256" : "9772735291318eea5f0d71b5bdd3879e1956051600ff5276ab97d6ffbb373434",
+          "size" : 142
+        },
+        {
+          "format" : "unknown",
+          "path" : "<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf.idx",
+          "role" : "index",
+          "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size" : 0
+        },
+        {
+          "format" : "unknown",
+          "path" : "<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.db",
+          "role" : "output"
+        },
+        {
+          "format" : "json",
+          "path" : "<project>/Reference Sequences/sample.lungfishref/manifest.json",
+          "role" : "output"
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lungfish-app gatk-attach --bundle '<project>/Reference Sequences/sample.lungfishref' --alignment-track aln-1 --vcf '<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf' --output-track gatk-track --name 'Sample GATK' --import-semantics standard --import-profile fast",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "lungfish gatk bundle attach",
+      "toolVersion" : "<app-version>"
+    }
+  ],
+  "strictAccepts" : false,
+  "toolName" : "lungfish gatk bundle attach",
+  "toolVersion" : "<app-version>",
+  "workflowName" : "GATK HaplotypeCaller bundle attachment"
+}

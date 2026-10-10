@@ -1,0 +1,348 @@
+{
+  "argv" : [
+    "lungfish-cli",
+    "bam",
+    "adopt-mapping",
+    "--bundle",
+    "<project>/BundleAlignmentFixture-<UUID>.lungfishref",
+    "--mapping-result",
+    "<project>/Analyses/mapping",
+    "--name",
+    "minimap2 mapping",
+    "--track-id",
+    "adopted-mapping",
+    "--format",
+    "text",
+    "--quiet"
+  ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "bam",
+        "adopt-mapping",
+        "--bundle",
+        "<project>/BundleAlignmentFixture-<UUID>.lungfishref",
+        "--mapping-result",
+        "<project>/Analyses/mapping",
+        "--name",
+        "minimap2 mapping",
+        "--track-id",
+        "adopted-mapping",
+        "--format",
+        "text",
+        "--quiet"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "<cli-version>"
+    }
+  ],
+  "decodedBy" : "workflowRun",
+  "defaultOptions" : {
+
+  },
+  "exitStatus" : 0,
+  "explicitOptions" : {
+    "adoptMappingProvenancePath" : {
+      "type" : "string",
+      "value" : "alignments/mapped/adopted-mapping.adopt-mapping-provenance.json"
+    },
+    "bundlePath" : {
+      "type" : "string",
+      "value" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref"
+    },
+    "condaEnvironment" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "format" : {
+      "type" : "string",
+      "value" : "bam"
+    },
+    "mappingResultPath" : {
+      "type" : "string",
+      "value" : "<project>/Analyses/mapping"
+    },
+    "outputFormat" : {
+      "type" : "string",
+      "value" : "text"
+    },
+    "quiet" : {
+      "type" : "boolean",
+      "value" : true
+    },
+    "relativeDirectory" : {
+      "type" : "string",
+      "value" : "alignments/mapped"
+    },
+    "sourceMappingProvenancePath" : {
+      "type" : "string",
+      "value" : "alignments/mapped/mapping-provenance.json"
+    },
+    "trackID" : {
+      "type" : "string",
+      "value" : "adopted-mapping"
+    },
+    "trackIDWasDefaulted" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "trackName" : {
+      "type" : "string",
+      "value" : "minimap2 mapping"
+    }
+  },
+  "factsVersion" : 2,
+  "files" : [
+    {
+      "format" : "bam",
+      "path" : "<project>/Analyses/mapping/sorted.bam",
+      "role" : "input"
+    },
+    {
+      "format" : "bai",
+      "path" : "<project>/Analyses/mapping/sorted.bam.bai",
+      "role" : "index"
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/Analyses/mapping/mapping-provenance.json",
+      "role" : "input",
+      "sha256" : "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "size" : 2
+    },
+    {
+      "format" : "bam",
+      "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/adopted-mapping.bam",
+      "role" : "output"
+    },
+    {
+      "format" : "bai",
+      "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/adopted-mapping.bam.bai",
+      "role" : "index"
+    },
+    {
+      "format" : "sqlite",
+      "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/adopted-mapping.stats.db",
+      "role" : "output"
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/mapping-provenance.json",
+      "role" : "output",
+      "sha256" : "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "size" : 2
+    }
+  ],
+  "legacyRunParameters" : {
+    "adoptMappingProvenancePath" : {
+      "type" : "string",
+      "value" : "alignments/mapped/adopted-mapping.adopt-mapping-provenance.json"
+    },
+    "bundlePath" : {
+      "type" : "string",
+      "value" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref"
+    },
+    "condaEnvironment" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "format" : {
+      "type" : "string",
+      "value" : "bam"
+    },
+    "mappingResultPath" : {
+      "type" : "string",
+      "value" : "<project>/Analyses/mapping"
+    },
+    "outputFormat" : {
+      "type" : "string",
+      "value" : "text"
+    },
+    "quiet" : {
+      "type" : "boolean",
+      "value" : true
+    },
+    "relativeDirectory" : {
+      "type" : "string",
+      "value" : "alignments/mapped"
+    },
+    "sourceMappingProvenancePath" : {
+      "type" : "string",
+      "value" : "alignments/mapped/mapping-provenance.json"
+    },
+    "trackID" : {
+      "type" : "string",
+      "value" : "adopted-mapping"
+    },
+    "trackIDWasDefaulted" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "trackName" : {
+      "type" : "string",
+      "value" : "minimap2 mapping"
+    }
+  },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "lungfish-cli",
+        "bam",
+        "adopt-mapping",
+        "--bundle",
+        "<project>/BundleAlignmentFixture-<UUID>.lungfishref",
+        "--mapping-result",
+        "<project>/Analyses/mapping",
+        "--name",
+        "minimap2 mapping",
+        "--track-id",
+        "adopted-mapping",
+        "--format",
+        "text",
+        "--quiet"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "<cli-version>"
+    }
+  ],
+  "opsStats" : {
+    "completedRunCount" : 1,
+    "decodesAsWorkflowRun" : true,
+    "totalWallTimeSeconds" : 0
+  },
+  "output" : {
+    "format" : "bam",
+    "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/adopted-mapping.bam",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "format" : "bam",
+      "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/adopted-mapping.bam",
+      "role" : "output"
+    },
+    {
+      "format" : "bai",
+      "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/adopted-mapping.bam.bai",
+      "role" : "index"
+    },
+    {
+      "format" : "sqlite",
+      "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/adopted-mapping.stats.db",
+      "role" : "output"
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/mapping-provenance.json",
+      "role" : "output",
+      "sha256" : "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "size" : 2
+    }
+  ],
+  "readStatus" : "completed",
+  "recorded" : {
+
+  },
+  "reproducibleCommand" : "lungfish-cli bam adopt-mapping --bundle <project>/BundleAlignmentFixture-<UUID>.lungfishref --mapping-result <project>/Analyses/mapping --name 'minimap2 mapping' --track-id adopted-mapping --format text --quiet",
+  "resolvedDefaultOptions" : {
+
+  },
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "bam",
+        "adopt-mapping",
+        "--bundle",
+        "<project>/BundleAlignmentFixture-<UUID>.lungfishref",
+        "--mapping-result",
+        "<project>/Analyses/mapping",
+        "--name",
+        "minimap2 mapping",
+        "--track-id",
+        "adopted-mapping",
+        "--format",
+        "text",
+        "--quiet"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "bam",
+          "path" : "<project>/Analyses/mapping/sorted.bam",
+          "role" : "input"
+        },
+        {
+          "format" : "bai",
+          "path" : "<project>/Analyses/mapping/sorted.bam.bai",
+          "role" : "index"
+        },
+        {
+          "format" : "json",
+          "path" : "<project>/Analyses/mapping/mapping-provenance.json",
+          "role" : "input",
+          "sha256" : "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "size" : 2
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "bam",
+          "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/adopted-mapping.bam",
+          "role" : "output"
+        },
+        {
+          "format" : "bai",
+          "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/adopted-mapping.bam.bai",
+          "role" : "index"
+        },
+        {
+          "format" : "sqlite",
+          "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/adopted-mapping.stats.db",
+          "role" : "output"
+        },
+        {
+          "format" : "json",
+          "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/mapping-provenance.json",
+          "role" : "output",
+          "sha256" : "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "size" : 2
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lungfish-cli bam adopt-mapping --bundle <project>/BundleAlignmentFixture-<UUID>.lungfishref --mapping-result <project>/Analyses/mapping --name 'minimap2 mapping' --track-id adopted-mapping --format text --quiet",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "<cli-version>"
+    }
+  ],
+  "strictAccepts" : false,
+  "toolName" : "lungfish-cli",
+  "toolVersion" : "<cli-version>",
+  "workflowName" : "lungfish bam adopt-mapping"
+}

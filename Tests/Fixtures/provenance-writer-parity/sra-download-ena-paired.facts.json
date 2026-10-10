@@ -1,0 +1,505 @@
+{
+  "argv" : [
+    "curl",
+    "-L",
+    "--fail",
+    "--user-agent",
+    "Lungfish Genome Explorer",
+    "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_1.fastq.gz",
+    "-o",
+    "<project>/Imports/sra-download/SRR200_1.fastq.gz"
+  ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "curl",
+        "-L",
+        "--fail",
+        "--user-agent",
+        "Lungfish Genome Explorer",
+        "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_1.fastq.gz",
+        "-o",
+        "<project>/Imports/sra-download/SRR200_1.fastq.gz"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "https-download",
+      "toolVersion" : "URLSession"
+    },
+    {
+      "command" : [
+        "curl",
+        "-L",
+        "--fail",
+        "--user-agent",
+        "Lungfish Genome Explorer",
+        "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_2.fastq.gz",
+        "-o",
+        "<project>/Imports/sra-download/SRR200_2.fastq.gz"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "https-download",
+      "toolVersion" : "URLSession"
+    },
+    {
+      "command" : [
+        "lungfish-cli",
+        "fetch",
+        "sra",
+        "download",
+        "SRR200",
+        "--output-dir",
+        "<project>/Imports/sra-download",
+        "--format",
+        "text",
+        "--quiet"
+      ],
+      "dependsOn" : [
+        0,
+        1
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "<cli-version>"
+    }
+  ],
+  "decodedBy" : "workflowRun",
+  "defaultOptions" : {
+
+  },
+  "exitStatus" : 0,
+  "explicitOptions" : {
+    "accession" : {
+      "type" : "string",
+      "value" : "SRR200"
+    },
+    "condaEnvironment" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "downloadSource" : {
+      "type" : "string",
+      "value" : "ENA"
+    },
+    "executedStepCount" : {
+      "type" : "integer",
+      "value" : 2
+    },
+    "fallbackMessage" : {
+      "type" : "null"
+    },
+    "outputDir" : {
+      "type" : "string",
+      "value" : "<project>/Imports/sra-download"
+    },
+    "outputFormat" : {
+      "type" : "string",
+      "value" : "text"
+    },
+    "preferredSource" : {
+      "type" : "string",
+      "value" : "ena"
+    },
+    "quiet" : {
+      "type" : "boolean",
+      "value" : true
+    },
+    "requestedStrategy" : {
+      "type" : "string",
+      "value" : "ena-direct"
+    },
+    "selectedStrategy" : {
+      "type" : "string",
+      "value" : "ena-direct"
+    },
+    "sourceInputs" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "string",
+          "value" : "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_1.fastq.gz"
+        },
+        {
+          "type" : "string",
+          "value" : "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_2.fastq.gz"
+        }
+      ]
+    }
+  },
+  "factsVersion" : 2,
+  "files" : [
+    {
+      "format" : "fastq",
+      "path" : "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_1.fastq.gz",
+      "role" : "input"
+    },
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/sra-download/SRR200_1.fastq.gz",
+      "role" : "output",
+      "sha256" : "59869db34853933b239f1e2219cf7d431da006aa919635478511fabbfc8849d2",
+      "size" : 20
+    },
+    {
+      "format" : "fastq",
+      "path" : "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_2.fastq.gz",
+      "role" : "input"
+    },
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/sra-download/SRR200_2.fastq.gz",
+      "role" : "output",
+      "sha256" : "59869db34853933b239f1e2219cf7d431da006aa919635478511fabbfc8849d2",
+      "size" : 20
+    },
+    {
+      "format" : "fastq",
+      "path" : "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_1.fastq.gz",
+      "role" : "input"
+    },
+    {
+      "format" : "fastq",
+      "path" : "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_2.fastq.gz",
+      "role" : "input"
+    },
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/sra-download/SRR200_1.fastq.gz",
+      "role" : "output",
+      "sha256" : "59869db34853933b239f1e2219cf7d431da006aa919635478511fabbfc8849d2",
+      "size" : 20
+    },
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/sra-download/SRR200_2.fastq.gz",
+      "role" : "output",
+      "sha256" : "59869db34853933b239f1e2219cf7d431da006aa919635478511fabbfc8849d2",
+      "size" : 20
+    }
+  ],
+  "legacyRunParameters" : {
+    "accession" : {
+      "type" : "string",
+      "value" : "SRR200"
+    },
+    "condaEnvironment" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "containerRuntime" : {
+      "type" : "string",
+      "value" : "none"
+    },
+    "downloadSource" : {
+      "type" : "string",
+      "value" : "ENA"
+    },
+    "executedStepCount" : {
+      "type" : "integer",
+      "value" : 2
+    },
+    "fallbackMessage" : {
+      "type" : "null"
+    },
+    "outputDir" : {
+      "type" : "string",
+      "value" : "<project>/Imports/sra-download"
+    },
+    "outputFormat" : {
+      "type" : "string",
+      "value" : "text"
+    },
+    "preferredSource" : {
+      "type" : "string",
+      "value" : "ena"
+    },
+    "quiet" : {
+      "type" : "boolean",
+      "value" : true
+    },
+    "requestedStrategy" : {
+      "type" : "string",
+      "value" : "ena-direct"
+    },
+    "selectedStrategy" : {
+      "type" : "string",
+      "value" : "ena-direct"
+    },
+    "sourceInputs" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "string",
+          "value" : "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_1.fastq.gz"
+        },
+        {
+          "type" : "string",
+          "value" : "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_2.fastq.gz"
+        }
+      ]
+    }
+  },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "curl",
+        "-L",
+        "--fail",
+        "--user-agent",
+        "Lungfish Genome Explorer",
+        "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_1.fastq.gz",
+        "-o",
+        "<project>/Imports/sra-download/SRR200_1.fastq.gz"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "https-download",
+      "toolVersion" : "URLSession"
+    },
+    {
+      "command" : [
+        "curl",
+        "-L",
+        "--fail",
+        "--user-agent",
+        "Lungfish Genome Explorer",
+        "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_2.fastq.gz",
+        "-o",
+        "<project>/Imports/sra-download/SRR200_2.fastq.gz"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "https-download",
+      "toolVersion" : "URLSession"
+    },
+    {
+      "command" : [
+        "lungfish-cli",
+        "fetch",
+        "sra",
+        "download",
+        "SRR200",
+        "--output-dir",
+        "<project>/Imports/sra-download",
+        "--format",
+        "text",
+        "--quiet"
+      ],
+      "dependsOn" : [
+        0,
+        1
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "<cli-version>"
+    }
+  ],
+  "opsStats" : {
+    "completedRunCount" : 1,
+    "decodesAsWorkflowRun" : true,
+    "totalWallTimeSeconds" : 0
+  },
+  "output" : {
+    "format" : "fastq",
+    "path" : "<project>/Imports/sra-download/SRR200_1.fastq.gz",
+    "role" : "output",
+    "sha256" : "59869db34853933b239f1e2219cf7d431da006aa919635478511fabbfc8849d2",
+    "size" : 20
+  },
+  "outputs" : [
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/sra-download/SRR200_1.fastq.gz",
+      "role" : "output",
+      "sha256" : "59869db34853933b239f1e2219cf7d431da006aa919635478511fabbfc8849d2",
+      "size" : 20
+    },
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/sra-download/SRR200_2.fastq.gz",
+      "role" : "output",
+      "sha256" : "59869db34853933b239f1e2219cf7d431da006aa919635478511fabbfc8849d2",
+      "size" : 20
+    },
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/sra-download/SRR200_1.fastq.gz",
+      "role" : "output",
+      "sha256" : "59869db34853933b239f1e2219cf7d431da006aa919635478511fabbfc8849d2",
+      "size" : 20
+    },
+    {
+      "format" : "fastq",
+      "path" : "<project>/Imports/sra-download/SRR200_2.fastq.gz",
+      "role" : "output",
+      "sha256" : "59869db34853933b239f1e2219cf7d431da006aa919635478511fabbfc8849d2",
+      "size" : 20
+    }
+  ],
+  "readStatus" : "completed",
+  "recorded" : {
+
+  },
+  "reproducibleCommand" : "curl -L --fail --user-agent 'Lungfish Genome Explorer' https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_1.fastq.gz -o <project>/Imports/sra-download/SRR200_1.fastq.gz",
+  "resolvedDefaultOptions" : {
+
+  },
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "curl",
+        "-L",
+        "--fail",
+        "--user-agent",
+        "Lungfish Genome Explorer",
+        "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_1.fastq.gz",
+        "-o",
+        "<project>/Imports/sra-download/SRR200_1.fastq.gz"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "fastq",
+          "path" : "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_1.fastq.gz",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "fastq",
+          "path" : "<project>/Imports/sra-download/SRR200_1.fastq.gz",
+          "role" : "output",
+          "sha256" : "59869db34853933b239f1e2219cf7d431da006aa919635478511fabbfc8849d2",
+          "size" : 20
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "curl -L --fail --user-agent 'Lungfish Genome Explorer' https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_1.fastq.gz -o <project>/Imports/sra-download/SRR200_1.fastq.gz",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "https-download",
+      "toolVersion" : "URLSession"
+    },
+    {
+      "argv" : [
+        "curl",
+        "-L",
+        "--fail",
+        "--user-agent",
+        "Lungfish Genome Explorer",
+        "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_2.fastq.gz",
+        "-o",
+        "<project>/Imports/sra-download/SRR200_2.fastq.gz"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "fastq",
+          "path" : "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_2.fastq.gz",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "fastq",
+          "path" : "<project>/Imports/sra-download/SRR200_2.fastq.gz",
+          "role" : "output",
+          "sha256" : "59869db34853933b239f1e2219cf7d431da006aa919635478511fabbfc8849d2",
+          "size" : 20
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "curl -L --fail --user-agent 'Lungfish Genome Explorer' https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_2.fastq.gz -o <project>/Imports/sra-download/SRR200_2.fastq.gz",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "https-download",
+      "toolVersion" : "URLSession"
+    },
+    {
+      "argv" : [
+        "lungfish-cli",
+        "fetch",
+        "sra",
+        "download",
+        "SRR200",
+        "--output-dir",
+        "<project>/Imports/sra-download",
+        "--format",
+        "text",
+        "--quiet"
+      ],
+      "dependsOn" : [
+        0,
+        1
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "fastq",
+          "path" : "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_1.fastq.gz",
+          "role" : "input"
+        },
+        {
+          "format" : "fastq",
+          "path" : "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR200/SRR200_2.fastq.gz",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "fastq",
+          "path" : "<project>/Imports/sra-download/SRR200_1.fastq.gz",
+          "role" : "output",
+          "sha256" : "59869db34853933b239f1e2219cf7d431da006aa919635478511fabbfc8849d2",
+          "size" : 20
+        },
+        {
+          "format" : "fastq",
+          "path" : "<project>/Imports/sra-download/SRR200_2.fastq.gz",
+          "role" : "output",
+          "sha256" : "59869db34853933b239f1e2219cf7d431da006aa919635478511fabbfc8849d2",
+          "size" : 20
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lungfish-cli fetch sra download SRR200 --output-dir <project>/Imports/sra-download --format text --quiet",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "<cli-version>"
+    }
+  ],
+  "strictAccepts" : false,
+  "toolName" : "https-download",
+  "toolVersion" : "URLSession",
+  "workflowName" : "sra-fastq-download"
+}
