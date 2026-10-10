@@ -31,6 +31,8 @@ final class ProvenanceCompatCLITests: XCTestCase {
         "s1-recorder-readsetplan": Pin(sidecars: 1, completed: 1),
         // Seen but dropped, because an envelope without the compat keys does not decode as a run.
         "s2-analysis-kraken2-fixture": Pin(sidecars: 1, completed: 0),
+        // A bare run counts when it has the directory sidecar name.
+        "s3-gatk-container-bare-run": Pin(sidecars: 1, completed: 1),
         // Never seen. The file is named <file>.lungfish-provenance.json, which the aggregator skips.
         "s3-ncbi-fetch-alpha11": Pin(sidecars: 0, completed: 0),
         // A bare run counts when it has the directory sidecar name.

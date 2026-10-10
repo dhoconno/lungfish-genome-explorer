@@ -1,0 +1,235 @@
+{
+  "appVersion" : "Lungfish 2026.10.10 (dev)",
+  "endTime" : "2026-09-22T18:00:00Z",
+  "hostOS" : "macOS 26.7.1 (arm64)",
+  "id" : "D6573462-8244-49EA-A4E3-F58B1ACA44F8",
+  "name" : "GATK Joint Genotyping",
+  "parameters" : {
+    "containerDigest" : {
+      "type" : "string",
+      "value" : "sha256:1ba4b39d599432543b3e8812d4c2e533d3431da57050a6e9cfa60a173a91803b"
+    },
+    "containerImage" : {
+      "type" : "string",
+      "value" : "quay.io\/biocontainers\/gatk4:4.6.1.0--py310hdfd78af_0"
+    },
+    "default.alleleSpecificAnnotations" : {
+      "type" : "string",
+      "value" : "true"
+    },
+    "default.combineStrategy" : {
+      "type" : "string",
+      "value" : "auto"
+    },
+    "default.extraArguments" : {
+      "type" : "string",
+      "value" : "[]"
+    },
+    "default.intervals" : {
+      "type" : "string",
+      "value" : ""
+    },
+    "default.standardMinConfidenceThresholdForCalling" : {
+      "type" : "string",
+      "value" : "30.0"
+    },
+    "option.alleleSpecificAnnotations" : {
+      "type" : "string",
+      "value" : "true"
+    },
+    "option.combineStrategy" : {
+      "type" : "string",
+      "value" : "combine-gvcfs"
+    },
+    "option.extraArguments" : {
+      "type" : "string",
+      "value" : "[]"
+    },
+    "option.inputGVCFCount" : {
+      "type" : "string",
+      "value" : "2"
+    },
+    "option.intervals" : {
+      "type" : "string",
+      "value" : ""
+    },
+    "option.standardMinConfidenceThresholdForCalling" : {
+      "type" : "string",
+      "value" : "30.0"
+    },
+    "packID" : {
+      "type" : "string",
+      "value" : "gatk-core"
+    },
+    "packVersion" : {
+      "type" : "string",
+      "value" : "1.0.0"
+    },
+    "shellCommand" : {
+      "type" : "string",
+      "value" : "gatk CombineGVCFs -R @\/Inputs\/reference.fasta -O @\/Analyses\/gatk-joint-genotyping\/combined.g.vcf --variant @\/Inputs\/sample-a.g.vcf --variant @\/Inputs\/sample-b.g.vcf && gatk GenotypeGVCFs -R @\/Inputs\/reference.fasta -V @\/Analyses\/gatk-joint-genotyping\/combined.g.vcf -O @\/Analyses\/gatk-joint-genotyping\/joint.vcf --standard-min-confidence-threshold-for-calling 30.0 -G AS_StandardAnnotation"
+    },
+    "shellCommands" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "string",
+          "value" : "gatk CombineGVCFs -R @\/Inputs\/reference.fasta -O @\/Analyses\/gatk-joint-genotyping\/combined.g.vcf --variant @\/Inputs\/sample-a.g.vcf --variant @\/Inputs\/sample-b.g.vcf"
+        },
+        {
+          "type" : "string",
+          "value" : "gatk GenotypeGVCFs -R @\/Inputs\/reference.fasta -V @\/Analyses\/gatk-joint-genotyping\/combined.g.vcf -O @\/Analyses\/gatk-joint-genotyping\/joint.vcf --standard-min-confidence-threshold-for-calling 30.0 -G AS_StandardAnnotation"
+        }
+      ]
+    },
+    "toolEnvironment" : {
+      "type" : "string",
+      "value" : "gatk-core"
+    },
+    "toolExecutable" : {
+      "type" : "string",
+      "value" : "gatk"
+    }
+  },
+  "runtime" : {
+    "appVersion" : "Lungfish 2026.10.10 (dev)",
+    "hostOS" : "macOS 26.7.1 (arm64)"
+  },
+  "startTime" : "2026-09-22T18:00:00Z",
+  "status" : "completed",
+  "steps" : [
+    {
+      "command" : [
+        "gatk",
+        "CombineGVCFs",
+        "-R",
+        "@\/Inputs\/reference.fasta",
+        "-O",
+        "@\/Analyses\/gatk-joint-genotyping\/combined.g.vcf",
+        "--variant",
+        "@\/Inputs\/sample-a.g.vcf",
+        "--variant",
+        "@\/Inputs\/sample-b.g.vcf"
+      ],
+      "containerDigest" : "sha256:1ba4b39d599432543b3e8812d4c2e533d3431da57050a6e9cfa60a173a91803b",
+      "containerImage" : "quay.io\/biocontainers\/gatk4:4.6.1.0--py310hdfd78af_0",
+      "dependsOn" : [
+
+      ],
+      "endTime" : "2026-09-22T18:00:00Z",
+      "exitCode" : 0,
+      "id" : "E99C5F27-F72A-4D65-98E4-2A1F6B425B31",
+      "inputs" : [
+        {
+          "format" : "fasta",
+          "path" : "@\/Inputs\/reference.fasta",
+          "role" : "reference",
+          "sha256" : "63620eb5e6ddccf3832c45a0a16ebe6676ec5b1a8aca9be3dddc03684550fc9f",
+          "sizeBytes" : 17
+        },
+        {
+          "format" : "vcf",
+          "path" : "@\/Inputs\/sample-a.g.vcf",
+          "role" : "input",
+          "sha256" : "bf24f883bacf754b5cc18a681b194f1bd6b447d9ed43677d43e06cd1767cd15c",
+          "sizeBytes" : 32
+        },
+        {
+          "format" : "vcf",
+          "path" : "@\/Inputs\/sample-b.g.vcf",
+          "role" : "input",
+          "sha256" : "f266921a1bfc3402832eb14dc0aeaa8ff0db1fcf49093c60fa85b20de524047c",
+          "sizeBytes" : 32
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "vcf",
+          "path" : "@\/Analyses\/gatk-joint-genotyping\/combined.g.vcf",
+          "role" : "output",
+          "sha256" : "85ecb082770998226e688028ab740e52cd52e12ca532f8c36f302bc41c4a2c69",
+          "sizeBytes" : 37
+        },
+        {
+          "format" : "vcf",
+          "path" : "@\/Analyses\/gatk-joint-genotyping\/joint.vcf",
+          "role" : "output",
+          "sha256" : "54a2f78b2659f7869eb0611f0d3cf9782fa0a4459e87406eaf3d06ce8871dd1c",
+          "sizeBytes" : 34
+        }
+      ],
+      "startTime" : "2026-09-22T18:00:00Z",
+      "stderr" : "Using GATK jar \/opt\/gatk\/gatk-package-4.6.1.0-local.jar",
+      "toolName" : "gatk-joint-genotype",
+      "toolVersion" : "4.6.1.0",
+      "wallTime" : 21.5
+    },
+    {
+      "command" : [
+        "gatk",
+        "GenotypeGVCFs",
+        "-R",
+        "@\/Inputs\/reference.fasta",
+        "-V",
+        "@\/Analyses\/gatk-joint-genotyping\/combined.g.vcf",
+        "-O",
+        "@\/Analyses\/gatk-joint-genotyping\/joint.vcf",
+        "--standard-min-confidence-threshold-for-calling",
+        "30.0",
+        "-G",
+        "AS_StandardAnnotation"
+      ],
+      "containerDigest" : "sha256:1ba4b39d599432543b3e8812d4c2e533d3431da57050a6e9cfa60a173a91803b",
+      "containerImage" : "quay.io\/biocontainers\/gatk4:4.6.1.0--py310hdfd78af_0",
+      "dependsOn" : [
+
+      ],
+      "endTime" : "2026-09-22T18:00:00Z",
+      "exitCode" : 0,
+      "id" : "81D2A210-BD88-4F73-A817-E1642E6377ED",
+      "inputs" : [
+        {
+          "format" : "fasta",
+          "path" : "@\/Inputs\/reference.fasta",
+          "role" : "reference",
+          "sha256" : "63620eb5e6ddccf3832c45a0a16ebe6676ec5b1a8aca9be3dddc03684550fc9f",
+          "sizeBytes" : 17
+        },
+        {
+          "format" : "vcf",
+          "path" : "@\/Inputs\/sample-a.g.vcf",
+          "role" : "input",
+          "sha256" : "bf24f883bacf754b5cc18a681b194f1bd6b447d9ed43677d43e06cd1767cd15c",
+          "sizeBytes" : 32
+        },
+        {
+          "format" : "vcf",
+          "path" : "@\/Inputs\/sample-b.g.vcf",
+          "role" : "input",
+          "sha256" : "f266921a1bfc3402832eb14dc0aeaa8ff0db1fcf49093c60fa85b20de524047c",
+          "sizeBytes" : 32
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "vcf",
+          "path" : "@\/Analyses\/gatk-joint-genotyping\/combined.g.vcf",
+          "role" : "output",
+          "sha256" : "85ecb082770998226e688028ab740e52cd52e12ca532f8c36f302bc41c4a2c69",
+          "sizeBytes" : 37
+        },
+        {
+          "format" : "vcf",
+          "path" : "@\/Analyses\/gatk-joint-genotyping\/joint.vcf",
+          "role" : "output",
+          "sha256" : "54a2f78b2659f7869eb0611f0d3cf9782fa0a4459e87406eaf3d06ce8871dd1c",
+          "sizeBytes" : 34
+        }
+      ],
+      "startTime" : "2026-09-22T18:00:00Z",
+      "toolName" : "gatk-joint-genotype",
+      "toolVersion" : "4.6.1.0",
+      "wallTime" : 40.75
+    }
+  ]
+}

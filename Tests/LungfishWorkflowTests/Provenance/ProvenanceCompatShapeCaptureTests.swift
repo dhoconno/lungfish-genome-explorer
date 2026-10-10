@@ -178,6 +178,28 @@ struct ProvenanceCompatShapeCaptureTests {
         )
     }
 
+    // MARK: Bare run with a container on every step
+
+    @Test(
+        "captures a bare run whose steps each carry a container image and digest",
+        .enabled(if: ProvenanceCompatCorpus.captureCasesRequested)
+    )
+    func capturesBareRunWithContainerOnEveryStep() async throws {
+        let project = try ProvenanceCompatScenarios.makeProject()
+        defer { project.cleanup() }
+
+        let sidecar = try await ProvenanceCompatScenarios.gatkContainerRun(in: project)
+
+        try ProvenanceCompatCorpus.addCapturedCase(
+            id: "s3-gatk-container-bare-run",
+            layoutPath: "\(ProvenanceCompatScenarios.gatkContainerAnalysisFolder)/.lungfish-provenance.json",
+            shape: "S3",
+            family: "F01",
+            origin: "Captured once at \(Self.baseCommit) in a temporary .lungfish project by ProvenanceCompatShapeCaptureTests. The real GATKPipelineExecutor ran a joint genotyping request (CombineGVCFs, then GenotypeGVCFs) with an injected runner and wrote the record with WorkflowRun.writeSidecar, the way the GATK writer does today. Both steps carry containerImage and containerDigest, and neither has a runtime identity of its own. The image reference is real in form, and the digest is the SHA-256 of that reference. Bytes are exactly what the executor produced, no edit. The recorded app version and host name the test host that ran the capture.",
+            bytes: try Data(contentsOf: sidecar)
+        )
+    }
+
     // MARK: Helpers
 
     private struct CaptureProject {

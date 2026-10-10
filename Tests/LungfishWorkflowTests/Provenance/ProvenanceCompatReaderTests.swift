@@ -23,6 +23,7 @@ struct ProvenanceCompatReaderTests {
         "s1-db-receipt-kraken2-viral": true,
         "s1-recorder-readsetplan": true,
         "s2-analysis-kraken2-fixture": true,
+        "s3-gatk-container-bare-run": false,
         "s3-ncbi-fetch-alpha11": false,
         "s3-write-sidecar-bare-run": false,
         "s4-mcm-mhcref-shipped": false,
@@ -226,6 +227,39 @@ struct ProvenanceCompatReaderTests {
         #expect(facts.steps.map(\.toolName) == ["kraken2", "bracken"])
         #expect(facts.steps.map(\.exitStatus) == [0, 0])
         #expect(facts.status == "completed")
+    }
+
+    @Test("the GATK container case shows its image and digest on both steps in the legacy views")
+    func gatkContainerCaseShowsItsContainerOnBothStepsInTheLegacyViews() throws {
+        let facts = try Self.liveFacts("s3-gatk-container-bare-run")
+        let image = ProvenanceCompatScenarios.gatkContainerImage
+        let digest = ProvenanceCompatScenarios.gatkContainerDigest
+
+        #expect(facts.decodedBy == .workflowRun)
+        #expect(!facts.strictAccepts)
+        #expect(facts.steps.count == 2)
+        // The bytes hold the container identity on each step, with no runtime identity of the step's own.
+        #expect(facts.steps.map(\.recorded) == [
+            ["containerImage": image, "containerDigest": digest],
+            ["containerImage": image, "containerDigest": digest],
+        ])
+        // The legacy views, which the readers use, show it on both steps.
+        for view in [facts.legacyRunSteps, facts.canonicalRunSteps] {
+            #expect(view.count == 2)
+            #expect(view.map(\.containerImage) == [image, image])
+            #expect(view.map(\.containerDigest) == [digest, digest])
+            #expect(view.map(\.wallTime) == [21.5, 40.75])
+        }
+        #expect(facts.steps.map(\.wallTimeSeconds) == [21.5, 40.75])
+        #expect(facts.steps.map(\.exitStatus) == [0, 0])
+        #expect(facts.steps.map(\.dependsOn) == [[], []])
+        // The run parameters name the container too.
+        guard case .object(let parameters) = facts.legacyRunParameters else {
+            Issue.record("run parameters must be a JSON object")
+            return
+        }
+        #expect(parameters["containerImage"] == .object(["type": .string("string"), "value": .string(image)]))
+        #expect(parameters["containerDigest"] == .object(["type": .string("string"), "value": .string(digest)]))
     }
 
     @Test("the bare-run writer and the canonical-envelope writer agree on every fact but the declared ones")

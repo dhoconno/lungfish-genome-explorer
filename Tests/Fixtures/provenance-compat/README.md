@@ -40,10 +40,11 @@ MANIFEST.tsv has a header row and six tab-separated columns. They are the case i
 | s1-recorder-readsetplan | S1 | F01 | Captured run-bearing envelope from ProvenanceRecorder, with a readSetPlan parameter and a save that passes explicit options |
 | s1-canonical-envelope-run | S1 | F01 | Captured run-bearing envelope from WorkflowRun.canonicalEnvelope() written through ProvenanceWriter |
 | s3-write-sidecar-bare-run | S3 | F01 | Captured bare run from WorkflowRun.writeSidecar, the same run as the case above |
+| s3-gatk-container-bare-run | S3 | F01 | Captured bare run from the real GATKPipelineExecutor, two steps that each carry a container image and digest |
 
 The origin column of MANIFEST.tsv says where each file came from and names every edit. Of the five real or tracked files, three are exactly the source bytes (two copies and the one file referenced in place). The other two carry the account edits described next.
 
-The last four cases were captured once, at commit 81e89a306, from the writers as they stood before Phase 2.4 changed any of them. `ProvenanceCompatShapeCaptureTests` and `ProvenanceCompatCLICaptureTests` wrote them inside a temporary project, so their paths are `@/` project paths and `<tool-root>` and `<storage-root>` placeholders, as in a real project. Their runtime identity names the test host that ran the capture. The last two cases are the same run written both ways, so a writer that moves from `writeSidecar` to `canonicalEnvelope()` can be compared fact by fact.
+The last five cases were captured once, at commit 81e89a306, from the writers as they stood before Phase 2.4 changed any of them. `ProvenanceCompatShapeCaptureTests` and `ProvenanceCompatCLICaptureTests` wrote them inside a temporary project, so their paths are `@/` project paths and `<tool-root>` and `<storage-root>` placeholders, as in a real project. Their runtime identity names the test host that ran the capture. The cases s1-canonical-envelope-run and s3-write-sidecar-bare-run are the same run written both ways, so a writer that moves from `writeSidecar` to `canonicalEnvelope()` can be compared fact by fact. The GATK case came from the real executor with an injected runner, because a containerized bare run is the shape where a dropped image digest would otherwise go unnoticed.
 
 ### The account edits
 
