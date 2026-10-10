@@ -93,4 +93,4 @@ A tool is not done until its output is pinned on this Mac. The goldens live in `
 | The genotyping pipe has no stdin writer | The minimap2 to samtools pipe in `ONTBarcodeDemuxGenotypingPipeline` runs through `ToolProcess.runPipeline`. A stage that must be fed bytes from Swift while it runs has no entry point yet. |
 | Events are one at a time | An `onEvent` handler must return promptly, because output is not read while it runs. Hand slow work to a queue. |
 
-Provenance is separate. A run records its argv and tool versions through `ProvenanceEnvelope`, and `ToolProcess` does not write provenance. A provenance observer hook on the primitive is planned for sub-phase 2.4.
+Provenance is separate. A run records its argv and tool versions through `ProvenanceEnvelope`, and `ToolProcess` does not write provenance. A provenance observer hook on the primitive is planned for sub-phase 2.7, where the run executor and the recorder rebuilt on `ProvenanceRunBuilder` consume it. `docs/contracts/RECORDING-PROVENANCE.md` holds the contract for the hook.
