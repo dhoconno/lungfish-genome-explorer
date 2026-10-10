@@ -32,40 +32,16 @@ final class ProvenanceReadOnlyTests: XCTestCase {
         let (result, fastq, report) = try makeTaxTriageResult(in: project, folder: "taxtriage-2026-10-09T12-00-00")
         try place(Data("SQLite format 3\u{0}".utf8), at: result.appendingPathComponent("taxtriage.sqlite"))
 
-        let input = try ProvenanceFileDescriptor.file(url: fastq, format: .fastq, role: .input)
-        let reportOutput = try ProvenanceFileDescriptor.file(url: report, format: .text, role: .report)
-        let step = ProvenanceStep(
-            toolName: "TaxTriage",
-            toolVersion: "2.0.0",
-            argv: ["nextflow", "run", "TaxTriage", "--input", fastq.path],
-            inputs: [input],
-            outputs: [reportOutput],
-            exitStatus: 0,
-            wallTimeSeconds: 3,
-            stderr: ""
-        )
         let signature = ProvenanceSignatureReference(
             provider: "test-provider",
             provenanceSHA256: String(repeating: "c", count: 64),
             signaturePath: "provenance.sig",
             publicKeyPath: "provenance.pub"
         )
-        let record = ProvenanceEnvelope(
-            workflowName: "TaxTriage",
-            workflowVersion: "2026.09.1",
-            toolName: "TaxTriage",
-            toolVersion: "2.0.0",
-            argv: step.argv,
-            runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
-            files: [input, reportOutput],
-            output: reportOutput,
-            outputs: [reportOutput],
-            steps: [step],
-            wallTimeSeconds: 3,
-            exitStatus: 0,
-            stderr: "",
-            signatures: [signature]
-        )
+        let record = makeRecord(tool: "TaxTriage", files: [
+            try ProvenanceFileDescriptor.file(url: report, format: .text, role: .report),
+            try ProvenanceFileDescriptor.file(url: fastq, format: .fastq, role: .input),
+        ], signatures: [signature])
         try place(
             ProvenanceJSON.encoder.encode(record),
             at: result.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
@@ -304,7 +280,7 @@ final class ProvenanceReadOnlyTests: XCTestCase {
         let sidecar = folder.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         let reads = folder.appendingPathComponent("reads.fastq")
         try place(Data("@r\nACGT\n+\n!!!!\n".utf8), at: reads)
-        let record = makeImportRecord(files: [try ProvenanceFileDescriptor.file(url: reads, format: .fastq, role: .input)])
+        let record = makeRecord(files: [try ProvenanceFileDescriptor.file(url: reads, format: .fastq, role: .input)])
         try place(Data([0xEF, 0xBB, 0xBF]) + ProvenanceJSON.encoder.encode(record), at: sidecar)
 
         let model = try await assertReadingLeavesProjectUnchanged(
@@ -339,7 +315,7 @@ final class ProvenanceReadOnlyTests: XCTestCase {
             )
         }
         try place(
-            ProvenanceJSON.encoder.encode(makeImportRecord(files: descriptors)),
+            ProvenanceJSON.encoder.encode(makeRecord(files: descriptors)),
             at: folder.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         )
 
@@ -379,6 +355,44 @@ final class ProvenanceReadOnlyTests: XCTestCase {
         XCTAssertFalse(model.rawJSON.isEmpty)
     }
 
+    // MARK: - The released MHC demo
+
+    /// The released MHC genotyping project, with the real sidecars Lungfish 2026.9.58 wrote. It is installed
+    /// with the real installer, scanned the way the sidebar scans it, and each node is audited and looked up
+    /// the way the Inspector does on selection. Not one byte of the project moves, and Raw JSON of every
+    /// record found is its file. Opening a project also schedules a search index rebuild, which writes
+    /// `.universal-search.db*`. `SidebarViewController` schedules it and this test does not create one, so
+    /// the comparison excludes nothing. A scan that began to reach it would fail here.
+    func testScanningAndAuditingTheReleasedMHCDemoChangesNoByte() async throws {
+        let project = try await installReleasedMHCDemo()
+        let before = try ProjectTreeSnapshot(of: project)
+
+        let items = inspectableItems(in: SidebarProjectScanner.scanRootNodes(from: project))
+        let model = ProvenanceInspectorViewModel()
+        var recordsFound = 0
+        for item in items {
+            let name = item.url?.lastPathComponent ?? "an item"
+            let audited = ProvenanceCoverageMonitor().audit(item)
+            model.load(item: item)
+            let finished = await waitUntil(timeout: .seconds(30)) { !model.isLoading }
+            XCTAssertTrue(finished, "The lookup for \(name) did not finish.")
+            XCTAssertEqual(audited, model.audit, "The audit and the lookup disagree for \(name).")
+            if let sidecar = model.resolvedSidecarURL {
+                recordsFound += 1
+                XCTAssertEqual(Data(model.rawJSON.utf8), try Data(contentsOf: sidecar), "Raw JSON of \(name) is not its file.")
+            }
+        }
+
+        XCTAssertEqual(
+            try ProjectTreeSnapshot(of: project).differences(from: before), [],
+            "Scanning and auditing the demo changed the project."
+        )
+        // A scan that found nothing would pass for the wrong reason.
+        XCTAssertGreaterThan(before.entries.count, 60, "The demo project is installed.")
+        XCTAssertGreaterThan(items.count, 8, "The scan found the project's items.")
+        XCTAssertGreaterThan(recordsFound, 0, "The lookup read at least one record.")
+    }
+
     // MARK: - The snapshot itself
 
     /// The byte-identical checks above are only as good as the snapshot, so this case changes a
@@ -393,8 +407,9 @@ final class ProvenanceReadOnlyTests: XCTestCase {
         try place(Data("same bytes".utf8), at: root.appendingPathComponent("dated.txt"))
         try place(Data("old".utf8), at: root.appendingPathComponent("edited.txt"))
         try place(Data("gone".utf8), at: root.appendingPathComponent("removed.txt"))
+        try place(Data("mode".utf8), at: root.appendingPathComponent("mode.txt"))
         try FileManager.default.createSymbolicLink(at: retargeted, withDestinationURL: kept)
-        for name in ["kept.txt", "dated.txt", "edited.txt", "removed.txt"] {
+        for name in ["kept.txt", "dated.txt", "edited.txt", "removed.txt", "mode.txt"] {
             try FileManager.default.setAttributes(
                 [.modificationDate: dated], ofItemAtPath: root.appendingPathComponent(name).path
             )
@@ -408,6 +423,9 @@ final class ProvenanceReadOnlyTests: XCTestCase {
         )
         try place(Data("newer".utf8), at: root.appendingPathComponent("edited.txt"))
         try FileManager.default.removeItem(at: root.appendingPathComponent("removed.txt"))
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: root.appendingPathComponent("mode.txt").path
+        )
         try place(Data("new".utf8), at: root.appendingPathComponent(".hidden/added.txt"))
         try FileManager.default.removeItem(at: retargeted)
         try FileManager.default.createSymbolicLink(
@@ -417,6 +435,7 @@ final class ProvenanceReadOnlyTests: XCTestCase {
         let changes = try ProjectTreeSnapshot(of: root).differences(from: before)
         func named(_ verb: String, _ path: String) -> Bool { changes.contains { $0.hasPrefix("\(verb) \(path) ") } }
         XCTAssertTrue(named("changed", "dated.txt"), "A file with the same bytes and a new date: \(changes)")
+        XCTAssertTrue(named("changed", "mode.txt"), "A file with a new permission: \(changes)")
         XCTAssertTrue(named("rewrote", "edited.txt"), "A file with new bytes: \(changes)")
         XCTAssertTrue(named("removed", "removed.txt"), "A removed file: \(changes)")
         XCTAssertTrue(named("added", ".hidden"), "A new hidden folder: \(changes)")
@@ -426,7 +445,7 @@ final class ProvenanceReadOnlyTests: XCTestCase {
             changes.contains { $0.split(separator: " ").dropFirst().first == "kept.txt" },
             "An untouched file: \(changes)"
         )
-        XCTAssertEqual(changes.count, 6, "\(changes)")
+        XCTAssertEqual(changes.count, 7, "\(changes)")
     }
 
     // MARK: - Harness
@@ -522,22 +541,27 @@ final class ProvenanceReadOnlyTests: XCTestCase {
         return (result, fastq, report)
     }
 
-    /// A complete record with one step, listing `files`. Its output is the first file.
-    private func makeImportRecord(files: [ProvenanceFileDescriptor]) -> ProvenanceEnvelope {
+    /// A complete record with one step of `tool`, listing `files`. Its output is the first file.
+    private func makeRecord(
+        tool: String = "clumpify.sh",
+        files: [ProvenanceFileDescriptor],
+        signatures: [ProvenanceSignatureReference] = []
+    ) -> ProvenanceEnvelope {
         ProvenanceEnvelope(
             workflowName: "lungfish import fastq",
             workflowVersion: "2026.10.1",
-            toolName: "clumpify.sh",
-            toolVersion: "40.02",
-            argv: ["clumpify.sh"],
+            toolName: tool,
+            toolVersion: "1.0",
+            argv: [tool],
             runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
             files: files,
             output: files.first,
             outputs: Array(files.prefix(1)),
-            steps: [ProvenanceStep(toolName: "clumpify.sh", toolVersion: "40.02", argv: ["clumpify.sh"], exitStatus: 0)],
+            steps: [ProvenanceStep(toolName: tool, toolVersion: "1.0", argv: [tool], exitStatus: 0)],
             wallTimeSeconds: 1,
             exitStatus: 0,
-            stderr: ""
+            stderr: "",
+            signatures: signatures
         )
     }
 
@@ -548,37 +572,63 @@ final class ProvenanceReadOnlyTests: XCTestCase {
         let table = sample.appendingPathComponent("\(sampleID).detected_virus.info.tsv")
         try place(Data("@r\nACGT\n+\n!!!!\n".utf8), at: fastq)
         try place(Data("virus\treads\nExample virus\t3\n".utf8), at: table)
-
-        let input = try ProvenanceFileDescriptor.file(url: fastq, format: .fastq, role: .input)
-        let output = try ProvenanceFileDescriptor.file(url: table, format: .text, role: .output)
-        let step = ProvenanceStep(
-            toolName: "EsViritu",
-            toolVersion: "2.0.0",
-            argv: ["EsViritu", "--input", fastq.path],
-            inputs: [input],
-            outputs: [output],
-            exitStatus: 0,
-            wallTimeSeconds: 2
-        )
-        let record = ProvenanceEnvelope(
-            workflowName: "Viral Metagenomics Detection",
-            workflowVersion: "2026.05",
-            toolName: "EsViritu",
-            toolVersion: "2.0.0",
-            argv: step.argv,
-            runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
-            files: [input, output],
-            output: output,
-            outputs: [output],
-            steps: [step],
-            wallTimeSeconds: 2,
-            exitStatus: 0,
-            stderr: ""
-        )
+        let record = makeRecord(tool: "EsViritu", files: [
+            try ProvenanceFileDescriptor.file(url: table, format: .text, role: .output),
+            try ProvenanceFileDescriptor.file(url: fastq, format: .fastq, role: .input),
+        ])
         try place(
             ProvenanceJSON.encoder.encode(record),
             at: sample.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         )
+    }
+
+    /// The released archive's catalogue entry, pinned here the way scripts/golden/captures.py pins it, so a
+    /// newer demo release cannot change this suite.
+    private static let releasedMHCDemo = DemoProject(
+        id: "mhc-genotyping",
+        title: "MHC Genotyping",
+        summary: "The released 2026.9.58 archive, pinned as a test fixture.",
+        chapters: [],
+        projectFolderName: "MHC Genotyping.lungfish",
+        archive: DemoProject.Archive(
+            url: URL(string: "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-mhc-genotyping-2026.9.58.zip")!,
+            sha256: "f11b808067437ae3182efe31d50fc0a047857ae0a14cd20f564abd15b673fba0",
+            bytes: 110_747
+        ),
+        version: "2026.9.58",
+        minimumAppVersion: "2026.9.58"
+    )
+
+    /// Installs the committed MHC archive with the real installer and a loader that serves a copy of it, so
+    /// nothing reaches the network or the Trash. The project sits three folders below its temporary root,
+    /// so the finder's five-level walk up from any item stops inside the root and cannot reach a sidecar
+    /// that another test left in the shared temporary folder.
+    private func installReleasedMHCDemo() async throws -> URL {
+        let root = try TestTempDirectory.make(prefix: "provenance-read-only-demo")
+        addTeardownBlock { TestTempDirectory.cleanup(root) }
+        let archive = root.appendingPathComponent("lge-demo-mhc-genotyping-2026.9.58.zip")
+        try FileManager.default.copyItem(
+            at: ProvenanceDisplayFixtures.testsDirectory
+                .appendingPathComponent("Fixtures/demo-projects/lge-demo-mhc-genotyping-2026.9.58.zip"),
+            to: archive
+        )
+        let installer = DemoProjectInstaller(
+            loader: ArchiveCopyLoader(archive: archive),
+            appVersion: "2026.9.58",
+            trash: { url in throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: url.path]) }
+        )
+        let installs = root.appendingPathComponent("sandbox/installs/\(DemoProjectInstaller.defaultFolderName)", isDirectory: true)
+        return try await installer.install(Self.releasedMHCDemo, into: installs, replaceExisting: false).projectURL
+    }
+
+    /// An Inspector item for every sidebar node that names a file or folder, in tree order.
+    private func inspectableItems(in nodes: [SidebarScanNode]) -> [ProvenanceInspectableItem] {
+        nodes.flatMap { node -> [ProvenanceInspectableItem] in
+            let own = node.url.map {
+                [ProvenanceInspectableItem(url: $0, sidebarType: node.type, contentMode: .empty, displayName: node.title)]
+            } ?? []
+            return own + inspectableItems(in: node.children)
+        }
     }
 
     /// A fresh `.lungfish` project inside a temporary folder that the test removes.
@@ -608,23 +658,38 @@ final class ProvenanceReadOnlyTests: XCTestCase {
     }
 }
 
+// MARK: - Archive loader
+
+/// Serves a local copy of the archive as the download, with no network.
+private struct ArchiveCopyLoader: DemoProjectArchiveLoading {
+    let archive: URL
+
+    func download(
+        from url: URL,
+        to destination: URL,
+        progress: @escaping @Sendable (Int64, Int64?) -> Void
+    ) async throws {
+        try FileManager.default.copyItem(at: archive, to: destination)
+    }
+}
+
 // MARK: - Tree snapshot
 
 /// Every entry under a folder, with the bytes of each regular file, so a test can prove that
 /// reading changed nothing. A file rewritten with the same bytes still shows, through its
-/// modification date, and so does a folder or a link that appeared or vanished.
+/// modification date, and so does a changed permission, a folder or a link that appeared or vanished.
 struct ProjectTreeSnapshot: Equatable {
     enum Entry: Equatable {
-        case directory
-        case file(Data, modified: Date)
+        case directory(mode: Int)
+        case file(Data, modified: Date, mode: Int)
         case symlink(destination: String)
 
         var summary: String {
             switch self {
-            case .directory:
-                return "folder"
-            case .file(let bytes, let modified):
-                return "file of \(bytes.count) bytes modified \(modified.timeIntervalSince1970)"
+            case .directory(let mode):
+                return "folder mode \(String(mode, radix: 8))"
+            case .file(let bytes, let modified, let mode):
+                return "file of \(bytes.count) bytes mode \(String(mode, radix: 8)) modified \(modified.timeIntervalSince1970)"
             case .symlink(let destination):
                 return "link to \(destination)"
             }
@@ -644,15 +709,17 @@ struct ProjectTreeSnapshot: Equatable {
         for case let relative as String in walker {
             let url = root.appendingPathComponent(relative)
             let attributes = try fileManager.attributesOfItem(atPath: url.path)
+            let mode = (attributes[.posixPermissions] as? NSNumber)?.intValue ?? -1
             switch attributes[.type] as? FileAttributeType {
             case .typeSymbolicLink:
                 found[relative] = .symlink(destination: try fileManager.destinationOfSymbolicLink(atPath: url.path))
             case .typeDirectory:
-                found[relative] = .directory
+                found[relative] = .directory(mode: mode)
             case .typeRegular:
                 found[relative] = .file(
                     try Data(contentsOf: url),
-                    modified: attributes[.modificationDate] as? Date ?? .distantPast
+                    modified: attributes[.modificationDate] as? Date ?? .distantPast,
+                    mode: mode
                 )
             default:
                 break
@@ -664,7 +731,7 @@ struct ProjectTreeSnapshot: Equatable {
     /// The bytes of the regular files by relative path, ignoring everything else.
     var fileBytes: [String: Data] {
         entries.compactMapValues { entry in
-            if case .file(let bytes, _) = entry { return bytes }
+            if case .file(let bytes, _, _) = entry { return bytes }
             return nil
         }
     }
@@ -678,7 +745,7 @@ struct ProjectTreeSnapshot: Equatable {
                 report.append("added \(path) (\(added.summary))")
             case (let removed?, nil):
                 report.append("removed \(path) (\(removed.summary))")
-            case (.file(let oldBytes, _)?, .file(let newBytes, _)?) where oldBytes != newBytes:
+            case (.file(let oldBytes, _, _)?, .file(let newBytes, _, _)?) where oldBytes != newBytes:
                 report.append("rewrote \(path) (\(oldBytes.count) bytes became \(newBytes.count) bytes)")
             case (let old?, let new?) where old != new:
                 report.append("changed \(path) (\(old.summary) became \(new.summary))")
