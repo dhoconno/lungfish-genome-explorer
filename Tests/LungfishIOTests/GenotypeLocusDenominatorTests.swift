@@ -90,8 +90,10 @@ final class GenotypeLocusDenominatorTests: XCTestCase {
         let aboveFifty = try mhcA(locusFraction: 0.5001)
         XCTAssertTrue(gGenotypes.isDisjoint(with: Set(aboveFifty.observedGenotypes)))
         // Version 4, D2 (a tied cluster counts once) and N1 (a zero-read row
-        // is not an observation), changes the calls users see.
-        XCTAssertEqual(GenotypeHaplotypeAnalyzer.callingRulesVersion, 4)
+        // is not an observation), changed the calls users see. Version 5, N9
+        // (a full-length call takes its source locus from its reference
+        // record), changes them again.
+        XCTAssertEqual(GenotypeHaplotypeAnalyzer.callingRulesVersion, 5)
     }
 
     // MARK: D2, a tied cluster counts once

@@ -168,11 +168,11 @@
   },
   "schemaVersion" : 1,
   "scientificInputWitnesses" : {
-    "analysis.json" : "4056bf48aca836dedcf132ec74bb37aa43465a38f5a128d37a3c4bb1eda0e503",
+    "analysis.json" : "3d0a611c0e6054209f82d77a4052291987ee9efbcb608f7e125aae6912d1b23f",
     "analysisRevisionID" : "",
     "annotations.json" : "<SHA256-R16>",
     "bundle" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype",
-    "capture-context.json" : "efdfd616a7b5ca0b80df0dfd32c2942201af608d36cf10a702acfe3d061aaef0",
+    "capture-context.json" : "3669cf5e6d2aa22b1654644a6d9bdefaf6b4875777bd881f8923cc72f1cece7f",
     "definition.json" : "8f8a5510b081f50397f6502f904f3ea780a47426e14a0308a1ff305c46576f08",
     "definitionSetID" : "mhc-simulated-mcm-teaching",
     "result.json" : "<SHA256-R16>"

@@ -7,12 +7,12 @@ public enum GenotypeHaplotypeAnalyzer {
     /// see, so a persisted analysis from older rules compares unequal to a
     /// fresh one and is recomputed rather than trusted.
     /// 2: independent-support rule and ambiguity groups.
-    /// 3: the dropout locus fraction divides by the unique
-    ///    retained reads of the call's own source locus
-    ///    (`GenotypeLocusDenominator`), not the pooled haplotype group.
+    /// 3: the dropout locus fraction divides by the unique retained reads of
+    ///    the call's own source locus (`GenotypeLocusDenominator`), not the pooled haplotype group.
     /// 4: D2, a tied cluster counts once in locus and sample totals, and
     ///    N1, a zero-read genotype row is not an observation.
-    public static let callingRulesVersion = 4
+    /// 5: full-length calls take their source locus from the reference record (N9).
+    public static let callingRulesVersion = 5
 
     public static func analyze(
         calls: [ONTGenotypeCall],
