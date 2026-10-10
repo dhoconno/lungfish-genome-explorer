@@ -18,9 +18,13 @@ struct ProvenanceCompatReaderTests {
     /// Bare runs and primitive records are rejected by design, so a sidecar of that shape
     /// in a folder read by a strict site is an error there.
     static let strictAcceptance: [String: Bool] = [
+        "s1-cancelled-single-step": true,
+        "s1-canonical-envelope-run": true,
         "s1-db-receipt-kraken2-viral": true,
+        "s1-recorder-readsetplan": true,
         "s2-analysis-kraken2-fixture": true,
         "s3-ncbi-fetch-alpha11": false,
+        "s3-write-sidecar-bare-run": false,
         "s4-mcm-mhcref-shipped": false,
         "s4-msa-mafft-2026-05": false,
     ]
@@ -186,7 +190,101 @@ struct ProvenanceCompatReaderTests {
         #expect(envelope.legacyWorkflowRun().status == .completed)
     }
 
+    // MARK: Captured writer shapes
+
+    @Test("the cancelled case reads as cancelled although its only step exited 0")
+    func cancelledCaseReadsAsCancelledWhileTheLastStepExitedZero() throws {
+        let facts = try Self.liveFacts("s1-cancelled-single-step")
+        #expect(facts.status == "cancelled")
+        #expect(facts.embeddedRunStatus == "cancelled")
+        #expect(facts.readStatus == "cancelled")
+        #expect(facts.exitStatus == 0)
+        #expect(facts.steps.map(\.exitStatus) == [0])
+        #expect(facts.steps.first?.peakMemoryBytes == 42_000_000)
+        // `ops stats` decodes the file as a run and counts it, but not as completed.
+        #expect(facts.opsStats.decodesAsWorkflowRun)
+        #expect(facts.opsStats.completedRunCount == 0)
+    }
+
+    @Test("the recorder case holds its readSetPlan only in the run parameters")
+    func recorderCaseHoldsTheReadSetPlanOnlyInTheRunParameters() throws {
+        let facts = try Self.liveFacts("s1-recorder-readsetplan")
+        guard case .object(let explicit) = facts.explicitOptions,
+              case .object(let runParameters) = facts.legacyRunParameters else {
+            Issue.record("options and run parameters must be JSON objects")
+            return
+        }
+        #expect(explicit["readSetPlan"] == nil)
+        guard let plan = runParameters["readSetPlan"],
+              case .object(let planMembers)? = Self.member(plan, "value"),
+              case .object(let reason)? = planMembers["singleReadReason"] else {
+            Issue.record("the run parameters must hold the readSetPlan dictionary")
+            return
+        }
+        #expect(reason["value"] == .string("orphan reads run as single reads"))
+        #expect(planMembers["runs"] == .object(["type": .string("integer"), "value": .integer(2)]))
+        #expect(facts.steps.map(\.toolName) == ["kraken2", "bracken"])
+        #expect(facts.steps.map(\.exitStatus) == [0, 0])
+        #expect(facts.status == "completed")
+    }
+
+    @Test("the bare-run writer and the canonical-envelope writer agree on every fact but the declared ones")
+    func bareRunAndCanonicalEnvelopeAgreeExceptForTheDeclaredFacts() throws {
+        let envelope = try Self.liveFacts("s1-canonical-envelope-run")
+        let bare = try Self.liveFacts("s3-write-sidecar-bare-run")
+
+        // Facts a migration from writeSidecar to canonicalEnvelope must keep.
+        #expect(envelope.argv == bare.argv)
+        #expect(envelope.durableReplayArgv == bare.durableReplayArgv)
+        #expect(envelope.reproducibleCommand == bare.reproducibleCommand)
+        #expect(envelope.workflowName == bare.workflowName)
+        #expect(envelope.toolName == bare.toolName)
+        #expect(envelope.toolVersion == bare.toolVersion)
+        #expect(envelope.exitStatus == bare.exitStatus)
+        #expect(envelope.status == bare.status)
+        #expect(envelope.readStatus == bare.readStatus)
+        #expect(envelope.explicitOptions == bare.explicitOptions)
+        #expect(envelope.defaultOptions == bare.defaultOptions)
+        #expect(envelope.resolvedDefaultOptions == bare.resolvedDefaultOptions)
+        #expect(envelope.legacyRunParameters == bare.legacyRunParameters)
+        #expect(envelope.output == bare.output)
+        #expect(envelope.outputs == bare.outputs)
+        #expect(envelope.steps == bare.steps)
+        #expect(envelope.steps.count == 2)
+        #expect(envelope.steps.last?.argv.first?.hasPrefix("<tool-root>/") == true)
+
+        // The declared differences.
+        #expect(bare.decodedBy == .workflowRun)
+        #expect(envelope.decodedBy == .envelope)
+        #expect(!bare.strictAccepts)
+        #expect(envelope.strictAccepts)
+        #expect(bare.embeddedRunStatus == nil)
+        #expect(envelope.embeddedRunStatus == "completed")
+        // The envelope keeps the run's exact wall time. The bare file keeps whole-second dates.
+        #expect(envelope.wallTimeSeconds == 41.5)
+        #expect(bare.wallTimeSeconds == 41)
+        // A bare run converted in memory lists a file once per step, the envelope read back lists it once.
+        #expect(Self.uniqueByRoleAndPath(bare.files) == envelope.files)
+        #expect(bare.files.count == envelope.files.count + 1)
+    }
+
     // MARK: Helpers
+
+    private static func liveFacts(_ id: String) throws -> ProvenanceCompatFacts {
+        let materialized = try ProvenanceCompatCorpus.materialize(id)
+        defer { materialized.cleanup() }
+        return try ProvenanceCompatFacts.project(sidecar: materialized.sidecar, projectRoot: materialized.projectRoot)
+    }
+
+    private static func member(_ value: ProvenanceCompatFacts.Value, _ key: String) -> ProvenanceCompatFacts.Value? {
+        guard case .object(let members) = value else { return nil }
+        return members[key]
+    }
+
+    private static func uniqueByRoleAndPath(_ files: [ProvenanceCompatFacts.FileFact]) -> [ProvenanceCompatFacts.FileFact] {
+        var seen = Set<String>()
+        return files.filter { seen.insert("\($0.role)\u{0}\($0.path)").inserted }
+    }
 
     private static func sameFile(_ lhs: URL, _ rhs: URL) -> Bool {
         lhs.resolvingSymlinksInPath().standardizedFileURL.path == rhs.resolvingSymlinksInPath().standardizedFileURL.path

@@ -1,0 +1,264 @@
+{
+  "appVersion" : "Lungfish 16.0 (25228)",
+  "argv" : [
+    "lungfish-cli",
+    "fastq",
+    "trim",
+    "@\/Inputs\/reads.fastq",
+    "--output",
+    "@\/Analyses\/fastq-trim-cancelled\/trimmed.fastq"
+  ],
+  "createdAt" : "2026-10-10T05:10:19Z",
+  "durableReplayArgv" : [
+    "lungfish-cli",
+    "fastq",
+    "trim",
+    "@\/Inputs\/reads.fastq",
+    "--output",
+    "@\/Analyses\/fastq-trim-cancelled\/trimmed.fastq"
+  ],
+  "endTime" : "2026-10-10T05:10:19Z",
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "8add5b3bf0a7df65f939b0f2f0650f97ae63c37796bf0d1e769b384e666986cd",
+      "fileSize" : 16,
+      "format" : "fastq",
+      "path" : "@\/Inputs\/reads.fastq",
+      "role" : "input",
+      "sha256" : "8add5b3bf0a7df65f939b0f2f0650f97ae63c37796bf0d1e769b384e666986cd",
+      "sizeBytes" : 16
+    },
+    {
+      "checksumSHA256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fileSize" : 0,
+      "format" : "fastq",
+      "path" : "@\/Analyses\/fastq-trim-cancelled\/trimmed.fastq",
+      "role" : "output",
+      "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sizeBytes" : 0
+    }
+  ],
+  "hostOS" : "macOS 26.7.1 (arm64)",
+  "id" : "80E28156-F2D4-46F4-9F99-22EB0F5DB0AE",
+  "legacyWorkflowRun" : {
+    "appVersion" : "Lungfish 16.0 (25228)",
+    "endTime" : "2026-10-10T05:10:19Z",
+    "hostOS" : "macOS 26.7.1 (arm64)",
+    "id" : "D2A7C415-F556-4B7E-8941-E9D6D4C4225F",
+    "name" : "lungfish fastq trim",
+    "parameters" : {
+      "limit" : {
+        "type" : "integer",
+        "value" : 10
+      },
+      "minQuality" : {
+        "type" : "integer",
+        "value" : 20
+      }
+    },
+    "runtime" : {
+      "appVersion" : "Lungfish 16.0 (25228)",
+      "hostOS" : "macOS 26.7.1 (arm64)"
+    },
+    "startTime" : "2026-10-10T05:10:19Z",
+    "status" : "cancelled",
+    "steps" : [
+      {
+        "command" : [
+          "lungfish-cli",
+          "fastq",
+          "trim",
+          "@\/Inputs\/reads.fastq",
+          "--output",
+          "@\/Analyses\/fastq-trim-cancelled\/trimmed.fastq"
+        ],
+        "dependsOn" : [
+
+        ],
+        "endTime" : "2026-10-10T05:10:19Z",
+        "exitCode" : 0,
+        "id" : "DBDD4CC9-2ADD-4661-B8F6-1F94B2DA6558",
+        "inputs" : [
+          {
+            "format" : "fastq",
+            "path" : "@\/Inputs\/reads.fastq",
+            "role" : "input",
+            "sha256" : "8add5b3bf0a7df65f939b0f2f0650f97ae63c37796bf0d1e769b384e666986cd",
+            "sizeBytes" : 16
+          }
+        ],
+        "outputs" : [
+          {
+            "format" : "fastq",
+            "path" : "@\/Analyses\/fastq-trim-cancelled\/trimmed.fastq",
+            "role" : "output",
+            "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "sizeBytes" : 0
+          }
+        ],
+        "peakMemoryBytes" : 42000000,
+        "startTime" : "2026-10-10T05:10:19Z",
+        "stderr" : "cancelled by user",
+        "toolName" : "fastp",
+        "toolVersion" : "0.24.0",
+        "wallTime" : 0.25
+      }
+    ]
+  },
+  "name" : "lungfish fastq trim",
+  "options" : {
+    "defaults" : {
+      "threads" : {
+        "type" : "integer",
+        "value" : 4
+      }
+    },
+    "explicit" : {
+      "limit" : {
+        "type" : "integer",
+        "value" : 10
+      },
+      "minQuality" : {
+        "type" : "integer",
+        "value" : 20
+      }
+    },
+    "resolvedDefaults" : {
+      "limit" : {
+        "type" : "integer",
+        "value" : 10
+      },
+      "minQuality" : {
+        "type" : "integer",
+        "value" : 20
+      },
+      "threads" : {
+        "type" : "integer",
+        "value" : 4
+      }
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fileSize" : 0,
+    "format" : "fastq",
+    "path" : "@\/Analyses\/fastq-trim-cancelled\/trimmed.fastq",
+    "role" : "output",
+    "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "sizeBytes" : 0
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fileSize" : 0,
+      "format" : "fastq",
+      "path" : "@\/Analyses\/fastq-trim-cancelled\/trimmed.fastq",
+      "role" : "output",
+      "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sizeBytes" : 0
+    }
+  ],
+  "parameters" : {
+    "limit" : {
+      "type" : "integer",
+      "value" : 10
+    },
+    "minQuality" : {
+      "type" : "integer",
+      "value" : 20
+    }
+  },
+  "reproducibleCommand" : "lungfish-cli fastq trim @\/Inputs\/reads.fastq --output @\/Analyses\/fastq-trim-cancelled\/trimmed.fastq",
+  "runtime" : {
+    "appVersion" : "Lungfish 16.0 (25228)",
+    "hostOS" : "macOS 26.7.1 (arm64)"
+  },
+  "runtimeIdentity" : {
+    "appVersion" : "Lungfish 16.0 (25228)",
+    "architecture" : "arm64",
+    "dependencySet" : "2026.2",
+    "executablePath" : "\/Applications\/Xcode.app\/Contents\/Developer\/usr\/bin\/xctest",
+    "operatingSystemVersion" : "macOS 26.7.1 (arm64)",
+    "processIdentifier" : 93167
+  },
+  "schemaVersion" : 1,
+  "signatures" : [
+
+  ],
+  "startTime" : "2026-10-10T05:10:19Z",
+  "status" : "cancelled",
+  "stderr" : "cancelled by user",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "fastq",
+        "trim",
+        "@\/Inputs\/reads.fastq",
+        "--output",
+        "@\/Analyses\/fastq-trim-cancelled\/trimmed.fastq"
+      ],
+      "command" : [
+        "lungfish-cli",
+        "fastq",
+        "trim",
+        "@\/Inputs\/reads.fastq",
+        "--output",
+        "@\/Analyses\/fastq-trim-cancelled\/trimmed.fastq"
+      ],
+      "completedAt" : "2026-10-10T05:10:19Z",
+      "dependsOn" : [
+
+      ],
+      "endTime" : "2026-10-10T05:10:19Z",
+      "exitCode" : 0,
+      "exitStatus" : 0,
+      "id" : "DBDD4CC9-2ADD-4661-B8F6-1F94B2DA6558",
+      "inputs" : [
+        {
+          "checksumSHA256" : "8add5b3bf0a7df65f939b0f2f0650f97ae63c37796bf0d1e769b384e666986cd",
+          "fileSize" : 16,
+          "format" : "fastq",
+          "path" : "@\/Inputs\/reads.fastq",
+          "role" : "input",
+          "sha256" : "8add5b3bf0a7df65f939b0f2f0650f97ae63c37796bf0d1e769b384e666986cd",
+          "sizeBytes" : 16
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "fileSize" : 0,
+          "format" : "fastq",
+          "path" : "@\/Analyses\/fastq-trim-cancelled\/trimmed.fastq",
+          "role" : "output",
+          "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sizeBytes" : 0
+        }
+      ],
+      "peakMemoryBytes" : 42000000,
+      "reproducibleCommand" : "lungfish-cli fastq trim @\/Inputs\/reads.fastq --output @\/Analyses\/fastq-trim-cancelled\/trimmed.fastq",
+      "resolvedOptions" : {
+
+      },
+      "startTime" : "2026-10-10T05:10:19Z",
+      "startedAt" : "2026-10-10T05:10:19Z",
+      "stderr" : "cancelled by user",
+      "toolName" : "fastp",
+      "toolVersion" : "0.24.0",
+      "wallTime" : 0.25,
+      "wallTimeSeconds" : 0.25
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "fastp",
+    "version" : "0.24.0"
+  },
+  "toolName" : "fastp",
+  "toolVersion" : "0.24.0",
+  "wallTimeSeconds" : 0.25,
+  "workflowName" : "lungfish fastq trim",
+  "workflowVersion" : "Lungfish 16.0 (25228)"
+}

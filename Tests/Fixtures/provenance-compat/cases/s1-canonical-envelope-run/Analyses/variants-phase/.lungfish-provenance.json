@@ -1,0 +1,514 @@
+{
+  "appVersion" : "Lungfish 2026.10.10 (dev)",
+  "argv" : [
+    "<tool-root>\/envs\/gatk4\/bin\/gatk",
+    "HaplotypeCaller",
+    "-R",
+    "@\/Inputs\/reference.fasta",
+    "-I",
+    "@\/Alignments\/sample.bam",
+    "-O",
+    "@\/Analyses\/variants-phase\/raw.vcf",
+    "--native-pair-hmm-threads",
+    "2"
+  ],
+  "createdAt" : "2026-09-21T14:13:20Z",
+  "endTime" : "2026-09-21T14:14:01Z",
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "63620eb5e6ddccf3832c45a0a16ebe6676ec5b1a8aca9be3dddc03684550fc9f",
+      "fileSize" : 17,
+      "format" : "fasta",
+      "path" : "@\/Inputs\/reference.fasta",
+      "role" : "reference",
+      "sha256" : "63620eb5e6ddccf3832c45a0a16ebe6676ec5b1a8aca9be3dddc03684550fc9f",
+      "sizeBytes" : 17
+    },
+    {
+      "checksumSHA256" : "ba6ad8fe9005b6292452226d68e96d27f323c5a87d8fade55af30786f55ebfe7",
+      "fileSize" : 9,
+      "format" : "bam",
+      "path" : "@\/Alignments\/sample.bam",
+      "role" : "input",
+      "sha256" : "ba6ad8fe9005b6292452226d68e96d27f323c5a87d8fade55af30786f55ebfe7",
+      "sizeBytes" : 9
+    },
+    {
+      "checksumSHA256" : "ce31594f9acbe614b2c4cf7303773109a88a507fe58209ec89b797634e4817bd",
+      "fileSize" : 21,
+      "format" : "vcf",
+      "path" : "@\/Analyses\/variants-phase\/raw.vcf",
+      "role" : "output",
+      "sha256" : "ce31594f9acbe614b2c4cf7303773109a88a507fe58209ec89b797634e4817bd",
+      "sizeBytes" : 21
+    },
+    {
+      "checksumSHA256" : "ce31594f9acbe614b2c4cf7303773109a88a507fe58209ec89b797634e4817bd",
+      "fileSize" : 21,
+      "format" : "vcf",
+      "path" : "@\/Analyses\/variants-phase\/raw.vcf",
+      "role" : "input",
+      "sha256" : "ce31594f9acbe614b2c4cf7303773109a88a507fe58209ec89b797634e4817bd",
+      "sizeBytes" : 21
+    },
+    {
+      "checksumSHA256" : "ba6ad8fe9005b6292452226d68e96d27f323c5a87d8fade55af30786f55ebfe7",
+      "fileSize" : 9,
+      "format" : "bam",
+      "path" : "@\/Alignments\/sample.bam",
+      "role" : "input",
+      "sha256" : "ba6ad8fe9005b6292452226d68e96d27f323c5a87d8fade55af30786f55ebfe7",
+      "sizeBytes" : 9
+    },
+    {
+      "checksumSHA256" : "8c076df5814752733eabf2814a8fc68f9a07acdebb1312dc7eff5a765c884578",
+      "fileSize" : 35,
+      "format" : "vcf",
+      "path" : "@\/Analyses\/variants-phase\/phased.vcf",
+      "role" : "output",
+      "sha256" : "8c076df5814752733eabf2814a8fc68f9a07acdebb1312dc7eff5a765c884578",
+      "sizeBytes" : 35
+    }
+  ],
+  "hostOS" : "macOS 26.7.1 (arm64)",
+  "id" : "4B6D3F0C-8A57-4B0B-9C63-1E2D2F6B7A00",
+  "legacyWorkflowRun" : {
+    "appVersion" : "Lungfish 2026.10.10 (dev)",
+    "endTime" : "2026-09-21T14:14:01Z",
+    "hostOS" : "macOS 26.7.1 (arm64)",
+    "id" : "4B6D3F0C-8A57-4B0B-9C63-1E2D2F6B7A00",
+    "name" : "variants phase",
+    "parameters" : {
+      "bam" : {
+        "type" : "file",
+        "value" : "@\/Alignments\/sample.bam"
+      },
+      "dryRun" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "extraGATKArgs" : {
+        "type" : "string",
+        "value" : ""
+      },
+      "outputVCF" : {
+        "type" : "file",
+        "value" : "@\/Analyses\/variants-phase\/phased.vcf"
+      },
+      "reference" : {
+        "type" : "file",
+        "value" : "@\/Inputs\/reference.fasta"
+      },
+      "sample" : {
+        "type" : "string",
+        "value" : "sample-1"
+      },
+      "threads" : {
+        "type" : "integer",
+        "value" : 2
+      }
+    },
+    "runtime" : {
+      "appVersion" : "Lungfish 2026.10.10 (dev)",
+      "hostOS" : "macOS 26.7.1 (arm64)"
+    },
+    "startTime" : "2026-09-21T14:13:20Z",
+    "status" : "completed",
+    "steps" : [
+      {
+        "command" : [
+          "<tool-root>\/envs\/gatk4\/bin\/gatk",
+          "HaplotypeCaller",
+          "-R",
+          "@\/Inputs\/reference.fasta",
+          "-I",
+          "@\/Alignments\/sample.bam",
+          "-O",
+          "@\/Analyses\/variants-phase\/raw.vcf",
+          "--native-pair-hmm-threads",
+          "2"
+        ],
+        "dependsOn" : [
+
+        ],
+        "endTime" : "2026-09-21T14:13:50Z",
+        "exitCode" : 0,
+        "id" : "4B6D3F0C-8A57-4B0B-9C63-1E2D2F6B7A01",
+        "inputs" : [
+          {
+            "format" : "fasta",
+            "path" : "@\/Inputs\/reference.fasta",
+            "role" : "reference",
+            "sha256" : "63620eb5e6ddccf3832c45a0a16ebe6676ec5b1a8aca9be3dddc03684550fc9f",
+            "sizeBytes" : 17
+          },
+          {
+            "format" : "bam",
+            "path" : "@\/Alignments\/sample.bam",
+            "role" : "input",
+            "sha256" : "ba6ad8fe9005b6292452226d68e96d27f323c5a87d8fade55af30786f55ebfe7",
+            "sizeBytes" : 9
+          }
+        ],
+        "outputs" : [
+          {
+            "format" : "vcf",
+            "path" : "@\/Analyses\/variants-phase\/raw.vcf",
+            "role" : "output",
+            "sha256" : "ce31594f9acbe614b2c4cf7303773109a88a507fe58209ec89b797634e4817bd",
+            "sizeBytes" : 21
+          }
+        ],
+        "peakMemoryBytes" : 2100000000,
+        "startTime" : "2026-09-21T14:13:20Z",
+        "stderr" : "HaplotypeCaller done.",
+        "toolName" : "gatk",
+        "toolVersion" : "4.6.1.0",
+        "wallTime" : 30
+      },
+      {
+        "command" : [
+          "<tool-root>\/envs\/whatshap\/bin\/whatshap",
+          "phase",
+          "-o",
+          "@\/Analyses\/variants-phase\/phased.vcf",
+          "--reference",
+          "@\/Inputs\/reference.fasta",
+          "@\/Analyses\/variants-phase\/raw.vcf",
+          "@\/Alignments\/sample.bam"
+        ],
+        "dependsOn" : [
+          "4B6D3F0C-8A57-4B0B-9C63-1E2D2F6B7A01"
+        ],
+        "durableReplayArgv" : [
+          "lungfish-cli",
+          "variants",
+          "phase",
+          "--reference",
+          "@\/Inputs\/reference.fasta",
+          "--bam",
+          "@\/Alignments\/sample.bam"
+        ],
+        "endTime" : "2026-09-21T14:14:01Z",
+        "exitCode" : 0,
+        "id" : "4B6D3F0C-8A57-4B0B-9C63-1E2D2F6B7A02",
+        "inputs" : [
+          {
+            "format" : "vcf",
+            "path" : "@\/Analyses\/variants-phase\/raw.vcf",
+            "role" : "input",
+            "sha256" : "ce31594f9acbe614b2c4cf7303773109a88a507fe58209ec89b797634e4817bd",
+            "sizeBytes" : 21
+          },
+          {
+            "format" : "bam",
+            "path" : "@\/Alignments\/sample.bam",
+            "role" : "input",
+            "sha256" : "ba6ad8fe9005b6292452226d68e96d27f323c5a87d8fade55af30786f55ebfe7",
+            "sizeBytes" : 9
+          }
+        ],
+        "outputs" : [
+          {
+            "format" : "vcf",
+            "path" : "@\/Analyses\/variants-phase\/phased.vcf",
+            "role" : "output",
+            "sha256" : "8c076df5814752733eabf2814a8fc68f9a07acdebb1312dc7eff5a765c884578",
+            "sizeBytes" : 35
+          }
+        ],
+        "startTime" : "2026-09-21T14:13:50Z",
+        "toolName" : "whatshap",
+        "toolVersion" : "2.3",
+        "wallTime" : 11.5
+      }
+    ]
+  },
+  "name" : "variants phase",
+  "options" : {
+    "defaults" : {
+
+    },
+    "explicit" : {
+      "bam" : {
+        "type" : "file",
+        "value" : "@\/Alignments\/sample.bam"
+      },
+      "dryRun" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "extraGATKArgs" : {
+        "type" : "string",
+        "value" : ""
+      },
+      "outputVCF" : {
+        "type" : "file",
+        "value" : "@\/Analyses\/variants-phase\/phased.vcf"
+      },
+      "reference" : {
+        "type" : "file",
+        "value" : "@\/Inputs\/reference.fasta"
+      },
+      "sample" : {
+        "type" : "string",
+        "value" : "sample-1"
+      },
+      "threads" : {
+        "type" : "integer",
+        "value" : 2
+      }
+    },
+    "resolvedDefaults" : {
+
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "8c076df5814752733eabf2814a8fc68f9a07acdebb1312dc7eff5a765c884578",
+    "fileSize" : 35,
+    "format" : "vcf",
+    "path" : "@\/Analyses\/variants-phase\/phased.vcf",
+    "role" : "output",
+    "sha256" : "8c076df5814752733eabf2814a8fc68f9a07acdebb1312dc7eff5a765c884578",
+    "sizeBytes" : 35
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "ce31594f9acbe614b2c4cf7303773109a88a507fe58209ec89b797634e4817bd",
+      "fileSize" : 21,
+      "format" : "vcf",
+      "path" : "@\/Analyses\/variants-phase\/raw.vcf",
+      "role" : "output",
+      "sha256" : "ce31594f9acbe614b2c4cf7303773109a88a507fe58209ec89b797634e4817bd",
+      "sizeBytes" : 21
+    },
+    {
+      "checksumSHA256" : "8c076df5814752733eabf2814a8fc68f9a07acdebb1312dc7eff5a765c884578",
+      "fileSize" : 35,
+      "format" : "vcf",
+      "path" : "@\/Analyses\/variants-phase\/phased.vcf",
+      "role" : "output",
+      "sha256" : "8c076df5814752733eabf2814a8fc68f9a07acdebb1312dc7eff5a765c884578",
+      "sizeBytes" : 35
+    }
+  ],
+  "parameters" : {
+    "bam" : {
+      "type" : "file",
+      "value" : "@\/Alignments\/sample.bam"
+    },
+    "dryRun" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "extraGATKArgs" : {
+      "type" : "string",
+      "value" : ""
+    },
+    "outputVCF" : {
+      "type" : "file",
+      "value" : "@\/Analyses\/variants-phase\/phased.vcf"
+    },
+    "reference" : {
+      "type" : "file",
+      "value" : "@\/Inputs\/reference.fasta"
+    },
+    "sample" : {
+      "type" : "string",
+      "value" : "sample-1"
+    },
+    "threads" : {
+      "type" : "integer",
+      "value" : 2
+    }
+  },
+  "reproducibleCommand" : "<tool-root>\/envs\/gatk4\/bin\/gatk HaplotypeCaller -R @\/Inputs\/reference.fasta -I @\/Alignments\/sample.bam -O @\/Analyses\/variants-phase\/raw.vcf --native-pair-hmm-threads 2",
+  "runtime" : {
+    "appVersion" : "Lungfish 2026.10.10 (dev)",
+    "hostOS" : "macOS 26.7.1 (arm64)"
+  },
+  "runtimeIdentity" : {
+    "appVersion" : "Lungfish 2026.10.10 (dev)",
+    "architecture" : "arm64",
+    "dependencySet" : "2026.2",
+    "executablePath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Toolchains\/XcodeDefault.xctoolchain\/usr\/libexec\/swift\/pm\/swiftpm-testing-helper",
+    "operatingSystemVersion" : "macOS 26.7.1 (arm64)",
+    "processIdentifier" : 98265
+  },
+  "schemaVersion" : 1,
+  "signatures" : [
+
+  ],
+  "startTime" : "2026-09-21T14:13:20Z",
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "<tool-root>\/envs\/gatk4\/bin\/gatk",
+        "HaplotypeCaller",
+        "-R",
+        "@\/Inputs\/reference.fasta",
+        "-I",
+        "@\/Alignments\/sample.bam",
+        "-O",
+        "@\/Analyses\/variants-phase\/raw.vcf",
+        "--native-pair-hmm-threads",
+        "2"
+      ],
+      "command" : [
+        "<tool-root>\/envs\/gatk4\/bin\/gatk",
+        "HaplotypeCaller",
+        "-R",
+        "@\/Inputs\/reference.fasta",
+        "-I",
+        "@\/Alignments\/sample.bam",
+        "-O",
+        "@\/Analyses\/variants-phase\/raw.vcf",
+        "--native-pair-hmm-threads",
+        "2"
+      ],
+      "completedAt" : "2026-09-21T14:13:50Z",
+      "dependsOn" : [
+
+      ],
+      "endTime" : "2026-09-21T14:13:50Z",
+      "exitCode" : 0,
+      "exitStatus" : 0,
+      "id" : "4B6D3F0C-8A57-4B0B-9C63-1E2D2F6B7A01",
+      "inputs" : [
+        {
+          "checksumSHA256" : "63620eb5e6ddccf3832c45a0a16ebe6676ec5b1a8aca9be3dddc03684550fc9f",
+          "fileSize" : 17,
+          "format" : "fasta",
+          "path" : "@\/Inputs\/reference.fasta",
+          "role" : "reference",
+          "sha256" : "63620eb5e6ddccf3832c45a0a16ebe6676ec5b1a8aca9be3dddc03684550fc9f",
+          "sizeBytes" : 17
+        },
+        {
+          "checksumSHA256" : "ba6ad8fe9005b6292452226d68e96d27f323c5a87d8fade55af30786f55ebfe7",
+          "fileSize" : 9,
+          "format" : "bam",
+          "path" : "@\/Alignments\/sample.bam",
+          "role" : "input",
+          "sha256" : "ba6ad8fe9005b6292452226d68e96d27f323c5a87d8fade55af30786f55ebfe7",
+          "sizeBytes" : 9
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "ce31594f9acbe614b2c4cf7303773109a88a507fe58209ec89b797634e4817bd",
+          "fileSize" : 21,
+          "format" : "vcf",
+          "path" : "@\/Analyses\/variants-phase\/raw.vcf",
+          "role" : "output",
+          "sha256" : "ce31594f9acbe614b2c4cf7303773109a88a507fe58209ec89b797634e4817bd",
+          "sizeBytes" : 21
+        }
+      ],
+      "peakMemoryBytes" : 2100000000,
+      "reproducibleCommand" : "<tool-root>\/envs\/gatk4\/bin\/gatk HaplotypeCaller -R @\/Inputs\/reference.fasta -I @\/Alignments\/sample.bam -O @\/Analyses\/variants-phase\/raw.vcf --native-pair-hmm-threads 2",
+      "resolvedOptions" : {
+
+      },
+      "startTime" : "2026-09-21T14:13:20Z",
+      "startedAt" : "2026-09-21T14:13:20Z",
+      "stderr" : "HaplotypeCaller done.",
+      "toolName" : "gatk",
+      "toolVersion" : "4.6.1.0",
+      "wallTime" : 30,
+      "wallTimeSeconds" : 30
+    },
+    {
+      "argv" : [
+        "<tool-root>\/envs\/whatshap\/bin\/whatshap",
+        "phase",
+        "-o",
+        "@\/Analyses\/variants-phase\/phased.vcf",
+        "--reference",
+        "@\/Inputs\/reference.fasta",
+        "@\/Analyses\/variants-phase\/raw.vcf",
+        "@\/Alignments\/sample.bam"
+      ],
+      "command" : [
+        "<tool-root>\/envs\/whatshap\/bin\/whatshap",
+        "phase",
+        "-o",
+        "@\/Analyses\/variants-phase\/phased.vcf",
+        "--reference",
+        "@\/Inputs\/reference.fasta",
+        "@\/Analyses\/variants-phase\/raw.vcf",
+        "@\/Alignments\/sample.bam"
+      ],
+      "completedAt" : "2026-09-21T14:14:01Z",
+      "dependsOn" : [
+        "4B6D3F0C-8A57-4B0B-9C63-1E2D2F6B7A01"
+      ],
+      "durableReplayArgv" : [
+        "lungfish-cli",
+        "variants",
+        "phase",
+        "--reference",
+        "@\/Inputs\/reference.fasta",
+        "--bam",
+        "@\/Alignments\/sample.bam"
+      ],
+      "endTime" : "2026-09-21T14:14:01Z",
+      "exitCode" : 0,
+      "exitStatus" : 0,
+      "id" : "4B6D3F0C-8A57-4B0B-9C63-1E2D2F6B7A02",
+      "inputs" : [
+        {
+          "checksumSHA256" : "ce31594f9acbe614b2c4cf7303773109a88a507fe58209ec89b797634e4817bd",
+          "fileSize" : 21,
+          "format" : "vcf",
+          "path" : "@\/Analyses\/variants-phase\/raw.vcf",
+          "role" : "input",
+          "sha256" : "ce31594f9acbe614b2c4cf7303773109a88a507fe58209ec89b797634e4817bd",
+          "sizeBytes" : 21
+        },
+        {
+          "checksumSHA256" : "ba6ad8fe9005b6292452226d68e96d27f323c5a87d8fade55af30786f55ebfe7",
+          "fileSize" : 9,
+          "format" : "bam",
+          "path" : "@\/Alignments\/sample.bam",
+          "role" : "input",
+          "sha256" : "ba6ad8fe9005b6292452226d68e96d27f323c5a87d8fade55af30786f55ebfe7",
+          "sizeBytes" : 9
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "8c076df5814752733eabf2814a8fc68f9a07acdebb1312dc7eff5a765c884578",
+          "fileSize" : 35,
+          "format" : "vcf",
+          "path" : "@\/Analyses\/variants-phase\/phased.vcf",
+          "role" : "output",
+          "sha256" : "8c076df5814752733eabf2814a8fc68f9a07acdebb1312dc7eff5a765c884578",
+          "sizeBytes" : 35
+        }
+      ],
+      "reproducibleCommand" : "lungfish-cli variants phase --reference @\/Inputs\/reference.fasta --bam @\/Alignments\/sample.bam",
+      "resolvedOptions" : {
+
+      },
+      "startTime" : "2026-09-21T14:13:50Z",
+      "startedAt" : "2026-09-21T14:13:50Z",
+      "toolName" : "whatshap",
+      "toolVersion" : "2.3",
+      "wallTime" : 11.5,
+      "wallTimeSeconds" : 11.5
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "gatk",
+    "version" : "4.6.1.0"
+  },
+  "toolName" : "gatk",
+  "toolVersion" : "4.6.1.0",
+  "wallTimeSeconds" : 41.5,
+  "workflowName" : "variants phase",
+  "workflowVersion" : "Lungfish 2026.10.10 (dev)"
+}

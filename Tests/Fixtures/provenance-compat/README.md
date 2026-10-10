@@ -36,8 +36,14 @@ MANIFEST.tsv has a header row and six tab-separated columns. They are the case i
 | s3-ncbi-fetch-alpha11 | S3 | F04 | Real bare run written by lungfish-cli 0.4.0-alpha.11 for an NCBI fetch, referenced in place |
 | s4-mcm-mhcref-shipped | S4 | F01 | Real primitive record shipped inside the MCM haplotyping reference bundle |
 | s4-msa-mafft-2026-05 | S4 | F01 | Real primitive record that align mafft wrote for an alignment bundle in May 2026 |
+| s1-cancelled-single-step | S1 | F01 | Captured run-bearing envelope from the CLI single-step helper, status cancelled while the last step exited 0 |
+| s1-recorder-readsetplan | S1 | F01 | Captured run-bearing envelope from ProvenanceRecorder, with a readSetPlan parameter and a save that passes explicit options |
+| s1-canonical-envelope-run | S1 | F01 | Captured run-bearing envelope from WorkflowRun.canonicalEnvelope() written through ProvenanceWriter |
+| s3-write-sidecar-bare-run | S3 | F01 | Captured bare run from WorkflowRun.writeSidecar, the same run as the case above |
 
-The origin column of MANIFEST.tsv says where each file came from and names every edit. Three of the five files are exactly the source bytes, which are two copies and the one file referenced in place. The other two carry the home-folder edit described next.
+The origin column of MANIFEST.tsv says where each file came from and names every edit. Of the five real or tracked files, three are exactly the source bytes (two copies and the one file referenced in place). The other two carry the home-folder edit described next.
+
+The last four cases were captured once, at commit 81e89a306, from the writers as they stood before Phase 2.4 changed any of them. `ProvenanceCompatShapeCaptureTests` and `ProvenanceCompatCLICaptureTests` wrote them inside a temporary project, so their paths are `@/` project paths and `<tool-root>` and `<storage-root>` placeholders, as in a real project. Their runtime identity names the test host that ran the capture. The last two cases are the same run written both ways, so a writer that moves from `writeSidecar` to `canonicalEnvelope()` can be compared fact by fact.
 
 ### The home-folder edit
 
@@ -70,4 +76,4 @@ Each expected facts file is written once, with `LUNGFISH_CAPTURE_PROVENANCE_FACT
 LUNGFISH_CAPTURE_PROVENANCE_FACTS=1 swift test --filter ProvenanceCompatFactsCaptureTests
 ```
 
-`addCapturedCase` runs only with `LUNGFISH_CAPTURE_PROVENANCE_COMPAT=1`, refuses to overwrite an existing case, and refuses bytes that hold a machine path.
+`addCapturedCase` runs only with `LUNGFISH_CAPTURE_PROVENANCE_COMPAT=1`, refuses to overwrite an existing case, and refuses bytes that hold a machine path. The two capture test files named above show how a test calls it.
