@@ -55,7 +55,7 @@ Sources/LungfishApp/Views/PluginManager/PluginManagerView.swift 1283
 Sources/LungfishApp/Views/PluginManager/PluginManagerViewModel.swift 1134
 Sources/LungfishApp/Views/PrimerDesign/PrimerDesignDialogState.swift 1049
 Sources/LungfishApp/Views/Results/Reference/ReferenceBundleViewportController.swift 2154
-Sources/LungfishApp/Views/Sidebar/SidebarProjectScanner.swift 1102
+Sources/LungfishApp/Views/Sidebar/SidebarProjectScanner.swift 1082
 Sources/LungfishApp/Views/Sidebar/SidebarViewController+MenuDelegate.swift 1214
 Sources/LungfishApp/Views/Sidebar/SidebarViewController+OutlineDataSource.swift 1122
 Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift 2655
@@ -173,7 +173,7 @@ Sources/LungfishWorkflow/Geneious/GeneiousPackedSequenceExtractor.swift 902
 Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 2809
 Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift 1471
 Sources/LungfishWorkflow/MSA/MSAReferenceBundleBuilder.swift 819
-Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift 1221
+Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift 1220
 Sources/LungfishWorkflow/Mapping/MappingProvenance.swift 915
 Sources/LungfishWorkflow/Mapping/MappingViewerBundlePublicationService.swift 1810
 Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline.swift 2635
@@ -182,7 +182,7 @@ Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchProvenanceWriter.swift 11
 Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseRegistry.swift 2267
 Sources/LungfishWorkflow/Metagenomics/MetagenomicsImportService.swift 2644
 Sources/LungfishWorkflow/Native/NativeBundleBuilder.swift 1787
-Sources/LungfishWorkflow/Native/NativeToolRunner.swift 1208
+Sources/LungfishWorkflow/Native/NativeToolRunner.swift 1196
 Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingPatchValidator.swift 1247
 Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingRevisionPublisher.swift 912
 Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingRunner.swift 970
