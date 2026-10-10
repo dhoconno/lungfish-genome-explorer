@@ -1,13 +1,14 @@
-// ClassificationCommandParityTests.swift - Copy Classification Command does not need the embedded run
+// ClassificationCommandParityTests.swift - Copy Classification Command copies each step's recorded argv
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
 // `ClassificationResult.copyableCommandString(from:)` builds the sidebar's Copy
 // Classification Command text from the steps of `ProvenanceRecorder.load(from:)`.
-// Today that is the run a classification record embeds under `legacyWorkflowRun`.
-// Phase 2.4 stops writing that block (finding R8, lane W1C), and a record without
-// it rebuilds the run from the envelope's own steps. This test pins that both
-// spellings of one record give the scientist the same text.
+// Today that run is the one a classification record embeds under `legacyWorkflowRun`.
+// Phase 2.4 stops writing that block (finding R8, lane W1C), and the reader then
+// rebuilds the run from the envelope's own steps. This test asserts what the sidebar
+// copies, which is the recorded argv of each step, and not whether the writer embeds
+// the run, so it holds on both sides of that change.
 
 import XCTest
 import LungfishTestSupport
@@ -15,7 +16,7 @@ import LungfishTestSupport
 
 final class ClassificationCommandParityTests: XCTestCase {
 
-    func testCopyableCommandIsTheSameWithAndWithoutTheEmbeddedLegacyRun() async throws {
+    func testCopiedClassificationCommandIsTheRecordedArgvOfEachStep() async throws {
         let fixture = try FakeKraken2Fixture()
         defer { fixture.cleanup() }
         let config = try fixture.makeConfig()
@@ -23,31 +24,19 @@ final class ClassificationCommandParityTests: XCTestCase {
         // A record written by today's pipeline, as any classification result holds.
         _ = try await ClassificationPipeline(condaManager: fixture.condaManager).classify(config: config)
         let directory = config.outputDirectory
-        let sidecar = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
 
         let written = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: directory))
-        XCTAssertNotNil(written.legacyRun, "Today's writer embeds the legacy run.")
         XCTAssertGreaterThan(written.steps.count, 1, "A realistic record has more than one step.")
-        let embedded = try XCTUnwrap(ClassificationResult.copyableCommandString(from: directory))
-        XCTAssertTrue(embedded.contains("kraken2"), "The text must name the classifier, so equality is not vacuous.")
-        XCTAssertTrue(embedded.contains(config.reportURL.path))
+        let copiedText = try XCTUnwrap(ClassificationResult.copyableCommandString(from: directory))
+        XCTAssertTrue(copiedText.contains("kraken2"), "The text must name the classifier, so equality is not vacuous.")
+        XCTAssertTrue(copiedText.contains(config.reportURL.path))
 
-        // The same bytes with the `legacyWorkflowRun` key removed.
-        var object = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: Data(contentsOf: sidecar)) as? [String: Any]
-        )
-        XCTAssertNotNil(object.removeValue(forKey: "legacyWorkflowRun"))
-        try JSONSerialization.data(
-            withJSONObject: object,
-            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        ).write(to: sidecar, options: .atomic)
-
-        let stripped = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: directory))
-        XCTAssertNil(stripped.legacyRun, "The key is gone, so the run is rebuilt from the steps.")
-        XCTAssertEqual(stripped.steps.map(\.argv), written.steps.map(\.argv))
-
-        let rebuilt = try XCTUnwrap(ClassificationResult.copyableCommandString(from: directory))
-        XCTAssertEqual(rebuilt, embedded)
+        // The run the sidebar copies from has each step's recorded argv as its command,
+        // whether the file stores that run or the reader rebuilds it from the steps, and
+        // the copied text holds one command per step.
+        let copiedRun = try XCTUnwrap(ProvenanceRecorder.load(from: directory))
+        XCTAssertEqual(copiedRun.steps.map(\.command), written.steps.map(\.argv))
+        XCTAssertEqual(copiedText.components(separatedBy: "\n\n").count, written.steps.count)
     }
 }
 
