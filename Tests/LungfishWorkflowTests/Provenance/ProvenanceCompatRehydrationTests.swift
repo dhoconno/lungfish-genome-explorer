@@ -14,8 +14,9 @@ import LungfishTestSupport
 /// The generic and GUI rehydrators write no embedded run, so a copied cancelled run reads as
 /// completed (finding F3). The GUI import also rebuilds each step without its peak memory, resolved
 /// options, runtime identity and release version (lane finding W1A-1). The checks for both sit
-/// inside `withKnownIssue(isIntermittent: true)`, so the suite passes today and passes unedited once
-/// the status is stored on the envelope and the GUI import copies the whole step.
+/// inside `withKnownIssue`, so the suite passes today. The losses are deterministic, so the lane
+/// that fixes one gets a red "known issue was not recorded" and promotes that check to a plain
+/// expectation, which then guards the fix as a declared, reviewed difference.
 @Suite("Provenance compatibility rehydration")
 struct ProvenanceCompatRehydrationTests {
     static let cancelledCaseID = "s1-cancelled-single-step"
@@ -106,8 +107,7 @@ struct ProvenanceCompatRehydrationTests {
         // reads as completed today.
         if id == Self.cancelledCaseID {
             withKnownIssue(
-                "F3: the rehydrator writes no embedded run, so a copied cancelled run reads completed",
-                isIntermittent: true
+                "F3: the rehydrator writes no embedded run, so a copied cancelled run reads completed"
             ) {
                 #expect(rehydratedFacts.readStatus == sourceFacts.readStatus)
             }
@@ -207,10 +207,15 @@ struct ProvenanceCompatRehydrationTests {
             Self.stepIdentity(keptSteps, includePeakMemory: false)
                 == Self.stepIdentity(sourceFacts.steps, includePeakMemory: false)
         )
-        withKnownIssue(
-            "W1A-1: the GUI import rebuilds each step without its peak memory",
-            isIntermittent: true
-        ) {
+        // The loss shows only where the source recorded a peak memory, so the known issue is
+        // declared for those cases alone and every other case is checked plainly.
+        if sourceFacts.steps.contains(where: { $0.peakMemoryBytes != nil }) {
+            withKnownIssue(
+                "W1A-1: the GUI import rebuilds each step without its peak memory"
+            ) {
+                #expect(keptSteps.map(\.peakMemoryBytes) == sourceFacts.steps.map(\.peakMemoryBytes))
+            }
+        } else {
             #expect(keptSteps.map(\.peakMemoryBytes) == sourceFacts.steps.map(\.peakMemoryBytes))
         }
 
@@ -246,8 +251,7 @@ struct ProvenanceCompatRehydrationTests {
 
         if id == Self.cancelledCaseID {
             withKnownIssue(
-                "F3: the GUI rehydrator writes no embedded run, so an imported cancelled run reads completed",
-                isIntermittent: true
+                "F3: the GUI rehydrator writes no embedded run, so an imported cancelled run reads completed"
             ) {
                 #expect(rehydratedFacts.readStatus == sourceFacts.readStatus)
             }
