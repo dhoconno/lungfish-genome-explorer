@@ -30,7 +30,8 @@ final class ManagedToolVersionProbeTableTests: XCTestCase {
     func testProbeTableKeysEqualTheLockIDs() throws {
         let lock = try ManagedToolLock.loadFromBundle()
         let probed = ManagedToolVersionProbe.probedIDs.map(\.rawValue)
-        XCTAssertEqual(Set(probed).count, probed.count, "the probe table has no duplicate key")
+        let declared = ManagedToolVersionProbe.declaredEntries.map(\.id)
+        XCTAssertEqual(Set(declared).count, declared.count, "the probe table declares no id twice")
         XCTAssertEqual(Set(probed), Set(lockIDs(lock)))
     }
 
@@ -130,7 +131,7 @@ final class ManagedToolVersionProbeTableTests: XCTestCase {
             executable: "ribodetector_cpu", arguments: ["-v"], dialect: .selfReported))
         // The four ids the old conformance table did not cover.
         XCTAssertEqual(probe("primer3"), ManagedToolVersionProbe(
-            executable: "primer3_core", arguments: ["-about"], dialect: .selfReported))
+            executable: "primer3_core", arguments: ["--about"], dialect: .selfReported))
         XCTAssertEqual(probe("primalscheme3"), ManagedToolVersionProbe(
             executable: "primalscheme3", arguments: ["--version"], dialect: .selfReported))
         XCTAssertEqual(probe("olivar"), ManagedToolVersionProbe(

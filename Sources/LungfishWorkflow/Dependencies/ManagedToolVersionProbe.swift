@@ -7,6 +7,11 @@ import LungfishIO
 /// nothing, because the production parsers disagree on real output and move together in a
 /// later phase. Every executable is one the lock declares for that entry, and a test holds
 /// the table to the lock ids, so a new lock entry cannot ship without a probe.
+///
+/// Sibling executables of one package (the BBTools wrappers, tabix, prefetch and
+/// medaka_variant) borrow their package's probe arguments through
+/// `NativeTool.versionArguments`, so an edit here also changes the argv recorded in
+/// production. `NativeToolProbePinTests` pins those arguments.
 public struct ManagedToolVersionProbe: Sendable, Hashable {
     /// How the version is read from the tool.
     public enum Dialect: Sendable, Hashable {
@@ -37,11 +42,15 @@ public struct ManagedToolVersionProbe: Sendable, Hashable {
 
     private static func entry(
         _ id: String, _ executable: String, _ arguments: [String], _ dialect: Dialect = .selfReported
-    ) -> (String, ManagedToolVersionProbe) {
+    ) -> (id: String, probe: ManagedToolVersionProbe) {
         (id, ManagedToolVersionProbe(executable: executable, arguments: arguments, dialect: dialect))
     }
 
-    private static let table: [String: ManagedToolVersionProbe] = Dictionary([
+    private static let table: [String: ManagedToolVersionProbe] = Dictionary(
+        declaredEntries.map { ($0.id, $0.probe) }, uniquingKeysWith: { first, _ in first })
+
+    /// The entries as declared, so a test can see a duplicate id that `table` would collapse.
+    static let declaredEntries: [(id: String, probe: ManagedToolVersionProbe)] = [
         // tools
         entry("nextflow", "nextflow", ["-version"]),
         entry("snakemake", "snakemake", ["--version"]),
@@ -70,8 +79,8 @@ public struct ManagedToolVersionProbe: Sendable, Hashable {
         entry("bowtie2", "bowtie2", ["--version"]),
         entry("savont", "savont", ["--version"], .selfReportedWithHelpFallback),
         entry("blast", "blastn", ["-version"]),
-        // primer3_core has no version flag. `-about` prints `libprimer3 release 2.6.1`.
-        entry("primer3", "primer3_core", ["-about"]),
+        // `--about` prints `libprimer3 release 2.6.1`, the argv Primer3DesignRunner uses.
+        entry("primer3", "primer3_core", ["--about"]),
         // Prints `PrimalScheme3-LGE version: 3.3.0+lge.5`, the Python runtime version.
         entry("primalscheme3", "primalscheme3", ["--version"]),
         // Prints `olivar-upstream.py v1.3.3`.
@@ -102,5 +111,5 @@ public struct ManagedToolVersionProbe: Sendable, Hashable {
         // The executable LGE runs. The package also ships ribodetector, the GPU entry point.
         entry("ribodetector", "ribodetector_cpu", ["-v"]),
         entry("freyja", "freyja", ["--version"]),
-    ], uniquingKeysWith: { first, _ in first })
+    ]
 }

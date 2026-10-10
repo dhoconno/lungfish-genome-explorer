@@ -97,15 +97,6 @@ enum ConformanceFixtures {
         return resolved
     }
 
-    /// The version probe for a manifest tool, keyed by tool id (the manifest's
-    /// `tools[].id` / `packTools[].id`, e.g. "samtools", "iqtree").
-    ///
-    /// The one table is `ManagedToolVersionProbe`. An id the lock does not carry
-    /// has no probe, and there is no default fallback.
-    static func versionProbe(for toolID: String) -> ManagedToolVersionProbe? {
-        ManagedToolVersionProbe.probe(for: ManagedToolID(rawValue: toolID))
-    }
-
     /// Whether `text` reports the exact pinned `version` as a standalone
     /// version token, not merely as a substring.
     ///
