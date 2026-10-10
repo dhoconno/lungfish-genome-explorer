@@ -50,7 +50,7 @@ Variant calling is the recommended example because its layering is right. It sti
 | Gap | Rule it breaks | Copy this instead |
 |---|---|---|
 | Its `onEvent` closure and `applyVariantCallingEvent` repeat the event-to-panel mapping by hand. | Rule 8 | `OperationCenterCLIBridge.onEvent(operationID:)` in `Sources/LungfishApp/Services/OperationCenterCLIBridge.swift`, used by `Sources/LungfishApp/Services/CLITreeRunner.swift` |
-| It builds the record as a legacy `WorkflowRun` and converts it with `canonicalEnvelope()`, where Rule 6 asks for `ProvenanceRunBuilder`. The sidecar has been an envelope since Phase 2.4, but its steps and parameters still come from the old model. | Rule 6 | `CLIProvenanceSupport.recordSingleStepRun` in `Sources/LungfishCLI/Support/CLIProvenanceSupport.swift`, which builds with `ProvenanceRunBuilder` and writes with `ProvenanceWriter` |
+| It builds the record as a legacy `WorkflowRun` and converts it with `canonicalEnvelope()`, where Rule 6 asks for `ProvenanceRunBuilder`. The sidecar has been an envelope since sub-phase 2.4, but its steps and parameters still come from the old model. | Rule 6 | `CLIProvenanceSupport.recordSingleStepRun` in `Sources/LungfishCLI/Support/CLIProvenanceSupport.swift`, which builds with `ProvenanceRunBuilder` and writes with `ProvenanceWriter` |
 
 ## Which launch family a new operation joins
 
