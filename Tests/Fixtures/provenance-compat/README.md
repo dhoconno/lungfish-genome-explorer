@@ -50,7 +50,9 @@ The run behind each captured case is a reusable scenario, in `ProvenanceCompatSc
 
 ### The account edits
 
-Two real files held the home folder of the account that wrote them. The folder was replaced by `/home/corpus`, in the plain spelling and in the escaped-slash spelling that JSON writers emit. The replacement keeps each path absolute, so the reader's rules for paths under a `.lungfish` folder behave as they did on the original bytes.
+Two real files held the home folder of the account that wrote them. The folder was replaced by `/srv/corpus`, in the plain spelling and in the escaped-slash spelling that JSON writers emit. The replacement keeps each path absolute, so the reader's rules for paths under a `.lungfish` folder behave as they did on the original bytes.
+
+The first version of the corpus used `/home/corpus`. macOS mounts `/home` with autofs, so every check of a path below it asks the automounter. A writer or rehydrator that resolves 26 or 35 such paths took tens of seconds on a Mac. `/srv` does not exist on macOS, so the same checks fail at once. A new case that needs a placeholder folder must pick one that no Mac mounts.
 
 - s4-msa-mafft-2026-05 has 26 places in the escaped spelling.
 - s1-db-receipt-kraken2-viral has 35 places in the escaped spelling.

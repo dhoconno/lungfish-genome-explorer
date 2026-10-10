@@ -3,9 +3,9 @@
     "lungfish",
     "align",
     "mafft",
-    "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/sars-cov-2-genomes.fasta",
+    "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/sars-cov-2-genomes.fasta",
     "--project",
-    "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
+    "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
     "--output",
     "<project>/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa",
     "--name",
@@ -35,7 +35,7 @@
         "--threadit",
         "0",
         "--inputorder",
-        "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/input.unaligned.fasta"
+        "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/input.unaligned.fasta"
       ],
       "dependsOn" : [
 
@@ -89,13 +89,13 @@
   "factsVersion" : 2,
   "files" : [
     {
-      "path" : "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/source.original",
+      "path" : "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/source.original",
       "role" : "input",
       "sha256" : "d7814f4cebea8ca8926e4ff41ab114fd5308daeab7f55814622d8fc82c1c8594",
       "size" : 151816
     },
     {
-      "path" : "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/sars-cov-2-genomes.fasta",
+      "path" : "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/sars-cov-2-genomes.fasta",
       "role" : "input",
       "sha256" : "6bfc057c9ae609c250adce77a47384643f263cb33300973a8745b716c8852824",
       "size" : 151156
@@ -107,73 +107,73 @@
       "size" : 4982460
     },
     {
-      "path" : "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/.viewstate.json",
+      "path" : "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/.viewstate.json",
       "role" : "output",
       "sha256" : "43d7a353088790b99f13c72738e8468902a66cf310a9915a24cb0d2a0d3df885",
       "size" : 287
     },
     {
-      "path" : "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/input.unaligned.fasta",
+      "path" : "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/input.unaligned.fasta",
       "role" : "output",
       "sha256" : "6bfc057c9ae609c250adce77a47384643f263cb33300973a8745b716c8852824",
       "size" : 151156
     },
     {
-      "path" : "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/primary.aligned.fasta",
+      "path" : "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/primary.aligned.fasta",
       "role" : "output",
       "sha256" : "ce110e98e830e47ba7e1c468993898b21a88e7a6d26c7f11e302a258705265ad",
       "size" : 149331
     },
     {
-      "path" : "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/source.original",
+      "path" : "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/source.original",
       "role" : "output",
       "sha256" : "d7814f4cebea8ca8926e4ff41ab114fd5308daeab7f55814622d8fc82c1c8594",
       "size" : 151816
     },
     {
-      "path" : "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/analysis-metadata.json",
+      "path" : "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/analysis-metadata.json",
       "role" : "output",
       "sha256" : "f6029d765f82a6c698b21a14dcc0b97aa8b7dd4cb9ac3e3163da2498b84275f9",
       "size" : 81
     },
     {
-      "path" : "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/cache/alignment-index.sqlite",
+      "path" : "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/cache/alignment-index.sqlite",
       "role" : "output",
       "sha256" : "fcb16906765f5fec3c8036bfbba3cc254d67a0299a9fbd154dfe22623669de8c",
       "size" : 692224
     },
     {
-      "path" : "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/manifest.json",
+      "path" : "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/manifest.json",
       "role" : "output",
       "sha256" : "efada128616ffd71f968e2dad84aa6f61b57eba440eaca77b968d2988056c5c6",
       "size" : 32248
     },
     {
-      "path" : "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/metadata/annotations.json",
+      "path" : "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/metadata/annotations.json",
       "role" : "output",
       "sha256" : "407835b2433df20817e59ff239df8ed899c8760e5bec4b04e2899df2b9ccad26",
       "size" : 92
     },
     {
-      "path" : "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/metadata/annotations.sqlite",
+      "path" : "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/metadata/annotations.sqlite",
       "role" : "output",
       "sha256" : "d7f066cf5e2a2904b062cbe9889f9ec33d21b4670e9fddf7fd774a6ef79f4717",
       "size" : 32768
     },
     {
-      "path" : "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/metadata/coordinate-maps.json",
+      "path" : "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/metadata/coordinate-maps.json",
       "role" : "output",
       "sha256" : "fa1948feb3a7d922e28e7236df940451e9c20588dee46fd16ba20b89c9806c4d",
       "size" : 3767968
     },
     {
-      "path" : "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/metadata/rows.json",
+      "path" : "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/metadata/rows.json",
       "role" : "output",
       "sha256" : "872f59a07ce20aeca71912dc594484384b849477b6577768c31e944de79f953f",
       "size" : 2071
     },
     {
-      "path" : "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/metadata/source-row-map.json",
+      "path" : "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/metadata/source-row-map.json",
       "role" : "output",
       "sha256" : "8060056d2e8b9c356bae358b53289f392fc257c6c57a97f3010559c9fb9f810c",
       "size" : 2705
@@ -224,7 +224,7 @@
         "--threadit",
         "0",
         "--inputorder",
-        "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/input.unaligned.fasta"
+        "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/input.unaligned.fasta"
       ],
       "dependsOn" : [
 
@@ -258,11 +258,11 @@
   "recorded" : {
     "createdAt" : "2026-05-03T20:53:06Z",
     "runtimeIdentity.condaEnvironment" : "base",
-    "runtimeIdentity.executablePath" : "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/.build/debug/lungfish-cli",
+    "runtimeIdentity.executablePath" : "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/.build/debug/lungfish-cli",
     "runtimeIdentity.operatingSystemVersion" : "Version 26.4.1 (Build 25E253)",
     "runtimeIdentity.processIdentifier" : "78305"
   },
-  "reproducibleCommand" : "lungfish align mafft /home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/sars-cov-2-genomes.fasta --project /home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish --output '<project>/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa' --name sars-cov-2-genomes-mafft --strategy auto --output-order input --sequence-type auto --adjust-direction off --symbols strict --threads 2 --format json",
+  "reproducibleCommand" : "lungfish align mafft /srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/sars-cov-2-genomes.fasta --project /srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish --output '<project>/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa' --name sars-cov-2-genomes-mafft --strategy auto --output-order input --sequence-type auto --adjust-direction off --symbols strict --threads 2 --format json",
   "resolvedDefaultOptions" : {
 
   },
@@ -277,7 +277,7 @@
         "--threadit",
         "0",
         "--inputorder",
-        "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/input.unaligned.fasta"
+        "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/input.unaligned.fasta"
       ],
       "dependsOn" : [
 
@@ -285,13 +285,13 @@
       "exitStatus" : 0,
       "inputs" : [
         {
-          "path" : "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/source.original",
+          "path" : "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/source.original",
           "role" : "input",
           "sha256" : "d7814f4cebea8ca8926e4ff41ab114fd5308daeab7f55814622d8fc82c1c8594",
           "size" : 151816
         },
         {
-          "path" : "/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/sars-cov-2-genomes.fasta",
+          "path" : "/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/sars-cov-2-genomes.fasta",
           "role" : "input",
           "sha256" : "6bfc057c9ae609c250adce77a47384643f263cb33300973a8745b716c8852824",
           "size" : 151156
@@ -308,7 +308,7 @@
       "recorded" : {
         "condaEnvironment" : "mafft"
       },
-      "reproducibleCommand" : "mafft --auto --thread 2 --threadit 0 --inputorder '/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/input.unaligned.fasta' > '/home/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/primary.aligned.fasta'",
+      "reproducibleCommand" : "mafft --auto --thread 2 --threadit 0 --inputorder '/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/input.unaligned.fasta' > '/srv/corpus/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/primary.aligned.fasta'",
       "resolvedOptions" : {
 
       },

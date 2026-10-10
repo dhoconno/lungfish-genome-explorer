@@ -13,7 +13,7 @@
     {
       "checksumSHA256" : "ae32aa2e3b4b7c347ed9f32bcfe8cb4c0d95d379cfccef6598e2e3e4f95b5c5c",
       "fileSize" : 750453,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/database100mers.kmer_distrib",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/database100mers.kmer_distrib",
       "role" : "output",
       "sha256" : "ae32aa2e3b4b7c347ed9f32bcfe8cb4c0d95d379cfccef6598e2e3e4f95b5c5c",
       "sizeBytes" : 750453
@@ -21,7 +21,7 @@
     {
       "checksumSHA256" : "066fb4c949ba031f67324bd98751b3409dc356fff8aecc89dcdb0ca130094984",
       "fileSize" : 651823,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/database150mers.kmer_distrib",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/database150mers.kmer_distrib",
       "role" : "output",
       "sha256" : "066fb4c949ba031f67324bd98751b3409dc356fff8aecc89dcdb0ca130094984",
       "sizeBytes" : 651823
@@ -29,7 +29,7 @@
     {
       "checksumSHA256" : "b25187ff26c8791d183e9d80770e561c108163ebda900ffbbc1f58209bbc76d1",
       "fileSize" : 597341,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/database200mers.kmer_distrib",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/database200mers.kmer_distrib",
       "role" : "output",
       "sha256" : "b25187ff26c8791d183e9d80770e561c108163ebda900ffbbc1f58209bbc76d1",
       "sizeBytes" : 597341
@@ -37,7 +37,7 @@
     {
       "checksumSHA256" : "747471a3853ed1ed0b3c4014cdd1487ea9cb795548e6f21d3cea4ec61c2ae58b",
       "fileSize" : 569308,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/database250mers.kmer_distrib",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/database250mers.kmer_distrib",
       "role" : "output",
       "sha256" : "747471a3853ed1ed0b3c4014cdd1487ea9cb795548e6f21d3cea4ec61c2ae58b",
       "sizeBytes" : 569308
@@ -45,7 +45,7 @@
     {
       "checksumSHA256" : "6a62717ab7465de5297bb3a4edf052bab39b736c09e5e97f44a20ba7bec27c87",
       "fileSize" : 551344,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/database300mers.kmer_distrib",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/database300mers.kmer_distrib",
       "role" : "output",
       "sha256" : "6a62717ab7465de5297bb3a4edf052bab39b736c09e5e97f44a20ba7bec27c87",
       "sizeBytes" : 551344
@@ -53,7 +53,7 @@
     {
       "checksumSHA256" : "aa14da4848805fe6f01eed4f9f23570528fb61e1ecc3f20432057fb5f5d3ffc8",
       "fileSize" : 909403,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/database50mers.kmer_distrib",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/database50mers.kmer_distrib",
       "role" : "output",
       "sha256" : "aa14da4848805fe6f01eed4f9f23570528fb61e1ecc3f20432057fb5f5d3ffc8",
       "sizeBytes" : 909403
@@ -61,7 +61,7 @@
     {
       "checksumSHA256" : "380fc77650c395fa9de2d8dc14e6d9630123fa1447aa9e0bb55e754bac6d7613",
       "fileSize" : 819076,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/database75mers.kmer_distrib",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/database75mers.kmer_distrib",
       "role" : "output",
       "sha256" : "380fc77650c395fa9de2d8dc14e6d9630123fa1447aa9e0bb55e754bac6d7613",
       "sizeBytes" : 819076
@@ -69,7 +69,7 @@
     {
       "checksumSHA256" : "1bd239b207e1d0f679f910cf323c9b6894fdb85c80f0358fa144aca25a7bdfa7",
       "fileSize" : 648733288,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/hash.k2d",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/hash.k2d",
       "role" : "output",
       "sha256" : "1bd239b207e1d0f679f910cf323c9b6894fdb85c80f0358fa144aca25a7bdfa7",
       "sizeBytes" : 648733288
@@ -77,7 +77,7 @@
     {
       "checksumSHA256" : "fc7fe67942881c7a074918408e7a5da695bddefa8e9901cf33ce51551bc5c036",
       "fileSize" : 2107925,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/inspect.txt",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/inspect.txt",
       "role" : "output",
       "sha256" : "fc7fe67942881c7a074918408e7a5da695bddefa8e9901cf33ce51551bc5c036",
       "sizeBytes" : 2107925
@@ -85,7 +85,7 @@
     {
       "checksumSHA256" : "f6d788bd86273b9b24bebd9170ab3f548fe46238f27ec95a3464469ba968ba96",
       "fileSize" : 1619984,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/ktaxonomy.tsv",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/ktaxonomy.tsv",
       "role" : "output",
       "sha256" : "f6d788bd86273b9b24bebd9170ab3f548fe46238f27ec95a3464469ba968ba96",
       "sizeBytes" : 1619984
@@ -93,7 +93,7 @@
     {
       "checksumSHA256" : "2f31c0b6c50957cacebe09f1f47b141554471c9f12f47422e7ec02674004a434",
       "fileSize" : 3983686,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/library_report.tsv",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/library_report.tsv",
       "role" : "output",
       "sha256" : "2f31c0b6c50957cacebe09f1f47b141554471c9f12f47422e7ec02674004a434",
       "sizeBytes" : 3983686
@@ -101,7 +101,7 @@
     {
       "checksumSHA256" : "90a1667d49a7e177eb7e6a794e8a843975f809f7acd89eb3d1a8d9c0667506e9",
       "fileSize" : 291943734,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/names.dmp",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/names.dmp",
       "role" : "output",
       "sha256" : "90a1667d49a7e177eb7e6a794e8a843975f809f7acd89eb3d1a8d9c0667506e9",
       "sizeBytes" : 291943734
@@ -109,7 +109,7 @@
     {
       "checksumSHA256" : "e90ca7368966e8c9a073eea5c158392650289bdd4eca3a1ef4b19ed5bfc9e909",
       "fileSize" : 217121754,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/nodes.dmp",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/nodes.dmp",
       "role" : "output",
       "sha256" : "e90ca7368966e8c9a073eea5c158392650289bdd4eca3a1ef4b19ed5bfc9e909",
       "sizeBytes" : 217121754
@@ -117,7 +117,7 @@
     {
       "checksumSHA256" : "b7ecfc6e365325b71a3514049bc80faeaf2549463ab93ff07cdbc112bd5a8c75",
       "fileSize" : 64,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/opts.k2d",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/opts.k2d",
       "role" : "output",
       "sha256" : "b7ecfc6e365325b71a3514049bc80faeaf2549463ab93ff07cdbc112bd5a8c75",
       "sizeBytes" : 64
@@ -125,7 +125,7 @@
     {
       "checksumSHA256" : "96b27006540b63206795027daff063f15f2f9b351bb2603e1b1ca36721dc214d",
       "fileSize" : 747163,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/seqid2taxid.map",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/seqid2taxid.map",
       "role" : "output",
       "sha256" : "96b27006540b63206795027daff063f15f2f9b351bb2603e1b1ca36721dc214d",
       "sizeBytes" : 747163
@@ -133,7 +133,7 @@
     {
       "checksumSHA256" : "681162e42813064ebe74d55950cf53da33157d28db3ef4e4ad378af007384d24",
       "fileSize" : 2470742,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/taxo.k2d",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/taxo.k2d",
       "role" : "output",
       "sha256" : "681162e42813064ebe74d55950cf53da33157d28db3ef4e4ad378af007384d24",
       "sizeBytes" : 2470742
@@ -155,11 +155,11 @@
     "resolvedDefaults" : {
       "databaseRoot" : {
         "type" : "file",
-        "value" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral"
+        "value" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral"
       },
       "intendedFinalPath" : {
         "type" : "string",
-        "value" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral"
+        "value" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral"
       },
       "payloadAggregateSHA256" : {
         "type" : "string",
@@ -186,7 +186,7 @@
   "output" : {
     "checksumSHA256" : "ae32aa2e3b4b7c347ed9f32bcfe8cb4c0d95d379cfccef6598e2e3e4f95b5c5c",
     "fileSize" : 750453,
-    "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/database100mers.kmer_distrib",
+    "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/database100mers.kmer_distrib",
     "role" : "output",
     "sha256" : "ae32aa2e3b4b7c347ed9f32bcfe8cb4c0d95d379cfccef6598e2e3e4f95b5c5c",
     "sizeBytes" : 750453
@@ -195,7 +195,7 @@
     {
       "checksumSHA256" : "ae32aa2e3b4b7c347ed9f32bcfe8cb4c0d95d379cfccef6598e2e3e4f95b5c5c",
       "fileSize" : 750453,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/database100mers.kmer_distrib",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/database100mers.kmer_distrib",
       "role" : "output",
       "sha256" : "ae32aa2e3b4b7c347ed9f32bcfe8cb4c0d95d379cfccef6598e2e3e4f95b5c5c",
       "sizeBytes" : 750453
@@ -203,7 +203,7 @@
     {
       "checksumSHA256" : "066fb4c949ba031f67324bd98751b3409dc356fff8aecc89dcdb0ca130094984",
       "fileSize" : 651823,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/database150mers.kmer_distrib",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/database150mers.kmer_distrib",
       "role" : "output",
       "sha256" : "066fb4c949ba031f67324bd98751b3409dc356fff8aecc89dcdb0ca130094984",
       "sizeBytes" : 651823
@@ -211,7 +211,7 @@
     {
       "checksumSHA256" : "b25187ff26c8791d183e9d80770e561c108163ebda900ffbbc1f58209bbc76d1",
       "fileSize" : 597341,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/database200mers.kmer_distrib",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/database200mers.kmer_distrib",
       "role" : "output",
       "sha256" : "b25187ff26c8791d183e9d80770e561c108163ebda900ffbbc1f58209bbc76d1",
       "sizeBytes" : 597341
@@ -219,7 +219,7 @@
     {
       "checksumSHA256" : "747471a3853ed1ed0b3c4014cdd1487ea9cb795548e6f21d3cea4ec61c2ae58b",
       "fileSize" : 569308,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/database250mers.kmer_distrib",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/database250mers.kmer_distrib",
       "role" : "output",
       "sha256" : "747471a3853ed1ed0b3c4014cdd1487ea9cb795548e6f21d3cea4ec61c2ae58b",
       "sizeBytes" : 569308
@@ -227,7 +227,7 @@
     {
       "checksumSHA256" : "6a62717ab7465de5297bb3a4edf052bab39b736c09e5e97f44a20ba7bec27c87",
       "fileSize" : 551344,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/database300mers.kmer_distrib",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/database300mers.kmer_distrib",
       "role" : "output",
       "sha256" : "6a62717ab7465de5297bb3a4edf052bab39b736c09e5e97f44a20ba7bec27c87",
       "sizeBytes" : 551344
@@ -235,7 +235,7 @@
     {
       "checksumSHA256" : "aa14da4848805fe6f01eed4f9f23570528fb61e1ecc3f20432057fb5f5d3ffc8",
       "fileSize" : 909403,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/database50mers.kmer_distrib",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/database50mers.kmer_distrib",
       "role" : "output",
       "sha256" : "aa14da4848805fe6f01eed4f9f23570528fb61e1ecc3f20432057fb5f5d3ffc8",
       "sizeBytes" : 909403
@@ -243,7 +243,7 @@
     {
       "checksumSHA256" : "380fc77650c395fa9de2d8dc14e6d9630123fa1447aa9e0bb55e754bac6d7613",
       "fileSize" : 819076,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/database75mers.kmer_distrib",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/database75mers.kmer_distrib",
       "role" : "output",
       "sha256" : "380fc77650c395fa9de2d8dc14e6d9630123fa1447aa9e0bb55e754bac6d7613",
       "sizeBytes" : 819076
@@ -251,7 +251,7 @@
     {
       "checksumSHA256" : "1bd239b207e1d0f679f910cf323c9b6894fdb85c80f0358fa144aca25a7bdfa7",
       "fileSize" : 648733288,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/hash.k2d",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/hash.k2d",
       "role" : "output",
       "sha256" : "1bd239b207e1d0f679f910cf323c9b6894fdb85c80f0358fa144aca25a7bdfa7",
       "sizeBytes" : 648733288
@@ -259,7 +259,7 @@
     {
       "checksumSHA256" : "fc7fe67942881c7a074918408e7a5da695bddefa8e9901cf33ce51551bc5c036",
       "fileSize" : 2107925,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/inspect.txt",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/inspect.txt",
       "role" : "output",
       "sha256" : "fc7fe67942881c7a074918408e7a5da695bddefa8e9901cf33ce51551bc5c036",
       "sizeBytes" : 2107925
@@ -267,7 +267,7 @@
     {
       "checksumSHA256" : "f6d788bd86273b9b24bebd9170ab3f548fe46238f27ec95a3464469ba968ba96",
       "fileSize" : 1619984,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/ktaxonomy.tsv",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/ktaxonomy.tsv",
       "role" : "output",
       "sha256" : "f6d788bd86273b9b24bebd9170ab3f548fe46238f27ec95a3464469ba968ba96",
       "sizeBytes" : 1619984
@@ -275,7 +275,7 @@
     {
       "checksumSHA256" : "2f31c0b6c50957cacebe09f1f47b141554471c9f12f47422e7ec02674004a434",
       "fileSize" : 3983686,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/library_report.tsv",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/library_report.tsv",
       "role" : "output",
       "sha256" : "2f31c0b6c50957cacebe09f1f47b141554471c9f12f47422e7ec02674004a434",
       "sizeBytes" : 3983686
@@ -283,7 +283,7 @@
     {
       "checksumSHA256" : "90a1667d49a7e177eb7e6a794e8a843975f809f7acd89eb3d1a8d9c0667506e9",
       "fileSize" : 291943734,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/names.dmp",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/names.dmp",
       "role" : "output",
       "sha256" : "90a1667d49a7e177eb7e6a794e8a843975f809f7acd89eb3d1a8d9c0667506e9",
       "sizeBytes" : 291943734
@@ -291,7 +291,7 @@
     {
       "checksumSHA256" : "e90ca7368966e8c9a073eea5c158392650289bdd4eca3a1ef4b19ed5bfc9e909",
       "fileSize" : 217121754,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/nodes.dmp",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/nodes.dmp",
       "role" : "output",
       "sha256" : "e90ca7368966e8c9a073eea5c158392650289bdd4eca3a1ef4b19ed5bfc9e909",
       "sizeBytes" : 217121754
@@ -299,7 +299,7 @@
     {
       "checksumSHA256" : "b7ecfc6e365325b71a3514049bc80faeaf2549463ab93ff07cdbc112bd5a8c75",
       "fileSize" : 64,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/opts.k2d",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/opts.k2d",
       "role" : "output",
       "sha256" : "b7ecfc6e365325b71a3514049bc80faeaf2549463ab93ff07cdbc112bd5a8c75",
       "sizeBytes" : 64
@@ -307,7 +307,7 @@
     {
       "checksumSHA256" : "96b27006540b63206795027daff063f15f2f9b351bb2603e1b1ca36721dc214d",
       "fileSize" : 747163,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/seqid2taxid.map",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/seqid2taxid.map",
       "role" : "output",
       "sha256" : "96b27006540b63206795027daff063f15f2f9b351bb2603e1b1ca36721dc214d",
       "sizeBytes" : 747163
@@ -315,7 +315,7 @@
     {
       "checksumSHA256" : "681162e42813064ebe74d55950cf53da33157d28db3ef4e4ad378af007384d24",
       "fileSize" : 2470742,
-      "path" : "\/home\/corpus\/.lungfish\/databases\/kraken2\/viral\/taxo.k2d",
+      "path" : "\/srv\/corpus\/.lungfish\/databases\/kraken2\/viral\/taxo.k2d",
       "role" : "output",
       "sha256" : "681162e42813064ebe74d55950cf53da33157d28db3ef4e4ad378af007384d24",
       "sizeBytes" : 2470742
