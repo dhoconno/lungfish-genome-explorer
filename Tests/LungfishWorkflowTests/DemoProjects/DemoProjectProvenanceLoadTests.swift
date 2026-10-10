@@ -155,6 +155,61 @@ final class DemoProjectProvenanceLoadTests: XCTestCase {
         )
     }
 
+    /// The writer lanes are accepted only while the comparison with the expected
+    /// file stays green, so the comparison has to be able to fail. This loads the
+    /// committed file, shows that it equals itself, and shows that three kinds of
+    /// change each produce one line that names where the change is.
+    func testExpectedFileComparisonNoticesAChangedValue() throws {
+        let expected = try DemoProvenanceExpectedFile.load(from: DemoProjectArchiveFixtures.mhcExpectedURL)
+        XCTAssertEqual(expected.differences(from: expected), [], "the file differs from itself")
+
+        // One sidecar's argv[1].
+        var changedArgv = expected
+        let sidecarIndex = try XCTUnwrap(changedArgv.sidecars.firstIndex { $0.argv.count > 1 })
+        let argvSidecar = changedArgv.sidecars[sidecarIndex].sidecar
+        changedArgv.sidecars[sidecarIndex].argv[1] += "-changed"
+        let argvLines = changedArgv.differences(from: expected)
+        XCTAssertEqual(argvLines.count, 1, "\(argvLines)")
+        XCTAssertTrue(
+            argvLines.contains { $0.contains(argvSidecar) && $0.contains("field argv") },
+            "the comparison missed a changed argv[1] or did not name it: \(argvLines)"
+        )
+
+        // One finder pin's sidecar set to nil.
+        var droppedPin = expected
+        let pinIndex = try XCTUnwrap(droppedPin.finder.firstIndex { $0.sidecar != nil })
+        let selection = droppedPin.finder[pinIndex].selection
+        droppedPin.finder[pinIndex].sidecar = nil
+        let pinLines = droppedPin.differences(from: expected)
+        XCTAssertEqual(pinLines.count, 1, "\(pinLines)")
+        XCTAssertTrue(
+            pinLines.contains { $0.contains(selection) && $0.contains("field sidecar") },
+            "the comparison missed a finder pin that lost its sidecar or did not name it: \(pinLines)"
+        )
+
+        // One step's toolVersion, the fact that only the steps hold for a third-party tool.
+        var changedTool = expected
+        var located: (sidecar: Int, step: Int)?
+        for (index, sidecar) in changedTool.sidecars.enumerated() {
+            if let step = sidecar.steps.firstIndex(where: { $0.toolName == "bgzip" }) {
+                located = (index, step)
+                break
+            }
+        }
+        let (toolSidecar, toolStep) = try XCTUnwrap(located)
+        let toolSidecarName = changedTool.sidecars[toolSidecar].sidecar
+        XCTAssertEqual(changedTool.sidecars[toolSidecar].steps[toolStep].toolVersion, "1.24")
+        changedTool.sidecars[toolSidecar].steps[toolStep].toolVersion = "9.9"
+        let toolLines = changedTool.differences(from: expected)
+        XCTAssertEqual(toolLines.count, 1, "\(toolLines)")
+        XCTAssertTrue(
+            toolLines.contains {
+                $0.contains(toolSidecarName) && $0.contains("step \(toolStep + 1) (bgzip)") && $0.contains("field toolVersion")
+            },
+            "the comparison missed a changed step toolVersion or did not name it: \(toolLines)"
+        )
+    }
+
     /// The mask is what keeps the expected file the same on every Mac, so it
     /// is tested on its own.
     func testPathMaskTurnsEachRootBackIntoItsToken() throws {

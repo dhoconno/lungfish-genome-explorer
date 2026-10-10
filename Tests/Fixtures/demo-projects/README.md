@@ -35,7 +35,7 @@ It was first written with `LUNGFISH_CAPTURE_DEMO_PROVENANCE=1` on code that had 
 
 | Suite | What it does |
 |---|---|
-| `DemoProjectProvenanceLoadTests` | Installs the archive with the real `DemoProjectInstaller`, reads every sidecar with the tolerant and strict readers, asks the finder about every bundle folder and payload file, walks the lineage and exports JSON and shell scripts outside the project, then requires a snapshot of the whole project to be identical before and after. It also compares what the reader decodes with the expected file |
+| `DemoProjectProvenanceLoadTests` | Installs the archive with the real `DemoProjectInstaller`, reads every sidecar with the tolerant and strict readers, asks the finder about every bundle folder and payload file, walks the lineage and exports JSON and shell scripts outside the project, then requires a snapshot of the whole project to be identical before and after. It also compares what the reader decodes with the expected file, and shows that the comparison and the snapshot each notice a change |
 | `DemoProjectProvenanceSweepTests` | Applies the checks that need no expected file to every archive that the bundled catalogue lists, found by file name in the folder named by `LUNGFISH_DEMO_ARCHIVE_DIR`, when its size and SHA-256 match the catalogue. It skips when the variable is unset, so the unit tier never downloads and never depends on a cache. The nine archives that are not committed are covered this way, from the golden cache or any other local folder |
 
 To run the sweep over a folder of archives, use `LUNGFISH_DEMO_ARCHIVE_DIR=<folder> swift test --filter DemoProjectProvenanceSweepTests`. The test prints one line for each archive it swept or skipped.
