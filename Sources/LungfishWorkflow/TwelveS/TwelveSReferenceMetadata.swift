@@ -127,8 +127,7 @@ public enum TwelveSReferenceMetadataBuildError: Error, LocalizedError, Equatable
     }
 }
 
-/// A metadata table that has been written and not yet recorded. The reference
-/// bundle builder records it as a step of its own record, and `build` records
+/// A metadata table that has been written and not yet recorded. `build` records
 /// it in a record beside the table.
 struct TwelveSReferenceMetadataTableRun: Equatable, Sendable {
     let metadataURL: URL
@@ -160,11 +159,10 @@ public struct TwelveSReferenceMetadataBuilder: Sendable {
         }
     }
 
-    /// Writes the target metadata table and no record, for a caller that records
-    /// the run itself. The reference bundle builder runs this inside the bundle
-    /// and folds the run into the bundle's record with ``provenanceStep(for:run:)``,
-    /// because a record written beside the table would be listed as one of the
-    /// bundle's outputs and get a record of its own (walk F6).
+    /// Writes the target metadata table and no record. The reference bundle builder
+    /// runs this inside the bundle, where the bundle step lists the table as an
+    /// output, so a record beside the table would be a second record of the same
+    /// file (walk F6).
     func buildTable(
         _ config: TwelveSReferenceMetadataBuildConfiguration
     ) async throws -> TwelveSReferenceMetadataTableRun {
@@ -190,42 +188,6 @@ public struct TwelveSReferenceMetadataBuilder: Sendable {
             metadataURL: config.outputURL.standardizedFileURL,
             startedAt: runClock.startedAt,
             completedAt: runClock.now
-        )
-    }
-
-    /// The step that records a table run inside another record. It holds what the
-    /// record beside the table would hold. That is the command, its options, the
-    /// files it read and the table it wrote with their checksums, and the run's times.
-    func provenanceStep(
-        for config: TwelveSReferenceMetadataBuildConfiguration,
-        run: TwelveSReferenceMetadataTableRun
-    ) throws -> ProvenanceStep {
-        let argv = config.argv.isEmpty
-            ? Self.replayArgv(for: config)
-            : config.argv
-        return ProvenanceStep(
-            toolName: "lungfish fastq 12s-reference-metadata",
-            toolVersion: WorkflowRun.currentAppVersion,
-            argv: argv,
-            durableReplayArgv: argv,
-            reproducibleCommand: Self.commandLine(from: argv),
-            resolvedOptions: [
-                "deduplicatedFASTA": .file(config.deduplicatedFASTA),
-                "midoriMetadataTSV": .file(config.midoriMetadataTSV),
-                "output": .file(config.outputURL),
-                "forceOverwrite": .boolean(config.forceOverwrite),
-            ],
-            inputs: [
-                try ProvenanceFileDescriptor.file(url: config.deduplicatedFASTA, format: .fasta, role: .reference),
-                try ProvenanceFileDescriptor.file(url: config.midoriMetadataTSV, format: .text, role: .reference),
-            ],
-            outputs: [
-                try ProvenanceFileDescriptor.file(url: config.outputURL, format: .text, role: .output),
-            ],
-            exitStatus: 0,
-            wallTimeSeconds: run.completedAt.timeIntervalSince(run.startedAt),
-            startedAt: run.startedAt,
-            completedAt: run.completedAt
         )
     }
 

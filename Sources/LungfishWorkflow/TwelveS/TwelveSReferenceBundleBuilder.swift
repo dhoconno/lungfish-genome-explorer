@@ -86,9 +86,9 @@ public struct TwelveSReferenceBundleBuilder: Sendable {
 
             let metadataURL = config.outputURL.appendingPathComponent("target-metadata.tsv")
             progressHandler?(0.35, "Building 12S target metadata.")
-            // The table is written without a record of its own. A record beside it
-            // would be listed as one of the bundle's outputs and get a record of its
-            // own (walk F6), so the run becomes the first step of the bundle's record.
+            // The table gets no record of its own. The bundle step lists it as an
+            // output with its checksum, and a record beside it would be a second
+            // record of the same file inside the bundle (walk F6).
             let metadataBuilder = TwelveSReferenceMetadataBuilder()
             let metadataConfiguration = TwelveSReferenceMetadataBuildConfiguration(
                 deduplicatedFASTA: referenceURL,
@@ -103,8 +103,7 @@ public struct TwelveSReferenceBundleBuilder: Sendable {
                     "--force",
                 ]
             )
-            let metadataRun = try await metadataBuilder.buildTable(metadataConfiguration)
-            let metadataStep = try metadataBuilder.provenanceStep(for: metadataConfiguration, run: metadataRun)
+            _ = try await metadataBuilder.buildTable(metadataConfiguration)
 
             progressHandler?(0.58, "Copying 12S reference source files.")
             var sourceFiles: [TwelveSReferenceBundleSourceFile] = [
@@ -145,7 +144,6 @@ public struct TwelveSReferenceBundleBuilder: Sendable {
             let provenanceURL = try writeProvenance(
                 config: config,
                 bundleURL: config.outputURL,
-                metadataStep: metadataStep,
                 startedAt: runClock.startedAt,
                 completedAt: runClock.now
             )
@@ -243,7 +241,6 @@ public struct TwelveSReferenceBundleBuilder: Sendable {
     private func writeProvenance(
         config: TwelveSReferenceBundleBuildConfiguration,
         bundleURL: URL,
-        metadataStep: ProvenanceStep,
         startedAt: Date,
         completedAt: Date
     ) throws -> URL {
@@ -285,7 +282,6 @@ public struct TwelveSReferenceBundleBuilder: Sendable {
             outputs: outputs,
             exitStatus: 0,
             wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
-            dependsOn: [metadataStep.id],
             startedAt: startedAt,
             completedAt: completedAt
         )
@@ -308,10 +304,10 @@ public struct TwelveSReferenceBundleBuilder: Sendable {
                 ]
             ),
             runtimeIdentity: ProvenanceRuntimeIdentity(user: WorkflowRun.currentUser),
-            files: deduplicated(inputs + outputs + metadataStep.inputs + metadataStep.outputs),
+            files: inputs + outputs,
             output: outputs.first,
             outputs: outputs,
-            steps: [metadataStep, step],
+            steps: [step],
             wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
             exitStatus: 0
         )
@@ -333,20 +329,13 @@ public struct TwelveSReferenceBundleBuilder: Sendable {
         for case let url as URL in enumerator {
             guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
             guard !url.lastPathComponent.hasSuffix(ProvenanceWriter.provenanceFilename) else { continue }
-            // The standardized path, as the bundle's own descriptor and the metadata step
-            // spell it. The enumerator spells a path under /var as /private/var, and the
-            // focused record of an output is found by the path its steps record.
+            // The standardized path, as the bundle's own descriptor spells it. The
+            // enumerator spells a path under /var as /private/var.
             descriptors.append(
                 try ProvenanceFileDescriptor.file(url: url.standardizedFileURL, format: fileFormat(for: url), role: .output)
             )
         }
         return descriptors
-    }
-
-    /// The files once each, by role and path, in first-seen order.
-    private func deduplicated(_ files: [ProvenanceFileDescriptor]) -> [ProvenanceFileDescriptor] {
-        var seen = Set<String>()
-        return files.filter { seen.insert("\($0.role.rawValue)\u{0}\($0.path)").inserted }
     }
 
     private func loadTSVRows(from url: URL) throws -> [[String: String]] {

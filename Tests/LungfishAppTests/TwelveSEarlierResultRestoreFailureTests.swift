@@ -148,8 +148,8 @@ final class TwelveSEarlierResultRestoreFailureTests: XCTestCase {
     }
 
     /// The reference build is run by the same command the app records, with an earlier
-    /// bundle in the same folder. The app checks the new bundle's record, which now
-    /// holds the metadata run as its first step, and adopts the bundle.
+    /// bundle in the same folder. The app checks the new bundle's record, which holds
+    /// the one bundle step, and adopts the bundle.
     func testACleanReferenceBundleBuildBesideAnEarlierBundleReadsCompletedAndTheAppAcceptsItsRecord() async throws {
         let fixtures = try makeFixtures()
         let folder = fixtures.root.appendingPathComponent("Reference Sequences", isDirectory: true)
@@ -184,10 +184,7 @@ final class TwelveSEarlierResultRestoreFailureTests: XCTestCase {
         XCTAssertTrue(outputs.allSatisfy { $0.path.hasPrefix(bundle.path) }, "\(outputs)")
         XCTAssertEqual(refresher.invocations.map(\.path), [bundle.path])
         let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundle))
-        XCTAssertEqual(record.steps.map(\.toolName), [
-            "lungfish fastq 12s-reference-metadata",
-            "lungfish fastq 12s-reference-bundle",
-        ])
+        XCTAssertEqual(record.steps.map(\.toolName), ["lungfish fastq 12s-reference-bundle"])
     }
 
     func testACleanForcedRerunOverAnEarlierResultReadsCompletedAndAdoptsTheBundleItWrote() async throws {

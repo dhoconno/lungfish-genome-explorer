@@ -113,9 +113,9 @@ final class TwelveSReferenceBundleBuilderTests: XCTestCase {
         XCTAssertTrue(provenance.files.contains { $0.path == fastaURL.path })
         XCTAssertTrue(provenance.files.contains { $0.path == midoriURL.path })
         XCTAssertTrue(provenance.outputs.contains { $0.path == bundleURL.path })
-        // The metadata run is the first step and the bundle build the second.
-        XCTAssertEqual(provenance.steps.count, 2)
-        let bundleStep = try XCTUnwrap(provenance.steps.last)
+        // One step, the bundle build, as at 90d34c550. It lists the table it wrote.
+        XCTAssertEqual(provenance.steps.count, 1)
+        let bundleStep = try XCTUnwrap(provenance.steps.first)
         XCTAssertEqual(bundleStep.toolName, "lungfish fastq 12s-reference-bundle")
         XCTAssertEqual(bundleStep.exitStatus, 0)
         XCTAssertTrue(bundleStep.inputs.contains { $0.path == fastaURL.path })
@@ -144,7 +144,7 @@ final class TwelveSReferenceBundleBuilderTests: XCTestCase {
         XCTAssertEqual(recordsOfRecords, [], "a record of a record: \(files)")
         XCTAssertFalse(
             files.contains("target-metadata.tsv" + Self.recordSuffix),
-            "the metadata run is a step of the bundle record, so it writes no record of its own: \(files)"
+            "the bundle step lists the table, so the table gets no record at the bundle root: \(files)"
         )
         // A bundle holds its own record, its roll-up and one record for each output.
         for expected in [
@@ -171,47 +171,37 @@ final class TwelveSReferenceBundleBuilderTests: XCTestCase {
         XCTAssertTrue(provenance.outputs.contains { $0.path == manifestPath }, "\(provenance.outputs.map(\.path))")
     }
 
-    func testTheMetadataRunIsTheFirstStepOfTheBundleRecord() async throws {
+    /// The metadata table gets no record and no step of its own. The bundle step lists
+    /// it with its checksum, and a script exported from the bundle's record, or from
+    /// the table's own focused record, replays the one command that made the bundle.
+    /// Two steps would put `12s-reference-metadata` first, reading a file that
+    /// `12s-reference-bundle` creates, and `set -e` would stop the script there.
+    func testTheBundleRecordHasOneStepThatListsTheTableAndExportsAsOneCommand() async throws {
         let inputs = try makeInputs()
         let bundleURL = inputs.bundleURL.standardizedFileURL
 
         let result = try await build(inputs)
 
-        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
-        XCTAssertEqual(provenance.steps.map(\.toolName), [
-            "lungfish fastq 12s-reference-metadata",
-            "lungfish fastq 12s-reference-bundle",
-        ])
-        let metadataStep = try XCTUnwrap(provenance.steps.first { $0.toolName == "lungfish fastq 12s-reference-metadata" })
-        let bundleStep = try XCTUnwrap(provenance.steps.first { $0.toolName == "lungfish fastq 12s-reference-bundle" })
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
+        XCTAssertEqual(record.steps.map(\.toolName), ["lungfish fastq 12s-reference-bundle"])
+        let bundleStep = try XCTUnwrap(record.steps.first)
+        let tablePath = bundleURL.appendingPathComponent("target-metadata.tsv").path
+        let table = try XCTUnwrap(bundleStep.outputs.first { $0.path == tablePath }, "\(bundleStep.outputs.map(\.path))")
+        XCTAssertNotNil(table.checksumSHA256)
+        XCTAssertNotNil(table.fileSize)
 
-        let referenceCopy = bundleURL.appendingPathComponent("reference.fa").path
-        let metadataTable = bundleURL.appendingPathComponent("target-metadata.tsv").path
-        XCTAssertEqual(metadataStep.argv, [
-            "lungfish-cli", "fastq", "12s-reference-metadata",
-            "--dedup-fasta", referenceCopy,
-            "--midori-metadata", inputs.midoriURL.standardizedFileURL.path,
-            "--output", metadataTable,
-            "--force",
-        ])
-        XCTAssertEqual(metadataStep.exitStatus, 0)
-        XCTAssertEqual(metadataStep.inputs.map(\.path), [referenceCopy, inputs.midoriURL.standardizedFileURL.path])
-        XCTAssertTrue(metadataStep.inputs.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
-        XCTAssertEqual(metadataStep.outputs.map(\.path), [metadataTable])
-        XCTAssertNotNil(metadataStep.outputs.first?.checksumSHA256)
-        XCTAssertNotNil(metadataStep.startedAt)
-        XCTAssertNotNil(metadataStep.completedAt)
-        XCTAssertEqual(bundleStep.dependsOn, [metadataStep.id], "the bundle build uses the table the metadata run wrote")
+        let script = ProvenanceExporter().exportShell(record.legacyWorkflowRun(preferCanonicalSteps: true))
+        XCTAssertTrue(script.contains("12s-reference-bundle"), script)
+        XCTAssertFalse(script.contains("12s-reference-metadata"), script)
 
-        // The table's own focused record names both steps.
+        // A 12S match export merges the table's focused record, which holds the same one step.
         let focusedURL = bundleURL
             .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
             .appendingPathComponent("target-metadata.tsv" + Self.recordSuffix)
         let focused = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: focusedURL))
-        XCTAssertEqual(focused.steps.map(\.toolName), [
-            "lungfish fastq 12s-reference-metadata",
-            "lungfish fastq 12s-reference-bundle",
-        ])
+        XCTAssertEqual(focused.steps.map(\.toolName), ["lungfish fastq 12s-reference-bundle"])
+        let focusedScript = ProvenanceExporter().exportShell(focused.legacyWorkflowRun(preferCanonicalSteps: true))
+        XCTAssertFalse(focusedScript.contains("12s-reference-metadata"), focusedScript)
     }
 
     func testAFailedBuildLeavesNoBundleAndNoRecord() async throws {
