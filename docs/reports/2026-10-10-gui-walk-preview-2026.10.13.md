@@ -35,13 +35,19 @@ Preview 2026.10.13 shipped from main `7faa999d7` overnight without its interacti
 | Launch of all ten demos | Pass. Each opened and listed its items |
 | Byte check of all eleven projects after the walk | No file deleted and no write outside the allowlist. Opening alone changed only app state and the known search index record that the plan sends to 2.6 |
 | Runtime health | No trap, assertion or crash report, no main-thread hang sampled, RSS at most 344 MB, quit in 2 seconds with no child process left |
+| Excel export with no tools (star 3), after the owner unlocked the screen at 09:07 | Pass. With an empty storage root the export shows `Excel export failed — Tool 'python' not found in environment 'openpyxl'` under the button and an alert sheet on the same window, and writes nothing |
+| Two windows (star 4) | Pass. With walk-hap in one window and walk-geno in a second, Export to Excel… in the second attaches exactly one sheet, to that window |
+| IQ-TREE launched from the app | The tree built in 0.7 seconds, too fast to watch progress arrive. The app passes one thread, while the CLI run without a thread count let IQ-TREE spend 42.7 seconds choosing one. Both chose TPM2u+F+I with the same tree score |
+| F2 and F11 fixes in a rebuilt Debug app | Pass. The bare-run GFF3 shows its record on the first selection, and with README.md selected after it the JSON export says "No Provenance Available" instead of offering the GFF3's record. The project changed only app state |
+| First selection of a bundle annotated through the CLI, after the screen was unlocked | Fail (F9). One selection of walk-legacy rewrote `annotations.json`, left three `lungfish genotype apply-annotations` records with a stale SHA-256 for it and replaced the fourth record |
 
 ## What did not run
 
 | Check | Reason |
 |---|---|
-| Stars 2, 5, 6, 7 and 9 of the Phase 2.3 walk (manual haplotype editor, review menus, undo, context menus) | Menu items that depend on the first responder are disabled while the app is not frontmost, context menus and keystrokes are refused in background control, and full-screen control timed out with nobody at the Mac |
-| Stars 3, 4 and 10, and the GUI IQ-TREE run | The screen locked at about 08:41 |
+| Stars 2, 5, 6, 7 and 9 of the Phase 2.3 walk (manual haplotype editor, review menus, undo, context menus) | Menu items that depend on the first responder are disabled while the app is not frontmost, context menus and keystrokes are refused in background control, and full-screen control timed out three times, including twice while the owner was connected over Screen Sharing |
+| Star 10 (smart cohorts) | Inconclusive. Pressing the Homozygous cohort through accessibility changed nothing visible, and both animals belong to it, so a working filter would also leave the view as it was |
+| Live progress in the GUI | The IQ-TREE run took 0.7 seconds. The pipe timing of the same command stands in for it |
 | The 12S reference made through Create 12S Reference | The open panel cannot be driven in background control, so the bundle was made with `lungfish-cli fastq 12s-reference-bundle` at the path the dialog uses |
 
 ## Findings and panel determinations
@@ -50,9 +56,9 @@ Each expert voted on severity (S1 wrong science or a read that changes data, S2 
 
 | Id | Finding | Severity | Blocks Stable | Determination |
 |---|---|---|---|---|
-| F2 | A loose file's record never reaches the Provenance tab on its first selection, which reads "No provenance required". The document publish step clears the target and nothing sets it again (`MainSplitViewController+MultiDocument.swift`). Present since 2026.9.9 | S2, five votes | Yes, three to two | Fix now, five votes |
-| F11 | File > Export > Provenance exports the record of the last loaded document when a Quick Look item such as README.md is selected (`currentProvenanceExportResolution` in `AppDelegate+ImportExport.swift`) | S2, five votes | Yes, three to two | Fix now, five votes |
-| F9 | The first selection of a haplotyped genotype result seeds four smart cohorts and writes `annotations.json`, a record with home-folder paths and a lock file. A built-in cohort the analyst deletes comes back on the next open. Present since May 2026 | S2, three votes, one S1 and one S3 | Until the docs are corrected, five votes | Correct the docs now, then fix in 2.6 by keeping the seed in memory until the first real edit, three to two |
+| F2 | A loose file's record never reaches the Provenance tab on its first selection, which reads "No provenance required". The document publish step clears the target and nothing sets it again (`MainSplitViewController+MultiDocument.swift`). Present since 2026.9.9 | S2, five votes | Yes, three to two | Fix now, five votes. Fixed in d411b9d89 and 30474e9ad, which re-target the loose file after its document loads and leave a native project sequence cleared, and verified in the GUI |
+| F11 | File > Export > Provenance exports the record of the last loaded document when a Quick Look item such as README.md is selected (`currentProvenanceExportResolution` in `AppDelegate+ImportExport.swift`) | S2, five votes | Yes, three to two | Fix now, five votes. Fixed in cb0219f18, where the sidebar selection wins unless the viewer shows it or a bundle that contains it, and verified in the GUI. Making the export follow the Inspector's resolved item is a 2.9 item |
+| F9 | The first selection of a haplotyped genotype result seeds four smart cohorts and writes `annotations.json`, a record with home-folder paths and a lock file. On a bundle annotated through the CLI it leaves three existing records with a stale SHA-256 for `annotations.json` and replaces the fourth, which the walk confirmed on walk-legacy. A built-in cohort the analyst deletes comes back on the next open. Present since May 2026 | S1, four votes in a re-vote after the walk-legacy evidence | Yes | Fix now. The first vote, before that evidence, chose docs now and a fix in 2.6 by three to two. Fixed in b6235ae91, where both stores keep the built-in cohorts in memory and the first edit that saves the whole sidecar writes them with itself. QA and the Swift expert reviewed it, and in a rebuilt Debug app a first selection of a fresh and of a CLI-annotated bundle wrote no byte and left all four checksums matching |
 | F10 | Switching between Haplotype Calls and Genotype Matrix saves the choice in `annotations.json` with an audit entry and a new record | S3 | No | 2.6, with F9 |
 | F3 | Viewing a reference bundle writes the hidden `.viewstate.json` into it | S3 | No | Docs now. It is designed view state outside every checksum |
 | F1 | The Raw JSON pane cuts off the ends of long lines | S3 | No | 2.6, Raw JSON display pass |
@@ -61,12 +67,13 @@ Each expert voted on severity (S1 wrong science or a read that changes data, S2 
 | F6 | The 12S reference bundle command writes a record of a record | S3 | No | 2.6, sidecar name rule |
 | F7 | A successful 12S run reads Completed with Warnings because its last line goes to standard error | S3 | No | 2.6, CLIEvent version 2 |
 | F12 | The native alignment and tree records and the Excel export receipt carry no `status`, and the release note reads as if every record did | S3 | No | Next notes, then 2.7 |
+| F14 | A sidebar copy or project copy import decodes options through `ParameterValue`, so a `<workspace>/dir/file` file option is written as `<external>/file`. The released demos hold 682 such values in 147 records. Checksums survive and the source is untouched | S2 or S3 | No | 2.7, with the copy helper after a facts freeze, keeping non-absolute file values verbatim |
 | F8 | The 12S demo README names an old menu path | S4 | No | Manual and the next demo archive |
 | F13 | A SwiftUI size fault on every provenance load, and an expected read past the end of a FASTA logged as an error | S4 | No | No action now, the 2.6 display pass may take the one-line spinner fix |
 
 Observations O1 (a step command shows `<tool-root>` resolved to this Mac's storage root), O3 (the Workflow Library opens at its top) and O4 (the reference chooser opens in the last folder used anywhere) are S4 and need no action now.
 
-**Does the walk clear the Stable block?** Five votes to none for option B. The walk clears the block for everything it ran, because the provenance scope that the Phase 2.4 panel set passed with byte evidence except F2, which is older than this release. It does not clear the checks that did not run. A session with the owner present runs them before any Stable promotion, together with the first selection of a loose file and a stale-record export after the F2 and F11 fixes.
+**Does the walk clear the Stable block?** Five votes to none for option B. The walk clears the block for everything it ran, because the provenance scope that the Phase 2.4 panel set passed with byte evidence except F2, which is older than this release. F2, F11 and F9 block a Stable promotion of 2026.10.13 as it shipped, and the walk branch fixes all three, so Stable should come from a build that carries those fixes. The walk does not clear the checks that did not run. A session with the owner present runs them before any Stable promotion.
 
 **Corrections made in place.** The release notes of 2026.10.13 said that selecting a result no longer changes the project. That sentence and the summary line now name the EsViritu and TaxTriage backfills they meant, and a dated correction lists the three writes the walk found. `docs/contracts/RECORDING-PROVENANCE.md` no longer calls the search index the one read-time write, scopes the stored status to envelope records and names the CLI single-step recorder that keeps a step's stderr whole. The Phase 2.4 plan records the walk and carries the scheduled findings in its deferred table.
 
@@ -76,7 +83,9 @@ Observations O1 (a step command shows `<tool-root>` resolved to this Mac's stora
 |---|---|
 | Run status | Records written as envelopes store their status. The native alignment and tree records and the Excel export receipt do not yet |
 | Raw JSON | The block also cuts off the end of a long line. Copy still copies the whole file |
-| GUI walk | The walk of 2026.10.13 ran on 2026-10-10. Name the two fixes it led to and the checks that still need the owner present |
+| GUI walk | The walk of 2026.10.13 ran on 2026-10-10. Name the three fixes it led to and the checks that still need the owner present |
+| Provenance tab and export | A loose file such as a GFF3 shows its record on the first selection. File > Export > Provenance exports the record of the selected item and says "No Provenance Available" for an item without one, where it used to export the record of the last document viewed |
+| Genotype cohorts | Selecting a genotype result no longer writes into it. The built-in smart cohorts show from memory and are saved with the first real edit, so `genotype list-cohorts` and `genotype export-labkey` list them only after that edit. The Excel export record says whether its annotations came from the file or from memory |
 
 ## Evidence
 
