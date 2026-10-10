@@ -125,9 +125,10 @@ struct FrozenCLIEventV1LineDecoder {
 
 // MARK: - Tests
 
-/// Version 1 transcripts, captured from real runs of today's emitters, read by the
-/// frozen version 1 reader and by the current decoder. Version 2 lines and lines
-/// from a later version are added to this class by the envelope commit.
+/// Version 1 transcripts, captured from real runs of the emitters before the
+/// envelope, read by the frozen version 1 reader and by the current decoder. The
+/// version 2 lines the current emitter writes are read back by the frozen reader,
+/// and lines from a later version are read by the current decoder.
 final class CLIEventCompatibilityTests: XCTestCase {
 
     // MARK: Fixtures
@@ -325,5 +326,249 @@ final class CLIEventCompatibilityTests: XCTestCase {
         XCTAssertEqual(
             try frozen.decode(line: lines[1]),
             .failed(message: "node not found", detail: "stderr excerpt"))
+    }
+
+    // MARK: Version 1 transcripts under the envelope
+
+    /// A line with no `schemaVersion` key is a version 1 line, and the envelope
+    /// reads the same event from it that the version 1 reader does.
+    func testVersion1TranscriptsDecodeUnchangedUnderTheEnvelope() throws {
+        let decoder = CLIEventLineDecoder()
+        for name in Self.capturedRuns {
+            let raw = try lines(ofRun: name)
+            let frozen = try frozenEvents(ofRun: name)
+            XCTAssertEqual(raw.count, frozen.count, name)
+            for (line, old) in zip(raw, frozen) {
+                let envelope = try XCTUnwrap(decoder.decodeLine(line), "\(name): \(line)")
+                XCTAssertEqual(envelope.schemaVersion, 1, name)
+                XCTAssertEqual(envelope.event, old.asCLIEvent, name)
+                XCTAssertTrue(envelope.artifacts.isEmpty, name)
+                XCTAssertEqual(envelope.eventName, try eventName(of: line), name)
+            }
+        }
+    }
+
+    // MARK: Version 2 lines under the frozen version 1 reader
+
+    /// Writes each captured run again with today's emitter, gives every completion
+    /// artifacts of a kind no reader knows, and reads the result with the frozen
+    /// version 1 reader. It must reach the same events, so the same outcome and the
+    /// same outputs in the same order.
+    func testVersion2LinesReadUnderTheFrozenReaderToTheSameOutcomeAndOutputs() throws {
+        let frozenDecoder = FrozenCLIEventV1LineDecoder()
+        let currentDecoder = CLIEventLineDecoder()
+        for name in Self.capturedRuns {
+            let events = try lines(ofRun: name).map { try XCTUnwrap(currentDecoder.decode(line: $0), name) }
+
+            var written: [String] = []
+            let emitter = CLIEventEmitter(enabled: true) { written.append($0) }
+            for event in events {
+                if case let .complete(outputs, message) = event {
+                    let artifacts = outputs.map {
+                        CLIEventArtifact(kind: "kind-from-a-later-registry", path: $0, role: "primary", provenancePath: $0 + ".provenance")
+                    }
+                    emitter.emitComplete(outputs: outputs, artifacts: artifacts, message: message)
+                } else {
+                    emitter.emit(event)
+                }
+            }
+
+            XCTAssertEqual(written.count, events.count, name)
+            for line in written {
+                XCTAssertEqual(try schemaVersion(of: line), 2, "\(name): \(line)")
+                XCTAssertFalse(line.contains(Character("\n")), name)
+            }
+
+            let readBack = try written.map { try XCTUnwrap(frozenDecoder.decode(line: $0), "\(name): \($0)") }
+            XCTAssertEqual(readBack, try frozenEvents(ofRun: name), name)
+            XCTAssertEqual(readBack.last, try frozenEvents(ofRun: name).last, "\(name) outcome and outputs")
+        }
+    }
+
+    /// The primer trim runner finds its provenance record by the position of an
+    /// output, so a completion keeps `outputs` in the order its writer gave, and the
+    /// singular `output` stays the first of them, with artifacts beside the list.
+    func testCompleteKeepsItsOutputsInVersion1OrderBesideArtifacts() throws {
+        var written: [String] = []
+        let emitter = CLIEventEmitter(enabled: true) { written.append($0) }
+        let outputs = ["/work/trimmed.bam", "/work/trimmed.bam.bai", "/work/trimmed.provenance.json"]
+        // Artifacts are listed in a different order from the outputs on purpose.
+        let artifacts = [
+            CLIEventArtifact(kind: "provenance", path: outputs[2]),
+            CLIEventArtifact(kind: "alignment", path: outputs[0], provenancePath: outputs[2]),
+        ]
+        emitter.emitComplete(outputs: outputs, artifacts: artifacts, message: "trackID=aln_1 trackName=Trimmed")
+
+        let line = try XCTUnwrap(written.first)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+        XCTAssertEqual(object["outputs"] as? [String], outputs)
+        XCTAssertEqual(object["output"] as? String, outputs[0])
+        XCTAssertEqual(
+            try FrozenCLIEventV1LineDecoder().decode(line: line),
+            .complete(outputs: outputs, message: "trackID=aln_1 trackName=Trimmed"))
+
+        let envelope = try XCTUnwrap(CLIEventLineDecoder().decodeLine(line))
+        XCTAssertEqual(envelope.event, .complete(outputs: outputs, message: "trackID=aln_1 trackName=Trimmed"))
+        XCTAssertEqual(envelope.artifacts, artifacts)
+    }
+
+    // MARK: Lines from a later version
+
+    /// A line from a writer that is newer than this reader decodes, whatever it adds.
+    func testAVersion3LineWithUnknownKeysNamesAndKindsDecodes() throws {
+        let decoder = CLIEventLineDecoder()
+
+        // A completion with a new key on the line, new keys on its artifacts, and
+        // artifact kinds and roles no reader has heard of.
+        let complete = """
+        {"schemaVersion":3,"event":"complete","outputs":["/work/a","/work/b"],"output":"/work/a","progress":1,\
+        "message":"done","checksums":{"a":"abc"},"artifacts":[\
+        {"kind":"holographic-bundle","path":"/work/a","role":"primary","provenancePath":"/work/a/.provenance.json",\
+        "sizeBytes":12,"tags":["x"]},{"kind":"another-new-kind","path":"/work/b","role":"mystery"}]}
+        """
+        let line = try XCTUnwrap(decoder.decodeLine(complete))
+        XCTAssertEqual(line.schemaVersion, 3)
+        XCTAssertEqual(line.event, .complete(outputs: ["/work/a", "/work/b"], message: "done"))
+        XCTAssertEqual(line.artifacts, [
+            CLIEventArtifact(kind: "holographic-bundle", path: "/work/a", role: "primary", provenancePath: "/work/a/.provenance.json"),
+            CLIEventArtifact(kind: "another-new-kind", path: "/work/b", role: "mystery"),
+        ])
+        // A version 1 app reads the same completion and ignores what it does not know.
+        XCTAssertEqual(
+            try FrozenCLIEventV1LineDecoder().decode(line: complete),
+            .complete(outputs: ["/work/a", "/work/b"], message: "done"))
+
+        // A known event with new keys.
+        let progress = try XCTUnwrap(decoder.decodeLine(
+            #"{"schemaVersion":3,"event":"progress","progress":0.4,"message":"Working","eta":12,"phase":{"n":2}}"#))
+        XCTAssertEqual(progress.event, .progress(fraction: 0.4, message: "Working"))
+
+        // A new event name is an ignored line. The name is kept for the report, and
+        // artifacts on a line the reader ignores are not read.
+        let checkpoint = try XCTUnwrap(decoder.decodeLine(
+            #"{"schemaVersion":3,"event":"checkpoint","step":4,"artifacts":[{"kind":"k","path":"/work/x"}]}"#))
+        XCTAssertNil(checkpoint.event)
+        XCTAssertEqual(checkpoint.eventName, "checkpoint")
+        XCTAssertEqual(checkpoint.schemaVersion, 3)
+        XCTAssertTrue(checkpoint.artifacts.isEmpty)
+        XCTAssertNil(try decoder.decode(line: #"{"schemaVersion":3,"event":"checkpoint"}"#))
+
+        // A version 1 app throws on the new name, which it logs as a warning for each such line.
+        XCTAssertThrowsError(try FrozenCLIEventV1LineDecoder().decode(line: #"{"schemaVersion":3,"event":"checkpoint"}"#))
+    }
+
+    /// At a higher version a writer may have changed the fields of a known event. The
+    /// stream goes on without that line, where a line at a known version is an error.
+    func testAnEventThatCannotBeReadAtAHigherVersionIsIgnoredNotThrown() throws {
+        let decoder = CLIEventLineDecoder()
+        let line = try XCTUnwrap(decoder.decodeLine(#"{"schemaVersion":4,"event":"progress","progress":{"done":2,"of":9}}"#))
+        XCTAssertNil(line.event)
+        XCTAssertEqual(line.eventName, "progress")
+        XCTAssertEqual(line.schemaVersion, 4)
+        XCTAssertThrowsError(try decoder.decodeLine(#"{"schemaVersion":2,"event":"progress","progress":{"done":2,"of":9}}"#))
+    }
+
+    func testSchemaVersionReadsLeniently() throws {
+        let decoder = CLIEventLineDecoder()
+        let cases: [(json: String, version: Int)] = [
+            (#"{"event":"start"}"#, 1),
+            (#"{"schemaVersion":1,"event":"start"}"#, 1),
+            (#"{"schemaVersion":2,"event":"start"}"#, 2),
+            (#"{"schemaVersion":7,"event":"start"}"#, 7),
+            (#"{"schemaVersion":0,"event":"start"}"#, 1),
+            (#"{"schemaVersion":-3,"event":"start"}"#, 1),
+            // Present but unreadable still means a writer that has the key.
+            (#"{"schemaVersion":"3","event":"start"}"#, 2),
+            (#"{"schemaVersion":2.5,"event":"start"}"#, 2),
+            (#"{"schemaVersion":null,"event":"start"}"#, 2),
+        ]
+        for (json, version) in cases {
+            let line = try XCTUnwrap(decoder.decodeLine(json), json)
+            XCTAssertEqual(line.schemaVersion, version, json)
+            XCTAssertEqual(line.event, .start(message: ""), json)
+        }
+    }
+
+    // MARK: Artifacts
+
+    func testArtifactsAreReadOnlyFromCompleteAndOutputLines() throws {
+        let decoder = CLIEventLineDecoder()
+        let artifacts = #""artifacts":[{"kind":"k","path":"/work/a"}]"#
+        let expected = [CLIEventArtifact(kind: "k", path: "/work/a")]
+        XCTAssertEqual(try decoder.decodeLine(#"{"event":"complete","outputs":["/work/a"],\#(artifacts)}"#)?.artifacts, expected)
+        XCTAssertEqual(try decoder.decodeLine(#"{"event":"output","path":"/work/a","role":"r",\#(artifacts)}"#)?.artifacts, expected)
+        for name in ["start", "progress", "log", "failed"] {
+            XCTAssertEqual(try decoder.decodeLine(#"{"event":"\#(name)",\#(artifacts)}"#)?.artifacts, [], name)
+        }
+    }
+
+    /// An artifact is dropped when it cannot be read, and a field of the wrong type
+    /// reads as absent, so one bad entry never costs the line or its neighbours.
+    func testBrokenArtifactsAreDroppedAndTheLineSurvives() throws {
+        let decoder = CLIEventLineDecoder()
+        let line = try XCTUnwrap(decoder.decodeLine("""
+        {"event":"complete","outputs":["/work/a"],"artifacts":[{"kind":"k","path":"/work/a"},{"kind":"no-path"},\
+        "text",7,null,{"path":"/work/b","kind":5,"role":["x"],"provenancePath":false}]}
+        """))
+        XCTAssertEqual(line.event, .complete(outputs: ["/work/a"], message: nil))
+        XCTAssertEqual(line.artifacts, [
+            CLIEventArtifact(kind: "k", path: "/work/a"),
+            CLIEventArtifact(kind: "", path: "/work/b"),
+        ])
+
+        for value in [#"{"kind":"k","path":"/work/a"}"#, #""text""#, "7", "null"] {
+            let odd = try XCTUnwrap(decoder.decodeLine(#"{"event":"complete","outputs":["/work/a"],"artifacts":\#(value)}"#), value)
+            XCTAssertEqual(odd.event, .complete(outputs: ["/work/a"], message: nil), value)
+            XCTAssertTrue(odd.artifacts.isEmpty, value)
+        }
+    }
+
+    // MARK: Where the current decoder is more tolerant than version 1
+
+    /// Each line below makes the frozen version 1 reader throw and the current
+    /// decoder keep the stream going.
+    func testTheCurrentDecoderAcceptsWhatTheFrozenReaderThrowsOn() throws {
+        let frozen = FrozenCLIEventV1LineDecoder()
+        let current = CLIEventLineDecoder()
+
+        let unknownName = #"{"event":"checkpoint"}"#
+        XCTAssertThrowsError(try frozen.decode(line: unknownName))
+        XCTAssertNil(try current.decodeLine(unknownName)?.event)
+
+        let noName = #"{"progress":0.5,"message":"a JSON object that is not an event"}"#
+        XCTAssertThrowsError(try frozen.decode(line: noName))
+        let nameless = try XCTUnwrap(current.decodeLine(noName))
+        XCTAssertNil(nameless.event)
+        XCTAssertNil(nameless.eventName)
+
+        let newLevel = #"{"event":"log","level":"critical","message":"disk almost full"}"#
+        XCTAssertThrowsError(try frozen.decode(line: newLevel))
+        XCTAssertEqual(try current.decode(line: newLevel), .log(level: .info, message: "disk almost full"))
+    }
+
+    func testChatterReadsAsNothingInBothReaders() throws {
+        for text in ["", "   ", "Wrote tree bundle: /work/t", "[50%] Working", "12S amplicon result bundle written to /work/x"] {
+            XCTAssertNil(try FrozenCLIEventV1LineDecoder().decode(line: text), text)
+            XCTAssertNil(try CLIEventLineDecoder().decodeLine(text), text)
+        }
+        // Text glued in front of an event line hides the event from both. This is why
+        // human text goes to standard error while events are on.
+        let glued = #"Working...{"event":"progress","progress":0.5,"message":"x"}"#
+        XCTAssertNil(try FrozenCLIEventV1LineDecoder().decode(line: glued))
+        XCTAssertNil(try CLIEventLineDecoder().decodeLine(glued))
+    }
+
+    // MARK: Helpers
+
+    private func jsonObject(of line: String) throws -> [String: Any] {
+        try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any], line)
+    }
+
+    private func schemaVersion(of line: String) throws -> Int? {
+        try jsonObject(of: line)["schemaVersion"] as? Int
+    }
+
+    private func eventName(of line: String) throws -> String? {
+        try jsonObject(of: line)["event"] as? String
     }
 }

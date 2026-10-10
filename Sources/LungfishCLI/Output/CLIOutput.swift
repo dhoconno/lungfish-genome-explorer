@@ -24,9 +24,28 @@ func printStatusLine(_ text: String) {
 /// reaches the Operations Panel only when the command exits, so a long run
 /// looks hung. Use this for each line a live reader parses, and keep plain
 /// print for bulk data, which a flush per line would slow down.
+///
+/// While events are on, standard output holds event lines and nothing else.
+/// Human text goes through ``printHumanLine(_:eventsOn:)``.
 func printEventLine(_ line: String) {
     print(line)
     fflush(stdout)
+}
+
+/// Writes a line of human-readable text from a command that can also print events.
+///
+/// A reader skips any line that does not start with `{` as chatter, so a text
+/// fragment glued to the front of an event line makes it lose that event. While
+/// events are on (`--format json`, or `--json-events` for `assemble`), the text
+/// therefore goes to standard error, and with events off it stays on standard
+/// output. A command with an events switch prints its notices, banners and
+/// summaries through this function instead of plain print.
+func printHumanLine(_ text: String, eventsOn: Bool) {
+    if eventsOn {
+        printStatusLine(text)
+    } else {
+        print(text)
+    }
 }
 
 // MARK: - CLI Output Protocol

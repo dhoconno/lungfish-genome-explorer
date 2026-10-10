@@ -4,18 +4,19 @@
 
 import Foundation
 
-/// One line of a `lungfish-cli` JSON-events stream.
+/// One event of a `lungfish-cli` JSON-events stream.
 ///
 /// Before this type existed, each long-running CLI subcommand (tree
-/// inference, tree transform, MSA actions, variant calling, primer trim,
-/// imports, …) declared its own private `Event` struct on the CLI side and
-/// its own untyped `dict["message"] as? String` parser on the GUI side.
-/// A renamed field or event name broke progress reporting
-/// silently, because a parse failure only logged a warning.
+/// inference, MSA actions, variant calling, primer trim, imports, …) declared
+/// its own private `Event` struct and its own untyped
+/// `dict["message"] as? String` parser on the GUI side. A renamed field or event
+/// name broke progress reporting silently. `CLIEvent` is the one schema both
+/// sides share, emitted by ``CLIEventEmitter`` and read by ``CLIEventLineDecoder``
+/// inside `CLISubprocessTransport` (LungfishKit).
 ///
-/// `CLIEvent` is the one schema both sides share. The CLI emits it with
-/// ``CLIEventEmitter``; the GUI decodes it with ``CLIEventLineDecoder`` inside
-/// `CLISubprocessTransport` (LungfishKit).
+/// On the wire an event travels in a ``CLIEventLine``, which adds the schema
+/// version and typed artifacts and keeps these cases, so the app's exhaustive
+/// switches do not change.
 public enum CLIEvent: Sendable, Equatable, Codable {
     /// The operation has begun. `message` is shown as the first detail line.
     case start(message: String)
@@ -33,8 +34,11 @@ public enum CLIEvent: Sendable, Equatable, Codable {
     /// stderr) beyond the human-readable `message`.
     case failed(message: String, detail: String?)
 
-    private enum CodingKeys: String, CodingKey {
+    /// Every key of a line, shared by the event and its ``CLIEventLine`` envelope so
+    /// one container writes and reads the whole object.
+    enum WireKey: String, CodingKey {
         case event
+        case schemaVersion
         case progress
         case message
         case output
@@ -44,19 +48,43 @@ public enum CLIEvent: Sendable, Equatable, Codable {
         case level
         case role
         case path
+        case artifacts
     }
 
-    private enum EventName {
+    enum EventName {
         static let start = "start"
         static let progress = "progress"
         static let log = "log"
         static let output = "output"
         static let complete = "complete"
         static let failed = "failed"
+
+        /// The names this reader knows. Any other name is an ignored line.
+        static let all: Set<String> = [start, progress, log, output, complete, failed]
+    }
+
+    /// The `event` key this case is written under.
+    var wireName: String {
+        switch self {
+        case .start: return EventName.start
+        case .progress: return EventName.progress
+        case .log: return EventName.log
+        case .output: return EventName.output
+        case .complete: return EventName.complete
+        case .failed: return EventName.failed
+        }
+    }
+
+    /// Whether a line of this event may carry typed artifacts.
+    var carriesArtifacts: Bool {
+        switch self {
+        case .complete, .output: return true
+        case .start, .progress, .log, .failed: return false
+        }
     }
 
     public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let container = try decoder.container(keyedBy: WireKey.self)
         let name = try container.decode(String.self, forKey: .event)
         switch name {
         case EventName.start:
@@ -67,7 +95,8 @@ public enum CLIEvent: Sendable, Equatable, Codable {
             let message = try container.decodeIfPresent(String.self, forKey: .message) ?? ""
             self = .progress(fraction: max(0, min(1, fraction)), message: message)
         case EventName.log:
-            let level = try container.decodeIfPresent(CLIEventLogLevel.self, forKey: .level) ?? .info
+            // A level this reader does not know reads as info, so a writer may add one.
+            let level = (try? container.decodeIfPresent(CLIEventLogLevel.self, forKey: .level)) ?? .info
             let message = try container.decodeIfPresent(String.self, forKey: .message) ?? ""
             self = .log(level: level, message: message)
         case EventName.output:
@@ -90,13 +119,25 @@ public enum CLIEvent: Sendable, Equatable, Codable {
             self = .failed(message: message, detail: detail)
         default:
             throw DecodingError.dataCorrupted(
-                DecodingError.Context(codingPath: [CodingKeys.event], debugDescription: "Unknown CLIEvent name '\(name)'")
+                DecodingError.Context(codingPath: [WireKey.event], debugDescription: "Unknown CLIEvent name '\(name)'")
             )
         }
     }
 
+    /// Writes the event as a line of the current schema version, without artifacts.
     public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
+        try encodeLine(to: encoder, schemaVersion: CLIEventLine.currentSchemaVersion, artifacts: [])
+    }
+
+    /// The one place a line's keys are written, for the event alone and for a
+    /// ``CLIEventLine``. Every line carries `schemaVersion`, and the keys older apps
+    /// read stay as they were, so version 1 readers see the same event.
+    func encodeLine(to encoder: Encoder, schemaVersion: Int, artifacts: [CLIEventArtifact]) throws {
+        var container = encoder.container(keyedBy: WireKey.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        if carriesArtifacts, !artifacts.isEmpty {
+            try container.encode(artifacts, forKey: .artifacts)
+        }
         switch self {
         case let .start(message):
             try container.encode(EventName.start, forKey: .event)
@@ -140,10 +181,13 @@ public enum CLIEventLogLevel: String, Sendable, Equatable, Codable {
     case error
 }
 
-/// Encodes and writes one `CLIEvent` per line to a sink, from a `lungfish-cli`
-/// subcommand. Every migrated subcommand (tree infer, tree transform, MSA,
-/// variants, primer trim, imports) constructs one of these instead of a
-/// private per-command `Event` struct.
+/// Encodes and writes one ``CLIEventLine`` per line to a sink, from a
+/// `lungfish-cli` subcommand. Every migrated subcommand (tree infer, tree
+/// transform, MSA, variants, primer trim, imports) constructs one of these instead
+/// of a private per-command `Event` struct. Each line carries the current
+/// `schemaVersion`. A command that prints the line uses `printEventLine`
+/// (LungfishCLI) so each one is flushed, and prints its human text with
+/// `printHumanLine`, so standard output carries nothing but event lines.
 public final class CLIEventEmitter: @unchecked Sendable {
     private let enabled: Bool
     private let emitLine: (String) -> Void
@@ -195,15 +239,28 @@ public final class CLIEventEmitter: @unchecked Sendable {
         emitComplete(outputs: [output], message: message)
     }
 
+    /// A completion that also describes its outputs. `outputs` keeps the order
+    /// version 1 readers rely on, and `artifacts` adds what they cannot say.
+    public func emitComplete(outputs: [String], artifacts: [CLIEventArtifact], message: String? = nil) {
+        emit(.complete(outputs: outputs, message: message), artifacts: artifacts)
+    }
+
     public func emitFailed(_ message: String, detail: String? = nil) {
         emit(.failed(message: message, detail: detail))
     }
 
     public func emit(_ event: CLIEvent) {
+        emit(event, artifacts: [])
+    }
+
+    /// Writes `event` with typed artifacts. Only `complete` and `output` lines carry
+    /// them, so artifacts given with any other event are left off.
+    public func emit(_ event: CLIEvent, artifacts: [CLIEventArtifact]) {
         guard enabled else { return }
         lock.lock()
         defer { lock.unlock() }
-        guard let data = try? encoder.encode(event), let line = String(data: data, encoding: .utf8) else {
+        let envelope = CLIEventLine(event: event, artifacts: artifacts)
+        guard let data = try? encoder.encode(envelope), let line = String(data: data, encoding: .utf8) else {
             return
         }
         emitLine(line)
@@ -218,14 +275,30 @@ public struct CLIEventLineDecoder: Sendable {
 
     public init() {}
 
-    /// Parses a single line of text. Returns `nil` for blank lines and lines
-    /// that are not a JSON object (for example plain diagnostic output mixed
-    /// into stdout), so callers can skip non-event chatter without failing.
-    /// Throws only when the line looks like an event but does not decode.
-    public func decode(line: String) throws -> CLIEvent? {
+    /// Parses a single line of text into its envelope. Returns `nil` for blank
+    /// lines and lines that are not a JSON object (for example plain diagnostic
+    /// output mixed into stdout), so callers can skip non-event chatter without
+    /// failing.
+    ///
+    /// A line from a newer writer never throws. An unknown event name, a higher
+    /// schema version, an unknown key and an unknown artifact kind all decode, and
+    /// a line whose event this reader does not know comes back with a nil
+    /// ``CLIEventLine/event`` and is noted at debug level. Throws only when the line
+    /// is not valid JSON, or names a known event with unreadable fields at a schema
+    /// version this reader knows.
+    public func decodeLine(_ line: String) throws -> CLIEventLine? {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("{") else { return nil }
         guard let data = trimmed.data(using: .utf8) else { return nil }
-        return try decoder.decode(CLIEvent.self, from: data)
+        let envelope = try decoder.decode(CLIEventLine.self, from: data)
+        envelope.reportIfIgnored()
+        return envelope
+    }
+
+    /// The event of a line, for callers that need nothing else. Returns `nil` for
+    /// chatter and for a line whose event this reader does not know. Throws as
+    /// ``decodeLine(_:)`` does.
+    public func decode(line: String) throws -> CLIEvent? {
+        try decodeLine(line)?.event
     }
 }
