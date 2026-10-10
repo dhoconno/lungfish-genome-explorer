@@ -595,7 +595,7 @@ Three pairs of keys hold the same thing under an older and a newer spelling. Eve
 
 ### The older shape
 
-Some operations, among them variant calling, write an older shape. Its top-level keys are `id`, `name`, `appVersion`, `hostOS`, `startTime`, `endTime`, `status`, `runtime`, `parameters`, and `steps`, and the missing `schemaVersion` tells the two apart at a glance. LGE reads both.
+Records written by earlier versions of LGE may use an older run shape. Its top-level keys are `id`, `name`, `appVersion`, `hostOS`, `startTime`, `endTime`, `status`, `runtime`, `parameters`, and `steps`, and the missing `schemaVersion` tells the two apart at a glance. LGE reads both.
 
 Its `parameters` block records every setting, including the ones left at their defaults, each as an object with a `type` and a `value`. A setting written as the string `caller-default` is one the variant caller received no value for, so the tool applied its own default. The number the tool then used is not recorded, and recovering it means reading the `command` array in `steps` and the tool's own documentation.
 
