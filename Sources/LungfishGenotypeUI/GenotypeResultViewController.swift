@@ -1539,8 +1539,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             indexedMatrixMutationRevision = nil
             return searchDependenciesChanged
         }
-        matrixReviewsByTarget = Dictionary(grouping: sidecar.matrixReviews, by: \.target)
-        matrixCommentsByTarget = sidecar.resolvedMatrixComments
+        (matrixReviewsByTarget, matrixCommentsByTarget) = matrixTargetLocusAlias.reviewAndCommentIndexes(of: sidecar)
         matrixAnnotationIndexBuildCount += 1
         indexedMatrixMutationRevision = annotationStore?.matrixMutationRevision
         return searchDependenciesChanged
@@ -2455,9 +2454,9 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     ) -> [GenotypeAnnotationSidecar.MatrixTarget] {
         let selectedTargets = uniqueMatrixTargets(selectedTargets)
         guard !selectedTargets.isEmpty else { return [] }
-        return uniqueMatrixTargets(sidecar.matrixStyles.compactMap { annotation in
-            selectedTargets.contains { selectionClearsMatrixStyleTarget(annotation.target, selectedBy: $0) }
-                ? annotation.target
+        return uniqueMatrixTargets(matrixTargetLocusAlias.styleTargets(in: sidecar).compactMap { saved, read in
+            selectedTargets.contains { selectionClearsMatrixStyleTarget(read, selectedBy: $0) }
+                ? saved
                 : nil
         })
     }
@@ -2519,7 +2518,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         for target: GenotypeAnnotationSidecar.MatrixTarget,
         in sidecar: GenotypeAnnotationSidecar
     ) -> GenotypeAnnotationSidecar.MatrixStyle {
-        sidecar.matrixStyles.first { $0.target == target }?.style
+        matrixTargetLocusAlias.readView(of: sidecar).matrixStyles.first { $0.target == target }?.style
             ?? GenotypeAnnotationSidecar.MatrixStyle(
                 fillColor: nil,
                 textColor: nil,
@@ -7480,7 +7479,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
                 text: $0.body
             )
         })
-        records.append(contentsOf: sidecar.resolvedMatrixComments.values.compactMap {
+        records.append(contentsOf: matrixTargetLocusAlias.readView(of: sidecar).resolvedMatrixComments.values.compactMap {
             comment in
             let target: GenotypeSearchIndex.AnnotationOrCommentRecord.Target
             switch comment.target {

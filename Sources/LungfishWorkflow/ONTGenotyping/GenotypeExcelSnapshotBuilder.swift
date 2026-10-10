@@ -162,9 +162,12 @@ public enum GenotypeExcelSnapshotBuilder {
             }
         }
         guard raw.values.allSatisfy({ $0 >= 0 }) else { throw CaptureError.incoherent("negative support") }
-        let reviews = GenotypeMatrixReviewEligibility.eligibleReviews(sidecar.matrixReviews, rawSupport: { raw[$0] })
-        let comments = sidecar.resolvedMatrixComments
-        let styles = Dictionary(sidecar.matrixStyles.map { ($0.target, $0.style) }, uniquingKeysWith: { _, last in last })
+        // Matrix annotations saved before N9 name a full-length call's old
+        // pseudo-locus and are read at the call's current locus.
+        let matrixAnnotations = GenotypeMatrixTargetLocusAlias(result: result).readView(of: sidecar)
+        let reviews = GenotypeMatrixReviewEligibility.eligibleReviews(matrixAnnotations.matrixReviews, rawSupport: { raw[$0] })
+        let comments = matrixAnnotations.resolvedMatrixComments
+        let styles = Dictionary(matrixAnnotations.matrixStyles.map { ($0.target, $0.style) }, uniquingKeysWith: { _, last in last })
         let callCapture = try calls(result: result, sidecar: sidecar, authority: authority, samples: sampleNames)
         // The roster is a function of the result alone (D1), so an analysis
         // that names an animal no sample row or call names, which only a

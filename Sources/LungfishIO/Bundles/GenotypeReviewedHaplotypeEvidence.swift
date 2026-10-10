@@ -7,6 +7,9 @@ public enum GenotypeReviewedHaplotypeEvidence {
         _ calls: [ONTGenotypeCall],
         reviews: [GenotypeAnnotationSidecar.MatrixReviewAnnotation]
     ) -> [ONTGenotypeCall] {
+        // A review saved before N9 names a full-length call's old
+        // pseudo-locus and still applies to that call.
+        let reviews = GenotypeMatrixTargetLocusAlias(calls: calls).currentReviews(reviews)
         func canonicalTarget(_ target: GenotypeAnnotationSidecar.MatrixTarget) -> GenotypeAnnotationSidecar.MatrixTarget? {
             guard case let .cell(locus, genotype, sample, nil) = target else { return nil }
             return .cell(

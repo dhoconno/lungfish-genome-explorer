@@ -1938,14 +1938,14 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
 
     /// Phase 2.3 decision D4. A full-length call carries its reference
     /// sequence ID, here the IPD accession NHP01222, while the catalog names
-    /// the same allele by its IPD name Mafa-A1*001:01 under MHC-A. The
-    /// accession parses to the pseudo-locus MHC-NHP01222 (finding N9), so no
-    /// lookup by the native locus and a name could meet the catalog row, and
-    /// its attested zeros reached the workbook as a second row for the same
-    /// allele but never the matrix. The shared mapping names the native row
-    /// through the allele its reference record carries, so Mark False
-    /// Negative is enabled on the accession row's zero, the store accepts the
-    /// review, it is drawn, and the workbook lists the allele once.
+    /// the same allele by its IPD name Mafa-A1*001:01 under MHC-A. The result
+    /// stamps the accession with its record's locus, MHC-A (N9), but no
+    /// lookup by a name can meet the catalog row, and its attested zeros
+    /// reached the workbook as a second row for the same allele but never the
+    /// matrix. The shared mapping names the native row through the allele its
+    /// reference record carries, so Mark False Negative is enabled on the
+    /// accession row's zero, the store accepts the review, it is drawn, and
+    /// the workbook lists the allele once.
     func testAccessionNamedCatalogZeroTakesAFalseNegativeThroughTheRecordAllele() throws {
         let root = try TestTempDirectory.make(prefix: "AccessionCatalogZero")
         defer { TestTempDirectory.cleanup(root) }
@@ -1954,7 +1954,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         let accession = "NHP01222"
         let allele = "Mafa-A1*001:01"
         func cell(_ sample: String) -> GenotypeAnnotationSidecar.MatrixTarget {
-            .cell(locus: "MHC-NHP01222", genotype: accession, sample: sample)
+            .cell(locus: "MHC-A", genotype: accession, sample: sample)
         }
         let catalog = GenotypeReviewableRowCatalog(samples: ["S1", "S2", "S3"], rows: [
             .init(kind: .reference, callID: "reference:MHC-A:\(allele)", displayName: allele, locus: "MHC-A",
@@ -1973,10 +1973,11 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
             bundleURL: bundleURL,
             samples: GenotypeCharacterizationFixture.sampleResults(for: calls, order: ["S1", "S2", "S3"]),
             calls: calls,
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
             referenceMetadata: metadata,
             reviewableRowCatalog: catalog
         )
-        XCTAssertEqual(result.calls.map(\.locusGroup), ["MHC-NHP01222"], "an accession parses to its own pseudo-locus")
+        XCTAssertEqual(result.calls.map(\.locusGroup), ["MHC-A"], "the accession sits at its record's locus")
         try ONTGenotypeResultBundle.writeManifest(result.manifest, to: bundleURL)
         let controller = makeManualHaplotypeGuardedController()
         _ = controller.view
@@ -2006,4 +2007,44 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         XCTAssertEqual(cells["S3"]?.rawSupport, 15)
     }
 
+
+    /// A review and a comment saved before N9 name the accession's old
+    /// pseudo-locus MHC-NHP01222. The matrix reads them at the call's
+    /// current locus, so the false positive is still drawn and the selection
+    /// still shows it, while the sidecar keeps the targets as saved.
+    func testAReviewSavedAtTheOldPseudoLocusStillAppliesToTheAccessionCell() throws {
+        let root = try TestTempDirectory.make(prefix: "LegacyPseudoLocusReview")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let accession = "NHP01222"
+        let legacy = GenotypeAnnotationSidecar.MatrixTarget.cell(locus: "MHC-NHP01222", genotype: accession, sample: "S1")
+        let current = GenotypeAnnotationSidecar.MatrixTarget.cell(locus: "MHC-A", genotype: accession, sample: "S1")
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-10-09T00:00:00Z")
+        sidecar.matrixReviews = [.init(target: legacy, disposition: .falsePositive, author: "QA", timestamp: "2026-10-09T00:00:00Z")]
+        sidecar.matrixComments = [.init(target: legacy, body: "saved before N9", author: "QA", timestamp: "2026-10-09T00:00:00Z")]
+        try sidecar.encoded().write(to: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename))
+        let calls = [makeCall(sample: "S1", genotype: accession, reads: 15)]
+        let result = makeResult(
+            bundleURL: bundleURL,
+            samples: GenotypeCharacterizationFixture.sampleResults(for: calls, order: ["S1"]),
+            calls: calls,
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            referenceMetadata: makeGenBankReferenceMetadata()
+        )
+        try ONTGenotypeResultBundle.writeManifest(result.manifest, to: bundleURL)
+        let controller = makeManualHaplotypeGuardedController()
+        _ = controller.view
+        controller.configure(result: result)
+
+        controller.testingShowMatrixTargetSelection([current])
+        XCTAssertEqual(controller.testingMatrixReviewCapability.reviewState, .uniform(.falsePositive))
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: result, sidecar: sidecar)
+        let label = try XCTUnwrap(matrix.testingCellAccessibilityLabel(genotype: accession, sample: "S1"))
+        XCTAssertTrue(label.contains("locus MHC-A"), label)
+        XCTAssertTrue(label.contains("Review: false positive"), "the false positive is drawn on the stamped cell")
+        let persisted = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
+        XCTAssertEqual(persisted.matrixReviews.map(\.target), [legacy], "the sidecar is not rewritten")
+    }
 }

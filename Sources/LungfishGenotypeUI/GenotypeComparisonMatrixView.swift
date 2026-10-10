@@ -776,6 +776,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         reload: Bool = true,
         reloading targets: [GenotypeAnnotationSidecar.MatrixTarget]? = nil
     ) {
+        let (sidecar, targets) = GenotypeMatrixTargetLocusAlias(calls: result?.calls ?? []).readView(of: sidecar, reloading: targets)
         let previousEffectiveCandidateDisplaySettings = effectiveCandidateDisplaySettings
         let previousLocusDisplayOrder = effectiveLocusDisplayOrder
         updateManualHaplotypeBand(
@@ -824,8 +825,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 sidecarCellCommentTooltips[key] = "Cell: \(comment.body)"
             }
         }
-        let eligibleReviews = GenotypeMatrixReviewEligibility.eligibleReviews(sidecar?.matrixReviews ?? []) { reviewRawSupport[$0] }
-        for review in eligibleReviews.values {
+        for review in GenotypeMatrixReviewEligibility.eligibleReviews(sidecar?.matrixReviews ?? [], rawSupport: { reviewRawSupport[$0] }).values {
             guard case let .cell(locus, genotype, sample, stableClusterID) = review.target else {
                 continue
             }
