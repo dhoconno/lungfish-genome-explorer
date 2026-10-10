@@ -22,7 +22,7 @@ public struct ProvenanceWriter: Sendable {
         (@Sendable (URL) throws -> Void)?
     private let exclusivePublicationPreQuarantineRestoreHook:
         (@Sendable (URL, URL) throws -> Void)?
-    private var publicationMutationDidOccur:
+    var publicationMutationDidOccur:
         (@Sendable (ProvenanceWriterMutation) throws -> Void)?
     private let durableAtomicFileStore: DurableAtomicFileStore
 
@@ -114,23 +114,33 @@ public struct ProvenanceWriter: Sendable {
         try write(envelope, to: directory, bundleLayoutRoot: directory)
     }
 
+    /// One durability transaction: the records it writes share one full flush.
     @discardableResult
     public func write(_ envelope: ProvenanceEnvelope, to directory: URL, bundleLayoutRoot: URL) throws -> URL {
-        try prepareDirectory(directory, withIntermediateDirectories: true)
-        let provenanceURL = directory.appendingPathComponent(Self.provenanceFilename)
-        let writtenURL = try write(envelope, toSidecar: provenanceURL)
-        if Self.isBundleDirectory(bundleLayoutRoot) {
-            _ = try writeBundleProvenanceLayout(
-                envelope,
-                toBundleRoot: directory,
-                descriptorBundleRoot: bundleLayoutRoot
-            )
+        try DurableReplace.transaction {
+            try prepareDirectory(directory, withIntermediateDirectories: true)
+            let provenanceURL = directory.appendingPathComponent(Self.provenanceFilename)
+            let writtenURL = try write(envelope, toSidecar: provenanceURL)
+            if Self.isBundleDirectory(bundleLayoutRoot) {
+                _ = try writeBundleProvenanceLayout(
+                    envelope,
+                    toBundleRoot: directory,
+                    descriptorBundleRoot: bundleLayoutRoot
+                )
+            }
+            return writtenURL
         }
-        return writtenURL
     }
 
+    /// Rewrites, signed writes and observed writes publish through
+    /// `DurableReplace` (`ProvenanceWriter+Replace.swift`), and the whole
+    /// write is one durability transaction with one full flush.
     @discardableResult
     public func write(_ envelope: ProvenanceEnvelope, toSidecar provenanceURL: URL) throws -> URL {
+        try DurableReplace.transaction { try writeSidecar(envelope, to: provenanceURL) }
+    }
+
+    private func writeSidecar(_ envelope: ProvenanceEnvelope, to provenanceURL: URL) throws -> URL {
         let directory = provenanceURL.deletingLastPathComponent()
         try prepareDirectory(directory, withIntermediateDirectories: true)
 
@@ -204,6 +214,10 @@ public struct ProvenanceWriter: Sendable {
         _ envelope: ProvenanceEnvelope,
         toSidecar provenanceURL: URL
     ) throws -> URL {
+        try DurableReplace.transaction { try writeNewSidecar(envelope, to: provenanceURL) }
+    }
+
+    private func writeNewSidecar(_ envelope: ProvenanceEnvelope, to provenanceURL: URL) throws -> URL {
         let fileManager = FileManager.default
         let destinationDirectory = provenanceURL.deletingLastPathComponent()
         try fileManager.createDirectory(
@@ -393,7 +407,8 @@ public struct ProvenanceWriter: Sendable {
             }
             throw originalError
         }
-
+        // The transaction's full flush then follows this folder's sync too.
+        try? DurableReplace.noteSynchronizedFolder(at: destinationDirectory)
         return provenanceURL
     }
 
@@ -409,8 +424,19 @@ public struct ProvenanceWriter: Sendable {
         )
     }
 
+    /// The roll-up and every per-output sidecar share one full flush.
     @discardableResult
     public func writeBundleProvenanceLayout(
+        _ envelope: ProvenanceEnvelope,
+        toBundleRoot bundleURL: URL,
+        descriptorBundleRoot: URL
+    ) throws -> [URL] {
+        try DurableReplace.transaction {
+            try writeBundleLayout(envelope, toBundleRoot: bundleURL, descriptorBundleRoot: descriptorBundleRoot)
+        }
+    }
+
+    private func writeBundleLayout(
         _ envelope: ProvenanceEnvelope,
         toBundleRoot bundleURL: URL,
         descriptorBundleRoot: URL
@@ -557,29 +583,17 @@ public struct ProvenanceWriter: Sendable {
         )
         if signingProvider == nil,
            publicationMutationDidOccur == nil,
-           !FileManager.default.fileExists(atPath: provenanceURL.path) {
+           !FileManager.default.fileExists(atPath: provenanceURL.path),
+           try !recoverReleasedRecord(at: provenanceURL) {
             try durableAtomicFileStore.create(
                 data,
                 named: provenanceURL.lastPathComponent,
                 in: provenanceURL.deletingLastPathComponent()
             )
+            try DurableReplace.noteSynchronizedFolder(at: provenanceURL.deletingLastPathComponent())
             return
         }
-        let temporaryURL = provenanceURL.deletingLastPathComponent()
-            .appendingPathComponent(
-                ".\(provenanceURL.lastPathComponent)"
-                    + ".provenance-write-\(UUID().uuidString)"
-            )
-        defer {
-            try? FileManager.default.removeItem(at: temporaryURL)
-        }
-        try data.write(to: temporaryURL, options: .atomic)
-        try publishStagedArtifact(
-            at: temporaryURL,
-            to: provenanceURL,
-            kind: .provenanceDocumentWritten,
-            replacingExisting: true
-        )
+        try publishDurably(data, to: provenanceURL, kind: .provenanceDocumentWritten)
     }
 
     private func removeSigningArtifacts(for provenanceURL: URL) throws {
@@ -682,7 +696,7 @@ public struct ProvenanceWriter: Sendable {
                     actualPublicKeyPath: destination.path
                 )
             }
-            try publishDataArtifact(
+            try publishDurably(
                 data,
                 to: destination,
                 kind: .signingArtifactsMayHaveChanged
@@ -694,28 +708,6 @@ public struct ProvenanceWriter: Sendable {
             provider: provider.providerIdentifier
         )
         return artifact
-    }
-
-    private func publishDataArtifact(
-        _ data: Data,
-        to destinationURL: URL,
-        kind: ProvenanceWriterMutation.Kind
-    ) throws {
-        let temporaryURL = destinationURL.deletingLastPathComponent()
-            .appendingPathComponent(
-                ".\(destinationURL.lastPathComponent)"
-                    + ".provenance-artifact-\(UUID().uuidString)"
-            )
-        defer {
-            try? FileManager.default.removeItem(at: temporaryURL)
-        }
-        try data.write(to: temporaryURL, options: .atomic)
-        try publishStagedArtifact(
-            at: temporaryURL,
-            to: destinationURL,
-            kind: kind,
-            replacingExisting: true
-        )
     }
 
     private func createDirectoryComponentIfNeeded(
@@ -744,8 +736,7 @@ public struct ProvenanceWriter: Sendable {
             try publishStagedArtifact(
                 at: temporaryDirectory,
                 to: directory,
-                kind: .directoryPrepared,
-                replacingExisting: false
+                kind: .directoryPrepared
             )
             return
         } catch {
@@ -847,11 +838,12 @@ public struct ProvenanceWriter: Sendable {
         }
     }
 
+    /// Publishes a staged folder under a name that holds nothing. Records
+    /// and signing artifacts replace through `publishDurably` instead.
     private func publishStagedArtifact(
         at stagedURL: URL,
         to destinationURL: URL,
-        kind: ProvenanceWriterMutation.Kind,
-        replacingExisting: Bool
+        kind: ProvenanceWriterMutation.Kind
     ) throws {
         // Receipts are keyed by physical path (CanonicalFilePath) so a
         // destination reached through a symlink matches its snapshot entry.
@@ -867,74 +859,10 @@ public struct ProvenanceWriter: Sendable {
                 reason: "the staged artifact is missing"
             )
         }
-
-        let displacedURL = destinationURL.deletingLastPathComponent()
-            .appendingPathComponent(
-                ".\(destinationURL.lastPathComponent)"
-                    + ".provenance-displaced-\(UUID().uuidString)"
-            )
-        var priorState: ProvenancePublicationArtifactState = .missing
-        var displaced = false
-        if replacingExisting {
-            displaced = try Self.renameExclusivelyIfPresent(
-                from: destinationURL,
-                to: displacedURL
-            )
-            if displaced {
-                do {
-                    priorState =
-                        try ProvenancePublicationSnapshot.artifactState(
-                            at: displacedURL,
-                            fileManager: .default
-                        )
-                } catch {
-                    try Self.restoreDetachedAfterFailure(
-                        displacedURL,
-                        to: destinationURL,
-                        originalError: error
-                    )
-                }
-                guard case .file = priorState else {
-                    let error = ProvenanceWriterError.unsafeExistingArtifact(
-                        path: destinationURL.path,
-                        reason: "the existing destination is not a regular file"
-                    )
-                    try Self.restoreDetachedAfterFailure(
-                        displacedURL,
-                        to: destinationURL,
-                        originalError: error
-                    )
-                }
-            }
-        }
-
-        do {
-            try Self.renameExclusively(
-                from: stagedURL,
-                to: destinationURL
-            )
-        } catch {
-            if displaced {
-                do {
-                    try Self.restoreDetachedArtifact(
-                        displacedURL,
-                        to: destinationURL
-                    )
-                } catch let cleanupError {
-                    throw ProvenanceWriterError
-                        .exclusivePublicationRollbackFailed(
-                            originalError: error.localizedDescription,
-                            cleanupErrors: [
-                                cleanupError.localizedDescription,
-                            ],
-                            preservedQuarantinePaths: [
-                                displacedURL.path,
-                            ]
-                        )
-                }
-            }
-            throw error
-        }
+        try Self.renameExclusively(
+            from: stagedURL,
+            to: destinationURL
+        )
 
         // The receipt names the destination as the caller spelled it, so an
         // observer comparing against the URL it protected (`/var/x`, `/tmp/x`)
@@ -944,7 +872,7 @@ public struct ProvenanceWriter: Sendable {
             kind: kind,
             affectedURLs: [destinationURL.standardizedFileURL],
             requiredPriorStates: [
-                standardizedDestination.path: priorState,
+                standardizedDestination.path: .missing,
             ],
             resultingStates: [
                 standardizedDestination.path: stagedState,
@@ -957,33 +885,18 @@ public struct ProvenanceWriter: Sendable {
                 throw error
             }
             let observationError = error
-            try rollbackUnacceptedReplacement(
+            try rollbackUnacceptedPublication(
                 at: destinationURL,
-                expectedPublishedState: stagedState,
-                displacedURL: displaced ? displacedURL : nil
+                expectedPublishedState: stagedState
             )
             throw observationError
         }
-
-        if displaced {
-            do {
-                try FileManager.default.removeItem(at: displacedURL)
-            } catch {
-                throw ProvenanceWriterError
-                    .exclusivePublicationCleanupFailed(
-                        path: destinationURL.path,
-                        quarantinePath: displacedURL.path,
-                        reason: error.localizedDescription
-                    )
-            }
-        }
     }
 
-    private func rollbackUnacceptedReplacement(
+    private func rollbackUnacceptedPublication(
         at destinationURL: URL,
         expectedPublishedState:
-            ProvenancePublicationArtifactState,
-        displacedURL: URL?
+            ProvenancePublicationArtifactState
     ) throws {
         let rejectedURL = destinationURL.deletingLastPathComponent()
             .appendingPathComponent(
@@ -994,36 +907,29 @@ public struct ProvenanceWriter: Sendable {
             from: destinationURL,
             to: rejectedURL
         )
-        if detached {
-            let detachedState =
-                try ProvenancePublicationSnapshot.artifactState(
-                    at: rejectedURL,
-                    fileManager: .default
-                )
-            guard ProvenancePublicationSnapshot.statesMatch(
-                detachedState,
-                expectedPublishedState
-            ) else {
-                try Self.restoreDetachedArtifact(
-                    rejectedURL,
-                    to: destinationURL
-                )
-                throw ProvenanceWriterError
-                    .exclusivePublicationCleanupFailed(
-                        path: destinationURL.path,
-                        quarantinePath: displacedURL?.path,
-                        reason:
-                            "a later writer replaced the rejected transaction artifact"
-                    )
-            }
-            try FileManager.default.removeItem(at: rejectedURL)
-        }
-        if let displacedURL {
+        guard detached else { return }
+        let detachedState =
+            try ProvenancePublicationSnapshot.artifactState(
+                at: rejectedURL,
+                fileManager: .default
+            )
+        guard ProvenancePublicationSnapshot.statesMatch(
+            detachedState,
+            expectedPublishedState
+        ) else {
             try Self.restoreDetachedArtifact(
-                displacedURL,
+                rejectedURL,
                 to: destinationURL
             )
+            throw ProvenanceWriterError
+                .exclusivePublicationCleanupFailed(
+                    path: destinationURL.path,
+                    quarantinePath: nil,
+                    reason:
+                        "a later writer replaced the rejected transaction artifact"
+                )
         }
+        try FileManager.default.removeItem(at: rejectedURL)
     }
 
     private static func renameExclusively(
@@ -1134,7 +1040,7 @@ public struct ProvenanceWriter: Sendable {
         ) && isDirectory.boolValue
     }
 
-    private func reportMutation(
+    func reportMutation(
         _ mutation: ProvenanceWriterMutation
     ) throws {
         try publicationMutationDidOccur?(mutation)

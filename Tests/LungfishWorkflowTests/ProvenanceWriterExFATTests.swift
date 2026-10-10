@@ -81,6 +81,27 @@ final class ProvenanceWriterExFATTests: XCTestCase {
         XCTAssertEqual(try names(in: folder.run), [record.lastPathComponent])
     }
 
+    /// ExFAT numbers a written file by its first cluster and gives an empty
+    /// file a number that changes on every rename, so the helper must read a
+    /// stage's identity after its bytes land and match empty files by size.
+    func testDurableReplaceRotatesOnExFATAndHandlesEmptyFiles() throws {
+        let folder = try makeRunFolderOnExFAT()
+        defer { try? FileManager.default.removeItem(at: folder.root) }
+        let record = folder.run.appendingPathComponent("record.json")
+        // An empty file, as an interrupted exclusive rename leaves its reservation.
+        XCTAssertTrue(FileManager.default.createFile(atPath: record.path, contents: Data()))
+
+        let publication = try DurableReplace.replace(Data("new".utf8), named: "record.json", in: folder.run)
+        XCTAssertEqual(publication.mechanism, .rotationFallback)
+        XCTAssertEqual(try Data(contentsOf: record), Data("new".utf8))
+
+        try DurableReplace.replace(Data("newer".utf8), named: "record.json", in: folder.run)
+        XCTAssertEqual(try Data(contentsOf: record), Data("newer".utf8))
+        try DurableReplace.replace(Data(), named: "record.json", in: folder.run)
+        XCTAssertEqual(try Data(contentsOf: record), Data())
+        XCTAssertEqual(try names(in: folder.run), [record.lastPathComponent])
+    }
+
     // MARK: - Helpers
 
     private struct RejectedReceipt: Error {}

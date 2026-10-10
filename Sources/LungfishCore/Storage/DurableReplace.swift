@@ -372,13 +372,26 @@ public enum DurableReplace {
 
 extension DurableReplace {
     /// A file's identity on its volume.
+    ///
+    /// ExFAT numbers a written file by its first cluster, which a rename
+    /// keeps, but gives an empty file a number that changes on every rename.
+    /// So two empty files on one device count as the same file, and any other
+    /// file must match its inode too.
     struct Identity: Equatable {
         let device: UInt64
         let inode: UInt64
+        let size: Int64
 
         init(_ information: stat) {
             device = UInt64(information.st_dev)
             inode = UInt64(information.st_ino)
+            size = Int64(information.st_size)
+        }
+
+        static func == (lhs: Identity, rhs: Identity) -> Bool {
+            lhs.device == rhs.device
+                && lhs.size == rhs.size
+                && (lhs.inode == rhs.inode || lhs.size == 0)
         }
     }
 
@@ -509,14 +522,6 @@ extension DurableReplace {
                 throw ReplaceError.systemFailure(path: stageURL.path, operation: "create the stage file", code: errno)
             }
             defer { Darwin.close(file) }
-            var information = stat()
-            guard Darwin.fstat(file, &information) == 0,
-                  information.st_mode & S_IFMT == S_IFREG else {
-                let code = errno
-                _ = operations.removeEntry(descriptor, stageName)
-                throw ReplaceError.systemFailure(path: stageURL.path, operation: "inspect the stage file", code: code)
-            }
-            let staged = Identity(information)
             do {
                 try Self.writeAll(data, to: file, path: stageURL.path)
                 try operations.checkpoint(.staged)
@@ -524,11 +529,21 @@ extension DurableReplace {
                     throw ReplaceError.systemFailure(path: stageURL.path, operation: "fsync the stage file", code: errno)
                 }
                 try operations.checkpoint(.stageSynced)
+                // Read after the bytes land. ExFAT numbers a file by its first
+                // cluster, so a new empty file changes identity when written.
+                var information = stat()
+                guard Darwin.fstat(file, &information) == 0,
+                      information.st_mode & S_IFMT == S_IFREG else {
+                    throw ReplaceError.systemFailure(path: stageURL.path, operation: "inspect the stage file", code: errno)
+                }
+                return Identity(information)
             } catch {
-                removeEntry(stageName, ifItIs: staged)
+                var current = stat()
+                if Darwin.fstat(file, &current) == 0 {
+                    removeEntry(stageName, ifItIs: Identity(current))
+                }
                 throw error
             }
-            return staged
         }
 
         /// Puts the old file back under the name, or empties a name that held

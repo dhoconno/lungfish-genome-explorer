@@ -212,9 +212,129 @@ final class ProvenanceWriterDurabilityTests: XCTestCase {
         XCTAssertEqual(try names(in: folder), ["record.json"])
     }
 
+    // MARK: - The writer
+
+    func testARewriteIsStagedSyncedAndFlushedOnce() throws {
+        let folder = try makeFolder("P.lungfish/Analyses/run-1")
+        let record = folder.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let writer = ProvenanceWriter(signingProvider: nil)
+        try writer.write(Self.envelope("old"), toSidecar: record)
+
+        let counter = Counter()
+        try withCountingOperations(counter) {
+            try writer.write(Self.envelope("new"), toSidecar: record)
+        }
+        XCTAssertEqual(counter["stageSynced"], 1, "the staged record is fsynced")
+        XCTAssertEqual(counter["folderSynced"], 1, "its folder is fsynced after the swap")
+        XCTAssertEqual(counter["fullFlush"], 1, "one full flush ends the write")
+        XCTAssertEqual(try workflowName(at: record), "new")
+        XCTAssertEqual(try names(in: folder), [record.lastPathComponent])
+    }
+
+    func testASignedWriteSwapsEachRewriteAndIssuesOneFullFlush() throws {
+        let folder = try makeFolder("P.lungfish/Analyses/run-1")
+        let record = folder.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let writer = ProvenanceWriter(signingProvider: LocalProvenanceSigningProvider(privateKey: "durability-key"))
+        try writer.write(Self.envelope("old"), toSidecar: record)
+
+        let counter = Counter()
+        try withCountingOperations(counter) {
+            try writer.write(Self.envelope("new"), toSidecar: record)
+        }
+        XCTAssertEqual(counter["published"], 3, "the unsigned, placeholder and final records each swap in once")
+        XCTAssertEqual(counter["fullFlush"], 1)
+        XCTAssertNoThrow(try ProvenanceSignatureVerifier.verify(provenanceURL: record))
+        XCTAssertEqual(try workflowName(at: record), "new")
+        let name = record.lastPathComponent
+        XCTAssertEqual(try names(in: folder), [name, name + ".pub", name + ".signature.json"])
+    }
+
+    func testABundleWriteOf101RecordsIssuesOneFullFlush() throws {
+        let bundle = try makeFolder("P.lungfish/Analyses/run-1/sample.lungfishfastq")
+        let chunks = try makeFolder("P.lungfish/Analyses/run-1/sample.lungfishfastq/chunks")
+        var outputs: [ProvenanceFileDescriptor] = []
+        for index in 0..<ProvenanceWriter.maximumBundleOutputSidecars {
+            let output = chunks.appendingPathComponent("chunk-\(index).fastq")
+            try Data("@r\(index)\nACGT\n+\n!!!!\n".utf8).write(to: output)
+            outputs.append(try ProvenanceFileDescriptor.file(url: output, format: .fastq, role: .output))
+        }
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: "bundle",
+            workflowVersion: "2026.10",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.10"
+        )
+        .argv(["lungfish-cli", "fastq", "import"])
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .step(ProvenanceStep(toolName: "lungfish-cli", toolVersion: "2026.10", argv: ["lungfish-cli"], outputs: outputs, exitStatus: 0))
+        .complete(exitStatus: 0, startedAt: Date(timeIntervalSince1970: 20), endedAt: Date(timeIntervalSince1970: 22))
+
+        let counter = Counter()
+        let written = try withCountingOperations(counter) {
+            try ProvenanceWriter(signingProvider: nil).writeBundleProvenanceLayout(envelope, toBundleRoot: bundle)
+        }
+        XCTAssertEqual(written.count, 101)
+        XCTAssertEqual(counter["fullFlush"], 1, "one full flush makes all 101 records durable")
+    }
+
+    func testAReleasedDisplacedRecordIsRestoredBeforeTheNextWrite() throws {
+        let (folder, record) = try makeReleasedCrash()
+        try ProvenanceWriter(signingProvider: nil).write(Self.envelope("new"), toSidecar: record)
+
+        XCTAssertEqual(try workflowName(at: record), "new")
+        XCTAssertEqual(try names(in: folder), [record.lastPathComponent, "other.lungfish-provenance.json"],
+                       "the restored record is retired by the swap, never left aside")
+    }
+
+    func testAFailedWriteLeavesTheRestoredReleasedRecordUnderItsName() throws {
+        let (folder, record) = try makeReleasedCrash()
+        let failing = DurableReplace.Operations(checkpoint: { if $0 == .staged { throw Refusal() } })
+        XCTAssertThrowsError(try DurableReplace.$overrideOperations.withValue(failing) {
+            try ProvenanceWriter(signingProvider: nil).write(Self.envelope("new"), toSidecar: record)
+        })
+
+        let found = try XCTUnwrap(ProvenanceRecorder.findProvenanceEnvelope(for: folder))
+        XCTAssertEqual(found.sidecarURL.lastPathComponent, record.lastPathComponent, "never the sibling's record")
+        XCTAssertEqual(found.envelope.workflowName, "old")
+    }
+
+    func testAnObservedWriteLeavesAReleasedDisplacedRecordAlone() throws {
+        let (folder, record) = try makeReleasedCrash()
+        let displaced = try names(in: folder).filter { $0.contains(".provenance-displaced-") }
+        let writer = ProvenanceWriter(publicationMutationDidOccur: { _ in }, signingProvider: nil)
+        try writer.write(Self.envelope("new"), toSidecar: record)
+
+        XCTAssertEqual(try workflowName(at: record), "new")
+        XCTAssertEqual(displaced.count, 1)
+        XCTAssertEqual(try names(in: folder), (displaced + [record.lastPathComponent, "other.lungfish-provenance.json"]).sorted(),
+                       "the observer saw the name empty, so the old record stays aside")
+    }
+
     // MARK: - Helpers
 
     static let simulated = PortableRename.Operations.processSimulatesUnsupportedFlags
+
+    static func envelope(_ workflowName: String) -> ProvenanceEnvelope {
+        ProvenanceEnvelope.fixture(workflowName: workflowName)
+    }
+
+    func workflowName(at url: URL) throws -> String {
+        try ProvenanceEnvelopeReader.decode(Data(contentsOf: url)).workflowName
+    }
+
+    /// A run folder as a released build left it after a crash between moving
+    /// the old record aside and publishing the new one, beside a sibling
+    /// operation's record that the finder's `-provenance.json` fallback reads.
+    func makeReleasedCrash() throws -> (folder: URL, record: URL) {
+        let folder = try makeFolder("P.lungfish/Analyses/run-1")
+        let record = folder.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let writer = ProvenanceWriter(signingProvider: nil)
+        try writer.write(Self.envelope("sibling"), toSidecar: folder.appendingPathComponent("other.lungfish-provenance.json"))
+        try writer.write(Self.envelope("old"), toSidecar: record)
+        let displaced = folder.appendingPathComponent(".\(record.lastPathComponent).provenance-displaced-\(UUID().uuidString)")
+        XCTAssertEqual(Darwin.rename(record.path, displaced.path), 0)
+        return (folder, record)
+    }
 
     struct Refusal: Error {}
 
