@@ -227,6 +227,9 @@ public actor ProvenanceRecorder {
         }
         logger.info("Provenance: saved canonical run \(runID) to \(url.path)")
     }
+}
+
+extension ProvenanceRecorder {
 
     /// Loads a canonical provenance envelope from a directory's sidecar file.
     ///
@@ -586,6 +589,9 @@ public actor ProvenanceRecorder {
     public static func fileSidecarURL(for outputURL: URL) -> URL {
         URL(fileURLWithPath: "\(outputURL.path).lungfish-provenance.json")
     }
+}
+
+extension ProvenanceRecorder {
 
     // MARK: - Checksum Helpers
 
