@@ -41,18 +41,18 @@ MANIFEST.tsv has a header row and six tab-separated columns. They are the case i
 | s1-canonical-envelope-run | S1 | F01 | Captured run-bearing envelope from WorkflowRun.canonicalEnvelope() written through ProvenanceWriter |
 | s3-write-sidecar-bare-run | S3 | F01 | Captured bare run from WorkflowRun.writeSidecar, the same run as the case above |
 
-The origin column of MANIFEST.tsv says where each file came from and names every edit. Of the five real or tracked files, three are exactly the source bytes (two copies and the one file referenced in place). The other two carry the home-folder edit described next.
+The origin column of MANIFEST.tsv says where each file came from and names every edit. Of the five real or tracked files, three are exactly the source bytes (two copies and the one file referenced in place). The other two carry the account edits described next.
 
 The last four cases were captured once, at commit 81e89a306, from the writers as they stood before Phase 2.4 changed any of them. `ProvenanceCompatShapeCaptureTests` and `ProvenanceCompatCLICaptureTests` wrote them inside a temporary project, so their paths are `@/` project paths and `<tool-root>` and `<storage-root>` placeholders, as in a real project. Their runtime identity names the test host that ran the capture. The last two cases are the same run written both ways, so a writer that moves from `writeSidecar` to `canonicalEnvelope()` can be compared fact by fact.
 
-### The home-folder edit
+### The account edits
 
 Two real files held the home folder of the account that wrote them. The folder was replaced by `/home/corpus`, in the plain spelling and in the escaped-slash spelling that JSON writers emit. The replacement keeps each path absolute, so the reader's rules for paths under a `.lungfish` folder behave as they did on the original bytes.
 
 - s4-msa-mafft-2026-05 has 26 places in the escaped spelling.
 - s1-db-receipt-kraken2-viral has 35 places in the escaped spelling.
 
-The receipt keeps the `user` values the writer recorded, because the readers must keep reading that legacy field.
+The receipt also held the account name itself in two `user` values, one under `runtime` and one under `runtimeIdentity`, because older builds recorded the account. An account name must not enter a committed fixture, so both values were replaced by `lge-user`. The key stays, so the readers still read a legacy `user` field. These edits are the only changes made to any case, and the origin column of MANIFEST.tsv names each of them.
 
 The tracked alpha.11 fetch record cannot be edited here, and it still holds the home paths its writer recorded. The facts rewrite any account folder to `<home>`, so the expectation holds on every Mac.
 

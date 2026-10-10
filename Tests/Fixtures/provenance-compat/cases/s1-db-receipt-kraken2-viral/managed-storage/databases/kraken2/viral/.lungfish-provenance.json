@@ -331,7 +331,7 @@
   "runtime" : {
     "appVersion" : "Lungfish 2026.9.1 (4354)",
     "hostOS" : "macOS 26.4.0 (arm64)",
-    "user" : "dho"
+    "user" : "lge-user"
   },
   "runtimeIdentity" : {
     "appVersion" : "Lungfish 2026.9.1 (4354)",
@@ -340,7 +340,7 @@
     "executablePath" : "\/Applications\/Lungfish Preview.app\/Contents\/MacOS\/Lungfish",
     "operatingSystemVersion" : "macOS 26.4.0 (arm64)",
     "processIdentifier" : 46882,
-    "user" : "dho"
+    "user" : "lge-user"
   },
   "schemaVersion" : 1,
   "signatures" : [
