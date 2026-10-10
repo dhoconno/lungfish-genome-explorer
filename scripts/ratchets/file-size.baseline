@@ -30,7 +30,7 @@ Sources/LungfishApp/Views/Inspector/InspectorView.swift 887
 Sources/LungfishApp/Views/Inspector/InspectorViewController+MetadataImport.swift 1072
 Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift 993
 Sources/LungfishApp/Views/Inspector/InspectorViewController+TrimDuplicateWorkflows.swift 903
-Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift 1446
+Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift 1381
 Sources/LungfishApp/Views/Inspector/Sections/DocumentSection.swift 1905
 Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift 2788
 Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift 1586
