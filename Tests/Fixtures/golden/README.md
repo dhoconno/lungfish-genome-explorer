@@ -81,7 +81,7 @@ The program manager ruled on these on 2026-10-02. Each one names the row of the 
 |---|---|---|
 | R11 | Hash of `classification.kraken.gz` | gzip stores the wall-clock time in header bytes 4 to 7, and the sorted per-read golden compares the content |
 | R12 | Hash of the Kraken2 read index | The index stores its creation time, and its dump is a golden |
-| R13 | The partial last line of a stderr value the app truncated, as `<TRUNCATED-LINE>` | The cut at 10,240 characters moves with the length of every masked number before it |
+| R13 | The partial line on each side of the stderr truncation marker, as `<TRUNCATED-LINE>`, and the partial last line before the older head-only marker | The two cuts, 2,048 characters from the start and 8,192 from the end, move with the length of every masked number around them |
 | R14 | Date-times in worksheet cells | The workbook records when it was generated |
 | R15, R16 | Digests of export inputs that hold a run-dependent field, and the base64 inputs of each snapshot and request file decoded, normalized and encoded again | Their bytes change with the masked fields, which the decoded inputs compare |
 | Q3 | The exact version `lungfish-cli --version` prints, under the keys that record the LGE app or CLI version, as `<APP_VERSION>` | It changes with every release |
