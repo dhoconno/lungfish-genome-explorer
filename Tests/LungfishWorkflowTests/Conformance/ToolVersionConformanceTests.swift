@@ -19,7 +19,9 @@
 //     the remedy is available. A tool the root does not provision is printed
 //     as a LUNGFISH_PROBE_NOT_INSTALLED line and never skipped silently.
 //   * LUNGFISH_REQUIRE_TOOLS=1: drift and a missing probe executable are an
-//     XCTFail. verify.sh and CI run in this mode against a reconciled root, so
+//     XCTFail, except the tools of experimental packs when their environment is
+//     absent (the CLI cannot install those packs). verify.sh and CI run in this
+//     mode against a reconciled root, so
 //     conformance is genuinely enforced there and a real drift cannot ship
 //     unnoticed.
 //
@@ -102,7 +104,12 @@ final class ToolVersionConformanceTests: XCTestCase {
                 url = try await CondaManager.shared.toolPath(name: probe.executable, environment: entry.environment)
             } catch {
                 print("LUNGFISH_PROBE_NOT_INSTALLED id=\(id) executable=\(probe.executable) environment=\(entry.environment)")
-                if ToolAvailability.requireTools {
+                // The CLI cannot install an experimental pack, so its absent environment is
+                // listed and never a failure, in both modes. Any other absence fails under require.
+                let environmentURL = await CondaManager.shared.environmentURL(named: entry.environment)
+                let exempt = entry.isInExperimentalPack
+                    && !FileManager.default.fileExists(atPath: environmentURL.path)
+                if ToolAvailability.requireTools && !exempt {
                     outcome.failures.append("\(id): not installed (\(probe.executable) in env \(entry.environment)): \(error)")
                 }
                 continue

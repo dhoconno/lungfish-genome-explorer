@@ -70,6 +70,17 @@ final class ManagedToolVersionProbeTableTests: XCTestCase {
         XCTAssertEqual(Set(environments).count, environments.count, "each environment holds one lock entry")
     }
 
+    /// The tools the conformance run exempts when their environment is absent. The set is
+    /// derived from the pack registry's experimental flag and pinned, so a new exemption
+    /// is a decision.
+    func testExperimentalPackToolsArePinnedExactly() throws {
+        let lock = try ManagedToolLock.loadFromBundle()
+        let experimental = Set(lock.entries.filter(\.isInExperimentalPack).map(\.id.rawValue))
+        XCTAssertEqual(experimental, ["freyja", "gatk4", "whatshap"])
+        XCTAssertFalse(try XCTUnwrap(lock.entry(id: ManagedToolID(rawValue: "samtools"))).isInExperimentalPack)
+        XCTAssertFalse(try XCTUnwrap(lock.entry(id: ManagedToolID(rawValue: "primer3"))).isInExperimentalPack)
+    }
+
     func testUnknownIDsAndEnvironmentsGiveNil() throws {
         let lock = try ManagedToolLock.loadFromBundle()
         let unknown = ManagedToolID(rawValue: "no-such-tool")

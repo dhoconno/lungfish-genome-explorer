@@ -23,6 +23,15 @@ public struct ManagedToolLockEntry: Sendable, Hashable {
     /// Present when the pack builds the tool from source, such as bracken.
     public let sourceBuild: SourceBuildSpec?
     public let preserveExistingInstall: Bool?
+
+    /// True for a pack tool whose pack the registry marks experimental.
+    ///
+    /// The CLI refuses to install an experimental pack, so no provisioned root holds its
+    /// environment and a conformance run cannot require it.
+    public var isInExperimentalPack: Bool {
+        guard case .packTool(let packID) = source else { return false }
+        return PluginPack.builtInPack(id: packID)?.isExperimental == true
+    }
 }
 
 extension ManagedToolLock {
