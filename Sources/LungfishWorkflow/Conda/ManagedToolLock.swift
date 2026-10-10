@@ -414,7 +414,18 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
         return try JSONDecoder().decode(ManagedToolLock.self, from: data)
     }
 
-    private static func resourceURL() throws -> URL {
+    /// The lock decoded from one read of `url`, with the bytes it was decoded from.
+    /// Nil when the file cannot be read or decoded, so no caller sees a lock without its bytes.
+    static func readResource(at url: URL?) -> (lock: ManagedToolLock, data: Data)? {
+        guard let url, let data = try? Data(contentsOf: url),
+              let lock = try? JSONDecoder().decode(ManagedToolLock.self, from: data) else { return nil }
+        return (lock, data)
+    }
+
+    /// The bundled lock and its bytes from a single read, shared by `bundled` and `bundledIdentity`.
+    static let bundledResource: (lock: ManagedToolLock, data: Data)? = readResource(at: try? resourceURL())
+
+    static func resourceURL() throws -> URL {
         if let url = RuntimeResourceLocator.path(
             "ManagedTools/third-party-tools-lock.json",
             in: .workflow

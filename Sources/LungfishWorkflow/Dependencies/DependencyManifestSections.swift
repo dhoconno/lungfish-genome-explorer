@@ -302,7 +302,7 @@ public extension ManagedToolLock {
     /// instead of re-decoding the JSON per lookup. If the bundled resource cannot be
     /// loaded, this is an empty manifest, so downstream tables fall back to their own
     /// missing-entry handling rather than trapping at launch.
-    static let bundled: ManagedToolLock = (try? loadFromBundle())
+    static let bundled: ManagedToolLock = bundledResource?.lock
         ?? ManagedToolLock(
             packID: "lungfish-tools",
             displayName: "Third-Party Tools",
@@ -310,6 +310,12 @@ public extension ManagedToolLock {
             tools: [],
             managedData: []
         )
+
+    /// The identity of the bundled lock file, from the same read as `bundled`. Nil when the
+    /// resource cannot be read or decoded, never the hash of empty data.
+    static let bundledIdentity: ManagedToolLockIdentity? = bundledResource.map {
+        ManagedToolLockIdentity(lock: $0.lock, lockData: $0.data)
+    }
 
     /// The manifest's dependency set, falling back to a legacy synthetic identifier
     /// (`legacy-<version>`) for manifests written before `dependencySet` existed.
