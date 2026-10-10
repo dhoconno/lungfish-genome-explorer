@@ -4,16 +4,13 @@
 
 import Foundation
 
-
-/// Rewrites the absolute paths LGE records inside a project so a
-/// shared project or a published demo archive reveals neither the account
-/// name nor the machine layout, and resolves those records back to real paths
-/// when LGE reads them again.
+/// Rewrites the absolute paths LGE records inside a project so a shared project
+/// or a published demo archive reveals neither the account name nor the machine
+/// layout, and resolves those records back to real paths when LGE reads them again.
 ///
-/// Files LGE writes into a project (provenance JSON, sidecars,
-/// SQLite command-line fields, VCF meta lines, BAM `@PG` lines) pass through
-/// one of the `sanitize` entry points before they land on disk. The rules, in
-/// the order they are tried:
+/// Files LGE writes into a project (provenance JSON, sidecars, SQLite command-line
+/// fields, VCF meta lines, BAM `@PG` lines) pass through one of the `sanitize` entry
+/// points before they land on disk. The rules, in the order they are tried:
 ///
 /// 1. a path inside a declared run workspace becomes `<workspace>/<relative>`,
 /// 2. a path inside the enclosing `.lungfish` project becomes `@/<relative>`,
@@ -29,11 +26,10 @@ import Foundation
 /// 7. any other absolute path, including everything else under the home
 ///    directory, becomes `<external>/<file name>`.
 ///
-/// `resolve` turns `@/`, `<bundle>`, `<tool-root>` and `<storage-root>` back
-/// into real paths for the file being read and the machine reading it, which
-/// keeps Run Again, `--repeat-from` and provenance export working on a moved
-/// or shared project. A `<workspace>` path resolves only while the scratch
-/// file still exists under one of this machine's temporary directories;
+/// `resolve` turns `@/`, `<bundle>`, `<tool-root>` and `<storage-root>` back into real paths
+/// for the file being read and the machine reading it, which keeps Run Again, `--repeat-from`
+/// and provenance export working on a moved or shared project. A `<workspace>` path resolves
+/// only while the scratch file still exists under one of this machine's temporary directories;
 /// `<external>` never resolves, because the file was never part of the project.
 public enum PortablePath {
     public static let projectPrefix = "@/"
@@ -215,19 +211,20 @@ public enum PortablePath {
     /// non-path values (`pipe:stdout:x`) are returned unchanged.
     public static func sanitize(path: String, context: Context) -> String {
         guard path.hasPrefix("/"), path.count > 1 else { return path }
-        return Roots(context: context).rewrite(absolutePath: path)
+        var roots = Roots(context: context)
+        return roots.rewrite(absolutePath: path)
     }
 
     /// Rewrites every absolute path inside free text (a command line, a
     /// `stderr` capture, a SAM `@PG` line, a `file://` URL).
     public static func sanitize(text: String, context: Context) -> String {
         guard text.contains("/") else { return text }
-        return Roots(context: context).rewrite(text: text)
+        var roots = Roots(context: context)
+        return roots.rewrite(text: text)
     }
 
-    /// Rewrites free text about to be written at `url` (a run log, a tool's
-    /// captured output); text for a file outside a project is returned
-    /// unchanged.
+    /// Rewrites free text about to be written at `url` (a run log, a tool's captured
+    /// output); text for a file outside a project is returned unchanged.
     public static func sanitize(text: String, forFileAt url: URL, workspaceURLs: [URL] = []) -> String {
         guard text.contains("/"),
               let context = Context.forWriting(at: url, workspaceURLs: workspaceURLs) else { return text }
@@ -238,7 +235,8 @@ public enum PortablePath {
     /// hold spaces) or free text.
     public static func sanitize(value: String, context: Context) -> String {
         guard value.contains("/") else { return value }
-        return Roots(context: context).rewrite(value: value)
+        var roots = Roots(context: context)
+        return roots.rewrite(value: value)
     }
 
     /// Rewrites a stored field (a SQLite value, a metadata entry): a JSON
@@ -251,7 +249,7 @@ public enum PortablePath {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("{") || trimmed.hasPrefix("["),
            let node = try? JSONDecoder().decode(JSONNode.self, from: Data(value.utf8)) {
-            let roots = Roots(context: context)
+            var roots = Roots(context: context)
             var changed = false
             let rewritten = node.mapStrings(dropping: { _, _ in false }) { text in
                 let result = text.contains("/") ? roots.rewrite(value: text) : text
@@ -264,13 +262,14 @@ public enum PortablePath {
             guard let data = try? encoder.encode(rewritten) else { return value }
             return String(decoding: data, as: UTF8.self)
         }
-        return Roots(context: context).rewrite(value: value)
+        var roots = Roots(context: context)
+        return roots.rewrite(value: value)
     }
 
     /// Rewrites an argv: whole-path elements as paths (so a space inside a
     /// file name survives), everything else as text.
     public static func sanitize(argv: [String], context: Context) -> [String] {
-        let roots = Roots(context: context)
+        var roots = Roots(context: context)
         return argv.map { roots.rewrite(value: $0) }
     }
 
@@ -285,7 +284,7 @@ public enum PortablePath {
         encoder: JSONEncoder = defaultJSONEncoder
     ) throws -> Data {
         guard let node = try? JSONDecoder().decode(JSONNode.self, from: data) else { return data }
-        let roots = Roots(context: context)
+        var roots = Roots(context: context)
         var changed = false
         let rewritten = node.mapStrings(dropping: { key, value in
             let drop = accountKeys.contains(key) && context.accountName.map { $0 == value } == true
@@ -586,6 +585,7 @@ public enum PortablePath {
         /// Lowercased account name; a scratch path that spells it keeps only
         /// its file name.
         let accountName: String?
+        var canonicalCache = CanonicalFilePath.Cache() // one call's canonical paths (S2)
 
         init(context: Context) {
             var tiers: [[Root]] = []
@@ -634,7 +634,7 @@ public enum PortablePath {
         }
 
         /// A JSON or argv value: one absolute path, or free text.
-        func rewrite(value: String) -> String {
+        mutating func rewrite(value: String) -> String {
             if Self.isSinglePath(value) {
                 return rewrite(absolutePath: value)
             }
@@ -652,7 +652,7 @@ public enum PortablePath {
         }
 
         /// The placeholder form of one absolute path.
-        func rewrite(absolutePath token: String) -> String {
+        mutating func rewrite(absolutePath token: String) -> String {
             var path = token
             var trailing = ""
             while let last = path.last, last == "." || last == ":" {
@@ -662,7 +662,7 @@ public enum PortablePath {
             guard path.count > 1 else { return token }
 
             var forms = [path]
-            let canonical = CanonicalFilePath.path(for: URL(fileURLWithPath: path))
+            let canonical = CanonicalFilePath.path(for: URL(fileURLWithPath: path, isDirectory: false), cache: &canonicalCache)
             if canonical != path { forms.append(canonical) }
             for root in ordered {
                 for form in forms {
@@ -688,7 +688,7 @@ public enum PortablePath {
         /// Free-text rewriting: a known root is matched wherever a path may
         /// start, so a root whose name holds spaces is still recognised; any
         /// other absolute path is tokenised up to the next terminator.
-        func rewrite(text: String) -> String {
+        mutating func rewrite(text: String) -> String {
             let characters = Array(text)
             var output = ""
             output.reserveCapacity(text.utf8.count)
@@ -763,7 +763,7 @@ public enum PortablePath {
 
         /// The part of a `file://` URL after `file:`, rewritten so it stays a
         /// valid URL: `///@/Imports/a%20b` or `///%3Ctool-root%3E/envs/...`.
-        func rewrite(fileURLPath slashed: String) -> String {
+        mutating func rewrite(fileURLPath slashed: String) -> String {
             let slashes = slashed.prefix(while: { $0 == "/" }).count
             guard slashes >= 3 else { return slashed }
             let encodedPath = "/" + slashed.dropFirst(slashes)
