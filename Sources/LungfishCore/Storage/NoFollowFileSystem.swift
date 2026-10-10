@@ -31,10 +31,14 @@ public enum NoFollowFileSystem {
     /// folder-level privacy (TCC) grant for that even when the user opened a
     /// project inside them, and without it `openat` blocks indefinitely.
     ///
-    /// Paths outside any project or bundle keep the full walk from `/`, with
-    /// only the platform `/var` and `/tmp` aliases canonicalized.
+    /// A path outside every project and bundle is anchored at the folder
+    /// itself (plan decision V3). Links above it are the user's layout, such
+    /// as a conda root under a storage folder moved to an external drive and
+    /// linked back, and the folder must be a real directory. Before V3 such a
+    /// path was walked from `/`, which refused every link but `/var` and
+    /// `/tmp`, rolled back verified installs and opened protected folders.
     public static func openDirectoryHierarchy(_ url: URL) throws -> Int32 {
-        try openDirectoryHierarchy(url, anchoredAt: trustedAnchor(for: url))
+        try openDirectoryHierarchy(url, anchoredAt: trustedAnchor(for: url) ?? url)
     }
 
     /// Opens `url` without following symbolic links below `anchor`.

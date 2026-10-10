@@ -344,10 +344,7 @@ public enum DurableReplace {
 
     private static func openFolder(_ directoryURL: URL) throws -> Int32 {
         do {
-            return try NoFollowFileSystem.openDirectoryHierarchy(
-                directoryURL,
-                anchoredAt: NoFollowFileSystem.trustedAnchor(for: directoryURL) ?? directoryURL
-            )
+            return try NoFollowFileSystem.openDirectoryHierarchy(directoryURL)
         } catch {
             throw ReplaceError.unsafeDirectory(directoryURL.path)
         }

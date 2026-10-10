@@ -67,7 +67,11 @@ final class NoFollowFileSystemAnchorTests: XCTestCase {
         try assertDescriptor(descriptor, isSameDirectoryAs: project.appendingPathComponent("Data/sub"))
     }
 
-    func testSymlinkAboveAnchorIsStillRejectedWithoutProject() throws {
+    /// Plan decision V3. Outside every project and bundle the destination
+    /// folder is the anchor, so a link above it is followed. Before V3 the
+    /// walk started at `/` and refused it, which rolled back verified conda
+    /// installs and opened protected folders such as `~/Documents`.
+    func testSymlinkAboveDestinationIsFollowedWithoutProject() throws {
         let real = root.appendingPathComponent("real/sub", isDirectory: true)
         try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
         let link = root.appendingPathComponent("link", isDirectory: true)
@@ -76,9 +80,34 @@ final class NoFollowFileSystemAnchorTests: XCTestCase {
             withDestinationURL: root.appendingPathComponent("real")
         )
 
-        XCTAssertThrowsError(try NoFollowFileSystem.openDirectoryHierarchy(
+        let descriptor = try NoFollowFileSystem.openDirectoryHierarchy(
             link.appendingPathComponent("sub")
-        ))
+        )
+        defer { Darwin.close(descriptor) }
+        try assertDescriptor(descriptor, isSameDirectoryAs: real)
+    }
+
+    func testDestinationThatIsItselfASymlinkIsRejectedWithoutProject() throws {
+        let real = root.appendingPathComponent("real", isDirectory: true)
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        let link = root.appendingPathComponent("link", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+
+        XCTAssertThrowsError(try NoFollowFileSystem.openDirectoryHierarchy(link)) {
+            let code = ($0 as? POSIXError)?.code
+            XCTAssertTrue(code == .ELOOP || code == .ENOTDIR, "\(String(describing: code))")
+        }
+    }
+
+    func testSymlinkBelowBundleOutsideProjectIsRejected() throws {
+        let bundle = root.appendingPathComponent("runs/S1.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let outside = root.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let planted = bundle.appendingPathComponent("derived", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: planted, withDestinationURL: outside)
+
+        XCTAssertThrowsError(try NoFollowFileSystem.openDirectoryHierarchy(planted))
     }
 
     func testSymlinkBelowProjectAnchorIsRejected() throws {
