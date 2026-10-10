@@ -32,10 +32,10 @@ public enum AIHaplotypingEvidenceBuilder {
             ? reportLocusBySampleGenotype(from: result.haplotypeAnalysis)
             : [:]
         let reportLocusBySampleRawLocus = mode == .aiRefinement
-            ? reportLocusBySampleRawLocus(from: result.haplotypeAnalysis)
+            ? reportLocusBySampleRawLocus(from: result.haplotypeAnalysis, calls: result.calls)
             : [:]
         let reportLocusByRawLocus = mode == .aiRefinement
-            ? reportLocusByRawLocus(from: result.haplotypeAnalysis)
+            ? reportLocusByRawLocus(from: result.haplotypeAnalysis, calls: result.calls)
             : [:]
 
         func recordSample(_ sample: String) -> String {
@@ -183,10 +183,10 @@ public enum AIHaplotypingEvidenceBuilder {
             ? reportLocusBySampleGenotype(from: result.haplotypeAnalysis)
             : [:]
         let reportLocusBySampleRawLocus = mode == .aiRefinement
-            ? reportLocusBySampleRawLocus(from: result.haplotypeAnalysis)
+            ? reportLocusBySampleRawLocus(from: result.haplotypeAnalysis, calls: result.calls)
             : [:]
         let reportLocusByRawLocus = mode == .aiRefinement
-            ? reportLocusByRawLocus(from: result.haplotypeAnalysis)
+            ? reportLocusByRawLocus(from: result.haplotypeAnalysis, calls: result.calls)
             : [:]
         let activeAnalysisRevisionID = mode == .aiRefinement
             ? result.manifest.activeHaplotypeAnalysisRevisionID ?? result.haplotypeAnalysis?.analysisRevisionID
@@ -364,9 +364,11 @@ public enum AIHaplotypingEvidenceBuilder {
     }
 
     private static func reportLocusBySampleRawLocus(
-        from analysis: GenotypeHaplotypeAnalysis?
+        from analysis: GenotypeHaplotypeAnalysis?,
+        calls: [ONTGenotypeCall]
     ) -> [SampleRawLocusKey: String] {
         guard let analysis else { return [:] }
+        let locusByGenotype = stampedLocusByGenotype(calls)
 
         var candidateLociByKey: [SampleRawLocusKey: Set<String>] = [:]
         for sampleAnalysis in analysis.samples {
@@ -376,7 +378,7 @@ public enum AIHaplotypingEvidenceBuilder {
                 for observedGenotype in call.observedGenotypes {
                     let genotype = observedGenotype.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !genotype.isEmpty else { continue }
-                    let rawLocus = canonicalRawLocus(forGenotype: genotype)
+                    let rawLocus = canonicalRawLocus(forGenotype: genotype, stampedLocus: locusByGenotype[genotype])
                     let key = SampleRawLocusKey(sample: sample, rawLocus: rawLocus)
                     candidateLociByKey[key, default: []].insert(reportLocus)
                 }
@@ -391,9 +393,11 @@ public enum AIHaplotypingEvidenceBuilder {
     }
 
     private static func reportLocusByRawLocus(
-        from analysis: GenotypeHaplotypeAnalysis?
+        from analysis: GenotypeHaplotypeAnalysis?,
+        calls: [ONTGenotypeCall]
     ) -> [String: String] {
         guard let analysis else { return [:] }
+        let locusByGenotype = stampedLocusByGenotype(calls)
 
         var candidateLociByRawLocus: [String: Set<String>] = [:]
         for sampleAnalysis in analysis.samples {
@@ -402,7 +406,7 @@ public enum AIHaplotypingEvidenceBuilder {
                 for observedGenotype in call.observedGenotypes {
                     let genotype = observedGenotype.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !genotype.isEmpty else { continue }
-                    let rawLocus = canonicalRawLocus(forGenotype: genotype)
+                    let rawLocus = canonicalRawLocus(forGenotype: genotype, stampedLocus: locusByGenotype[genotype])
                     candidateLociByRawLocus[rawLocus, default: []].insert(reportLocus)
                 }
             }
@@ -415,7 +419,22 @@ public enum AIHaplotypingEvidenceBuilder {
         return resolved
     }
 
-    private static func canonicalRawLocus(forGenotype genotype: String) -> String {
+    /// The locus each result call sits at, by genotype. A full-length call
+    /// takes the locus its reference record names (N9), which the genotype
+    /// alone does not give, so an observed genotype is keyed by its call's
+    /// stamped locus, the key `canonicalObservationLocus` looks up.
+    private static func stampedLocusByGenotype(_ calls: [ONTGenotypeCall]) -> [String: String] {
+        var loci: [String: String] = [:]
+        for call in calls where call.sourceLocus != nil && loci[call.genotype] == nil {
+            loci[call.genotype] = call.locusGroup
+        }
+        return loci
+    }
+
+    private static func canonicalRawLocus(forGenotype genotype: String, stampedLocus: String?) -> String {
+        if let stampedLocus {
+            return GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(stampedLocus)
+        }
         let call = ONTGenotypeCall(
             sample: "",
             genotype: genotype,

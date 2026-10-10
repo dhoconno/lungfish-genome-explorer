@@ -479,6 +479,52 @@ final class AIHaplotypingEvidenceRegistryTests: XCTestCase {
         XCTAssertEqual(registry.observations.map(\.id), ["obs:LF2830:MHC-A:07_M1M2M3_70_156bp"])
     }
 
+    /// N9 review finding 8. A full-length call sits at the locus its
+    /// reference record names, so the raw-locus maps key an observed
+    /// accession by that stamped locus, the key the lookup uses. Keyed by the
+    /// accession's own pseudo-locus, MHC-NHP05008, the map never met the
+    /// lookup's MHC-B and S2's call missed the analysis's report locus.
+    func testRefinementMapsAStampedFullLengthCallByItsStampedLocus() throws {
+        let observed = makeCall(sample: "S1", genotype: "NHP05008").withSourceLocus("MHC-B")
+        let unobserved = makeCall(sample: "S2", genotype: "NHP05007").withSourceLocus("MHC-B")
+        XCTAssertEqual(observed.genotypeLocusGroup, "MHC-NHP05008")
+        XCTAssertEqual(unobserved.locusGroup, "MHC-B")
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "test-assay",
+            definitionSetID: "mcm-definitions",
+            definitionSetName: "MCM definitions",
+            speciesName: "Macaca fascicularis",
+            analysisRevisionID: "analysis-rev-1",
+            source: .deterministic,
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(sample: "S1", calls: [
+                    GenotypeHaplotypeLocusCall(
+                        locus: "MHC-A", sourceLocus: "MHC-B", haplotype1: "M1", haplotype2: "-",
+                        status: .called, matchedHaplotypes: [],
+                        observedGenotypeCount: 1, observedGenotypes: ["NHP05008"]
+                    ),
+                ]),
+            ]
+        )
+        let result = makeResult(
+            calls: [observed, unobserved],
+            activeHaplotypeAnalysisRevisionID: "analysis-rev-1",
+            haplotypeAnalysis: analysis
+        )
+
+        let registry = try AIHaplotypingEvidenceBuilder.build(
+            result: result,
+            sidecar: nil,
+            mode: .aiRefinement,
+            parentRevisionID: "analysis-rev-1"
+        )
+
+        XCTAssertEqual(registry.observations.map(\.id).sorted(), [
+            "obs:S1:MHC-A:NHP05008",
+            "obs:S2:MHC-A:NHP05007",
+        ])
+    }
+
     func testDiscoveryEvidenceIgnoresExistingAnalysisAndManualSidecarState() throws {
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-06-14T00:00:00Z")
         sidecar.manualHaplotypeAssignments = [
