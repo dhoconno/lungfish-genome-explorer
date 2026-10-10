@@ -44,7 +44,22 @@ extension ProvenanceCompatFacts {
         case outputs
         case steps
         /// Only the wall time of each step, in `steps`, `legacyRunSteps` and `canonicalRunSteps`.
+        /// A scenario re-run must not ignore it, because every scenario fixes its step times and a
+        /// writer that loses or alters one must fail the comparison. It is part of ``realToolRun``,
+        /// for comparisons against a run of a real tool, whose step times are measured.
         case stepWallTimeSeconds
+        /// Only the `containerImage` and `containerDigest` keys of each `steps[i].recorded` map, which
+        /// hold what a step's own bytes say about its container. A conversion from a bare run drops
+        /// them by design, because an envelope step holds a container only in a runtime identity of its
+        /// own, and the image and digest then live in the envelope's runtime identity and in both
+        /// legacy step views. The `condaEnvironment` key and the top-level `recorded` map stay compared.
+        ///
+        /// A lane may name this field only together with an exact comparison of `legacyRunSteps` and
+        /// `canonicalRunSteps`, which means it must not also ignore either of them. Those views are
+        /// where a lost or changed image or digest still shows. For a run with several containers only
+        /// `legacyRunSteps` shows a loss, because `canonicalRunSteps` lifts the first step's container
+        /// to every step. It is deliberately not part of ``shapeChange``.
+        case stepRecordedContainer
         case legacyRunSteps
         case canonicalRunSteps
         /// The top-level `recorded` map of values the bytes hold for host-filled keys.
@@ -53,10 +68,19 @@ extension ProvenanceCompatFacts {
 
     /// What one run of a scenario decides for itself, so two runs of the same writer differ in it:
     /// the host values under `recorded` (app version, operating system, executable path, process id,
-    /// creation date), the run's wall time, the wall time of each step and `opsStats.totalWallTimeSeconds`.
+    /// creation date), the run's wall time and `opsStats.totalWallTimeSeconds`.
+    ///
+    /// It leaves out the wall time of each step. Every scenario fixes its step times, so a writer
+    /// change that loses or alters one must fail the scenario comparison, and step wall times
+    /// compare exactly.
     public static let runSpecific: Set<Field> = [
-        .recorded, .wallTimeSeconds, .stepWallTimeSeconds, .opsStatsTotalWallTimeSeconds,
+        .recorded, .wallTimeSeconds, .opsStatsTotalWallTimeSeconds,
     ]
+
+    /// ``runSpecific`` plus the wall time of each step. A lane may use it only to compare the facts of
+    /// a run of a real tool with other facts, because a real tool measures its own step times and no
+    /// two runs agree. A scenario re-run must use ``runSpecific``, so that its fixed step times compare.
+    public static let realToolRun: Set<Field> = runSpecific.union([.stepWallTimeSeconds])
 
     /// What a conversion from a bare run to a run-bearing envelope changes by design: which decoder
     /// accepts the bytes, whether the strict readers accept them, the embedded run's status key, and
@@ -127,6 +151,12 @@ extension ProvenanceCompatFacts {
             tree["steps"] = removingMember("wallTimeSeconds", fromElementsOf: tree["steps"])
             tree["legacyRunSteps"] = removingMember("wallTime", fromElementsOf: tree["legacyRunSteps"])
             tree["canonicalRunSteps"] = removingMember("wallTime", fromElementsOf: tree["canonicalRunSteps"])
+        case .stepRecordedContainer:
+            tree["steps"] = removingMembers(
+                ["containerImage", "containerDigest"],
+                fromMemberNamed: "recorded",
+                ofElementsIn: tree["steps"]
+            )
         case .filesDuplicates:
             if case .array(let files)? = tree["files"] {
                 tree["files"] = .array(identitySet(of: files))
@@ -141,6 +171,23 @@ extension ProvenanceCompatFacts {
         return .array(elements.map { element in
             guard case .object(var members) = element else { return element }
             members[key] = nil
+            return .object(members)
+        })
+    }
+
+    /// Removes `keys` from the object stored under `memberName` in each element of an array.
+    private static func removingMembers(
+        _ keys: [String],
+        fromMemberNamed memberName: String,
+        ofElementsIn value: Value?
+    ) -> Value? {
+        guard case .array(let elements)? = value else { return value }
+        return .array(elements.map { element in
+            guard case .object(var members) = element, case .object(var nested)? = members[memberName] else {
+                return element
+            }
+            for key in keys { nested[key] = nil }
+            members[memberName] = .object(nested)
             return .object(members)
         })
     }

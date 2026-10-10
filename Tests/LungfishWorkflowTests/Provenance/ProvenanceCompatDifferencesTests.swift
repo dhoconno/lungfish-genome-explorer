@@ -48,13 +48,10 @@ struct ProvenanceCompatDifferencesTests {
         rerun.recorded["createdAt"] = "2031-01-01T00:00:00Z"
         rerun.recorded["runtimeIdentity.processIdentifier"] = "1"
         rerun.wallTimeSeconds = (original.wallTimeSeconds ?? 0) + 5
-        rerun.steps[0].wallTimeSeconds = 999
-        rerun.legacyRunSteps[0].wallTime = 999
-        rerun.canonicalRunSteps[1].wallTime = 999
         rerun.opsStats.totalWallTimeSeconds += 3
 
         let all = rerun.differences(from: original)
-        for prefix in ["recorded", "wallTimeSeconds:", "steps[0].wallTimeSeconds:", "legacyRunSteps[0].wallTime:", "canonicalRunSteps[1].wallTime:", "opsStats.totalWallTimeSeconds:"] {
+        for prefix in ["recorded", "wallTimeSeconds:", "opsStats.totalWallTimeSeconds:"] {
             #expect(all.contains { $0.hasPrefix(prefix) }, "no line starts with \(prefix) in \(all)")
         }
         #expect(rerun.differences(from: original, ignoring: ProvenanceCompatFacts.runSpecific).isEmpty)
@@ -65,6 +62,110 @@ struct ProvenanceCompatDifferencesTests {
         #expect(remaining.count == 2)
         #expect(remaining.contains { $0.hasPrefix("toolVersion:") })
         #expect(remaining.contains { $0.hasPrefix("steps[1].exitStatus:") })
+    }
+
+    @Test("a scenario re-run compares step wall times exactly, in the steps and in both legacy views")
+    func runSpecificSetComparesStepWallTimesExactly() throws {
+        #expect(!ProvenanceCompatFacts.runSpecific.contains(.stepWallTimeSeconds))
+        let original = try Self.liveFacts("s3-write-sidecar-bare-run")
+        let recordedStepTime = try #require(original.steps[0].wallTimeSeconds)
+
+        // A step wall time that is lost or altered shows in all three places it is recorded.
+        var altered = original
+        altered.steps[0].wallTimeSeconds = recordedStepTime + 0.001
+        altered.legacyRunSteps[0].wallTime = recordedStepTime + 0.001
+        altered.canonicalRunSteps[0].wallTime = nil
+        let lines = altered.differences(from: original, ignoring: ProvenanceCompatFacts.runSpecific)
+        #expect(lines.count == 3, "expected three lines, found \(lines)")
+        for prefix in ["steps[0].wallTimeSeconds:", "legacyRunSteps[0].wallTime:", "canonicalRunSteps[0].wallTime:"] {
+            #expect(lines.contains { $0.hasPrefix(prefix) }, "no line starts with \(prefix) in \(lines)")
+        }
+        // The run wall time still gets its tolerance, and the step wall time still gets none.
+        #expect(altered.differences(from: original, ignoring: ProvenanceCompatFacts.runSpecific, runWallTimeTolerance: 1).count == 3)
+    }
+
+    @Test("the real tool set adds the step wall times to the run-specific set and nothing else")
+    func realToolRunSetAddsOnlyStepWallTimes() throws {
+        #expect(ProvenanceCompatFacts.realToolRun == ProvenanceCompatFacts.runSpecific.union([.stepWallTimeSeconds]))
+        #expect(ProvenanceCompatFacts.realToolRun.subtracting(ProvenanceCompatFacts.runSpecific) == [.stepWallTimeSeconds])
+
+        let original = try Self.liveFacts("s3-write-sidecar-bare-run")
+        var measured = original
+        measured.steps[0].wallTimeSeconds = 999
+        measured.legacyRunSteps[0].wallTime = 999
+        measured.canonicalRunSteps[1].wallTime = 999
+        measured.wallTimeSeconds = (original.wallTimeSeconds ?? 0) + 5
+        #expect(measured.differences(from: original, ignoring: ProvenanceCompatFacts.realToolRun).isEmpty)
+        // It hides no other step fact.
+        measured.steps[1].peakMemoryBytes = 7
+        #expect(measured.differences(from: original, ignoring: ProvenanceCompatFacts.realToolRun).count == 1)
+    }
+
+    @Test("the narrow container field clears only the container keys of each step's recorded map")
+    func stepRecordedContainerClearsOnlyTheStepContainerKeys() throws {
+        let frozen = try Self.liveFacts("s3-gatk-container-bare-run")
+        // The frozen bare run holds a container image and digest on each of its two steps.
+        #expect(frozen.steps.count == 2)
+        for step in frozen.steps {
+            #expect(step.recorded["containerImage"] != nil)
+            #expect(step.recorded["containerDigest"] != nil)
+        }
+        #expect(frozen.legacyRunSteps.allSatisfy { $0.containerImage != nil && $0.containerDigest != nil })
+        #expect(frozen.canonicalRunSteps.allSatisfy { $0.containerImage != nil && $0.containerDigest != nil })
+
+        // A conversion to an envelope drops the step keys, and the field forgives exactly that.
+        var converted = frozen
+        for index in converted.steps.indices {
+            converted.steps[index].recorded["containerImage"] = nil
+            converted.steps[index].recorded["containerDigest"] = nil
+        }
+        let withoutField = converted.differences(from: frozen)
+        #expect(withoutField.count == 4)
+        for step in 0..<2 {
+            for key in ["containerImage", "containerDigest"] {
+                #expect(
+                    withoutField.contains { $0.hasPrefix("steps[\(step)].recorded.\(key):") },
+                    "no line for steps[\(step)].recorded.\(key) in \(withoutField)"
+                )
+            }
+        }
+        #expect(converted.differences(from: frozen, ignoring: [.stepRecordedContainer]).isEmpty)
+
+        // The field clears nothing else in the steps. Another recorded key still shows.
+        var conda = converted
+        conda.steps[0].recorded["condaEnvironment"] = "gatk4"
+        let condaLines = conda.differences(from: frozen, ignoring: [.stepRecordedContainer])
+        #expect(condaLines.count == 1)
+        #expect(condaLines.first?.hasPrefix("steps[0].recorded.condaEnvironment:") == true)
+        var extraArgument = converted
+        extraArgument.steps[1].argv.append("--extra")
+        #expect(extraArgument.differences(from: frozen, ignoring: [.stepRecordedContainer]).count == 1)
+
+        // It does not touch the top-level recorded map.
+        var hostValue = converted
+        hostValue.recorded["createdAt"] = "2031-01-01T00:00:00Z"
+        let hostLines = hostValue.differences(from: frozen, ignoring: [.stepRecordedContainer])
+        #expect(hostLines.count == 1)
+        #expect(hostLines.first?.hasPrefix("recorded") == true)
+
+        // An edited or lost container value still shows in both legacy step views.
+        var editedImage = converted
+        editedImage.legacyRunSteps[0].containerImage = "registry.example/other:1"
+        let imageLines = editedImage.differences(from: frozen, ignoring: [.stepRecordedContainer])
+        #expect(imageLines.count == 1)
+        #expect(imageLines.first?.hasPrefix("legacyRunSteps[0].containerImage:") == true)
+        var lostDigest = converted
+        lostDigest.legacyRunSteps[1].containerDigest = nil
+        lostDigest.canonicalRunSteps[1].containerDigest = nil
+        let digestLines = lostDigest.differences(from: frozen, ignoring: [.stepRecordedContainer])
+        #expect(digestLines.count == 2)
+        #expect(digestLines.contains { $0.hasPrefix("legacyRunSteps[1].containerDigest:") })
+        #expect(digestLines.contains { $0.hasPrefix("canonicalRunSteps[1].containerDigest:") })
+
+        // No documented set carries it, so a lane has to name it.
+        for set in [ProvenanceCompatFacts.runSpecific, ProvenanceCompatFacts.realToolRun, ProvenanceCompatFacts.shapeChange] {
+            #expect(!set.contains(.stepRecordedContainer))
+        }
     }
 
     @Test("the shape-change set compares files as a set on path, role, SHA-256 and size")
@@ -121,7 +222,7 @@ struct ProvenanceCompatDifferencesTests {
             try JSONSerialization.jsonObject(with: facts.canonicalJSON()) as? [String: Any]
         )
         let partialFields: Set<ProvenanceCompatFacts.Field> = [
-            .opsStatsTotalWallTimeSeconds, .filesDuplicates, .stepWallTimeSeconds,
+            .opsStatsTotalWallTimeSeconds, .filesDuplicates, .stepWallTimeSeconds, .stepRecordedContainer,
         ]
         for field in ProvenanceCompatFacts.Field.allCases where !partialFields.contains(field) {
             #expect(json[field.rawValue] != nil, "Field.\(field.rawValue) is not a key of the facts")
