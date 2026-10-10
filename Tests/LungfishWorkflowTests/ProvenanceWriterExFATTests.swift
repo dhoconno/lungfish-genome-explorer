@@ -37,7 +37,7 @@ final class ProvenanceWriterExFATTests: XCTestCase {
 
         // The observer accepts the receipt only when the prior state the
         // writer reports equals the state its snapshot saw.
-        let harness = try RollbackHarness(urls: [record])
+        let harness = try ProvenanceRollbackHarness(urls: [record])
         let writer = ProvenanceWriter(
             publicationMutationDidOccur: harness.accept,
             signingProvider: nil
@@ -154,7 +154,7 @@ final class ProvenanceWriterExFATTests: XCTestCase {
 
 /// Refreshes a rollback witness from each writer receipt, as the production
 /// observers do, and restores the snapshot on request.
-private final class RollbackHarness: @unchecked Sendable {
+final class ProvenanceRollbackHarness: @unchecked Sendable {
     private let lock = NSLock()
     private let snapshot: ProvenancePublicationSnapshot
     private var witness: ProvenancePublicationRollbackWitness

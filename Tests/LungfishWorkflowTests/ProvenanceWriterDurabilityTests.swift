@@ -185,6 +185,22 @@ final class ProvenanceWriterDurabilityTests: XCTestCase {
         XCTAssertEqual(try names(in: folder), [tombstone.lastPathComponent, "record.json"].sorted())
     }
 
+    func testRecoveryReplacesAnEmptyReservationOnlyWithALeftoverThatHoldsBytes() throws {
+        let folder = try makeFolder("outside/conda")
+        let record = folder.appendingPathComponent("record.json")
+        XCTAssertTrue(FileManager.default.createFile(atPath: record.path, contents: Data()))
+        let emptyTombstone = folder.appendingPathComponent(".record.json.lungfish-swap-\(UUID().uuidString)")
+        XCTAssertTrue(FileManager.default.createFile(atPath: emptyTombstone.path, contents: Data()))
+        XCTAssertNil(try DurableReplace.recover(named: "record.json", in: folder), "an empty leftover restores nothing")
+
+        let tombstone = folder.appendingPathComponent(".record.json.lungfish-swap-\(UUID().uuidString)")
+        try Data("old".utf8).write(to: tombstone)
+        XCTAssertEqual(try DurableReplace.recover(named: "record.json", in: folder), record)
+        XCTAssertEqual(try text(at: record), "old", "the empty reservation gives way to the old record")
+        XCTAssertNil(try DurableReplace.recover(named: "record.json", in: folder))
+        XCTAssertEqual(try names(in: folder), [emptyTombstone.lastPathComponent, "record.json"].sorted())
+    }
+
     func testReplaceRecoversBeforeItSwapsUnlessToldNotTo() throws {
         let folder = try makeFolder("outside/conda")
         let tombstone = folder.appendingPathComponent(".record.json.lungfish-swap-\(UUID().uuidString)")
@@ -308,6 +324,326 @@ final class ProvenanceWriterDurabilityTests: XCTestCase {
         XCTAssertEqual(displaced.count, 1)
         XCTAssertEqual(try names(in: folder), (displaced + [record.lastPathComponent, "other.lungfish-provenance.json"]).sorted(),
                        "the observer saw the name empty, so the old record stays aside")
+    }
+
+    // MARK: - The fault matrix
+
+    // Every event of a write gets one fault: every DurableReplace step and
+    // every rename or reservation the swap seam makes, natively and as ExFAT
+    // rotates. A thrown fault fails that step, and an exit ends a child
+    // process right after it, so nothing cleans up. Then the record name must
+    // hold the old or the new record, before any recovery on APFS and after
+    // it on ExFAT, the finder must return it and never the sibling's record,
+    // and every leftover must keep its UUID tail.
+
+    func testEveryThrownFaultLeavesTheOldOrNewSignedPair() throws {
+        try throwAtEveryEvent(.signedPair)
+    }
+
+    func testEveryThrownFaultLeavesTheOldOrNewRecordOutsideAProject() throws {
+        try throwAtEveryEvent(.outsideProject)
+    }
+
+    func testEveryThrownFaultInAnObservedPairRollsBackToTheVerifiedOldPair() throws {
+        try throwAtEveryEvent(.observedPair)
+    }
+
+    func testEveryExitLeavesTheOldOrNewSignedPair() throws {
+        try exitAtEveryEvent(.signedPair)
+    }
+
+    func testEveryExitLeavesTheOldOrNewRecordOutsideAProject() throws {
+        try exitAtEveryEvent(.outsideProject)
+    }
+
+    /// The same matrix on a real ExFAT volume, where the native calls take
+    /// the rotation. Run with `scripts/testing/exfat-tests.sh`.
+    func testEveryFaultOnARealExFATVolumeLeavesADecodableRecord() throws {
+        guard let volume = ProcessInfo.processInfo.environment["LUNGFISH_EXFAT_TEST_ROOT"], !volume.isEmpty else {
+            throw XCTSkip("Set LUNGFISH_EXFAT_TEST_ROOT to an ExFAT volume root to run this test.")
+        }
+        let local = root
+        root = URL(fileURLWithPath: volume, isDirectory: true)
+            .appendingPathComponent("durability-\(UUID().uuidString)", isDirectory: true)
+        volumeRotates = true
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            root = local
+            volumeRotates = false
+        }
+        try throwAtEveryEvent(.signedPair, simulating: [false])
+        try throwAtEveryEvent(.outsideProject, simulating: [false])
+        try exitAtEveryEvent(.signedPair, simulating: [false])
+        try exitAtEveryEvent(.outsideProject, simulating: [false])
+    }
+
+    func testTheFinderIgnoresStageTombstoneAndAsideNames() throws {
+        let folder = try makeFolder("P.lungfish/Analyses/run-1")
+        let name = ProvenanceWriter.provenanceFilename
+        let writer = ProvenanceWriter(signingProvider: nil)
+        for infix in Self.leftoverInfixes {
+            let leftover = ".\(name)\(infix)\(UUID().uuidString)"
+            XCTAssertTrue(Self.keepsUUIDTail(leftover, name: name, infix: infix))
+            try writer.write(Self.envelope("leftover"), toSidecar: folder.appendingPathComponent(leftover))
+        }
+        XCTAssertNil(ProvenanceRecorder.findProvenanceEnvelope(for: folder), "no leftover stands in for the record")
+
+        try writer.write(Self.envelope("sibling"), toSidecar: folder.appendingPathComponent("other.lungfish-provenance.json"))
+        XCTAssertEqual(ProvenanceRecorder.findProvenanceEnvelope(for: folder)?.envelope.workflowName, "sibling",
+                       "an empty name lets a sibling stand in, which is why no fault may empty it")
+        try writer.write(Self.envelope("record"), toSidecar: folder.appendingPathComponent(name))
+        XCTAssertEqual(ProvenanceRecorder.findProvenanceEnvelope(for: folder)?.envelope.workflowName, "record")
+    }
+
+    /// Runs only as a child of the fault matrix, which reads what the write
+    /// left on disk after this process ends at one event.
+    func testFaultMatrixChild() throws {
+        guard let request = ProcessInfo.processInfo.environment[Self.childVariable] else {
+            throw XCTSkip("Runs only as a child of the fault matrix")
+        }
+        let fields = request.split(separator: " ", maxSplits: 3).map(String.init)
+        let scenario = try XCTUnwrap(Scenario(rawValue: fields[0]))
+        let injector = FaultInjector(target: try XCTUnwrap(Int(fields[2])), exits: true)
+        let record = URL(fileURLWithPath: fields[3], isDirectory: true)
+            .appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        try DurableReplace.$overrideOperations.withValue(Self.operations(injector, simulated: fields[1] == "1")) {
+            try Self.writer(for: scenario).write(Self.envelope("new"), toSidecar: record)
+        }
+        _exit(Self.targetNeverReached)
+    }
+
+    // MARK: - Matrix helpers
+
+    enum Scenario: String, CaseIterable {
+        /// A signed record pair inside a project.
+        case signedPair
+        /// An unsigned record outside every project, as an install writes one.
+        case outsideProject
+        /// A signed pair whose observer rolls a failed write back.
+        case observedPair
+    }
+
+    struct MatrixRun {
+        let scenario: Scenario
+        let simulated: Bool
+        let rotates: Bool
+        let folder: URL
+        var record: URL { folder.appendingPathComponent(ProvenanceWriter.provenanceFilename) }
+        var mode: String { rotates ? (simulated ? "simulated ExFAT" : "ExFAT") : "APFS" }
+    }
+
+    /// True while the matrix runs on a real ExFAT volume.
+    private var volumeRotates = false
+
+    static let childVariable = "LUNGFISH_DURABILITY_MATRIX_CHILD"
+    static let targetNeverReached: Int32 = 42
+    static let leftoverInfixes = [DurableReplace.stageInfix, PortableRename.swapTombstoneInfix, ".provenance-displaced-"]
+
+    /// Counts the events of one write and fires one fault at the target.
+    final class FaultInjector: @unchecked Sendable {
+        static let exitStatus: Int32 = 77
+        private let lock = NSLock()
+        private var names: [String] = []
+        let target: Int?
+        let exits: Bool
+
+        init(target: Int? = nil, exits: Bool = false) {
+            self.target = target
+            self.exits = exits
+        }
+
+        var events: [String] { lock.withLock { names } }
+
+        /// Counts `event` and says whether it is the target.
+        private func count(_ event: String) -> Bool {
+            lock.withLock {
+                names.append(event)
+                return names.count - 1 == target
+            }
+        }
+
+        func checkpoint(_ step: DurableReplace.Step) throws {
+            guard count(step.rawValue) else { return }
+            if exits { _exit(Self.exitStatus) }
+            throw Refusal()
+        }
+
+        /// A thrown fault refuses the rename. An exit follows it.
+        func rename(_ perform: () -> Int32) -> Int32 {
+            if !exits, lock.withLock({ names.count == target }) {
+                _ = count("rename refused")
+                errno = EIO
+                return -1
+            }
+            let status = perform()
+            let code = errno
+            if status == 0, count("rename"), exits { _exit(Self.exitStatus) }
+            errno = code
+            return status
+        }
+
+        /// The empty file an ExFAT rename reserves its destination with. Only
+        /// an exit can fault here.
+        func reservation() {
+            if count("reservation"), exits { _exit(Self.exitStatus) }
+        }
+    }
+
+    static func operations(_ injector: FaultInjector, simulated: Bool) -> DurableReplace.Operations {
+        var rename = PortableRename.Operations()
+        rename.nativeRename = { sourceParent, source, destinationParent, destination, flags in
+            if simulated, flags != 0 {
+                errno = ENOTSUP
+                return -1
+            }
+            return injector.rename { Darwin.renameatx_np(sourceParent, source, destinationParent, destination, flags) }
+        }
+        rename.ordinaryRename = { sourceParent, source, destinationParent, destination in
+            injector.rename { Darwin.renameat(sourceParent, source, destinationParent, destination) }
+        }
+        rename.afterReservationCreated = { injector.reservation() }
+        return DurableReplace.Operations(rename: rename, checkpoint: { try injector.checkpoint($0) })
+    }
+
+    static func writer(for scenario: Scenario, harness: ProvenanceRollbackHarness? = nil) -> ProvenanceWriter {
+        guard scenario != .outsideProject else { return ProvenanceWriter(signingProvider: nil) }
+        let signer = LocalProvenanceSigningProvider(privateKey: "durability-matrix-key")
+        guard let harness else { return ProvenanceWriter(signingProvider: signer) }
+        return ProvenanceWriter(publicationMutationDidOccur: harness.accept, signingProvider: signer)
+    }
+
+    /// A folder holding the old record and a sibling operation's record.
+    func prepare(_ scenario: Scenario, simulated: Bool, label: String) throws -> MatrixRun {
+        let relative = scenario == .outsideProject ? "conda" : "P.lungfish/Analyses/run-1"
+        let folder = try makeFolder("\(label)/\(relative)")
+        let run = MatrixRun(scenario: scenario, simulated: simulated, rotates: simulated || volumeRotates, folder: folder)
+        let sibling = run.folder.appendingPathComponent("other.lungfish-provenance.json")
+        try ProvenanceWriter(signingProvider: nil).write(Self.envelope("sibling"), toSidecar: sibling)
+        try Self.writer(for: scenario).write(Self.envelope("old"), toSidecar: run.record)
+        return run
+    }
+
+    /// The events one unfaulted write passes through.
+    func events(of scenario: Scenario, simulated: Bool) throws -> [String] {
+        let run = try prepare(scenario, simulated: simulated, label: "dry-\(scenario)-\(simulated)")
+        let harness = scenario == .observedPair ? try ProvenanceRollbackHarness(urls: Self.pair(run.record)) : nil
+        defer { _ = try? harness?.restore() }
+        let injector = FaultInjector()
+        try DurableReplace.$overrideOperations.withValue(Self.operations(injector, simulated: simulated)) {
+            try Self.writer(for: scenario, harness: harness).write(Self.envelope("new"), toSidecar: run.record)
+        }
+        let seen = Set(injector.events)
+        XCTAssertTrue(DurableReplace.Step.allCases.allSatisfy { seen.contains($0.rawValue) }, "\(injector.events)")
+        XCTAssertEqual(seen.contains("reservation"), run.rotates, "only the ExFAT rotation reserves names")
+        return injector.events
+    }
+
+    func throwAtEveryEvent(_ scenario: Scenario, simulating modes: [Bool] = [false, true]) throws {
+        for simulated in modes {
+            let events = try events(of: scenario, simulated: simulated)
+            for target in events.indices where events[target] != "reservation" {
+                let run = try prepare(scenario, simulated: simulated, label: "throw-\(simulated)-\(target)")
+                let context = "\(scenario) \(run.mode) throw at \(target) \(events[target])"
+                let harness = scenario == .observedPair ? try ProvenanceRollbackHarness(urls: Self.pair(run.record)) : nil
+                let writer = Self.writer(for: scenario, harness: harness)
+                let operations = Self.operations(FaultInjector(target: target), simulated: simulated)
+                XCTAssertThrowsError(try DurableReplace.$overrideOperations.withValue(operations) {
+                    try writer.write(Self.envelope("new"), toSidecar: run.record)
+                }, context)
+                if let harness {
+                    XCTAssertEqual(try harness.restore(), [], context)
+                    XCTAssertEqual(try workflowName(at: run.record), "old", context)
+                }
+                try assertOldOrNew(run, context: context, exited: false)
+            }
+        }
+    }
+
+    func exitAtEveryEvent(_ scenario: Scenario, simulating modes: [Bool] = [false, true]) throws {
+        guard let xctest = ProcessInfo.processInfo.arguments.first, xctest.hasSuffix("xctest") else {
+            throw XCTSkip("Needs xctest to start a child test process")
+        }
+        var runs: [(run: MatrixRun, target: Int, event: String)] = []
+        for simulated in modes {
+            let events = try events(of: scenario, simulated: simulated)
+            for target in events.indices {
+                let run = try prepare(scenario, simulated: simulated, label: "exit-\(simulated)-\(target)")
+                runs.append((run, target, events[target]))
+            }
+        }
+        for start in stride(from: 0, to: runs.count, by: 8) {
+            let batch = runs[start ..< min(start + 8, runs.count)]
+            let children = try batch.map { try startChild(xctest: xctest, run: $0.run, target: $0.target) }
+            for (entry, child) in zip(batch, children) {
+                let context = "\(scenario) \(entry.run.mode) exit at \(entry.target) \(entry.event)"
+                XCTAssertEqual(Self.waitForExit(child), FaultInjector.exitStatus, context)
+                try assertOldOrNew(entry.run, context: context, exited: true)
+            }
+        }
+    }
+
+    func startChild(xctest: String, run: MatrixRun, target: Int) throws -> Process {
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: xctest)
+        child.arguments = [
+            "-XCTest", "LungfishWorkflowTests.ProvenanceWriterDurabilityTests/testFaultMatrixChild",
+            Bundle(for: Self.self).bundlePath,
+        ]
+        // An IDE run hands this process its test session's variables, which
+        // a plain xctest child must not join.
+        var environment = ProcessInfo.processInfo.environment.filter { key, value in
+            !(key.hasPrefix("XCTest") || key.hasPrefix("XCInject")
+                || (key == "DYLD_INSERT_LIBRARIES" && value.contains("XCTest")))
+        }
+        environment[Self.childVariable] = "\(run.scenario.rawValue) \(run.simulated ? 1 : 0) \(target) \(run.folder.path)"
+        child.environment = environment
+        child.standardOutput = FileHandle.nullDevice
+        child.standardError = FileHandle.nullDevice
+        try child.run()
+        return child
+    }
+
+    /// Waits for a child. One still running after three minutes is hung, so
+    /// it is killed and reported, which no fault ever relies on.
+    static func waitForExit(_ child: Process) -> Int32 {
+        let deadline = Date().addingTimeInterval(180)
+        while child.isRunning, Date() < deadline {
+            usleep(20_000)
+        }
+        if child.isRunning {
+            kill(child.processIdentifier, SIGKILL)
+            child.waitUntilExit()
+            return -1
+        }
+        return child.terminationStatus
+    }
+
+    func assertOldOrNew(_ run: MatrixRun, context: String, exited: Bool) throws {
+        let name = ProvenanceWriter.provenanceFilename
+        if !run.rotates {
+            XCTAssertTrue(["old", "new"].contains(try? workflowName(at: run.record)),
+                          "\(context): on APFS the name holds a record before any recovery")
+        }
+        try DurableReplace.recover(named: name, in: run.folder, asideInfixes: [ProvenanceWriter.releasedDisplacedInfix])
+        let found = try XCTUnwrap(ProvenanceRecorder.findProvenanceEnvelope(for: run.folder), context)
+        XCTAssertEqual(found.sidecarURL.lastPathComponent, name, "\(context): never the sibling's record")
+        XCTAssertTrue(["old", "new"].contains(found.envelope.workflowName), "\(context): \(found.envelope.workflowName)")
+        if run.scenario != .outsideProject, found.envelope.workflowName == "old" {
+            XCTAssertNoThrow(try ProvenanceSignatureVerifier.verify(provenanceURL: run.record), "\(context): the old pair verifies")
+        }
+        let leftovers = try names(in: run.folder).filter { $0.hasPrefix(".\(name)") }
+        XCTAssertLessThanOrEqual(leftovers.count, exited ? (run.rotates ? 2 : 1) : 0, "\(context): \(leftovers)")
+        for leftover in leftovers {
+            XCTAssertTrue(Self.leftoverInfixes.contains { Self.keepsUUIDTail(leftover, name: name, infix: $0) },
+                          "\(context): \(leftover)")
+        }
+        try Self.writer(for: run.scenario == .outsideProject ? .outsideProject : .signedPair)
+            .write(Self.envelope("next"), toSidecar: run.record)
+        XCTAssertEqual(try workflowName(at: run.record), "next", "\(context): the next write succeeds")
+    }
+
+    static func pair(_ record: URL) -> [URL] {
+        [record, ProvenanceSigningConfiguration.signatureURL(for: record), ProvenanceSigningConfiguration.publicKeyURL(for: record)]
     }
 
     // MARK: - Helpers

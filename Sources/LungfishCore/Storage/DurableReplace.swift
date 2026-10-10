@@ -167,10 +167,12 @@ public enum DurableReplace {
         }
     }
 
-    /// Restores `name` in `directoryURL` from its newest leftover when the
-    /// name holds nothing. Leftovers are `.lungfish-swap-` tombstones and the
-    /// asides named by `asideInfixes`. A leftover beside a present name is
-    /// never touched. Returns the restored name, or `nil`.
+    /// Restores `name` in `directoryURL` from its newest leftover that holds
+    /// bytes when the name holds nothing, or only the empty file an
+    /// interrupted ExFAT rename reserved it with. Leftovers are
+    /// `.lungfish-swap-` tombstones and the asides named by `asideInfixes`.
+    /// A leftover beside a record is never touched. Returns the restored
+    /// name, or `nil`.
     @discardableResult
     public static func recover(
         named name: String,
@@ -584,11 +586,22 @@ extension DurableReplace {
             _ = operations.syncDirectory(descriptor)
         }
 
-        /// Restores the name from its newest regular leftover when it holds
-        /// nothing, and returns the leftover's name.
+        /// Restores the name from its newest leftover that holds bytes when
+        /// the name holds nothing, and returns the leftover's name.
+        ///
+        /// On ExFAT every exclusive rename first reserves its destination with
+        /// an empty file, so a process that ends between the two leaves the
+        /// name empty-handed while its old file waits under a tombstone. An
+        /// empty file under the name beside such a leftover is that
+        /// reservation, never a record, and gives way to the leftover.
         @discardableResult
         func recoverMissingEntry(asideInfixes: [String]) throws -> String? {
-            guard try kind(of: name) == .missing else { return nil }
+            let reservation: Identity?
+            switch try kind(of: name) {
+            case .missing: reservation = nil
+            case .regular(let identity) where identity.size == 0: reservation = identity
+            default: return nil
+            }
             let prefix = ".\(name)"
             let infixes = [PortableRename.swapTombstoneInfix] + asideInfixes
             var chosen: (entry: String, modified: timespec)?
@@ -598,13 +611,18 @@ extension DurableReplace {
                       UUID(uuidString: String(rest.dropFirst(infix.count))) != nil else { continue }
                 var information = stat()
                 guard entry.withCString({ Darwin.fstatat(descriptor, $0, &information, AT_SYMLINK_NOFOLLOW) }) == 0,
-                      information.st_mode & S_IFMT == S_IFREG else { continue }
+                      information.st_mode & S_IFMT == S_IFREG,
+                      information.st_size > 0 else { continue }
                 if let current = chosen, !Self.isNewer(information.st_mtimespec, entry, than: current) {
                     continue
                 }
                 chosen = (entry, information.st_mtimespec)
             }
             guard let chosen else { return nil }
+            if let reservation {
+                guard (try? kind(of: name)) == .regular(reservation),
+                      operations.removeEntry(descriptor, name) == 0 else { return nil }
+            }
             guard rename(chosen.entry, name, flags: RENAME_EXCL).status == 0 else {
                 if errno == EEXIST { return nil }
                 throw ReplaceError.systemFailure(path: url.path, operation: "restore \(chosen.entry)", code: errno)
