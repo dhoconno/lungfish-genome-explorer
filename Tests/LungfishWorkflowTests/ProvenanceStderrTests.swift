@@ -189,4 +189,55 @@ struct ProvenanceStderrTests {
             #expect(kept.count == Self.bound + Self.marker.count)
         }
     }
+
+    // MARK: A failed TaxTriage log
+
+    /// A stderr of exactly `characters` characters between a banner line and an
+    /// error line, with a distinct character at every position of the middle.
+    private static func failureLog(characters: Int) -> (text: String, banner: String, error: String) {
+        let banner = "N E X T F L O W  ~  version 24.04.4 launching taxtriage"
+        let error = "ERROR ~ TaxTriage failed while classifying SampleF, exiting"
+        let alphabet = Array("abcdefghijklmnopqrstuvwxyz0123456789")
+        let middleCount = characters - banner.count - error.count - 2
+        let middle = String((0..<middleCount).map { alphabet[($0 * 7 + $0 / 36) % alphabet.count] })
+        return (banner + "\n" + middle + "\n" + error, banner, error)
+    }
+
+    @Test("a 20,000-character TaxTriage failure log keeps its banner and its last error line in the record")
+    func failedTaxTriageLogKeepsItsLastErrorLine() throws {
+        let directory = try TestTempDirectory.make(prefix: "taxtriage-stderr")
+        defer { TestTempDirectory.cleanup(directory) }
+        let fastqURL = directory.appendingPathComponent("SampleF.fastq")
+        let logURL = directory.appendingPathComponent("nextflow.log")
+        let log = Self.failureLog(characters: 20_000)
+        #expect(log.text.count == 20_000)
+        try "@r\nACGT\n+\nIIII\n".write(to: fastqURL, atomically: true, encoding: .utf8)
+        try (log.text + "\n").write(to: logURL, atomically: true, encoding: .utf8)
+        let config = TaxTriageConfig(
+            samples: [TaxTriageSample(sampleId: "SampleF", fastq1: fastqURL)],
+            outputDirectory: directory,
+            profile: "conda"
+        )
+        let result = TaxTriageResult(
+            config: config,
+            runtime: 7.25,
+            exitCode: 2,
+            outputDirectory: directory,
+            logFile: logURL,
+            allOutputFiles: [logURL]
+        )
+        try result.save()
+
+        _ = try #require(try MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(resultDirectory: directory))
+
+        let envelope = try #require(ProvenanceRecorder.findProvenanceEnvelope(for: directory)?.envelope)
+        let step = try #require(envelope.steps.first { $0.toolName == "TaxTriage" })
+        // The writer trims the log, which ends in a newline, and then cuts it.
+        let expected = String(log.text.prefix(Self.headLength)) + Self.marker + String(log.text.suffix(Self.tailLength))
+        #expect(step.stderr == expected)
+        #expect(envelope.stderr == expected)
+        let kept = try #require(step.stderr)
+        #expect(kept.hasPrefix(log.banner), "the banner survives")
+        #expect(kept.hasSuffix(log.error), "the last 8,192 characters, and with them the error line, survive")
+    }
 }

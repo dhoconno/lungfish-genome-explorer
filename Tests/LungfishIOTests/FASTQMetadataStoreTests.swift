@@ -423,16 +423,62 @@ final class FASTQMetadataStoreTests: XCTestCase {
         XCTAssertNil(result.completedAt)
     }
 
-    func testRecipeStepResultBoundsAndNormalizesStderr() {
+    // MARK: - RecipeStepResult stderr
+
+    /// Tools print their banner first and their failure last.
+    private static let stderrBanner = "fastp v0.23.4 starting with 8 threads"
+    private static let stderrFailure = "ERROR: out of memory in stage 7, exiting"
+    private static let truncationMarker = "\n... [truncated] ...\n"
+
+    /// A stderr of exactly `characters` characters, with a distinct character at
+    /// every position of the middle so a wrong slice cannot pass by luck.
+    private static func failureLog(characters: Int = 20_000) -> String {
+        let alphabet = Array("abcdefghijklmnopqrstuvwxyz0123456789")
+        let middleCount = characters - stderrBanner.count - stderrFailure.count - 2
+        let middle = String((0..<middleCount).map { alphabet[($0 * 7 + $0 / 36) % alphabet.count] })
+        return stderrBanner + "\n" + middle + "\n" + stderrFailure
+    }
+
+    /// What an earlier version stored for a long stderr, its first 10,240
+    /// characters and a head-only marker.
+    private static func headOnlyCut(of log: String) -> String {
+        String(log.prefix(10_240)) + "\n... [truncated]"
+    }
+
+    private static func jsonLiteral(_ value: String) throws -> String {
+        String(decoding: try JSONEncoder().encode(value), as: UTF8.self)
+    }
+
+    func testRecipeStepResultKeepsTheHeadAndTheTailOfALongStderr() throws {
+        let log = Self.failureLog()
+        XCTAssertEqual(log.count, 20_000)
+
         let result = RecipeStepResult(
             stepName: "Deduplicate",
             tool: "fastp",
             durationSeconds: 0,
-            stderr: String(repeating: "x", count: 10_500)
+            stderr: log
         )
 
-        XCTAssertEqual(result.stderr?.count, 10_240 + "\n... [truncated]".count)
-        XCTAssertTrue(result.stderr?.hasSuffix("\n... [truncated]") == true)
+        let kept = try XCTUnwrap(result.stderr)
+        XCTAssertEqual(kept, String(log.prefix(2_048)) + Self.truncationMarker + String(log.suffix(8_192)))
+        XCTAssertTrue(kept.hasPrefix(Self.stderrBanner), "the banner survives")
+        XCTAssertTrue(kept.hasSuffix(Self.stderrFailure), "the last 8,192 characters, and with them the failure line, survive")
+        XCTAssertEqual(kept.components(separatedBy: Self.truncationMarker).count, 2, "exactly one marker")
+    }
+
+    func testRecipeStepResultKeepsAStderrOfUpTo10240CharactersWholeAndDropsABlankOne() {
+        for count in [1, 2_049, 8_192, 10_239, 10_240] {
+            let text = String(repeating: "x", count: count)
+            let result = RecipeStepResult(stepName: "Deduplicate", tool: "fastp", durationSeconds: 0, stderr: text)
+            XCTAssertEqual(result.stderr, text, "\(count) characters")
+        }
+        let overOneCharacter = String(repeating: "x", count: 10_241)
+        XCTAssertNotEqual(
+            RecipeStepResult(stepName: "Deduplicate", tool: "fastp", durationSeconds: 0, stderr: overOneCharacter).stderr,
+            overOneCharacter,
+            "one character over the bound is cut"
+        )
 
         let empty = RecipeStepResult(
             stepName: "Deduplicate",
@@ -441,6 +487,70 @@ final class FASTQMetadataStoreTests: XCTestCase {
             stderr: "  \n"
         )
         XCTAssertNil(empty.stderr)
+        XCTAssertNil(RecipeStepResult(stepName: "Deduplicate", tool: "fastp", durationSeconds: 0).stderr)
+    }
+
+    /// The rule runs when a step is made. A record read from disk keeps the
+    /// stderr it holds, because cutting it again would drop a part of a record
+    /// that an earlier version already cut once.
+    func testDecodingARecipeStepResultNeverCutsItsStderr() throws {
+        let log = Self.failureLog()
+        for stored in [log, Self.headOnlyCut(of: log)] {
+            let json = #"{"stepName":"Deduplicate","tool":"fastp","durationSeconds":2.5,"stderr":"# + (try Self.jsonLiteral(stored)) + "}"
+            let decoded = try JSONDecoder().decode(RecipeStepResult.self, from: Data(json.utf8))
+            XCTAssertEqual(decoded.stderr, stored, "\(stored.count) characters")
+        }
+    }
+
+    func testReplacingAuxiliaryOutputsKeepsAnEarlierVersionsStderrWhole() throws {
+        let stored = Self.headOnlyCut(of: Self.failureLog())
+        let json = #"{"stepName":"Deduplicate","tool":"fastp","durationSeconds":2.5,"stderr":"# + (try Self.jsonLiteral(stored)) + "}"
+        let decoded = try JSONDecoder().decode(RecipeStepResult.self, from: Data(json.utf8))
+
+        let replaced = decoded.replacingAuxiliaryOutputs(
+            paths: ["metadata/recipe-step-artifacts/fastp.json"],
+            commandPathRewrites: [:]
+        )
+
+        XCTAssertEqual(replaced.stderr, stored)
+        XCTAssertEqual(replaced.auxiliaryOutputPaths, ["metadata/recipe-step-artifacts/fastp.json"])
+    }
+
+    func testReSavingAnOldFASTQMetadataStoreCutsNothingAgain() throws {
+        let fastqURL = tempDir.appendingPathComponent("resaved.fastq.gz")
+        createFASTQFixture(at: fastqURL)
+        let step = RecipeStepResult(stepName: "Deduplicate", tool: "fastp", durationSeconds: 1, stderr: "placeholder")
+        let recipe = RecipeAppliedInfo(
+            recipeID: "dedup",
+            recipeName: "Deduplicate",
+            appliedDate: Date(timeIntervalSince1970: 1_700_000_000),
+            stepResults: [step]
+        )
+        FASTQMetadataStore.save(PersistedFASTQMetadata(ingestion: IngestionMetadata(recipeApplied: recipe)), for: fastqURL)
+        let sidecarURL = FASTQMetadataStore.metadataURL(for: fastqURL)
+        let written = try String(contentsOf: sidecarURL, encoding: .utf8)
+        let placeholder = try Self.jsonLiteral("placeholder")
+        XCTAssertTrue(written.contains(placeholder))
+
+        let log = Self.failureLog()
+        for stored in [Self.headOnlyCut(of: log), log] {
+            // The store as an earlier version wrote it.
+            try written
+                .replacingOccurrences(of: placeholder, with: try Self.jsonLiteral(stored))
+                .write(to: sidecarURL, atomically: true, encoding: .utf8)
+
+            let loaded = try XCTUnwrap(FASTQMetadataStore.load(for: fastqURL))
+            FASTQMetadataStore.save(loaded, for: fastqURL)
+
+            let resaved = try XCTUnwrap(FASTQMetadataStore.load(for: fastqURL))
+            XCTAssertEqual(
+                resaved.ingestion?.recipeApplied?.stepResults.first?.stderr,
+                stored,
+                "re-saving a store that holds \(stored.count) characters of stderr"
+            )
+            let raw = try String(contentsOf: sidecarURL, encoding: .utf8)
+            XCTAssertTrue(raw.contains(try Self.jsonLiteral(stored)), "the file holds the stderr byte for byte")
+        }
     }
 
     func testRecipeStepResultEffectiveDurationUsesExecutionTimestamps() {

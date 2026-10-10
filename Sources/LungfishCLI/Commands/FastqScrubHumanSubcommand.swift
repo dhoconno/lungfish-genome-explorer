@@ -559,12 +559,15 @@ private extension FastqScrubHumanSubcommand {
         }
         return result
     }
+}
 
+extension FastqScrubHumanSubcommand {
+    /// A scrubber call's stderr as its provenance step keeps it. Surrounding
+    /// whitespace goes, a blank stderr is dropped, and a long one keeps the first
+    /// 2,048 and the last 8,192 characters through ``ProvenanceStderr``.
     static func normalizedStderr(_ stderr: String) -> String? {
         let trimmed = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        let maxLength = 10_240
-        guard trimmed.count > maxLength else { return trimmed }
-        return String(trimmed.prefix(maxLength)) + "\n... [truncated]"
+        return ProvenanceStderr.truncated(trimmed)
     }
 }

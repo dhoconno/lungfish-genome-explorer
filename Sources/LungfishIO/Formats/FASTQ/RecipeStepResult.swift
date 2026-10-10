@@ -34,7 +34,11 @@ public struct RecipeStepResult: Codable, Sendable {
     public let executionOutputFiles: [RecipeStepOutputFile]
     /// Actual process exit status, when the process ran and reported one.
     public let exitStatus: Int?
-    /// Bounded, normalized stderr captured from the actual process.
+    /// Stderr captured from the actual process, kept whole up to 10,240
+    /// characters and otherwise cut to its first 2,048 and last 8,192 characters
+    /// by ``ProvenanceStderr`` when the step is made. A step read from disk keeps
+    /// the stderr it holds, because cutting it again would drop more of a record
+    /// that an earlier version already cut.
     public let stderr: String?
     /// Actual process start timestamp, when captured.
     public let startedAt: Date?
@@ -60,8 +64,6 @@ public struct RecipeStepResult: Codable, Sendable {
         case completedAt
     }
 
-    private static let maxStderrLength = 10_240
-    private static let stderrTruncationMarker = "\n... [truncated]"
     private static let deduplicationComponentID = "fastp-dedup"
     private static let trimmingComponentID = "fastp-trim"
     private static let legacyFusedFastpLabel = "remove pcr duplicates + adapter + quality trim"
@@ -84,6 +86,47 @@ public struct RecipeStepResult: Codable, Sendable {
         startedAt: Date? = nil,
         completedAt: Date? = nil
     ) {
+        self.init(
+            stepName: stepName,
+            tool: tool,
+            toolVersion: toolVersion,
+            commandLine: commandLine,
+            commandArguments: commandArguments,
+            inputReadCount: inputReadCount,
+            outputReadCount: outputReadCount,
+            durationSeconds: durationSeconds,
+            auxiliaryOutputPaths: auxiliaryOutputPaths,
+            auxiliaryCommandPathRewrites: auxiliaryCommandPathRewrites,
+            logicalComponents: logicalComponents,
+            executionOutputFiles: executionOutputFiles,
+            exitStatus: exitStatus,
+            keepingStderr: ProvenanceStderr.normalized(stderr),
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+    }
+
+    /// Every field as given, with the stderr rule not applied to `keepingStderr`.
+    /// A copy of a step that already holds its stderr uses this, so the copy keeps
+    /// that stderr whole.
+    private init(
+        stepName: String,
+        tool: String,
+        toolVersion: String?,
+        commandLine: String?,
+        commandArguments: [String]?,
+        inputReadCount: Int?,
+        outputReadCount: Int?,
+        durationSeconds: Double,
+        auxiliaryOutputPaths: [String],
+        auxiliaryCommandPathRewrites: [String: String],
+        logicalComponents: [RecipeLogicalComponent],
+        executionOutputFiles: [RecipeStepOutputFile],
+        exitStatus: Int?,
+        keepingStderr stderr: String?,
+        startedAt: Date?,
+        completedAt: Date?
+    ) {
         self.stepName = stepName
         self.tool = tool
         self.toolVersion = toolVersion
@@ -97,7 +140,7 @@ public struct RecipeStepResult: Codable, Sendable {
         self.logicalComponents = logicalComponents
         self.executionOutputFiles = executionOutputFiles
         self.exitStatus = exitStatus
-        self.stderr = Self.normalizedStderr(stderr)
+        self.stderr = stderr
         self.startedAt = startedAt
         self.completedAt = completedAt
     }
@@ -126,7 +169,7 @@ public struct RecipeStepResult: Codable, Sendable {
             forKey: .executionOutputFiles
         ) ?? []
         exitStatus = try container.decodeIfPresent(Int.self, forKey: .exitStatus)
-        stderr = Self.normalizedStderr(try container.decodeIfPresent(String.self, forKey: .stderr))
+        stderr = try container.decodeIfPresent(String.self, forKey: .stderr)
         startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
         completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
     }
@@ -177,7 +220,7 @@ public struct RecipeStepResult: Codable, Sendable {
             logicalComponents: logicalComponents,
             executionOutputFiles: executionOutputFiles,
             exitStatus: exitStatus,
-            stderr: stderr,
+            keepingStderr: stderr,
             startedAt: startedAt,
             completedAt: completedAt
         )
@@ -233,17 +276,6 @@ public struct RecipeStepResult: Codable, Sendable {
 
     private var logicalComponentTypeIDs: Set<String> {
         Set(logicalComponents.map { $0.typeID.lowercased() })
-    }
-
-    private static func normalizedStderr(_ stderr: String?) -> String? {
-        guard let stderr else { return nil }
-        let bounded: String
-        if stderr.count > maxStderrLength {
-            bounded = String(stderr.prefix(maxStderrLength)) + stderrTruncationMarker
-        } else {
-            bounded = stderr
-        }
-        return bounded.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : bounded
     }
 
     /// Reads removed (positive) or added (negative) by this step.
