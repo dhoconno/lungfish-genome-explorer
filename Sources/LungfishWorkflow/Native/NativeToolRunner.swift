@@ -191,24 +191,12 @@ public enum NativeTool: String, CaseIterable, Sendable {
     /// used by ``NativeToolRunner/getToolVersion(_:)``.
     public var versionArguments: [String] {
         switch self {
-        case .ivar:
-            // iVar rejects `--version` as "Unknown command" but accepts the
-            // `version` subcommand (and `-v`) and prints "iVar version 1.4.4".
-            return ["version"]
-        case .seqkit:
-            return ["version"]
-        case .lofreq:
-            // `lofreq --version` fails with "FATAL ... Unrecognized command";
-            // the `version` subcommand prints "version: 2.1.5".
-            return ["version"]
-        case .ribodetector:
-            return ["-v"]
-        case .blastn:
-            return ["-version"]
-        case .whatshap, .freyja:
+        case .bedGraphToBigWig:
+            // The probe table lists no argument for it, because none reports the version.
             return ["--version"]
         default:
-            return ["--version"]
+            // The probe table holds the rest, such as iVar's and lofreq's `version` subcommand.
+            return ManagedToolVersionProbe.probe(for: managedToolID)?.arguments ?? ["--version"]
         }
     }
 
