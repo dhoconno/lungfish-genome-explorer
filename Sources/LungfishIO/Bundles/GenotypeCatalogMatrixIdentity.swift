@@ -16,9 +16,12 @@ import Foundation
 /// row that names nothing that way names the one native row whose reference
 /// record, the bundle's reference metadata at its allele field, carries the
 /// row's display name as its allele, under that allele's own locus. Full-length
-/// calls carry the reference sequence ID, an accession such as NHP01222 that
-/// parses to the pseudo-locus MHC-NHP01222, so this fallback is keyed by the
-/// allele's locus and never by the native row's (decision D4, finding N9).
+/// calls carry the reference sequence ID, an accession such as NHP01222, so
+/// no name lookup meets the catalog's allele name. The result stamps such a
+/// call with the locus its reference record names (N9), and this fallback
+/// keys the allele by the same rule, so the two meet at that locus, MHC-I or
+/// MHC-G as well as MHC-A or MHC-B (decision D4). A result without a record
+/// store keeps the accession's pseudo-locus, and the fallback finds nothing.
 /// When two native rows carry the allele the row stands alone, with no
 /// refusal. A row that names no native row stands alone under its own locus
 /// and display name, and later rows can name it. A row that names two native
@@ -238,9 +241,16 @@ public enum GenotypeCatalogMatrixIdentity {
             return allele.isEmpty ? nil : allele
         }
 
-        /// The canonical locus a call whose genotype is the allele name would
-        /// be grouped under, the locus the catalog files that allele under.
+        /// The canonical locus of an allele name, the locus the catalog files
+        /// that allele under. The allele prefix goes through the rule that
+        /// stamps full-length calls (N9), so "Mafa-I*01:18:01:01" lands on
+        /// MHC-I. A name without a `*` or without a usable prefix keeps the
+        /// locus a call with that genotype would be grouped under.
         private static func canonicalLocus(ofAllele allele: String) -> String {
+            if allele.contains("*"),
+               let locus = GenotypeHaplotypeLocusResolver.referenceRecordAlleleLocus(allele) {
+                return GenotypeHaplotypeLocusResolver.canonicalLocusName(locus)
+            }
             let asGenotype = ONTGenotypeCall(
                 sample: "", genotype: allele, passedAlignments: 0, passedUniqueReads: 0,
                 sampleTotalReads: nil, sampleUniqueRetainedReads: nil, sampleUniqueRetainedPercent: nil,
