@@ -103,7 +103,7 @@ struct FASTQOperationProvenanceRehydrator: Sendable {
             exitStatus: rehydrated.exitStatus,
             stderr: rehydrated.stderr,
             signatures: [],
-            legacyWorkflowRun: nil
+            status: rehydrated.status
         )
         try ProvenanceWriter(signingProvider: nil).write(merged, to: referenceBundleURL)
     }

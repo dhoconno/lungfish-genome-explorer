@@ -11,12 +11,13 @@ import LungfishTestSupport
 /// output paths.
 ///
 /// Where today's behaviour falls short of that, the test says so instead of weakening the check.
-/// The generic and GUI rehydrators write no embedded run, so a copied cancelled run reads as
-/// completed (finding F3). The GUI import also rebuilds each step without its peak memory, resolved
-/// options, runtime identity and release version (lane finding W1A-1). The checks for both sit
-/// inside `withKnownIssue`, so the suite passes today. The losses are deterministic, so the lane
-/// that fixes one gets a red "known issue was not recorded" and promotes that check to a plain
-/// expectation, which then guards the fix as a declared, reviewed difference.
+/// The generic and GUI rehydrators used to write no embedded run, so a copied cancelled run read
+/// as completed (finding F3). Lane W2A fixed that by passing the stored status through, and the
+/// status checks are plain expectations now. The GUI import still rebuilds each step without its
+/// peak memory, resolved options, runtime identity and release version (lane finding W1A-1). That
+/// check sits inside `withKnownIssue`, so the suite passes today. The loss is deterministic, so
+/// the lane that fixes it gets a red "known issue was not recorded" and promotes that check to a
+/// plain expectation, which then guards the fix as a declared, reviewed difference.
 @Suite("Provenance compatibility rehydration")
 struct ProvenanceCompatRehydrationTests {
     static let cancelledCaseID = "s1-cancelled-single-step"
@@ -103,14 +104,10 @@ struct ProvenanceCompatRehydrationTests {
             }
         }
 
-        // Status. Neither this rehydrator nor the GUI one writes an embedded run, so a cancelled run
-        // reads as completed today.
+        // Status. The rehydrator passes the stored status, so a copied cancelled run stays
+        // cancelled (finding F3 is fixed).
         if id == Self.cancelledCaseID {
-            withKnownIssue(
-                "F3: the rehydrator writes no embedded run, so a copied cancelled run reads completed"
-            ) {
-                #expect(rehydratedFacts.readStatus == sourceFacts.readStatus)
-            }
+            #expect(rehydratedFacts.readStatus == sourceFacts.readStatus)
             #expect(sourceFacts.readStatus == "cancelled")
         } else {
             #expect(rehydratedFacts.readStatus == sourceFacts.readStatus)
@@ -249,14 +246,11 @@ struct ProvenanceCompatRehydrationTests {
         #expect(rehydrated.outputs.map { Self.physicalPath($0.path) } == [Self.physicalPath(destinationFile.path)])
         #expect(rehydrated.outputs.allSatisfy { $0.originPath != nil })
 
+        // Status. The import passes the stored status, so an imported cancelled run stays
+        // cancelled (finding F3 is fixed).
+        #expect(rehydratedFacts.readStatus == sourceFacts.readStatus)
         if id == Self.cancelledCaseID {
-            withKnownIssue(
-                "F3: the GUI rehydrator writes no embedded run, so an imported cancelled run reads completed"
-            ) {
-                #expect(rehydratedFacts.readStatus == sourceFacts.readStatus)
-            }
-        } else {
-            #expect(rehydratedFacts.readStatus == sourceFacts.readStatus)
+            #expect(sourceFacts.readStatus == "cancelled")
         }
     }
 

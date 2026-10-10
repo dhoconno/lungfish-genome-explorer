@@ -131,7 +131,7 @@ public enum ProvenanceRehydrator {
             exitStatus: sourceEnvelope.exitStatus,
             stderr: sourceEnvelope.stderr,
             signatures: [],
-            legacyWorkflowRun: nil
+            status: sourceEnvelope.status
         )
 
         try ProvenanceWriter(signingProvider: nil).write(rehydrated, to: finalDirectory)

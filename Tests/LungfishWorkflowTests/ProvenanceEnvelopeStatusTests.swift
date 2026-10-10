@@ -4,6 +4,7 @@
 
 import Foundation
 import Testing
+import LungfishCore
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
@@ -391,5 +392,132 @@ struct ProvenanceEnvelopeStatusTests {
                 #expect(envelope.outputs.isEmpty, "the run-level outputs were dropped")
             }
         }
+    }
+
+    // MARK: Rehydrators
+
+    /// A cancelled record of a `lungfish-cli` run whose last step exited 0, over real files so
+    /// that a rehydrator can check their checksums and sizes.
+    private static func cancelledCLIRecord(input: URL, output: URL) throws -> ProvenanceEnvelope {
+        let inputDescriptor = try ProvenanceFileDescriptor.file(url: input, format: .fastq, role: .input)
+        let outputDescriptor = try ProvenanceFileDescriptor.file(url: output, format: .fastq, role: .output)
+        let argv = ["lungfish-cli", "fastq", "trim", input.path, "--output", output.path]
+        return ProvenanceEnvelope(
+            id: UUID(uuidString: "00000000-0000-0000-0000-0000000057A9")!,
+            createdAt: startedAt,
+            workflowName: "cancelled rehydration fixture",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05",
+            argv: argv,
+            runtimeIdentity: .fixture(),
+            files: [inputDescriptor, outputDescriptor],
+            output: outputDescriptor,
+            outputs: [outputDescriptor],
+            steps: [
+                ProvenanceStep(
+                    toolName: "lungfish-cli",
+                    toolVersion: "2026.05",
+                    argv: argv,
+                    inputs: [inputDescriptor],
+                    outputs: [outputDescriptor],
+                    exitStatus: 0,
+                    wallTimeSeconds: 1.5,
+                    startedAt: startedAt,
+                    completedAt: startedAt.addingTimeInterval(1.5)
+                ),
+            ],
+            wallTimeSeconds: 1.5,
+            exitStatus: 0,
+            status: .cancelled
+        )
+    }
+
+    @Test("a rehydrated cancelled record stays cancelled")
+    func rehydratedCancelledRecordStaysCancelled() throws {
+        let root = try TestTempDirectory.make(prefix: "envelope-status-rehydrate")
+        defer { TestTempDirectory.cleanup(root) }
+        let fileManager = FileManager.default
+        let reads = Data("@r\nACGT\n+\n!!!!\n".utf8)
+        let writer = ProvenanceWriter(signingProvider: nil)
+
+        // ProvenanceRehydrator, both entry points. The record sits in the staging folder.
+        for selectedOutputsOnly in [false, true] {
+            let name = selectedOutputsOnly ? "selected" : "strict"
+            let staging = root.appendingPathComponent("\(name)-staging", isDirectory: true)
+            let bundle = root.appendingPathComponent("\(name).lungfishfastq", isDirectory: true)
+            try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: bundle, withIntermediateDirectories: true)
+            let input = root.appendingPathComponent("\(name)-input.fastq")
+            let staged = staging.appendingPathComponent("staged.fastq")
+            let final = bundle.appendingPathComponent("payload.fastq")
+            for url in [input, staged, final] { try reads.write(to: url) }
+            let source = try Self.cancelledCLIRecord(input: input, output: staged)
+            #expect(source.status == .cancelled)
+            try writer.write(source, to: staging)
+
+            let pathMap = [staged.path: final.path]
+            let rehydrated = try selectedOutputsOnly
+                ? ProvenanceRehydrator.rehydrateSelectedOutputs(
+                    sourceDirectory: staging, finalDirectory: bundle, pathMap: pathMap
+                )
+                : ProvenanceRehydrator.rehydrate(
+                    sourceDirectory: staging, finalDirectory: bundle, pathMap: pathMap
+                )
+            #expect(rehydrated.status == .cancelled, "ProvenanceRehydrator \(name)")
+            #expect(rehydrated.exitStatus == 0, "ProvenanceRehydrator \(name)")
+            let stored = try #require(try ProvenanceEnvelopeReader.load(from: bundle))
+            #expect(stored.status == .cancelled, "ProvenanceRehydrator \(name), read back")
+            #expect(stored.legacyWorkflowRun().status == .cancelled, "ProvenanceRehydrator \(name), read back")
+        }
+
+        // GUIImportedProvenanceRehydrator. The imported file sidecar rebuilds the record at three of its
+        // sites (the selected outputs, the import step and the arguments), and the public rewrite at a fourth.
+        let staging = root.appendingPathComponent("gui-staging", isDirectory: true)
+        let attachments = root.appendingPathComponent("Project/Sample.lungfishfastq/attachments", isDirectory: true)
+        try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: attachments, withIntermediateDirectories: true)
+        let input = root.appendingPathComponent("gui-input.fastq")
+        let sourceFASTQ = staging.appendingPathComponent("reads.fastq")
+        let attachedFASTQ = attachments.appendingPathComponent("reads-2.fastq")
+        for url in [input, sourceFASTQ, attachedFASTQ] { try reads.write(to: url) }
+        let source = try Self.cancelledCLIRecord(input: input, output: sourceFASTQ)
+        try writer.write(source, toSidecar: ProvenanceRecorder.fileSidecarURL(for: sourceFASTQ))
+
+        let imported = try GUIImportedProvenanceRehydrator.rehydrateImportedFileSidecar(
+            from: sourceFASTQ,
+            to: attachedFASTQ
+        )
+        #expect(imported.status == .cancelled, "imported file sidecar")
+        #expect(imported.steps.map(\.toolName) == ["lungfish-cli", "lungfish-app"], "the import step was appended")
+        let importedStored = try #require(try ProvenanceEnvelopeReader.load(
+            fromSidecar: ProvenanceRecorder.fileSidecarURL(for: attachedFASTQ)
+        ))
+        #expect(importedStored.status == .cancelled, "imported file sidecar, read back")
+
+        let rewritten = try GUIImportedProvenanceRehydrator.rewriteOutputDescriptors(
+            in: source,
+            pathMap: [sourceFASTQ.path: attachedFASTQ.path]
+        )
+        #expect(rewritten.status == .cancelled, "rewriteOutputDescriptors")
+
+        // The database relocation appends a step to a receipt and keeps its status.
+        let previousReceipt = ProvenanceFileDescriptor(
+            path: root.appendingPathComponent("receipt.json").path,
+            checksumSHA256: String(repeating: "c", count: 64),
+            fileSize: 7,
+            format: .json,
+            role: .input
+        )
+        let relocated = CanonicalMetagenomicsDatabaseInstallProvenanceWriter.appendingRelocation(
+            to: source,
+            databaseName: "Viral",
+            from: root.appendingPathComponent("old", isDirectory: true),
+            to: root.appendingPathComponent("new", isDirectory: true),
+            previousReceipt: previousReceipt,
+            runClock: ProvenanceRunClock()
+        )
+        #expect(relocated.status == .cancelled, "database relocation")
+        #expect(relocated.steps.count == source.steps.count + 1)
     }
 }

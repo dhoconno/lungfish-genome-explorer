@@ -697,6 +697,6 @@ extension CanonicalMetagenomicsDatabaseInstallProvenanceWriter {
             runtimeIdentity: envelope.runtimeIdentity, files: envelope.files + [previousReceipt],
             output: envelope.output, outputs: envelope.outputs, steps: envelope.steps + [step],
             wallTimeSeconds: (envelope.wallTimeSeconds ?? 0) + completedAt.timeIntervalSince(startedAt),
-            exitStatus: envelope.exitStatus, stderr: envelope.stderr, signatures: [], legacyWorkflowRun: nil)
+            exitStatus: envelope.exitStatus, stderr: envelope.stderr, signatures: [], status: envelope.status)
     }
 }

@@ -283,7 +283,7 @@ public enum GUIImportedProvenanceRehydrator {
             exitStatus: envelope.exitStatus,
             stderr: envelope.stderr,
             signatures: [],
-            legacyWorkflowRun: nil
+            status: envelope.status
         )
     }
 
@@ -381,7 +381,7 @@ public enum GUIImportedProvenanceRehydrator {
             exitStatus: envelope.exitStatus,
             stderr: envelope.stderr,
             signatures: [],
-            legacyWorkflowRun: nil
+            status: envelope.status
         )
     }
 
@@ -765,7 +765,7 @@ public enum GUIImportedProvenanceRehydrator {
             exitStatus: envelope.exitStatus,
             stderr: envelope.stderr,
             signatures: [],
-            legacyWorkflowRun: nil
+            status: envelope.status
         )
     }
 
@@ -975,7 +975,7 @@ public enum GUIImportedProvenanceRehydrator {
             exitStatus: envelope.exitStatus,
             stderr: envelope.stderr,
             signatures: [],
-            legacyWorkflowRun: nil
+            status: envelope.status
         )
     }
 
