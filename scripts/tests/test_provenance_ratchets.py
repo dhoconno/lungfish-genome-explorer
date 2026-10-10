@@ -7,7 +7,11 @@ script against it, as test_ratchets_phase0.py does.
 Each count is tested for the same behaviors. It passes at its baseline, fails on a new site in a
 new file, ignores comments and its exempt files, passes under baseline with the --update hint and
 lists its sites with --print.
+
+The hook tests run scripts/install-git-hooks.sh only inside a throwaway git repo. The hook file is
+shared by every worktree of the real repository, so nothing here may run the installer against it.
 """
+import os
 import re
 import shutil
 import subprocess
@@ -507,3 +511,61 @@ def test_real_baseline_names_every_count_once(ratchet):
     entries = [line.rpartition(" ") for line in text.splitlines() if line.strip() and not line.startswith("#")]
     assert [name for name, _, _ in entries] == list(ratchet.names)
     assert all(re.fullmatch(r"[0-9]+", number) for _, _, number in entries)
+
+
+# ------------------------------------------------------------------ hook wiring
+
+def installed_hook(tmp_path):
+    """Run the real installer in a throwaway git repo and return (pre-push hook text, installer output).
+
+    The installer writes into the git directory of the repo it sits in, so its copy lives in tmp_path
+    and runs with tmp_path as the working directory. The environment loses every GIT_ variable and the
+    global and system git configuration, so nothing can point it at the real repository's hooks.
+    """
+    assert REPO not in (tmp_path, *tmp_path.parents)
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env["GIT_CONFIG_GLOBAL"] = os.devnull
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, env=env)
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir()
+    shutil.copy(SCRIPTS / "install-git-hooks.sh", scripts_dir / "install-git-hooks.sh")
+    result = subprocess.run(
+        ["/bin/bash", str(scripts_dir / "install-git-hooks.sh")],
+        cwd=tmp_path, env=env, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    hook = tmp_path / ".git" / "hooks" / "pre-push"
+    assert hook.is_file()
+    return hook.read_text(), result.stdout
+
+
+def test_installed_hook_runs_both_ratchets_right_after_process_spawn(tmp_path):
+    hook, _ = installed_hook(tmp_path)
+    calls = re.findall(r'python3 "\$REPO_ROOT/scripts/((?:ratchets|checks)/[^"]+)"', hook)
+    start = calls.index("ratchets/process-spawn.sh")
+    assert calls[start + 1 : start + 3] == ["ratchets/provenance-writers.sh", "ratchets/path-helpers.sh"]
+    gate = hook.index('"$REPO_ROOT/scripts/full-suite-gate.sh"')
+    assert hook.index('"$REPO_ROOT/scripts/ratchets/path-helpers.sh"') < gate
+
+
+@pytest.mark.parametrize("name", ["process-spawn", "provenance-writers", "path-helpers"])
+def test_each_new_block_has_the_message_style_of_the_process_spawn_block(tmp_path, name):
+    hook, _ = installed_hook(tmp_path)
+    block = (
+        rf'echo "pre-push: checking the {name} ratchet \(use --no-verify to skip\)\.\.\."\n'
+        rf'if ! python3 "\$REPO_ROOT/scripts/ratchets/{name}\.sh"; then\n'
+        rf'    echo "pre-push: {name} ratchet FAILED \([^"]+\) \u2014 push aborted\. Use --no-verify to bypass\." >&2\n'
+        r"    exit 1\n"
+        r"fi\n"
+    )
+    assert re.search(block, hook)
+
+
+def test_closing_summary_names_every_ratchet_the_hook_runs(tmp_path):
+    hook, output = installed_hook(tmp_path)
+    ratchets = re.findall(r'python3 "\$REPO_ROOT/scripts/ratchets/([^"]+)\.sh"', hook)
+    assert {"volume-portability", "provenance-writers", "path-helpers"} <= set(ratchets)
+    summary = next(line for line in output.splitlines() if line.startswith("It runs the "))
+    named = summary[len("It runs the "):].split(" ratchets,")[0]
+    assert sorted(re.split(r", | and ", named)) == sorted(ratchets)
