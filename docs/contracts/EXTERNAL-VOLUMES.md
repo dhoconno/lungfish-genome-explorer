@@ -27,6 +27,26 @@ The URL calls throw `POSIXError` and return a `PortableRename.Mechanism`, which 
 
 A swap on ExFAT is not atomic. Three renames take its place, and a failed step undoes the earlier ones. A crash between the first two leaves the replaced entry under `.<name>.lungfish-swap-<UUID>`. The next swap of the same entry puts it back first, and so does opening the project, through `PortableRename.recoverInterruptedSwaps`. A tombstone beside an entry that exists holds a retired generation and is never deleted automatically.
 
+## Replacing a file durably
+
+A record that a later run rewrites, such as a provenance record, goes through `DurableReplace` in `Sources/LungfishCore/Storage/DurableReplace.swift`. The name holds a complete old or new file at every step, and the new bytes are durable before the old ones go.
+
+| Step | What happens | On ExFAT |
+|---|---|---|
+| Stage | The bytes go to `.<name>.lungfish-stage-<UUID>`, created with `O_EXCL` and `O_NOFOLLOW` on the folder's descriptor, and `fsync` syncs them | The same |
+| Swap | The stage and the old file change places through `PortableRename`, so the name never empties and the old file keeps its inode under the stage name | Three renames through a tombstone, each one reserving its destination with an empty file first |
+| Sync | `fsync` syncs the folder and the observer sees the swap. A refusal swaps the old file back | The same, through the rotation |
+| Retire | The old copy under the stage name is unlinked | The same |
+| Flush | One `F_FULLFSYNC` per volume ends the transaction, or `fsync` when a volume refuses it | Accepted |
+
+`DurableReplace.transaction` groups many publications under one flush, so a bundle that writes 101 records flushes the drive once. `ProvenanceWriter` writes rewrites, signed writes and observed writes this way. A first write that replaces nothing keeps `DurableAtomicFileStore.create`, which never replaces a file, and joins the same flush.
+
+Before it stages, a publication restores a name that holds nothing from its newest leftover that holds bytes. A leftover is a `.lungfish-swap-` tombstone or an aside the caller names, such as the `.<name>.provenance-displaced-<UUID>` copy that earlier releases left when a rewrite stopped halfway. An empty file under the name beside such a leftover is the reservation of a rename that never ran, and it gives way to the leftover. A caller whose observer saw the name empty passes `Recovery.none`, so the observer's receipt still holds. `DurableReplace.recover` runs the same restore on its own.
+
+## Opening a folder without following links
+
+Every durable writer opens its folder with `NoFollowFileSystem.openDirectoryHierarchy` in LungfishCore. Inside a project or bundle the walk starts at the outermost `.lungfish*` folder. It follows links above that folder and refuses a link below it. Outside every project and bundle the folder itself is the anchor, so a conda root under a storage folder that moved to an external drive and was linked back still opens. A folder that is itself a link is refused in both cases.
+
 ## What differs on ExFAT
 
 The owner's Mac measured these on a fresh ExFAT disk image on 2026-10-07. APFS supports every row.
@@ -43,8 +63,10 @@ The owner's Mac measured these on a fresh ExFAT disk image on 2026-10-07. APFS s
 | Directory link count | Always 1 | Never infer a child count from `st_nlink` |
 | Modification time | Rounded to 10 milliseconds | Compare times with a tolerance, or compare sizes and hashes |
 | Names that differ only in case | The same file | Never create two entries whose names differ only in case |
+| Inode number of a file | A written file takes the number of its first cluster, which every rename keeps. An empty file gets a number near the top of the range, which changes on every rename | Read a new file's identity after its bytes land, and match empty files by size |
+| `F_FULLFSYNC` | Accepted on files and folders | Flush once per transaction |
 
-Symbolic links, `O_EXCL` creation, `flock` and `fcntl` locks all work on a local ExFAT volume. A rename keeps an entry's inode number, within a folder, across folders and across a remount, so identity checks after a rename hold. File watching uses the foreign-volume policy in `FileSystemWatcher.StreamPolicy`.
+The last two rows were measured on the ExFAT driver of macOS 26 on 2026-10-10. Symbolic links, `O_EXCL` creation, `flock` and `fcntl` locks all work on a local ExFAT volume. A rename keeps a written file's inode number, within a folder, across folders and across a remount, so identity checks after a rename hold. File watching uses the foreign-volume policy in `FileSystemWatcher.StreamPolicy`.
 
 ## How to test
 
@@ -62,6 +84,8 @@ This mode makes a scratch ExFAT disk image, mounts it, runs every `ExFAT` test a
 bash scripts/testing/exfat-tests.sh --simulate
 ```
 
-This mode runs every suite that renames, on the normal disk, with `LUNGFISH_SIMULATE_UNSUPPORTED_RENAME_FLAGS=1`. A Debug build then sends every `PortableRename` call down its fallback, in every thread.
+This mode runs every suite that renames, on the normal disk, with `LUNGFISH_SIMULATE_UNSUPPORTED_RENAME_FLAGS=1`. A Debug build then sends every `PortableRename` call down its fallback, in every thread. A suite whose name holds `Durability` runs in this mode too, so name the tests of a writer that replaces files through `DurableReplace` that way.
+
+`ProvenanceWriterDurabilityTests` holds the fault matrix. It fails one step of a write, or ends a child test process right after it, at every step `DurableReplace` and `PortableRename` take. After each fault the record's name must hold the old or the new record, before any recovery on APFS and after recovery on ExFAT, and the sidecar finder must return that record. The same matrix runs on the disk image in the first mode.
 
 Run both before merging any change that adds or edits a call in the tables above.

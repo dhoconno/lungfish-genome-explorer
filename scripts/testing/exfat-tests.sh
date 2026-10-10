@@ -10,7 +10,9 @@
 #
 #   --simulate. Runs the publication and storage suites on the normal disk with
 #   LUNGFISH_SIMULATE_UNSUPPORTED_RENAME_FLAGS=1, so every rename with RENAME_EXCL or
-#   RENAME_SWAP that goes through PortableRename takes its ExFAT fallback.
+#   RENAME_SWAP that goes through PortableRename takes its ExFAT fallback. A suite
+#   whose name holds "Durability" tests a writer that replaces files through
+#   DurableReplace, so name such a suite that way and it runs here.
 #
 # Usage:
 #   scripts/testing/exfat-tests.sh                    # real ExFAT image, tests named *ExFAT*
@@ -23,7 +25,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
-SIMULATED_SUITES="PortableRename|AnalysesFolder|AnalysisRunRecord|DurableAtomicFileStore|OwnedWorkDirectory|ProjectTempDirectory|ONTGenotypeWorkbook|Provenance|ProjectOperationHistory|ProjectStorageCleanup|GenotypeReviewableRowCatalog|MappingViewerBundle|GenotypingCleanupJournal|FullLengthONTMHC|PrimerAnalysis"
+SIMULATED_SUITES="PortableRename|AnalysesFolder|AnalysisRunRecord|DurableAtomicFileStore|OwnedWorkDirectory|ProjectTempDirectory|ONTGenotypeWorkbook|Provenance|ProjectOperationHistory|ProjectStorageCleanup|GenotypeReviewableRowCatalog|MappingViewerBundle|GenotypingCleanupJournal|FullLengthONTMHC|PrimerAnalysis|Durability"
 
 if [ "${1:-}" = "--simulate" ]; then
     FILTER="${2:-$SIMULATED_SUITES}"
