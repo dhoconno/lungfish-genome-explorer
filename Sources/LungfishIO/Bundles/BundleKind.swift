@@ -123,8 +123,10 @@ public struct BundleKindDescriptor: Sendable, Hashable {
     /// The provenance record names a kind uses.
     public enum SidecarNaming: Sendable, Hashable {
         /// One rule for new writes (plan row V10). A root record named ``rootRecordFileName`` plus
-        /// a ``layoutFolderName`` folder with one record for each scientific output. A record is
-        /// never recorded as an output of itself, and neither is a manifest or an app cache.
+        /// a ``layoutFolderName`` folder with one record for each scientific output. A record file is
+        /// never an output, so no record of a record is written, and an app cache is never an output.
+        /// A manifest stays an output of its bundle record, because a reference manifest decides which
+        /// BAM and VCF tracks the bundle shows.
         case rootRecordAndProvenanceFolder
         /// A format frozen as it is. It keeps its own record names, listed relative to the bundle,
         /// and the writer-wide rule never applies to it.
@@ -159,8 +161,8 @@ public struct BundleKindDescriptor: Sendable, Hashable {
     /// File names inside the folder that hold app state such as the viewport, not scientific data (plan row S11).
     public let appStateFileNames: [String]
     public let sidecarNaming: SidecarNaming
-    /// The analysis that writes this kind, or nil when the kind has many writers or none.
-    public let producedBy: AnalysisToolID?
+    /// The analyses whose sidebar row is a folder of this kind. Empty when none is.
+    public let producedBy: [AnalysisToolID]
 
     public init(
         id: BundleKindID,
@@ -175,7 +177,7 @@ public struct BundleKindDescriptor: Sendable, Hashable {
         copy: Copy,
         appStateFileNames: [String],
         sidecarNaming: SidecarNaming,
-        producedBy: AnalysisToolID?
+        producedBy: [AnalysisToolID]
     ) {
         self.id = id
         self.role = role

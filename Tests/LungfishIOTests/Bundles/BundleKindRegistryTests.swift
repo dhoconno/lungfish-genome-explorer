@@ -176,11 +176,11 @@ final class BundleKindRegistryTests: XCTestCase {
         XCTAssertEqual(try folder(.multipleSequenceAlignment), "\(AnalysesFolder.directoryName)/Multiple Sequence Alignments")
     }
 
-    func testAppStateNamesAreTheViewStateFileOfTheThreeViewportKinds() throws {
+    func testAppStateNamesAreTheViewStateFileOfTheReferenceOnly() throws {
+        // The alignment and tree .viewstate.json sits inside the manifest checksums, so it is not declared app state (S11).
         for id in BundleKindRegistry.all.map(\.id) {
             let names = try descriptor(id).appStateFileNames
-            let hasViewState: Bool = [BundleKindID.reference, .multipleSequenceAlignment, .phylogeneticTree].contains(id)
-            XCTAssertEqual(names, hasViewState ? [BundleViewState.filename] : [], "\(id)")
+            XCTAssertEqual(names, id == .reference ? [BundleViewState.filename] : [], "\(id)")
         }
     }
 

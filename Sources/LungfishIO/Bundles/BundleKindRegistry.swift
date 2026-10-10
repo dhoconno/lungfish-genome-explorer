@@ -27,9 +27,9 @@ public enum BundleKindRegistry {
             manifestFileName: "metadata.json", recognition: .extensionOnly, utTypeIdentifier: nil,
             sidebarSymbolName: "folder.badge.gearshape", presentation: .walkedPackage,
             deletion: .init(isOpaqueProjectObject: false), copy: .refused,
-            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: nil
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: []
         ),
-        // A reference has many writers (import, mapping, Viral Recon), so producedBy stays nil.
+        // T8 shows Viral Recon and mapping results as generic analysis rows, so producedBy is empty.
         BundleKindDescriptor(
             id: .reference, role: .bundle, folderExtensions: ["lungfishref"],
             manifestFileName: "manifest.json", recognition: .extensionOnly,
@@ -37,7 +37,7 @@ public enum BundleKindRegistry {
             sidebarSymbolName: "cylinder.split.1x2", presentation: .atomicPackage,
             deletion: .init(isOpaqueProjectObject: true),
             copy: .copied(toFolder: "Reference Sequences", requiresAnalysesFolder: false),
-            appStateFileNames: [".viewstate.json"], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: nil
+            appStateFileNames: [".viewstate.json"], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: []
         ),
         // A read bundle has no single manifest. A derived bundle has derived.manifest.json, a
         // multi-file bundle has read-manifest.json, and each FASTQ file has a .lungfish-meta.json beside it.
@@ -47,13 +47,12 @@ public enum BundleKindRegistry {
             sidebarSymbolName: "doc.text", presentation: .atomicPackage,
             deletion: .init(isOpaqueProjectObject: true),
             copy: .copied(toFolder: "Imports", requiresAnalysesFolder: false),
-            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: nil
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: []
         ),
         // The alignment, tree, primer and primer analysis formats keep their own record names.
         // An alignment also writes metadata/annotation-edit-provenance.json after an annotation edit.
         // The alignment and tree .viewstate.json is created with the bundle and covered by the
-        // manifest checksums, so it stays a frozen exception to the rule that app state sits
-        // outside checksums. A reference bundle's .viewstate.json is outside them.
+        // manifest checksums, so it is not declared app state (S11). A reference bundle's .viewstate.json is outside them.
         BundleKindDescriptor(
             id: .multipleSequenceAlignment, role: .bundle, folderExtensions: ["lungfishmsa"],
             manifestFileName: "manifest.json", recognition: .extensionOnly,
@@ -61,9 +60,9 @@ public enum BundleKindRegistry {
             sidebarSymbolName: "rectangle.grid.1x2", presentation: .atomicPackage,
             deletion: .init(isOpaqueProjectObject: true),
             copy: .copied(toFolder: "Analyses/Multiple Sequence Alignments", requiresAnalysesFolder: false),
-            appStateFileNames: [".viewstate.json"],
+            appStateFileNames: [],
             sidecarNaming: .frozenException(recordPaths: [rootRecord]),
-            producedBy: .mafft
+            producedBy: [.mafft]
         ),
         BundleKindDescriptor(
             id: .phylogeneticTree, role: .bundle, folderExtensions: ["lungfishtree"],
@@ -72,9 +71,9 @@ public enum BundleKindRegistry {
             sidebarSymbolName: "point.3.connected.trianglepath.dotted", presentation: .atomicPackage,
             deletion: .init(isOpaqueProjectObject: true),
             copy: .copied(toFolder: "Phylogenetic Trees", requiresAnalysesFolder: false),
-            appStateFileNames: [".viewstate.json"],
+            appStateFileNames: [],
             sidecarNaming: .frozenException(recordPaths: [rootRecord]),
-            producedBy: nil
+            producedBy: []
         ),
         BundleKindDescriptor(
             id: .primerScheme, role: .bundle, folderExtensions: ["lungfishprimers"],
@@ -82,7 +81,7 @@ public enum BundleKindRegistry {
             sidebarSymbolName: "line.horizontal.3.decrease.circle", presentation: .atomicPackage,
             deletion: .init(isOpaqueProjectObject: true),
             copy: .copied(toFolder: "Primer Schemes", requiresAnalysesFolder: false),
-            appStateFileNames: [], sidecarNaming: .frozenException(recordPaths: ["PROVENANCE.md"]), producedBy: nil
+            appStateFileNames: [], sidecarNaming: .frozenException(recordPaths: ["PROVENANCE.md"]), producedBy: []
         ),
         BundleKindDescriptor(
             id: .primerAnalysis, role: .bundle, folderExtensions: ["lungfishprimeranalysis"],
@@ -91,7 +90,7 @@ public enum BundleKindRegistry {
             sidebarSymbolName: "list.bullet.rectangle", presentation: .atomicPackage,
             deletion: .init(isOpaqueProjectObject: true),
             copy: .copied(toFolder: "Analyses", requiresAnalysesFolder: false),
-            appStateFileNames: [], sidecarNaming: .frozenException(recordPaths: [BundleKindDescriptor.SidecarNaming.layoutPath("wrapper.json")]), producedBy: nil
+            appStateFileNames: [], sidecarNaming: .frozenException(recordPaths: [BundleKindDescriptor.SidecarNaming.layoutPath("wrapper.json")]), producedBy: []
         ),
         // The MHC reference database is imported through its own path, so the copier refuses it.
         BundleKindDescriptor(
@@ -100,7 +99,7 @@ public enum BundleKindRegistry {
             utTypeIdentifier: "org.lungfish.mhc-reference-bundle",
             sidebarSymbolName: "cylinder.split.1x2", presentation: .atomicPackage,
             deletion: .init(isOpaqueProjectObject: true), copy: .refused,
-            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: nil
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: []
         ),
         BundleKindDescriptor(
             id: .genotypeResult, role: .bundle, folderExtensions: ["lungfishgenotype"],
@@ -108,7 +107,7 @@ public enum BundleKindRegistry {
             sidebarSymbolName: "tablecells.badge.ellipsis", presentation: .atomicPackage,
             deletion: .init(isOpaqueProjectObject: true),
             copy: .copied(toFolder: "Analyses", requiresAnalysesFolder: true),
-            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: .ontGenotyping
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: [.ontGenotyping]
         ),
         BundleKindDescriptor(
             id: .twelveSResult, role: .bundle, folderExtensions: ["lungfish12s"],
@@ -116,7 +115,7 @@ public enum BundleKindRegistry {
             sidebarSymbolName: "tablecells", presentation: .atomicPackage,
             deletion: .init(isOpaqueProjectObject: true),
             copy: .copied(toFolder: "Analyses", requiresAnalysesFolder: false),
-            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: nil
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: []
         ),
         // The 12S reference database is its own kind (plan row S10). The sidebar has no viewport for it
         // yet, so it stays a walked document row, and FileTypeUtility calling it a genome reference is a known mismatch.
@@ -126,7 +125,7 @@ public enum BundleKindRegistry {
             sidebarSymbolName: "shippingbox", presentation: .walkedPackage,
             deletion: .init(isOpaqueProjectObject: true),
             copy: .copied(toFolder: "", requiresAnalysesFolder: false),
-            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: nil
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: []
         ),
         // Without cz-id-manifest.json the sidebar shows a walked document row, and the copier treats the
         // folder as an other native bundle that lands in the project root.
@@ -136,7 +135,7 @@ public enum BundleKindRegistry {
             sidebarSymbolName: "c.circle", presentation: .atomicPackage,
             deletion: .init(isOpaqueProjectObject: true),
             copy: .copied(toFolder: "Classifications", requiresAnalysesFolder: false),
-            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: .czId
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: [.czId]
         ),
         // A run bundle is a working artifact of a pipeline. The sidebar hides it by its lowercase extension only.
         BundleKindDescriptor(
@@ -145,7 +144,7 @@ public enum BundleKindRegistry {
             sidebarSymbolName: "shippingbox", presentation: .hiddenPackage,
             deletion: .init(isOpaqueProjectObject: false),
             copy: .copied(toFolder: "", requiresAnalysesFolder: false),
-            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: nil
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: []
         ),
         // Retired. Nothing creates it, but the Info.plist still declares the type and the copier still lands it.
         BundleKindDescriptor(
@@ -154,14 +153,14 @@ public enum BundleKindRegistry {
             sidebarSymbolName: "shippingbox", presentation: .walkedPackage,
             deletion: .init(isOpaqueProjectObject: false),
             copy: .copied(toFolder: "Workflows", requiresAnalysesFolder: false),
-            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: nil
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: []
         ),
         BundleKindDescriptor(
             id: .workflowPackage, role: .bundle, folderExtensions: ["lungfishflowpkg"],
             manifestFileName: "manifest.json", recognition: .extensionOnly, utTypeIdentifier: nil,
             sidebarSymbolName: "shippingbox", presentation: .walkedPackage,
             deletion: .init(isOpaqueProjectObject: false), copy: .refused,
-            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: nil
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: []
         ),
     ]
 

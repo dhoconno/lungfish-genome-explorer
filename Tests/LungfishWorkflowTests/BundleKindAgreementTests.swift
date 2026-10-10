@@ -36,7 +36,7 @@ final class BundleKindAgreementTests: XCTestCase {
     // MARK: - Analyses
 
     func testEveryProducerNamedByTheRegistryIsAKnownAnalysis() throws {
-        let producers = BundleKindRegistry.all.compactMap { descriptor in descriptor.producedBy.map { (descriptor.id, $0) } }
+        let producers = BundleKindRegistry.all.flatMap { descriptor in descriptor.producedBy.map { (descriptor.id, $0) } }
         XCTAssertEqual(producers.map(\.0), [.multipleSequenceAlignment, .genotypeResult, .czIdResult])
         for (kind, analysis) in producers {
             XCTAssertNotNil(AnalysisToolRegistry.descriptor(for: analysis), "\(kind) names the unknown analysis \(analysis)")
@@ -47,12 +47,13 @@ final class BundleKindAgreementTests: XCTestCase {
         // MAFFT writes only alignments, ONT genotyping only genotype results and CZ ID only CZ ID imports.
         // The analysis row and the bundle row use one symbol today, so a change to one is a change to both.
         for descriptor in BundleKindRegistry.all {
-            guard let analysis = descriptor.producedBy else { continue }
-            XCTAssertEqual(
-                AnalysisToolRegistry.descriptor(for: analysis)?.sidebarSymbolName,
-                descriptor.sidebarSymbolName,
-                "\(descriptor.id) and \(analysis)"
-            )
+            for analysis in descriptor.producedBy {
+                XCTAssertEqual(
+                    AnalysisToolRegistry.descriptor(for: analysis)?.sidebarSymbolName,
+                    descriptor.sidebarSymbolName,
+                    "\(descriptor.id) and \(analysis)"
+                )
+            }
         }
     }
 
