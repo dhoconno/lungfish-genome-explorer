@@ -1,0 +1,264 @@
+{
+  "auditIsBlocking" : false,
+  "auditStatus" : "present",
+  "files" : [
+    {
+      "checksumSHA256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Reference Sequences/SIMULATED-...lungfishref/genome/sequence.fa.gz",
+      "fileSize" : 439,
+      "format" : "FASTA",
+      "role" : "Input",
+      "sizeLabel" : "439 bytes"
+    },
+    {
+      "checksumSHA256" : "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "SIMULATED-MHC-annotated-reference.gb",
+      "fileSize" : 3461,
+      "format" : "GenBank",
+      "role" : "Input",
+      "sizeLabel" : "3 KB"
+    },
+    {
+      "checksumSHA256" : "a1441dca58ccf6ab0aac754c26ef2d8406204c2d623f6856ec99bd53592a047c",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Reference Sequences/SIMULATED-...notations/imported_annotations.db",
+      "fileSize" : 36864,
+      "format" : "SQLite",
+      "role" : "Output",
+      "sizeLabel" : "37 KB"
+    },
+    {
+      "checksumSHA256" : "2bd30210b03610776de2c2463638692319ba2423447360217fb0f4a8b19c720b",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Reference Sequences/SIMULATED-...tations/imported_annotations.gff3",
+      "fileSize" : 386,
+      "format" : "GFF3",
+      "role" : "Output",
+      "sizeLabel" : "386 bytes"
+    },
+    {
+      "checksumSHA256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Reference Sequences/SIMULATED-...lungfishref/genome/sequence.fa.gz",
+      "fileSize" : 439,
+      "format" : "FASTA",
+      "role" : "Output",
+      "sizeLabel" : "439 bytes"
+    },
+    {
+      "checksumSHA256" : "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Reference Sequences/SIMULATED-...fishref/genome/sequence.fa.gz.fai",
+      "fileSize" : 133,
+      "format" : "FASTA index",
+      "role" : "Output",
+      "sizeLabel" : "133 bytes"
+    },
+    {
+      "checksumSHA256" : "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Reference Sequences/SIMULATED-...fishref/genome/sequence.fa.gz.gzi",
+      "fileSize" : 8,
+      "format" : "BGZF index",
+      "role" : "Output",
+      "sizeLabel" : "8 bytes"
+    },
+    {
+      "checksumSHA256" : "63e3576176963d62f4c610c39bc907ce6b5421c181b3bb9fe29d8eee8281be18",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Reference Sequences/SIMULATED-...ference.lungfishref/manifest.json",
+      "fileSize" : 3795,
+      "format" : "JSON",
+      "role" : "Output",
+      "sizeLabel" : "4 KB"
+    },
+    {
+      "checksumSHA256" : "a51dd075c83f290408a19f3618cd7937cfe1290af761a7ac0c717809b9454e08",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Reference Sequences/SIMULATED-...f/metadata/genbank_records.sqlite",
+      "fileSize" : 45056,
+      "format" : "SQLite",
+      "role" : "Output",
+      "sizeLabel" : "45 KB"
+    }
+  ],
+  "lineage" : [
+    {
+      "steps" : [
+        {
+          "displayCommand" : "lungfish-cli import fasta SIMULATED-MHC-annotated-reference.gb --output-dir '<project>' --name SIMULATED-MHC-annotated-reference",
+          "exitStatus" : 0,
+          "inputs" : [
+            "SIMULATED-MHC-annotated-reference.gb (intermediate file, not kept)"
+          ],
+          "ordinal" : 1,
+          "outputs" : [
+            "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/annotations/imported_annotations.db (intermediate file, not kept)",
+            "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/annotations/imported_annotations.gff3 (intermediate file, not kept)",
+            "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz (intermediate file, not kept)",
+            "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.fai (intermediate file, not kept)",
+            "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.gzi (intermediate file, not kept)",
+            "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/manifest.json (intermediate file, not kept)",
+            "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/metadata/genbank_records.sqlite (intermediate file, not kept)"
+          ],
+          "toolName" : "lungfish import fasta",
+          "toolVersion" : "v2026.9.58 (5822)",
+          "wallTimeSeconds" : 0.1441030502319336
+        },
+        {
+          "displayCommand" : "bgzip -f -@ 13 'Reference Sequences/.SIMULATED-MHC-annotated-reference.building-B15F0112-6EB2-49B3-91D6-4BA746B3B508/genome/sequence.fa'",
+          "exitStatus" : 0,
+          "inputs" : [
+            "SIMULATED-MHC-annotated-reference.gb (intermediate file, not kept)"
+          ],
+          "ordinal" : 2,
+          "outputs" : [
+            "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz (intermediate file, not kept)"
+          ],
+          "stderr" : "",
+          "toolName" : "bgzip",
+          "toolVersion" : "v1.24",
+          "wallTimeSeconds" : 0.030275940895080566
+        },
+        {
+          "displayCommand" : "samtools faidx 'Reference Sequences/.SIMULATED-MHC-annotated-reference.building-B15F0112-6EB2-49B3-91D6-4BA746B3B508/genome/sequence.fa.gz'",
+          "exitStatus" : 0,
+          "inputs" : [
+            "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz (intermediate file, not kept)"
+          ],
+          "ordinal" : 3,
+          "outputs" : [
+            "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.fai (intermediate file, not kept)",
+            "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/genome/sequence.fa.gz.gzi (intermediate file, not kept)"
+          ],
+          "stderr" : "",
+          "toolName" : "samtools",
+          "toolVersion" : "v1.24",
+          "wallTimeSeconds" : 0.013043045997619629
+        }
+      ],
+      "subtitle" : "lungfish import fasta v2026.9.58 (5822)",
+      "title" : "lungfish import fasta"
+    }
+  ],
+  "options" : [
+    {
+      "displayValue" : "1",
+      "kind" : "Explicit",
+      "name" : "annotation_count"
+    },
+    {
+      "displayValue" : "imported_annotations",
+      "kind" : "Explicit",
+      "name" : "annotation_ids"
+    },
+    {
+      "displayValue" : "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref",
+      "kind" : "Explicit",
+      "name" : "bundle_path"
+    },
+    {
+      "displayValue" : "true",
+      "kind" : "Explicit",
+      "name" : "compress_fasta"
+    },
+    {
+      "displayValue" : "org.lungfish.cli.import.b5a162e6-86c2-403b-bd85-e8b43f02b71a",
+      "kind" : "Explicit",
+      "name" : "identifier"
+    },
+    {
+      "displayValue" : "SIMULATED-MHC-annotated-reference.gb",
+      "kind" : "Explicit",
+      "name" : "input_files"
+    },
+    {
+      "displayValue" : "SIMULATED-MHC-annotated-reference",
+      "kind" : "Explicit",
+      "name" : "name"
+    },
+    {
+      "displayValue" : "Reference Sequences",
+      "kind" : "Explicit",
+      "name" : "output_directory"
+    },
+    {
+      "displayValue" : "SIMULATED-MHC-annotated-reference.gb",
+      "kind" : "Explicit",
+      "name" : "reference_source"
+    },
+    {
+      "displayValue" : "0",
+      "kind" : "Explicit",
+      "name" : "signal_count"
+    },
+    {
+      "displayValue" : "SIMULATED-MHC-annotated-reference.gb",
+      "kind" : "Explicit",
+      "name" : "source_url"
+    },
+    {
+      "displayValue" : "0",
+      "kind" : "Explicit",
+      "name" : "variant_count"
+    },
+    {
+      "displayValue" : "none",
+      "kind" : "Default",
+      "name" : "reference_source"
+    },
+    {
+      "displayValue" : "SIMULATED-MHC-annotated-reference.gb",
+      "kind" : "Resolved Default",
+      "name" : "reference_source"
+    }
+  ],
+  "rawJSONHoldsEmbeddedRun" : true,
+  "runtime" : [
+    {
+      "label" : "App Version",
+      "value" : "Lungfish 2026.9.58 (5822)"
+    },
+    {
+      "label" : "Executable",
+      "value" : "/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli"
+    },
+    {
+      "label" : "Process ID",
+      "value" : "56389"
+    },
+    {
+      "label" : "OS",
+      "value" : "macOS 26.6.2 (arm64)"
+    },
+    {
+      "label" : "Architecture",
+      "value" : "arm64"
+    },
+    {
+      "label" : "Dependency Set",
+      "value" : "2026.2"
+    }
+  ],
+  "summary" : {
+    "createdAtMilliseconds" : 1790682413000,
+    "createdAtUTC" : "2026-09-29T11:46:53.000Z",
+    "exitStatus" : 0,
+    "inputCount" : 2,
+    "outputCount" : 7,
+    "sidecarDisplayPath" : "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/.lungfish-provenance.json",
+    "signatureCount" : 0,
+    "statusLabel" : "Complete",
+    "stepCount" : 3,
+    "toolName" : "lungfish import fasta",
+    "toolVersion" : "v2026.9.58 (5822)",
+    "wallTimeSeconds" : 0.1459599733352661,
+    "workflowName" : "lungfish import fasta",
+    "workflowVersion" : "Lungfish 2026.9.58 (5822)"
+  },
+  "warnings" : [
+
+  ]
+}

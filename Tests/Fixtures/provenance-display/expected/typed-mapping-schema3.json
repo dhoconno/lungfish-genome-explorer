@@ -1,0 +1,224 @@
+{
+  "auditIsBlocking" : true,
+  "auditStatus" : "incomplete",
+  "files" : [
+    {
+      "checksumSHA256" : "9b8f7e6d5c4b3a291807f6e5d4c3b2a1908f7e6d5c4b3a291807f6e5d4c3b2a1",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Analyses/minimap2-2026-07-14T15-20-00/HG002.sorted.bam.bai",
+      "fileSize" : 1144,
+      "format" : "BAM index",
+      "role" : "Index",
+      "sizeLabel" : "1 KB"
+    },
+    {
+      "checksumSHA256" : "7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Analyses/minimap2-2026-07-14T15-20-00/HG002.raw.sam",
+      "fileSize" : 412876,
+      "format" : "SAM",
+      "role" : "Input",
+      "sizeLabel" : "413 KB"
+    },
+    {
+      "checksumSHA256" : "5c2a0f6a7d1d5bd0d8e6a7d0cc7e1a1b0f0a3f6a4a3f2b7a9d4c1e8b6a5f3e21",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Analyses/minimap2-2026-07-14T15-20-00/HG002.sorted.bam",
+      "fileSize" : 58213,
+      "format" : "BAM",
+      "role" : "Input",
+      "sizeLabel" : "58 KB"
+    },
+    {
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Imports/HG002-reads.lungfishfastq",
+      "fileSize" : 18808,
+      "format" : "FASTQ bundle",
+      "role" : "Input",
+      "sizeLabel" : "2 FASTQ chunks | 19 KB"
+    },
+    {
+      "checksumSHA256" : "7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Analyses/minimap2-2026-07-14T15-20-00/HG002.raw.sam",
+      "fileSize" : 412876,
+      "format" : "SAM",
+      "role" : "Output",
+      "sizeLabel" : "413 KB"
+    },
+    {
+      "checksumSHA256" : "5c2a0f6a7d1d5bd0d8e6a7d0cc7e1a1b0f0a3f6a4a3f2b7a9d4c1e8b6a5f3e21",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Analyses/minimap2-2026-07-14T15-20-00/HG002.sorted.bam",
+      "fileSize" : 58213,
+      "format" : "BAM",
+      "role" : "Output",
+      "sizeLabel" : "58 KB"
+    },
+    {
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Analyses/minimap2-2026-07-14T15-20-00/NC_045512.2.lungfishref",
+      "role" : "Output",
+      "sizeLabel" : "Size not recorded"
+    },
+    {
+      "checksumSHA256" : "1c945301b29bae75e5219f08b5189a56a72a5cdf452873e54bf513468ae091f6",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Reference Sequences/NC_045512....lungfishref/genome/sequence.fa.gz",
+      "fileSize" : 8764,
+      "format" : "FASTA",
+      "role" : "Reference",
+      "sizeLabel" : "9 KB"
+    }
+  ],
+  "lineage" : [
+    {
+      "steps" : [
+        {
+          "displayCommand" : "minimap2 -a -x sr -t 4 -R '@RG\\tID:HG002\\tSM:HG002\\tLB:HG002\\tPL:ILLUMINA\\tPU:HG002' --secondary=no -o Analyses/minimap2-2026-07-14T15-20-00/HG002.raw.sam 'Reference Sequences/NC_045512.2.lungfishref/genome/sequence.fa.gz' Imports/HG002-reads.lungfishfastq/HG002_R1.fastq.gz Imports/HG002-reads.lungfishfastq/HG002_R2.fastq.gz",
+          "exitStatus" : 0,
+          "inputs" : [
+            "HG002-reads.lungfishfastq - 2 FASTQ chunks (19 KB)",
+            "Reference Sequences/NC_045512.2.lungfishref/genome/sequence.fa.gz (intermediate file, not kept)"
+          ],
+          "ordinal" : 1,
+          "outputs" : [
+            "Analyses/minimap2-2026-07-14T15-20-00/HG002.raw.sam (intermediate file, not kept)"
+          ],
+          "stderr" : "[M::main] Version: 2.31-r1302\n[M::main] Real time: 95.213 sec; CPU: 301.4 sec; Peak RSS: 0.412 GB\n",
+          "toolName" : "minimap2",
+          "toolVersion" : "v2.31",
+          "wallTimeSeconds" : 95.213
+        },
+        {
+          "displayCommand" : "samtools sort -@ 2 -o Analyses/minimap2-2026-07-14T15-20-00/HG002.sorted.bam Analyses/minimap2-2026-07-14T15-20-00/HG002.raw.sam",
+          "exitStatus" : 0,
+          "inputs" : [
+            "Analyses/minimap2-2026-07-14T15-20-00/HG002.raw.sam (intermediate file, not kept)"
+          ],
+          "ordinal" : 2,
+          "outputs" : [
+            "Analyses/minimap2-2026-07-14T15-20-00/HG002.sorted.bam (intermediate file, not kept)"
+          ],
+          "toolName" : "samtools",
+          "toolVersion" : "v1.24",
+          "wallTimeSeconds" : 0.184
+        },
+        {
+          "displayCommand" : "samtools index Analyses/minimap2-2026-07-14T15-20-00/HG002.sorted.bam",
+          "exitStatus" : 0,
+          "inputs" : [
+            "Analyses/minimap2-2026-07-14T15-20-00/HG002.sorted.bam (intermediate file, not kept)"
+          ],
+          "ordinal" : 3,
+          "outputs" : [
+            "Analyses/minimap2-2026-07-14T15-20-00/HG002.sorted.bam.bai (intermediate file, not kept)"
+          ],
+          "toolName" : "samtools",
+          "toolVersion" : "v1.24",
+          "wallTimeSeconds" : 0.021
+        }
+      ],
+      "subtitle" : "minimap2 v2.31",
+      "title" : "lungfish map"
+    }
+  ],
+  "options" : [
+    {
+      "displayValue" : "",
+      "kind" : "Explicit",
+      "name" : "advancedArguments"
+    },
+    {
+      "displayValue" : "false",
+      "kind" : "Explicit",
+      "name" : "includeSecondary"
+    },
+    {
+      "displayValue" : "true",
+      "kind" : "Explicit",
+      "name" : "includeSupplementary"
+    },
+    {
+      "displayValue" : "minimap2",
+      "kind" : "Explicit",
+      "name" : "mapper"
+    },
+    {
+      "displayValue" : "managed conda environment minimap2; executable minimap2",
+      "kind" : "Explicit",
+      "name" : "mapperRuntime"
+    },
+    {
+      "displayValue" : "0",
+      "kind" : "Explicit",
+      "name" : "minimumMappingQuality"
+    },
+    {
+      "displayValue" : "short-read-default",
+      "kind" : "Explicit",
+      "name" : "modeID"
+    },
+    {
+      "displayValue" : "true",
+      "kind" : "Explicit",
+      "name" : "pairedEnd"
+    },
+    {
+      "displayValue" : "Illumina short reads",
+      "kind" : "Explicit",
+      "name" : "readClassHints"
+    },
+    {
+      "displayValue" : "HG002",
+      "kind" : "Explicit",
+      "name" : "sampleName"
+    },
+    {
+      "displayValue" : "managed conda environment samtools; executable samtools; package bioconda::samtools=1.24=h36b3a25_1",
+      "kind" : "Explicit",
+      "name" : "samtoolsRuntime"
+    },
+    {
+      "displayValue" : "4",
+      "kind" : "Explicit",
+      "name" : "threads"
+    }
+  ],
+  "rawJSONHoldsEmbeddedRun" : true,
+  "runtime" : [
+    {
+      "label" : "Executable",
+      "value" : "minimap2"
+    },
+    {
+      "label" : "Conda Environment",
+      "value" : "minimap2"
+    }
+  ],
+  "summary" : {
+    "createdAtMilliseconds" : 1784042304600,
+    "createdAtUTC" : "2026-07-14T15:18:24.600Z",
+    "exitStatus" : 0,
+    "inputCount" : 6,
+    "outputCount" : 3,
+    "sidecarDisplayPath" : "Analyses/minimap2-2026-07-14T15-20-00/mapping-provenance.json",
+    "signatureCount" : 0,
+    "statusLabel" : "Incomplete",
+    "stepCount" : 3,
+    "toolName" : "minimap2",
+    "toolVersion" : "v2.31",
+    "wallTimeSeconds" : 95.4,
+    "workflowName" : "lungfish map"
+  },
+  "warnings" : [
+    {
+      "message" : "Missing checksum or size for 1 file descriptor: NC_045512.2.lungfishref.",
+      "title" : "File metadata incomplete"
+    },
+    {
+      "message" : "Inspector grouped 2 FASTQ chunk descriptors into HG002-reads.lungfishfastq (2 chunks). The complete provenance JSON still contains every per-chunk path, size, and checksum for export and replay.",
+      "title" : "FASTQ chunks collapsed"
+    }
+  ]
+}

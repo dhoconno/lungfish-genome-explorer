@@ -1,0 +1,134 @@
+{
+  "auditIsBlocking" : true,
+  "auditStatus" : "incomplete",
+  "files" : [
+    {
+      "detail" : "outside the project",
+      "displayPath" : "MN908947.3?rettype=gff3",
+      "format" : "GFF3",
+      "role" : "Input",
+      "sizeLabel" : "Size not recorded"
+    },
+    {
+      "checksumSHA256" : "7edcb9f6c6de7ba570106926e5af55f7e45ed5f8b92b9a33664fb9ca2711ae32",
+      "detail" : "outside the project",
+      "displayPath" : "MN908947.3.gff3",
+      "fileSize" : 4040,
+      "format" : "GFF3",
+      "role" : "Output",
+      "sizeLabel" : "4 KB"
+    }
+  ],
+  "lineage" : [
+    {
+      "steps" : [
+        {
+          "displayCommand" : "lungfish fetch ncbi MN908947.3 --db nucleotide --fetch-format gff3 --save-to <home>/Documents/lungfish-genome-explorer-worktrees/quizzical-antonelli-6cfbb0/docs/user-manual/fixtures/sarscov2-srr36291587/MN908947.3.gff3 --format text",
+          "exitStatus" : 0,
+          "inputs" : [
+            "ncbi://nucleotide/MN908947.3?rettype=gff3"
+          ],
+          "ordinal" : 1,
+          "outputs" : [
+            "MN908947.3.gff3 (outside the project)"
+          ],
+          "toolName" : "ncbi-efetch",
+          "toolVersion" : "NCBI E-utilities API",
+          "wallTimeSeconds" : 0.468485951423645
+        }
+      ],
+      "subtitle" : "ncbi-efetch NCBI E-utilities API",
+      "title" : "ncbi-sequence-fetch"
+    }
+  ],
+  "options" : [
+    {
+      "displayValue" : "MN908947.3",
+      "kind" : "Explicit",
+      "name" : "accessions"
+    },
+    {
+      "displayValue" : "false",
+      "kind" : "Explicit",
+      "name" : "apiKeyProvided"
+    },
+    {
+      "displayValue" : "none",
+      "kind" : "Explicit",
+      "name" : "condaEnvironment"
+    },
+    {
+      "displayValue" : "none",
+      "kind" : "Explicit",
+      "name" : "containerRuntime"
+    },
+    {
+      "displayValue" : "nucleotide",
+      "kind" : "Explicit",
+      "name" : "database"
+    },
+    {
+      "displayValue" : "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+      "kind" : "Explicit",
+      "name" : "endpoint"
+    },
+    {
+      "displayValue" : "gff3",
+      "kind" : "Explicit",
+      "name" : "fetchFormat"
+    },
+    {
+      "displayValue" : "text",
+      "kind" : "Explicit",
+      "name" : "outputFormat"
+    },
+    {
+      "displayValue" : "false",
+      "kind" : "Explicit",
+      "name" : "quiet"
+    },
+    {
+      "displayValue" : "gff3",
+      "kind" : "Explicit",
+      "name" : "resolvedFetchFormat"
+    },
+    {
+      "displayValue" : "<home>/Documents/lungfish-genome-explorer-worktrees/quizzical-antonelli-6cfbb0/docs/user-manual/fixtures/sarscov2-srr36291587/MN908947.3.gff3",
+      "kind" : "Explicit",
+      "name" : "saveTo"
+    }
+  ],
+  "rawJSONHoldsEmbeddedRun" : true,
+  "runtime" : [
+    {
+      "label" : "App Version",
+      "value" : "lungfish-cli 0.4.0-alpha.11"
+    },
+    {
+      "label" : "OS",
+      "value" : "macOS 26.4.1 (arm64)"
+    }
+  ],
+  "summary" : {
+    "createdAtMilliseconds" : 1778361469000,
+    "createdAtUTC" : "2026-05-09T21:17:49.000Z",
+    "exitStatus" : 0,
+    "inputCount" : 1,
+    "outputCount" : 1,
+    "sidecarDisplayPath" : "Imports/MN908947.3.gff3.lungfish-provenance.json",
+    "signatureCount" : 0,
+    "statusLabel" : "Incomplete",
+    "stepCount" : 1,
+    "toolName" : "ncbi-efetch",
+    "toolVersion" : "NCBI E-utilities API",
+    "wallTimeSeconds" : 1,
+    "workflowName" : "ncbi-sequence-fetch",
+    "workflowVersion" : "lungfish-cli 0.4.0-alpha.11"
+  },
+  "warnings" : [
+    {
+      "message" : "Missing checksum or size for 1 file descriptor: MN908947.3?rettype=gff3.",
+      "title" : "File metadata incomplete"
+    }
+  ]
+}

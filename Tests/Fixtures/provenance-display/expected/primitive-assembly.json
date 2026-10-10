@@ -1,0 +1,133 @@
+{
+  "auditIsBlocking" : true,
+  "auditStatus" : "incomplete",
+  "files" : [
+    {
+      "checksumSHA256" : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "detail" : "outside the project",
+      "displayPath" : "reads_1.fastq",
+      "fileSize" : 100,
+      "format" : "FASTQ",
+      "role" : "Input",
+      "sizeLabel" : "100 bytes"
+    },
+    {
+      "displayPath" : "Analyses/assembly-output.lungfishref",
+      "role" : "Output",
+      "sizeLabel" : "Size not recorded"
+    }
+  ],
+  "lineage" : [
+    {
+      "steps" : [
+        {
+          "displayCommand" : "spades.py -1 reads_1.fastq -2 reads_2.fastq -o assembly",
+          "inputs" : [
+            "reads_1.fastq (outside the project)"
+          ],
+          "ordinal" : 1,
+          "outputs" : [
+            "Analyses/assembly-output.lungfishref"
+          ],
+          "toolName" : "SPAdes",
+          "toolVersion" : "v4.0.0",
+          "wallTimeSeconds" : 12.5
+        }
+      ],
+      "subtitle" : "SPAdes v4.0.0",
+      "title" : "assembly.spades"
+    }
+  ],
+  "options" : [
+    {
+      "displayValue" : "",
+      "kind" : "Explicit",
+      "name" : "advanced_arguments"
+    },
+    {
+      "displayValue" : "micromamba",
+      "kind" : "Explicit",
+      "name" : "executionBackend"
+    },
+    {
+      "displayValue" : "",
+      "kind" : "Explicit",
+      "name" : "extraArgs"
+    },
+    {
+      "displayValue" : "auto",
+      "kind" : "Explicit",
+      "name" : "k_mer_sizes"
+    },
+    {
+      "displayValue" : "spades",
+      "kind" : "Explicit",
+      "name" : "managedEnvironment"
+    },
+    {
+      "displayValue" : "16",
+      "kind" : "Explicit",
+      "name" : "memory_gb"
+    },
+    {
+      "displayValue" : "500",
+      "kind" : "Explicit",
+      "name" : "min_contig_length"
+    },
+    {
+      "displayValue" : "isolate",
+      "kind" : "Explicit",
+      "name" : "mode"
+    },
+    {
+      "displayValue" : "false",
+      "kind" : "Explicit",
+      "name" : "skip_error_correction"
+    },
+    {
+      "displayValue" : "8",
+      "kind" : "Explicit",
+      "name" : "threads"
+    }
+  ],
+  "rawJSONHoldsEmbeddedRun" : false,
+  "runtime" : [
+    {
+      "label" : "App Version",
+      "value" : "Lungfish test"
+    },
+    {
+      "label" : "OS",
+      "value" : "macOS test"
+    },
+    {
+      "label" : "Architecture",
+      "value" : "arm64"
+    },
+    {
+      "label" : "Conda Environment",
+      "value" : "spades"
+    }
+  ],
+  "summary" : {
+    "createdAtMilliseconds" : 1778611278000,
+    "createdAtUTC" : "2026-05-12T18:41:18.000Z",
+    "inputCount" : 1,
+    "outputCount" : 1,
+    "sidecarDisplayPath" : "Analyses/assembly-output.lungfishref/assembly/provenance.json",
+    "signatureCount" : 0,
+    "statusLabel" : "Incomplete",
+    "stepCount" : 1,
+    "toolName" : "SPAdes",
+    "toolVersion" : "v4.0.0",
+    "wallTimeSeconds" : 12.5,
+    "workflowName" : "assembly.spades",
+    "workflowVersion" : "Lungfish test"
+  },
+  "warnings" : [
+    {
+      "message" : "Exit status is missing.",
+      "title" : "Incomplete provenance"
+    }
+  ]
+}

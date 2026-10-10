@@ -1,0 +1,98 @@
+{
+  "auditIsBlocking" : false,
+  "auditStatus" : "present",
+  "files" : [
+    {
+      "checksumSHA256" : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "detail" : "outside the project",
+      "displayPath" : "source.original",
+      "fileSize" : 20,
+      "role" : "Input",
+      "sizeLabel" : "20 bytes"
+    },
+    {
+      "checksumSHA256" : "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "detail" : "outside the project",
+      "displayPath" : "input.lungfishref",
+      "fileSize" : 10,
+      "role" : "Input",
+      "sizeLabel" : "10 bytes"
+    },
+    {
+      "checksumSHA256" : "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "detail" : "outside the project",
+      "displayPath" : "aligned.lungfishmsa",
+      "fileSize" : 40,
+      "role" : "Output",
+      "sizeLabel" : "40 bytes"
+    },
+    {
+      "checksumSHA256" : "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "detail" : "outside the project",
+      "displayPath" : "primary.aligned.fasta",
+      "fileSize" : 30,
+      "format" : "FASTA",
+      "role" : "Output",
+      "sizeLabel" : "30 bytes"
+    }
+  ],
+  "lineage" : [
+    {
+      "steps" : [
+        {
+          "displayCommand" : "mafft --auto input > output",
+          "exitStatus" : 0,
+          "inputs" : [
+            "source.original (outside the project)",
+            "input.lungfishref (outside the project)"
+          ],
+          "ordinal" : 1,
+          "outputs" : [
+            "aligned.lungfishmsa (outside the project)"
+          ],
+          "toolName" : "mafft",
+          "toolVersion" : "v7.526",
+          "wallTimeSeconds" : 1.5
+        }
+      ],
+      "subtitle" : "lungfish align mafft v0.1.0",
+      "title" : "multiple-sequence-alignment-mafft"
+    }
+  ],
+  "options" : [
+
+  ],
+  "rawJSONHoldsEmbeddedRun" : false,
+  "runtime" : [
+    {
+      "label" : "Executable",
+      "value" : "/Applications/Lungfish.app/Contents/MacOS/lungfish-cli"
+    },
+    {
+      "label" : "Process ID",
+      "value" : "42"
+    },
+    {
+      "label" : "OS",
+      "value" : "macOS test"
+    }
+  ],
+  "summary" : {
+    "createdAtMilliseconds" : 1778611278000,
+    "createdAtUTC" : "2026-05-12T18:41:18.000Z",
+    "exitStatus" : 0,
+    "inputCount" : 2,
+    "outputCount" : 2,
+    "sidecarDisplayPath" : "Analyses/Aligned.lungfishmsa/.lungfish-provenance.json",
+    "signatureCount" : 0,
+    "statusLabel" : "Complete",
+    "stepCount" : 1,
+    "toolName" : "lungfish align mafft",
+    "toolVersion" : "v0.1.0",
+    "wallTimeSeconds" : 2,
+    "workflowName" : "multiple-sequence-alignment-mafft"
+  },
+  "warnings" : [
+
+  ]
+}

@@ -1,0 +1,93 @@
+{
+  "auditIsBlocking" : false,
+  "auditStatus" : "present",
+  "files" : [
+    {
+      "checksumSHA256" : "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "detail" : "outside the project",
+      "displayPath" : "aligned.lungfishmsa",
+      "fileSize" : 100,
+      "role" : "Input",
+      "sizeLabel" : "100 bytes"
+    },
+    {
+      "checksumSHA256" : "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "detail" : "outside the project",
+      "displayPath" : "tree.lungfishtree",
+      "fileSize" : 200,
+      "role" : "Output",
+      "sizeLabel" : "200 bytes"
+    },
+    {
+      "checksumSHA256" : "1111111111111111111111111111111111111111111111111111111111111111",
+      "detail" : "outside the project",
+      "displayPath" : "manifest.json",
+      "fileSize" : 12,
+      "format" : "JSON",
+      "role" : "Output",
+      "sizeLabel" : "12 bytes"
+    },
+    {
+      "checksumSHA256" : "2222222222222222222222222222222222222222222222222222222222222222",
+      "detail" : "outside the project",
+      "displayPath" : "primary.nwk",
+      "fileSize" : 34,
+      "role" : "Output",
+      "sizeLabel" : "34 bytes"
+    }
+  ],
+  "lineage" : [
+    {
+      "steps" : [
+        {
+          "displayCommand" : "iqtree2 -s input.aligned.fasta",
+          "exitStatus" : 0,
+          "inputs" : [
+            "aligned.lungfishmsa (outside the project)"
+          ],
+          "ordinal" : 1,
+          "outputs" : [
+            "tree.lungfishtree (outside the project)"
+          ],
+          "toolName" : "iqtree2",
+          "toolVersion" : "v2.3.6",
+          "wallTimeSeconds" : 3
+        }
+      ],
+      "subtitle" : "lungfish tree infer iqtree v0.5.0-alpha6",
+      "title" : "phylogenetic-tree-infer-iqtree"
+    }
+  ],
+  "options" : [
+
+  ],
+  "rawJSONHoldsEmbeddedRun" : false,
+  "runtime" : [
+    {
+      "label" : "Executable",
+      "value" : "/usr/local/bin/lungfish-cli"
+    },
+    {
+      "label" : "OS",
+      "value" : "macOS test"
+    }
+  ],
+  "summary" : {
+    "createdAtMilliseconds" : 1777777776000,
+    "createdAtUTC" : "2026-05-03T03:09:36.000Z",
+    "exitStatus" : 0,
+    "inputCount" : 1,
+    "outputCount" : 3,
+    "sidecarDisplayPath" : "Analyses/Tree.lungfishtree/.lungfish-provenance.json",
+    "signatureCount" : 0,
+    "statusLabel" : "Complete",
+    "stepCount" : 1,
+    "toolName" : "lungfish tree infer iqtree",
+    "toolVersion" : "v0.5.0-alpha6",
+    "wallTimeSeconds" : 4,
+    "workflowName" : "phylogenetic-tree-infer-iqtree"
+  },
+  "warnings" : [
+
+  ]
+}

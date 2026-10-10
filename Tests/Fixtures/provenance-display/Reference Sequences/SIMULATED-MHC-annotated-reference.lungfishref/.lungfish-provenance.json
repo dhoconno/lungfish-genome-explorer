@@ -1,0 +1,900 @@
+{
+  "appVersion" : "Lungfish 2026.9.58 (5822)",
+  "argv" : [
+    "lungfish-cli",
+    "import",
+    "fasta",
+    "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb",
+    "--output-dir",
+    "@\/",
+    "--name",
+    "SIMULATED-MHC-annotated-reference"
+  ],
+  "createdAt" : "2026-09-29T11:46:53Z",
+  "durableReplayArgv" : [
+    "lungfish-cli",
+    "import",
+    "fasta",
+    "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb",
+    "--output-dir",
+    "@\/",
+    "--name",
+    "SIMULATED-MHC-annotated-reference"
+  ],
+  "endTime" : "2026-09-29T11:46:53Z",
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d",
+      "fileSize" : 3461,
+      "format" : "genBank",
+      "path" : "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb",
+      "role" : "input",
+      "sha256" : "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d",
+      "sizeBytes" : 3461
+    },
+    {
+      "checksumSHA256" : "a1441dca58ccf6ab0aac754c26ef2d8406204c2d623f6856ec99bd53592a047c",
+      "fileSize" : 36864,
+      "format" : "unknown",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/annotations\/imported_annotations.db",
+      "role" : "output",
+      "sha256" : "a1441dca58ccf6ab0aac754c26ef2d8406204c2d623f6856ec99bd53592a047c",
+      "sizeBytes" : 36864
+    },
+    {
+      "checksumSHA256" : "2bd30210b03610776de2c2463638692319ba2423447360217fb0f4a8b19c720b",
+      "fileSize" : 386,
+      "format" : "gff3",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/annotations\/imported_annotations.gff3",
+      "role" : "output",
+      "sha256" : "2bd30210b03610776de2c2463638692319ba2423447360217fb0f4a8b19c720b",
+      "sizeBytes" : 386
+    },
+    {
+      "checksumSHA256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+      "fileSize" : 439,
+      "format" : "fasta",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz",
+      "role" : "output",
+      "sha256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+      "sizeBytes" : 439
+    },
+    {
+      "checksumSHA256" : "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82",
+      "fileSize" : 133,
+      "format" : "unknown",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz.fai",
+      "role" : "output",
+      "sha256" : "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82",
+      "sizeBytes" : 133
+    },
+    {
+      "checksumSHA256" : "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "fileSize" : 8,
+      "format" : "unknown",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz.gzi",
+      "role" : "output",
+      "sha256" : "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "sizeBytes" : 8
+    },
+    {
+      "checksumSHA256" : "63e3576176963d62f4c610c39bc907ce6b5421c181b3bb9fe29d8eee8281be18",
+      "fileSize" : 3795,
+      "format" : "json",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/manifest.json",
+      "role" : "output",
+      "sha256" : "63e3576176963d62f4c610c39bc907ce6b5421c181b3bb9fe29d8eee8281be18",
+      "sizeBytes" : 3795
+    },
+    {
+      "checksumSHA256" : "a51dd075c83f290408a19f3618cd7937cfe1290af761a7ac0c717809b9454e08",
+      "fileSize" : 45056,
+      "format" : "unknown",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/metadata\/genbank_records.sqlite",
+      "role" : "output",
+      "sha256" : "a51dd075c83f290408a19f3618cd7937cfe1290af761a7ac0c717809b9454e08",
+      "sizeBytes" : 45056
+    },
+    {
+      "checksumSHA256" : "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d",
+      "fileSize" : 3461,
+      "format" : "genBank",
+      "path" : "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb",
+      "role" : "input",
+      "sha256" : "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d",
+      "sizeBytes" : 3461
+    },
+    {
+      "checksumSHA256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+      "fileSize" : 439,
+      "format" : "fasta",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz",
+      "role" : "output",
+      "sha256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+      "sizeBytes" : 439
+    },
+    {
+      "checksumSHA256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+      "fileSize" : 439,
+      "format" : "fasta",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz",
+      "role" : "input",
+      "sha256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+      "sizeBytes" : 439
+    },
+    {
+      "checksumSHA256" : "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82",
+      "fileSize" : 133,
+      "format" : "unknown",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz.fai",
+      "role" : "output",
+      "sha256" : "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82",
+      "sizeBytes" : 133
+    },
+    {
+      "checksumSHA256" : "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "fileSize" : 8,
+      "format" : "unknown",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz.gzi",
+      "role" : "output",
+      "sha256" : "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "sizeBytes" : 8
+    }
+  ],
+  "hostOS" : "macOS 26.6.2 (arm64)",
+  "id" : "5A22B173-A226-443D-88CA-8A2F7C32BB61",
+  "legacyWorkflowRun" : {
+    "appVersion" : "Lungfish 2026.9.58 (5822)",
+    "endTime" : "2026-09-29T11:46:53Z",
+    "hostOS" : "macOS 26.6.2 (arm64)",
+    "id" : "5A22B173-A226-443D-88CA-8A2F7C32BB61",
+    "name" : "lungfish import fasta",
+    "parameters" : {
+      "annotation_count" : {
+        "type" : "integer",
+        "value" : 1
+      },
+      "annotation_ids" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "string",
+            "value" : "imported_annotations"
+          }
+        ]
+      },
+      "bundle_path" : {
+        "type" : "file",
+        "value" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref"
+      },
+      "compress_fasta" : {
+        "type" : "boolean",
+        "value" : true
+      },
+      "identifier" : {
+        "type" : "string",
+        "value" : "org.lungfish.cli.import.b5a162e6-86c2-403b-bd85-e8b43f02b71a"
+      },
+      "input_files" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "file",
+            "value" : "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb"
+          }
+        ]
+      },
+      "name" : {
+        "type" : "string",
+        "value" : "SIMULATED-MHC-annotated-reference"
+      },
+      "output_directory" : {
+        "type" : "file",
+        "value" : "@\/Reference Sequences"
+      },
+      "signal_count" : {
+        "type" : "integer",
+        "value" : 0
+      },
+      "source_url" : {
+        "type" : "file",
+        "value" : "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb"
+      },
+      "variant_count" : {
+        "type" : "integer",
+        "value" : 0
+      }
+    },
+    "runtime" : {
+      "appVersion" : "Lungfish 2026.9.58 (5822)",
+      "hostOS" : "macOS 26.6.2 (arm64)"
+    },
+    "startTime" : "2026-09-29T11:46:53Z",
+    "status" : "completed",
+    "steps" : [
+      {
+        "command" : [
+          "lungfish-cli",
+          "import",
+          "fasta",
+          "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb",
+          "--output-dir",
+          "@\/",
+          "--name",
+          "SIMULATED-MHC-annotated-reference"
+        ],
+        "dependsOn" : [
+
+        ],
+        "durableReplayArgv" : [
+          "lungfish-cli",
+          "import",
+          "fasta",
+          "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb",
+          "--output-dir",
+          "@\/",
+          "--name",
+          "SIMULATED-MHC-annotated-reference"
+        ],
+        "endTime" : "2026-09-29T11:46:53Z",
+        "exitCode" : 0,
+        "id" : "E7EB39A7-D8B8-4781-8182-998FCAC4483F",
+        "inputs" : [
+          {
+            "format" : "genBank",
+            "path" : "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb",
+            "role" : "input",
+            "sha256" : "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d",
+            "sizeBytes" : 3461
+          }
+        ],
+        "outputs" : [
+          {
+            "format" : "unknown",
+            "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/annotations\/imported_annotations.db",
+            "role" : "output",
+            "sha256" : "a1441dca58ccf6ab0aac754c26ef2d8406204c2d623f6856ec99bd53592a047c",
+            "sizeBytes" : 36864
+          },
+          {
+            "format" : "gff3",
+            "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/annotations\/imported_annotations.gff3",
+            "role" : "output",
+            "sha256" : "2bd30210b03610776de2c2463638692319ba2423447360217fb0f4a8b19c720b",
+            "sizeBytes" : 386
+          },
+          {
+            "format" : "fasta",
+            "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz",
+            "role" : "output",
+            "sha256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+            "sizeBytes" : 439
+          },
+          {
+            "format" : "unknown",
+            "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz.fai",
+            "role" : "output",
+            "sha256" : "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82",
+            "sizeBytes" : 133
+          },
+          {
+            "format" : "unknown",
+            "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz.gzi",
+            "role" : "output",
+            "sha256" : "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+            "sizeBytes" : 8
+          },
+          {
+            "format" : "json",
+            "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/manifest.json",
+            "role" : "output",
+            "sha256" : "63e3576176963d62f4c610c39bc907ce6b5421c181b3bb9fe29d8eee8281be18",
+            "sizeBytes" : 3795
+          },
+          {
+            "format" : "unknown",
+            "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/metadata\/genbank_records.sqlite",
+            "role" : "output",
+            "sha256" : "a51dd075c83f290408a19f3618cd7937cfe1290af761a7ac0c717809b9454e08",
+            "sizeBytes" : 45056
+          }
+        ],
+        "startTime" : "2026-09-29T11:46:53Z",
+        "toolName" : "lungfish import fasta",
+        "toolVersion" : "Lungfish 2026.9.58 (5822)",
+        "wallTime" : 0.1441030502319336
+      },
+      {
+        "command" : [
+          "<tool-root>\/envs\/htslib\/bin\/bgzip",
+          "-f",
+          "-@",
+          "13",
+          "@\/Reference Sequences\/.SIMULATED-MHC-annotated-reference.building-B15F0112-6EB2-49B3-91D6-4BA746B3B508\/genome\/sequence.fa"
+        ],
+        "dependsOn" : [
+
+        ],
+        "endTime" : "2026-09-29T11:46:53Z",
+        "exitCode" : 0,
+        "id" : "06D77DBB-4B8F-4FF1-B408-23F196618105",
+        "inputs" : [
+          {
+            "format" : "genBank",
+            "path" : "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb",
+            "role" : "input",
+            "sha256" : "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d",
+            "sizeBytes" : 3461
+          }
+        ],
+        "outputs" : [
+          {
+            "format" : "fasta",
+            "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz",
+            "role" : "output",
+            "sha256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+            "sizeBytes" : 439
+          }
+        ],
+        "startTime" : "2026-09-29T11:46:53Z",
+        "stderr" : "",
+        "toolName" : "bgzip",
+        "toolVersion" : "1.24",
+        "wallTime" : 0.030275940895080566
+      },
+      {
+        "command" : [
+          "<tool-root>\/envs\/samtools\/bin\/samtools",
+          "faidx",
+          "@\/Reference Sequences\/.SIMULATED-MHC-annotated-reference.building-B15F0112-6EB2-49B3-91D6-4BA746B3B508\/genome\/sequence.fa.gz"
+        ],
+        "dependsOn" : [
+          "06D77DBB-4B8F-4FF1-B408-23F196618105"
+        ],
+        "endTime" : "2026-09-29T11:46:53Z",
+        "exitCode" : 0,
+        "id" : "AA00C0FC-A93C-45CF-BC32-E4D94135C6F8",
+        "inputs" : [
+          {
+            "format" : "fasta",
+            "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz",
+            "role" : "input",
+            "sha256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+            "sizeBytes" : 439
+          }
+        ],
+        "outputs" : [
+          {
+            "format" : "unknown",
+            "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz.fai",
+            "role" : "output",
+            "sha256" : "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82",
+            "sizeBytes" : 133
+          },
+          {
+            "format" : "unknown",
+            "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz.gzi",
+            "role" : "output",
+            "sha256" : "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+            "sizeBytes" : 8
+          }
+        ],
+        "startTime" : "2026-09-29T11:46:53Z",
+        "stderr" : "",
+        "toolName" : "samtools",
+        "toolVersion" : "1.24",
+        "wallTime" : 0.013043045997619629
+      }
+    ]
+  },
+  "name" : "lungfish import fasta",
+  "options" : {
+    "defaults" : {
+      "reference_source" : {
+        "type" : "string",
+        "value" : "none"
+      }
+    },
+    "explicit" : {
+      "annotation_count" : {
+        "type" : "integer",
+        "value" : 1
+      },
+      "annotation_ids" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "string",
+            "value" : "imported_annotations"
+          }
+        ]
+      },
+      "bundle_path" : {
+        "type" : "file",
+        "value" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref"
+      },
+      "compress_fasta" : {
+        "type" : "boolean",
+        "value" : true
+      },
+      "identifier" : {
+        "type" : "string",
+        "value" : "org.lungfish.cli.import.b5a162e6-86c2-403b-bd85-e8b43f02b71a"
+      },
+      "input_files" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "file",
+            "value" : "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb"
+          }
+        ]
+      },
+      "name" : {
+        "type" : "string",
+        "value" : "SIMULATED-MHC-annotated-reference"
+      },
+      "output_directory" : {
+        "type" : "file",
+        "value" : "@\/Reference Sequences"
+      },
+      "reference_source" : {
+        "type" : "file",
+        "value" : "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb"
+      },
+      "signal_count" : {
+        "type" : "integer",
+        "value" : 0
+      },
+      "source_url" : {
+        "type" : "file",
+        "value" : "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb"
+      },
+      "variant_count" : {
+        "type" : "integer",
+        "value" : 0
+      }
+    },
+    "resolvedDefaults" : {
+      "reference_source" : {
+        "type" : "file",
+        "value" : "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb"
+      }
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82",
+    "fileSize" : 133,
+    "format" : "unknown",
+    "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz.fai",
+    "role" : "output",
+    "sha256" : "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82",
+    "sizeBytes" : 133
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "a1441dca58ccf6ab0aac754c26ef2d8406204c2d623f6856ec99bd53592a047c",
+      "fileSize" : 36864,
+      "format" : "unknown",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/annotations\/imported_annotations.db",
+      "role" : "output",
+      "sha256" : "a1441dca58ccf6ab0aac754c26ef2d8406204c2d623f6856ec99bd53592a047c",
+      "sizeBytes" : 36864
+    },
+    {
+      "checksumSHA256" : "2bd30210b03610776de2c2463638692319ba2423447360217fb0f4a8b19c720b",
+      "fileSize" : 386,
+      "format" : "gff3",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/annotations\/imported_annotations.gff3",
+      "role" : "output",
+      "sha256" : "2bd30210b03610776de2c2463638692319ba2423447360217fb0f4a8b19c720b",
+      "sizeBytes" : 386
+    },
+    {
+      "checksumSHA256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+      "fileSize" : 439,
+      "format" : "fasta",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz",
+      "role" : "output",
+      "sha256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+      "sizeBytes" : 439
+    },
+    {
+      "checksumSHA256" : "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82",
+      "fileSize" : 133,
+      "format" : "unknown",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz.fai",
+      "role" : "output",
+      "sha256" : "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82",
+      "sizeBytes" : 133
+    },
+    {
+      "checksumSHA256" : "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "fileSize" : 8,
+      "format" : "unknown",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz.gzi",
+      "role" : "output",
+      "sha256" : "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "sizeBytes" : 8
+    },
+    {
+      "checksumSHA256" : "63e3576176963d62f4c610c39bc907ce6b5421c181b3bb9fe29d8eee8281be18",
+      "fileSize" : 3795,
+      "format" : "json",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/manifest.json",
+      "role" : "output",
+      "sha256" : "63e3576176963d62f4c610c39bc907ce6b5421c181b3bb9fe29d8eee8281be18",
+      "sizeBytes" : 3795
+    },
+    {
+      "checksumSHA256" : "a51dd075c83f290408a19f3618cd7937cfe1290af761a7ac0c717809b9454e08",
+      "fileSize" : 45056,
+      "format" : "unknown",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/metadata\/genbank_records.sqlite",
+      "role" : "output",
+      "sha256" : "a51dd075c83f290408a19f3618cd7937cfe1290af761a7ac0c717809b9454e08",
+      "sizeBytes" : 45056
+    },
+    {
+      "checksumSHA256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+      "fileSize" : 439,
+      "format" : "fasta",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz",
+      "role" : "output",
+      "sha256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+      "sizeBytes" : 439
+    },
+    {
+      "checksumSHA256" : "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82",
+      "fileSize" : 133,
+      "format" : "unknown",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz.fai",
+      "role" : "output",
+      "sha256" : "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82",
+      "sizeBytes" : 133
+    },
+    {
+      "checksumSHA256" : "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "fileSize" : 8,
+      "format" : "unknown",
+      "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz.gzi",
+      "role" : "output",
+      "sha256" : "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "sizeBytes" : 8
+    }
+  ],
+  "parameters" : {
+    "annotation_count" : {
+      "type" : "integer",
+      "value" : 1
+    },
+    "annotation_ids" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "string",
+          "value" : "imported_annotations"
+        }
+      ]
+    },
+    "bundle_path" : {
+      "type" : "file",
+      "value" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref"
+    },
+    "compress_fasta" : {
+      "type" : "boolean",
+      "value" : true
+    },
+    "identifier" : {
+      "type" : "string",
+      "value" : "org.lungfish.cli.import.b5a162e6-86c2-403b-bd85-e8b43f02b71a"
+    },
+    "input_files" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "file",
+          "value" : "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb"
+        }
+      ]
+    },
+    "name" : {
+      "type" : "string",
+      "value" : "SIMULATED-MHC-annotated-reference"
+    },
+    "output_directory" : {
+      "type" : "file",
+      "value" : "@\/Reference Sequences"
+    },
+    "signal_count" : {
+      "type" : "integer",
+      "value" : 0
+    },
+    "source_url" : {
+      "type" : "file",
+      "value" : "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb"
+    },
+    "variant_count" : {
+      "type" : "integer",
+      "value" : 0
+    }
+  },
+  "reproducibleCommand" : "lungfish-cli import fasta <workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb --output-dir '@\/' --name SIMULATED-MHC-annotated-reference",
+  "runtime" : {
+    "appVersion" : "Lungfish 2026.9.58 (5822)",
+    "hostOS" : "macOS 26.6.2 (arm64)"
+  },
+  "runtimeIdentity" : {
+    "appVersion" : "Lungfish 2026.9.58 (5822)",
+    "architecture" : "arm64",
+    "dependencySet" : "2026.2",
+    "executablePath" : "\/Applications\/Lungfish Preview.app\/Contents\/MacOS\/lungfish-cli",
+    "operatingSystemVersion" : "macOS 26.6.2 (arm64)",
+    "processIdentifier" : 56389
+  },
+  "schemaVersion" : 1,
+  "signatures" : [
+
+  ],
+  "startTime" : "2026-09-29T11:46:53Z",
+  "status" : "completed",
+  "stderr" : "",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "import",
+        "fasta",
+        "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb",
+        "--output-dir",
+        "@\/",
+        "--name",
+        "SIMULATED-MHC-annotated-reference"
+      ],
+      "command" : [
+        "lungfish-cli",
+        "import",
+        "fasta",
+        "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb",
+        "--output-dir",
+        "@\/",
+        "--name",
+        "SIMULATED-MHC-annotated-reference"
+      ],
+      "completedAt" : "2026-09-29T11:46:53Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "lungfish-cli",
+        "import",
+        "fasta",
+        "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb",
+        "--output-dir",
+        "@\/",
+        "--name",
+        "SIMULATED-MHC-annotated-reference"
+      ],
+      "endTime" : "2026-09-29T11:46:53Z",
+      "exitCode" : 0,
+      "exitStatus" : 0,
+      "id" : "E7EB39A7-D8B8-4781-8182-998FCAC4483F",
+      "inputs" : [
+        {
+          "checksumSHA256" : "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d",
+          "fileSize" : 3461,
+          "format" : "genBank",
+          "path" : "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb",
+          "role" : "input",
+          "sha256" : "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d",
+          "sizeBytes" : 3461
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "a1441dca58ccf6ab0aac754c26ef2d8406204c2d623f6856ec99bd53592a047c",
+          "fileSize" : 36864,
+          "format" : "unknown",
+          "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/annotations\/imported_annotations.db",
+          "role" : "output",
+          "sha256" : "a1441dca58ccf6ab0aac754c26ef2d8406204c2d623f6856ec99bd53592a047c",
+          "sizeBytes" : 36864
+        },
+        {
+          "checksumSHA256" : "2bd30210b03610776de2c2463638692319ba2423447360217fb0f4a8b19c720b",
+          "fileSize" : 386,
+          "format" : "gff3",
+          "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/annotations\/imported_annotations.gff3",
+          "role" : "output",
+          "sha256" : "2bd30210b03610776de2c2463638692319ba2423447360217fb0f4a8b19c720b",
+          "sizeBytes" : 386
+        },
+        {
+          "checksumSHA256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+          "fileSize" : 439,
+          "format" : "fasta",
+          "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz",
+          "role" : "output",
+          "sha256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+          "sizeBytes" : 439
+        },
+        {
+          "checksumSHA256" : "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82",
+          "fileSize" : 133,
+          "format" : "unknown",
+          "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz.fai",
+          "role" : "output",
+          "sha256" : "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82",
+          "sizeBytes" : 133
+        },
+        {
+          "checksumSHA256" : "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+          "fileSize" : 8,
+          "format" : "unknown",
+          "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz.gzi",
+          "role" : "output",
+          "sha256" : "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+          "sizeBytes" : 8
+        },
+        {
+          "checksumSHA256" : "63e3576176963d62f4c610c39bc907ce6b5421c181b3bb9fe29d8eee8281be18",
+          "fileSize" : 3795,
+          "format" : "json",
+          "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/manifest.json",
+          "role" : "output",
+          "sha256" : "63e3576176963d62f4c610c39bc907ce6b5421c181b3bb9fe29d8eee8281be18",
+          "sizeBytes" : 3795
+        },
+        {
+          "checksumSHA256" : "a51dd075c83f290408a19f3618cd7937cfe1290af761a7ac0c717809b9454e08",
+          "fileSize" : 45056,
+          "format" : "unknown",
+          "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/metadata\/genbank_records.sqlite",
+          "role" : "output",
+          "sha256" : "a51dd075c83f290408a19f3618cd7937cfe1290af761a7ac0c717809b9454e08",
+          "sizeBytes" : 45056
+        }
+      ],
+      "reproducibleCommand" : "lungfish-cli import fasta <workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb --output-dir '@\/' --name SIMULATED-MHC-annotated-reference",
+      "resolvedOptions" : {
+
+      },
+      "startTime" : "2026-09-29T11:46:53Z",
+      "startedAt" : "2026-09-29T11:46:53Z",
+      "toolName" : "lungfish import fasta",
+      "toolVersion" : "Lungfish 2026.9.58 (5822)",
+      "wallTime" : 0.1441030502319336,
+      "wallTimeSeconds" : 0.1441030502319336
+    },
+    {
+      "argv" : [
+        "<tool-root>\/envs\/htslib\/bin\/bgzip",
+        "-f",
+        "-@",
+        "13",
+        "@\/Reference Sequences\/.SIMULATED-MHC-annotated-reference.building-B15F0112-6EB2-49B3-91D6-4BA746B3B508\/genome\/sequence.fa"
+      ],
+      "command" : [
+        "<tool-root>\/envs\/htslib\/bin\/bgzip",
+        "-f",
+        "-@",
+        "13",
+        "@\/Reference Sequences\/.SIMULATED-MHC-annotated-reference.building-B15F0112-6EB2-49B3-91D6-4BA746B3B508\/genome\/sequence.fa"
+      ],
+      "completedAt" : "2026-09-29T11:46:53Z",
+      "dependsOn" : [
+
+      ],
+      "endTime" : "2026-09-29T11:46:53Z",
+      "exitCode" : 0,
+      "exitStatus" : 0,
+      "id" : "06D77DBB-4B8F-4FF1-B408-23F196618105",
+      "inputs" : [
+        {
+          "checksumSHA256" : "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d",
+          "fileSize" : 3461,
+          "format" : "genBank",
+          "path" : "<workspace>\/lge-demo-build\/inputs\/mhc-simulated\/SIMULATED-MHC-annotated-reference.gb",
+          "role" : "input",
+          "sha256" : "51506d1a68dfbc628e99359da00649bf3cbdd0058c5b6c595b0fa559c5d5683d",
+          "sizeBytes" : 3461
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+          "fileSize" : 439,
+          "format" : "fasta",
+          "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz",
+          "role" : "output",
+          "sha256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+          "sizeBytes" : 439
+        }
+      ],
+      "reproducibleCommand" : "<tool-root>\/envs\/htslib\/bin\/bgzip -f -@ 13 '@\/Reference Sequences\/.SIMULATED-MHC-annotated-reference.building-B15F0112-6EB2-49B3-91D6-4BA746B3B508\/genome\/sequence.fa'",
+      "resolvedOptions" : {
+
+      },
+      "startTime" : "2026-09-29T11:46:53Z",
+      "startedAt" : "2026-09-29T11:46:53Z",
+      "stderr" : "",
+      "toolName" : "bgzip",
+      "toolVersion" : "1.24",
+      "wallTime" : 0.030275940895080566,
+      "wallTimeSeconds" : 0.030275940895080566
+    },
+    {
+      "argv" : [
+        "<tool-root>\/envs\/samtools\/bin\/samtools",
+        "faidx",
+        "@\/Reference Sequences\/.SIMULATED-MHC-annotated-reference.building-B15F0112-6EB2-49B3-91D6-4BA746B3B508\/genome\/sequence.fa.gz"
+      ],
+      "command" : [
+        "<tool-root>\/envs\/samtools\/bin\/samtools",
+        "faidx",
+        "@\/Reference Sequences\/.SIMULATED-MHC-annotated-reference.building-B15F0112-6EB2-49B3-91D6-4BA746B3B508\/genome\/sequence.fa.gz"
+      ],
+      "completedAt" : "2026-09-29T11:46:53Z",
+      "dependsOn" : [
+        "06D77DBB-4B8F-4FF1-B408-23F196618105"
+      ],
+      "endTime" : "2026-09-29T11:46:53Z",
+      "exitCode" : 0,
+      "exitStatus" : 0,
+      "id" : "AA00C0FC-A93C-45CF-BC32-E4D94135C6F8",
+      "inputs" : [
+        {
+          "checksumSHA256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+          "fileSize" : 439,
+          "format" : "fasta",
+          "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz",
+          "role" : "input",
+          "sha256" : "1e88d266b94cad5f77520f3c52ae28bd736e475ea3762ff2910a2da34638dec1",
+          "sizeBytes" : 439
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82",
+          "fileSize" : 133,
+          "format" : "unknown",
+          "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz.fai",
+          "role" : "output",
+          "sha256" : "a21faa508fa48be6ed81c6d6c23aae486b7075647c84362854df192a3da79c82",
+          "sizeBytes" : 133
+        },
+        {
+          "checksumSHA256" : "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+          "fileSize" : 8,
+          "format" : "unknown",
+          "path" : "@\/Reference Sequences\/SIMULATED-MHC-annotated-reference.lungfishref\/genome\/sequence.fa.gz.gzi",
+          "role" : "output",
+          "sha256" : "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+          "sizeBytes" : 8
+        }
+      ],
+      "reproducibleCommand" : "<tool-root>\/envs\/samtools\/bin\/samtools faidx '@\/Reference Sequences\/.SIMULATED-MHC-annotated-reference.building-B15F0112-6EB2-49B3-91D6-4BA746B3B508\/genome\/sequence.fa.gz'",
+      "resolvedOptions" : {
+
+      },
+      "startTime" : "2026-09-29T11:46:53Z",
+      "startedAt" : "2026-09-29T11:46:53Z",
+      "stderr" : "",
+      "toolName" : "samtools",
+      "toolVersion" : "1.24",
+      "wallTime" : 0.013043045997619629,
+      "wallTimeSeconds" : 0.013043045997619629
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "lungfish import fasta",
+    "version" : "Lungfish 2026.9.58 (5822)"
+  },
+  "toolName" : "lungfish import fasta",
+  "toolVersion" : "Lungfish 2026.9.58 (5822)",
+  "wallTimeSeconds" : 0.1459599733352661,
+  "workflowName" : "lungfish import fasta",
+  "workflowVersion" : "Lungfish 2026.9.58 (5822)"
+}
