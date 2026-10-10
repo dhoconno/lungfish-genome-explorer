@@ -200,9 +200,11 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(status(of: sample, in: sidecar), .reviewed)
         XCTAssertEqual(sidecar.auditLog.last?.before, "confirmed")
         XCTAssertEqual(sidecar.auditLog.last?.after, "reviewed")
-        let otherSidecar = try persistedSidecar(otherBundleURL)
-        XCTAssertTrue(otherSidecar.sampleStatusFlags.isEmpty)
-        XCTAssertFalse(otherSidecar.auditLog.contains { $0.sample == sample })
+        // The viewer only looked at the other bundle, and looking writes
+        // nothing, so Undo left it without a sidecar.
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: otherBundleURL).path
+        ))
     }
 
     /// The viewer often reopens the bundle's annotation store. Undo must go
@@ -373,9 +375,13 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         priorStatus: GenotypeAnnotationSidecar.StatusValue?
     ) throws -> HostedController {
         let bundleURL = try makeBundleDirectory()
+        let seed = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "first analyst")
         if let priorStatus {
-            let seed = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "first analyst")
             try seed.setSampleStatus(priorStatus, sample: sample)
+        } else {
+            // The tests read the sidecar before the first command, so the
+            // bundle starts with the sidecar the viewer would show.
+            try seed.publishUnsavedBuiltInSmartCohorts()
         }
         let controller = makeManualHaplotypeGuardedController()
         controller.annotationAuthorProvider = { "second analyst" }

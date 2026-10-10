@@ -381,8 +381,8 @@ extension InspectorViewController {
         if let metadataStore {
             SampleMetadataEditPersistenceService().wire(store: metadataStore, bundleURL: result.bundleURL)
         }
-        // Haplotype-capable bundles seed the default cohorts on first open.
-        // Genotype-only inspection must remain byte-preserving.
+        // Haplotype-capable bundles list the default cohorts from memory, as the
+        // viewer does. Opening the store writes nothing, so inspection is a read.
         let sidecar: GenotypeAnnotationSidecar = {
             if let store = try? GenotypeAnnotationStore(
                 bundleURL: result.bundleURL,

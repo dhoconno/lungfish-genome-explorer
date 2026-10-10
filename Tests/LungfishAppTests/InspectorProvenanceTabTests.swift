@@ -207,7 +207,10 @@ final class InspectorProvenanceTabTests: XCTestCase {
         ]
         let annotationURL = bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         try sidecar.encoded().write(to: annotationURL)
-        _ = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "test")
+        // Opening a store writes nothing now, so the sidecar gets its built-in
+        // cohorts through an explicit publish before the Inspector looks at it.
+        try GenotypeAnnotationStore(bundleURL: bundleURL, author: "test")
+            .publishUnsavedBuiltInSmartCohorts()
         let bytesBeforeOpen = try Data(contentsOf: annotationURL)
         let call = ONTGenotypeCall(
             sample: "AnimalA",
@@ -323,6 +326,68 @@ final class InspectorProvenanceTabTests: XCTestCase {
         )
 
         XCTAssertEqual(try ProjectTreeSnapshot(of: bundleURL).fileBytes, before)
+    }
+
+    /// Selecting a haplotyped result fills the Inspector's Smart Cohorts from
+    /// memory. The bundle and the folder beside it keep every entry, so no
+    /// sidecar, record or lock file appears (walk finding F9).
+    func testHaplotypedInspectorSelectionWritesNoByteAndListsTheBuiltInCohorts() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("inspector-haplotyped-seed-\(UUID().uuidString)", isDirectory: true)
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let before = try ProjectTreeSnapshot(of: root)
+        let call = ONTGenotypeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            passedAlignments: 42,
+            passedUniqueReads: 42,
+            sampleTotalReads: nil,
+            sampleUniqueRetainedReads: nil,
+            sampleUniqueRetainedPercent: nil,
+            overallInputReads: nil,
+            overallUniqueRetainedReads: nil,
+            overallUniqueRetainedPercent: nil
+        )
+        let sample = ONTGenotypeSampleResult(
+            sample: "AnimalA",
+            passedAlignments: 42,
+            passedUniqueReads: 42,
+            sampleTotalReads: nil,
+            sampleUniqueRetainedPercent: nil,
+            calls: [call]
+        )
+        let inspector = InspectorViewController()
+        _ = inspector.view
+        inspector.viewModel.contentMode = .genotype
+
+        inspector.updateGenotypeResultDocument(
+            makeGenotypeResult(
+                bundleURL: bundleURL,
+                haplotypeAnalysis: GenotypeHaplotypeAnalysis(
+                    assayID: "MHC-exon2-miSeq",
+                    definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+                    definitionSetName: "Mauritian cynomolgus macaques",
+                    speciesName: "Mauritian cynomolgus macaques",
+                    samples: []
+                ),
+                calls: [call],
+                samples: [sample]
+            )
+        )
+
+        let after = try ProjectTreeSnapshot(of: root)
+        XCTAssertEqual(after.differences(from: before), [])
+        XCTAssertEqual(after, before)
+        let document = try XCTUnwrap(
+            inspector.viewModel.documentSectionViewModel.genotypeResultDocument
+        )
+        XCTAssertTrue(document.hasHaplotypingResult)
+        XCTAssertEqual(
+            document.smartCohorts.map { $0.filter.name },
+            ["Incomplete haplotypes", "Needs review", "Homozygous", "Recombinants"]
+        )
     }
 
     func testAmbiguousLegacyONTBarcodeResultIsNotTreatedAsGenotypeOnly() {

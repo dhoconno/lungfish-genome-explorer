@@ -8,7 +8,9 @@ import XCTest
 
 /// A review or comment saved at a full-length call's pre-N9 pseudo-locus is
 /// reached by an edit at the call's current locus (N9 review finding 2), and
-/// the recorded replay payload reproduces the store's sidecar exactly.
+/// the recorded replay payload reproduces the published sidecar exactly. The
+/// store shows the built-in smart cohorts from memory beside it, and a replayed
+/// edit does not write them.
 @MainActor
 final class GenotypeAnnotationStoreLegacyLocusTests: XCTestCase {
     private typealias Target = GenotypeAnnotationSidecar.MatrixTarget
@@ -54,6 +56,13 @@ final class GenotypeAnnotationStoreLegacyLocusTests: XCTestCase {
             .applying(to: GenotypeAnnotationSidecar.decode(prior))
     }
 
+    /// The sidecar the last edit published, as the bundle's file holds it.
+    private func publishedSidecar(bundleURL: URL) throws -> GenotypeAnnotationSidecar {
+        try GenotypeAnnotationSidecar.decode(Data(
+            contentsOf: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        ))
+    }
+
     func testTheAliasNamesTheSavedTargetOfACurrentTarget() {
         XCTAssertEqual(alias.savedTargets(for: current), [legacy])
         XCTAssertEqual(alias.savedTargets(for: .row(locus: "MHC-A", genotype: "NHP01270")),
@@ -71,7 +80,9 @@ final class GenotypeAnnotationStoreLegacyLocusTests: XCTestCase {
         try store.clearMatrixReviewSynchronously(targets: [current], author: "editor", locusAlias: alias)
 
         XCTAssertEqual(store.sidecar.matrixReviews.map(\.target), [unrelated])
-        XCTAssertEqual(try replayedSidecar(bundleURL: url), store.sidecar)
+        XCTAssertEqual(try replayedSidecar(bundleURL: url), try publishedSidecar(bundleURL: url))
+        XCTAssertTrue(try publishedSidecar(bundleURL: url).smartCohorts.isEmpty)
+        XCTAssertEqual(store.sidecar.smartCohorts.count, 4)
     }
 
     func testSettingAtTheCurrentLocusReplacesTheLegacyReview() throws {
@@ -88,7 +99,7 @@ final class GenotypeAnnotationStoreLegacyLocusTests: XCTestCase {
         let set = try XCTUnwrap(store.sidecar.auditLog.last)
         XCTAssertEqual(set.action, "setMatrixReview")
         XCTAssertEqual(set.before, "falsePositive", "the matrix showed the legacy review")
-        XCTAssertEqual(try replayedSidecar(bundleURL: url), store.sidecar)
+        XCTAssertEqual(try replayedSidecar(bundleURL: url), try publishedSidecar(bundleURL: url))
     }
 
     func testRemovingAtTheCurrentLocusRemovesTheLegacyComment() throws {
@@ -98,7 +109,7 @@ final class GenotypeAnnotationStoreLegacyLocusTests: XCTestCase {
         try store.removeMatrixCommentsSynchronously(targets: [current], author: "editor", locusAlias: alias)
 
         XCTAssertEqual(store.sidecar.matrixComments, [])
-        XCTAssertEqual(try replayedSidecar(bundleURL: url), store.sidecar)
+        XCTAssertEqual(try replayedSidecar(bundleURL: url), try publishedSidecar(bundleURL: url))
     }
 
     func testWithoutAnAliasTheLegacyEntriesStay() throws {

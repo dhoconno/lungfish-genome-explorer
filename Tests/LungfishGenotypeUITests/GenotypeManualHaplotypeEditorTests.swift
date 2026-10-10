@@ -283,6 +283,8 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
             bundleURL: bundleURL,
             author: "Analyst"
         )
+        // The test compares sidecar bytes, so the bundle starts with a sidecar.
+        try store.publishUnsavedBuiltInSmartCohorts()
         let model = GenotypeManualHaplotypeEditorModel(
             snapshot: .init(
                 draft: makeDraft(

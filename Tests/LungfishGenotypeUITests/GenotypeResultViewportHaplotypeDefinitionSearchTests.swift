@@ -2674,7 +2674,8 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         defer { TestTempDirectory.cleanup(root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let call = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 12)
-        _ = try GenotypeAnnotationStore(bundleURL: root, author: "seed")
+        try GenotypeAnnotationStore(bundleURL: root, author: "seed")
+            .publishUnsavedBuiltInSmartCohorts()
         let annotationsURL = root.appendingPathComponent(
             GenotypeAnnotationSidecar.filename
         )

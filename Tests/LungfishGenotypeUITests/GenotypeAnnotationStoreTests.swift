@@ -65,6 +65,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try store.publishUnsavedBuiltInSmartCohorts()
         let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
             locus: "MHC-A1",
             genotype: "Mafa-A1*001:01",
@@ -98,6 +99,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
         let seeded = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try seeded.publishUnsavedBuiltInSmartCohorts()
         var schemaVersionOne = seeded.sidecar
         schemaVersionOne.schemaVersion = 1
         let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
@@ -695,7 +697,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let store = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
         let before = store.sidecar.settings
         let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
-        try FileManager.default.removeItem(at: annotationURL)
+        // A fresh bundle has no sidecar, so a folder takes its place.
         try FileManager.default.createDirectory(at: annotationURL, withIntermediateDirectories: true)
 
         XCTAssertThrowsError(try store.updateSettings { settings in
@@ -730,6 +732,8 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
 
         let storeA = try GenotypeAnnotationStore(bundleURL: bundleA, author: "candidate-tester")
         let storeB = try GenotypeAnnotationStore(bundleURL: bundleB, author: "candidate-tester")
+        try storeA.publishUnsavedBuiltInSmartCohorts()
+        try storeB.publishUnsavedBuiltInSmartCohorts()
         let annotationA = bundleA.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         let annotationB = bundleB.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         let beforeAnnotationA = try Data(contentsOf: annotationA)
@@ -823,7 +827,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let store = try GenotypeAnnotationStore(bundleURL: dir, author: "candidate-tester")
         let before = store.sidecar
         let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
-        try FileManager.default.removeItem(at: annotationURL)
+        // A fresh bundle has no sidecar, so a folder takes its place.
         try FileManager.default.createDirectory(at: annotationURL, withIntermediateDirectories: true)
         var display = before.settings.mhcCandidateDisplay
         display.showKnown = false
@@ -919,7 +923,8 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
     func testStaleCandidateStoreMergesOntoLatestUnrelatedSettingsEditUnderLock() throws {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
-        _ = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+            .publishUnsavedBuiltInSmartCohorts()
         let candidateStore = try GenotypeAnnotationStore(bundleURL: dir, author: "candidate")
         let settingsStore = try GenotypeAnnotationStore(bundleURL: dir, author: "settings")
         try settingsStore.updateSettings { $0.viewMode = "matrix" }
@@ -948,7 +953,8 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
     func testStaleCandidateStoreConflictsWithConcurrentCandidateEdit() throws {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
-        _ = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+            .publishUnsavedBuiltInSmartCohorts()
         let first = try GenotypeAnnotationStore(bundleURL: dir, author: "first")
         let stale = try GenotypeAnnotationStore(bundleURL: dir, author: "stale")
         var firstDisplay = first.sidecar.settings.mhcCandidateDisplay
@@ -975,6 +981,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = try GenotypeAnnotationStore(bundleURL: dir, author: "candidate")
+        try store.publishUnsavedBuiltInSmartCohorts()
         let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
         let priorAnnotation = try Data(contentsOf: annotationURL)
@@ -998,6 +1005,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = try GenotypeAnnotationStore(bundleURL: dir, author: "candidate")
+        try store.publishUnsavedBuiltInSmartCohorts()
         let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
         let priorAnnotation = try Data(contentsOf: annotationURL)
@@ -1017,7 +1025,8 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
     func testGenericStaleStoreConflictsWithoutOverwritingLatestEdit() throws {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
-        _ = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+            .publishUnsavedBuiltInSmartCohorts()
         let first = try GenotypeAnnotationStore(bundleURL: dir, author: "first")
         let stale = try GenotypeAnnotationStore(bundleURL: dir, author: "stale")
         try first.setSampleStatus(.reviewed, sample: "sample-1")
@@ -1040,10 +1049,10 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let store = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
-        // GenotypeAnnotationStore seeds three default cohorts on first open
-        // (Needs review, Homozygous, Recombinants). Saving an analyst cohort
-        // with a colliding name replaces the seeded one; deleting it does
-        // not remove the others.
+        // GenotypeAnnotationStore shows four default cohorts from its first
+        // open (Incomplete haplotypes, Needs review, Homozygous, Recombinants).
+        // Saving an analyst cohort with a colliding name replaces the seeded
+        // one, and deleting it does not remove the others.
         let initialCount = store.sidecar.smartCohorts.count
         XCTAssertGreaterThanOrEqual(initialCount, 3)
 
@@ -1117,7 +1126,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         )
     }
 
-    func testDefaultCohortsSeededOnFirstOpen() throws {
+    func testDefaultCohortsAreShownOnFirstOpenAndNotWritten() throws {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -1127,6 +1136,15 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertTrue(names.contains("Needs review"))
         XCTAssertTrue(names.contains("Homozygous"))
         XCTAssertTrue(names.contains("Recombinants"))
+        // Opening is a read. The cohorts reach the bundle with the first edit.
+        let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: annotationURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: ProvenanceRecorder.fileSidecarURL(for: annotationURL).path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: ONTGenotypeBundlePublicationLock.lockURL(for: dir).path
+        ))
     }
 
     func testWritableNonseedingOpenPreservesSidecarAndProvenanceUntilExplicitMutation() async throws {
@@ -1211,7 +1229,8 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
     func testSetFalsePositivePublishesAllSupportedCellsOnce() async throws {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
-        _ = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+            .publishUnsavedBuiltInSmartCohorts()
         let publications = PublicationCounter()
         let store = try GenotypeAnnotationStore(
             bundleURL: dir,
@@ -1281,6 +1300,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
         let seeded = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try seeded.publishUnsavedBuiltInSmartCohorts()
         let targets = (0..<240).map { index in
             GenotypeAnnotationSidecar.MatrixTarget.cell(
                 locus: "MHC-A1",
@@ -1370,6 +1390,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try store.publishUnsavedBuiltInSmartCohorts()
         let zero = GenotypeAnnotationSidecar.MatrixTarget.cell(
             locus: "MHC-B",
             genotype: "Mafa-B*001:01",
@@ -1454,6 +1475,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try store.publishUnsavedBuiltInSmartCohorts()
         let supported = GenotypeAnnotationSidecar.MatrixTarget.cell(
             locus: "MHC-A1", genotype: "A", sample: "Animal-1"
         )
@@ -1486,6 +1508,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try store.publishUnsavedBuiltInSmartCohorts()
         let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
             locus: "MHC-A1", genotype: "A", sample: "Animal-1"
         )
@@ -1520,6 +1543,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try store.publishUnsavedBuiltInSmartCohorts()
         let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
             locus: "MHC-A1",
             genotype: "A",
@@ -1554,6 +1578,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = try GenotypeAnnotationStore(bundleURL: dir, author: "construction")
+        try store.publishUnsavedBuiltInSmartCohorts()
         let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
             locus: "MHC-A1",
             genotype: "Mafa-A1*001:01",
@@ -1637,7 +1662,8 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
     func testCommentAddEditRemoveUsesOneCurrentValuePerTarget() async throws {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
-        _ = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+            .publishUnsavedBuiltInSmartCohorts()
         let publications = PublicationCounter()
         let store = try GenotypeAnnotationStore(
             bundleURL: dir,
@@ -1669,6 +1695,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
         let seeded = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try seeded.publishUnsavedBuiltInSmartCohorts()
         let target = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "Animal-1")
         let unrelated = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "Animal-2")
         var legacy = seeded.sidecar
@@ -1762,6 +1789,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
         let seeded = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try seeded.publishUnsavedBuiltInSmartCohorts()
         let target = GenotypeAnnotationSidecar.MatrixTarget.row(
             locus: "MHC-A1",
             genotype: "Mafa-A1*001:01"
@@ -1809,7 +1837,8 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
             try? FileManager.default.setAttributes([.posixPermissions: NSNumber(value: 0o755)], ofItemAtPath: dir.path)
             try? FileManager.default.removeItem(at: dir)
         }
-        _ = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+            .publishUnsavedBuiltInSmartCohorts()
         let stale = try GenotypeAnnotationStore(bundleURL: dir, author: "stale")
         let fresh = try GenotypeAnnotationStore(bundleURL: dir, author: "fresh")
         let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
@@ -1887,6 +1916,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
             bundleURL: dir,
             author: "seed"
         )
+        try seeded.publishUnsavedBuiltInSmartCohorts()
         let retainedID = "assignment-existing"
         let removedID = "assignment-removed"
         var initial = seeded.sidecar
@@ -2222,6 +2252,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
                 bundleURL: dir,
                 author: "Audit Analyst"
             )
+            try store.publishUnsavedBuiltInSmartCohorts()
             let annotationURL = dir.appendingPathComponent(
                 GenotypeAnnotationSidecar.filename
             )
@@ -2328,6 +2359,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
             )
         )
         let seeded = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try seeded.publishUnsavedBuiltInSmartCohorts()
         let existing = ManualHaplotypeAssignment(
             sample: "Animal-1",
             locus: "MHC-A",
@@ -2379,6 +2411,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
             )
         )
         let seeded = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try seeded.publishUnsavedBuiltInSmartCohorts()
         var initial = seeded.sidecar
         let historicalAudit = GenotypeAnnotationSidecar.AuditEntry(
             action: "legacyManualAssignmentImport",
@@ -2479,6 +2512,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
             )
         )
         let seeded = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try seeded.publishUnsavedBuiltInSmartCohorts()
         let canonicalSample = "\u{00C1}nimal-1"
         let legacySample = "  A\u{0301}nimal-1  "
         let recognized = ManualHaplotypeAssignment(
@@ -2584,6 +2618,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
             )
         )
         let seeded = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try seeded.publishUnsavedBuiltInSmartCohorts()
         var initial = seeded.sidecar
         initial.manualHaplotypeAssignments = [
             ManualHaplotypeAssignment(
@@ -2647,6 +2682,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
             )
         )
         let store = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
+        try store.publishUnsavedBuiltInSmartCohorts()
         let annotationURL = dir.appendingPathComponent(
             GenotypeAnnotationSidecar.filename
         )
@@ -2717,7 +2753,8 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
                 ONTGenotypeResultBundleManifest.filename
             )
         )
-        _ = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+            .publishUnsavedBuiltInSmartCohorts()
         let stale = try GenotypeAnnotationStore(bundleURL: dir, author: "stale")
         let staleBefore = stale.sidecar
         let fresh = try GenotypeAnnotationStore(bundleURL: dir, author: "fresh")

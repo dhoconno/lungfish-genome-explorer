@@ -31,8 +31,14 @@ public final class GenotypeAnnotationStore {
     public private(set) var manualHaplotypeAssignmentMutationRevision: UInt64 = 0
     public private(set) var callOverrideMutationRevision: UInt64 = 0
 
+    /// What the bundle's file holds, or an empty sidecar when it has none.
+    /// `persist` compares the file with it before every write.
     @ObservationIgnored
     private var lastPersistedSidecar: GenotypeAnnotationSidecar
+
+    /// The built-in smart cohorts `sidecar` shows and the file does not hold.
+    @ObservationIgnored
+    private var unsavedBuiltInSmartCohorts: [GenotypeCohortSmartFilter] = []
 
     @ObservationIgnored
     private(set) var lastMatrixBulkMutationDiagnostics = GenotypeMatrixBulkMutationDiagnostics()
@@ -88,59 +94,41 @@ public final class GenotypeAnnotationStore {
         // attempts to persist so the analyst can still browse the bundle
         // without a stream of NSAlert sheets.
         self.isReadOnly = !FileManager.default.isWritableFile(atPath: bundleURL.path)
-        if !isReadOnly, seedBuiltInSmartCohorts {
-            try seedBuiltInSmartCohortsIfNeeded()
+        if seedBuiltInSmartCohorts {
+            seedBuiltInSmartCohortsInMemory()
         }
     }
 
-    /// Adds the small set of default smart cohorts the spec calls out (Needs
-    /// review, Homozygous, Recombinants) if the sidecar carries none. New
-    /// cohorts are skipped if a cohort with the same name already exists so
-    /// analysts' custom names are never overwritten.
-    private func seedBuiltInSmartCohortsIfNeeded() throws {
-        let builtIns: [GenotypeCohortSmartFilter] = [
-            GenotypeCohortSmartFilter(
-                name: "Incomplete haplotypes",
-                description: "Samples with unresolved, not-assayed, or error haplotype slots.",
-                scope: "bundle",
-                isStarred: true,
-                predicate: .needsHaplotypeReview
-            ),
-            GenotypeCohortSmartFilter(
-                name: "Needs review",
-                description: "Incomplete haplotypes, low support, or analyst-flagged samples.",
-                scope: "bundle",
-                isStarred: true,
-                predicate: .any([
-                    .needsHaplotypeReview,
-                    .qcStatus([.review, .lowSupport]),
-                    .hasAnalystFlag(.needsReview),
-                ])
-            ),
-            GenotypeCohortSmartFilter(
-                name: "Homozygous",
-                description: "Samples whose H1 equals H2 at every called locus.",
-                scope: "bundle",
-                isStarred: false,
-                predicate: .isHomozygousAcrossAll
-            ),
-            GenotypeCohortSmartFilter(
-                name: "Recombinants",
-                description: "Samples carrying a rec* haplotype at any locus.",
-                scope: "bundle",
-                isStarred: false,
-                predicate: .hasRegionalRecombinant
-            ),
-        ]
+    /// Shows the built-in smart cohorts the sidecar lacks, in memory only, so
+    /// opening a bundle writes nothing. `lastPersistedSidecar` keeps equal to
+    /// the file, and the first edit that publishes the whole sidecar writes the
+    /// cohorts with itself. A cohort whose name the sidecar holds is skipped,
+    /// so an analyst's own version is never replaced. One the analyst deleted
+    /// comes back on the next open, because the sidecar keeps no record of a
+    /// deletion, and a read never writes it back.
+    private func seedBuiltInSmartCohortsInMemory() {
         let existing = Set(sidecar.smartCohorts.map(\.name))
-        var added = false
-        for cohort in builtIns where !existing.contains(cohort.name) {
-            sidecar.smartCohorts.append(cohort)
-            added = true
-        }
-        if added {
-            try persist(action: "seedBuiltInSmartCohorts")
-        }
+        unsavedBuiltInSmartCohorts = Self.builtInSmartCohorts.filter { !existing.contains($0.name) }
+        sidecar.smartCohorts.append(contentsOf: unsavedBuiltInSmartCohorts)
+    }
+
+    /// Takes `persisted`, which is exactly what the bundle now holds, as the
+    /// last persisted state and shows it with the built-in smart cohorts that
+    /// are still only in memory. Every write that publishes a result other
+    /// than the whole sidecar, and every refused write, ends here.
+    private func adoptPersisted(_ persisted: GenotypeAnnotationSidecar) {
+        lastPersistedSidecar = persisted
+        var shown = persisted
+        let held = Set(shown.smartCohorts.map(\.name))
+        shown.smartCohorts.append(contentsOf: unsavedBuiltInSmartCohorts.filter { !held.contains($0.name) })
+        sidecar = shown
+    }
+
+    /// Publishes the sidecar the analyst sees, built-in smart cohorts included,
+    /// when it holds cohorts the bundle's file does not.
+    func publishUnsavedBuiltInSmartCohorts() throws {
+        guard !unsavedBuiltInSmartCohorts.isEmpty else { return }
+        try persist(action: "seedBuiltInSmartCohorts")
     }
 
     private func now() -> String { isoFormatter.string(from: Date()) }
@@ -886,7 +874,7 @@ public final class GenotypeAnnotationStore {
         let author = editAuthor ?? self.author
         let runClock = ProvenanceRunClock()
         let timestamp = now()
-        var latestForRollback = sidecar
+        var latestForRollback = lastPersistedSidecar
         var publishedSidecar: GenotypeAnnotationSidecar?
         do {
             _ = try transactAnnotationPublication { snapshot in
@@ -926,12 +914,10 @@ public final class GenotypeAnnotationStore {
                 return payload
             }
             if let publishedSidecar {
-                sidecar = publishedSidecar
-                lastPersistedSidecar = publishedSidecar
+                adoptPersisted(publishedSidecar)
             }
         } catch {
-            sidecar = latestForRollback
-            lastPersistedSidecar = latestForRollback
+            adoptPersisted(latestForRollback)
             throw error
         }
     }
@@ -1336,8 +1322,7 @@ public final class GenotypeAnnotationStore {
         }
 
         if let publishedSidecar {
-            sidecar = publishedSidecar
-            lastPersistedSidecar = publishedSidecar
+            adoptPersisted(publishedSidecar)
             manualHaplotypeAssignmentMutationRevision &+= 1
         }
         return replacementResult
@@ -1392,6 +1377,17 @@ public final class GenotypeAnnotationStore {
             didChange: false,
             changedKeys: []
         )
+        // The replay of this edit starts from the bytes of the sidecar in the
+        // bundle. A bundle opened fresh has none, so its first override
+        // publishes the sidecar the analyst sees and then edits that file. An
+        // edit that changes nothing needs no file and writes nothing.
+        if !unsavedBuiltInSmartCohorts.isEmpty,
+           !FileManager.default.fileExists(
+               atPath: ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL).path
+           ) {
+            guard mutations.contains(where: { $0.after != $0.baseline }) else { return unchanged }
+            try publishUnsavedBuiltInSmartCohorts()
+        }
         let runClock = ProvenanceRunClock()
         var publishedSidecar: GenotypeAnnotationSidecar?
         var mutationResult = unchanged
@@ -1592,8 +1588,7 @@ public final class GenotypeAnnotationStore {
         }
 
         if let publishedSidecar {
-            sidecar = publishedSidecar
-            lastPersistedSidecar = publishedSidecar
+            adoptPersisted(publishedSidecar)
             callOverrideMutationRevision &+= 1
         }
         return mutationResult
@@ -1921,13 +1916,11 @@ public final class GenotypeAnnotationStore {
                 return payload
             }
             if let publishedSidecar {
-                sidecar = publishedSidecar
-                lastPersistedSidecar = publishedSidecar
+                adoptPersisted(publishedSidecar)
                 matrixMutationRevision &+= 1
             }
         } catch {
-            sidecar = latestForRollback
-            lastPersistedSidecar = latestForRollback
+            adoptPersisted(latestForRollback)
             if sidecar != previousSidecar {
                 matrixMutationRevision &+= 1
             }
@@ -2051,6 +2044,9 @@ public final class GenotypeAnnotationStore {
         }
     }
 
+    /// Publishes the whole sidecar the analyst sees in one write. The built-in
+    /// smart cohorts that are only in memory go out with the edit, because the
+    /// file is checked against `lastPersistedSidecar` and not against `sidecar`.
     private func persist(action: String, editContext: ProvenanceEditContext? = nil) throws {
         guard !isReadOnly else { return }
         let runClock = ProvenanceRunClock()
@@ -2058,7 +2054,7 @@ public final class GenotypeAnnotationStore {
         do {
             try desiredSidecar.promoteToCurrentSchema()
         } catch {
-            sidecar = lastPersistedSidecar
+            adoptPersisted(lastPersistedSidecar)
             throw error
         }
         var latestForRollback = lastPersistedSidecar
@@ -2081,9 +2077,9 @@ public final class GenotypeAnnotationStore {
             }
             sidecar = desiredSidecar
             lastPersistedSidecar = desiredSidecar
+            unsavedBuiltInSmartCohorts = []
         } catch {
-            sidecar = latestForRollback
-            lastPersistedSidecar = latestForRollback
+            adoptPersisted(latestForRollback)
             throw error
         }
     }

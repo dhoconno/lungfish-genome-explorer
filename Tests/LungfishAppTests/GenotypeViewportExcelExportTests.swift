@@ -200,6 +200,18 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         XCTAssertEqual(receipt["workflowName"] as? String, "genotype.export.excel")
         XCTAssertEqual(receipt["toolVersion"] as? String, LungfishAppVersion.short)
         XCTAssertEqual(receipt["exitStatus"] as? Int, 0)
+        // The capture holds the sidecar the viewer showed. The comment edited
+        // after the capture is in the bundle's file and not in the capture, so
+        // the record says the file differs and never calls the capture the file.
+        let receiptOptions = try XCTUnwrap(receipt["options"] as? [String: String])
+        XCTAssertEqual(
+            receiptOptions["annotationsSource"],
+            "the sidecar the viewer held at capture, not read from the bundle's annotations.json"
+        )
+        XCTAssertEqual(
+            receiptOptions["annotationsInBundle"],
+            "annotations.json differs from the captured sidecar"
+        )
         let descriptor = try XCTUnwrap(receipt["output"] as? [String: Any])
         XCTAssertEqual(descriptor["path"] as? String, outputURL.path)
         XCTAssertEqual(descriptor["sha256"] as? String, try ProvenanceFileHasher.sha256(of: outputURL))

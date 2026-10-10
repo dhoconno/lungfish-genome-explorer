@@ -21,8 +21,12 @@ struct GenotypeViewportExportSnapshot: Equatable {
     let rows: [GenotypeViewportExportRow]
     let provenanceInputURLs: [URL]
     let annotationSidecarURL: URL?
-    /// Immutable bytes captured with the viewport. When present, export uses
-    /// these rather than rereading the live bundle sidecar path.
+    /// The sidecar the viewer showed at capture, encoded the way the store
+    /// saves it. These bytes are not read from the bundle and are not always
+    /// the bytes of its file, because the viewer shows the built-in smart
+    /// cohorts before any edit saves them. The export reads its frozen Excel
+    /// capture, and its record says how the captured annotations stand against
+    /// the bundle's file.
     let annotationSidecarData: Data?
     /// Captured annotation context. Workbook presentation uses direct call
     /// values and matrix Notes; the full audit stays in the LGE bundle.

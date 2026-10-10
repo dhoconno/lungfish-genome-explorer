@@ -6,7 +6,7 @@ import LungfishWorkflow
 
 @MainActor
 final class GenotypeAnnotationStoreReadOnlyTests: XCTestCase {
-    func testReadOnlyVolumeSuppressesPersistAndSeeding() throws {
+    func testReadOnlyVolumeSuppressesPersistAndStillShowsTheBuiltInCohorts() throws {
         // Construct a directory we then make read-only via chmod, exercising
         // the same code path a mounted-share bundle would hit.
         let dir = FileManager.default.temporaryDirectory
@@ -23,8 +23,10 @@ final class GenotypeAnnotationStoreReadOnlyTests: XCTestCase {
 
         let store = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
         XCTAssertTrue(store.isReadOnly, "Store should detect read-only directory")
-        // Seeding skipped — no default cohorts should be written to disk
-        // (the on-disk sidecar simply does not exist).
+        // Seeding is memory only, so a read-only volume browses with the same
+        // four cohorts as a writable one and nothing reaches the disk (the
+        // on-disk sidecar simply does not exist).
+        XCTAssertEqual(store.sidecar.smartCohorts.count, 4)
         let sidecarPath = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename).path
         XCTAssertFalse(FileManager.default.fileExists(atPath: sidecarPath),
                        "Read-only volume should not have a freshly-created sidecar")
@@ -62,7 +64,8 @@ final class GenotypeAnnotationStoreReadOnlyTests: XCTestCase {
                 ONTGenotypeResultBundleManifest.filename
             )
         )
-        _ = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+            .publishUnsavedBuiltInSmartCohorts()
         let annotationURL = dir.appendingPathComponent(
             GenotypeAnnotationSidecar.filename
         )
@@ -110,7 +113,7 @@ final class GenotypeAnnotationStoreReadOnlyTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: provenanceURL), provenanceBefore)
     }
 
-    func testWritableVolumeAllowsPersistAndSeeding() throws {
+    func testWritableVolumeSeedsInMemoryAndPersistsWithTheFirstEdit() throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".lungfishgenotype")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -120,9 +123,13 @@ final class GenotypeAnnotationStoreReadOnlyTests: XCTestCase {
         XCTAssertFalse(store.isReadOnly)
         XCTAssertGreaterThanOrEqual(store.sidecar.smartCohorts.count, 3,
                                     "Writable bundle should auto-seed default cohorts")
-        // Persist happens implicitly during seeding.
+        // Opening writes nothing. The first edit writes the cohorts with itself.
         let sidecarPath = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename).path
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sidecarPath))
+        try store.addSampleNote(sample: "Animal-1", body: "First edit")
         XCTAssertTrue(FileManager.default.fileExists(atPath: sidecarPath))
+        let written = try GenotypeAnnotationSidecar.decode(Data(contentsOf: URL(fileURLWithPath: sidecarPath)))
+        XCTAssertEqual(written.smartCohorts.count, store.sidecar.smartCohorts.count)
     }
 
     func testManualHaplotypeReplacementRejectsReadOnlyWithoutMutation() throws {
@@ -144,7 +151,8 @@ final class GenotypeAnnotationStoreReadOnlyTests: XCTestCase {
                 ONTGenotypeResultBundleManifest.filename
             )
         )
-        _ = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+            .publishUnsavedBuiltInSmartCohorts()
         let annotationURL = dir.appendingPathComponent(
             GenotypeAnnotationSidecar.filename
         )

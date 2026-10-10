@@ -1800,7 +1800,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
                 persistedState.genotypeLocusDisplayOrder = published.settings.genotypeLocusDisplayOrder
                 self.applyDisplayStateImmediately(persistedState)
                 self.comparisonMatrix.applyAnnotationSidecar(published, reload: false)
-                self.onAnnotationSidecarChanged?(published)
+                self.onAnnotationSidecarChanged?(self.annotationStore?.sidecar ?? published)
                 self.onDisplayStateChanged?(persistedState)
                 self.finishCandidateSettingsPersistence(processPending: true)
             } catch {
@@ -1833,7 +1833,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
                 restoredState.genotypeLocusDisplayOrder = latest.settings.genotypeLocusDisplayOrder
                 self.applyDisplayStateImmediately(restoredState)
                 self.comparisonMatrix.applyAnnotationSidecar(latest, reload: false)
-                self.onAnnotationSidecarChanged?(latest)
+                self.onAnnotationSidecarChanged?(self.annotationStore?.sidecar ?? latest)
                 self.onDisplayStateChanged?(restoredState)
                 self.refreshCandidateSelectionDetails()
                 self.finishCandidateSettingsPersistence(processPending: false)
@@ -6152,7 +6152,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
                 let reloadedStore = try GenotypeAnnotationStore(
                     bundleURL: currentResult.bundleURL,
                     author: self.annotationAuthorProvider(),
-                    seedBuiltInSmartCohorts: false
+                    seedBuiltInSmartCohorts: self.hasHaplotypingResult
                 )
                 self.annotationStore = reloadedStore
                 self.rebuildArtifactLens()
@@ -6354,7 +6354,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
                 let reloadedStore = try GenotypeAnnotationStore(
                     bundleURL: currentResult.bundleURL,
                     author: self.annotationAuthorProvider(),
-                    seedBuiltInSmartCohorts: false
+                    seedBuiltInSmartCohorts: self.hasHaplotypingResult
                 )
                 self.annotationStore = reloadedStore
                 self.rebuildEffectiveHaplotypeProjectionIfNeeded()

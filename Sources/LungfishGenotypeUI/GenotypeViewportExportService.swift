@@ -45,6 +45,10 @@ struct GenotypeViewportExportService {
             "filteredEvidenceRowPolicy": GenotypeExcelSnapshotBuilder.filteredEvidenceRowPolicy,
             "replacingExisting": String(replacingExisting),
         ]) { _, resolved in resolved }
+        .merging(Self.annotationsRecord(
+            captured: capture.capturedScientificInputs?["annotations.json"],
+            bundleURL: snapshot.bundleURL
+        )) { _, resolved in resolved }
         let result = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: replayExecutable).export(
             snapshot: capture, outputURL: output,
             provenance: .init(workflowName: "genotype.export.excel", toolVersion: LungfishAppVersion.short,
@@ -59,6 +63,34 @@ struct GenotypeViewportExportService {
             throw GenotypeViewportExportError.missingProvenance(result.receiptURL.path)
         }
         return .init(outputURL: result.outputURL, provenanceURL: result.receiptURL)
+    }
+
+    /// The receipt options that say where the captured annotations came from
+    /// and how they stand against the bundle's file. The capture names them
+    /// `annotations.json` and holds the sidecar the viewer showed, which can
+    /// carry built-in smart cohorts that no edit has saved, so the name must
+    /// not stand for the bytes of the file in the bundle.
+    static func annotationsRecord(captured: Data?, bundleURL: URL) -> [String: String] {
+        [
+            "annotationsSource": "the sidecar the viewer held at capture, not read from the bundle's annotations.json",
+            "annotationsInBundle": annotationsInBundle(captured: captured, bundleURL: bundleURL),
+        ]
+    }
+
+    private static func annotationsInBundle(captured: Data?, bundleURL: URL) -> String {
+        let fileURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return "the bundle has no annotations.json"
+        }
+        guard let fileData = try? Data(contentsOf: fileURL),
+              let fileSidecar = try? GenotypeAnnotationSidecar.decode(fileData),
+              let captured,
+              let capturedSidecar = try? GenotypeAnnotationSidecar.decode(captured) else {
+            return "annotations.json could not be compared with the captured sidecar"
+        }
+        return capturedSidecar == fileSidecar
+            ? "annotations.json equals the captured sidecar"
+            : "annotations.json differs from the captured sidecar"
     }
 }
 

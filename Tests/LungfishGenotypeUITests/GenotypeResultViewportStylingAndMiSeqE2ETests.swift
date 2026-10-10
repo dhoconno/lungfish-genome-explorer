@@ -3089,6 +3089,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             animalId: "DW472",
             locus: "MHC-DP"
         )
+        // The test compares sidecar bytes, so the bundle starts with a sidecar.
+        try XCTUnwrap(controller.annotationStore).publishUnsavedBuiltInSmartCohorts()
         let annotationURL = bundleURL.appendingPathComponent(
             GenotypeAnnotationSidecar.filename
         )
@@ -4691,6 +4693,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: fixture.result)
+        // The test compares sidecar bytes, so the bundle starts with a sidecar.
+        try XCTUnwrap(controller.annotationStore).publishUnsavedBuiltInSmartCohorts()
         var inspectorNotifications = 0
         controller.onAnnotationSidecarChanged = { _ in
             inspectorNotifications += 1

@@ -569,10 +569,10 @@ final class GenotypeAnnotationStoreCallOverrideTests: XCTestCase {
                 ONTGenotypeResultBundleManifest.filename
             )
         )
-        _ = try GenotypeAnnotationStore(
+        try GenotypeAnnotationStore(
             bundleURL: bundleURL,
             author: "seed"
-        )
+        ).publishUnsavedBuiltInSmartCohorts()
         let annotationURL = bundleURL.appendingPathComponent(
             GenotypeAnnotationSidecar.filename
         )
