@@ -31,7 +31,7 @@ public final class GenotypeResultDisplaySectionViewModel {
     public var supportedCellMinimumReads = 1
     public var isMatrixAppearanceExpanded = false
     public var mhcCandidateControlsAvailable = false
-    private(set) var integrityWarningLines: (candidate: [String], result: [String]) = ([], [])
+    var integrityWarningState = GenotypeIntegrityWarningState()
     public var mhcCandidatePersistenceWarning: String?
     public var locusDisplayOrderAvailable = false
     public var locusDisplayOrderCanEdit = true
@@ -247,7 +247,7 @@ public final class GenotypeResultDisplaySectionViewModel {
         hasHaplotypingResult = false
         presentationPolicy = nil
         mhcCandidateControlsAvailable = false
-        integrityWarningLines = ([], [])
+        integrityWarningState = GenotypeIntegrityWarningState()
         mhcCandidatePersistenceWarning = nil
         isGenotypeOnlyResult = false
         matrixReviewCapability = Self.emptyMatrixReviewCapability
@@ -261,7 +261,7 @@ public final class GenotypeResultDisplaySectionViewModel {
         displayState.mhcCandidateDisplaySettings ?? .default
     }
 
-    public func updateMHCCandidatePresentation(from result: ONTGenotypeResultBundleData) {
+    public func updateMHCCandidatePresentation(from result: ONTGenotypeResultBundleData, sidecar: GenotypeAnnotationSidecar? = nil) {
         bundleLocusDisplayOrder = result.genotypeLocusDisplayOrder
         locusDisplayOrderAvailable = bundleLocusDisplayOrder != nil
             || result.manifest.kind == "full-length-ont-mhc-genotype"
@@ -293,7 +293,7 @@ public final class GenotypeResultDisplaySectionViewModel {
             && declaration?.candidateJSON != nil
             && declaration?.candidateFASTA != nil
             && result.mhcCandidates.map { isSupportedMHCCandidateDocumentSchemaVersion($0.schemaVersion) } == true
-        integrityWarningLines = (Self.candidateWarningLines(for: result), Self.resultWarningLines(for: result))
+        integrityWarningState = GenotypeIntegrityWarningState(result: result, sidecar: sidecar)
         if !mhcCandidateControlsAvailable {
             displayState.mhcCandidateDisplaySettings = nil
         }

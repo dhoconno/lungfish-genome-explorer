@@ -826,8 +826,12 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
         XCTAssertEqual(viewModel.mhcCandidateIntegrityWarnings.first, GenotypeLocusDenominator.rejectedCandidateArtifactsDisclosure)
         let codedLines = viewModel.mhcCandidateIntegrityWarnings.dropFirst()
         XCTAssertEqual(codedLines.count, 2)
-        XCTAssertTrue(codedLines.contains { $0.contains("candidate-artifact-checksum-mismatch") && $0.contains("artifacts/candidates/candidates.json") })
-        XCTAssertTrue(codedLines.contains { $0.contains("candidate-artifact-missing") && $0.contains("artifacts/alignments/unmatched-to-reference.bam") })
+        XCTAssertTrue(codedLines.contains { $0.hasSuffix("(artifacts/candidates/candidates.json)") })
+        XCTAssertTrue(codedLines.contains { $0.hasSuffix("(artifacts/alignments/unmatched-to-reference.bam)") })
+        XCTAssertFalse(codedLines.contains { $0.hasPrefix("candidate-artifact-") }, "a line never starts with its code")
+        let coded = viewModel.mhcCandidateCodedWarnings
+        XCTAssertTrue(coded.contains { $0.code == .candidateArtifactChecksumMismatch && $0.path == "artifacts/candidates/candidates.json" })
+        XCTAssertTrue(coded.contains { $0.code == .candidateArtifactMissing && $0.path == "artifacts/alignments/unmatched-to-reference.bam" })
 
         viewModel.updateMHCCandidatePresentation(from: candidate)
         XCTAssertEqual(GenotypeLocusDenominator.basis(for: candidate), .knownAllelesAndCandidateClusters)

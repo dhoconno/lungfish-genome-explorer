@@ -275,11 +275,7 @@ public struct GenotypeResultDisplaySection: View {
     }
 
     private var summary: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            LabeledContent("Rows", value: "\(viewModel.visibleRowCount) of \(viewModel.totalRowCount)")
-            LabeledContent("Hidden Cells", value: "\(viewModel.hiddenCellCount)")
-            GenotypeResultIntegrityWarningList(warnings: viewModel.resultIntegrityWarnings)
-        }
+        GenotypeResultDisplaySummary(viewModel: viewModel)
     }
 
     private var viewControls: some View {

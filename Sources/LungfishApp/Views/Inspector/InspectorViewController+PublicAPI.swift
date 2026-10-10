@@ -539,7 +539,7 @@ extension InspectorViewController {
             hasHaplotypingResult: state.hasHaplotypingResult,
             isGenotypeOnlyResult: isGenotypeOnlyResult
         )
-        viewModel.genotypeResultDisplaySectionViewModel.updateMHCCandidatePresentation(from: result)
+        viewModel.genotypeResultDisplaySectionViewModel.updateMHCCandidatePresentation(from: result, sidecar: sidecar)
         updateProvenanceTarget(
             url: result.bundleURL,
             sidebarType: .genotypeResultBundle,
@@ -669,11 +669,11 @@ extension InspectorViewController {
         guard let state = viewModel.documentSectionViewModel.genotypeResultDocument else { return }
         var nextState = state.replacing(auditEntries: sidecar.auditLog)
         let cachedResult = loadedGenotypeResult.flatMap { result -> ONTGenotypeResultBundleData? in
-            guard result.bundleURL.standardizedFileURL == state.bundleURL?.standardizedFileURL else { return nil }
-            return result
+            result.bundleURL.standardizedFileURL == state.bundleURL?.standardizedFileURL ? result : nil
         }
         if let result = cachedResult {
             loadedGenotypeResult = result
+            viewModel.genotypeResultDisplaySectionViewModel.updateAnnotationIntegrityWarnings(result: result, sidecar: sidecar)
             if state.hasHaplotypingResult {
                 let subjects = genotypeCohortSubjectBuilder(
                     result,

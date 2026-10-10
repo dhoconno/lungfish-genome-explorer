@@ -40,9 +40,13 @@ public struct GenotypeCandidateEvidenceSection: View {
                 tintControls
             }
 
-            ForEach(Array(viewModel.mhcCandidateIntegrityWarnings.enumerated()), id: \.offset) { _, warning in
+            ForEach(Array(viewModel.mhcCandidateLeadWarnings.enumerated()), id: \.offset) { _, warning in
                 warningLabel(warning)
             }
+            GenotypeResultIntegrityWarningList(
+                warnings: viewModel.mhcCandidateCodedWarnings,
+                accessibilityPrefix: "Candidate artifact warning"
+            )
             if let warning = viewModel.mhcCandidatePersistenceWarning {
                 warningLabel(warning)
             }
@@ -115,7 +119,7 @@ public struct GenotypeCandidateEvidenceSection: View {
             .font(contentBodyFont)
             .foregroundStyle(.orange)
             .fixedSize(horizontal: false, vertical: true)
-            .accessibilityLabel("Candidate artifact warning: \(warning)")
+            .accessibilityLabel("Candidate artifact warning. \(warning)")
     }
 
     private func swiftUIColor(_ color: AnnotationColor?) -> Color {
@@ -232,10 +236,7 @@ enum GenotypeCandidateEvidenceProjection {
     }
 
     static func warningText(_ warnings: [ONTGenotypeIntegrityWarning]) -> String {
-        warnings.map { warning in
-            let path = warning.path.map { " [\($0)]" } ?? ""
-            return "\(warning.code.rawValue): \(warning.detail)\(path)"
-        }.joined(separator: "\n")
+        warnings.map(GenotypeResultIntegrityWarningList.line(for:)).joined(separator: "\n")
     }
 
     private static func appendArtifact(
