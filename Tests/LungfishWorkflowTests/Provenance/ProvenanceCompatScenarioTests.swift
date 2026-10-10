@@ -15,7 +15,35 @@ struct ProvenanceCompatScenarioTests {
         let project = try ProvenanceCompatScenarios.makeProject()
         defer { project.cleanup() }
         let sidecar = try await ProvenanceCompatScenarios.recorderRunWithReadSetPlan(in: project)
-        try Self.expectFacts(of: sidecar, in: project, equalToCase: "s1-recorder-readsetplan")
+        let (live, frozen) = try Self.liveAndFrozenFacts(of: sidecar, in: project, forCase: "s1-recorder-readsetplan")
+
+        // V9: the recorder merges the run's parameters into the explicit options now, so the
+        // explicit options carry the readSetPlan that the frozen case holds only in its run
+        // parameters. The expected facts take that one key, with that value, from the frozen
+        // case's run parameters. The explicit options are then compared exactly, not ignored.
+        guard case .object(var explicit) = frozen.explicitOptions,
+              case .object(let runParameters) = frozen.legacyRunParameters,
+              let plan = runParameters["readSetPlan"] else {
+            Issue.record("the frozen case holds a readSetPlan in its run parameters and explicit options as an object")
+            return
+        }
+        #expect(explicit["readSetPlan"] == nil, "the frozen case's explicit options never named the plan")
+        explicit["readSetPlan"] = plan
+        var expected = frozen
+        expected.explicitOptions = .object(explicit)
+        guard case .object(let liveExplicit) = live.explicitOptions else {
+            Issue.record("the live explicit options are an object")
+            return
+        }
+        #expect(liveExplicit["readSetPlan"] == plan, "the explicit options carry the plan the run recorded")
+
+        // S2: the encoder no longer writes the nested run, so the embedded run's status is absent.
+        // Everything else is compared exactly.
+        let differences = live.differences(
+            from: expected,
+            ignoring: ProvenanceCompatFacts.runSpecific.union([.embeddedRunStatus])
+        )
+        #expect(differences.isEmpty, "scenario for s1-recorder-readsetplan drifted: \(differences)")
     }
 
     @Test("the variants phase scenario written as a canonical envelope reproduces case s1-canonical-envelope-run")
@@ -25,10 +53,13 @@ struct ProvenanceCompatScenarioTests {
         let analysis = try project.folder(ProvenanceCompatScenarios.variantsPhaseAnalysisFolder)
         let run = try ProvenanceCompatScenarios.variantsPhaseRun(project: project.root, analysis: analysis)
         try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), to: analysis)
+        // S2: the encoder no longer writes the nested run, so the embedded run's status is absent.
+        // Everything else is compared exactly.
         try Self.expectFacts(
             of: analysis.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
             in: project,
-            equalToCase: "s1-canonical-envelope-run"
+            equalToCase: "s1-canonical-envelope-run",
+            additionallyIgnoring: [.embeddedRunStatus]
         )
     }
 
@@ -75,10 +106,16 @@ struct ProvenanceCompatScenarioTests {
 
     // MARK: Helpers
 
-    /// Compares the facts of `sidecar` with the frozen case's expected facts, without the run-specific fields.
-    private static func expectFacts(of sidecar: URL, in project: ProvenanceCompatScenarios.Project, equalToCase id: String) throws {
+    /// Compares the facts of `sidecar` with the frozen case's expected facts, without the run-specific
+    /// fields and without the fields a scenario's test names as a declared difference.
+    private static func expectFacts(
+        of sidecar: URL,
+        in project: ProvenanceCompatScenarios.Project,
+        equalToCase id: String,
+        additionallyIgnoring declared: Set<ProvenanceCompatFacts.Field> = []
+    ) throws {
         let (live, frozen) = try liveAndFrozenFacts(of: sidecar, in: project, forCase: id)
-        let differences = live.differences(from: frozen, ignoring: ProvenanceCompatFacts.runSpecific)
+        let differences = live.differences(from: frozen, ignoring: ProvenanceCompatFacts.runSpecific.union(declared))
         #expect(differences.isEmpty, "scenario for \(id) drifted: \(differences)")
     }
 

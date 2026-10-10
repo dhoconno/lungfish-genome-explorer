@@ -24,7 +24,12 @@ final class ProvenanceCompatCLIScenarioTests: XCTestCase {
         let frozen = try ProvenanceCompatFacts.decode(
             try XCTUnwrap(ProvenanceCompatCorpus.expectedFactsData(for: "s1-cancelled-single-step"))
         )
-        let differences = live.differences(from: frozen, ignoring: ProvenanceCompatFacts.runSpecific)
+        // S2: the encoder no longer writes the nested run, so the embedded run's status is absent.
+        // Everything else is compared exactly.
+        let differences = live.differences(
+            from: frozen,
+            ignoring: ProvenanceCompatFacts.runSpecific.union([.embeddedRunStatus])
+        )
         XCTAssertTrue(differences.isEmpty, "scenario drifted from its case: \(differences)")
         XCTAssertEqual(live.status, "cancelled")
         XCTAssertEqual(live.exitStatus, 0)
