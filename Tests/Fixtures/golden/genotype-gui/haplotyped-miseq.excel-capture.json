@@ -1864,7 +1864,7 @@
               "sample" : "AnimalE"
             }
           ],
-          "schemaVersion" : 4,
+          "schemaVersion" : 5,
           "source" : "deterministic",
           "speciesName" : "Test macaque"
         },
@@ -2441,7 +2441,7 @@
                   "sample" : "AnimalE"
                 }
               ],
-              "schemaVersion" : 4,
+              "schemaVersion" : 5,
               "source" : "deterministic",
               "speciesName" : "Test macaque"
             },
@@ -3306,7 +3306,7 @@
                 "sample" : "AnimalE"
               }
             ],
-            "schemaVersion" : 4,
+            "schemaVersion" : 5,
             "source" : "deterministic",
             "speciesName" : "Test macaque"
           },
