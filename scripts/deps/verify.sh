@@ -68,6 +68,7 @@ conformance_packs=(
     metagenomics
     full-length-mhc-genotyping
     variant-calling
+    pcr-primer-design
 )
 
 usage() {

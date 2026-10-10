@@ -252,9 +252,14 @@ class FilterSyncTests(unittest.TestCase):
             r"^conformance_packs=\(\n(.*?)\n\)", script, re.MULTILINE | re.DOTALL
         )
         self.assertIsNotNone(packs, "conformance_packs not found in verify.sh")
-        for pack in packs.group(1).split():
-            with self.subTest(pack=pack):
-                self.assertIn(f"conda install --pack {pack}", workflow)
+        script_packs = set(packs.group(1).split())
+        workflow_packs = set(re.findall(r"conda install --pack ([\w-]+)", workflow))
+        self.assertEqual(
+            script_packs - workflow_packs, set(), "verify.sh installs a pack the CI job does not"
+        )
+        self.assertEqual(
+            workflow_packs - script_packs, set(), "the CI job installs a pack verify.sh does not"
+        )
 
 
 class Tier1FailurePropagationTests(unittest.TestCase):
