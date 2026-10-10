@@ -4,7 +4,8 @@
 //
 // Asserts that every tool the dependency manifest pins actually reports that
 // pinned version when its version-check command runs against the local
-// conda install.
+// conda install. The command for each lock id comes from the one table,
+// `ManagedToolVersionProbe`, and its dialect says how the version is read.
 //
 // Both installed-version tests treat a MISSING tool and a DRIFTED version the
 // same way, and the mode decides what that way is:
@@ -15,86 +16,37 @@
 //     the moment `tools update --apply` (or the Update Tools sheet) runs
 //     against that root. The default gate, including the pre-push hook, must
 //     stay green in that window; the skip message is what tells the developer
-//     the remedy is available.
-//   * LUNGFISH_REQUIRE_TOOLS=1: drift is an XCTFail. verify.sh and CI run in
-//     this mode against a reconciled root, so conformance is genuinely
-//     enforced there and a real drift cannot ship unnoticed.
+//     the remedy is available. A tool the root does not provision is printed
+//     as a LUNGFISH_PROBE_NOT_INSTALLED line and never skipped silently.
+//   * LUNGFISH_REQUIRE_TOOLS=1: drift and a missing probe executable are an
+//     XCTFail. verify.sh and CI run in this mode against a reconciled root, so
+//     conformance is genuinely enforced there and a real drift cannot ship
+//     unnoticed.
 //
 // The skip therefore relaxes WHERE conformance is enforced, not WHETHER: no
 // merge path reaches main without a require-mode run asserting these pins.
+//
+// The pure checks on the table itself live in ManagedToolVersionProbeTableTests,
+// which runs in the unit tier. This class needs the installed tools.
 
 import XCTest
+import LungfishIO
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class ToolVersionConformanceTests: XCTestCase {
-    /// Pack tools whose pinned arm64 build cannot report its own version, and
-    /// whose installed version is therefore asserted against conda-meta.
-    ///
-    /// Deliberately narrow: every entry is a named upstream packaging defect
-    /// documented at the use site. Nothing else may weaken its version check.
-    static let selfReportedVersionIsUnreliable: Set<String> = ["bwa-mem2", "bracken"]
-
     /// Every manifest tool env must report the manifest version from its version command.
     ///
     /// Version drift is a skip by default and a failure under
     /// `LUNGFISH_REQUIRE_TOOLS=1`; see the file comment for why.
     func testEveryManifestToolReportsPinnedVersion() async throws {
         let manifest = try ConformanceFixtures.manifest()
-        var failures: [String] = []
-        var drifted: [String] = []
-        /// Route a version mismatch by mode: enforced under require, reported
-        /// as drift otherwise. Missing tools keep their own semantics below.
-        func recordDrift(_ message: String) {
-            if ToolAvailability.requireTools {
-                failures.append(message)
-            } else {
-                drifted.append(message)
-            }
-        }
-        for tool in manifest.tools {
-            let (exe, args) = ConformanceFixtures.versionCommand(for: tool.id)
-            let url: URL
-            do {
-                url = try await CondaManager.shared.toolPath(name: exe, environment: tool.environment)
-            } catch {
-                if ToolAvailability.requireTools { failures.append("\(tool.id): not installed (\(exe) in env \(tool.environment)): \(error)") }
-                continue
-            }
-            var environment = [String: String]()
-            if tool.id == "nextflow" {
-                let environmentRoot = url.deletingLastPathComponent().deletingLastPathComponent()
-                let javaHome = environmentRoot.appendingPathComponent("lib/jvm", isDirectory: true)
-                environment["JAVA_HOME"] = javaHome.path
-                environment["PATH"] = javaHome.appendingPathComponent("bin").path
-                    + ":" + (ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin")
-            }
-            let r = try ProcessRunner.run(url, args, environment: environment, timeout: 60)
-            if ConformanceFixtures.skipsVersionMatch(for: tool.id) {
-                // Prints usage rather than a version string; a non-crash run (including
-                // its typical non-zero "no args" exit) is the pass condition.
-                continue
-            }
-            let text = r.stdout + r.stderr
-            let expected = tool.version ?? ""
-            if tool.id == "savont" {
-                if !ConformanceFixtures.textReportsVersion(text, version: expected) {
-                    let helpURL = url
-                    let helpResult = try? ProcessRunner.run(helpURL, ["--help"], timeout: 60)
-                    let helpText = (helpResult?.stdout ?? "") + (helpResult?.stderr ?? "")
-                    if !ConformanceFixtures.textReportsVersion(helpText, version: expected) {
-                        recordDrift("\(tool.id): expected \(expected) in --version or --help output: \(text.prefix(200)) / \(helpText.prefix(200))")
-                    }
-                }
-                continue
-            }
-            if !ConformanceFixtures.textReportsVersion(text, version: expected) {
-                recordDrift("\(tool.id): expected \(expected) in: \(text.prefix(200))")
-            }
-        }
-        XCTAssertTrue(failures.isEmpty, failures.joined(separator: "\n"))
-        if !drifted.isEmpty {
-            throw XCTSkip("tool version drift (run with LUNGFISH_REQUIRE_TOOLS=1 to enforce): \(drifted.joined(separator: "; "))")
+        let entries = manifest.entries.filter { $0.source == .tool }
+        XCTAssertFalse(entries.isEmpty, "the bundled lock has no tools")
+        let outcome = try await probe(entries)
+        XCTAssertTrue(outcome.failures.isEmpty, outcome.failures.joined(separator: "\n"))
+        if !outcome.drifted.isEmpty {
+            throw XCTSkip("tool version drift (run with LUNGFISH_REQUIRE_TOOLS=1 to enforce): \(outcome.drifted.joined(separator: "; "))")
         }
     }
 
@@ -102,125 +54,160 @@ final class ToolVersionConformanceTests: XCTestCase {
     /// `LUNGFISH_REQUIRE_TOOLS=1`; see the file comment for why.
     func testEveryInstalledPackToolReportsPinnedVersion() async throws {
         let manifest = try ConformanceFixtures.manifest()
+        let entries = manifest.entries.filter { $0.source != .tool }
+        XCTAssertFalse(entries.isEmpty, "the bundled lock has no pack tools")
+        let outcome = try await probe(entries)
+        XCTAssertTrue(outcome.failures.isEmpty, outcome.failures.joined(separator: "\n"))
+        if !outcome.drifted.isEmpty {
+            throw XCTSkip("pack tool version drift (run with LUNGFISH_REQUIRE_TOOLS=1 to enforce): \(outcome.drifted.joined(separator: "; "))")
+        }
+    }
+
+    // MARK: - Probing
+
+    private enum CondaMetaVerdict {
+        case pass
+        case drift(String)
+        case failure(String)
+    }
+
+    private struct Outcome {
         var failures: [String] = []
         var drifted: [String] = []
-        for tool in manifest.packTools {
-            let (exe, args) = ConformanceFixtures.versionCommand(for: tool.toolID)
-            guard let url = try? await CondaManager.shared.toolPath(name: exe, environment: tool.environment) else { continue }
-            let r = try ProcessRunner.run(url, args, timeout: 60)
-            if ConformanceFixtures.skipsVersionMatch(for: tool.toolID) { continue }
+    }
 
-            // UPSTREAM PACKAGING DEFECTS: two pinned arm64 builds cannot report
-            // their own version, so for these -- and only these -- the installed
-            // version is asserted against the environment's conda-meta record
-            // instead of the self-reported string.
-            //
-            //   * bwa-mem2 (`bioconda::bwa-mem2=2.3=hda5e58c_0`): `bwa-mem2
-            //     version` prints "2.2.1". The build ships 2.3 binaries but was
-            //     packaged with a stale version string.
-            //   * bracken (`bioconda::bracken=1.0.0=1`): the package ships no
-            //     driver at all, only `est_abundance.py` and friends, so
-            //     `CondaManager.ensureBrackenLauncher` synthesizes `bin/bracken`
-            //     as a passthrough to that script, which has no version flag.
-            //     `bracken -v` therefore prints an argparse usage error. This one
-            //     is not an upstream defect and no re-pin can fix it; see
-            //     BrackenInvocationForm.swift. An environment that does have a
-            //     real Bracken driver reports its version normally, and this
-            //     branch simply confirms conda-meta agrees with the pin.
-            //
-            // In both cases conda-meta records the correct version and no newer
-            // arm64 build exists. This stays a hard assertion: if conda-meta ever
-            // disagrees with the manifest pin, it fails loudly. REMOVE the
-            // bwa-mem2 entry once a fixed arm64 build is pinned.
-            //
-            // Like the self-reported path below, a mismatch is a hard failure
-            // only under LUNGFISH_REQUIRE_TOOLS=1; on a drifting dev machine it
-            // reports as drift, so this exception never turns a tolerated skip
-            // into a failure.
-            if Self.selfReportedVersionIsUnreliable.contains(tool.toolID) {
-                let envURL = await CondaManager.shared.environmentURL(named: tool.environment)
-                let meta = CondaMetaReader.primaryPackage(named: tool.toolID, inEnvironment: envURL)
-                let message: String?
-                if let meta {
-                    message = meta.version == tool.version
-                        ? nil
-                        : "\(tool.toolID): conda-meta version \(meta.version) does not match manifest pin \(tool.version)"
-                } else if tool.preserveExistingInstall == true {
-                    // A tool that opted into preserveExistingInstall may legitimately
-                    // have no conda-meta record: the reconciler deliberately keeps a
-                    // working local build (for example a source-built Bracken) rather
-                    // than overwriting it with the pin. That is a supported end state,
-                    // not drift and not a skip, so assert what can actually be checked:
-                    // every declared executable is present and executable. Skipping here
-                    // would trip the tier 1 no-skips rule; failing would punish the
-                    // documented behaviour.
-                    let missing = tool.executables.filter { name in
-                        let url = envURL.appendingPathComponent("bin/\(name)")
-                        return !FileManager.default.isExecutableFile(atPath: url.path)
-                    }
-                    if !missing.isEmpty {
-                        failures.append(
-                            "\(tool.toolID): local install preserved but missing executables: \(missing.joined(separator: ", "))"
-                        )
-                    }
-                    continue
-                } else {
-                    message = "\(tool.toolID): no conda-meta record in env \(tool.environment)"
-                }
-                if let message {
-                    if ToolAvailability.requireTools {
-                        failures.append(message)
-                    } else {
-                        drifted.append(message)
-                    }
+    /// Runs each entry's probe from the table against the real root.
+    ///
+    /// Every entry prints one `LUNGFISH_PROBE` line so a run can be compared with another.
+    private func probe(_ entries: [ManagedToolLockEntry]) async throws -> Outcome {
+        var outcome = Outcome()
+        /// A version mismatch is enforced under require and reported as drift otherwise.
+        func recordDrift(_ id: String, _ message: String) {
+            print("LUNGFISH_PROBE id=\(id) outcome=drift")
+            if ToolAvailability.requireTools {
+                outcome.failures.append(message)
+            } else {
+                outcome.drifted.append(message)
+            }
+        }
+        for entry in entries {
+            let id = entry.id.rawValue
+            guard let probe = ManagedToolVersionProbe.probe(for: entry.id) else {
+                print("LUNGFISH_PROBE id=\(id) outcome=no-probe")
+                outcome.failures.append("\(id): the probe table has no entry for this lock id")
+                continue
+            }
+            let url: URL
+            do {
+                url = try await CondaManager.shared.toolPath(name: probe.executable, environment: entry.environment)
+            } catch {
+                print("LUNGFISH_PROBE_NOT_INSTALLED id=\(id) executable=\(probe.executable) environment=\(entry.environment)")
+                if ToolAvailability.requireTools {
+                    outcome.failures.append("\(id): not installed (\(probe.executable) in env \(entry.environment)): \(error)")
                 }
                 continue
             }
-
+            var environment = [String: String]()
+            if id == "nextflow" {
+                let environmentRoot = url.deletingLastPathComponent().deletingLastPathComponent()
+                let javaHome = environmentRoot.appendingPathComponent("lib/jvm", isDirectory: true)
+                environment["JAVA_HOME"] = javaHome.path
+                environment["PATH"] = javaHome.appendingPathComponent("bin").path
+                    + ":" + (ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin")
+            }
+            let r = try ProcessRunner.run(url, probe.arguments, environment: environment, timeout: 60)
+            let expected = entry.pythonRuntime?.version ?? entry.version ?? ""
             let text = r.stdout + r.stderr
-            if !ConformanceFixtures.textReportsVersion(text, version: tool.version) {
-                let message = "\(tool.toolID): expected \(tool.version) in: \(text.prefix(200))"
-                if ToolAvailability.requireTools {
-                    failures.append(message)
+
+            switch probe.dialect {
+            case .notSelfReported:
+                // Prints usage rather than a version string; a non-crash run (including
+                // its typical non-zero "no args" exit) is the pass condition.
+                print("LUNGFISH_PROBE id=\(id) outcome=ran")
+            case .selfReportedWithHelpFallback:
+                if ConformanceFixtures.textReportsVersion(text, version: expected) {
+                    print("LUNGFISH_PROBE id=\(id) outcome=pass")
+                    break
+                }
+                let helpResult = try? ProcessRunner.run(url, ["--help"], timeout: 60)
+                let helpText = (helpResult?.stdout ?? "") + (helpResult?.stderr ?? "")
+                if ConformanceFixtures.textReportsVersion(helpText, version: expected) {
+                    print("LUNGFISH_PROBE id=\(id) outcome=pass")
                 } else {
-                    drifted.append(message)
+                    recordDrift(id, "\(id): expected \(expected) in --version or --help output: \(text.prefix(200)) / \(helpText.prefix(200))")
+                }
+            case .selfReported:
+                if ConformanceFixtures.textReportsVersion(text, version: expected) {
+                    print("LUNGFISH_PROBE id=\(id) outcome=pass")
+                } else {
+                    recordDrift(id, "\(id): expected \(expected) in: \(text.prefix(200))")
+                }
+            case .condaMetaOnly:
+                switch await condaMetaVerdict(entry) {
+                case .pass:
+                    print("LUNGFISH_PROBE id=\(id) outcome=pass")
+                case .drift(let message):
+                    recordDrift(id, message)
+                case .failure(let message):
+                    print("LUNGFISH_PROBE id=\(id) outcome=drift")
+                    outcome.failures.append(message)
                 }
             }
         }
-        XCTAssertTrue(failures.isEmpty, failures.joined(separator: "\n"))
-        if !drifted.isEmpty {
-            throw XCTSkip("pack tool version drift (run with LUNGFISH_REQUIRE_TOOLS=1 to enforce): \(drifted.joined(separator: "; "))")
-        }
+        return outcome
     }
 
-    /// The conda-meta exception must stay narrow, and each excepted tool must
-    /// actually be pinned by the manifest -- a stale entry would silently stop
-    /// checking a tool that has since been fixed or removed.
-    func testConfirmedVersionExceptionsStayNarrowAndPinned() throws {
-        let manifest = try ConformanceFixtures.manifest()
-        let packToolIDs = Set(manifest.packTools.map(\.toolID))
-        for excepted in Self.selfReportedVersionIsUnreliable {
-            XCTAssertTrue(
-                packToolIDs.contains(excepted),
-                "\(excepted) is excepted from self-reported version checks but is no longer a pinned pack tool; remove the exception"
-            )
+    /// UPSTREAM PACKAGING DEFECTS: two pinned arm64 builds cannot report
+    /// their own version, so for these -- and only these -- the installed
+    /// version is asserted against the environment's conda-meta record
+    /// instead of the self-reported string.
+    ///
+    ///   * bwa-mem2 (`bioconda::bwa-mem2=2.3=hda5e58c_0`): `bwa-mem2
+    ///     version` prints "2.2.1". The build ships 2.3 binaries but was
+    ///     packaged with a stale version string.
+    ///   * bracken (`bioconda::bracken=1.0.0=1`): the package ships no
+    ///     driver at all, only `est_abundance.py` and friends, so
+    ///     `CondaManager.ensureBrackenLauncher` synthesizes `bin/bracken`
+    ///     as a passthrough to that script, which has no version flag, and
+    ///     `bracken -v` prints an argparse usage error. An environment that has
+    ///     the source-built Bracken prints `Bracken v3.0.1` instead. Either way
+    ///     the probe says nothing about the pin, so conda-meta decides.
+    ///
+    /// In both cases conda-meta records the correct version and no newer
+    /// arm64 build exists. This stays a hard assertion: if conda-meta ever
+    /// disagrees with the manifest pin, it fails loudly. REMOVE the
+    /// bwa-mem2 entry once a fixed arm64 build is pinned.
+    ///
+    /// Like the self-reported path, a mismatch is a hard failure only under
+    /// LUNGFISH_REQUIRE_TOOLS=1; on a drifting dev machine it reports as drift,
+    /// so this exception never turns a tolerated skip into a failure.
+    private func condaMetaVerdict(_ entry: ManagedToolLockEntry) async -> CondaMetaVerdict {
+        let id = entry.id.rawValue
+        let pinned = entry.version ?? ""
+        let envURL = await CondaManager.shared.environmentURL(named: entry.environment)
+        let meta = CondaMetaReader.primaryPackage(named: id, inEnvironment: envURL)
+        if let meta {
+            return meta.version == pinned
+                ? .pass
+                : .drift("\(id): conda-meta version \(meta.version) does not match manifest pin \(pinned)")
+        } else if entry.preserveExistingInstall == true {
+            // A tool that opted into preserveExistingInstall may legitimately
+            // have no conda-meta record: the reconciler deliberately keeps a
+            // working local build (for example a source-built Bracken) rather
+            // than overwriting it with the pin. That is a supported end state,
+            // not drift and not a skip, so assert what can actually be checked:
+            // every declared executable is present and executable. Skipping here
+            // would trip the tier 1 no-skips rule; failing would punish the
+            // documented behaviour.
+            let missing = entry.executables.filter { name in
+                let url = envURL.appendingPathComponent("bin/\(name)")
+                return !FileManager.default.isExecutableFile(atPath: url.path)
+            }
+            return missing.isEmpty
+                ? .pass
+                : .failure("\(id): local install preserved but missing executables: \(missing.joined(separator: ", "))")
+        } else {
+            return .drift("\(id): no conda-meta record in env \(entry.environment)")
         }
-        XCTAssertEqual(
-            Self.selfReportedVersionIsUnreliable, ["bwa-mem2", "bracken"],
-            "adding a tool here weakens its version assertion; document the upstream defect first"
-        )
-    }
-
-    // MARK: - Version matcher
-
-    /// `textReportsVersion` must anchor on a whole version token, not just any
-    /// substring -- a short pin like "2.3" must not match inside "2.30", and
-    /// an unrelated version elsewhere in the output must not match either.
-    func testTextReportsVersionAnchorsOnWholeToken() {
-        XCTAssertFalse(ConformanceFixtures.textReportsVersion("2.30", version: "2.3"))
-        XCTAssertTrue(ConformanceFixtures.textReportsVersion("minimap2 2.30-r1287", version: "2.30"))
-        XCTAssertFalse(ConformanceFixtures.textReportsVersion("bracken 3.0.1", version: "1.0.0"))
-        XCTAssertTrue(ConformanceFixtures.textReportsVersion("samtools 1.23.1", version: "1.23.1"))
-        XCTAssertTrue(ConformanceFixtures.textReportsVersion("cutadapt 5.2", version: "5.2"))
     }
 }

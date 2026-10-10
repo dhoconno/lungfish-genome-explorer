@@ -4,10 +4,11 @@
 //
 // Shared helpers for the tool-version and pipeline conformance suites: fixture
 // path resolution, scratch directories, the bundled dependency manifest, the
-// per-tool version-check command table, and the installed Kraken2 viral DB.
+// version probe lookup, and the installed Kraken2 viral DB.
 
 import Foundation
 import CryptoKit
+import LungfishIO
 @testable import LungfishWorkflow
 
 enum ConformanceFixtures {
@@ -96,79 +97,13 @@ enum ConformanceFixtures {
         return resolved
     }
 
-    /// The version-check command for a manifest tool, keyed by tool id (the
-    /// manifest's `tools[].id` / `packTools[].id`, e.g. "samtools", "iqtree").
+    /// The version probe for a manifest tool, keyed by tool id (the manifest's
+    /// `tools[].id` / `packTools[].id`, e.g. "samtools", "iqtree").
     ///
-    /// Falls back to `<primary executable> --version` using the manifest's
-    /// declared executables when the tool id has no entry here.
-    static func versionCommand(for toolID: String) -> (executable: String, arguments: [String]) {
-        switch toolID {
-        case "nextflow": return ("nextflow", ["-version"])
-        case "snakemake": return ("snakemake", ["--version"])
-        case "bbtools": return ("reformat.sh", ["--version"])
-        case "fastp": return ("fastp", ["--version"])
-        case "deacon": return ("deacon", ["--version"])
-        case "samtools": return ("samtools", ["--version"])
-        case "bcftools": return ("bcftools", ["--version"])
-        case "htslib": return ("bgzip", ["--version"])
-        case "seqkit": return ("seqkit", ["version"])
-        case "cutadapt": return ("cutadapt", ["--version"])
-        case "trim_galore", "trim-galore": return ("trim_galore", ["--version"])
-        case "vsearch": return ("vsearch", ["--version"])
-        case "pigz": return ("pigz", ["--version"])
-        case "sra-tools": return ("fasterq-dump", ["--version"])
-        case "ucsc-bedgraphtobigwig": return ("bedGraphToBigWig", [])
-        case "pysam": return ("python", ["-c", "import pysam;print(pysam.__version__)"])
-        case "openpyxl": return ("python", ["-c", "import openpyxl;print(openpyxl.__version__)"])
-        case "minimap2": return ("minimap2", ["--version"])
-        case "bwa-mem2": return ("bwa-mem2", ["version"])
-        case "bowtie2": return ("bowtie2", ["--version"])
-        case "savont": return ("savont", ["--version"])
-        case "blast": return ("blastn", ["-version"])
-        case "lofreq": return ("lofreq", ["version"])
-        case "ivar": return ("ivar", ["version"])
-        case "medaka": return ("medaka", ["--version"])
-        case "clair3": return ("run_clair3.sh", ["--version"])
-        case "spades": return ("spades.py", ["--version"])
-        case "megahit": return ("megahit", ["--version"])
-        case "skesa": return ("skesa", ["--version"])
-        case "flye": return ("flye", ["--version"])
-        case "hifiasm": return ("hifiasm", ["--version"])
-        case "mafft": return ("mafft", ["--version"])
-        case "iqtree": return ("iqtree3", ["--version"])
-        case "kraken2": return ("kraken2", ["--version"])
-        case "bracken": return ("bracken", ["-v"])
-        case "esviritu": return ("EsViritu", ["--version"])
-        case "ribodetector": return ("ribodetector", ["-v"])
-        case "freyja": return ("freyja", ["--version"])
-        case "gatk4": return ("gatk", ["--version"])
-        case "whatshap": return ("whatshap", ["--version"])
-        default:
-            return (fallbackExecutable(for: toolID), ["--version"])
-        }
-    }
-
-    /// The primary executable the bundled manifest declares for a tool id, used
-    /// as the version-check fallback executable for ids the table above doesn't
-    /// cover explicitly. Falls back to the id itself if the manifest has no
-    /// matching `tools`/`packTools` entry (e.g. in a unit test that invents a
-    /// synthetic id) or declares no executables.
-    private static func fallbackExecutable(for toolID: String) -> String {
-        let lock = ManagedToolLock.bundled
-        if let tool = lock.tools.first(where: { $0.id == toolID }), let first = tool.executables.first {
-            return first
-        }
-        if let packTool = lock.packTools.first(where: { $0.toolID == toolID }), let first = packTool.executables.first {
-            return first
-        }
-        return toolID
-    }
-
-    /// True for tools whose version-check command is expected to just run
-    /// successfully (usage/help output) rather than contain the pinned version
-    /// string -- `ucsc-bedgraphtobigwig` prints usage and can exit non-zero.
-    static func skipsVersionMatch(for toolID: String) -> Bool {
-        toolID == "ucsc-bedgraphtobigwig"
+    /// The one table is `ManagedToolVersionProbe`. An id the lock does not carry
+    /// has no probe, and there is no default fallback.
+    static func versionProbe(for toolID: String) -> ManagedToolVersionProbe? {
+        ManagedToolVersionProbe.probe(for: ManagedToolID(rawValue: toolID))
     }
 
     /// Whether `text` reports the exact pinned `version` as a standalone

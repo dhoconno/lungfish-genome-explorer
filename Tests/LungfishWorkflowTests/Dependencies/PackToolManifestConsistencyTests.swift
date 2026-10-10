@@ -62,6 +62,24 @@ final class PackToolManifestConsistencyTests: XCTestCase {
         }
     }
 
+    /// Pack requirement executables the lock does not declare for their environment.
+    /// Empty, and it stays exact so a new mismatch is a decision.
+    private static let knownUndeclaredPackExecutables: Set<String> = []
+
+    func testEveryPackRequirementExecutableIsDeclaredByTheLock() throws {
+        let manifest = try ManagedToolLock.loadFromBundle()
+        var undeclared: Set<String> = []
+        for pack in PluginPack.builtIn {
+            for req in pack.requirements {
+                guard let entry = manifest.entry(environment: req.environment) else { continue }
+                for executable in req.executables where !entry.executables.contains(executable) {
+                    undeclared.insert("\(pack.id)/\(req.id):\(executable)")
+                }
+            }
+        }
+        XCTAssertEqual(undeclared, Self.knownUndeclaredPackExecutables)
+    }
+
     func testBundledManifestMatchesTheBundleLoad() throws {
         let loaded = try ManagedToolLock.loadFromBundle()
 
