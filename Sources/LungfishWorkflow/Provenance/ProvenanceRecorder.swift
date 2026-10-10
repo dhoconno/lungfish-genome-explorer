@@ -10,12 +10,20 @@ private let logger = Logger(subsystem: LogSubsystem.workflow, category: "Provena
 
 // MARK: - ProvenanceRecorder
 
-/// Singleton actor that records tool execution provenance.
+/// Actor that records the steps of a multi-step pipeline as one run.
 ///
-/// Every `NativeToolRunner` invocation calls `recordStep()` to capture
-/// the exact command, tool version, inputs, outputs, and timing. Steps
-/// are grouped into `WorkflowRun` records, which are persisted as JSON
-/// sidecar files alongside output directories.
+/// A pipeline calls `beginRun`, then `recordStep` for each step it takes, then
+/// `completeRun`. `save` writes the run to the directory it is given as a
+/// canonical `ProvenanceEnvelope` sidecar. `NativeToolRunner` and the other tool
+/// runners never call this actor, so a tool run through one leaves no step unless
+/// its caller records it.
+///
+/// Seven callers record through `ProvenanceRecorder.shared` today. In
+/// LungfishWorkflow they are `ClassificationPipeline`, `EsVirituPipeline`,
+/// `TaxonomyExtractionPipeline`, `TaxTriagePipeline`,
+/// `TaxTriageSerialBatchRunner` and `NativeBundleBuilder`. In LungfishCLI it
+/// is `FastqDeaconRiboSubcommand`. The recorder is rebuilt on
+/// `ProvenanceRunBuilder` in sub-phase 2.7.
 ///
 /// ## Usage
 ///
@@ -30,7 +38,7 @@ private let logger = Logger(subsystem: LogSubsystem.workflow, category: "Provena
 ///     toolVersion: "1.21",
 ///     command: ["bcftools", "view", "-Oz", "input.vcf"],
 ///     inputs: [FileRecord(path: "input.vcf")],
-///     outputs: [FileRecord(path: "output.vcf.gz")],
+///     outputs: [FileRecord(path: "output.vcf.gz", role: .output)],
 ///     exitCode: 0,
 ///     wallTime: 12.5
 /// )
