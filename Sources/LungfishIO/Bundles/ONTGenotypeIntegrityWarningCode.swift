@@ -29,4 +29,7 @@ public enum ONTGenotypeIntegrityWarningCode: String, Codable, Equatable, Sendabl
     /// Reference records whose allele prefix and gene name different loci.
     /// The calls take the allele's locus (N9).
     case referenceLocusConflict = "reference-locus-conflict"
+    /// Analyst edits keyed by haplotype locus, saved at a full-length call's
+    /// old per-reference pseudo-locus, that no longer meet a call (N9).
+    case legacyLocusEditsOrphaned = "legacy-locus-edits-orphaned"
 }
