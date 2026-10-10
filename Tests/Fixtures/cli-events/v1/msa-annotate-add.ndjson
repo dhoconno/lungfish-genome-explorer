@@ -1,0 +1,5 @@
+{"event":"start","message":"Starting MSA annotation add.","progress":0}
+{"event":"progress","message":"Loading MSA bundle.","progress":0.15}
+{"event":"progress","message":"Creating aligned annotation.","progress":0.55}
+{"event":"progress","message":"Writing annotation SQLite store and provenance.","progress":0.82}
+{"event":"complete","output":"\/work\/aln.lungfishmsa","outputs":["\/work\/aln.lungfishmsa"],"progress":1,"warningCount":0}

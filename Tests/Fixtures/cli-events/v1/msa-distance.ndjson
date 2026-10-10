@@ -1,0 +1,5 @@
+{"event":"start","message":"Starting MSA distance matrix.","progress":0}
+{"event":"progress","message":"Loading MSA bundle.","progress":0.15}
+{"event":"progress","message":"Computing pairwise identity matrix.","progress":0.55}
+{"event":"progress","message":"Writing distance-matrix provenance.","progress":0.82}
+{"event":"complete","output":"\/work\/identity.tsv","outputs":["\/work\/identity.tsv"],"progress":1,"warningCount":0}

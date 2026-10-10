@@ -1,0 +1,5 @@
+{"event":"start","message":"Starting MSA export.","progress":0}
+{"event":"progress","message":"Loading MSA bundle.","progress":0.15}
+{"event":"progress","message":"Writing aligned-fasta alignment.","progress":0.55}
+{"event":"progress","message":"Writing export provenance.","progress":0.82}
+{"event":"complete","output":"\/work\/selected.fa","outputs":["\/work\/selected.fa"],"progress":1,"warningCount":0}

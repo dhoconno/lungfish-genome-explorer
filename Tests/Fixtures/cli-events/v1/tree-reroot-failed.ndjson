@@ -1,0 +1,4 @@
+{"event":"start","message":"Starting tree transform.","progress":0}
+{"event":"progress","message":"Loading tree bundle.","progress":0.25}
+{"event":"progress","message":"Writing transformed tree bundle.","progress":0.65}
+{"error":"Tree node not found: NoSuchTip","event":"failed"}

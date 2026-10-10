@@ -1,0 +1,3 @@
+{"event":"start","message":"Starting MSA export.","progress":0}
+{"event":"progress","message":"Loading MSA bundle.","progress":0.15}
+{"error":"The file “manifest.json” couldn’t be opened because there is no such file.","event":"failed"}

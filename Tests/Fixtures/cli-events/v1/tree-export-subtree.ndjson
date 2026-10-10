@@ -1,0 +1,5 @@
+{"event":"start","message":"Starting tree subtree export.","progress":0}
+{"event":"progress","message":"Loading tree bundle.","progress":0.18}
+{"event":"progress","message":"Writing Newick subtree.","progress":0.58}
+{"event":"progress","message":"Writing subtree export provenance.","progress":0.82}
+{"event":"complete","output":"\/work\/clade.nwk","outputs":["\/work\/clade.nwk"],"progress":1}

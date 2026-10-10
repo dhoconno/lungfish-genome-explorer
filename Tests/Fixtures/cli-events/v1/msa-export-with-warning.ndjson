@@ -1,0 +1,6 @@
+{"event":"start","message":"Starting MSA export.","progress":0}
+{"event":"progress","message":"Loading MSA bundle.","progress":0.15}
+{"event":"log","level":"warning","message":"Export format phylip does not preserve MSA annotations; 2 annotation(s) remain in the source .lungfishmsa bundle."}
+{"event":"progress","message":"Writing phylip alignment.","progress":0.55}
+{"event":"progress","message":"Writing export provenance.","progress":0.82}
+{"event":"complete","output":"\/work\/annotated.phy","outputs":["\/work\/annotated.phy"],"progress":1,"warningCount":1}

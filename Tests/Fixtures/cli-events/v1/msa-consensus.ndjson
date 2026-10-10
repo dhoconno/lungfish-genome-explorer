@@ -1,0 +1,5 @@
+{"event":"start","message":"Starting MSA consensus.","progress":0}
+{"event":"progress","message":"Loading MSA bundle.","progress":0.15}
+{"event":"progress","message":"Computing consensus.","progress":0.55}
+{"event":"progress","message":"Writing consensus provenance.","progress":0.82}
+{"event":"complete","output":"\/work\/consensus.fa","outputs":["\/work\/consensus.fa"],"progress":1,"warningCount":0}

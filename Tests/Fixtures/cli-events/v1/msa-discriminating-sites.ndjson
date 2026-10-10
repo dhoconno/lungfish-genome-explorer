@@ -1,0 +1,5 @@
+{"event":"start","message":"Starting discriminating-sites analysis.","progress":0}
+{"event":"progress","message":"Loading MSA bundle.","progress":0.1}
+{"event":"progress","message":"Scoring alignment columns.","progress":0.6}
+{"event":"progress","message":"Writing report.","progress":0.85}
+{"event":"complete","output":"\/work\/sites.tsv","outputs":["\/work\/sites.tsv"],"progress":1,"warningCount":0}

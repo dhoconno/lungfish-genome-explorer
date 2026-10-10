@@ -1,0 +1,4 @@
+{"event":"start","message":"Starting MSA annotation delete.","progress":0}
+{"event":"progress","message":"Loading MSA annotation store.","progress":0.2}
+{"event":"progress","message":"Writing annotation deletion and provenance.","progress":0.75}
+{"event":"complete","output":"\/work\/aln.lungfishmsa","outputs":["\/work\/aln.lungfishmsa"],"progress":1,"warningCount":0}

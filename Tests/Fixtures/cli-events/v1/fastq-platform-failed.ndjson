@@ -1,0 +1,2 @@
+{"event":"start","message":"Recording the sequencing platform of 1 FASTQ bundle(s)","progress":0}
+{"error":"The label was not changed because the metadata file could not be read. The file is left as it is: \/work\/Project.lungfish\/Imports\/Unreadable.lungfishfastq\/Unreadable.fastq.lungfish-meta.json (The data couldn’t be read because it isn’t in the correct format.)","event":"failed"}
