@@ -1,0 +1,290 @@
+{
+  "argv" : [
+
+  ],
+  "decodedBy" : "envelope",
+  "defaultOptions" : {
+
+  },
+  "durableReplayArgv" : [
+
+  ],
+  "exitStatus" : 0,
+  "explicitOptions" : {
+    "catalogID" : {
+      "type" : "string",
+      "value" : "kraken2-viral"
+    }
+  },
+  "factsVersion" : 1,
+  "files" : [
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/database100mers.kmer_distrib",
+      "role" : "output",
+      "sha256" : "ae32aa2e3b4b7c347ed9f32bcfe8cb4c0d95d379cfccef6598e2e3e4f95b5c5c",
+      "size" : 750453
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/database150mers.kmer_distrib",
+      "role" : "output",
+      "sha256" : "066fb4c949ba031f67324bd98751b3409dc356fff8aecc89dcdb0ca130094984",
+      "size" : 651823
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/database200mers.kmer_distrib",
+      "role" : "output",
+      "sha256" : "b25187ff26c8791d183e9d80770e561c108163ebda900ffbbc1f58209bbc76d1",
+      "size" : 597341
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/database250mers.kmer_distrib",
+      "role" : "output",
+      "sha256" : "747471a3853ed1ed0b3c4014cdd1487ea9cb795548e6f21d3cea4ec61c2ae58b",
+      "size" : 569308
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/database300mers.kmer_distrib",
+      "role" : "output",
+      "sha256" : "6a62717ab7465de5297bb3a4edf052bab39b736c09e5e97f44a20ba7bec27c87",
+      "size" : 551344
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/database50mers.kmer_distrib",
+      "role" : "output",
+      "sha256" : "aa14da4848805fe6f01eed4f9f23570528fb61e1ecc3f20432057fb5f5d3ffc8",
+      "size" : 909403
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/database75mers.kmer_distrib",
+      "role" : "output",
+      "sha256" : "380fc77650c395fa9de2d8dc14e6d9630123fa1447aa9e0bb55e754bac6d7613",
+      "size" : 819076
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/hash.k2d",
+      "role" : "output",
+      "sha256" : "1bd239b207e1d0f679f910cf323c9b6894fdb85c80f0358fa144aca25a7bdfa7",
+      "size" : 648733288
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/inspect.txt",
+      "role" : "output",
+      "sha256" : "fc7fe67942881c7a074918408e7a5da695bddefa8e9901cf33ce51551bc5c036",
+      "size" : 2107925
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/ktaxonomy.tsv",
+      "role" : "output",
+      "sha256" : "f6d788bd86273b9b24bebd9170ab3f548fe46238f27ec95a3464469ba968ba96",
+      "size" : 1619984
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/library_report.tsv",
+      "role" : "output",
+      "sha256" : "2f31c0b6c50957cacebe09f1f47b141554471c9f12f47422e7ec02674004a434",
+      "size" : 3983686
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/names.dmp",
+      "role" : "output",
+      "sha256" : "90a1667d49a7e177eb7e6a794e8a843975f809f7acd89eb3d1a8d9c0667506e9",
+      "size" : 291943734
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/nodes.dmp",
+      "role" : "output",
+      "sha256" : "e90ca7368966e8c9a073eea5c158392650289bdd4eca3a1ef4b19ed5bfc9e909",
+      "size" : 217121754
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/opts.k2d",
+      "role" : "output",
+      "sha256" : "b7ecfc6e365325b71a3514049bc80faeaf2549463ab93ff07cdbc112bd5a8c75",
+      "size" : 64
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/seqid2taxid.map",
+      "role" : "output",
+      "sha256" : "96b27006540b63206795027daff063f15f2f9b351bb2603e1b1ca36721dc214d",
+      "size" : 747163
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/taxo.k2d",
+      "role" : "output",
+      "sha256" : "681162e42813064ebe74d55950cf53da33157d28db3ef4e4ad378af007384d24",
+      "size" : 2470742
+    }
+  ],
+  "legacyRunParameters" : {
+    "catalogID" : {
+      "type" : "string",
+      "value" : "kraken2-viral"
+    }
+  },
+  "opsStats" : {
+    "completedRunCount" : 1,
+    "decodesAsWorkflowRun" : true,
+    "totalWallTimeSeconds" : 14
+  },
+  "output" : {
+    "path" : "/home/corpus/.lungfish/databases/kraken2/viral/database100mers.kmer_distrib",
+    "role" : "output",
+    "sha256" : "ae32aa2e3b4b7c347ed9f32bcfe8cb4c0d95d379cfccef6598e2e3e4f95b5c5c",
+    "size" : 750453
+  },
+  "outputs" : [
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/database100mers.kmer_distrib",
+      "role" : "output",
+      "sha256" : "ae32aa2e3b4b7c347ed9f32bcfe8cb4c0d95d379cfccef6598e2e3e4f95b5c5c",
+      "size" : 750453
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/database150mers.kmer_distrib",
+      "role" : "output",
+      "sha256" : "066fb4c949ba031f67324bd98751b3409dc356fff8aecc89dcdb0ca130094984",
+      "size" : 651823
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/database200mers.kmer_distrib",
+      "role" : "output",
+      "sha256" : "b25187ff26c8791d183e9d80770e561c108163ebda900ffbbc1f58209bbc76d1",
+      "size" : 597341
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/database250mers.kmer_distrib",
+      "role" : "output",
+      "sha256" : "747471a3853ed1ed0b3c4014cdd1487ea9cb795548e6f21d3cea4ec61c2ae58b",
+      "size" : 569308
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/database300mers.kmer_distrib",
+      "role" : "output",
+      "sha256" : "6a62717ab7465de5297bb3a4edf052bab39b736c09e5e97f44a20ba7bec27c87",
+      "size" : 551344
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/database50mers.kmer_distrib",
+      "role" : "output",
+      "sha256" : "aa14da4848805fe6f01eed4f9f23570528fb61e1ecc3f20432057fb5f5d3ffc8",
+      "size" : 909403
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/database75mers.kmer_distrib",
+      "role" : "output",
+      "sha256" : "380fc77650c395fa9de2d8dc14e6d9630123fa1447aa9e0bb55e754bac6d7613",
+      "size" : 819076
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/hash.k2d",
+      "role" : "output",
+      "sha256" : "1bd239b207e1d0f679f910cf323c9b6894fdb85c80f0358fa144aca25a7bdfa7",
+      "size" : 648733288
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/inspect.txt",
+      "role" : "output",
+      "sha256" : "fc7fe67942881c7a074918408e7a5da695bddefa8e9901cf33ce51551bc5c036",
+      "size" : 2107925
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/ktaxonomy.tsv",
+      "role" : "output",
+      "sha256" : "f6d788bd86273b9b24bebd9170ab3f548fe46238f27ec95a3464469ba968ba96",
+      "size" : 1619984
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/library_report.tsv",
+      "role" : "output",
+      "sha256" : "2f31c0b6c50957cacebe09f1f47b141554471c9f12f47422e7ec02674004a434",
+      "size" : 3983686
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/names.dmp",
+      "role" : "output",
+      "sha256" : "90a1667d49a7e177eb7e6a794e8a843975f809f7acd89eb3d1a8d9c0667506e9",
+      "size" : 291943734
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/nodes.dmp",
+      "role" : "output",
+      "sha256" : "e90ca7368966e8c9a073eea5c158392650289bdd4eca3a1ef4b19ed5bfc9e909",
+      "size" : 217121754
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/opts.k2d",
+      "role" : "output",
+      "sha256" : "b7ecfc6e365325b71a3514049bc80faeaf2549463ab93ff07cdbc112bd5a8c75",
+      "size" : 64
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/seqid2taxid.map",
+      "role" : "output",
+      "sha256" : "96b27006540b63206795027daff063f15f2f9b351bb2603e1b1ca36721dc214d",
+      "size" : 747163
+    },
+    {
+      "path" : "/home/corpus/.lungfish/databases/kraken2/viral/taxo.k2d",
+      "role" : "output",
+      "sha256" : "681162e42813064ebe74d55950cf53da33157d28db3ef4e4ad378af007384d24",
+      "size" : 2470742
+    }
+  ],
+  "readStatus" : "completed",
+  "recorded" : {
+    "appVersion" : "Lungfish 2026.9.1 (4354)",
+    "createdAt" : "2026-10-05T00:29:21Z",
+    "hostOS" : "macOS 26.4.0 (arm64)",
+    "runtime.appVersion" : "Lungfish 2026.9.1 (4354)",
+    "runtime.hostOS" : "macOS 26.4.0 (arm64)",
+    "runtime.user" : "dho",
+    "runtimeIdentity.appVersion" : "Lungfish 2026.9.1 (4354)",
+    "runtimeIdentity.architecture" : "arm64",
+    "runtimeIdentity.dependencySet" : "2026.2",
+    "runtimeIdentity.executablePath" : "/Applications/Lungfish Preview.app/Contents/MacOS/Lungfish",
+    "runtimeIdentity.operatingSystemVersion" : "macOS 26.4.0 (arm64)",
+    "runtimeIdentity.processIdentifier" : "46882",
+    "runtimeIdentity.user" : "dho",
+    "workflowVersion" : "20260626"
+  },
+  "reproducibleCommand" : "",
+  "resolvedDefaultOptions" : {
+    "databaseRoot" : {
+      "type" : "file",
+      "value" : "/home/corpus/.lungfish/databases/kraken2/viral"
+    },
+    "intendedFinalPath" : {
+      "type" : "string",
+      "value" : "/home/corpus/.lungfish/databases/kraken2/viral"
+    },
+    "payloadAggregateSHA256" : {
+      "type" : "string",
+      "value" : "7872e5a8f683cbaaeda12cc9f3cfe4bb4ef08ef77a5f4647b83bbfe9cbc88c01"
+    },
+    "payloadTotalSizeBytes" : {
+      "type" : "integer",
+      "value" : 1173577088
+    },
+    "recipeSource" : {
+      "type" : "string",
+      "value" : "https://genome-idx.s3.amazonaws.com/kraken/k2_viral_20260626.tar.gz"
+    },
+    "updatedFromVersion" : {
+      "type" : "string",
+      "value" : "20240904"
+    },
+    "updatedToVersion" : {
+      "type" : "string",
+      "value" : "20260626"
+    }
+  },
+  "status" : "completed",
+  "steps" : [
+
+  ],
+  "strictAccepts" : true,
+  "toolName" : "kraken2",
+  "toolVersion" : "unknown",
+  "wallTimeSeconds" : 13.609868884086609,
+  "workflowName" : "metagenomics.database.install"
+}
