@@ -1,3 +1,7 @@
+// ManagedToolVersionProbe.swift - How to ask a managed tool for its version
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
 import Foundation
 import LungfishIO
 

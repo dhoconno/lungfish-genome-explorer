@@ -1,3 +1,7 @@
+// ManagedToolLock+Entry.swift - One lock entry seen through either lock list
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
 import Foundation
 import LungfishIO
 

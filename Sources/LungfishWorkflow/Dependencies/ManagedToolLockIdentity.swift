@@ -1,3 +1,7 @@
+// ManagedToolLockIdentity.swift - The identity of the bundled managed tool lock
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
 import CryptoKit
 import Foundation
 

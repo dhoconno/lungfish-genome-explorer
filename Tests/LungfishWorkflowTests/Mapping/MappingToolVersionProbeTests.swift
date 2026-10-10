@@ -73,6 +73,32 @@ final class MappingToolVersionProbeTests: XCTestCase {
         XCTAssertEqual(version, "39.01")
     }
 
+    /// A cancelled task throws instead of recording `unknown`. The task cancels itself before
+    /// the probe starts, so the outcome does not depend on timing. The stub prints a valid
+    /// version, so a swallowed cancellation would show as a version or as `unknown`.
+    func testACancelledTaskThrowsCancellationError() async throws {
+        let root = try TestTempDirectory.make(prefix: "bbtools-probe-cancel")
+        defer { TestTempDirectory.cleanup(root) }
+        let home = try ManagedSamtoolsHome.makeStub(rootURL: root, namePrefix: "home")
+        let reformat = CoreToolLocator.executableURL(environment: "bbtools", executableName: "reformat.sh", homeDirectory: home.homeURL)
+        try FileManager.default.createDirectory(at: reformat.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let script = "#!/bin/sh\necho \"BBTools version 39.01\" >&2\n"
+        try script.write(to: reformat, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: reformat.path)
+
+        let runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: home.homeURL)
+        let task = Task { () throws -> String in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await MappingToolVersionProbe.bbToolsVersion(runner: runner)
+        }
+        do {
+            let version = try await task.value
+            XCTFail("a cancelled probe returned \(version)")
+        } catch is CancellationError {
+            // expected
+        }
+    }
+
     func testAMissingProbeRecordsUnknown() async throws {
         let root = try TestTempDirectory.make(prefix: "bbtools-probe-missing")
         defer { TestTempDirectory.cleanup(root) }
