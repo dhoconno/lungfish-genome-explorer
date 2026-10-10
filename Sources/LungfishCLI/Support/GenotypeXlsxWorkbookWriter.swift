@@ -30,6 +30,19 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
     struct Matrix: Equatable {
         let loci: [String]
         let rows: [MatrixRow]
+        /// The allele columns of each locus, in `loci` order, for the
+        /// full-length genotype-only table. Nil for the H1 and H2 layout.
+        var alleleColumnCounts: [Int]? = nil
+
+        /// The header of each cell column after `Sample`.
+        var cellHeaders: [String] {
+            guard let alleleColumnCounts else {
+                return loci.flatMap { ["\($0) H1", "\($0) H2"] }
+            }
+            return zip(loci, alleleColumnCounts).flatMap { locus, count in
+                (1...max(count, 1)).map { "\(locus) allele \($0)" }
+            }
+        }
     }
 
     /// Delimiter exports take their haplotype calls from the workbook's own
@@ -47,6 +60,9 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
                 for: result,
                 sidecar: sidecar
             ) else {
+                if result.manifest.kind == GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue {
+                    return buildFromFullLengthCalls(samples: result.samples)
+                }
                 return buildFromCalls(samples: result.samples)
             }
             let calls = try GenotypeExcelSnapshotBuilder.effectiveCalls(
@@ -108,6 +124,44 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
             return .init(loci: loci, rows: rows)
         }
 
+        /// A full-length result calls several alleles per gene locus once each
+        /// call takes the locus of its reference record (N9), so one H1 cell
+        /// per locus would drop all but one of them. This table writes every
+        /// unique call, one numbered allele column per call, up to the most
+        /// any sample has at that locus. A sample's alleles are ordered by
+        /// passed unique reads, most first, then by genotype name.
+        private static func buildFromFullLengthCalls(
+            samples: [ONTGenotypeSampleResult]
+        ) -> Matrix {
+            let callsBySample = samples.map { sample in
+                Dictionary(grouping: ONTGenotypeCall.uniqueOccurrences(sample.calls), by: \.locusGroup)
+                    .mapValues { calls in
+                        calls.sorted {
+                            if $0.passedUniqueReads != $1.passedUniqueReads {
+                                return $0.passedUniqueReads > $1.passedUniqueReads
+                            }
+                            return $0.genotype.localizedStandardCompare($1.genotype) == .orderedAscending
+                        }
+                    }
+            }
+            let loci = orderedLoci(callsBySample.flatMap(\.keys))
+            let counts = loci.map { locus in
+                callsBySample.map { $0[locus]?.count ?? 0 }.max() ?? 0
+            }
+            let rows = zip(samples, callsBySample).map { sample, callsByLocus -> MatrixRow in
+                var cells: [MatrixCell] = []
+                for (locus, count) in zip(loci, counts) {
+                    let calls = callsByLocus[locus] ?? []
+                    cells += calls.map { call in
+                        call.haplotypeTokens.first.map(cell(for:)) ?? .haplotype(call.genotype, 0)
+                    }
+                    cells += Array(repeating: .absent, count: count - calls.count)
+                }
+                return .init(sample: sample.sample, cells: cells)
+            }
+            return .init(loci: loci, rows: rows, alleleColumnCounts: counts)
+        }
+
         /// The genotype-only table keeps its historical reading of "-" as an
         /// empty cell.
         private static func cell(for name: String) -> MatrixCell {
@@ -165,10 +219,7 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
     }
 
     static func renderDelimited(_ matrix: Matrix, separator: String) -> String {
-        var header = ["Sample"]
-        for locus in matrix.loci {
-            header += ["\(locus) H1", "\(locus) H2"]
-        }
+        let header = ["Sample"] + matrix.cellHeaders
         let lines = [delimitedRow(header, separator: separator)]
             + matrix.rows.map {
                 delimitedRow([$0.sample] + $0.cells.map(\.label), separator: separator)

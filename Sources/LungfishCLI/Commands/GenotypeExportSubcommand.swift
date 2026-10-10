@@ -648,7 +648,8 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
         let allowed = Set(samples)
         return GenotypeXlsxWorkbookWriter.Matrix(
             loci: full.loci,
-            rows: full.rows.filter { allowed.contains($0.sample) }
+            rows: full.rows.filter { allowed.contains($0.sample) },
+            alleleColumnCounts: full.alleleColumnCounts
         )
     }
 
