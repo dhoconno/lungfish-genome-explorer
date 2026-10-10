@@ -58,14 +58,16 @@ enum AppProvenanceExportSourceResolver {
 
     /// The file or bundle the export describes, standardized, or nil when there is none.
     ///
-    /// The sidebar selection decides, because it is what the user picked and what the Provenance
-    /// tab shows. A viewer candidate takes its place only when it is the selection or a bundle
-    /// that contains it, since that bundle's record then describes the selected file. Candidates
-    /// are tried in the order given, and containment compares physical paths so a symlinked
-    /// spelling of the same bundle counts. A Quick Look style preview never resets the viewer's
-    /// current document, so that candidate can name a file that is no longer shown. It is neither
-    /// the selection nor a bundle around it, so it never decides while something else is selected.
-    /// With nothing selected the first viewer candidate is used.
+    /// The sidebar selection decides, because it is what the user picked. The Provenance tab can
+    /// follow the file the viewer loaded instead, so the tab and the export can name different
+    /// sources until both read one source. A viewer candidate takes the selection's place only
+    /// when it is the selection or a bundle that contains it, since that bundle's record then
+    /// describes the selected file. Candidates are tried in the order given, and containment
+    /// compares physical paths so a symlinked spelling of the same bundle counts. A Quick Look
+    /// style preview never resets the viewer's current document, so that candidate can name a file
+    /// that is no longer shown. It is neither the selection nor a bundle around it, so it never
+    /// decides while something else is selected. With nothing selected the first viewer candidate
+    /// is used.
     static func exportTarget(viewerCandidates: [URL?], sidebarSelection: URL?) -> URL? {
         let candidates = viewerCandidates.compactMap { $0?.standardizedFileURL }
         guard let selection = sidebarSelection?.standardizedFileURL else {

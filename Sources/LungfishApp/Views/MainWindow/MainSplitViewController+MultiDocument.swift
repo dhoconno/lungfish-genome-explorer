@@ -75,8 +75,8 @@ extension MainSplitViewController {
                 self.inspectorController.clearSelection()
                 self.inspectorController.activeContentSelectionIdentity = identity
                 self.viewerController.displayDocument(hydrated)
-                // The sidebar lists a project sequence as a sequence row.
-                self.retargetProvenance(afterDisplaying: hydrated, sidebarType: .sequence)
+                // The Provenance tab stays cleared for a project sequence. Its display path is not a
+                // file, so it has no sidecar, and the path can spell a loose file's name.
             } catch {
                 guard self.canCommitDisplayRequest(token, identity: identity), !(error is CancellationError) else { return }
                 self.inspectorController.clearSelection()

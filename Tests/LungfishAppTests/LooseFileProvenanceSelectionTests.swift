@@ -6,6 +6,7 @@ import AppKit
 import XCTest
 import LungfishCore
 import LungfishTestSupport
+import LungfishWorkflow
 @testable import LungfishApp
 
 /// Selecting a loose file in the sidebar shows the sidecar that sits beside it.
@@ -116,6 +117,67 @@ final class LooseFileProvenanceSelectionTests: XCTestCase {
             return XCTFail("The Provenance tab lost the sidecar of \(gff3Name) on the second selection.")
         }
         try assertShowsTheRecord(of: gff3, sidecar: sidecar, provenance: provenance, inspector: inspector)
+    }
+
+    /// A project sequence keeps the Provenance tab cleared.
+    ///
+    /// The project lists a native sequence under a display path that is not a file
+    /// (`ProjectDocumentLoader.catalogDocuments`), so it can never have a sidecar of its own. The
+    /// path can spell the same name as a loose file in the project folder, and the record beside
+    /// that file describes the file and not the sequence. Loading the sequence must therefore not
+    /// point the tab at the path, which would show the loose file's record for the sequence. The
+    /// seam is `loadProjectDocument`, the load the sidebar and a restored window both use.
+    func testNativeProjectSequenceDoesNotPickUpASameNamedLooseFilesSidecar() async throws {
+        _ = NSApplication.shared
+
+        let scratch = try TestTempDirectory.make(prefix: "native-sequence-provenance")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let projectURL = scratch.appendingPathComponent("Collision.lungfish", isDirectory: true)
+        do {
+            let project = try ProjectFile.create(at: projectURL, name: "Collision")
+            _ = try project.addSequence(Sequence(name: "same.fa", alphabet: .dna, bases: "ACGT"))
+            try project.save()
+        }
+        // The loose file that spells the sequence's display path, with the bare legacy run beside it.
+        let loose = projectURL.appendingPathComponent("same.fa")
+        try Data(">loose\nTTTT\n".utf8).write(to: loose)
+        try FileManager.default.copyItem(
+            at: ProvenanceDisplayFixtures.sarscov2Directory
+                .appendingPathComponent("MN908947.3.gff3.lungfish-provenance.json"),
+            to: projectURL.appendingPathComponent("same.fa.lungfish-provenance.json")
+        )
+        let session = ProjectSession()
+        _ = try await session.openProjectAsync(at: projectURL)
+        defer { session.closeProject() }
+        let catalog = try XCTUnwrap(session.documents.first)
+        XCTAssertNotNil(catalog.projectSequenceID, "The document is not a project sequence.")
+        XCTAssertEqual(
+            catalog.url.canonicalFilePath, loose.canonicalFilePath,
+            "The sequence's display path should spell the loose file's path."
+        )
+        // Without this a passing test could mean the lookup finds nothing at the path.
+        XCTAssertNotNil(
+            ProvenanceRecorder.findProvenanceEnvelope(for: catalog.url),
+            "A lookup at the display path should reach the loose file's record."
+        )
+
+        let split = MainSplitViewController(projectSession: session)
+        _ = split.view
+        split.loadProjectDocument(catalog)
+        await split.externalDocumentLoadTask?.value
+        guard split.viewerController.currentDocument?.id == catalog.id else {
+            return XCTFail("The viewer never showed the project sequence.")
+        }
+
+        let provenance = split.inspectorController.viewModel.provenanceSectionViewModel
+        // A lookup started by a re-target settles before the checks.
+        _ = await LungfishTestSupport.waitUntil(timeout: Self.timeout) { !provenance.isLoading }
+        XCTAssertNil(
+            provenance.currentItem,
+            "The tab targets \(String(describing: provenance.currentItem?.url?.lastPathComponent)) for the project sequence."
+        )
+        XCTAssertNil(provenance.resolvedSidecarURL, "The tab resolved the loose file's sidecar for the sequence.")
+        XCTAssertEqual(provenance.audit.status, .notRequired)
     }
 
     /// The tab names the file, resolves the sidecar beside it and shows what the file holds.

@@ -75,7 +75,7 @@ The walkthrough exports the HG002 mapping result as a Nextflow pipeline. Only th
 
 ### Select the artifact whose history you want
 
-Click `minimap2-2026-09-25T00-00-00` under `Analyses` in the sidebar, so it shows in the viewport, the main display area. LGE looks at the visible viewport first and the sidebar selection second. When nothing is selected, LGE falls back to the most recently finished run, so select deliberately.
+Click `minimap2-2026-09-25T00-00-00` under `Analyses` in the sidebar, so it shows in the viewport, the main display area. LGE exports the record of the item selected in the sidebar, or of the bundle in the viewport that contains it. With nothing selected it uses what the viewport shows, and with nothing shown it falls back to the most recently finished run, so select deliberately.
 
 ### Choose the target from the menu
 
