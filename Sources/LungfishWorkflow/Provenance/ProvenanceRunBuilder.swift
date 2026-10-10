@@ -8,14 +8,17 @@ public enum ProvenanceStderr {
     /// Tools print their banner first and their errors, versions and summaries
     /// last, so a stderr over `maxLength` keeps its first `headLength` and its last
     /// `tailLength` characters. Anything at or under `maxLength` is kept whole.
-    static let headLength = 2_048
-    static let tailLength = 8_192
-    static let maxLength = headLength + tailLength
+    public static let headLength = 2_048
+    public static let tailLength = 8_192
+    public static let maxLength = headLength + tailLength
     /// Joins the head and the tail. It carries no count, so two cuts of
     /// different lengths read the same.
-    static let truncationMarker = "\n... [truncated] ...\n"
+    public static let truncationMarker = "\n... [truncated] ...\n"
 
-    static func truncated(_ stderr: String?) -> String? {
+    /// The stderr a record keeps, and nil for a nil stderr. A value of at most
+    /// `maxLength` characters is kept whole, and a longer one keeps its first
+    /// `headLength` and its last `tailLength` characters around `truncationMarker`.
+    public static func truncated(_ stderr: String?) -> String? {
         guard let stderr else {
             return nil
         }
@@ -25,6 +28,8 @@ public enum ProvenanceStderr {
         return String(stderr.prefix(headLength)) + truncationMarker + String(stderr.suffix(tailLength))
     }
 
+    /// ``truncated(_:)`` of a stderr that holds more than whitespace, and nil
+    /// for a blank one.
     public static func normalized(_ stderr: String?) -> String? {
         guard let stderr = truncated(stderr) else {
             return nil
