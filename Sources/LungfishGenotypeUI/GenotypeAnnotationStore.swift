@@ -431,7 +431,8 @@ public final class GenotypeAnnotationStore {
         _ disposition: GenotypeAnnotationSidecar.MatrixReviewDisposition,
         targets: [GenotypeAnnotationSidecar.MatrixTarget],
         evidence: GenotypeMatrixEvidenceIndex,
-        author: String
+        author: String,
+        locusAlias: GenotypeMatrixTargetLocusAlias = .empty
     ) throws {
         let normalizedTargets = try normalizedMatrixTargets(targets)
         guard normalizedTargets.allSatisfy({
@@ -453,17 +454,12 @@ public final class GenotypeAnnotationStore {
                 throw GenotypeMatrixReviewMutationError.ineligibleEvidence
             }
 
-            let targetSet = Set(normalizedTargets)
+            let legacyTargets = Self.legacyTargets(of: normalizedTargets, alias: locusAlias, saved: latest.matrixReviews.map(\.target))
+            let targetSet = Set(normalizedTargets + legacyTargets)
             var retainedReviews: [GenotypeAnnotationSidecar.MatrixReviewAnnotation] = []
             retainedReviews.reserveCapacity(latest.matrixReviews.count)
-            var reviewsByTarget: [
-                GenotypeAnnotationSidecar.MatrixTarget:
-                    [GenotypeAnnotationSidecar.MatrixReviewAnnotation]
-            ] = [:]
-            var existing: [
-                GenotypeAnnotationSidecar.MatrixTarget:
-                    GenotypeAnnotationSidecar.MatrixReviewDisposition
-            ] = [:]
+            var reviewsByTarget: [GenotypeAnnotationSidecar.MatrixTarget: [GenotypeAnnotationSidecar.MatrixReviewAnnotation]] = [:]
+            var existing: [GenotypeAnnotationSidecar.MatrixTarget: GenotypeAnnotationSidecar.MatrixReviewDisposition] = [:]
             for review in latest.matrixReviews {
                 diagnostics.reviewRecordsExamined += 1
                 if targetSet.contains(review.target) {
@@ -473,9 +469,11 @@ public final class GenotypeAnnotationStore {
                     retainedReviews.append(review)
                 }
             }
+            Self.foldLegacyReviews(into: &existing, targets: normalizedTargets, alias: locusAlias)
             let beforeValues = normalizedTargets.map { existing[$0]?.rawValue }
             latest.matrixReviews = retainedReviews
-            var targetMutations: [GenotypeMatrixAnnotationReplayPayload.TargetMutation] = []
+            var targetMutations = Self.legacyReviewRemovals(
+                legacyTargets, reviewsByTarget: reviewsByTarget, in: &latest, author: editAuthor, timestamp: timestamp)
             for target in normalizedTargets {
                 let beforeReviews = reviewsByTarget[target] ?? []
                 let annotation = GenotypeAnnotationSidecar.MatrixReviewAnnotation(
@@ -546,10 +544,11 @@ public final class GenotypeAnnotationStore {
 
     func clearMatrixReviewSynchronously(
         targets: [GenotypeAnnotationSidecar.MatrixTarget],
-        author: String
+        author: String,
+        locusAlias: GenotypeMatrixTargetLocusAlias = .empty
     ) throws {
-        let normalizedTargets = try normalizedMatrixTargets(targets)
-        guard normalizedTargets.allSatisfy({
+        let requestedTargets = try normalizedMatrixTargets(targets)
+        guard requestedTargets.allSatisfy({
             if case .cell = $0 { return true }
             return false
         }) else {
@@ -558,17 +557,12 @@ public final class GenotypeAnnotationStore {
         let editAuthor = author
         var diagnostics = GenotypeMatrixBulkMutationDiagnostics()
         try transactMatrixMutation(action: "clearMatrixReview") { latest, timestamp in
+            let normalizedTargets = requestedTargets + Self.legacyTargets(of: requestedTargets, alias: locusAlias, saved: latest.matrixReviews.map(\.target))
             let targetSet = Set(normalizedTargets)
             var retainedReviews: [GenotypeAnnotationSidecar.MatrixReviewAnnotation] = []
             retainedReviews.reserveCapacity(latest.matrixReviews.count)
-            var reviewsByTarget: [
-                GenotypeAnnotationSidecar.MatrixTarget:
-                    [GenotypeAnnotationSidecar.MatrixReviewAnnotation]
-            ] = [:]
-            var existing: [
-                GenotypeAnnotationSidecar.MatrixTarget:
-                    GenotypeAnnotationSidecar.MatrixReviewDisposition
-            ] = [:]
+            var reviewsByTarget: [GenotypeAnnotationSidecar.MatrixTarget: [GenotypeAnnotationSidecar.MatrixReviewAnnotation]] = [:]
+            var existing: [GenotypeAnnotationSidecar.MatrixTarget: GenotypeAnnotationSidecar.MatrixReviewDisposition] = [:]
             for review in latest.matrixReviews {
                 diagnostics.reviewRecordsExamined += 1
                 if targetSet.contains(review.target) {
@@ -739,22 +733,21 @@ public final class GenotypeAnnotationStore {
 
     func removeMatrixCommentsSynchronously(
         targets: [GenotypeAnnotationSidecar.MatrixTarget],
-        author: String
+        author: String,
+        locusAlias: GenotypeMatrixTargetLocusAlias = .empty
     ) throws {
-        let normalizedTargets = try normalizedMatrixTargets(targets)
+        let requestedTargets = try normalizedMatrixTargets(targets)
         let editAuthor = author
         var diagnostics = GenotypeMatrixBulkMutationDiagnostics()
         try transactMatrixMutation(action: "removeMatrixComment") { latest, timestamp in
             diagnostics.commentRecordsExamined += latest.matrixComments.count
             let currentComments = latest.resolvedMatrixComments
+            let normalizedTargets = requestedTargets + Self.legacyTargets(of: requestedTargets, alias: locusAlias, saved: latest.matrixComments.map(\.target))
             let beforeValues = normalizedTargets.map { currentComments[$0]?.body }
             let targetSet = Set(normalizedTargets)
             var retainedComments: [GenotypeAnnotationSidecar.MatrixComment] = []
             retainedComments.reserveCapacity(latest.matrixComments.count)
-            var commentsByTarget: [
-                GenotypeAnnotationSidecar.MatrixTarget:
-                    [GenotypeAnnotationSidecar.MatrixComment]
-            ] = [:]
+            var commentsByTarget: [GenotypeAnnotationSidecar.MatrixTarget: [GenotypeAnnotationSidecar.MatrixComment]] = [:]
             for comment in latest.matrixComments {
                 diagnostics.commentRecordsExamined += 1
                 if targetSet.contains(comment.target) {

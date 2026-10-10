@@ -2047,4 +2047,78 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         let persisted = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
         XCTAssertEqual(persisted.matrixReviews.map(\.target), [legacy], "the sidecar is not rewritten")
     }
+
+    /// A legacy review and comment at the old pseudo-locus MHC-NHP01222.
+    private func makeLegacyPseudoLocusBundle(
+        prefix: String
+    ) throws -> (root: URL, bundleURL: URL, result: ONTGenotypeResultBundleData,
+                 legacy: GenotypeAnnotationSidecar.MatrixTarget, current: GenotypeAnnotationSidecar.MatrixTarget) {
+        let root = try TestTempDirectory.make(prefix: prefix)
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let accession = "NHP01222"
+        let legacy = GenotypeAnnotationSidecar.MatrixTarget.cell(locus: "MHC-NHP01222", genotype: accession, sample: "S1")
+        let current = GenotypeAnnotationSidecar.MatrixTarget.cell(locus: "MHC-A", genotype: accession, sample: "S1")
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-10-09T00:00:00Z")
+        sidecar.matrixReviews = [.init(target: legacy, disposition: .falsePositive, author: "QA", timestamp: "2026-10-09T00:00:00Z")]
+        sidecar.matrixComments = [.init(target: legacy, body: "saved before N9", author: "QA", timestamp: "2026-10-09T00:00:00Z")]
+        try sidecar.encoded().write(to: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename))
+        let calls = [makeCall(sample: "S1", genotype: accession, reads: 15)]
+        let result = makeResult(
+            bundleURL: bundleURL,
+            samples: GenotypeCharacterizationFixture.sampleResults(for: calls, order: ["S1"]),
+            calls: calls,
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            referenceMetadata: makeGenBankReferenceMetadata()
+        )
+        try ONTGenotypeResultBundle.writeManifest(result.manifest, to: bundleURL)
+        return (root, bundleURL, result, legacy, current)
+    }
+
+    /// Clearing the review and removing the comment at the cell's current
+    /// locus also removes the entries saved at the old pseudo-locus, so a
+    /// reloaded matrix shows no review and the sidecar holds none.
+    func testClearingAReviewSavedAtTheOldPseudoLocusRemovesItFromTheSidecar() throws {
+        let fixture = try makeLegacyPseudoLocusBundle(prefix: "LegacyPseudoLocusClear")
+        defer { TestTempDirectory.cleanup(fixture.root) }
+        let controller = makeManualHaplotypeGuardedController()
+        _ = controller.view
+        controller.configure(result: fixture.result)
+
+        controller.applyMatrixReview(.init(targets: [fixture.current], intent: .clear))
+        controller.editMatrixComment(.init(targets: [fixture.current], intent: .remove))
+
+        let persisted = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: fixture.bundleURL)
+        XCTAssertEqual(persisted.matrixReviews, [], "the legacy review is cleared")
+        XCTAssertEqual(persisted.matrixComments, [], "the legacy comment is removed")
+        let replayed = persisted.auditLog.filter { $0.action == "clearMatrixReview" }.map(\.locus)
+        XCTAssertTrue(replayed.contains("MHC-NHP01222"), "the audit names the legacy entry it removed")
+
+        let reloaded = makeManualHaplotypeGuardedController()
+        _ = reloaded.view
+        reloaded.configure(result: fixture.result)
+        reloaded.testingShowMatrixTargetSelection([fixture.current])
+        XCTAssertNotEqual(reloaded.testingMatrixReviewCapability.reviewState, .uniform(.falsePositive))
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: fixture.result, sidecar: persisted)
+        let label = try XCTUnwrap(matrix.testingCellAccessibilityLabel(genotype: "NHP01222", sample: "S1"))
+        XCTAssertTrue(label.contains("Review: unreviewed"), label)
+    }
+
+    /// Setting a review at the current locus replaces the one saved at the
+    /// old pseudo-locus, and the audit's before value is the legacy review.
+    func testSettingAReviewReplacesTheOneSavedAtTheOldPseudoLocus() throws {
+        let fixture = try makeLegacyPseudoLocusBundle(prefix: "LegacyPseudoLocusSet")
+        defer { TestTempDirectory.cleanup(fixture.root) }
+        let controller = makeManualHaplotypeGuardedController()
+        _ = controller.view
+        controller.configure(result: fixture.result)
+
+        controller.applyMatrixReview(.init(targets: [fixture.current], intent: .set(.falsePositive)))
+
+        let persisted = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: fixture.bundleURL)
+        XCTAssertEqual(persisted.matrixReviews.map(\.target), [fixture.current], "one review, at the current locus")
+        let audit = try XCTUnwrap(persisted.auditLog.last { $0.action == "setMatrixReview" && $0.locus == "MHC-A" })
+        XCTAssertEqual(audit.before, "falsePositive", "the cell showed the legacy review before the edit")
+    }
 }

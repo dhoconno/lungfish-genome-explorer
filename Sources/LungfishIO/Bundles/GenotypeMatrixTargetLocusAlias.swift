@@ -26,16 +26,27 @@ public struct GenotypeMatrixTargetLocusAlias: Sendable, Equatable {
     /// The current locus of each stamped call, by its genotype-only locus and
     /// genotype.
     private let currentLocusByLegacyKey: [LegacyKey: String]
+    /// The genotype-only loci of each stamped call, by its current locus and
+    /// genotype. The reverse of `currentLocusByLegacyKey`.
+    private let legacyLociByCurrentKey: [LegacyKey: [String]]
+
+    /// The alias of a result with no stamped calls. It moves no target.
+    public static let empty = GenotypeMatrixTargetLocusAlias(calls: [])
 
     public init(calls: [ONTGenotypeCall]) {
         var aliases: [LegacyKey: String] = [:]
+        var reverse: [LegacyKey: [String]] = [:]
         for call in calls where call.sourceLocus != nil {
             let legacy = call.genotypeLocusGroup
             let current = call.locusGroup
             guard legacy != current else { continue }
-            aliases[Self.key(locus: legacy, genotype: call.genotype)] = current
+            let legacyKey = Self.key(locus: legacy, genotype: call.genotype)
+            guard aliases[legacyKey] == nil else { continue }
+            aliases[legacyKey] = current
+            reverse[Self.key(locus: current, genotype: call.genotype), default: []].append(legacyKey.locus)
         }
         currentLocusByLegacyKey = aliases
+        legacyLociByCurrentKey = reverse
     }
 
     public init(result: ONTGenotypeResultBundleData) {
@@ -58,6 +69,25 @@ public struct GenotypeMatrixTargetLocusAlias: Sendable, Equatable {
             return .cell(locus: current, genotype: genotype, sample: sample)
         default:
             return target
+        }
+    }
+
+    /// The targets an annotation for `current` may have been saved at before
+    /// N9, at its call's genotype-only locus. Clearing a review or removing a
+    /// comment at the current target removes these too, or the saved entry
+    /// would come back on the next read. Empty for a target that names no
+    /// moved call, a candidate target and a column target.
+    public func savedTargets(for current: Target) -> [Target] {
+        guard !isEmpty else { return [] }
+        switch current {
+        case let .row(locus, genotype, nil):
+            return (legacyLociByCurrentKey[Self.key(locus: locus, genotype: genotype)] ?? [])
+                .map { .row(locus: $0, genotype: genotype) }
+        case let .cell(locus, genotype, sample, nil):
+            return (legacyLociByCurrentKey[Self.key(locus: locus, genotype: genotype)] ?? [])
+                .map { .cell(locus: $0, genotype: genotype, sample: sample) }
+        default:
+            return []
         }
     }
 

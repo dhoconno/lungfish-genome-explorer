@@ -1983,10 +1983,10 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
                 disposition,
                 targets: targets,
                 evidence: matrixEvidenceIndex,
-                author: author
+                author: author, locusAlias: matrixTargetLocusAlias
             )
         case .clear:
-            try store.clearMatrixReviewSynchronously(targets: targets, author: author)
+            try store.clearMatrixReviewSynchronously(targets: targets, author: author, locusAlias: matrixTargetLocusAlias)
         }
         finishMatrixAnnotationPublication(store: store, targets: targets, reviewChanged: true)
     }
@@ -2018,7 +2018,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
                 author: author
             )
         case .remove:
-            try store.removeMatrixCommentsSynchronously(targets: targets, author: author)
+            try store.removeMatrixCommentsSynchronously(targets: targets, author: author, locusAlias: matrixTargetLocusAlias)
         case let .replace(body):
             try store.upsertMatrixCommentSynchronously(
                 body: body.trimmingCharacters(in: .whitespacesAndNewlines),
