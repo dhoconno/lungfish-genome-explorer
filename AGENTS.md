@@ -49,7 +49,7 @@ LungfishCLI sits beside the UI stack and imports only Core, IO and Workflow. Lun
 
 | Looking for | Start at |
 |---|---|
-| Tool execution and pinned tool versions | `Sources/LungfishCore/Process/ToolProcess.swift` (the one primitive, see `docs/contracts/RUNNING-A-TOOL.md`), its adapters `Sources/LungfishWorkflow/Native/NativeToolRunner.swift`, `Sources/LungfishWorkflow/Conda/CondaManager.swift` and `Sources/LungfishWorkflow/ProcessManager.swift`, and `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json` |
+| Tool execution and pinned tool versions | `Sources/LungfishCore/Process/ToolProcess.swift` (the one primitive, see `docs/contracts/RUNNING-A-TOOL.md`), its adapters `Sources/LungfishWorkflow/Native/NativeToolRunner.swift`, `Sources/LungfishWorkflow/Conda/CondaManager.swift` and `Sources/LungfishWorkflow/ProcessManager.swift`, and `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`. The lock entry, the probe table in `Sources/LungfishWorkflow/Dependencies/ManagedToolVersionProbe.swift` and the `NativeTool` case must agree, and `docs/contracts/RUNNING-A-TOOL.md` says how to add a managed tool. An analysis kind is a different id, set in `Sources/LungfishIO/Analysis/AnalysisToolRegistry.swift` |
 | Operations panel and bundle locks | `Sources/LungfishKit/OperationCenter.swift` |
 | Running `lungfish-cli` from the app | `Sources/LungfishKit/CLIProcessLauncher.swift`, `Sources/LungfishKit/CLISubprocessTransport.swift` and `Sources/LungfishApp/Services/OperationCenterCLIBridge.swift` |
 | FASTQ operations dialog execution | `Sources/LungfishApp/Services/FASTQOperationExecutionService.swift`, with `FASTQOperationPlanner`, `FASTQOperationCLIInvocationBuilder` and `FASTQOperationOutputImporter` beside it |

@@ -56,13 +56,19 @@ Tick each one or write "retired" once its program task has landed.
 - [ ] Drawer arm in `toggleAnnotationDrawer` in `Sources/LungfishApp/Views/MainWindow/MainWindowController.swift`.
 - [ ] Inspector update method in `Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift`.
 
-### Recognition tables until Phase 2c and Phase 3b
+### Analysis kind
 
-- [ ] `knownTools`, `displayName(for:)` and `probeToolType(in:)` in `Sources/LungfishIO/Bundles/AnalysesFolder.swift`.
-- [ ] Scanner arms in `Sources/LungfishApp/Views/Sidebar/SidebarProjectScanner.swift` and the icon in `Sources/LungfishApp/Views/Inspector/Sections/AnalysesSection.swift`.
+- [ ] One `AnalysisToolDescriptor` in `AnalysisToolRegistry.all` in `Sources/LungfishIO/Analysis/AnalysisToolRegistry.swift`, placed so no id plus a hyphen starts another, with its provenance link to a lock entry or its reason for none. `knownTools` and `displayName(for:)` derive from it.
+- [ ] The pins updated by hand in the same commit, which are `AnalysisToolRegistryTests`, `AnalysesFolderDisplayNamePinTests`, `SidebarPresentationPinTests` and the id list in `SidebarScanSafetyNetProjects.swift`. No snapshot is regenerated to make a test pass. `ToolRegistryAgreementTests` passes, with a new kind that has no lock link added to its exact set with a reason.
+- [ ] No new analysis id literal in a `switch`, `==` or `hasPrefix` outside `Sources/LungfishIO/Analysis/`. `scripts/ratchets/tool-identity.sh` passes without a baseline change.
+
+### Recognition tables until Phase 3b
+
+- [ ] A `probeToolType(in:)` signature in `Sources/LungfishIO/Bundles/AnalysesFolder.swift`.
+- [ ] Scanner arms for the item type and batch subtitle in `Sources/LungfishApp/Views/Sidebar/SidebarProjectScanner.swift`, and the icon in `Sources/LungfishApp/Views/Inspector/Sections/AnalysesSection.swift`. The sidebar icon and badge come from the descriptor.
 - [ ] The Inspector filename-prefix arm in `Sources/LungfishApp/App/AppDelegate.swift`, if the result keeps its own Inspector tab.
 - [ ] Classifier routing in `Sources/LungfishApp/Views/MainWindow/ClassifierDatabaseRouter.swift`, if the result is a classifier.
-- [ ] Lock manifest, plugin pack and `NativeTool` entries for every new tool.
+- [ ] For every new managed tool, the lock entry, the plugin pack entry, one probe table entry in `ManagedToolVersionProbe.swift`, and a `NativeTool` case with its `managedToolID` arm if it runs natively (`docs/contracts/RUNNING-A-TOOL.md`).
 
 ## Tests and registry
 

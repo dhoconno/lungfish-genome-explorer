@@ -72,6 +72,35 @@ Every run, from any entry point, keeps these guarantees. Do not rebuild one of t
 
 The app's Cancel button sends SIGTERM to `lungfish-cli` through `CLIRunCancellation`, which keeps the `ToolProcessRun` and cancels it from any thread without waiting behind an actor.
 
+## Adding a managed tool
+
+A managed tool is an entry of the lock. Its identity is a `ManagedToolID` (`Sources/LungfishIO/Analysis/ToolIdentity.swift`), the entry's `id` in `tools` or `packTools`. This is review finding R2. The lock is the one place provisioning facts live. Presentation facts live in the IO registry (see `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md`), and probe facts live in one Workflow table keyed by the lock id. Do these in one change.
+
+| Step | What to do | What fails until you do it |
+|---|---|---|
+| 1. Lock entry | Add the entry to `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json` in the byte form `scripts/deps/manifest_io.py` writes, and list every executable the entry installs. Add the package to the pack in `Sources/LungfishWorkflow/Conda/PluginPack.swift` when it is a pack tool. A new entry changes `manifestHash` and the lock file SHA-256, so it ships as a deliberate dependency-set change. | `PackToolManifestConsistencyTests` |
+| 2. Probe table entry | Add one `entry(...)` to the table in `Sources/LungfishWorkflow/Dependencies/ManagedToolVersionProbe.swift` with the executable, the arguments and the dialect. The executable must be one the lock entry declares. Say in a comment what the real output looks like when the tool is odd, such as a flag that errors or a version printed after a path. Parsing stays in the production parsers for now. | `ManagedToolVersionProbeTableTests` |
+| 3. `NativeTool` case | Only when the tool runs through `NativeToolRunner`. Add the case with its location, its `managedToolID` arm in `Sources/LungfishWorkflow/Native/NativeTool+ManagedTool.swift` (the switch has no default, so it does not compile without one) and its `nativeToolPolicies` entry in `ScientificProvenancePolicy.swift`. The version arguments come from the probe table. | `ToolRegistryAgreementTests`, the compiler and the policy coverage test |
+| 4. Analysis kind | Only when the tool produces a new kind of result. Follow `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md` and link the descriptor to the lock id with `.managedTool(ManagedToolID(rawValue: "<lock id>"))`. | `ToolRegistryAgreementTests` |
+| 5. Golden | Capture the tool's output as the next section says. | `ToolOutputGoldenTests` |
+
+Two id spaces meet here and they are not the same set. An `AnalysisToolID` names a result type (`bbmap`, `viralrecon`) and a `ManagedToolID` names a lock entry (`bbtools`). The Viral Recon pipeline entry `nf-core-viralrecon` is a pipeline id and not a `ManagedToolID`. The two sets share 12 strings and differ for the rest, so a string typed as one never stands in for the other. The agreement test joins the two sets, and a descriptor that names a lock id that does not exist fails it.
+
+Look a lock entry up with `ManagedToolLock.entry(id:)` or `entry(environment:)`, which search `tools` and then `packTools`. `ManagedToolLock.tool(named:)` searches `tools` only, so it cannot see a pack tool such as `primalscheme3`. Callers of the old lookup move in 2.6, and `scripts/ratchets/tool-identity.sh` fails the push when their count rises.
+
+### Which hash is which
+
+| Name | What it hashes | Who uses it |
+|---|---|---|
+| `ManagedToolLock.manifestHash` | The lock decoded and re-encoded with sorted keys | Receipts, the launch fast path, Debug to Preview tool sharing and two Python copies of the rule in the release tooling |
+| `ManagedToolLockIdentity.fileSHA256` | The exact bytes of the bundled lock file, from the same read that decodes `ManagedToolLock.bundled` | Nothing records it yet. 2.6 writes it into run records (`docs/contracts/RECORDING-PROVENANCE.md`) |
+
+A whitespace edit to the lock changes the second and leaves the first. The identity is nil when the file cannot be read, never the hash of empty data.
+
+### Checking the probes against a real root
+
+The unit tier checks the tables against the lock and runs no tool. `ToolVersionConformanceTests` runs every probe against installed tools. It needs `LUNGFISH_STORAGE_ROOT` pointing at a root that holds every environment, including every plugin pack. Run `LUNGFISH_REQUIRE_TOOLS=1 LUNGFISH_STORAGE_ROOT=$HOME/.lungfish swift test --skip-update --filter ToolVersionConformanceTests` on a Mac that has them. Under `LUNGFISH_REQUIRE_TOOLS=1` a missing probe executable in an environment that exists fails the test, and without it the test skips and names what drifted. Classify drift with `lungfish-cli tools update --plan --storage-root <root>` and do not fix it with `--apply` while testing. A conda probe repairs launchers in that root first.
+
 ## How to test a new tool
 
 A tool is not done until its output is pinned on this Mac. The goldens live in `Tests/Fixtures/golden/tools/`, and `Tests/Fixtures/golden/tools/README.md` explains the format.

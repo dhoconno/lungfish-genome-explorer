@@ -35,10 +35,10 @@ A record is one `ProvenanceEnvelope` (`Sources/LungfishWorkflow/Provenance/Prove
 | Terminal status, exit status, termination and stop reason, output completeness | A partial output must never read as a result | Status is stored in 2.4. Termination, stop reason and output completeness per step come with the hook in 2.7 |
 | A run-level command that reproduces the run, and `durableReplayArgv` when argv names scratch files | Replay and CLI equivalence (`docs/contracts/CLI-EQUIVALENCE.md`) | Each writer keeps its own value in 2.4. Kraken2 and EsViritu record the `lungfish-cli` command in 2.7, and TaxTriage, `assemble` and the operations dialog's dispatcher in 2.8. Mapping's run-level command is not scheduled yet |
 | Per step the tool name, version as reported, argv as executed, environment or container, inputs and outputs with SHA-256, size and role, wall time, start time, peak memory, bounded stderr and `dependsOn` | A reader can rerun one step and check it | Kept as they are. Environment changes come with the hook in 2.7 |
-| The installed package as `channel::name=version=build` beside the locked spec | The lock says what was meant and conda-meta says what ran | 2.5 builds the typed tool identity and version source, and 2.6 writes them |
+| The installed package as `channel::name=version=build` beside the locked spec | The lock says what was meant and conda-meta says what ran | 2.5 builds the typed tool identity (`ManagedToolID`) and the version probe table (`ManagedToolVersionProbe`) and computes `ToolVersionEvidence`, and 2.6 writes them |
 | Explicit, default and resolved parameters, including `readSetPlan` | `docs/contracts/READ-PAIRING.md` promises them | `readSetPlan` survives through the options merge below. The CLI `conda classify` record carries it in 2.7 |
 | Reference and database identity by checksum, cited from the reference bundle or install receipt | Results change with the database release | Kraken2 records it today. EsViritu, TaxTriage and NAO-MGS are not scheduled yet |
-| Lock identity (dependency set, lock version, lock file SHA-256) and the app version with build | It names the pins in force | The app version is recorded today. 2.5 computes the lock hash and 2.6 writes it |
+| Lock identity (dependency set, lock version, lock file SHA-256) and the app version with build | It names the pins in force | The app version is recorded today. 2.5 computes the lock hash as `ManagedToolLockIdentity.fileSHA256`, the SHA-256 of the lock file's exact bytes and not `manifestHash`, and 2.6 writes it |
 
 ## Status, parameters, stderr and hashes
 
@@ -117,7 +117,7 @@ Sub-phase 2.7 builds the hook, with the recorder rebuilt on `ProvenanceRunBuilde
 | The hook above, termination detail per step, the recorder rebuilt on `ProvenanceRunBuilder` with bounded retention, and one envelope copy helper that keeps `status` for the rehydrators | 2.7 |
 | A digest cache under the key rule above, and hashing off the main actor in GUI exports | 2.7 for the cache, 2.9 for the GUI sites |
 | The CLI `conda classify` record carrying `readSetPlan` and status, and one record for GUI and CLI Kraken2 | 2.7 |
-| Typed tool identity, the version source, an unknown version flagged and refused by unpinned exports, and the lock hash on run records | 2.5 computes, 2.6 writes |
+| Typed tool identity, the version source, an unknown version flagged and refused by unpinned exports, and the lock hash on run records. 2.5 adds `ToolVersionEvidence` and `ProvenanceExportPinAssessment`, which compute and refuse nothing | 2.5 computes, 2.6 writes |
 | Schema version 2 without the compat keys, `ops stats` on the envelope reader, the honest-runtime read fix, the "Older record format" status, a provenance spec in `docs/formats`, one sidecar name rule per bundle kind and the features.yaml ownership gaps | 2.6 |
 | The 39 path helpers, 18 relatives and 11 `directoryChecksum` copies, family by family behind characterization tests | A sub-phase after 2.6, under `path-helpers.sh` |
 | The nine demo archives that are not committed | A session where the owner approves the download, then the sweep covers all ten |
