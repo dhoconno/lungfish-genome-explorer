@@ -1,5 +1,6 @@
 import XCTest
 import ArgumentParser
+import LungfishTestSupport
 @testable import LungfishCLI
 @testable import LungfishWorkflow
 @testable import LungfishCore
@@ -56,6 +57,7 @@ final class VariantsCommandTests: XCTestCase {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let run = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
+        XCTAssertEqual(try BareRunWriterParity.strictFindings(sidecar: provenanceURL), [])
         XCTAssertEqual(run.name, "lungfish variants extract-sample")
         XCTAssertEqual(run.steps.first?.toolName, "lungfish variants extract-sample")
         XCTAssertEqual(run.steps.first?.exitCode, 0)
@@ -92,6 +94,7 @@ final class VariantsCommandTests: XCTestCase {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let run = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
+        XCTAssertEqual(try BareRunWriterParity.strictFindings(sidecar: provenanceURL), [])
         XCTAssertEqual(run.name, "lungfish variants query")
         XCTAssertEqual(run.steps.first?.toolName, "lungfish variants query")
         XCTAssertEqual(run.parameters["filter"]?.stringValue, "Sample[NA12878].GT=1/1")
@@ -485,6 +488,14 @@ final class VariantsCommandTests: XCTestCase {
         XCTAssertEqual(provenance.name, "lungfish variants phase")
         XCTAssertEqual(provenance.parameters["packIDs"]?.stringValue, "gatk-core,phasing")
         XCTAssertEqual(provenance.steps.first?.outputs.first?.path, planURL.path)
+        // A dry run plans two outputs and does not create them, so they have no checksum or size.
+        XCTAssertEqual(
+            try BareRunWriterParity.strictFindings(
+                sidecar: provenanceURL,
+                knownGaps: ["Missing checksum or size for 2 file descriptors: gatk-unphased.vcf.gz, phased.vcf.gz."]
+            ),
+            []
+        )
     }
 
     func testPhaseSubcommandExecuteRecordsToolStepsAndFinalOutputChecksums() async throws {
@@ -554,6 +565,12 @@ final class VariantsCommandTests: XCTestCase {
 
         XCTAssertEqual(provenance.steps.last?.toolName, "lungfish variants phase")
         XCTAssertTrue(provenance.steps.last?.outputs.contains { $0.path == planURL.path } == true)
+        XCTAssertEqual(
+            try BareRunWriterParity.strictFindings(
+                sidecar: outputDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+            ),
+            []
+        )
     }
 
     func testCallSubcommandKeepsAdvancedOptionsAliasForExistingScripts() throws {

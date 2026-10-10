@@ -1,4 +1,5 @@
 import XCTest
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class BundleContainerExportTests: XCTestCase {
@@ -77,6 +78,20 @@ final class BundleContainerExportTests: XCTestCase {
         XCTAssertTrue(entries.keys.contains(".lungfish-provenance.json"))
 
         let provenanceData = try XCTUnwrap(entries[".lungfish-provenance.json"])
+        // The entry is an envelope the strict reader accepts. It is written before the archive exists, so the
+        // archive's own record carries no checksum or size, which the sidecar beside the archive does.
+        let entryFile = tempRoot
+            .appendingPathComponent("archive-entry", isDirectory: true)
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        try FileManager.default.createDirectory(at: entryFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try provenanceData.write(to: entryFile)
+        XCTAssertEqual(
+            try BareRunWriterParity.strictFindings(
+                sidecar: entryFile,
+                knownGaps: ["Missing checksum or size for 1 file descriptor: bundle-a.oci.tar."]
+            ),
+            []
+        )
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let provenance = try decoder.decode(WorkflowRun.self, from: provenanceData)

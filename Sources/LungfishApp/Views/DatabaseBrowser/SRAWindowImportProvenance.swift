@@ -159,7 +159,10 @@ func writeGUISRAFASTQImportProvenance(
         parameters: parameters
     )
 
-    try run.writeSidecar(to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+    try ProvenanceWriter(signingProvider: nil).write(
+        run.canonicalEnvelope(),
+        toSidecar: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+    )
 }
 
 private func sraGUIInputFormat(for path: String) -> FileFormat? {

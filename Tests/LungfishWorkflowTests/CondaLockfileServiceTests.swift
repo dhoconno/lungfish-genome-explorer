@@ -1,4 +1,5 @@
 import XCTest
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class CondaLockfileServiceTests: XCTestCase {
@@ -55,6 +56,8 @@ final class CondaLockfileServiceTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode([PostInstallHook].self,
             from: JSONSerialization.data(withJSONObject: hooks)), pack.postInstallHooks)
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.provenanceURL.path))
+        // The receipt is an envelope the strict reader accepts, it still decodes as a WorkflowRun, and it is complete.
+        XCTAssertEqual(try BareRunWriterParity.strictFindings(sidecar: result.provenanceURL), [])
     }
 
     func testRequestedSpecificationRoundTripsAndRejectsUnsupportedSchemaAndPlatforms() throws {

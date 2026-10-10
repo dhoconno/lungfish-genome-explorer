@@ -115,6 +115,80 @@ struct BareRunWriterParityFixtureTests {
         }
     }
 
+    // MARK: The converted comparison
+
+    @Test("the converted comparison ignores the shape change, never a legacy step view, and the container keys only for a container scenario")
+    func convertedIgnoredFieldsAreTheDeclaredOnes() {
+        let plain = Parity.convertedIgnoredFields(of: Parity.Scenarios.gatkExecutorFailed)
+        #expect(plain.isSuperset(of: ProvenanceCompatFacts.shapeChange))
+        #expect(!plain.contains(.stepRecordedContainer))
+        for kept: ProvenanceCompatFacts.Field in [.argv, .reproducibleCommand, .steps, .exitStatus, .explicitOptions, .legacyRunSteps, .canonicalRunSteps] {
+            #expect(!plain.contains(kept), "\(kept) must still compare")
+        }
+
+        for scenario in Parity.Scenarios.all {
+            let fields = Parity.convertedIgnoredFields(of: scenario)
+            #expect(fields.contains(.stepRecordedContainer) == scenario.stepsCarryContainerIdentity, "\(scenario.id)")
+            // The container field is safe only while both legacy step views compare exactly.
+            #expect(!fields.contains(.legacyRunSteps) && !fields.contains(.canonicalRunSteps), "\(scenario.id)")
+        }
+        #expect(Parity.Scenarios.all.filter(\.stepsCarryContainerIdentity).map(\.id) == [
+            "s3-gatk-container-bare-run", "bundle-container-export-archive-entry",
+        ])
+    }
+
+    @Test("the converted comparison accepts the shape change and still notices a lost argument, a changed exit status and a lost container")
+    func convertedComparisonNoticesRealChanges() throws {
+        // A writer that moved to envelopes: the declared shape change and nothing else.
+        let plain = Parity.Scenarios.gatkExecutorFailed
+        var converted = try #require(try Parity.expectedFacts(for: plain))
+        converted.decodedBy = .envelope
+        converted.strictAccepts = true
+        converted.embeddedRunStatus = "failed"
+        #expect(try Parity.problemsAfterConversion(converted, scenario: plain) == [])
+
+        var broken = converted
+        broken.argv.removeLast()
+        broken.steps[0].exitStatus = 0
+        broken.steps[0].durableReplayArgv = ["lungfish-cli"]
+        let problems = try Parity.problemsAfterConversion(broken, scenario: plain)
+        for prefix in ["argv:", "steps[0].exitStatus:", "steps[0].durableReplayArgv:"] {
+            #expect(problems.contains { $0.hasPrefix(prefix) }, "no problem starts with \(prefix) in \(problems)")
+        }
+
+        // The corpus case with a container on both steps: the container keys leave the steps by design,
+        // and the digest must still show in both legacy step views.
+        let container = Parity.Scenarios.gatkExecutorContainer
+        var convertedContainer = try #require(try Parity.expectedFacts(for: container))
+        convertedContainer.decodedBy = .envelope
+        convertedContainer.strictAccepts = true
+        for index in convertedContainer.steps.indices {
+            convertedContainer.steps[index].recorded = [:]
+        }
+        #expect(try Parity.problemsAfterConversion(convertedContainer, scenario: container) == [])
+
+        convertedContainer.canonicalRunSteps[1].containerDigest = nil
+        let lost = try Parity.problemsAfterConversion(convertedContainer, scenario: container)
+        #expect(lost.contains { $0.hasPrefix("canonicalRunSteps[1].containerDigest:") }, "\(lost)")
+    }
+
+    @Test("only the quotes around an external placeholder leave a reproducible command")
+    func onlyExternalPlaceholderQuotesAreRemoved() throws {
+        var facts = try Self.corpusFacts("s3-write-sidecar-bare-run")
+        facts.reproducibleCommand = "'<external>/prefetch' SRR200 -O '<project>/My Folder/out' --note 'a b' '<external>/x y'"
+        facts.steps[0].reproducibleCommand = "'<external>/prefetch' SRR200"
+        let before = facts
+
+        let result = try Parity.unquotingExternalPlaceholders(in: facts)
+
+        #expect(result.reproducibleCommand == "<external>/prefetch SRR200 -O '<project>/My Folder/out' --note 'a b' <external>/x y")
+        #expect(result.steps[0].reproducibleCommand == "<external>/prefetch SRR200")
+        facts.reproducibleCommand = result.reproducibleCommand
+        facts.steps[0].reproducibleCommand = result.steps[0].reproducibleCommand
+        #expect(result == facts, "nothing but the two command strings changed")
+        #expect(before.argv == result.argv)
+    }
+
     // MARK: Capture
 
     @Test("an unregistered scenario is refused, and the message for missing facts names the capture command")

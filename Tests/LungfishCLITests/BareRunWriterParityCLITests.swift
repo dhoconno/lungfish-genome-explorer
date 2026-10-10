@@ -26,7 +26,7 @@ final class BareRunWriterParityCLITests: XCTestCase {
 
         try await command.executeForTesting()
 
-        try expectBeforeConversion(
+        try expectAfterConversion(
             ProvenanceRecorder.fileSidecarURL(for: outputURL),
             in: project,
             scenario: Parity.Scenarios.variantsExtractSample
@@ -44,7 +44,7 @@ final class BareRunWriterParityCLITests: XCTestCase {
 
         try await command.executeForTesting()
 
-        try expectBeforeConversion(
+        try expectAfterConversion(
             ProvenanceRecorder.fileSidecarURL(for: outputURL),
             in: project,
             scenario: Parity.Scenarios.variantsQuery
@@ -60,11 +60,13 @@ final class BareRunWriterParityCLITests: XCTestCase {
 
         try await command.executeForTesting { _ in }
 
-        try expectBeforeConversion(
+        try expectAfterConversion(
             project.root.appendingPathComponent("Analyses/phase-plan/\(ProvenanceRecorder.provenanceFilename)"),
             in: project,
             scenario: Parity.Scenarios.variantsPhaseDryRun,
-            extra: Self.toolVersionReplacements()
+            extra: Self.toolVersionReplacements(),
+            // A dry run plans two outputs and does not create them, so they have no checksum or size.
+            knownGaps: ["Missing checksum or size for 2 file descriptors: gatk-unphased.vcf.gz, phased.vcf.gz."]
         )
     }
 
@@ -92,7 +94,7 @@ final class BareRunWriterParityCLITests: XCTestCase {
 
         try await command.executeForTesting(runtime: runtime) { _ in }
 
-        try expectBeforeConversion(
+        try expectAfterConversion(
             project.root.appendingPathComponent("Analyses/phase-execute/\(ProvenanceRecorder.provenanceFilename)"),
             in: project,
             scenario: Parity.Scenarios.variantsPhaseExecute,
@@ -114,11 +116,13 @@ final class BareRunWriterParityCLITests: XCTestCase {
 
         try await command.executeForTesting { _ in }
 
-        try expectBeforeConversion(
+        try expectAfterConversion(
             outputDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
             in: project,
             scenario: Parity.Scenarios.freyjaDemixDryRun,
-            extra: Self.toolVersionReplacements()
+            extra: Self.toolVersionReplacements(),
+            // A dry run plans the demix table and does not create it, so it has no checksum or size.
+            knownGaps: ["Missing checksum or size for 1 file descriptor: freyja-demix.tsv."]
         )
     }
 
@@ -141,7 +145,7 @@ final class BareRunWriterParityCLITests: XCTestCase {
             .appendingPathComponent("migrations", isDirectory: true)
         let files = try FileManager.default.contentsOfDirectory(at: migrations, includingPropertiesForKeys: nil)
         let sidecar = try XCTUnwrap(files.first { $0.lastPathComponent.hasSuffix(".project-migrate-provenance.json") })
-        try expectBeforeConversion(
+        try expectAfterConversion(
             sidecar,
             in: project,
             scenario: Parity.Scenarios.projectMigrateBrowserSummary,
@@ -163,11 +167,14 @@ final class BareRunWriterParityCLITests: XCTestCase {
 
         _ = try await SRADownloadSubcommandProvenanceTests.download(into: folder, portal: .outage)
 
-        try expectBeforeConversion(
+        try expectAfterConversion(
             folder.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
             in: project,
             scenario: Parity.Scenarios.sraDownloadToolkitFallback,
-            extra: Self.fasterqFolderReplacements
+            extra: Self.fasterqFolderReplacements,
+            // prefetch takes the accession as its input, which is no file, and the archive it added is removed
+            // once fasterq-dump succeeds, so neither has a checksum or size.
+            knownGaps: ["Missing checksum or size for 2 file descriptors: SRR200, SRR200.sra."]
         )
     }
 
@@ -178,28 +185,41 @@ final class BareRunWriterParityCLITests: XCTestCase {
 
         _ = try await SRADownloadSubcommandProvenanceTests.download(into: folder, portal: .pairedRun)
 
-        try expectBeforeConversion(
+        try expectAfterConversion(
             folder.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
             in: project,
             scenario: Parity.Scenarios.sraDownloadENAPaired,
-            extra: Self.fasterqFolderReplacements
+            extra: Self.fasterqFolderReplacements,
+            // The transfer steps take ENA's two URLs as their inputs, and a URL is no local file.
+            knownGaps: ["Missing checksum or size for 2 file descriptors: SRR200_1.fastq.gz, SRR200_2.fastq.gz."]
         )
     }
 
     // MARK: Comparison
 
-    /// The writer must still say what it said on unchanged code.
-    private func expectBeforeConversion(
+    /// The converted writer must say what it said before, apart from the declared shape change, and
+    /// its record must pass the strict reader, decode as a `WorkflowRun` and be complete.
+    ///
+    /// - Parameter knownGaps: The sentences `ProvenanceCompleteness` reports for a record that is
+    ///   complete in every way the writer can make it. A test names each one and says why.
+    private func expectAfterConversion(
         _ sidecar: URL,
         in project: ProvenanceCompatScenarios.Project,
         scenario: Parity.Scenario,
         extra: [Parity.Replacement] = [],
+        knownGaps: [String] = [],
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
-        let facts = try Parity.facts(of: sidecar, in: project, scenario: scenario, replacing: Self.cliReplacements + extra)
-        let problems = try Parity.problemsBeforeConversion(facts, scenario: scenario)
+        let problems = try Parity.problemsAfterConversion(
+            of: sidecar,
+            in: project,
+            scenario: scenario,
+            replacing: Self.cliReplacements + extra
+        )
         XCTAssertTrue(problems.isEmpty, "\(scenario.id) changed: \(problems)", file: file, line: line)
+        let findings = try Parity.strictFindings(sidecar: sidecar, knownGaps: knownGaps)
+        XCTAssertTrue(findings.isEmpty, "\(scenario.id) record: \(findings)", file: file, line: line)
     }
 
     // MARK: Host values

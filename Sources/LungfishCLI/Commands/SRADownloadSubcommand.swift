@@ -277,7 +277,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
             parameters: sraDownloadProvenanceParameters(trace: trace, layoutWarning: layoutWarning)
         )
         let provenanceURL = outputURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        try run.writeSidecar(to: provenanceURL)
+        try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), toSidecar: provenanceURL)
     }
 
     private func detectSRAInputFormat(_ input: String) -> FileFormat? {

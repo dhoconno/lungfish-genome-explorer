@@ -206,7 +206,7 @@ extension BAMCommand {
                 ]
             )
 
-            try run.writeSidecar(to: provenanceURL)
+            try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), toSidecar: provenanceURL)
 
             let metadataDB = try AlignmentMetadataDatabase.openForUpdate(at: attachment.metadataDBURL)
             metadataDB.setFileInfo(

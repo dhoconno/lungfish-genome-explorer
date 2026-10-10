@@ -1,6 +1,7 @@
 import XCTest
 import CryptoKit
 import os
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class CondaOfflinePackServiceTests: XCTestCase {
@@ -111,6 +112,7 @@ final class CondaOfflinePackServiceTests: XCTestCase {
 
         let provenanceText = try String(contentsOf: provenanceURL, encoding: .utf8)
         XCTAssertFalse(provenanceText.contains("SECRET_SHOULD_NOT_APPEAR"))
+        XCTAssertEqual(try BareRunWriterParity.strictFindings(sidecar: provenanceURL), [])
     }
 
     func testInstallCopiesPackEnvironmentsAndWritesInstallProvenance() async throws {
@@ -163,6 +165,7 @@ final class CondaOfflinePackServiceTests: XCTestCase {
         XCTAssertNotNil(step.wallTime)
         XCTAssertTrue(step.inputs.allSatisfy { $0.sha256 != nil && $0.sizeBytes != nil })
         XCTAssertTrue(step.outputs.allSatisfy { $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertEqual(try BareRunWriterParity.strictFindings(sidecar: install.provenanceURL), [])
     }
 
     func testCorruptPortablePrimerLauncherRollsBackOfflineImport() async throws {
@@ -484,6 +487,7 @@ final class CondaOfflinePackServiceTests: XCTestCase {
             URL(fileURLWithPath: output.path).resolvingSymlinksInPath().standardizedFileURL
                 == existingPayload.resolvingSymlinksInPath().standardizedFileURL
         })
+        XCTAssertEqual(try BareRunWriterParity.strictFindings(sidecar: failureProvenanceURL), [])
     }
 
     func testBackupCleanupFailureDoesNotRollbackVerifiedOfflineImport() async throws {

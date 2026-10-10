@@ -32,11 +32,23 @@ final class SRADownloadSubcommandProvenanceTests: XCTestCase {
 
         XCTAssertEqual(run.parameters["downloadSource"], .string("SRA Toolkit"))
         XCTAssertEqual(run.parameters["condaEnvironment"], .string("managed sra-tools"))
-        let downloadStep = try XCTUnwrap(run.steps.last)
+        // The envelope's own last step, not `run.steps`, which `legacyWorkflowRun()` rebuilds for a record without
+        // its embedded run by folding every output of the record into the final step.
+        let envelope = try XCTUnwrap(try ProvenanceEnvelopeReader.loadCanonical(from: folder))
+        let downloadStep = try XCTUnwrap(envelope.steps.last)
         XCTAssertEqual(
             downloadStep.outputs.map { URL(fileURLWithPath: $0.path).lastPathComponent },
             ["SRR200_1.fastq", "SRR200_2.fastq"],
             "the command reports only the reads this download wrote"
+        )
+        // prefetch takes the accession as its input, which is no file, and the archive it added is removed once
+        // fasterq-dump succeeds, so neither has a checksum or size.
+        XCTAssertEqual(
+            try BareRunWriterParity.strictFindings(
+                sidecar: folder.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+                knownGaps: ["Missing checksum or size for 2 file descriptors: SRR200, SRR200.sra."]
+            ),
+            []
         )
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: folder.appendingPathComponent("SRR200").path),
@@ -58,6 +70,14 @@ final class SRADownloadSubcommandProvenanceTests: XCTestCase {
         XCTAssertEqual(
             try XCTUnwrap(run.steps.last).outputs.map { URL(fileURLWithPath: $0.path).lastPathComponent },
             ["SRR200_1.fastq.gz", "SRR200_2.fastq.gz"]
+        )
+        // The transfer steps take ENA's two URLs as their inputs, and a URL is no local file.
+        XCTAssertEqual(
+            try BareRunWriterParity.strictFindings(
+                sidecar: folder.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+                knownGaps: ["Missing checksum or size for 2 file descriptors: SRR200_1.fastq.gz, SRR200_2.fastq.gz."]
+            ),
+            []
         )
     }
 

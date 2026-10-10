@@ -455,3 +455,150 @@ extension BareRunWriterParity {
         })
     }
 }
+
+// MARK: - After the conversion
+
+extension BareRunWriterParity {
+    /// What a converted writer's facts may differ in, from the facts captured before the move.
+    ///
+    /// The sets are the ones `ProvenanceCompatFacts` documents. `shapeChange` is the conversion itself: the
+    /// decoder, strict acceptance, the embedded run's status and repeated files. The run-specific set is the
+    /// scenario's own clock. A scenario whose steps carry a container identity adds
+    /// `stepRecordedContainer`, because an envelope step holds a container only in a runtime identity of
+    /// its own, so the image and digest move to the envelope's runtime identity. That field is only safe
+    /// while both legacy step views compare exactly, where a lost or changed image or digest still shows,
+    /// so this function never ignores `legacyRunSteps` or `canonicalRunSteps`.
+    public static func convertedIgnoredFields(of scenario: Scenario) -> Set<ProvenanceCompatFacts.Field> {
+        var fields = runSpecificFields(of: scenario).union(ProvenanceCompatFacts.shapeChange)
+        if scenario.stepsCarryContainerIdentity {
+            fields.insert(.stepRecordedContainer)
+        }
+        return fields
+    }
+
+    /// How the facts of a converted writer's sidecar differ from the facts captured before the move.
+    ///
+    /// Besides the sets, one relation applies that `ProvenanceCompatFacts` does not document: where the
+    /// reproducible command comes from. See ``unquotingExternalPlaceholders(in:)``.
+    public static func problemsAfterConversion(
+        _ facts: ProvenanceCompatFacts,
+        scenario: Scenario
+    ) throws -> [String] {
+        guard let expected = try expectedFacts(for: scenario) else {
+            throw ParityError.noExpectedFacts(id: scenario.id)
+        }
+        // A bare run's dates are whole seconds, and the envelope keeps the exact wall time of the run.
+        // Where the test fixes the clock the two agree to within a second.
+        return try unquotingExternalPlaceholders(in: facts).differences(
+            from: try unquotingExternalPlaceholders(in: expected),
+            ignoring: convertedIgnoredFields(of: scenario),
+            runWallTimeTolerance: scenario.timing == .injected ? 1 : 0
+        )
+    }
+
+    /// The facts with the shell quotes removed from any `<external>` placeholder in a reproducible command.
+    ///
+    /// A bare run stores only its argv, so its reproducible command was derived each time the file was read,
+    /// from the argv as sanitized. An executable outside the project, the home folder and the managed roots
+    /// is stored as the placeholder `<external>/name`, which the shell escaping then quotes because `<` and
+    /// `>` are special. An envelope stores the reproducible command when it is written, from the real path,
+    /// and sanitizes the text afterwards, so the same placeholder is not quoted. Both name the same command
+    /// and neither can run, so the comparison removes those quotes on both sides and nothing else. Every
+    /// other character of `reproducibleCommand` and `steps[].reproducibleCommand` still compares.
+    public static func unquotingExternalPlaceholders(in facts: ProvenanceCompatFacts) throws -> ProvenanceCompatFacts {
+        func unquoted(_ text: String) -> String {
+            text.replacingOccurrences(of: "'(<external>[^']*)'", with: "$1", options: .regularExpression)
+        }
+        let data = try JSONEncoder().encode(facts)
+        guard case .object(var members) = try JSONDecoder().decode(ProvenanceCompatFacts.Value.self, from: data) else {
+            throw ParityError.factsAreNotAnObject
+        }
+        if case .string(let command)? = members["reproducibleCommand"] {
+            members["reproducibleCommand"] = .string(unquoted(command))
+        }
+        if case .array(let steps)? = members["steps"] {
+            members["steps"] = .array(steps.map { step in
+                guard case .object(var stepMembers) = step,
+                      case .string(let command)? = stepMembers["reproducibleCommand"] else { return step }
+                stepMembers["reproducibleCommand"] = .string(unquoted(command))
+                return .object(stepMembers)
+            })
+        }
+        let changed = try JSONEncoder().encode(ProvenanceCompatFacts.Value.object(members))
+        return try JSONDecoder().decode(ProvenanceCompatFacts.self, from: changed)
+    }
+
+    /// The problems of a converted writer's sidecar, read two ways. As written, it must say what the
+    /// captured facts said apart from the declared shape change. Without its embedded `legacyWorkflowRun`,
+    /// which is how lane W2A of Phase 2.4 writes an envelope, it must say the same, because then every
+    /// legacy view is rebuilt from the envelope's own fields.
+    public static func problemsAfterConversion(
+        of sidecar: URL,
+        in project: ProvenanceCompatScenarios.Project,
+        scenario: Scenario,
+        replacing extraReplacements: [Replacement] = []
+    ) throws -> [String] {
+        let written = try facts(of: sidecar, in: project, scenario: scenario, replacing: extraReplacements)
+        var problems = try problemsAfterConversion(written, scenario: scenario).map { "as written: \($0)" }
+
+        let stripped = try copyWithoutEmbeddedRun(of: sidecar)
+        let withoutRun = try normalized(
+            try ProvenanceCompatFacts.project(sidecar: stripped, projectRoot: project.root),
+            scenario: scenario,
+            replacing: extraReplacements
+        )
+        problems += try problemsAfterConversion(withoutRun, scenario: scenario).map { "without the embedded run: \($0)" }
+        return problems
+    }
+
+    /// A copy of `sidecar`, beside it, without the `legacyWorkflowRun` key.
+    public static func copyWithoutEmbeddedRun(of sidecar: URL) throws -> URL {
+        let data = try Data(contentsOf: sidecar)
+        guard var object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ParityError.factsAreNotAnObject
+        }
+        object["legacyWorkflowRun"] = nil
+        let copy = sidecar.deletingLastPathComponent()
+            .appendingPathComponent("without-embedded-run-\(sidecar.lastPathComponent)")
+        try JSONSerialization
+            .data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+            .write(to: copy)
+        return copy
+    }
+
+    /// What is wrong with a converted writer's sidecar as a record, apart from its facts. The bytes must
+    /// pass the strict envelope reader, still decode as a `WorkflowRun` (sixteen test files read the
+    /// compat keys that way), and carry no completeness issue other than the known gaps named here.
+    ///
+    /// - Parameter knownGaps: The sentences `ProvenanceCompleteness.issues(in:)` is expected to return.
+    ///   Empty for a record with no gap.
+    public static func strictFindings(sidecar: URL, knownGaps: [String] = []) throws -> [String] {
+        var findings: [String] = []
+        let bytes = try Data(contentsOf: sidecar)
+        let name = sidecar.lastPathComponent
+        do {
+            _ = try ProvenanceEnvelopeReader.decodeCanonical(bytes)
+        } catch {
+            findings.append("\(name): decodeCanonical rejects the bytes: \(error)")
+        }
+        let runDecoder = JSONDecoder()
+        runDecoder.dateDecodingStrategy = .iso8601
+        do {
+            _ = try runDecoder.decode(WorkflowRun.self, from: bytes)
+        } catch {
+            findings.append("\(name): the bytes do not decode as a WorkflowRun: \(error)")
+        }
+        do {
+            guard let envelope = try ProvenanceEnvelopeReader.loadCanonical(fromSidecar: sidecar) else {
+                return findings + ["\(name): loadCanonical found no record"]
+            }
+            let issues = ProvenanceCompleteness.issues(in: envelope)
+            if issues != knownGaps {
+                findings.append("\(name): completeness issues \(issues), expected \(knownGaps)")
+            }
+        } catch {
+            findings.append("\(name): loadCanonical failed: \(error)")
+        }
+        return findings
+    }
+}

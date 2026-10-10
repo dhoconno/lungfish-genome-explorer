@@ -61,7 +61,7 @@ struct BareRunWriterParityWorkflowTests {
             #expect(exitCode == 7)
         }
 
-        try expectBeforeConversion(
+        try expectAfterConversion(
             analysis.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
             in: project,
             scenario: Parity.Scenarios.gatkExecutorFailed
@@ -73,7 +73,7 @@ struct BareRunWriterParityWorkflowTests {
         let project = try ProvenanceCompatScenarios.makeProject()
         defer { project.cleanup() }
         let sidecar = try await ProvenanceCompatScenarios.gatkContainerRun(in: project)
-        try expectBeforeConversion(sidecar, in: project, scenario: Parity.Scenarios.gatkExecutorContainer)
+        try expectAfterConversion(sidecar, in: project, scenario: Parity.Scenarios.gatkExecutorContainer)
     }
 
     // MARK: Attachment services
@@ -127,7 +127,7 @@ struct BareRunWriterParityWorkflowTests {
             )
         )
 
-        try expectBeforeConversion(
+        try expectAfterConversion(
             try #require(result.provenanceURL),
             in: project,
             scenario: Parity.Scenarios.bundleVariantTrackAttach
@@ -169,7 +169,7 @@ struct BareRunWriterParityWorkflowTests {
             )
         )
 
-        try expectBeforeConversion(result.provenanceURL, in: project, scenario: Parity.Scenarios.gatkBundleVariantAttach)
+        try expectAfterConversion(result.provenanceURL, in: project, scenario: Parity.Scenarios.gatkBundleVariantAttach)
     }
 
     // MARK: Conda services
@@ -187,7 +187,7 @@ struct BareRunWriterParityWorkflowTests {
                 commandLine: ["lungfish-cli", "conda", "lock", "--pack", "fixture"]
             )
 
-        try expectBeforeConversion(result.provenanceURL, in: project, scenario: Parity.Scenarios.condaLockfileExport)
+        try expectAfterConversion(result.provenanceURL, in: project, scenario: Parity.Scenarios.condaLockfileExport)
     }
 
     @Test("CondaOfflinePackService: the export record keeps its facts")
@@ -196,7 +196,7 @@ struct BareRunWriterParityWorkflowTests {
         defer { project.cleanup() }
         let export = try await Self.exportPack(in: project)
 
-        try expectBeforeConversion(export.provenanceURL, in: project, scenario: Parity.Scenarios.condaOfflineExport)
+        try expectAfterConversion(export.provenanceURL, in: project, scenario: Parity.Scenarios.condaOfflineExport)
     }
 
     @Test("CondaOfflinePackService: the install record keeps its facts")
@@ -213,7 +213,7 @@ struct BareRunWriterParityWorkflowTests {
             commandLine: ["lungfish-cli", "conda", "offline-install", "--pack-dir", export.packDirectory.path]
         )
 
-        try expectBeforeConversion(install.provenanceURL, in: project, scenario: Parity.Scenarios.condaOfflineInstall)
+        try expectAfterConversion(install.provenanceURL, in: project, scenario: Parity.Scenarios.condaOfflineInstall)
     }
 
     @Test("CondaOfflinePackService: the record of a refused install keeps its facts")
@@ -239,7 +239,7 @@ struct BareRunWriterParityWorkflowTests {
             #expect(error.localizedDescription.contains("already exists"))
         }
 
-        try expectBeforeConversion(
+        try expectAfterConversion(
             destination.appendingPathComponent(CondaOfflinePackService.installFailureProvenanceFilename),
             in: project,
             scenario: Parity.Scenarios.condaOfflineInstallFailure
@@ -271,21 +271,34 @@ struct BareRunWriterParityWorkflowTests {
         let sidecar = entryFolder.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         try entry.write(to: sidecar)
 
-        try expectBeforeConversion(sidecar, in: project, scenario: Parity.Scenarios.bundleContainerExportArchiveEntry)
+        // The entry is written before the archive exists, so the archive's own record cannot carry a checksum or a
+        // size. The sidecar beside the archive, which is written afterwards, does.
+        try expectAfterConversion(
+            sidecar,
+            in: project,
+            scenario: Parity.Scenarios.bundleContainerExportArchiveEntry,
+            knownGaps: ["Missing checksum or size for 1 file descriptor: bundle.oci.tar."]
+        )
     }
 
     // MARK: Comparison
 
-    /// The writer must still say what it said on unchanged code.
-    private func expectBeforeConversion(
+    /// The converted writer must say what it said before, apart from the declared shape change, and
+    /// its record must pass the strict reader, decode as a `WorkflowRun` and be complete.
+    ///
+    /// - Parameter knownGaps: The sentences `ProvenanceCompleteness` reports for a record that is
+    ///   complete in every way the writer can make it. A test names each one and says why.
+    private func expectAfterConversion(
         _ sidecar: URL,
         in project: ProvenanceCompatScenarios.Project,
         scenario: Parity.Scenario,
+        knownGaps: [String] = [],
         sourceLocation: SourceLocation = #_sourceLocation
     ) throws {
-        let facts = try Parity.facts(of: sidecar, in: project, scenario: scenario)
-        let problems = try Parity.problemsBeforeConversion(facts, scenario: scenario)
+        let problems = try Parity.problemsAfterConversion(of: sidecar, in: project, scenario: scenario)
         #expect(problems.isEmpty, "\(scenario.id) changed: \(problems)", sourceLocation: sourceLocation)
+        let findings = try Parity.strictFindings(sidecar: sidecar, knownGaps: knownGaps)
+        #expect(findings.isEmpty, "\(scenario.id) record: \(findings)", sourceLocation: sourceLocation)
     }
 
     // MARK: Fixtures

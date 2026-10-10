@@ -432,6 +432,7 @@ final class ProjectCommandTests: XCTestCase {
         let backupURL = try XCTUnwrap(migrationFiles.first { $0.lastPathComponent.hasSuffix(".manifest.json.backup") })
         let migrationProvenanceURL = try XCTUnwrap(migrationFiles.first { $0.lastPathComponent.hasSuffix(".project-migrate-provenance.json") })
         XCTAssertEqual(try Data(contentsOf: backupURL), originalManifest)
+        XCTAssertEqual(try BareRunWriterParity.strictFindings(sidecar: migrationProvenanceURL), [])
 
         let provenance = try jsonObject(at: migrationProvenanceURL)
         XCTAssertEqual(provenance["name"] as? String, "lungfish project migrate browser-summary")

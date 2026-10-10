@@ -133,6 +133,15 @@ final class SRAWindowFallbackProvenanceTests: XCTestCase {
             compressionLevel: "fast",
             cliBinaryPath: { URL(fileURLWithPath: "/injected/lungfish-cli") }
         )
+        // The record is an envelope the strict reader accepts, and it is complete apart from the accession that a
+        // toolkit step takes as its input, which is no file.
+        XCTAssertEqual(
+            try BareRunWriterParity.strictFindings(
+                sidecar: bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+                knownGaps: toolkitTraces.isEmpty ? [] : ["Missing checksum or size for 1 file descriptor: SRR1."]
+            ),
+            []
+        )
         return try XCTUnwrap(ProvenanceRecorder.load(from: bundle))
     }
 }

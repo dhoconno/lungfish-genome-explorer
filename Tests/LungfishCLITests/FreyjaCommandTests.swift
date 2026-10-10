@@ -1,4 +1,5 @@
 import XCTest
+import LungfishTestSupport
 @testable import LungfishCLI
 @testable import LungfishWorkflow
 
@@ -43,6 +44,14 @@ final class FreyjaCommandTests: XCTestCase {
         XCTAssertEqual(provenance.parameters["packID"]?.stringValue, "wastewater-surveillance")
         XCTAssertEqual(provenance.steps.first?.inputs.count, 2)
         XCTAssertEqual(provenance.steps.first?.outputs.first?.path, planURL.path)
+        // A dry run plans the demix table and does not create it, so it has no checksum or size.
+        XCTAssertEqual(
+            try BareRunWriterParity.strictFindings(
+                sidecar: provenanceURL,
+                knownGaps: ["Missing checksum or size for 1 file descriptor: freyja-demix.tsv."]
+            ),
+            []
+        )
     }
 
     func testRootCLIRegistersFreyjaCommand() {

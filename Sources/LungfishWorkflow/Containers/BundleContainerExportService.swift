@@ -70,7 +70,7 @@ public struct BundleContainerExportService {
             layerSize: layerTar.count,
             start: runClock.startedAt,
             end: end
-        ))
+        ).canonicalEnvelope())
 
         let entries = [
             DeterministicTarEntry(path: "oci-layout", data: Data(#"{"imageLayoutVersion":"1.0.0"}"#.utf8)),

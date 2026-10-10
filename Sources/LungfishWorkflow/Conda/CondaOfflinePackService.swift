@@ -882,7 +882,7 @@ public struct CondaOfflinePackService {
         )
         try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
         let provenanceURL = outputDirectory.appendingPathComponent(filename)
-        try writeJSON(run, to: provenanceURL)
+        try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), toSidecar: provenanceURL)
         return provenanceURL
     }
 

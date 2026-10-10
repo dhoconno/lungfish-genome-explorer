@@ -1,6 +1,7 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 import XCTest
 
@@ -75,6 +76,7 @@ final class GATKBundleVariantAttachmentServiceTests: XCTestCase {
             executionProvenanceURL.path
         )
 
+        XCTAssertEqual(try BareRunWriterParity.strictFindings(sidecar: result.provenanceURL), [])
         let provenanceData = try Data(contentsOf: result.provenanceURL)
         let provenance = try JSONDecoder.workflowRunDecoder.decode(WorkflowRun.self, from: provenanceData)
         XCTAssertEqual(provenance.name, "GATK HaplotypeCaller bundle attachment")

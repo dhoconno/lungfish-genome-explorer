@@ -1,5 +1,6 @@
 import ArgumentParser
 import XCTest
+import LungfishTestSupport
 @testable import LungfishCLI
 @testable import LungfishWorkflow
 
@@ -86,9 +87,9 @@ final class CondaPacksCommandTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: expectedEnvironment.path))
         let installedContents = try String(contentsOf: expectedEnvironment, encoding: .utf8)
         XCTAssertEqual(installedContents, "installed minimap2\n")
-        XCTAssertTrue(FileManager.default.fileExists(
-            atPath: destinationCondaRoot.appendingPathComponent(".lungfish-provenance.json").path
-        ))
+        let installProvenance = destinationCondaRoot.appendingPathComponent(".lungfish-provenance.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: installProvenance.path))
+        XCTAssertEqual(try BareRunWriterParity.strictFindings(sidecar: installProvenance), [])
     }
 
     func testLegacyOfflineSubcommandsRemainAvailable() throws {

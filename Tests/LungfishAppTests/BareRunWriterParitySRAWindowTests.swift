@@ -42,10 +42,12 @@ final class BareRunWriterParitySRAWindowTests: XCTestCase {
             ]
         )
 
-        try expectBeforeConversion(
+        try expectAfterConversion(
             bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
             in: project,
-            scenario: Parity.Scenarios.sraWindowToolkitAfterFailedENA
+            scenario: Parity.Scenarios.sraWindowToolkitAfterFailedENA,
+            // prefetch and fasterq-dump take the accession as their input, which is no file.
+            knownGaps: ["Missing checksum or size for 1 file descriptor: SRR1."]
         )
     }
 
@@ -92,26 +94,35 @@ final class BareRunWriterParitySRAWindowTests: XCTestCase {
             toolkitTraces: []
         )
 
-        try expectBeforeConversion(
+        try expectAfterConversion(
             bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
             in: project,
-            scenario: Parity.Scenarios.sraWindowKeepsCLIRecord
+            scenario: Parity.Scenarios.sraWindowKeepsCLIRecord,
+            // The import record this test plants has one step and names no files, and the window keeps the
+            // steps it finds as they are, so the combined record names none either.
+            knownGaps: ["Input/reference/output file descriptors are missing.", "Output descriptors are missing."]
         )
     }
 
     // MARK: Comparison
 
-    /// The writer must still say what it said on unchanged code.
-    private func expectBeforeConversion(
+    /// The converted writer must say what it said before, apart from the declared shape change, and
+    /// its record must pass the strict reader, decode as a `WorkflowRun` and be complete.
+    ///
+    /// - Parameter knownGaps: The sentences `ProvenanceCompleteness` reports for a record that is
+    ///   complete in every way the writer can make it. A test names each one and says why.
+    private func expectAfterConversion(
         _ sidecar: URL,
         in project: ProvenanceCompatScenarios.Project,
         scenario: Parity.Scenario,
+        knownGaps: [String] = [],
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
-        let facts = try Parity.facts(of: sidecar, in: project, scenario: scenario)
-        let problems = try Parity.problemsBeforeConversion(facts, scenario: scenario)
+        let problems = try Parity.problemsAfterConversion(of: sidecar, in: project, scenario: scenario)
         XCTAssertTrue(problems.isEmpty, "\(scenario.id) changed: \(problems)", file: file, line: line)
+        let findings = try Parity.strictFindings(sidecar: sidecar, knownGaps: knownGaps)
+        XCTAssertTrue(findings.isEmpty, "\(scenario.id) record: \(findings)", file: file, line: line)
     }
 
     // MARK: Fixtures

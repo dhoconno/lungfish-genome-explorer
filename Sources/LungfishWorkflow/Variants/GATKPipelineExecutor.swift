@@ -148,7 +148,7 @@ public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
             parameters: parameters(for: request)
         )
         let provenanceURL = request.outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        try run.writeSidecar(to: provenanceURL)
+        try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), toSidecar: provenanceURL)
         return provenanceURL
     }
 

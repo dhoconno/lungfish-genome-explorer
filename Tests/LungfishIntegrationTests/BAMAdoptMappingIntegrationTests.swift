@@ -80,6 +80,7 @@ struct BAMAdoptMappingIntegrationTests {
         decoder.dateDecodingStrategy = .iso8601
         let provenanceRun = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: adoptProvenanceURL))
         #expect(provenanceRun.allOutputFiles.contains { $0.path == adoptedBAMURL.path })
+        #expect(try BareRunWriterParity.strictFindings(sidecar: adoptProvenanceURL) == [])
 
         let metadataDBPath = try #require(adoptedTrack.metadataDBPath)
         let metadataDB = try AlignmentMetadataDatabase.openForUpdate(
@@ -195,10 +196,11 @@ struct BAMAdoptMappingIntegrationTests {
             .deletingPathExtension()
             .appendingPathExtension("adopt-mapping-provenance.json")
         let version = LungfishCLI.configuration.version
-        let facts = try BareRunWriterParity.facts(
+        let scenario = BareRunWriterParity.Scenarios.bamAdoptMapping
+        let problems = try BareRunWriterParity.problemsAfterConversion(
             of: sidecar,
             in: project,
-            scenario: BareRunWriterParity.Scenarios.bamAdoptMapping,
+            scenario: scenario,
             replacing: [
                 .literal("lungfish-cli \(version)", as: "lungfish-cli <cli-version>"),
                 .version(version, as: "<cli-version>"),
@@ -206,10 +208,8 @@ struct BAMAdoptMappingIntegrationTests {
                 .regularExpression(#"BundleAlignmentFixture-[0-9A-Fa-f-]{36}"#, as: "BundleAlignmentFixture-<UUID>"),
             ]
         )
-        let problems = try BareRunWriterParity.problemsBeforeConversion(
-            facts,
-            scenario: BareRunWriterParity.Scenarios.bamAdoptMapping
-        )
         #expect(problems.isEmpty, "bam-adopt-mapping changed: \(problems)")
+        let findings = try BareRunWriterParity.strictFindings(sidecar: sidecar)
+        #expect(findings.isEmpty, "bam-adopt-mapping record: \(findings)")
     }
 }

@@ -210,7 +210,7 @@ extension VariantsCommand {
             parameters: parameters
         )
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
-        try run.writeSidecar(to: provenanceURL)
+        try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), toSidecar: provenanceURL)
     }
 
     fileprivate static func provenanceURL(forOutputURL outputURL: URL) -> URL {
@@ -340,7 +340,7 @@ extension VariantsCommand {
             steps: additionalSteps + [step],
             parameters: parameters
         )
-        try run.writeSidecar(to: outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), toSidecar: outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
     }
 
     struct PhaseSubcommand: AsyncParsableCommand {

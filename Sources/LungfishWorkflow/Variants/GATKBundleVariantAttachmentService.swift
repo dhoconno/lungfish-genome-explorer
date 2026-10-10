@@ -390,6 +390,6 @@ public actor GATKBundleVariantAttachmentService {
             steps: [step],
             parameters: parameters
         )
-        try run.writeSidecar(to: provenanceURL)
+        try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), toSidecar: provenanceURL)
     }
 }

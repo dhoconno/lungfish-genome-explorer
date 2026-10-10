@@ -1,4 +1,5 @@
 import XCTest
+import LungfishTestSupport
 @testable import LungfishWorkflow
 @testable import LungfishCore
 @testable import LungfishIO
@@ -113,6 +114,7 @@ final class BundleVariantTrackAttachmentServiceTests: XCTestCase {
         XCTAssertTrue(provenanceText.contains("\"name\" : \"lungfish variants call\""))
         XCTAssertTrue(provenanceText.contains("\"toolName\" : \"lofreq\""))
         XCTAssertTrue(provenanceText.contains("\"toolName\" : \"lungfish-cli\""))
+        XCTAssertEqual(try BareRunWriterParity.strictFindings(sidecar: provenanceURL), [])
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let provenanceRun = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: provenanceURL))

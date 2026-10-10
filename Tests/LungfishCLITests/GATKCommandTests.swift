@@ -1,4 +1,5 @@
 import XCTest
+import LungfishTestSupport
 @testable import LungfishCLI
 @testable import LungfishWorkflow
 
@@ -125,6 +126,7 @@ final class GATKCommandTests: XCTestCase {
         XCTAssertEqual(provenance.steps.first?.outputs.first?.path, output.path)
         XCTAssertEqual(provenance.parameters["packID"]?.stringValue, "gatk-core")
         XCTAssertEqual(provenance.parameters["packVersion"]?.stringValue, "test-pack")
+        XCTAssertEqual(try BareRunWriterParity.strictFindings(sidecar: provenanceURL), [])
         XCTAssertTrue(recorder.lines().contains { $0.contains(provenanceURL.path) })
         let provenanceJSON = try String(contentsOf: provenanceURL, encoding: .utf8)
         XCTAssertFalse(provenanceJSON.contains("/staging/"))
@@ -166,6 +168,7 @@ final class GATKCommandTests: XCTestCase {
         XCTAssertEqual(provenance.name, "GATK VariantsToTable")
         XCTAssertEqual(provenance.steps.first?.outputs.first?.path, output.path)
         XCTAssertEqual(provenance.parameters["option.fields"]?.stringValue, #"["CHROM","POS","GT"]"#)
+        XCTAssertEqual(try BareRunWriterParity.strictFindings(sidecar: provenanceURL), [])
         let provenanceJSON = try String(contentsOf: provenanceURL, encoding: .utf8)
         XCTAssertFalse(provenanceJSON.contains("/staging/"))
     }

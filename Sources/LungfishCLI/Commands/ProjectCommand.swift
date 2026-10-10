@@ -611,7 +611,7 @@ private struct ProjectBundleMigrator {
             ]
         )
 
-        try run.writeSidecar(to: provenanceURL)
+        try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), toSidecar: provenanceURL)
     }
 
     private static func provenanceTimestampString(from date: Date) -> String {

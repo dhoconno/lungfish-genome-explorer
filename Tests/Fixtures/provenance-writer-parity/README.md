@@ -7,7 +7,7 @@ The folder belongs to Phase 2.4, lane W2B. The compatibility corpus in `Tests/Fi
 ## Rules
 
 - A file is captured once, on unchanged code, and never replaced. A recapture is its own reviewed commit.
-- The suites run each writer again in a temporary `.lungfish` project and project the new sidecar with `ProvenanceCompatFacts`. They compare it with the file through `differences(from:ignoring:)` and the documented sets in `ProvenanceCompatFacts`. No suite keeps a list of allowed differences of its own.
+- The suites run each writer again in a temporary `.lungfish` project and project the new sidecar with `ProvenanceCompatFacts`. They compare it with the file through `differences(from:ignoring:)` and the documented sets in `ProvenanceCompatFacts`. No suite keeps a list of allowed differences of its own. `BareRunWriterParity` declares one relation beyond the sets, with its reason beside the code. A bare run quoted an `<external>` placeholder in its reproducible command and an envelope does not, so the comparison removes those quotes on both sides and changes nothing else.
 - The facts hold no value of the Mac that captured them. `BareRunWriterParity` replaces the app version, the operating system, the host name and the tool versions that the tools lock pins with tokens. It clears the times a real clock decides, the host values under `recorded`, and the checksum of a file whose bytes depend on the host, such as a SQLite database. The same rules run when the facts are compared.
 - No file here holds an account home path, a macOS per-user cache path or a system temporary path. A test fails when one does.
 
