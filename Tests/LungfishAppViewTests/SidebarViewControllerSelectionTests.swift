@@ -259,7 +259,7 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         XCTAssertEqual(envelope.outputs.map(\.path), [outputURL.path])
         XCTAssertEqual(envelope.output?.checksumSHA256, try ProvenanceFileHasher.sha256(of: outputURL))
         XCTAssertEqual(envelope.output?.fileSize, try ProvenanceFileHasher.fileSize(of: outputURL))
-        XCTAssertEqual(envelope.legacyRun?.parameters["outputGzipCompressed"], ParameterValue.boolean(true))
+        XCTAssertEqual(envelope.options.explicit["outputGzipCompressed"], ParameterValue.boolean(true))
 
         let entries = try FileManager.default.contentsOfDirectory(atPath: temp.path)
         XCTAssertFalse(entries.contains { $0.hasPrefix(".barcode05-export") && !$0.hasSuffix(".lungfish-provenance.json") })

@@ -39,6 +39,9 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
     /// can end on a step that exited 0 and only the status says the result is
     /// partial. It is written under the `status` key.
     public let status: RunStatus
+    /// The run an older writer nested under `legacyWorkflowRun`. It is read from old files and
+    /// kept in memory, and the encoder no longer writes it. A reader asks `legacyWorkflowRun()`
+    /// for a run, which rebuilds one from the envelope when this is nil.
     public let legacyRun: WorkflowRun?
 
     private enum CodingKeys: String, CodingKey {
@@ -244,7 +247,6 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         try container.encodeIfPresent(exitStatus, forKey: .exitStatus)
         try container.encodeIfPresent(stderr, forKey: .stderr)
         try container.encode(signatures, forKey: .signatures)
-        try container.encodeIfPresent(legacyRun, forKey: .legacyRun)
     }
 
     private static func decodeFileDescriptorIfPresent(

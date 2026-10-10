@@ -394,6 +394,88 @@ struct ProvenanceEnvelopeStatusTests {
         }
     }
 
+    // MARK: New records hold no nested run
+
+    /// The sidecar holds no `legacyWorkflowRun` key, says `status` under its own key, reads back
+    /// with that status from the envelope alone, and still decodes as a `WorkflowRun` through the
+    /// compat keys, which stay until schema version 2.
+    private static func expectEnvelopeOnly(at sidecar: URL, status: RunStatus, label: String) throws {
+        let bytes = try Data(contentsOf: sidecar)
+        let object = try #require(JSONSerialization.jsonObject(with: bytes) as? [String: Any], "\(label)")
+        #expect(object["legacyWorkflowRun"] == nil, "\(label) holds no nested run")
+        #expect(object["status"] as? String == status.rawValue, "\(label)")
+        let envelope = try ProvenanceEnvelopeReader.decodeCanonical(bytes)
+        #expect(envelope.legacyRun == nil, "\(label)")
+        #expect(envelope.status == status, "\(label)")
+        #expect(envelope.legacyWorkflowRun().status == status, "\(label)")
+        let legacy = try ProvenanceJSON.decoder.decode(WorkflowRun.self, from: bytes)
+        #expect(legacy.status == status, "\(label) still decodes as a WorkflowRun")
+    }
+
+    @Test("a recorder save and a canonical envelope write hold no nested run and read back with their status")
+    func newRecordsHoldNoNestedRun() async throws {
+        let directory = try TestTempDirectory.make(prefix: "envelope-status-no-nested-run")
+        defer { TestTempDirectory.cleanup(directory) }
+
+        let recorder = ProvenanceRecorder(signingProvider: nil)
+        for status in [RunStatus.completed, .failed, .cancelled] {
+            let runID = await recorder.beginRun(
+                name: "No nested run \(status.rawValue)",
+                parameters: ["limit": .integer(5)]
+            )
+            await recorder.recordStep(
+                runID: runID,
+                toolName: "fixture-tool",
+                toolVersion: "1.0.0",
+                command: ["fixture-tool", "--run"],
+                inputs: [],
+                outputs: [],
+                exitCode: status == .failed ? 1 : 0,
+                wallTime: 0.5,
+                peakMemoryBytes: 1_000_000
+            )
+            await recorder.completeRun(runID, status: status)
+            let target = directory.appendingPathComponent("recorder-\(status.rawValue)", isDirectory: true)
+            try await recorder.save(runID: runID, to: target)
+            try Self.expectEnvelopeOnly(
+                at: target.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+                status: status,
+                label: "recorder save, \(status.rawValue)"
+            )
+        }
+
+        let run = WorkflowRun(
+            name: "Canonical no nested run",
+            startTime: Self.startedAt,
+            endTime: Self.startedAt.addingTimeInterval(1),
+            status: .cancelled,
+            steps: [
+                StepExecution(
+                    toolName: "fixture-tool",
+                    toolVersion: "1.0.0",
+                    command: ["fixture-tool", "--run"],
+                    inputs: [],
+                    outputs: [FileRecord(path: "/fixture/out.txt", format: .text, role: .output)],
+                    exitCode: 0,
+                    wallTime: 1,
+                    peakMemoryBytes: 42_000_000,
+                    startTime: Self.startedAt,
+                    endTime: Self.startedAt.addingTimeInterval(1)
+                ),
+            ],
+            parameters: ["limit": .integer(5)]
+        )
+        let envelope = run.canonicalEnvelope()
+        #expect(envelope.legacyRun != nil, "the envelope in memory still holds the run")
+        let target = directory.appendingPathComponent("canonical", isDirectory: true)
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: target)
+        let sidecar = target.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        try Self.expectEnvelopeOnly(at: sidecar, status: .cancelled, label: "canonicalEnvelope write")
+        let rebuilt = try #require(try ProvenanceEnvelopeReader.load(fromSidecar: sidecar)).legacyWorkflowRun()
+        #expect(rebuilt.steps.first?.peakMemoryBytes == 42_000_000)
+        #expect(rebuilt.parameters["limit"] == .integer(5))
+    }
+
     // MARK: Rehydrators
 
     /// A cancelled record of a `lungfish-cli` run whose last step exited 0, over real files so

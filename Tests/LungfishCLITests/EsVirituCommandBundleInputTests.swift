@@ -63,7 +63,7 @@ final class EsVirituCommandBundleInputTests: XCTestCase {
         ).standardizedFileURL
 
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: run.outputDirectory))
-        let parameters = try XCTUnwrap(envelope.legacyRun?.parameters)
+        let parameters = envelope.options.explicit
         XCTAssertEqual(parameters["originalInputs"], .array([.file(bundle)]))
         XCTAssertEqual(
             parameters["inputMaterializationCommands"],
@@ -89,7 +89,7 @@ final class EsVirituCommandBundleInputTests: XCTestCase {
     func testAPhysicalBundleRecordsTheBundleAndEachFileOnce() async throws {
         let run = try await detect(shapes.single, readFormat: "unpaired", label: "physical")
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: run.outputDirectory))
-        let parameters = try XCTUnwrap(envelope.legacyRun?.parameters)
+        let parameters = envelope.options.explicit
         XCTAssertEqual(parameters["originalInputs"], .array([.file(shapes.single.standardizedFileURL)]))
         XCTAssertEqual(parameters["inputMaterializationCommands"], .array([]), "a physical bundle is read in place")
         let step = try XCTUnwrap(envelope.steps.first { $0.toolName == "EsViritu" })
@@ -106,7 +106,7 @@ final class EsVirituCommandBundleInputTests: XCTestCase {
         let run = try await detect(fastq, readFormat: "unpaired", label: "file")
         XCTAssertEqual(run.filesSeen, [["f1", "f2"]])
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: run.outputDirectory))
-        let parameters = try XCTUnwrap(envelope.legacyRun?.parameters)
+        let parameters = envelope.options.explicit
         XCTAssertNil(parameters["originalInputs"])
         XCTAssertNil(parameters["inputMaterializationCommands"])
         XCTAssertFalse(

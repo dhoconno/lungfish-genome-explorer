@@ -295,7 +295,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         XCTAssertEqual(envelope.output?.path, installed.path)
         XCTAssertEqual(envelope.output?.fileSize, UInt64(payload.count))
         XCTAssertEqual(envelope.exitStatus, 0)
-        XCTAssertEqual(envelope.legacyRun?.parameters["databaseID"]?.stringValue, "human-scrubber")
+        XCTAssertEqual(envelope.status, .completed)
     }
 
     func testDeaconPanhumanInstallWritesManagedDatabaseProvenance() async throws {

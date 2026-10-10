@@ -112,7 +112,7 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
             ProvenanceRecorder.loadEnvelope(from: config.outputDirectory),
             "A pre-tool validation failure must still persist its attempted workflow provenance."
         )
-        XCTAssertEqual(envelope.legacyRun?.status, .failed)
+        XCTAssertEqual(envelope.status, .failed)
         XCTAssertNotEqual(envelope.exitStatus, 0)
         let validation = try XCTUnwrap(
             envelope.steps.first { $0.toolName == "Lungfish Classification Validation" }
@@ -222,7 +222,7 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
             "A hard tool failure must persist its sample-level provenance before throwing."
         )
         XCTAssertEqual(envelope.exitStatus, 37)
-        XCTAssertEqual(envelope.legacyRun?.status, .failed)
+        XCTAssertEqual(envelope.status, .failed)
 
         let krakenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "kraken2" })
         XCTAssertEqual(krakenStep.argv, expectedArgv)
@@ -627,7 +627,7 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
             // degrades. NTC negative controls degrade by design. The evidence
             // stays in the step exit codes, the resolved options, and stderr.
             XCTAssertEqual(envelope.exitStatus, 0)
-            XCTAssertEqual(envelope.legacyRun?.status, .completed)
+            XCTAssertEqual(envelope.status, .completed)
             let preflight = try XCTUnwrap(envelope.steps.first { $0.toolName == "Lungfish Bracken Preflight" })
             XCTAssertNotEqual(preflight.exitStatus, 0)
             XCTAssertTrue(preflight.inputs.contains { $0.path == config.reportURL.path })
@@ -848,7 +848,7 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: config.brackenURL.path))
         XCTAssertFalse(ClassificationResult.exists(in: config.outputDirectory))
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: config.outputDirectory))
-        XCTAssertEqual(envelope.legacyRun?.status, .cancelled)
+        XCTAssertEqual(envelope.status, .cancelled)
         XCTAssertEqual(envelope.options.resolvedDefaults["profileState"], .string("cancelled"))
         let brackenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "bracken" })
         XCTAssertEqual(brackenStep.exitStatus, 130)

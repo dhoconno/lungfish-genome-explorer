@@ -223,7 +223,9 @@ struct ProvenanceEnvelopeTests {
         #expect(json["exitStatus"] as? Int == 0)
         #expect(json["stderr"] as? String == "fixture stderr")
         #expect(json["signatures"] is [[String: Any]])
-        #expect(json["legacyWorkflowRun"] is [String: Any])
+        // The fixture holds a run in memory, and the encoder no longer writes it.
+        #expect(envelope.legacyRun != nil)
+        #expect(json["legacyWorkflowRun"] == nil)
 
         let firstStep = try #require((json["steps"] as? [[String: Any]])?.first)
         #expect(firstStep["command"] as? [String] == ["fastp", "-i", "reads.fastq", "-o", "trimmed.fastq"])

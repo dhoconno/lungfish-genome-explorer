@@ -208,7 +208,7 @@ final class EsVirituReadSetTests: XCTestCase {
             outputDirectory: outputDirectory,
             filesSeen: try esviritu.inputsSeen().map(ReadSetFixtures.readNames(in:)),
             formatSeen: esviritu.formatSeen,
-            parameters: envelope.legacyRun?.parameters
+            parameters: envelope.options.explicit
         )
     }
 
