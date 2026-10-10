@@ -31,7 +31,7 @@ A run that succeeds ends with one `complete` line, and a run that fails ends wit
 
 ## Outputs and artifacts
 
-`outputs` is the list of paths a command made, in an order the command documents. `output` repeats the first of them, for readers older than the list. A reader that finds a file by position, as the primer trim runner finds its provenance record, depends on that order, so a writer never reorders `outputs` when it adds `artifacts`.
+`outputs` is the list of paths a command made, in an order the command documents. `output` repeats the first of them, for readers older than the list. A `complete` line names at least one path in `outputs`, because the app's subprocess transport fails a run whose completion names none. A reader that finds a file by position, as the primer trim runner finds its provenance record, depends on that order, so a writer never reorders `outputs` when it adds `artifacts`.
 
 `artifacts` is an optional array on `complete` and `output` lines. It describes outputs in terms a path cannot carry. Each element is an object.
 
@@ -62,7 +62,7 @@ Apps built before version 2 also ignore unknown keys. They log a warning for a l
 
 ## Standard output and standard error
 
-Events go to standard output, one line at a time, and each line is flushed as it is written. The app reads standard output through a pipe, where unflushed text waits until the command exits, so a command writes each line with `printEventLine`.
+Events go to standard output, one line at a time. The app reads standard output through a pipe, where unflushed text waits until the command exits, so a command writes each line with `printEventLine`, which flushes it. Five `msa` commands and two `tree` commands still use plain `print`, so their progress arrives only when they exit.
 
 While events are on, standard output holds event lines and nothing else. Human text goes to standard error, written with `printHumanLine`. A reader skips any line that does not start with `{`, so a fragment of text in front of an event hides that event.
 
@@ -70,7 +70,7 @@ A few older commands write events to standard error instead. `assemble` and the 
 
 ## Warnings
 
-The rule of this format is that only a `log` event with level `warning` makes a run Completed with Warnings. Text on standard error never does, whatever it says. A command that finishes with warnings may also put `warningCount` on its `complete` line, but the count only reports a number. It never makes a run Completed with Warnings on its own, so a command emits each warning it counts as an event.
+The rule of this format is that only a `log` event with level `warning` makes a run Completed with Warnings. Text on standard error never does, whatever it says. A command that finishes with warnings may also put `warningCount` on its `complete` line, but the count only reports a number. It never makes a run Completed with Warnings on its own, so a command emits each warning it counts as an event. `msa annotate add`, `edit` and `project` still count annotation warnings that they never emit, and they emit them before the panel adopts this rule.
 
 The Operations panel adopts this rule in 2.8 (decision S16). Until then each family of runners keeps the rule it has today.
 

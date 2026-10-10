@@ -36,10 +36,11 @@ func printEventLine(_ line: String) {
 ///
 /// A reader skips any line that does not start with `{` as chatter, so a text
 /// fragment glued to the front of an event line makes it lose that event. While
-/// events are on (`--format json`, or `--json-events` for `assemble`), the text
-/// therefore goes to standard error, and with events off it stays on standard
-/// output. A command with an events switch prints its notices, banners and
-/// summaries through this function instead of plain print.
+/// `--format json` is on, the text therefore goes to standard error, and with
+/// events off it stays on standard output. `assemble` never calls this, because
+/// its events stay on standard error until 2.8. A command with an events switch
+/// prints its notices, banners and summaries through this function instead of
+/// plain print.
 func printHumanLine(_ text: String, eventsOn: Bool) {
     if eventsOn {
         printStatusLine(text)
