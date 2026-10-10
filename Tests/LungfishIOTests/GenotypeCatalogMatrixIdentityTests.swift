@@ -24,12 +24,15 @@ final class GenotypeCatalogMatrixIdentityTests: XCTestCase {
     /// GenBank-style reference metadata whose allele field names the allele
     /// of each reference sequence ID, the shape a `.lungfishref` built from
     /// IPD-MHC or GenBank records has.
-    private func metadata(_ alleleBySequenceID: [String: String]) -> ONTGenotypeReferenceMetadata {
+    private func metadata(
+        _ alleleBySequenceID: [String: String],
+        alleleFieldKey: String? = "feature.allele"
+    ) -> ONTGenotypeReferenceMetadata {
         .init(
             fields: [GenBankRecordDatabase.FieldDefinition(
                 key: "feature.allele", displayTitle: "Allele", valueType: "text", sourceCategory: "feature", preferredOrder: 0)],
             recordsBySequenceName: alleleBySequenceID.mapValues { ["feature.allele": $0] },
-            alleleFieldKey: "feature.allele"
+            alleleFieldKey: alleleFieldKey
         )
     }
 
@@ -134,6 +137,27 @@ final class GenotypeCatalogMatrixIdentityTests: XCTestCase {
             zero: 0,
         ], "the catalog's zero is attested on the accession row and no row stands alone under the allele name")
         XCTAssertTrue(GenotypeMatrixReviewEligibility.permits(.falseNegative, rawSupport: support[zero]))
+    }
+
+    /// N9 review finding 7. Metadata that names no allele field still
+    /// stamps the call from the default field, feature.allele, so the
+    /// fallback reads the same field and the catalog row meets the stamped
+    /// accession row.
+    func testWithoutANamedAlleleFieldTheFallbackReadsTheDefaultField() throws {
+        let metadata = metadata(["NHP01222": "Mafa-A1*001:01"], alleleFieldKey: nil)
+        let result = GenotypeTestFixtures.makeResult(
+            calls: [GenotypeTestFixtures.makeCall(sample: "S1", genotype: "NHP01222", reads: 15)],
+            kind: Self.fullLength,
+            referenceMetadata: metadata,
+            reviewableRowCatalog: .init(samples: ["S1", "S2"], rows: [
+                row(callID: "reference:MHC-A:Mafa-A1*001:01", displayName: "Mafa-A1*001:01", support: ["S1": 15, "S2": 0]),
+            ])
+        )
+        let accession = Identity.NativeRow(locus: "MHC-A", genotype: "NHP01222", stableClusterID: nil)
+        XCTAssertEqual(Identity.nativeRows(in: result), [accession], "the stamp read the default field")
+        let catalog = try XCTUnwrap(result.reviewableRowCatalog)
+        let mapping = try Identity.map(catalog, nativeRows: [accession], referenceMetadata: metadata, into: [:])
+        XCTAssertEqual(mapping.resolutions.map(\.native), [accession])
     }
 
     /// The fallback keys the record's allele by the stamping rule, so a

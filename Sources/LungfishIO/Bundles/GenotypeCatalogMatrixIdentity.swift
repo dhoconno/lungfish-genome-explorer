@@ -233,10 +233,11 @@ public enum GenotypeCatalogMatrixIdentity {
         }
 
         /// The allele the reference record of a known genotype names, or nil
-        /// without a record store, an allele field or a value.
+        /// without a record or a value. Metadata that names no allele field
+        /// is read at the default field, as the stamp reads it (N9).
         private func referenceAllele(for genotype: String) -> String? {
-            guard let alleleFieldKey,
-                  let value = referenceRecords[genotype]?[alleleFieldKey] else { return nil }
+            let key = alleleFieldKey ?? GenotypeHaplotypeLocusResolver.referenceRecordDefaultAlleleFieldKey
+            guard let value = referenceRecords[genotype]?[key] else { return nil }
             let allele = value.trimmingCharacters(in: .whitespacesAndNewlines)
             return allele.isEmpty ? nil : allele
         }
