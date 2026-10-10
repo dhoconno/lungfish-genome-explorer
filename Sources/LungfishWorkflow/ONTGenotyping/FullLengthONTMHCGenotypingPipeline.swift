@@ -1150,8 +1150,25 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             finalOutputDirectoryURL: logicalFinalOutputURL,
             steps: &pipelineSteps
         )
+        let referenceRecordStoreSnapshot = try await GenotypeReferenceRecordStoreSnapshot.publish(
+            fromReferenceBundle: request.referenceSourceURL,
+            toResultBundle: request.outputDirectory
+        )
+        if let snapshot = referenceRecordStoreSnapshot {
+            pipelineSteps.append(FullLengthONTMHCProvenanceStep(
+                toolName: "lungfish genotype reference metadata snapshot",
+                toolVersion: WorkflowRun.currentAppVersion,
+                argv: ["copy", snapshot.sourceURL.path, snapshot.destinationURL.path],
+                inputs: [snapshot.sourceURL],
+                outputs: [snapshot.destinationURL],
+                exitStatus: 0,
+                stderr: nil,
+                startedAt: snapshot.startedAt,
+                completedAt: snapshot.completedAt
+            ))
+        }
         let haplotypeAnalysis = try writeHaplotypeAnalysisIfRequested(
-            request: request, candidateDocument: candidateDocument, unnameableDocument: unnameableDocument,
+            request: request, candidateDocument: candidateDocument, unnameableDocument: unnameableDocument, referenceRecordStore: referenceRecordStoreSnapshot?.info,
             supportDirectory: request.outputDirectory.appendingPathComponent(".full-length-ont-mhc", isDirectory: true),
             generatedAt: Date()
         )
@@ -1291,23 +1308,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             startedAt: workbookAssemblyClock.startedAt,
             completedAt: workbookAssemblyCompletedAt
         ))
-        let referenceRecordStoreSnapshot = try await GenotypeReferenceRecordStoreSnapshot.publish(
-            fromReferenceBundle: request.referenceSourceURL,
-            toResultBundle: request.outputDirectory
-        )
-        if let snapshot = referenceRecordStoreSnapshot {
-            pipelineSteps.append(FullLengthONTMHCProvenanceStep(
-                toolName: "lungfish genotype reference metadata snapshot",
-                toolVersion: WorkflowRun.currentAppVersion,
-                argv: ["copy", snapshot.sourceURL.path, snapshot.destinationURL.path],
-                inputs: [snapshot.sourceURL],
-                outputs: [snapshot.destinationURL],
-                exitStatus: 0,
-                stderr: nil,
-                startedAt: snapshot.startedAt,
-                completedAt: snapshot.completedAt
-            ))
-        }
         let workbookProjectionClock = ProvenanceRunClock()
         let reportManifest = ONTGenotypeResultBundleManifest(
             kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,

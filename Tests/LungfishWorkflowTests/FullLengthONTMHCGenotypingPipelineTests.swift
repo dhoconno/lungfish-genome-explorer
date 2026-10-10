@@ -413,6 +413,46 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(candidateGenBankText.contains("/trim_status="), candidateGenBankText)
     }
 
+    /// The run's own haplotype analysis loads the result before the run is
+    /// published. The reference record store is published first and the
+    /// analysis reads it, so the accession NHP00344 sits at MHC-E, the locus
+    /// its record (Mafa-E*02:01:01, gene E) names, and not at its own
+    /// pseudo-locus MHC-NHP00344 (N9). The workbook reads the same locus.
+    func testTheRunsOwnHaplotypeAnalysisReadsTheReferenceRecordLocus() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-record-locus-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let mhcReference = root.appendingPathComponent("annotated.lungfishmhcref", isDirectory: true)
+        try FileManager.default.createDirectory(at: mhcReference, withIntermediateDirectories: true)
+        _ = try makeAnnotatedReferenceBundle(at: mhcReference.appendingPathComponent("reference.lungfishref", isDirectory: true))
+        let definition = GenotypeHaplotypeDefinitionSet(id: "n9.full-length", assayID: "n9.assay",
+            displayName: "N9 record locus", speciesName: "Test macaque", speciesCode: "TST", prefix: "Mafa",
+            locusDefinitions: [.init(locus: "MHC-E", sourceLocus: "MHC-E",
+                haplotypes: [.init(name: "Test-E", diagnosticAlleles: ["NHP00344"])])])
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(definition).write(to: mhcReference.appendingPathComponent("definition.json"))
+        try MHCAmpliconReferenceBundle.writeManifest(.init(name: "Record locus test",
+            referenceFastaPath: "reference.lungfishref/genome/reference.fasta",
+            referenceBundlePath: "reference.lungfishref",
+            haplotypeDefinitionPaths: ["definition.json"], defaultHaplotypeDefinitionID: definition.id,
+            metrics: .init(referenceCount: 1, haplotypeDefinitionCount: 1), createdAt: "2026-10-09T00:00:00Z"), to: mhcReference)
+
+        let (request, pipeline) = try makeFakeFullLengthRun(root: root, referenceSourceURL: mhcReference,
+            haplotypeDefinitionSetID: definition.id)
+        let result = try await pipeline.run(request)
+
+        let analysis = try JSONDecoder().decode(GenotypeHaplotypeAnalysis.self, from: Data(contentsOf: request.haplotypeAnalysisURL))
+        let locusCalls = analysis.samples.flatMap(\.calls)
+        let eCall = try XCTUnwrap(locusCalls.first { $0.locus == "MHC-E" })
+        XCTAssertEqual(eCall.observedGenotypes, ["NHP00344"], "the run's own analysis sees the accession at MHC-E")
+        XCTAssertFalse(locusCalls.contains { $0.locus.contains("NHP") }, "no analysis locus is an accession")
+
+        let snapshot = try Self.exportSnapshot(for: result.workbookURL)
+        let referenceRow = try XCTUnwrap(snapshot.allMatrix.rows.first { $0.target.genotype == "NHP00344" })
+        XCTAssertEqual(referenceRow.target.locus, "MHC-E")
+        XCTAssertEqual(try ONTGenotypeResultBundle.loadResult(from: request.outputDirectory).calls.map(\.locusGroup), ["MHC-E"])
+    }
+
     func testAnnotatedReferenceMetadataIsEmbeddedInPublishedGenotypeBundle() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-embedded-reference-metadata-\(UUID().uuidString)", isDirectory: true)

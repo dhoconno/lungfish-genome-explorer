@@ -212,11 +212,15 @@ extension FullLengthONTMHCGenotypingPipeline {
     /// live analysis and the CLI exports near the locus percent threshold
     /// (note N7 of the Phase 2.3 bioinformatics review). The manifest below
     /// names no candidate artifacts, so the documents arrive from the caller,
-    /// which has already decoded them for the other report steps.
+    /// which has already decoded them for the other report steps. It names
+    /// the published reference record store, so each full-length call takes
+    /// the locus its reference record names (N9) and the run's own calls are
+    /// not computed on one pseudo-locus per accession.
     internal func writeHaplotypeAnalysisIfRequested(
         request: FullLengthONTMHCGenotypingRunRequest,
         candidateDocument: ONTMHCCandidateAllelesDocument,
         unnameableDocument: ONTMHCUnnameableClustersDocument,
+        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil,
         supportDirectory: URL,
         generatedAt: Date
     ) throws -> GenotypeHaplotypeAnalysis? {
@@ -240,7 +244,8 @@ extension FullLengthONTMHCGenotypingPipeline {
             statsJSONPath: relativePath(from: request.outputDirectory, to: request.statsJSONURL),
             provenancePath: relativePath(from: request.outputDirectory, to: request.provenanceURL),
             haplotypeDefinitionSetID: definitionSetID,
-            haplotypeAssayID: definitionSet.assayID
+            haplotypeAssayID: definitionSet.assayID,
+            referenceRecordStore: referenceRecordStore
         )
         let result = try ONTGenotypeResultBundle.loadResult(from: request.outputDirectory, manifest: manifest)
         let analysis = GenotypeHaplotypeAnalyzer.analyze(
