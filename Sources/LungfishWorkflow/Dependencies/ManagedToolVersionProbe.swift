@@ -77,7 +77,11 @@ public struct ManagedToolVersionProbe: Sendable, Hashable {
         // Prints `olivar-upstream.py v1.3.3`.
         entry("olivar", "olivar", ["--version"]),
         entry("varvamp", "varvamp", ["--version"]),
+        // `lofreq --version` fails with "FATAL ... Unrecognized command". The `version`
+        // subcommand prints "version: 2.1.5".
         entry("lofreq", "lofreq", ["version"]),
+        // iVar rejects `--version` as "Unknown command" and prints "iVar version 1.4.4"
+        // for the `version` subcommand.
         entry("ivar", "ivar", ["version"]),
         entry("medaka", "medaka", ["--version"]),
         entry("clair3", "run_clair3.sh", ["--version"]),
