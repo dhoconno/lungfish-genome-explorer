@@ -486,11 +486,12 @@ extension RoutingSafetyNetTable {
                     )
                 )
             },
-            RoutingRow(family: .classifiers, name: "Kraken2 result in a folder the user named, known by its metadata only", type: .classificationResult) { context in
-                // A caller-chosen `--output-dir` the executor claims gets the metadata, so the
-                // router no longer needs the folder name to find the tool.
+            RoutingRow(family: .classifiers, name: "Kraken2 result of the executor that the user renamed, known by its metadata only", type: .classificationResult) { context in
+                // A `--project` result keeps its metadata and its index after a rename, so the router
+                // finds the tool in the metadata and the viewer opens. A claimed `--output-dir` has no
+                // index and is pinned at the router in ClassifierLayoutReaderPinTests.
                 let result = try Layouts.executorKraken2Single(
-                    named: Name.claimedKraken2, timestamp: "2026-02-11T11-30-00",
+                    named: Name.renamedExecutorKraken2, timestamp: "2026-02-11T11-30-00",
                     in: context.url("Analyses", isDirectory: true)
                 )
                 let path = context.render(result)

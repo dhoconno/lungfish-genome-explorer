@@ -63,6 +63,7 @@ enum ClassifierLayoutFixtures {
         static let executorKraken2Batch = "kraken2-batch-2026-02-11T10-00-00"
         static let executorEsVirituBatch = "esviritu-batch-2026-02-11T11-00-00"
         static let claimedKraken2 = "Sample A kraken2"
+        static let renamedExecutorKraken2 = "HG002 kraken2 renamed"
         static let failedKraken2 = "kraken2-2026-02-11T12-00-00"
         static let cancelledEsVirituBatch = "esviritu-batch-2026-02-11T13-00-00"
         static let runningKraken2 = "kraken2-2026-02-11T14-00-00"
