@@ -9,7 +9,7 @@ public struct AIHaplotypingRevisionPublisher {
     private let fileManager: FileManager
     private let dateProvider: () -> Date
     private let revisionIDProvider: () -> String
-    private let provenanceWriter: AIHaplotypingProvenanceWriter
+    let provenanceWriter: AIHaplotypingProvenanceWriter
 
     public init(
         fileManager: FileManager = .default,
@@ -38,6 +38,7 @@ public struct AIHaplotypingRevisionPublisher {
         )
         defer { publicationLock.release() }
 
+        try DurableReplace.recover(named: GenotypeAnnotationSidecar.filename, in: bundleURL)
         let lockedSnapshot = try ONTGenotypeResultBundleData
             .loadAnnotationSidecarSnapshot(forBundleAt: bundleURL)
         var lockedSidecar = lockedSnapshot.sidecar
@@ -112,10 +113,9 @@ public struct AIHaplotypingRevisionPublisher {
                 calls: calls,
                 paths: paths,
                 provenancePath: provenancePath,
-                lockedSidecar: request.sidecar == nil ? nil : lockedSidecar,
-                expectedSidecarRevision: lockedSnapshot.revision,
-                publicationLock: publicationLock
+                lockedSidecar: request.sidecar == nil ? nil : lockedSidecar
             )
+            let sidecarData = try updatedSidecar.map { try $0.encoded() }
 
             let revision = try makeRevision(
                 revisionID: revisionID,
@@ -140,17 +140,24 @@ public struct AIHaplotypingRevisionPublisher {
                 paths: paths,
                 originalManifest: originalManifest,
                 sidecarSnapshot: sidecarSnapshot,
-                sidecarURL: request.sidecarURL,
+                sidecarOutput: request.sidecarURL.flatMap { url in sidecarData.map { (url, $0) } },
                 startedAt: request.context.startedAt,
                 completedAt: request.context.runClock.now
             )
-            try provenanceWriter(envelope, paths.provenanceURL)
             try assertFinalProvenancePaths(
                 analysisURL: paths.analysisURL,
                 callsURL: paths.callsURL,
                 manifest: manifest,
                 sidecar: updatedSidecar,
                 provenancePath: provenancePath
+            )
+            try publishRecord(
+                envelope,
+                at: paths.provenanceURL,
+                sidecarData: sidecarData,
+                bundleURL: bundleURL,
+                expectedSidecarRevision: lockedSnapshot.revision,
+                publicationLock: publicationLock
             )
             return AIHaplotypingRevisionPublishResult(
                 revision: revision,
@@ -163,7 +170,6 @@ public struct AIHaplotypingRevisionPublisher {
         } catch {
             try rollback(
                 originalManifest: originalManifest,
-                sidecarSnapshot: sidecarSnapshot,
                 bundleURL: bundleURL,
                 revisionDirectory: revisionDirectory,
                 originalError: error
@@ -429,9 +435,7 @@ public struct AIHaplotypingRevisionPublisher {
         calls: [AIHaplotypingValidatedCall],
         paths: RevisionPaths,
         provenancePath: String,
-        lockedSidecar: GenotypeAnnotationSidecar?,
-        expectedSidecarRevision: GenotypeAnnotationSidecarRevision,
-        publicationLock: ONTGenotypeBundlePublicationLock
+        lockedSidecar: GenotypeAnnotationSidecar?
     ) throws -> GenotypeAnnotationSidecar? {
         guard request.sidecarURL != nil, var sidecar = lockedSidecar else {
             return nil
@@ -470,12 +474,7 @@ public struct AIHaplotypingRevisionPublisher {
         sidecar.activeAIHaplotypeReviewID = review.id
         sidecar.lastEditedAt = createdAt
         sidecar.lastEditor = request.context.toolName
-        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
-            sidecar,
-            expectedRevision: expectedSidecarRevision,
-            forBundleAt: request.bundleURL,
-            assuming: publicationLock
-        )
+        try sidecar.promoteToCurrentSchema()
         return sidecar
     }
 
@@ -548,7 +547,7 @@ public struct AIHaplotypingRevisionPublisher {
         paths: RevisionPaths,
         originalManifest: Data,
         sidecarSnapshot: (url: URL, data: Data?, existed: Bool)?,
-        sidecarURL: URL?,
+        sidecarOutput: (url: URL, data: Data)?,
         startedAt: Date,
         completedAt: Date
     ) throws -> ProvenanceEnvelope {
@@ -590,9 +589,10 @@ public struct AIHaplotypingRevisionPublisher {
             paths.definitionsURL,
             specialistPromptSnapshotIfPresent(paths: paths),
             ONTGenotypeResultBundle.manifestURL(in: request.bundleURL),
-            sidecarURL,
         ].compactMap { $0 }.filter { fileManager.fileExists(atPath: $0.path) }
             .map { try ProvenanceFileDescriptor.file(url: $0, format: format(for: $0), role: .output) }
+            + [sidecarOutput.map { provenanceDescriptor(url: $0.url, data: $0.data, format: .json, role: .output) }]
+            .compactMap { $0 }
         let provenanceOptions = provenanceOptions(
             request: request,
             revisionDirectory: revisionDirectory,
@@ -760,20 +760,13 @@ public struct AIHaplotypingRevisionPublisher {
 
     private func rollback(
         originalManifest: Data,
-        sidecarSnapshot: (url: URL, data: Data?, existed: Bool)?,
         bundleURL: URL,
         revisionDirectory: URL,
         originalError: Error
     ) throws {
         do {
+            // annotations.json changes only inside the pair's transaction, which puts it back.
             try originalManifest.write(to: ONTGenotypeResultBundle.manifestURL(in: bundleURL), options: .atomic)
-            if let sidecarSnapshot {
-                if sidecarSnapshot.existed, let data = sidecarSnapshot.data {
-                    try data.write(to: sidecarSnapshot.url, options: .atomic)
-                } else if fileManager.fileExists(atPath: sidecarSnapshot.url.path) {
-                    try fileManager.removeItem(at: sidecarSnapshot.url)
-                }
-            }
             if fileManager.fileExists(atPath: revisionDirectory.path) {
                 try fileManager.removeItem(at: revisionDirectory)
             }
