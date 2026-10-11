@@ -11,7 +11,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 |---|---|---|---|---|---|---|
 | Lungfish | executable | Sources/Lungfish | 1 | 93 | 0 | LungfishApp |
 | LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 9 | 2858 | 18 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishApp | library | Sources/LungfishApp | 639 | 235589 | 205 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
+| LungfishApp | library | Sources/LungfishApp | 640 | 235671 | 205 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 7 | 1994 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 229 | 64173 | 3 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
@@ -27,14 +27,14 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 14 | 3548 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishWorkflow | library | Sources/LungfishWorkflow | 750 | 230537 | 1393 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 4 | 399 | 2 | LungfishKit, LungfishTestSupport |
-| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 44 | 8886 | 41 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 46 | 9651 | 43 | LungfishCore, LungfishIO, LungfishWorkflow |
 
 ## Test targets
 
 | Test target | Path | Swift files | Lines | Internal dependencies |
 |---|---|---|---|---|
 | LungfishAlignmentUITests | Tests/LungfishAlignmentUITests | 9 | 1562 | LungfishAlignmentUI, LungfishIO, LungfishKit, LungfishTestSupport |
-| LungfishAppTests | Tests/LungfishAppTests | 685 | 179051 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
+| LungfishAppTests | Tests/LungfishAppTests | 696 | 182938 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppViewTests | Tests/LungfishAppViewTests | 38 | 20055 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppWorkflowTests | Tests/LungfishAppWorkflowTests | 7 | 6075 | LungfishApp, LungfishKitTestSupport, LungfishWorkflow |
 | LungfishAssemblyUITests | Tests/LungfishAssemblyUITests | 4 | 1394 | LungfishAssemblyUI, LungfishKit |
@@ -50,7 +50,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUITests | Tests/LungfishPhylogeneticsUITests | 4 | 1114 | LungfishIO, LungfishKit, LungfishPhylogeneticsUI, LungfishTestSupport, LungfishWorkflow |
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 10 | 3210 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 12 | 2569 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
-| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 467 | 183571 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
+| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 467 | 183150 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 
 ## Lungfish
 
@@ -107,7 +107,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishApp
-- Swift files. 639, lines 235589
+- Swift files. 640, lines 235671
 - Depends on. LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow
 - External products. none
 - Used by. Lungfish
@@ -124,7 +124,7 @@ None.
 | Support | 2 | 94 |
 | UITestSupport | 4 | 487 |
 | ViewModels | 4 | 2398 |
-| Views | 410 | 173961 |
+| Views | 411 | 174043 |
 | Views/AI | 1 | 1011 |
 | Views/Assembly | 5 | 2078 |
 | Views/BAM | 12 | 1580 |
@@ -136,7 +136,7 @@ None.
 | Views/FASTQ | 9 | 5258 |
 | Views/Help | 1 | 576 |
 | Views/ImportCenter | 6 | 1769 |
-| Views/Inspector | 60 | 23851 |
+| Views/Inspector | 61 | 23933 |
 | Views/Layout | 3 | 293 |
 | Views/MainWindow | 24 | 10118 |
 | Views/Mapping | 4 | 2205 |
@@ -3296,7 +3296,7 @@ None.
 
 - Kind. library
 - Path. Tests/Support/LungfishTestSupport
-- Swift files. 44, lines 8886
+- Swift files. 46, lines 9651
 - Depends on. LungfishCore, LungfishIO, LungfishWorkflow
 - External products. none
 - Used by. LungfishKitTestSupport
@@ -3311,10 +3311,12 @@ None.
 - `BareRunWriterParity` enum, `Tests/Support/LungfishTestSupport/BareRunWriterParity.swift:23`
 - `BundleAlignmentFixture` struct, `Tests/Support/LungfishTestSupport/BundleAlignmentFixture.swift:5`
 - `BundleFixtureResourceError` enum, `Tests/Support/LungfishTestSupport/BundleFixtureResource.swift:8`
+- `ClassifierParityFixtures` enum, `Tests/Support/LungfishTestSupport/ClassifierParityFixtures.swift:29`
 - `CLIEventCompatCorpus` enum, `Tests/Support/LungfishTestSupport/CLIEventCompatCorpus.swift:135`
 - `CLITestBinaryResolver` enum, `Tests/Support/LungfishTestSupport/CLITestBinaryResolver.swift:3`
 - `ContextMenuParityAssert` enum, `Tests/Support/LungfishTestSupport/ContextMenuParityAssert.swift:18`
 - `DerivedFASTQBundleFixture` struct, `Tests/Support/LungfishTestSupport/DerivedFASTQBundleFixture.swift:11`
+- `FakeClassificationCondaFixture` struct, `Tests/Support/LungfishTestSupport/FakeClassificationCondaFixture.swift:22`
 - `FrozenCLIEventV1` enum, `Tests/Support/LungfishTestSupport/CLIEventCompatCorpus.swift:22`
 - `FrozenCLIEventV1LineDecoder` struct, `Tests/Support/LungfishTestSupport/CLIEventCompatCorpus.swift:119`
 - `GenotypeTestFixtures` enum, `Tests/Support/LungfishTestSupport/GenotypeTestFixtures.swift:13`
@@ -3323,7 +3325,7 @@ None.
 - `MappingResultLayoutScaffold` struct, `Tests/Support/LungfishTestSupport/MappingResultLayoutScaffold.swift:17`
 - `MappingViewerScaffold` struct, `Tests/Support/LungfishTestSupport/MappingViewerScaffold.swift:28`
 - `MergeBundleOverRawRootFixture` struct, `Tests/Support/LungfishTestSupport/MergeBundleOverRawRootFixture.swift:18`
-- `NCBITaxonomyFixture` enum, `Tests/Support/LungfishTestSupport/NCBITaxonomyFixture.swift:14`
+- `NCBITaxonomyFixture` enum, `Tests/Support/LungfishTestSupport/NCBITaxonomyFixture.swift:17`
 - `OutputEquivalence` enum, `Tests/Support/LungfishTestSupport/OutputEquivalence.swift:14`
 - `PlatformHeaderFixtures` enum, `Tests/Support/LungfishTestSupport/PlatformHeaderFixtures.swift:10`
 - `ProcessResult` struct, `Tests/Support/LungfishTestSupport/ToolAvailability.swift:76`
