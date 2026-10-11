@@ -19,7 +19,8 @@ final class ClassificationCLIInvocationRoundTripTests: XCTestCase {
         isPairedEnd: Bool = true,
         confidence: Double = 0.35,
         minimumHitGroups: Int = 3,
-        brackenProfileRequest: BrackenProfileRequest? = nil
+        brackenProfileRequest: BrackenProfileRequest? = nil,
+        databaseDigest: String? = nil
     ) -> ClassificationConfig {
         ClassificationConfig(
             goal: goal,
@@ -30,6 +31,7 @@ final class ClassificationCLIInvocationRoundTripTests: XCTestCase {
             isPairedEnd: isPairedEnd,
             databaseName: "Viral",
             databasePath: URL(fileURLWithPath: "/opt/lungfish/db/Viral"),
+            databaseDigest: databaseDigest,
             brackenProfileRequest: brackenProfileRequest,
             confidence: confidence,
             minimumHitGroups: minimumHitGroups,
@@ -40,9 +42,9 @@ final class ClassificationCLIInvocationRoundTripTests: XCTestCase {
 
     func testBuiltInvocationParsesThroughClassifyCommand() throws {
         let invocation = ClassificationCLIInvocationBuilder.build(for: makeConfig())
-        // The invocation's argv is ["conda", "classify", ...]; ClassifyCommand
+        // The invocation's argv is ["kraken2", "classify", ...] since 2.7 (E11); ClassifyCommand
         // itself parses only its own subcommand's arguments.
-        XCTAssertEqual(Array(invocation.arguments.prefix(2)), ["conda", "classify"])
+        XCTAssertEqual(Array(invocation.arguments.prefix(2)), ["kraken2", "classify"])
         let subcommandArguments = Array(invocation.arguments.dropFirst(2))
 
         let parsed = try ClassifyCommand.parse(subcommandArguments)
@@ -147,9 +149,25 @@ final class ClassificationCLIInvocationRoundTripTests: XCTestCase {
         XCTAssertEqual(parsed.brackenThreshold, BrackenProfileRequest.automaticDefault.threshold)
     }
 
+    /// A database digest that is a SHA-256 is recorded as `--db-digest`, bare and lower case, so a
+    /// replay checks the install receipt (E9, E11). Any other digest is left out.
+    func testADatabaseDigestThatIsASHA256IsRecordedAsDbDigest() throws {
+        let digest = String(repeating: "ab", count: 32)
+        let config = makeConfig(databaseDigest: "sha256:" + digest.uppercased())
+        let arguments = ClassificationCLIInvocationBuilder.build(for: config).arguments
+        let index = try XCTUnwrap(arguments.firstIndex(of: "--db-digest"))
+        XCTAssertEqual(arguments[index + 1], digest)
+        XCTAssertEqual(try ClassifyCommand.parse(Array(arguments.dropFirst(2))).databaseDigest, digest)
+
+        for other in [nil, "sha256:fixture-db", "not a digest"] as [String?] {
+            let arguments = ClassificationCLIInvocationBuilder.build(for: makeConfig(databaseDigest: other)).arguments
+            XCTAssertFalse(arguments.contains("--db-digest"), "\(other ?? "nil")")
+        }
+    }
+
     /// The whole point of the "Copy CLI command" string is that a user can
     /// paste it into a real shell; verify it parses through the top-level
-    /// `lungfish conda classify` path too, not just the subcommand directly.
+    /// `lungfish kraken2 classify` path too, not just the subcommand directly.
     func testDisplayStringArgumentsParseThroughTopLevelCLI() throws {
         let invocation = ClassificationCLIInvocationBuilder.build(for: makeConfig())
         let parsed = try LungfishCLI.parseAsRoot(invocation.arguments)

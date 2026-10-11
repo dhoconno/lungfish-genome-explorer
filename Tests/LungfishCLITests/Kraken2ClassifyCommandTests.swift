@@ -251,11 +251,16 @@ final class Kraken2ClassifyCommandTests: XCTestCase {
         return ClassificationCLIInvocationBuilder.build(for: config).arguments
     }
 
-    /// Recorded commands name `conda classify` until 2.7, so the builder's argv
-    /// must still parse from the root as `ClassifyCommand`.
-    func testTheRecordedCondaClassifyCommandStillReplaysThroughTheRoot() throws {
+    /// Recorded commands name `kraken2 classify` since 2.7 (E11), and one
+    /// recorded before as `conda classify` still parses from the root as
+    /// `ClassifyCommand`.
+    func testTheRecordedKraken2ClassifyCommandReplaysThroughTheRoot() throws {
         let recorded = recordedClassifyArguments
-        XCTAssertEqual(Array(recorded.prefix(2)), ["conda", "classify"], "recorded commands keep conda classify until 2.7")
+        XCTAssertEqual(Array(recorded.prefix(2)), ["kraken2", "classify"], "recorded commands name kraken2 classify (E11)")
+        XCTAssertTrue(
+            try LungfishCLI.parseAsRoot(["conda", "classify"] + recorded.dropFirst(2)) is ClassifyCommand,
+            "a command recorded before 2.7 still replays"
+        )
 
         let parsed = try LungfishCLI.parseAsRoot(recorded)
         let replayed = try XCTUnwrap(parsed as? ClassifyCommand, "the recorded command parsed to \(type(of: parsed))")

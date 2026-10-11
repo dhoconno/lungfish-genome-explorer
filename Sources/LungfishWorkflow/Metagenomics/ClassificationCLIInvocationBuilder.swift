@@ -1,12 +1,18 @@
-// ClassificationCLIInvocationBuilder.swift — One argv builder for `lungfish conda classify`.
+// ClassificationCLIInvocationBuilder.swift — One argv builder for `lungfish kraken2 classify`.
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
 import Foundation
 
-/// Builds the `lungfish conda classify` argv for a ``ClassificationConfig``,
+/// Builds the `lungfish kraken2 classify` argv for a ``ClassificationConfig``,
 /// used both to execute a classification
 /// and to display/record it.
+///
+/// Since Phase 2.7 (decision E11) the argv names `kraken2 classify`, the command that runs
+/// ``Kraken2AnalysisRunTool``, so the command the Operations panel records is the command whose
+/// root record names it. `conda classify` stays registered, so a command recorded before still
+/// replays. A configuration whose database digest is a SHA-256 adds `--db-digest`, so a replay
+/// refuses a database whose install receipt holds another digest (E9).
 ///
 /// Before this type existed, the single-sample GUI path
 /// (`AppDelegate+Classification.runClassification`) built its own,
@@ -21,15 +27,18 @@ import Foundation
 /// type is that same field mapping, extracted so the single-sample path can
 /// share it instead of hand-rolling a second, divergent encoding.
 public enum ClassificationCLIInvocationBuilder {
-    /// Builds the full `lungfish conda classify` invocation for one sample.
+    /// Builds the full `lungfish kraken2 classify` invocation for one sample.
     /// Explicit `--confidence`/`--min-hit-groups` reproduce `config`'s exact
     /// values regardless of which preset (or manual override) originally
     /// produced them — no `--preset` flag is needed since these two options
     /// fully determine Kraken2's sensitivity behavior, matching the batch
     /// replay path this builder replaces.
     public static func build(for config: ClassificationConfig) -> CLIInvocation {
-        var arguments = ["conda", "classify"]
+        var arguments = ["kraken2", "classify"]
         arguments += ["--db", config.databaseName]
+        if let digest = Kraken2DatabaseReceipt.normalizedSHA256(config.databaseDigest) {
+            arguments += ["--db-digest", digest]
+        }
         arguments += ["--output-dir", config.outputDirectory.path]
         arguments += ["--confidence", String(config.confidence)]
         arguments += ["--min-hit-groups", String(config.minimumHitGroups)]

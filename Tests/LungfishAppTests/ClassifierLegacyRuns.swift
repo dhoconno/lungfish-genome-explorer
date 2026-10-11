@@ -24,7 +24,7 @@ enum ClassifierLegacyRuns {
     /// What one `lungfish-cli conda classify` run left in its output folder.
     struct CondaClassifyRun {
         let command: ClassifyCommand
-        /// The argv the root record names, `lungfish-cli conda classify ...`.
+        /// The argv the root record names, `lungfish-cli kraken2 classify ...`.
         let argv: [String]
         let result: ClassificationResult
         /// The pipeline's own record, read before the root record replaced it.
@@ -44,7 +44,8 @@ enum ClassifierLegacyRuns {
         Array(try RecordedCLICommand.arguments(of: AppDelegate.classificationCLICommand(for: config)).dropFirst(2))
     }
 
-    /// Runs `lungfish-cli conda classify <arguments>` the way `ClassifyCommand.run` runs it since
+    /// Runs `lungfish-cli kraken2 classify <arguments>`, the spelling the Operations panel records
+    /// since decision E11 (`conda classify` runs the same command), the way `ClassifyCommand.run` runs it since
     /// lane A8 of Phase 2.7: `Kraken2AnalysisRunTool` through `AnalysisRunExecutor`, with the
     /// registry lookup finding `databasePath` under the recorded name and the pipeline running over
     /// `condaManager`. The pipeline's own record is read before the executor's root record
@@ -56,7 +57,7 @@ enum ClassifierLegacyRuns {
         materializer: any CLISequenceInputMaterializing & Sendable = FASTQCLIMaterializer(runner: .shared)
     ) async throws -> CondaClassifyRun {
         let command = try ClassifyCommand.parse(arguments)
-        let argv = [CLICommandIdentity.executableName, "conda", "classify"] + arguments
+        let argv = [CLICommandIdentity.executableName, "kraken2", "classify"] + arguments
         let outputDirectory = URL(fileURLWithPath: try XCTUnwrap(command.outputDir), isDirectory: true)
         let database = MetagenomicsDatabaseInfo(
             name: command.databaseName, tool: "kraken2", version: "fixture-v1", sizeBytes: 1, catalogID: nil,
@@ -64,7 +65,7 @@ enum ClassifierLegacyRuns {
             status: .ready, recommendedRAM: 1
         )
         var request = command.runRequest
-        request.commandPath = ["conda", "classify"]
+        request.commandPath = ["kraken2", "classify"]
         let pipeline = ClassificationPipeline(condaManager: condaManager)
         let captured = PipelineCapture()
         let tool = Kraken2AnalysisRunTool(request: request, services: Kraken2RunServices(
