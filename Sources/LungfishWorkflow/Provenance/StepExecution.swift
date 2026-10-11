@@ -69,6 +69,12 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
     /// `lungfish-cli` step whose import ran it (plan decision S6). Nil for a step that ran on its own.
     public var parentStepID: UUID?
 
+    /// The managed tool the step ran, by its lock id, when the writer knew it.
+    public var managedToolID: ManagedToolID?
+
+    /// What `toolVersion` is known from: a probe's output, a lock pin or a gap.
+    public var toolVersionEvidence: ToolVersionEvidence?
+
     /// When this step started.
     public let startTime: Date
 
@@ -94,6 +100,8 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
         stderr: String? = nil,
         dependsOn: [UUID] = [],
         parentStepID: UUID? = nil,
+        managedToolID: ManagedToolID? = nil,
+        toolVersionEvidence: ToolVersionEvidence? = nil,
         startTime: Date = Date(),
         endTime: Date? = nil
     ) {
@@ -115,6 +123,8 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
         self.stderr = stderr
         self.dependsOn = dependsOn
         self.parentStepID = parentStepID
+        self.managedToolID = managedToolID
+        self.toolVersionEvidence = toolVersionEvidence
         self.startTime = startTime
         self.endTime = endTime
     }

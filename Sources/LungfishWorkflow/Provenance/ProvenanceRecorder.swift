@@ -5,6 +5,7 @@
 import Foundation
 import os.log
 import LungfishCore
+import LungfishIO
 
 private let logger = Logger(subsystem: LogSubsystem.workflow, category: "ProvenanceRecorder")
 
@@ -118,6 +119,8 @@ public actor ProvenanceRecorder {
     ///   - stderr: Standard error output (the first 2,048 and last 8,192 characters when longer than 10,240)
     ///   - dependsOn: IDs of upstream steps
     ///   - parentStepID: The step this one ran under, such as the CLI step whose import ran it
+    ///   - managedToolID: The managed tool the step ran, by its lock id, when the caller knows it
+    ///   - toolVersionEvidence: What `toolVersion` is known from, when the caller knows it
     /// - Returns: The step ID
     @discardableResult
     public func recordStep(
@@ -138,7 +141,9 @@ public actor ProvenanceRecorder {
         peakMemoryBytes: UInt64? = nil,
         stderr: String? = nil,
         dependsOn: [UUID] = [],
-        parentStepID: UUID? = nil
+        parentStepID: UUID? = nil,
+        managedToolID: ManagedToolID? = nil,
+        toolVersionEvidence: ToolVersionEvidence? = nil
     ) -> UUID? {
         guard runs[runID] != nil else {
             logger.warning("Provenance: no active run \(runID) — step not recorded")
@@ -166,6 +171,8 @@ public actor ProvenanceRecorder {
             stderr: truncatedStderr,
             dependsOn: dependsOn,
             parentStepID: parentStepID,
+            managedToolID: managedToolID,
+            toolVersionEvidence: toolVersionEvidence,
             startTime: recordedAt,
             endTime: recordedAt
         )
