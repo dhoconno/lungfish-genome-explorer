@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import XCTest
 @testable import LungfishWorkflow
 
@@ -152,5 +153,39 @@ final class ProvenanceLineageResolverTests: XCTestCase {
         )
         let runs = try resolve(sidecar)
         XCTAssertEqual(runs.map(\.envelope.workflowName), ["lungfish variants call"])
+    }
+
+    /// A reference bundle with no record of its own gets one made from its manifest. That record is
+    /// read, not written, so it holds no fact of the Mac reading it.
+    func testASynthesizedReferenceRecordHoldsNoFactOfTheReadingMac() throws {
+        let bundle = project.appendingPathComponent("Downloads/MN908947.lungfishref", isDirectory: true)
+        let genome = bundle.appendingPathComponent("genome/sequence.fa")
+        try FileManager.default.createDirectory(at: genome.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(">MN908947\nACGT\n".utf8).write(to: genome)
+        try BundleManifest(
+            name: "MN908947",
+            identifier: "org.ncbi.genbank.mn908947",
+            source: SourceInfo(organism: "SARS-CoV-2", assembly: "MN908947", database: "NCBI"),
+            genome: GenomeInfo(path: "genome/sequence.fa", indexPath: "genome/sequence.fa.fai", totalLength: 4, chromosomes: [])
+        ).save(to: bundle)
+        let sidecar = try writeLegacy(
+            run("lungfish map", tool: "minimap2",
+                inputs: [record(genome.path, String(repeating: "d", count: 64), .reference)],
+                outputs: [record("\(foreign)/Analyses/minimap2-1/reads.sorted.bam", bamSHA, .output)]),
+            to: "Analyses/minimap2-1/.lungfish-provenance.json"
+        )
+
+        let runs = try resolve(sidecar)
+        let synthesized = try XCTUnwrap(runs.first { $0.sidecarURL == nil }?.envelope)
+        XCTAssertEqual(synthesized.workflowName, "lungfish reference acquisition")
+        XCTAssertNil(synthesized.workflowVersion, "workflowVersion")
+        let identity = synthesized.runtimeIdentity
+        XCTAssertNil(identity.appVersion, "appVersion")
+        XCTAssertNil(identity.executablePath, "executablePath")
+        XCTAssertNil(identity.operatingSystemVersion, "operatingSystemVersion")
+        XCTAssertNil(identity.architecture, "architecture")
+        XCTAssertNil(identity.user, "user")
+        XCTAssertNil(identity.dependencySet, "dependencySet")
+        XCTAssertNil(identity.managedToolLockSHA256, "managedToolLockSHA256")
     }
 }

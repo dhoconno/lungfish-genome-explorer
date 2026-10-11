@@ -293,10 +293,11 @@ public struct ProvenanceLineageResolver: Sendable {
                 startedAt: startedAt,
                 completedAt: startedAt
             )
+            // This record is made while reading, so it holds no fact of the Mac that reads it.
             return ProvenanceEnvelope(
                 createdAt: startedAt,
                 workflowName: "lungfish reference acquisition",
-                workflowVersion: WorkflowRun.currentAppVersion,
+                workflowVersion: nil,
                 toolName: toolName,
                 toolVersion: "unknown",
                 tool: ProvenanceToolIdentity(name: toolName, version: "unknown", kind: "download"),
@@ -311,8 +312,13 @@ public struct ProvenanceLineageResolver: Sendable {
                     ]
                 ),
                 runtimeIdentity: ProvenanceRuntimeIdentity(
-                    appVersion: WorkflowRun.currentAppVersion,
-                    operatingSystemVersion: WorkflowRun.currentHostOS
+                    appVersion: nil,
+                    executablePath: nil,
+                    processIdentifier: nil,
+                    operatingSystemVersion: nil,
+                    architecture: nil,
+                    user: nil,
+                    dependencySet: nil
                 ),
                 files: [sourceDescriptor] + outputDescriptors,
                 output: outputDescriptors.first,
