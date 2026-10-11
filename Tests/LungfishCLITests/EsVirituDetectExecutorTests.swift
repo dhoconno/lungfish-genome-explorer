@@ -341,7 +341,68 @@ final class EsVirituDetectExecutorTests: XCTestCase {
         }, "the tail is not logged")
     }
 
+    /// A10 review fix 5 (UX D5, D14). The lines a virtual bundle's materialization reports are
+    /// progress at the start of its sample, so the app's row shows each as its detail and in the
+    /// viewer's overlay, and none is a log line. Text mode prints them through the reporter.
+    func testMaterializationLinesAreProgressAtTheStartOfTheSample() async throws {
+        let shapes = try BundleShapeFixtures(in: root.appendingPathComponent("Project.lungfish/Imports", isDirectory: true))
+        let esviritu = try StandInEsViritu(root: root.appendingPathComponent("tool"))
+        let output = root.appendingPathComponent("out", isDirectory: true)
+        let lines = LineSink()
+        let materializing = ["Materializing oriented.lungfishfastq", "Wrote the oriented reads"]
+        let tool = EsVirituAnalysisRunTool(
+            options: EsVirituAnalysisRunOptions(
+                sampleName: "sample", readFormat: .unpaired, databasePath: esviritu.databaseURL, threads: 2
+            ),
+            groupsSamples: false,
+            pipeline: EsVirituPipeline(condaManager: esviritu.condaManager),
+            materializer: ReportingMaterializer(lines: materializing),
+            installedDatabase: { [databaseURL = esviritu.databaseURL] in databaseURL }
+        )
+        let report = await AnalysisRunExecutor(services: AnalysisRunServices(indexing: EsVirituResultIndexing())).execute(
+            tool,
+            AnalysisRunRequest(
+                inputs: [shapes.oriented],
+                destination: .directory(output),
+                commandLine: ["lungfish-cli", "esviritu", "detect"]
+            ),
+            events: AnalysisRunEvents { lines.append($0) }
+        )
+
+        XCTAssertEqual(report.exitCode, 0, report.message)
+        let events = lines.all.compactMap(\.event)
+        XCTAssertEqual(
+            events.filter { event in
+                if case .progress(_, let message) = event { return materializing.contains(message) }
+                return false
+            },
+            materializing.map { CLIEvent.progress(fraction: 0, message: $0) }
+        )
+        XCTAssertFalse(events.contains { event in
+            if case .log(_, let message) = event { return materializing.contains(message) }
+            return false
+        }, "no materialization line is a log line")
+    }
+
     // MARK: - Helpers
+
+    /// `FASTQCLIMaterializer`, reporting `lines` as its own progress first.
+    private struct ReportingMaterializer: CLISequenceInputMaterializing, Sendable {
+        let lines: [String]
+
+        func materialize(
+            bundleURL: URL,
+            tempDirectory: URL,
+            progress: (@Sendable (String) -> Void)?
+        ) async throws -> URL {
+            lines.forEach { progress?($0) }
+            return try await FASTQCLIMaterializer(runner: .shared).materialize(
+                bundleURL: bundleURL,
+                tempDirectory: tempDirectory,
+                progress: nil
+            )
+        }
+    }
 
     private final class LineSink: @unchecked Sendable {
         private let lock = NSLock()

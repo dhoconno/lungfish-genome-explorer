@@ -276,6 +276,9 @@ struct ClassifyCommand: AsyncParsableCommand {
             },
             pipelineProgress: { message in
                 if !quiet { print("\r\(TerminalFormatter(useColors: useColors).info(message))", terminator: "") }
+            },
+            resolving: { message in
+                if !quiet { print(TerminalFormatter(useColors: useColors).info(message)) }
             }
         )
     }

@@ -109,6 +109,43 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
         XCTAssertTrue(traced, "the kept file kraken2 read traces to the bundle: \(kraken2Step.inputs.map(\.path))")
     }
 
+    /// A10 review fix 5 (UX D5, D14). The lines a virtual input's materialization reports are
+    /// progress at the start of its unit, so the app's row shows each as its detail and in the
+    /// viewer's overlay, and none is a log line. Text mode prints them through the presentation, as
+    /// the command always has.
+    func testMaterializationLinesAreProgressAtTheStartOfTheUnit() async throws {
+        let output = root.appendingPathComponent("virtual-progress-out", isDirectory: true)
+        let subset = fixtures.subsetOfSingle.standardizedFileURL
+        let lines = ["Materializing subset.lungfishfastq", "Wrote 2 reads"]
+        let materializer = ReportingMaterializer(
+            lines: lines,
+            base: ReadSetFixtures.StubMaterializer(readsByBundlePath: [subset.path: ReadSetFixtures.fastq(["r1", "r2"])])
+        )
+        let printed = Kraken2Captured<String>()
+
+        let run = await execute(
+            request([subset.path]), .directory(output),
+            argv: command([subset.path, "--output-dir", output.path]),
+            materializer: materializer,
+            presentation: Kraken2RunPresentation(resolving: { printed.append($0) })
+        )
+
+        XCTAssertEqual(run.report.status, .completed, run.report.message)
+        let events = run.events.compactMap(\.event)
+        XCTAssertEqual(
+            events.filter { event in
+                if case .progress(_, let message) = event { return lines.contains(message) }
+                return false
+            },
+            lines.map { CLIEvent.progress(fraction: 0, message: $0) }
+        )
+        XCTAssertFalse(events.contains { event in
+            if case .log(_, let message) = event { return lines.contains(message) }
+            return false
+        }, "no materialization line is a log line")
+        XCTAssertEqual(printed.values, lines, "text mode prints each line")
+    }
+
     func testADegradedProfileCompletesWithAWarningAndRecordsItsReason() async throws {
         let output = root.appendingPathComponent("degraded-out", isDirectory: true)
         var profile = request([fixtures.singleRoot.path])
@@ -336,12 +373,14 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
         materializer: any CLISequenceInputMaterializing & Sendable = ReadSetFixtures.StubMaterializer(readsByBundlePath: [:]),
         indexing: (any AnalysisResultIndexing)? = nil,
         runPipeline: PipelineRun? = nil,
+        presentation: Kraken2RunPresentation = .none,
         cancelRequested: (@Sendable () -> Bool)? = nil
     ) async -> (report: AnalysisRunReport, events: [CLIEventLine]) {
         await Self.run(
             request, destination, batch: batch, argv: argv,
             databaseURL: kraken2.databaseURL, condaManager: kraken2.condaManager,
-            materializer: materializer, indexing: indexing, runPipeline: runPipeline, cancelRequested: cancelRequested
+            materializer: materializer, indexing: indexing, runPipeline: runPipeline,
+            presentation: presentation, cancelRequested: cancelRequested
         )
     }
 
@@ -357,6 +396,7 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
         materializer: any CLISequenceInputMaterializing & Sendable = ReadSetFixtures.StubMaterializer(readsByBundlePath: [:]),
         indexing: (any AnalysisResultIndexing)? = nil,
         runPipeline: PipelineRun? = nil,
+        presentation: Kraken2RunPresentation = .none,
         cancelRequested: (@Sendable () -> Bool)? = nil
     ) async -> (report: AnalysisRunReport, events: [CLIEventLine]) {
         let cancelRequested = cancelRequested ?? { false }
@@ -373,6 +413,7 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
             runPipeline: runPipeline ?? { config, progress in
                 try await pipeline.classify(config: config, progress: progress)
             },
+            presentation: presentation,
             cancelRequested: cancelRequested
         )
         let lines = Kraken2EventCollector()
@@ -388,6 +429,22 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
             events: AnalysisRunEvents { lines.append($0) }
         )
         return (report, lines.lines)
+    }
+}
+
+/// A materializer that reports `lines` as its own progress, as `FASTQCLIMaterializer` does, then
+/// lets `base` write the file.
+struct ReportingMaterializer: CLISequenceInputMaterializing, Sendable {
+    let lines: [String]
+    let base: any CLISequenceInputMaterializing & Sendable
+
+    func materialize(
+        bundleURL: URL,
+        tempDirectory: URL,
+        progress: (@Sendable (String) -> Void)?
+    ) async throws -> URL {
+        lines.forEach { progress?($0) }
+        return try await base.materialize(bundleURL: bundleURL, tempDirectory: tempDirectory, progress: progress)
     }
 }
 

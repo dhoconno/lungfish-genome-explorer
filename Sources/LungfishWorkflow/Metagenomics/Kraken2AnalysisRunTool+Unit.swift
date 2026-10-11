@@ -28,13 +28,20 @@ extension Kraken2AnalysisRunTool {
             .appendingPathComponent(KrakenReadSetPlanner.inputsDirectoryName, isDirectory: true)
         var stage = "materialization"
         var config: ClassificationConfig?
+        let presentation = services.presentation
         do {
+            // Each materialization line is progress at the unit's start, so the app's row shows
+            // it as its detail and in the viewer's overlay (A10 review fix 5, UX D5, D14), and
+            // text mode prints it as the command always has.
             let resolved = try await ResolvedSequenceInputs.resolvePreflighted(
                 inputURLs: value.inputURLs,
                 operationName: "classification",
                 materializationDirectory: materializationDirectory,
                 materializer: services.materializer,
-                progress: { message in context.log(.info, message) }
+                progress: { message in
+                    context.progress(0, message)
+                    presentation.resolving?(message)
+                }
             )
             if resolved.didMaterialize {
                 let started = resolved.materializationStartedAt ?? clock.startedAt
@@ -91,8 +98,7 @@ extension Kraken2AnalysisRunTool {
             }
 
             stage = "pipeline"
-            services.presentation.configured?(made)
-            let presentation = services.presentation
+            presentation.configured?(made)
             let result = try await services.runPipeline(made) { fraction, message in
                 context.progress(fraction, message)
                 presentation.pipelineProgress?(message)

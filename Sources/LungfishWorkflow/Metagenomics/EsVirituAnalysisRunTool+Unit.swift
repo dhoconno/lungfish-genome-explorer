@@ -26,9 +26,11 @@ extension EsVirituAnalysisRunTool {
         let reporter = reporter
         let materializationDirectory = context.rootDirectory
             .appendingPathComponent(Self.materializationDirectoryName, isDirectory: true)
+        // Each line about the inputs is progress at the unit's start, so the app's row shows it as
+        // its detail and in the viewer's overlay (A10 review fix 5, UX D5, D14).
         let resolving: @Sendable (String) -> Void = { message in
             reporter?.resolving(message)
-            context.log(.info, message)
+            context.progress(0, message)
         }
         let resolved = try await ResolvedSequenceInputs.resolvePreflighted(
             inputURLs: sample.inputs,

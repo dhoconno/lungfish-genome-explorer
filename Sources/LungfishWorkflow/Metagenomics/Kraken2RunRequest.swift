@@ -167,13 +167,18 @@ public struct Kraken2RunPresentation: Sendable {
     public var configured: (@Sendable (ClassificationConfig) -> Void)?
     /// Called with each progress message of the classification pipeline.
     public var pipelineProgress: (@Sendable (String) -> Void)?
+    /// Called with each line about the inputs being resolved, such as a virtual bundle being
+    /// materialized. The unit also reports each one as progress at its start.
+    public var resolving: (@Sendable (String) -> Void)?
 
     public init(
         configured: (@Sendable (ClassificationConfig) -> Void)? = nil,
-        pipelineProgress: (@Sendable (String) -> Void)? = nil
+        pipelineProgress: (@Sendable (String) -> Void)? = nil,
+        resolving: (@Sendable (String) -> Void)? = nil
     ) {
         self.configured = configured
         self.pipelineProgress = pipelineProgress
+        self.resolving = resolving
     }
 
     public static let none = Kraken2RunPresentation()
