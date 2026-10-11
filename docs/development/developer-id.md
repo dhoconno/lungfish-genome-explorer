@@ -25,7 +25,7 @@ The doctor and the setup proof print the selected certificate's issuer and expir
 | Result | When |
 |---|---|
 | `PASS signing certificate` | A G2 certificate with more than 60 days left |
-| `WARN signing certificate` | Fewer than 61 days left, or a certificate from the original Sub-CA before its cutoff |
+| `WARN signing certificate` | 60 days or fewer left, or a certificate from the original Sub-CA before its cutoff |
 | `FAIL signing certificate` | The certificate has expired, or it comes from the original Sub-CA and the cutoff has passed |
 
 ## Commands
@@ -43,7 +43,7 @@ The Account Holder runs these steps at the Mac Studio, which is the release Mac,
 ### Create and prove the certificate
 
 1. Create the certificate. In Xcode open Settings, then Accounts, select the team and click Manage Certificates. Click the add button and pick Developer ID Application, and pick G2 Sub-CA if Xcode asks for a Sub-CA. The other way is the website. On developer.apple.com open Certificates, click the add button, pick Developer ID Application and then G2 Sub-CA, and upload a certificate signing request made with Keychain Access (Certificate Assistant, then Request a Certificate From a Certificate Authority). Download the certificate and open it so it lands in the login keychain.
-2. Check the chain. Run `developer_id.py show`. The new identity shows the issuer `Developer ID Certification Authority (G2)`. If it shows `not trusted`, for example `CSSMERR_TP_NOT_TRUSTED`, download the Developer ID G2 intermediate from https://www.apple.com/certificateauthority/, open it to add it to the login keychain and run `show` again.
+2. Check the chain. Run `developer_id.py show`. The new identity shows the issuer `Developer ID Certification Authority (G2)`. If it shows `not trusted`, for example `CSSMERR_TP_NOT_TRUSTED`, download the Developer ID G2 intermediate from https://www.apple.com/certificateauthority/, open it to add it to the login keychain and run `show` again. The intermediate has the subject `CN=Developer ID Certification Authority, OU=G2, O=Apple Inc., C=US` and the SHA-1 fingerprint `5B45F61068B29FCC8FFFF1A7E99B78DA9E9C4635`, and it is valid to 2031-09-17, so check a download against those. Xcode ships the same file as `DeveloperIDCA-G2.cer` in `/Applications/Xcode.app/Contents/SharedFrameworks/DVTFoundation.framework/Versions/A/Resources/`, so you can open that copy instead of downloading one. Until the new SHA-1 is selected, `show` ends with a `FAIL` line that names both identities, and that is expected. To keep releasing with the old certificate in the meantime, first select it with `release.py configure-machine --replace ... --certificate-sha1 <old SHA-1>`, using the SHA-1 that `show` lists for the original Sub-CA.
 3. Prove that it signs. Run `developer_id.py verify --certificate-sha1 <new SHA-1>` and check that every line reads PASS. The first run may ask to let `codesign` use the new private key. Click Always Allow, so later unattended runs need no dialog.
 
 ### Switch releases to it
