@@ -278,6 +278,64 @@ final class ClassifierLayoutReaderPinTests: XCTestCase {
         XCTAssertNil(AnalysesFolder.readAnalysisMetadata(from: built.imports.appendingPathComponent(Name.outsideCLIOutput)))
     }
 
+    // `ClassifierDatabaseRouter.routeDirect` ORs the tool in the metadata with the folder-name
+    // prefix, in a fixed tool order, and the doc comment above it says the metadata is
+    // authoritative. The two tests below pin the two faces of that match. Each builds a fresh
+    // project, so the shared snapshot project stays as it is.
+
+    /// Known defect, left for 2.9. A sample folder named like a tool is taken for a result root of
+    /// its own, because the folder name carries the prefix. An EsViritu batch with the sample
+    /// `esviritu_ctrl` routes that sample folder with no database and no sample, and the lazy build
+    /// would then write into the sample folder. The right route is
+    /// `esviritu database=yes result=Analyses/<batch> sample=esviritu_ctrl`, the one the sample
+    /// `HG002` already gets. The router change of 2.9 that treats a child of a classifier batch root
+    /// as a sample moves the first assertion.
+    func testKnownDefectRouterTakesAToolPrefixedSampleFolderAsAResultRoot() throws {
+        let scratch = try buildScratchAnalyses()
+        let batch = try Layouts.windowEsVirituBatch(
+            named: Name.windowEsVirituBatchOfOne, timestamp: Layouts.timestamp(of: Name.windowEsVirituBatchOfOne),
+            in: scratch.analyses, samples: ["esviritu_ctrl", Layouts.sample], index: true
+        )
+        let batchPath = "Analyses/\(batch.lastPathComponent)"
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: batch.appendingPathComponent("esviritu.sqlite").path),
+            "the batch has its index"
+        )
+        XCTAssertEqual(
+            describe(ClassifierDatabaseRouter.route(for: batch.appendingPathComponent("esviritu_ctrl", isDirectory: true)), paths: scratch.paths),
+            "esviritu database=no result=\(batchPath)/esviritu_ctrl sample=-",
+            "Known defect. The right route is esviritu database=yes result=\(batchPath) sample=esviritu_ctrl"
+        )
+        XCTAssertEqual(
+            describe(ClassifierDatabaseRouter.route(for: batch.appendingPathComponent(Layouts.sample, isDirectory: true)), paths: scratch.paths),
+            "esviritu database=yes result=\(batchPath) sample=\(Layouts.sample)",
+            "a sample with an ordinary name narrows to its batch"
+        )
+    }
+
+    /// Known defect, left for 2.9. A folder name with a tool prefix beats the metadata. A Kraken2
+    /// result that the user renamed `esviritu comparison` is a Kraken2 result to
+    /// `AnalysesFolder.analysisInfo`, which the sidebar row uses, and the router takes it for EsViritu
+    /// because EsViritu comes before Kraken2 in the tool order and the name matches. The right route is
+    /// `kraken2 database=no result=Analyses/esviritu comparison sample=-`. The router change of 2.9
+    /// that gives the metadata strict precedence moves the second assertion.
+    func testKnownDefectRouterLetsANamePrefixOverrideTheMetadata() throws {
+        let scratch = try buildScratchAnalyses()
+        let folder = try Layouts.windowKraken2Single(
+            named: "esviritu comparison", timestamp: "2026-02-09T09-00-00", in: scratch.analyses
+        )
+        XCTAssertEqual(
+            AnalysesFolder.analysisInfo(for: folder).map { "\($0.tool) batch=\($0.isBatch)" },
+            "kraken2 batch=false",
+            "the metadata names the tool"
+        )
+        XCTAssertEqual(
+            describe(ClassifierDatabaseRouter.route(for: folder), paths: scratch.paths),
+            "esviritu database=no result=Analyses/esviritu comparison sample=-",
+            "Known defect. The right route is kraken2 database=no result=Analyses/esviritu comparison sample=-"
+        )
+    }
+
     // MARK: - Writer parity
 
     /// "As an import writes it" is a claim about `MetagenomicsImportService.importEsViritu`, so
@@ -315,6 +373,15 @@ final class ClassifierLayoutReaderPinTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// An empty project with an Analyses folder, for a test that builds the one folder it needs.
+    private func buildScratchAnalyses() throws -> (analyses: URL, paths: SafetyNetPathRenderer) {
+        let root = try TestTempDirectory.make(prefix: "ClassifierLayoutRouterQuirks")
+        addTeardownBlock { TestTempDirectory.cleanup(root) }
+        let project = try SafetyNetFiles.makeDirectory(root.appendingPathComponent("Router Quirks.lungfish", isDirectory: true))
+        let analyses = try SafetyNetFiles.makeDirectory(project.appendingPathComponent(AnalysesFolder.directoryName, isDirectory: true))
+        return (analyses, SafetyNetPathRenderer(root: project))
+    }
 
     private func analysisNodes(of built: Built) -> [SidebarScanNode] {
         SidebarProjectScanner.scanRootNodes(from: built.project).first { $0.title == "Analyses" }?.children ?? []
