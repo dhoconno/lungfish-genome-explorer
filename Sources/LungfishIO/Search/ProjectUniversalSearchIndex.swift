@@ -106,21 +106,13 @@ public final class ProjectUniversalSearchIndex {
 
             var fastqBundles: [URL] = []
             var referenceBundles: [URL] = []
-            var classificationDirs: [URL] = []
-            var esVirituDirs: [URL] = []
-            var taxTriageDirs: [URL] = []
-            var naoMgsDirs: [URL] = []
-            var nvdDirs: [URL] = []
+            var resultDirs: [ProjectUniversalSearchResultKind: [URL]] = [:]
             var manifestFiles: [URL] = []
 
             collectProjectArtifacts(
                 fastqBundles: &fastqBundles,
                 referenceBundles: &referenceBundles,
-                classificationDirs: &classificationDirs,
-                esVirituDirs: &esVirituDirs,
-                taxTriageDirs: &taxTriageDirs,
-                naoMgsDirs: &naoMgsDirs,
-                nvdDirs: &nvdDirs,
+                resultDirs: &resultDirs,
                 manifestFiles: &manifestFiles
             )
 
@@ -142,49 +134,16 @@ public final class ProjectUniversalSearchIndex {
                 )
             }
 
-            for url in classificationDirs.sorted(by: pathCompare) {
-                try indexClassificationResult(
-                    at: url,
-                    entityCount: &entityCount,
-                    attributeCount: &attributeCount,
-                    perKindCounts: &perKindCounts
-                )
-            }
-
-            for url in esVirituDirs.sorted(by: pathCompare) {
-                try indexEsVirituResult(
-                    at: url,
-                    entityCount: &entityCount,
-                    attributeCount: &attributeCount,
-                    perKindCounts: &perKindCounts
-                )
-            }
-
-            for url in taxTriageDirs.sorted(by: pathCompare) {
-                try indexTaxTriageResult(
-                    at: url,
-                    entityCount: &entityCount,
-                    attributeCount: &attributeCount,
-                    perKindCounts: &perKindCounts
-                )
-            }
-
-            for url in naoMgsDirs.sorted(by: pathCompare) {
-                try indexNaoMgsResult(
-                    at: url,
-                    entityCount: &entityCount,
-                    attributeCount: &attributeCount,
-                    perKindCounts: &perKindCounts
-                )
-            }
-
-            for url in nvdDirs.sorted(by: pathCompare) {
-                try indexNvdResult(
-                    at: url,
-                    entityCount: &entityCount,
-                    attributeCount: &attributeCount,
-                    perKindCounts: &perKindCounts
-                )
+            for resultKind in ProjectUniversalSearchResultKind.allCases {
+                for url in (resultDirs[resultKind] ?? []).sorted(by: pathCompare) {
+                    try indexResult(
+                        of: resultKind,
+                        at: url,
+                        entityCount: &entityCount,
+                        attributeCount: &attributeCount,
+                        perKindCounts: &perKindCounts
+                    )
+                }
             }
 
             for url in manifestFiles.sorted(by: pathCompare) {
@@ -401,11 +360,7 @@ public final class ProjectUniversalSearchIndex {
     private func collectProjectArtifacts(
         fastqBundles: inout [URL],
         referenceBundles: inout [URL],
-        classificationDirs: inout [URL],
-        esVirituDirs: inout [URL],
-        taxTriageDirs: inout [URL],
-        naoMgsDirs: inout [URL],
-        nvdDirs: inout [URL],
+        resultDirs: inout [ProjectUniversalSearchResultKind: [URL]],
         manifestFiles: inout [URL]
     ) {
         let fm = FileManager.default
@@ -434,14 +389,7 @@ public final class ProjectUniversalSearchIndex {
                     enumerator.skipDescendants()
                     // Scan derivatives/ subfolder for classifier results that live inside FASTQ bundles.
                     let derivativesURL = url.appendingPathComponent("derivatives", isDirectory: true)
-                    scanDerivativesForClassifierResults(
-                        derivativesURL,
-                        classificationDirs: &classificationDirs,
-                        esVirituDirs: &esVirituDirs,
-                        taxTriageDirs: &taxTriageDirs,
-                        naoMgsDirs: &naoMgsDirs,
-                        nvdDirs: &nvdDirs
-                    )
+                    scanDerivativesForClassifierResults(derivativesURL, resultDirs: &resultDirs)
                     continue
                 }
 
@@ -451,36 +399,10 @@ public final class ProjectUniversalSearchIndex {
                     continue
                 }
 
-                if fileName.hasPrefix("classification-") && hasFile("classification-result.json", in: url) {
-                    classificationDirs.append(url)
+                if let resultKind = ProjectUniversalSearchResultKind.recognize(directory: url) {
+                    resultDirs[resultKind, default: []].append(url)
                     enumerator.skipDescendants()
-                    continue
                 }
-
-                if fileName.hasPrefix("esviritu-") && hasFile("esviritu-result.json", in: url) {
-                    esVirituDirs.append(url)
-                    enumerator.skipDescendants()
-                    continue
-                }
-
-                if fileName.hasPrefix("taxtriage-") && hasFile("taxtriage-result.json", in: url) {
-                    taxTriageDirs.append(url)
-                    enumerator.skipDescendants()
-                    continue
-                }
-
-                if fileName.hasPrefix("naomgs-") && hasFile("manifest.json", in: url) {
-                    naoMgsDirs.append(url)
-                    enumerator.skipDescendants()
-                    continue
-                }
-
-                if fileName.hasPrefix("nvd-") && hasFile("hits.sqlite", in: url) {
-                    nvdDirs.append(url)
-                    enumerator.skipDescendants()
-                    continue
-                }
-
                 continue
             }
 
@@ -494,11 +416,7 @@ public final class ProjectUniversalSearchIndex {
     /// Scans a FASTQ bundle's derivatives/ directory for classifier result bundles.
     private func scanDerivativesForClassifierResults(
         _ derivativesURL: URL,
-        classificationDirs: inout [URL],
-        esVirituDirs: inout [URL],
-        taxTriageDirs: inout [URL],
-        naoMgsDirs: inout [URL],
-        nvdDirs: inout [URL]
+        resultDirs: inout [ProjectUniversalSearchResultKind: [URL]]
     ) {
         let fm = FileManager.default
         guard let contents = try? fm.contentsOfDirectory(
@@ -511,19 +429,31 @@ public final class ProjectUniversalSearchIndex {
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else { continue }
             guard !AnalysisRunRecord.isIncomplete(url) else { continue }
-            let name = url.lastPathComponent
-
-            if name.hasPrefix("classification-") && hasFile("classification-result.json", in: url) {
-                classificationDirs.append(url)
-            } else if name.hasPrefix("esviritu-") && hasFile("esviritu-result.json", in: url) {
-                esVirituDirs.append(url)
-            } else if name.hasPrefix("taxtriage-") && hasFile("taxtriage-result.json", in: url) {
-                taxTriageDirs.append(url)
-            } else if name.hasPrefix("naomgs-") && hasFile("manifest.json", in: url) {
-                naoMgsDirs.append(url)
-            } else if name.hasPrefix("nvd-") && hasFile("hits.sqlite", in: url) {
-                nvdDirs.append(url)
+            if let resultKind = ProjectUniversalSearchResultKind.recognize(directory: url) {
+                resultDirs[resultKind, default: []].append(url)
             }
+        }
+    }
+
+    /// Indexes one result folder with the indexer of its kind.
+    private func indexResult(
+        of resultKind: ProjectUniversalSearchResultKind,
+        at url: URL,
+        entityCount: inout Int,
+        attributeCount: inout Int,
+        perKindCounts: inout [String: Int]
+    ) throws {
+        switch resultKind {
+        case .classification:
+            try indexClassificationResult(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
+        case .esviritu:
+            try indexEsVirituResult(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
+        case .taxtriage:
+            try indexTaxTriageResult(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
+        case .naomgs:
+            try indexNaoMgsResult(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
+        case .nvd:
+            try indexNvdResult(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
         }
     }
 
@@ -584,16 +514,8 @@ public final class ProjectUniversalSearchIndex {
                     try indexFASTQBundle(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
                 } else if url.pathExtension == "lungfishref" {
                     try indexReferenceBundle(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
-                } else if url.lastPathComponent.hasPrefix("classification-") && hasFile("classification-result.json", in: url) {
-                    try indexClassificationResult(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
-                } else if url.lastPathComponent.hasPrefix("esviritu-") && hasFile("esviritu-result.json", in: url) {
-                    try indexEsVirituResult(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
-                } else if url.lastPathComponent.hasPrefix("taxtriage-") && hasFile("taxtriage-result.json", in: url) {
-                    try indexTaxTriageResult(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
-                } else if url.lastPathComponent.hasPrefix("naomgs-") && hasFile("manifest.json", in: url) {
-                    try indexNaoMgsResult(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
-                } else if url.lastPathComponent.hasPrefix("nvd-") && hasFile("hits.sqlite", in: url) {
-                    try indexNvdResult(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
+                } else if let resultKind = ProjectUniversalSearchResultKind.recognize(directory: url) {
+                    try indexResult(of: resultKind, at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
                 }
             }
 
@@ -644,9 +566,5 @@ public final class ProjectUniversalSearchIndex {
             return path
         }
         return nil
-    }
-
-    private func hasFile(_ filename: String, in directory: URL) -> Bool {
-        FileManager.default.fileExists(atPath: directory.appendingPathComponent(filename).path)
     }
 }

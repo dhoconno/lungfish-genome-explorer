@@ -152,6 +152,129 @@ public struct ProjectUniversalSearchQuery: Sendable, Equatable {
     }
 }
 
+// MARK: - ProjectUniversalSearchResultKind
+
+/// An analysis result that universal search indexes, and every word a query can call it by.
+///
+/// This is the one table that joins the names of a result. The indexer stores ``kind`` on the row.
+/// A folder holds a result of the kind when `AnalysesFolder.analysisInfo` names ``analysisID`` for
+/// it, or when its name starts with one of the kind's folder prefixes, and the finished run's
+/// ``sidecarFileName`` is in it. A query reaches the kind by its analysis id, by the group of the
+/// `lungfish-cli` command that makes or imports it, by the name the sidebar shows, by ``kind`` and
+/// by the words that existed before this table. Case, hyphens, underscores and spaces do not
+/// matter, so `type:Kraken2`, `type:nao-mgs` and `type:NAOMGS` all work.
+///
+/// A new indexed analysis is a new case here and a case in `indexResult`, so it becomes searchable by
+/// registration. The extension compares of the indexer for FASTQ and reference bundles are not part
+/// of this table.
+enum ProjectUniversalSearchResultKind: String, CaseIterable, Sendable {
+    case classification
+    case esviritu
+    case taxtriage
+    case naomgs
+    case nvd
+
+    /// The `kind` the indexer stores on the result row.
+    var kind: String {
+        switch self {
+        case .classification: return "classification_result"
+        case .esviritu: return "esviritu_result"
+        case .taxtriage: return "taxtriage_result"
+        case .naomgs: return "naomgs_result"
+        case .nvd: return "nvd_result"
+        }
+    }
+
+    /// The analysis kind whose folders hold the result.
+    var analysisID: AnalysisToolID {
+        switch self {
+        case .classification: return .kraken2
+        case .esviritu: return .esviritu
+        case .taxtriage: return .taxtriage
+        case .naomgs: return .naomgs
+        case .nvd: return .nvd
+        }
+    }
+
+    /// The group of the `lungfish-cli` command that makes or imports the result.
+    var cliGroup: String {
+        switch self {
+        case .classification: return "kraken2"
+        case .esviritu: return "esviritu"
+        case .taxtriage: return "taxtriage"
+        case .naomgs: return "nao-mgs"
+        case .nvd: return "nvd"
+        }
+    }
+
+    /// The name the sidebar shows for the analysis, read from the analysis registry so the two agree.
+    var sidebarName: String {
+        AnalysisToolRegistry.displayName(forRawID: analysisID.rawValue)
+    }
+
+    /// The file a folder holds when its run finished and the indexer can read the result.
+    var sidecarFileName: String {
+        switch self {
+        case .classification: return "classification-result.json"
+        case .esviritu: return "esviritu-result.json"
+        case .taxtriage: return "taxtriage-result.json"
+        case .naomgs: return "manifest.json"
+        case .nvd: return "hits.sqlite"
+        }
+    }
+
+    /// Folder name prefixes that mark a result without asking `analysisInfo`. The first one is the
+    /// name of a run the index recognized before analysis ids were registered.
+    var folderPrefixes: [String] {
+        switch self {
+        case .classification: return ["classification-", "\(analysisID.rawValue)-"]
+        default: return ["\(analysisID.rawValue)-"]
+        }
+    }
+
+    /// Words a query used for the kind before this table existed.
+    private var earlierWords: [String] {
+        self == .classification ? ["classification", "kraken"] : []
+    }
+
+    /// Every word a query may use for the kind, squashed.
+    var queryWords: Set<String> {
+        Set(([kind, analysisID.rawValue, cliGroup, sidebarName] + earlierWords).map(Self.squash))
+    }
+
+    /// The kind a query word names, or nil when the word names no result kind.
+    init?(queryWord: String) {
+        let word = Self.squash(queryWord)
+        guard let match = Self.allCases.first(where: { $0.queryWords.contains(word) }) else { return nil }
+        self = match
+    }
+
+    /// A word in lowercase with the hyphens, underscores and spaces taken out.
+    static func squash(_ word: String) -> String {
+        word.lowercased().filter { $0 != "-" && $0 != "_" && $0 != " " }
+    }
+
+    /// The kind of result a folder holds, or nil when the folder is not the finished result of an
+    /// indexed analysis.
+    ///
+    /// The kind's sidecar file must be in the folder. The folder name is read first because it costs
+    /// nothing. `AnalysesFolder.analysisInfo` is asked only when no name claims the folder, and it
+    /// reads the run's metadata, the name's timestamp or the folder's files, so a renamed folder is
+    /// still found.
+    static func recognize(directory: URL, fileManager: FileManager = .default) -> ProjectUniversalSearchResultKind? {
+        let present = allCases.filter {
+            fileManager.fileExists(atPath: directory.appendingPathComponent($0.sidecarFileName).path)
+        }
+        guard !present.isEmpty else { return nil }
+        let name = directory.lastPathComponent
+        if let byName = present.first(where: { candidate in candidate.folderPrefixes.contains { name.hasPrefix($0) } }) {
+            return byName
+        }
+        guard let tool = AnalysesFolder.analysisInfo(for: directory)?.tool else { return nil }
+        return present.first { $0.analysisID.rawValue == tool }
+    }
+}
+
 // MARK: - ProjectUniversalSearchQueryParser
 
 /// Lightweight token parser for universal search.
@@ -380,6 +503,9 @@ public enum ProjectUniversalSearchQueryParser {
 
     private static func normalizeKind(_ kind: String) -> String {
         let normalized = normalizeKey(kind)
+        if let resultKind = ProjectUniversalSearchResultKind(queryWord: normalized) {
+            return resultKind.kind
+        }
         switch normalized {
         case "fastq", "fastq_dataset", "fastq_bundle":
             return "fastq_dataset"
@@ -389,14 +515,8 @@ public enum ProjectUniversalSearchQueryParser {
             return "vcf_track"
         case "vcf_sample", "sample":
             return "vcf_sample"
-        case "classification", "classification_result", "kraken":
-            return "classification_result"
         case "classification_taxon", "kraken_taxon", "bracken_taxon":
             return "classification_taxon"
-        case "esviritu", "esviritu_result":
-            return "esviritu_result"
-        case "taxtriage", "taxtriage_result":
-            return "taxtriage_result"
         case "taxtriage_organism", "taxtriage_taxon":
             return "taxtriage_organism"
         case "manifest", "manifest_document":
