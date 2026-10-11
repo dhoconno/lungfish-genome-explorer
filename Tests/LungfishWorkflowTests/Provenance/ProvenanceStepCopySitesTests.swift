@@ -32,10 +32,7 @@ final class ProvenanceStepCopySitesTests: XCTestCase {
 
         let copy = try XCTUnwrap(envelope.replacingOutputDescriptor(replacement, matchingPath: output.path).steps.first)
 
-        XCTAssertEqual(Facts.changes(from: step, in: copy), [
-            "githubReleaseVersion": .lost, "durableReplayArgv": .lost, "resolvedOptions": .lost,
-            "runtimeIdentity": .lost, "peakMemoryBytes": .lost,
-        ])
+        XCTAssertEqual(Facts.changes(from: step, in: copy), [:], "the copy keeps every fact of the step")
         XCTAssertEqual(copy.outputs, [replacement])
     }
 
@@ -53,10 +50,7 @@ final class ProvenanceStepCopySitesTests: XCTestCase {
             ).first
         )
 
-        XCTAssertEqual(Facts.changes(from: step, in: copy), [
-            "githubReleaseVersion": .lost, "durableReplayArgv": .lost, "resolvedOptions": .lost,
-            "runtimeIdentity": .lost,
-        ])
+        XCTAssertEqual(Facts.changes(from: step, in: copy), [:], "the fallback keeps every fact of the step")
         XCTAssertEqual(copy.inputs, [fallbackInput])
         XCTAssertEqual(copy.outputs, [fallbackOutput])
     }
@@ -71,7 +65,7 @@ final class ProvenanceStepCopySitesTests: XCTestCase {
             step, replay: replay, runtime: ProvenanceRuntimeIdentity(), inputs: [], outputs: []
         )
 
-        XCTAssertEqual(Facts.changes(from: step, in: copy), ["durableReplayArgv": .changed, "peakMemoryBytes": .lost])
+        XCTAssertEqual(Facts.changes(from: step, in: copy), ["durableReplayArgv": .changed])
         XCTAssertEqual(copy.durableReplayArgv, replay)
     }
 
@@ -84,10 +78,10 @@ final class ProvenanceStepCopySitesTests: XCTestCase {
 
         let copy = ONTImportWorkflow().remapOptimizationStep(step, from: staged, to: final)
 
-        XCTAssertEqual(Facts.changes(from: step, in: copy), [
-            "durableReplayArgv": .changed, "resolvedOptions": .lost, "runtimeIdentity": .lost, "peakMemoryBytes": .lost,
-        ])
+        XCTAssertEqual(Facts.changes(from: step, in: copy), ["durableReplayArgv": .changed, "resolvedOptions": .changed])
         XCTAssertEqual(copy.durableReplayArgv?.last, final.appendingPathComponent("reads.fastq.gz").path)
+        XCTAssertEqual(Facts.filePath(of: "input", in: copy), final.appendingPathComponent("reads.fastq.gz").path)
+        XCTAssertEqual(copy.resolvedOptions["threads"], .integer(4))
     }
 
     // MARK: FASTQBundleCopyImportWorkflow.rewriteStep, after ProvenanceRehydrator
@@ -122,10 +116,9 @@ final class ProvenanceStepCopySitesTests: XCTestCase {
             ProvenanceEnvelopeReader.load(fromSidecar: destination.appendingPathComponent(ProvenanceWriter.provenanceFilename))
         )
         let copy = try XCTUnwrap(written.steps.first)
-        XCTAssertEqual(Facts.changes(from: step, in: copy), [
-            "durableReplayArgv": .changed, "resolvedOptions": .lost, "runtimeIdentity": .lost, "peakMemoryBytes": .lost,
-        ])
+        XCTAssertEqual(Facts.changes(from: step, in: copy), ["durableReplayArgv": .changed, "resolvedOptions": .changed])
         XCTAssertEqual(copy.durableReplayArgv?.last, destination.appendingPathComponent("reads.fastq").path)
+        XCTAssertEqual(Facts.filePath(of: "input", in: copy), destination.appendingPathComponent("reads.fastq").path)
     }
 
     // MARK: GUIImportedProvenanceRehydrator.rewriteOutputDescriptors, the in-place ingestion path
@@ -145,10 +138,10 @@ final class ProvenanceStepCopySitesTests: XCTestCase {
 
         let copiedStep = try XCTUnwrap(copy.steps.first)
         XCTAssertEqual(Facts.changes(from: source.steps[0], in: copiedStep), [
-            "githubReleaseVersion": .lost, "durableReplayArgv": .changed, "resolvedOptions": .lost,
-            "runtimeIdentity": .lost, "peakMemoryBytes": .lost,
+            "durableReplayArgv": .changed, "resolvedOptions": .changed,
         ])
         XCTAssertEqual(copiedStep.durableReplayArgv?.last, final.path)
+        XCTAssertEqual(Facts.filePath(of: "input", in: copiedStep), final.path, "the option follows the replay command")
         XCTAssertNil(copy.githubReleaseVersion, "the rewrite drops the record's release version")
         XCTAssertNil(copy.options.resolvedDefaults["readSetPlan"], "the rewrite drops the nested run's plan")
     }
@@ -171,10 +164,10 @@ final class ProvenanceStepCopySitesTests: XCTestCase {
         let copy = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: destination)))
         let copiedStep = try XCTUnwrap(copy.steps.first)
         XCTAssertEqual(Facts.changes(from: source.steps[0], in: copiedStep), [
-            "githubReleaseVersion": .lost, "durableReplayArgv": .changed, "resolvedOptions": .lost,
-            "runtimeIdentity": .lost, "peakMemoryBytes": .lost,
+            "durableReplayArgv": .changed, "resolvedOptions": .changed,
         ])
         XCTAssertEqual(copiedStep.durableReplayArgv?.last, destination.path)
+        XCTAssertEqual(Facts.filePath(of: "input", in: copiedStep), destination.path, "the option follows the replay command")
         XCTAssertEqual(copy.steps.last?.toolName, "lungfish-app", "the import step follows")
         XCTAssertNil(copy.githubReleaseVersion, "the import drops the record's release version")
         XCTAssertNil(copy.options.resolvedDefaults["readSetPlan"], "the import drops the nested run's plan")
@@ -228,7 +221,8 @@ final class ProvenanceStepCopySitesTests: XCTestCase {
         let first = try convert()
         let second = try convert()
 
-        XCTAssertNotEqual(first.id, second.id, "each conversion makes a new step id")
+        XCTAssertEqual(first.id, source.id, "the step keeps the id it got when samtools ran")
+        XCTAssertEqual(second.id, source.id, "a second conversion names the same step")
         XCTAssertEqual(first.inputs.map(\.path), [published.appendingPathComponent("bams/S1.bam").path])
         XCTAssertEqual(first.durableReplayArgv?.last, published.appendingPathComponent("bams/S1.bam").path)
     }

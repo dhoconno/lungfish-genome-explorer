@@ -760,12 +760,6 @@ struct MarkdupCommand: AsyncParsableCommand {
         let steps = envelope.steps.map { step in
             step.with { copy in
                 copy.outputs = step.outputs.compactMap { selectedByPath[$0.path] }
-                // This copy never kept these facts, and keeping them comes with 2.7.
-                copy.githubReleaseVersion = nil
-                copy.durableReplayArgv = nil
-                copy.resolvedOptions = [:]
-                copy.runtimeIdentity = nil
-                copy.peakMemoryBytes = nil
             }
         }
         return envelope.with {

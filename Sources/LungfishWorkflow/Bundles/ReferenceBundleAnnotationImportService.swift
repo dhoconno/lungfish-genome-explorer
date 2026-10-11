@@ -680,12 +680,6 @@ extension ProvenanceEnvelope {
             copy.steps = steps.map { step in
                 step.with { stepCopy in
                     stepCopy.outputs = step.outputs.map(replaced)
-                    // This copy never kept these facts, and keeping them comes with 2.7.
-                    stepCopy.githubReleaseVersion = nil
-                    stepCopy.durableReplayArgv = nil
-                    stepCopy.resolvedOptions = [:]
-                    stepCopy.runtimeIdentity = nil
-                    stepCopy.peakMemoryBytes = nil
                 }
             }
         }

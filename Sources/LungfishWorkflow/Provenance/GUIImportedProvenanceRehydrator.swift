@@ -243,11 +243,9 @@ public enum GUIImportedProvenanceRehydrator {
                         sourceProvenancePath: sourceProvenancePath
                     )
                 }
-                // This copy never kept these facts, and keeping them comes with 2.7.
-                copy.githubReleaseVersion = nil
-                copy.resolvedOptions = [:]
-                copy.runtimeIdentity = nil
-                copy.peakMemoryBytes = nil
+                copy.resolvedOptions = step.resolvedOptions.mapValues {
+                    rewriteParameterValue($0, pathMap: standardizedPathMap)
+                }
             }
         }
 
@@ -335,11 +333,9 @@ public enum GUIImportedProvenanceRehydrator {
                         sourceProvenancePath: sourceProvenancePath
                     )
                 }
-                // This copy never kept these facts, and keeping them comes with 2.7.
-                copy.githubReleaseVersion = nil
-                copy.resolvedOptions = [:]
-                copy.runtimeIdentity = nil
-                copy.peakMemoryBytes = nil
+                copy.resolvedOptions = step.resolvedOptions.mapValues {
+                    rewriteParameterValue($0, pathMap: standardizedPathMap)
+                }
             }
         }
 
@@ -923,11 +919,9 @@ public enum GUIImportedProvenanceRehydrator {
                     fallback: step.reproducibleCommand,
                     pathMap: standardizedPathMap
                 )
-                // This copy never kept these facts, and keeping them comes with 2.7.
-                copy.githubReleaseVersion = nil
-                copy.resolvedOptions = [:]
-                copy.runtimeIdentity = nil
-                copy.peakMemoryBytes = nil
+                copy.resolvedOptions = step.resolvedOptions.mapValues {
+                    rewriteParameterValue($0, pathMap: standardizedPathMap)
+                }
             }
         }
         return ProvenanceEnvelope(

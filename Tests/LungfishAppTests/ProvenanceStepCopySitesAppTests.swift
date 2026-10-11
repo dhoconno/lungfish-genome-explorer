@@ -47,10 +47,8 @@ final class ProvenanceStepCopySitesAppTests: XCTestCase {
             ).first
         )
 
-        XCTAssertEqual(Facts.changes(from: step, in: copy), [
-            "githubReleaseVersion": .lost, "durableReplayArgv": .changed, "resolvedOptions": .lost,
-            "runtimeIdentity": .lost, "peakMemoryBytes": .lost,
-        ])
+        XCTAssertEqual(Facts.changes(from: step, in: copy), ["durableReplayArgv": .changed, "resolvedOptions": .changed])
+        XCTAssertEqual(Facts.filePath(of: "input", in: copy), genome.standardizedFileURL.path, "the option follows the replay")
         XCTAssertEqual(copy.durableReplayArgv?.last, genome.standardizedFileURL.path, "the replay reads the durable FASTA")
     }
 
@@ -64,10 +62,8 @@ final class ProvenanceStepCopySitesAppTests: XCTestCase {
 
         let copy = try XCTUnwrap(FASTQBundleMergeService.normalizeTransientNativeSteps([step]).first)
 
-        XCTAssertEqual(Facts.changes(from: step, in: copy), [
-            "githubReleaseVersion": .lost, "durableReplayArgv": .lost, "resolvedOptions": .lost,
-            "runtimeIdentity": .lost, "peakMemoryBytes": .lost,
-        ])
+        // A transient step's replay would name files the merge removed, so only the replay command goes.
+        XCTAssertEqual(Facts.changes(from: step, in: copy), ["durableReplayArgv": .lost])
         XCTAssertEqual(copy.outputs, [], "a transient step names no output")
     }
 }

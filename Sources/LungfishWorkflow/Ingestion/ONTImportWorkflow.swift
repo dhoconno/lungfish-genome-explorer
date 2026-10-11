@@ -542,10 +542,9 @@ public struct ONTImportWorkflow: Sendable {
             copy.reproducibleCommand = remapPathString(step.reproducibleCommand, from: stagedBundleURL, to: finalBundleURL)
             copy.inputs = step.inputs.map { remapDescriptor($0, from: stagedBundleURL, to: finalBundleURL) }
             copy.outputs = step.outputs.map { remapDescriptor($0, from: stagedBundleURL, to: finalBundleURL) }
-            // This copy never kept these facts, and keeping them comes with 2.7.
-            copy.resolvedOptions = [:]
-            copy.runtimeIdentity = nil
-            copy.peakMemoryBytes = nil
+            copy.resolvedOptions = step.resolvedOptions.mapValues {
+                $0.rewritingPaths { remapPathString($0, from: stagedBundleURL, to: finalBundleURL) }
+            }
         }
     }
 

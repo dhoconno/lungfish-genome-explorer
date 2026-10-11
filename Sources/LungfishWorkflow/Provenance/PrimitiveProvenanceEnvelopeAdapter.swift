@@ -451,11 +451,6 @@ enum PrimitiveProvenanceEnvelopeAdapter {
             return step.with { copy in
                 copy.inputs = stepInputs
                 copy.outputs = stepOutputs
-                // This copy never kept these facts, and keeping them comes with 2.7.
-                copy.githubReleaseVersion = nil
-                copy.durableReplayArgv = nil
-                copy.resolvedOptions = [:]
-                copy.runtimeIdentity = nil
             }
         }
     }

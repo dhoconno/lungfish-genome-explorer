@@ -921,11 +921,11 @@ enum ReferenceBundleMergeService {
                 copy.reproducibleCommand = BundleMergeProvenance.commandLine(from: argv)
                 copy.inputs = inputs
                 copy.outputs = outputs
-                // This copy never kept these facts, and keeping them comes with 2.7.
-                copy.githubReleaseVersion = nil
-                copy.resolvedOptions = [:]
-                copy.runtimeIdentity = nil
-                copy.peakMemoryBytes = nil
+                // The options named the staged input as the replay command did, and both now name the durable FASTA.
+                let fastaPath = durableFASTAURL?.standardizedFileURL.path, staged = Set(step.inputs.map(\.path))
+                copy.resolvedOptions = step.resolvedOptions.mapValues { option in
+                    option.rewritingPaths { rewriteBuilderArgument($0, tempInputPaths: staged, durableFASTAPath: fastaPath) }
+                }
             }
         }
     }

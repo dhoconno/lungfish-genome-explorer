@@ -474,10 +474,7 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
         step.with { copy in
             copy.inputs = step.inputs.map { rewriteDescriptor($0, pathMap: pathMap) }
             copy.outputs = step.outputs.map { rewriteDescriptor($0, pathMap: pathMap) }
-            // This copy never kept these facts, and keeping them comes with 2.7.
-            copy.resolvedOptions = [:]
-            copy.runtimeIdentity = nil
-            copy.peakMemoryBytes = nil
+            // The rehydration rewrote the options with the replay command, so they name the destination.
         }
     }
 

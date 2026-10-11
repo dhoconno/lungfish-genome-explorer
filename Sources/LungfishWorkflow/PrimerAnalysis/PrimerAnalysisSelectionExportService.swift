@@ -432,7 +432,6 @@ public struct PrimerAnalysisSelectionExportService: Sendable {
       copy.runtimeIdentity = step.runtimeIdentity ?? runtime
       copy.inputs = inputs
       copy.outputs = outputs
-      copy.peakMemoryBytes = nil  // never kept by this copy, and keeping it comes with 2.7
     }
   }
 

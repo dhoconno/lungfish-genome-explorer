@@ -57,10 +57,7 @@ final class MarkdupEnvelopeCopyTests: XCTestCase {
 
         let copy = try XCTUnwrap(MarkdupCommand.markdupEnvelope(source, focusedOn: [output]).steps.first)
 
-        XCTAssertEqual(StepCopyFacts.changes(from: step, in: copy), [
-            "githubReleaseVersion": .lost, "durableReplayArgv": .lost, "resolvedOptions": .lost,
-            "runtimeIdentity": .lost, "peakMemoryBytes": .lost,
-        ])
+        XCTAssertEqual(StepCopyFacts.changes(from: step, in: copy), [:], "the copy keeps every fact of the step")
         XCTAssertEqual(copy.outputs, [output])
     }
 }

@@ -13,11 +13,10 @@ import LungfishTestSupport
 /// Where today's behaviour falls short of that, the test says so instead of weakening the check.
 /// The generic and GUI rehydrators used to write no embedded run, so a copied cancelled run read
 /// as completed (finding F3). Lane W2A fixed that by passing the stored status through, and the
-/// status checks are plain expectations now. The GUI import still rebuilds each step without its
-/// peak memory, resolved options, runtime identity and release version (lane finding W1A-1). That
-/// check sits inside `withKnownIssue`, so the suite passes today. The loss is deterministic, so
-/// the lane that fixes it gets a red "known issue was not recorded" and promotes that check to a
-/// plain expectation, which then guards the fix as a declared, reviewed difference.
+/// status checks are plain expectations now. The GUI import rebuilt each step without its peak
+/// memory, resolved options, runtime identity and release version (lane finding W1A-1) until lane
+/// S4b of 2.7 kept them, so the peak memory check that sat inside `withKnownIssue` is a plain
+/// expectation now and guards the fix as a declared, reviewed difference.
 @Suite("Provenance compatibility rehydration")
 struct ProvenanceCompatRehydrationTests {
     static let cancelledCaseID = "s1-cancelled-single-step"
@@ -196,25 +195,14 @@ struct ProvenanceCompatRehydrationTests {
             envelope: sourceEnvelope, sidecar: source.sidecar, projectRoot: source.projectRoot
         )
 
-        // The original steps are kept in order, and one import step is appended. The step's peak
-        // memory is not part of the comparison, because this import rebuilds the step without it.
+        // The original steps are kept in order with their peak memory, and one import step is appended.
         #expect(rehydrated.steps.count == sourceEnvelope.steps.count + 1)
         let keptSteps = Array(rehydratedFacts.steps.dropLast())
         #expect(
-            Self.stepIdentity(keptSteps, includePeakMemory: false)
-                == Self.stepIdentity(sourceFacts.steps, includePeakMemory: false)
+            Self.stepIdentity(keptSteps, includePeakMemory: true)
+                == Self.stepIdentity(sourceFacts.steps, includePeakMemory: true)
         )
-        // The loss shows only where the source recorded a peak memory, so the known issue is
-        // declared for those cases alone and every other case is checked plainly.
-        if sourceFacts.steps.contains(where: { $0.peakMemoryBytes != nil }) {
-            withKnownIssue(
-                "W1A-1: the GUI import rebuilds each step without its peak memory"
-            ) {
-                #expect(keptSteps.map(\.peakMemoryBytes) == sourceFacts.steps.map(\.peakMemoryBytes))
-            }
-        } else {
-            #expect(keptSteps.map(\.peakMemoryBytes) == sourceFacts.steps.map(\.peakMemoryBytes))
-        }
+        #expect(keptSteps.map(\.peakMemoryBytes) == sourceFacts.steps.map(\.peakMemoryBytes))
 
         // Container identity. The imported envelope holds no embedded run, so both step views are
         // rebuilt from the envelope, and a run with one container still shows its image and digest

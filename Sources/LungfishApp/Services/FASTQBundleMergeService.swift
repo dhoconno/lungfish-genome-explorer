@@ -509,11 +509,6 @@ enum FASTQBundleMergeService {
                 copy.durableReplayArgv = nil
                 copy.reproducibleCommand = BundleMergeProvenance.commandLine(from: step.argv)
                 copy.outputs = []
-                // This copy never kept these facts, and keeping them comes with 2.7.
-                copy.githubReleaseVersion = nil
-                copy.resolvedOptions = [:]
-                copy.runtimeIdentity = nil
-                copy.peakMemoryBytes = nil
             }
         }
     }

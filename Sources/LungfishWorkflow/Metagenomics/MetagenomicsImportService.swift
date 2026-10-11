@@ -2010,6 +2010,8 @@ private func nvdManifest(
 }
 
 struct NvdAuxiliaryStep {
+    /// Fixed when the step ran, so every conversion of it keeps one step id.
+    let id = UUID()
     let toolName: String
     let toolVersion: String
     let argv: [String]
@@ -2291,12 +2293,9 @@ func nvdAuxiliaryProvenanceSteps(
                 publishedRoot: publishedRoot
             )
         })
-        let durableReplayArgv = nvdDurableReplayArgv(
-            for: step,
-            stagingRoot: stagingRoot,
-            publishedRoot: publishedRoot
-        )
+        let durableReplayArgv = nvdDurableReplayArgv(for: step, stagingRoot: stagingRoot, publishedRoot: publishedRoot)
         return ProvenanceStep(
+            id: step.id,
             toolName: step.toolName,
             toolVersion: step.toolVersion,
             argv: step.argv,
