@@ -334,7 +334,7 @@ public final class ReferenceBundle: Sendable {
 
         // Validate region bounds
         guard region.start >= 0 && region.end <= chromInfo.length else {
-            logger.error("fetchSequenceSync: Region out of bounds: end=\(region.end) > length=\(chromInfo.length)")
+            logger.log(level: FASTAOutOfBoundsLog.level(start: region.start, end: region.end, length: Int(chromInfo.length)), "fetchSequenceSync: Region out of bounds: end=\(region.end) > length=\(chromInfo.length)")
             throw ReferenceBundleError.regionOutOfBounds(region, chromInfo.length)
         }
         let fetchRegion = canonicalRegion(region, for: chromInfo)

@@ -10,6 +10,19 @@ import os.log
 /// Logger for bgzip FASTA operations
 private let bgzipLogger = Logger(subsystem: LogSubsystem.io, category: "BgzipFASTA")
 
+/// How loudly a read that fails an indexed FASTA's bounds check is logged.
+///
+/// A window that begins inside a record and runs past its last base is a read a caller makes on
+/// purpose, such as a feature or a window that overhangs the end. The callers treat the thrown
+/// error as an empty result, so it logs at debug. A region that begins before the first base, or
+/// at or after the end, names coordinates the record does not have. That is a real out-of-bounds
+/// read and keeps its error. The read throws either way.
+enum FASTAOutOfBoundsLog {
+    static func level(start: Int, end: Int, length: Int) -> OSLogType {
+        start >= 0 && start < length && end > length ? .debug : .error
+    }
+}
+
 // MARK: - GZI Index
 
 /// Represents a bgzip index (.gzi) file for random access to bgzip-compressed files.
@@ -561,7 +574,7 @@ public final class SyncBgzipFASTAReader: Sendable {
         }
 
         guard region.start >= 0 && region.end <= entry.length else {
-            bgzipLogger.error("fetchSync: Region out of bounds: \(region.description) > \(entry.length)")
+            bgzipLogger.log(level: FASTAOutOfBoundsLog.level(start: region.start, end: region.end, length: entry.length), "fetchSync: Region out of bounds: \(region.description) > \(entry.length)")
             throw BgzipError.regionOutOfBounds(region, entry.length)
         }
 
