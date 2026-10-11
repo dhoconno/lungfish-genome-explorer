@@ -376,11 +376,11 @@ extension InspectorViewController {
         if provenance == nil, let scientificProvenance {
             let runtime = scientificProvenance.runtimeIdentity
             rows.append(("Workflow", scientificProvenance.workflowName))
-            rows.append(("Workflow Version", scientificProvenance.workflowVersion))
+            rows.append(("Workflow Version", scientificProvenance.workflowVersion ?? "Not recorded"))
             rows.append(("Workflow Command", scientificProvenance.reproducibleCommand))
             rows.append(("Run Date", Self.assemblyDateFormatter.string(from: scientificProvenance.createdAt)))
-            rows.append(("Host", "\(runtime.operatingSystemVersion) • \(runtime.architecture)"))
-            rows.append(("Lungfish", runtime.appVersion))
+            rows.append(("Host", "\(runtime.operatingSystemVersion ?? "Not recorded") • \(runtime.architecture ?? "Not recorded")"))
+            rows.append(("Lungfish", runtime.appVersion ?? "Not recorded"))
             if let environment = runtime.condaEnvironment, !environment.isEmpty {
                 rows.append(("Environment", environment))
             }

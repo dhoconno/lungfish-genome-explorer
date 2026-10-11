@@ -18,7 +18,9 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
     public let id: UUID
     public let createdAt: Date
     public let workflowName: String
-    public let workflowVersion: String
+    /// The version of the workflow that ran, or nil when the record holds none. A reader never
+    /// fills it with the version of the app that reads the record (plan decision S4).
+    public let workflowVersion: String?
     public let toolName: String
     public let toolVersion: String
     public let githubReleaseVersion: String?
@@ -89,7 +91,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         id: UUID = UUID(),
         createdAt: Date = Date(),
         workflowName: String,
-        workflowVersion: String = WorkflowRun.currentAppVersion,
+        workflowVersion: String? = WorkflowRun.currentAppVersion,
         toolName: String,
         toolVersion: String = "unknown",
         githubReleaseVersion: String? = nil,
@@ -114,7 +116,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         self.id = id
         self.createdAt = createdAt
         self.workflowName = ProvenanceName.required(workflowName)
-        self.workflowVersion = ProvenanceVersion.required(workflowVersion, fallback: WorkflowRun.currentAppVersion)
+        self.workflowVersion = workflowVersion.map { ProvenanceVersion.required($0, fallback: WorkflowRun.currentAppVersion) }
         self.toolName = ProvenanceName.required(toolName)
         self.toolVersion = ProvenanceVersion.required(toolVersion)
         self.githubReleaseVersion = githubReleaseVersion
@@ -145,9 +147,8 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
             try container.decodeIfPresent(String.self, forKey: .workflowName),
             fallback: try container.decodeIfPresent(String.self, forKey: .legacyName) ?? "unknown"
         )
-        workflowVersion = ProvenanceVersion.required(
-            try container.decodeIfPresent(String.self, forKey: .workflowVersion),
-            fallback: WorkflowRun.currentAppVersion
+        workflowVersion = ProvenanceRuntimeIdentity.recorded(
+            try container.decodeIfPresent(String.self, forKey: .workflowVersion)
         )
         let decodedTool = try container.decodeIfPresent(RawProvenanceToolIdentity.self, forKey: .tool)
         toolName = ProvenanceName.required(

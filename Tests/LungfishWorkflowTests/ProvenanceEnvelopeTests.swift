@@ -466,7 +466,7 @@ struct ProvenanceEnvelopeTests {
         let decoded = try ProvenanceEnvelopeReader.decode(data)
 
         #expect(decoded.workflowName == "analysis-fixture-provenance-historical-backfill")
-        #expect(decoded.workflowVersion.isEmpty == false)
+        #expect(decoded.workflowVersion == nil, "the record holds no workflow version, so none is invented")
         #expect(decoded.toolName == "write-analysis-fixture-provenance.py")
         #expect(decoded.outputs.map(\.path) == ["classification-result.json"])
         #expect(decoded.outputs.first?.role == .output)
@@ -920,17 +920,20 @@ struct ProvenanceEnvelopeTests {
         let steps = try #require(json["steps"] as? [[String: Any]])
         let firstStep = try #require(steps.first)
 
-        #expect((json["workflowVersion"] as? String)?.isEmpty == false)
+        // A version or runtime fact the record never held stays not recorded, never the reading
+        // Mac's (plan decision S4). The tool versions keep their recorded "unknown".
+        #expect(json["workflowVersion"] is NSNull)
         #expect((json["toolVersion"] as? String)?.isEmpty == false)
         #expect((tool["version"] as? String)?.isEmpty == false)
         #expect((firstStep["toolVersion"] as? String)?.isEmpty == false)
 
         let runtimeIdentity = try #require(json["runtimeIdentity"] as? [String: Any])
-        #expect((runtimeIdentity["appVersion"] as? String)?.isEmpty == false)
-        #expect((runtimeIdentity["executablePath"] as? String)?.isEmpty == false)
-        #expect(runtimeIdentity["processIdentifier"] is Int)
-        #expect((runtimeIdentity["operatingSystemVersion"] as? String)?.isEmpty == false)
-        #expect((runtimeIdentity["architecture"] as? String)?.isEmpty == false)
+        #expect(runtimeIdentity["appVersion"] == nil)
+        #expect(runtimeIdentity["executablePath"] == nil)
+        #expect(runtimeIdentity["processIdentifier"] == nil)
+        #expect(runtimeIdentity["operatingSystemVersion"] == nil)
+        #expect(runtimeIdentity["architecture"] == nil)
+        #expect(try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: encoded) == envelope)
     }
 
     @Test("malformed canonical JSON reconciles top-level tool version from tool identity")

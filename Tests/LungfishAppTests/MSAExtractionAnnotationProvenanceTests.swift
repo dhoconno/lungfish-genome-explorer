@@ -71,7 +71,7 @@ final class MSAExtractionAnnotationProvenanceTests: XCTestCase {
         })
         XCTAssertEqual(envelope.exitStatus, 0)
         XCTAssertEqual(envelope.wallTimeSeconds, 1)
-        XCTAssertFalse(envelope.runtimeIdentity.appVersion.isEmpty)
+        XCTAssertFalse(envelope.runtimeIdentity.appVersion?.isEmpty ?? true)
     }
 
     func testWriteUsesDurableSelectionSourcesRatherThanTemporaryFASTAOrBED() throws {

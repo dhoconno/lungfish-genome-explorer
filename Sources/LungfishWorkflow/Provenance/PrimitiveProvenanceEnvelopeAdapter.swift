@@ -122,9 +122,9 @@ enum PrimitiveProvenanceEnvelopeAdapter {
         return "unknown"
     }
 
-    private static func inferredWorkflowVersion(_ json: [String: Any]) -> String {
+    /// The version the record holds, or nil. Never the version of the app that reads it.
+    private static func inferredWorkflowVersion(_ json: [String: Any]) -> String? {
         string(json, keys: ["workflowVersion", "workflow_version", "lungfish_version", "lungfishVersion", "appVersion"])
-            ?? WorkflowRun.currentAppVersion
     }
 
     private static func inferredToolName(_ json: [String: Any], workflowName: String) -> String {
@@ -162,6 +162,7 @@ enum PrimitiveProvenanceEnvelopeAdapter {
         ]) ?? "unknown"
     }
 
+    /// Only what the record holds. A fact it never held stays nil (plan decision S4).
     private static func runtimeIdentity(_ json: [String: Any]) -> ProvenanceRuntimeIdentity {
         let runtime = dictionary(json["runtimeIdentity"])
             ?? dictionary(json["runtime_identity"])
@@ -169,12 +170,9 @@ enum PrimitiveProvenanceEnvelopeAdapter {
             ?? [:]
         return ProvenanceRuntimeIdentity(
             appVersion: string(runtime, keys: ["appVersion", "app_version"])
-                ?? string(json, keys: ["lungfish_version", "lungfishVersion", "workflowVersion", "workflow_version"])
-                ?? WorkflowRun.currentAppVersion,
-            executablePath: string(runtime, keys: ["executablePath", "executable_path", "executable"])
-                ?? ProvenanceRuntimeIdentity.currentExecutablePath,
-            processIdentifier: int(runtime, keys: ["processIdentifier", "process_identifier", "pid"])
-                ?? Int(ProcessInfo.processInfo.processIdentifier),
+                ?? string(json, keys: ["lungfish_version", "lungfishVersion", "workflowVersion", "workflow_version"]),
+            executablePath: string(runtime, keys: ["executablePath", "executable_path", "executable"]),
+            processIdentifier: int(runtime, keys: ["processIdentifier", "process_identifier", "pid"]),
             operatingSystemVersion: string(runtime, keys: [
                 "operatingSystemVersion",
                 "operating_system_version",
@@ -183,11 +181,9 @@ enum PrimitiveProvenanceEnvelopeAdapter {
                 "hostOS",
                 "host_os",
             ])
-                ?? string(json, keys: ["host_os", "hostOS"])
-                ?? WorkflowRun.currentHostOS,
+                ?? string(json, keys: ["host_os", "hostOS"]),
             architecture: string(runtime, keys: ["architecture", "arch", "hostArchitecture", "host_architecture"])
-                ?? string(json, keys: ["host_architecture", "hostArchitecture"])
-                ?? ProvenanceRuntimeIdentity.currentArchitecture,
+                ?? string(json, keys: ["host_architecture", "hostArchitecture"]),
             user: string(runtime, keys: ["user"]),
             condaEnvironment: string(runtime, keys: ["condaEnvironment", "conda_environment", "managedEnvironment", "managed_environment"])
                 ?? string(json, keys: ["managed_environment", "managedEnvironment"]),
@@ -196,7 +192,8 @@ enum PrimitiveProvenanceEnvelopeAdapter {
             containerImage: string(runtime, keys: ["containerImage", "container_image"])
                 ?? string(json, keys: ["container_image", "containerImage"]),
             containerDigest: string(runtime, keys: ["containerDigest", "container_digest"])
-                ?? string(json, keys: ["container_image_digest", "containerImageDigest"])
+                ?? string(json, keys: ["container_image_digest", "containerImageDigest"]),
+            dependencySet: string(runtime, keys: ["dependencySet", "dependency_set"])
         )
     }
 

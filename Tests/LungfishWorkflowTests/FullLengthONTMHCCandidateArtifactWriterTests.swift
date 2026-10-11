@@ -939,7 +939,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(result.toolVersions.map(\.toolName), ["minimap2", "samtools"])
         XCTAssertEqual(result.toolVersions.map(\.version), ["2.28-fake", "samtools 1.21-fake"])
         XCTAssertTrue(result.commandRecords.allSatisfy { $0.toolVersion?.isEmpty == false })
-        XCTAssertFalse(result.runtimeIdentity.executablePath.isEmpty)
+        XCTAssertFalse(result.runtimeIdentity.executablePath?.isEmpty ?? true)
         let transformations = Dictionary(uniqueKeysWithValues: result.transformationRecords.map {
             ($0.workflowName, $0)
         })

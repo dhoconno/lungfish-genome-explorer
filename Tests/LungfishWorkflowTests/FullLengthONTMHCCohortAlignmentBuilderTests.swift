@@ -190,9 +190,9 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
             result.toolVersions.map(\.discoveryCommand)
         )
         XCTAssertTrue(result.commandRecords.allSatisfy { $0.toolVersion?.isEmpty == false })
-        XCTAssertFalse(result.runtimeIdentity.executablePath.isEmpty)
-        XCTAssertFalse(result.runtimeIdentity.operatingSystemVersion.isEmpty)
-        XCTAssertFalse(result.runtimeIdentity.architecture.isEmpty)
+        XCTAssertFalse(result.runtimeIdentity.executablePath?.isEmpty ?? true)
+        XCTAssertFalse(result.runtimeIdentity.operatingSystemVersion?.isEmpty ?? true)
+        XCTAssertFalse(result.runtimeIdentity.architecture?.isEmpty ?? true)
 
         let finalBAMDescriptor = try XCTUnwrap(result.finalArtifactDescriptors.first {
             $0.path == result.bamURL.path

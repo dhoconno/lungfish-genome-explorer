@@ -695,9 +695,9 @@ final class ProvenanceInspectorViewModel {
         let toolIdentity = ProvenanceToolIdentityText.parse(toolName: envelope.toolName, toolVersion: envelope.toolVersion)
         summary = ProvenanceRunSummary(
             workflowName: envelope.workflowName,
-            workflowVersion: envelope.workflowVersion.isBlankOrUnknown
-                ? envelope.workflowVersion
-                : ProvenanceToolIdentityText.appVersionLabel(envelope.workflowVersion),
+            workflowVersion: envelope.workflowVersion.map {
+                $0.isBlankOrUnknown ? $0 : ProvenanceToolIdentityText.appVersionLabel($0)
+            } ?? "Not recorded",
             toolName: envelope.toolName,
             toolVersion: envelope.toolVersion.isBlankOrUnknown ? "" : toolIdentity.displayVersion,
             createdAt: envelope.createdAt,
@@ -1000,11 +1000,11 @@ final class ProvenanceInspectorViewModel {
 
     private func buildRuntimeRows(_ runtime: ProvenanceRuntimeIdentity) -> [ProvenanceRuntimeRow] {
         var rows: [ProvenanceRuntimeRow] = [
-            ProvenanceRuntimeRow(label: "App Version", value: runtime.appVersion),
-            ProvenanceRuntimeRow(label: "Executable", value: runtime.executablePath),
-            ProvenanceRuntimeRow(label: "Process ID", value: "\(runtime.processIdentifier)"),
-            ProvenanceRuntimeRow(label: "OS", value: runtime.operatingSystemVersion),
-            ProvenanceRuntimeRow(label: "Architecture", value: runtime.architecture),
+            ProvenanceRuntimeRow(label: "App Version", value: runtime.appVersion ?? "Not recorded"),
+            ProvenanceRuntimeRow(label: "Executable", value: runtime.executablePath ?? "Not recorded"),
+            ProvenanceRuntimeRow(label: "Process ID", value: runtime.processIdentifier.map(String.init) ?? "Not recorded"),
+            ProvenanceRuntimeRow(label: "OS", value: runtime.operatingSystemVersion ?? "Not recorded"),
+            ProvenanceRuntimeRow(label: "Architecture", value: runtime.architecture ?? "Not recorded"),
         ]
         appendOptional("Git Revision", runtime.gitRevision, to: &rows)
         appendOptional("User", runtime.user, to: &rows)

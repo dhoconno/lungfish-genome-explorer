@@ -59,7 +59,7 @@ final class FastqImportONTProvenanceTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["includeUnclassified"], .boolean(false))
         XCTAssertEqual(envelope.options.resolvedDefaults["concurrency"], .integer(1))
         XCTAssertEqual(envelope.options.resolvedDefaults["caller"], .string("cli"))
-        XCTAssertFalse(envelope.runtimeIdentity.executablePath.isEmpty)
+        XCTAssertFalse(envelope.runtimeIdentity.executablePath?.isEmpty ?? true)
 
         let manifestURL = outputURL.appendingPathComponent(DemultiplexManifest.filename)
         let bundleURL = outputURL.appendingPathComponent("barcode01.lungfishfastq", isDirectory: true)

@@ -117,7 +117,7 @@ final class PrimerDesignDialogPresenter {
             ? "unpooled unless native output assigns a pool" : "native fixed two-pool tiled workflow")
       }
       let invocation = PrimerAnalysisWrapperInvocation(
-        argv: CommandLine.arguments, callerVersion: runtime.appVersion,
+        argv: CommandLine.arguments, callerVersion: runtime.appVersion ?? WorkflowRun.currentAppVersion,
         explicitOptions: visibleOptions, runtimeIdentity: runtime)
       let checksums = state.inputSummaries.mapValues(\.checksumSHA256)
       let executable: URL? = state.engine == .primalScheme ? state.primalschemeExecutableURL : nil

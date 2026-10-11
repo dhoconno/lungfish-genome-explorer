@@ -226,7 +226,49 @@ public struct WorkflowRun: Codable, Sendable, Identifiable, Equatable {
 // MARK: - Canonical Provenance Conversion
 
 extension WorkflowRun {
+    /// The envelope a writer makes of this run. The executable path, process ID, architecture and
+    /// dependency set are the writing process's own, because a run holds none of them.
     public func canonicalEnvelope(resolvedDefaults: [String: ParameterValue] = [:]) -> ProvenanceEnvelope {
+        envelope(
+            resolvedDefaults: resolvedDefaults,
+            workflowVersion: ProvenanceVersion.required(appVersion, fallback: WorkflowRun.currentAppVersion),
+            runtimeIdentity: ProvenanceRuntimeIdentity(
+                appVersion: appVersion,
+                operatingSystemVersion: hostOS,
+                user: runtime.user,
+                containerImage: steps.first?.containerImage,
+                containerDigest: steps.first?.containerDigest
+            )
+        )
+    }
+
+    /// The envelope a reader makes of a decoded bare run. It holds only what the run recorded, so
+    /// the executable path, process ID, architecture and dependency set read Not recorded instead
+    /// of the reading Mac's (plan decision S4).
+    func recordedEnvelope() -> ProvenanceEnvelope {
+        let recordedAppVersion = ProvenanceRuntimeIdentity.recorded(appVersion)
+        return envelope(
+            resolvedDefaults: [:],
+            workflowVersion: recordedAppVersion,
+            runtimeIdentity: ProvenanceRuntimeIdentity(
+                appVersion: recordedAppVersion,
+                executablePath: nil,
+                processIdentifier: nil,
+                operatingSystemVersion: ProvenanceRuntimeIdentity.recorded(hostOS),
+                architecture: nil,
+                user: runtime.user,
+                containerImage: steps.first?.containerImage,
+                containerDigest: steps.first?.containerDigest,
+                dependencySet: nil
+            )
+        )
+    }
+
+    private func envelope(
+        resolvedDefaults: [String: ParameterValue],
+        workflowVersion: String?,
+        runtimeIdentity: ProvenanceRuntimeIdentity
+    ) -> ProvenanceEnvelope {
         let firstStep = steps.first
         let convertedSteps = steps.map(ProvenanceStep.init(stepExecution:))
         let allFiles = convertedSteps.flatMap { $0.inputs + $0.outputs }
@@ -238,7 +280,7 @@ extension WorkflowRun {
             id: id,
             createdAt: startTime,
             workflowName: name,
-            workflowVersion: ProvenanceVersion.required(appVersion, fallback: WorkflowRun.currentAppVersion),
+            workflowVersion: workflowVersion,
             toolName: firstStep?.toolName ?? name,
             toolVersion: ProvenanceVersion.required(firstStep?.toolVersion, fallback: appVersion),
             githubReleaseVersion: firstStep?.githubReleaseVersion ?? parameters["github_release_version"]?.stringValue,
@@ -251,13 +293,7 @@ extension WorkflowRun {
             durableReplayArgv: firstStep?.durableReplayArgv,
             reproducibleCommand: firstStep?.commandString,
             options: ProvenanceOptions(explicit: parameters, resolvedDefaults: resolvedDefaults),
-            runtimeIdentity: ProvenanceRuntimeIdentity(
-                appVersion: appVersion,
-                operatingSystemVersion: hostOS,
-                user: runtime.user,
-                containerImage: firstStep?.containerImage,
-                containerDigest: firstStep?.containerDigest
-            ),
+            runtimeIdentity: runtimeIdentity,
             files: allFiles,
             output: topLevelOutput,
             outputs: allOutputs,
@@ -372,19 +408,19 @@ extension ProvenanceEnvelope {
             legacySteps = convertedSteps
         }
 
+        // A `WorkflowRun` needs text where the record may hold nothing. It gets the empty string,
+        // which no app version or OS reads as, never the reading Mac's value (plan decision S4).
+        let appVersion = runtimeIdentity.appVersion ?? ""
+        let hostOS = runtimeIdentity.operatingSystemVersion ?? ""
         return WorkflowRun(
             id: id,
             name: workflowName,
             startTime: legacySteps.first?.startTime ?? createdAt,
             endTime: legacySteps.compactMap(\.endTime).max() ?? completedAtFromWallTime,
             status: status,
-            appVersion: runtimeIdentity.appVersion,
-            hostOS: runtimeIdentity.operatingSystemVersion,
-            runtime: WorkflowRuntime(
-                appVersion: runtimeIdentity.appVersion,
-                hostOS: runtimeIdentity.operatingSystemVersion,
-                user: runtimeIdentity.user
-            ),
+            appVersion: appVersion,
+            hostOS: hostOS,
+            runtime: WorkflowRuntime(appVersion: appVersion, hostOS: hostOS, user: runtimeIdentity.user),
             steps: legacySteps,
             parameters: options.explicit
         )

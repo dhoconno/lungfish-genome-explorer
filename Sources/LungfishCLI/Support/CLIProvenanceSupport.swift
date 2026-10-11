@@ -152,8 +152,8 @@ enum CLIProvenanceSupport {
             appVersion: WorkflowRun.currentAppVersion,
             hostOS: WorkflowRun.currentHostOS,
             runtime: WorkflowRuntime(
-                appVersion: runtimeIdentity.appVersion,
-                hostOS: runtimeIdentity.operatingSystemVersion,
+                appVersion: runtimeIdentity.appVersion ?? WorkflowRun.currentAppVersion,
+                hostOS: runtimeIdentity.operatingSystemVersion ?? WorkflowRun.currentHostOS,
                 user: runtimeIdentity.user
             ),
             steps: ([step] + extraSteps).map {

@@ -455,11 +455,11 @@ final class MetadataCommandFunctionalTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        XCTAssertFalse(envelope.runtimeIdentity.appVersion.isEmpty, file: file, line: line)
-        XCTAssertFalse(envelope.runtimeIdentity.executablePath.isEmpty, file: file, line: line)
-        XCTAssertFalse(envelope.runtimeIdentity.operatingSystemVersion.isEmpty, file: file, line: line)
-        XCTAssertFalse(envelope.runtimeIdentity.architecture.isEmpty, file: file, line: line)
-        XCTAssertGreaterThan(envelope.runtimeIdentity.processIdentifier, 0, file: file, line: line)
+        XCTAssertFalse(envelope.runtimeIdentity.appVersion?.isEmpty ?? true, file: file, line: line)
+        XCTAssertFalse(envelope.runtimeIdentity.executablePath?.isEmpty ?? true, file: file, line: line)
+        XCTAssertFalse(envelope.runtimeIdentity.operatingSystemVersion?.isEmpty ?? true, file: file, line: line)
+        XCTAssertFalse(envelope.runtimeIdentity.architecture?.isEmpty ?? true, file: file, line: line)
+        XCTAssertGreaterThan(envelope.runtimeIdentity.processIdentifier ?? 0, 0, file: file, line: line)
     }
 
     private func assertNoStagingOnlyOutputs(

@@ -20,7 +20,7 @@ public enum ProvenanceCompleteness {
         if envelope.workflowName.isBlankOrUnknown {
             found.append("Workflow name is missing.")
         }
-        if envelope.workflowVersion.isBlankOrUnknown {
+        if envelope.workflowVersion?.isBlankOrUnknown == true {
             found.append("Workflow version is missing.")
         }
         if envelope.toolName.isBlankOrUnknown {

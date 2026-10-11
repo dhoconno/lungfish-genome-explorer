@@ -6,12 +6,17 @@ import Foundation
 
 // MARK: - ProvenanceRuntimeIdentity
 
+/// The app, executable and host that produced a record.
+///
+/// A writer fills every field from its own process. A reader keeps only what the record holds,
+/// so a field the record never held is nil and reads Not recorded, never a value from the Mac
+/// that reads it (plan decision S4).
 public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
-    public let appVersion: String
-    public let executablePath: String
-    public let processIdentifier: Int
-    public let operatingSystemVersion: String
-    public let architecture: String
+    public let appVersion: String?
+    public let executablePath: String?
+    public let processIdentifier: Int?
+    public let operatingSystemVersion: String?
+    public let architecture: String?
     public let gitRevision: String?
     public let user: String?
     public let condaEnvironment: String?
@@ -37,12 +42,14 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         case dependencySet
     }
 
+    /// A writer passes values or takes the defaults of its own process, and a blank value takes the
+    /// default as before. A reader passes nil for a field the record never held.
     public init(
-        appVersion: String = WorkflowRun.currentAppVersion,
-        executablePath: String = Self.currentExecutablePath,
-        processIdentifier: Int = Int(ProcessInfo.processInfo.processIdentifier),
-        operatingSystemVersion: String = WorkflowRun.currentHostOS,
-        architecture: String = Self.currentArchitecture,
+        appVersion: String? = WorkflowRun.currentAppVersion,
+        executablePath: String? = Self.currentExecutablePath,
+        processIdentifier: Int? = Int(ProcessInfo.processInfo.processIdentifier),
+        operatingSystemVersion: String? = WorkflowRun.currentHostOS,
+        architecture: String? = Self.currentArchitecture,
         gitRevision: String? = nil,
         user: String? = WorkflowRun.currentUser,
         condaEnvironment: String? = nil,
@@ -52,11 +59,13 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         containerDigest: String? = nil,
         dependencySet: String? = ManagedToolLock.bundled.resolvedDependencySet
     ) {
-        self.appVersion = ProvenanceVersion.required(appVersion, fallback: WorkflowRun.currentAppVersion)
-        self.executablePath = ProvenanceVersion.required(executablePath, fallback: Self.currentExecutablePath)
+        self.appVersion = appVersion.map { ProvenanceVersion.required($0, fallback: WorkflowRun.currentAppVersion) }
+        self.executablePath = executablePath.map { ProvenanceVersion.required($0, fallback: Self.currentExecutablePath) }
         self.processIdentifier = processIdentifier
-        self.operatingSystemVersion = ProvenanceVersion.required(operatingSystemVersion, fallback: WorkflowRun.currentHostOS)
-        self.architecture = ProvenanceVersion.required(architecture, fallback: Self.currentArchitecture)
+        self.operatingSystemVersion = operatingSystemVersion.map {
+            ProvenanceVersion.required($0, fallback: WorkflowRun.currentHostOS)
+        }
+        self.architecture = architecture.map { ProvenanceVersion.required($0, fallback: Self.currentArchitecture) }
         self.gitRevision = gitRevision
         let normalizedUser = user?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.user = normalizedUser?.isEmpty == false ? normalizedUser : nil
@@ -68,26 +77,14 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         self.dependencySet = dependencySet
     }
 
+    /// A missing or blank key decodes as nil. A present value decodes trimmed, as before.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        appVersion = ProvenanceVersion.required(
-            try container.decodeIfPresent(String.self, forKey: .appVersion),
-            fallback: WorkflowRun.currentAppVersion
-        )
-        executablePath = ProvenanceVersion.required(
-            try container.decodeIfPresent(String.self, forKey: .executablePath),
-            fallback: Self.currentExecutablePath
-        )
+        appVersion = Self.recorded(try container.decodeIfPresent(String.self, forKey: .appVersion))
+        executablePath = Self.recorded(try container.decodeIfPresent(String.self, forKey: .executablePath))
         processIdentifier = try container.decodeIfPresent(Int.self, forKey: .processIdentifier)
-            ?? Int(ProcessInfo.processInfo.processIdentifier)
-        operatingSystemVersion = ProvenanceVersion.required(
-            try container.decodeIfPresent(String.self, forKey: .operatingSystemVersion),
-            fallback: WorkflowRun.currentHostOS
-        )
-        architecture = ProvenanceVersion.required(
-            try container.decodeIfPresent(String.self, forKey: .architecture),
-            fallback: Self.currentArchitecture
-        )
+        operatingSystemVersion = Self.recorded(try container.decodeIfPresent(String.self, forKey: .operatingSystemVersion))
+        architecture = Self.recorded(try container.decodeIfPresent(String.self, forKey: .architecture))
         gitRevision = try container.decodeIfPresent(String.self, forKey: .gitRevision)
         user = try container.decodeIfPresent(String.self, forKey: .user)
         condaEnvironment = try container.decodeIfPresent(String.self, forKey: .condaEnvironment)
@@ -96,6 +93,14 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         containerImage = try container.decodeIfPresent(String.self, forKey: .containerImage)
         containerDigest = try container.decodeIfPresent(String.self, forKey: .containerDigest)
         dependencySet = try container.decodeIfPresent(String.self, forKey: .dependencySet)
+    }
+
+    /// A recorded text value trimmed, or nil when the record holds none or only blanks.
+    static func recorded(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 
     public static var currentExecutablePath: String {

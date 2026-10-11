@@ -311,6 +311,21 @@ final class ProvenanceSchemaVersion2Tests: XCTestCase {
         }
     }
 
+    /// The facts leave runtime values out, so they are compared here. Version 2 keeps the runtime
+    /// identity and the workflow version, and no reader fills one from the reading Mac.
+    func testVersion2RecordsReadTheRuntimeIdentityOfTheirSources() throws {
+        for source in try Self.allSources() {
+            let version1 = try Self.place(source.version1, at: source.layout)
+            defer { version1.cleanup() }
+            let version2 = try Self.place(SchemaVersion2.derive(fromVersion1: source.version1), at: source.layout)
+            defer { version2.cleanup() }
+            let read1 = try XCTUnwrap(try ProvenanceEnvelopeReader.load(fromSidecar: version1.sidecar))
+            let read2 = try XCTUnwrap(try ProvenanceEnvelopeReader.load(fromSidecar: version2.sidecar))
+            XCTAssertEqual(read2.runtimeIdentity, read1.runtimeIdentity, "runtime identity of version 2 of \(source.name)")
+            XCTAssertEqual(read2.workflowVersion, read1.workflowVersion, "workflow version of version 2 of \(source.name)")
+        }
+    }
+
     // MARK: Version 3
 
     /// A record at a later version with keys no reader knows reads without an error and with the

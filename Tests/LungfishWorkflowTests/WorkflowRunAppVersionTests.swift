@@ -37,7 +37,7 @@ final class WorkflowRunAppVersionTests: XCTestCase {
     func testRuntimeIdentityUsesTheCurrentAppVersion() {
         let identity = ProvenanceRuntimeIdentity()
         XCTAssertEqual(identity.appVersion, WorkflowRun.currentAppVersion)
-        XCTAssertTrue(identity.appVersion.contains(LungfishAppVersion.short) || identity.appVersion.hasPrefix("Lungfish "))
+        XCTAssertTrue(identity.appVersion?.contains(LungfishAppVersion.short) == true || identity.appVersion?.hasPrefix("Lungfish ") == true)
         XCTAssertNotEqual(identity.appVersion, "Lungfish dev (0)")
     }
     /// The packaged CLI's embedded identity plist has no version keys; its

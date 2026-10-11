@@ -935,14 +935,14 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
 
     private func savontRuntimeIdentityIsManaged(_ runtime: ProvenanceRuntimeIdentity) -> Bool {
         guard runtime.condaEnvironment == SavontClusteringRunRequest.condaEnvironment,
-              isNonEmpty(runtime.executablePath),
-              NSString(string: runtime.executablePath).isAbsolutePath,
+              let executablePath = runtime.executablePath, isNonEmpty(executablePath),
+              NSString(string: executablePath).isAbsolutePath,
               let condaPrefix = runtime.condaPrefix,
               NSString(string: condaPrefix).isAbsolutePath else {
             return false
         }
 
-        let executableURL = URL(fileURLWithPath: runtime.executablePath).standardizedFileURL
+        let executableURL = URL(fileURLWithPath: executablePath).standardizedFileURL
         let managedRootURL = executableURL
             .deletingLastPathComponent()
             .deletingLastPathComponent()

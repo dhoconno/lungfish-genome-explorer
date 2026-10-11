@@ -97,7 +97,7 @@ public enum ProvenanceEnvelopeReader {
             return (envelope, .envelope)
         }
         if let legacy = try? ProvenanceJSON.decoder.decode(WorkflowRun.self, from: data) {
-            return (legacy.canonicalEnvelope(), .workflowRun)
+            return (legacy.recordedEnvelope(), .workflowRun)
         }
         let envelope = try PrimitiveProvenanceEnvelopeAdapter.decode(
             data,

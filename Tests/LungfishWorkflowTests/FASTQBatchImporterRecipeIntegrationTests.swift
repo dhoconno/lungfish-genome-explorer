@@ -332,7 +332,7 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
         XCTAssertTrue(ephemeralFASTQOutputs.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) })
         XCTAssertEqual(fastpProvenanceStep.runtimeIdentity?.condaEnvironment, "fastp")
         XCTAssertTrue(fastpProvenanceStep.runtimeIdentity?.condaPrefix?.contains("/envs/fastp") == true)
-        XCTAssertTrue(fastpProvenanceStep.runtimeIdentity?.executablePath.hasSuffix("/bin/fastp") == true)
+        XCTAssertTrue(fastpProvenanceStep.runtimeIdentity?.executablePath?.hasSuffix("/bin/fastp") == true)
         XCTAssertEqual(
             fastpProvenanceStep.resolvedOptions["recipeLogicalComponents"],
             .array([

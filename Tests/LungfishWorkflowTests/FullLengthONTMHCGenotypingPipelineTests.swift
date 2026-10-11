@@ -3519,9 +3519,9 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 XCTAssertNotNil(descriptor.fileSize, "\(step.toolName): \(descriptor.path)")
             }
         }
-        XCTAssertFalse(envelope.runtimeIdentity.executablePath.isEmpty)
-        XCTAssertFalse(envelope.runtimeIdentity.operatingSystemVersion.isEmpty)
-        XCTAssertFalse(envelope.runtimeIdentity.architecture.isEmpty)
+        XCTAssertFalse(envelope.runtimeIdentity.executablePath?.isEmpty ?? true)
+        XCTAssertFalse(envelope.runtimeIdentity.operatingSystemVersion?.isEmpty ?? true)
+        XCTAssertFalse(envelope.runtimeIdentity.architecture?.isEmpty ?? true)
         XCTAssertTrue(envelope.outputs.allSatisfy {
             !$0.path.contains(".run-staging-") && !$0.path.contains(".candidate-artifact-work")
         }, envelope.outputs.map(\.path).joined(separator: "\n"))
@@ -4245,7 +4245,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(envelope.argv.first, CLICommandIdentity.executableName)
         XCTAssertTrue(envelope.steps.contains { $0.argv.contains("renameatx_np") })
         XCTAssertTrue(envelope.steps.contains { $0.reproducibleCommand.contains("publish-result-bundle") })
-        XCTAssertFalse(envelope.runtimeIdentity.executablePath.isEmpty)
+        XCTAssertFalse(envelope.runtimeIdentity.executablePath?.isEmpty ?? true)
         XCTAssertEqual(envelope.options.resolvedDefaults["outcome"]?.stringValue, "failed")
         XCTAssertFalse(envelope.files.isEmpty)
         XCTAssertFalse(envelope.outputs.isEmpty)
