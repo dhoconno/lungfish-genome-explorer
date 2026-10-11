@@ -15,7 +15,9 @@ public enum ProvenanceEnvelopeReader {
         /// Any other JSON object, read by the primitive adapter.
         case primitive
         /// A typed record that keeps its own schema, such as `mapping-provenance.json`, which the
-        /// finder converts through its own type. It is never the Older record format.
+        /// finder converts through its own type, or an alignment, tree or workbook receipt record
+        /// that states its status, which the primitive adapter reads (Phase 2.7 B6). It is never the
+        /// Older record format.
         case typedRecord
     }
 
@@ -97,7 +99,7 @@ public enum ProvenanceEnvelopeReader {
 
     /// The envelope, then a bare `WorkflowRun`, then the primitive adapter, which accepts any
     /// JSON object. An envelope requires `createdAt` and a run requires `startTime`, so only the
-    /// adapter can invent a date.
+    /// adapter can invent a date. A record the adapter recognizes as a typed record reads as one.
     private static func shaped(
         _ data: Data,
         sourceURL: URL?,
@@ -114,7 +116,7 @@ public enum ProvenanceEnvelopeReader {
             sourceURL: sourceURL,
             fallbackCreatedAt: fallbackCreatedAt
         )
-        return (adapted.envelope, .primitive, adapted.createdAtWasInvented)
+        return (adapted.envelope, adapted.isTypedRecord ? .typedRecord : .primitive, adapted.createdAtWasInvented)
     }
 
     private static func reading(_ data: Data, sourceURL: URL?, fallbackCreatedAt: Date?) throws -> Reading {
@@ -131,10 +133,13 @@ public enum ProvenanceEnvelopeReader {
             statusWasRecorded = stated.flatMap(RunStatus.init(rawValue:)) != nil || envelope.legacyRun != nil
         case .workflowRun:
             statusWasRecorded = true
-        case .primitive, .typedRecord:
-            // The adapter reads no status key, so the status is always derived. A typed record
-            // never reaches this decoder, because the finder converts it through its own type.
+        case .primitive:
+            // The adapter reads no status key of a primitive record, so the status is always derived.
             statusWasRecorded = false
+        case .typedRecord:
+            // Only a record that states its status reads as typed here. A typed mapping record never
+            // reaches this decoder, because the finder converts it through its own type.
+            statusWasRecorded = true
         }
         return Reading(
             envelope: envelope,

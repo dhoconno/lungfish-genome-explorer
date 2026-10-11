@@ -5,14 +5,16 @@
 import Foundation
 
 enum PrimitiveProvenanceEnvelopeAdapter {
-    /// The envelope, and whether its date was invented. A record that holds no date is dated by
-    /// `fallbackCreatedAt`, the file's modification time, or by 1970 without one, and a display
-    /// then shows the date as Not recorded (plan decision V6).
+    /// The envelope, whether its date was invented and whether the record is a typed record. A record
+    /// that holds no date is dated by `fallbackCreatedAt`, the file's modification time, or by 1970
+    /// without one, and a display then shows the date as Not recorded (plan decision V6). A typed
+    /// record is one of ``typedRecordStatus(_:)``'s kinds that states its status, which the envelope
+    /// then holds.
     static func decode(
         _ data: Data,
         sourceURL: URL?,
         fallbackCreatedAt: Date? = nil
-    ) throws -> (envelope: ProvenanceEnvelope, createdAtWasInvented: Bool) {
+    ) throws -> (envelope: ProvenanceEnvelope, createdAtWasInvented: Bool, isTypedRecord: Bool) {
         let object = try JSONSerialization.jsonObject(with: data)
         guard let json = object as? [String: Any] else {
             throw DecodingError.dataCorrupted(
@@ -39,6 +41,7 @@ enum PrimitiveProvenanceEnvelopeAdapter {
             "recorded_at",
         ])
         let createdAt = recordedCreatedAt ?? fallbackCreatedAt ?? Date(timeIntervalSince1970: 0)
+        let typedStatus = typedRecordStatus(json)
         let runtime = runtimeIdentity(provenanceJSON)
         let inputs = inputDescriptors(provenanceJSON)
         var outputs = outputDescriptors(provenanceJSON)
@@ -93,9 +96,28 @@ enum PrimitiveProvenanceEnvelopeAdapter {
             steps: steps,
             wallTimeSeconds: double(provenanceJSON, keys: ["wallTimeSeconds", "wall_time_seconds", "wallTime"]),
             exitStatus: int(provenanceJSON, keys: ["exitStatus", "exit_status", "exitCode"]),
-            stderr: string(provenanceJSON, keys: ["stderr"])
+            stderr: string(provenanceJSON, keys: ["stderr"]),
+            status: typedStatus
         )
-        return (envelope, recordedCreatedAt == nil)
+        return (envelope, recordedCreatedAt == nil, typedStatus != nil)
+    }
+
+    /// The status of a record LGE writes in its own shape, or nil when the record is not one of those
+    /// kinds or states no status the reader knows (Phase 2.7 lane B6, panel decision P13).
+    ///
+    /// The kinds are the native alignment records (`multiple-sequence-alignment-*`), the tree records
+    /// (`phylogenetic-tree-*` and the shape `looksLikeTreeProvenance` knows) and the genotype workbook
+    /// receipt. Their writers state `status` since 2.7, and only a record that states one reads as a
+    /// typed record, so a record written before keeps the Older record format and its display.
+    static func typedRecordStatus(_ json: [String: Any]) -> RunStatus? {
+        guard let status = (json["status"] as? String).flatMap(RunStatus.init(rawValue:)) else { return nil }
+        if string(json, keys: ["toolName"]) == "lungfish genotype Excel export" { return status }
+        let workflowName = string(json, keys: ["workflowName"]) ?? ""
+        let nativePrefixes = ["multiple-sequence-alignment-", "phylogenetic-tree-"]
+        if nativePrefixes.contains(where: workflowName.hasPrefix) || looksLikeTreeProvenance(json) {
+            return status
+        }
+        return nil
     }
 
     private static func latestLogEntry(in json: [String: Any]) -> [String: Any]? {
@@ -206,9 +228,13 @@ enum PrimitiveProvenanceEnvelopeAdapter {
         )
     }
 
+    /// The record's options. `options` in the envelope's own three groups, as a version 2 envelope the
+    /// envelope decoder refused or a tree record writes them, reads as those groups, never as three
+    /// nested options. Any other `options` object reads as explicit options, as before.
     private static func provenanceOptions(_ json: [String: Any]) -> ProvenanceOptions {
         var explicit: [String: ParameterValue] = [:]
-        mergeOptions(from: dictionary(json["options"]), into: &explicit)
+        let grouped = groupedOptions(json["options"])
+        mergeOptions(from: grouped == nil ? dictionary(json["options"]) : grouped?.explicit, into: &explicit)
         mergeOptions(from: dictionary(json["parameters"]), into: &explicit)
         mergeOptions(from: dictionary(json["resolvedOptions"]), into: &explicit)
         mergeOptions(from: dictionary(json["resolved_options"]), into: &explicit)
@@ -218,7 +244,25 @@ enum PrimitiveProvenanceEnvelopeAdapter {
         if let value = string(json, keys: ["managed_environment", "managedEnvironment"]) {
             explicit["managedEnvironment"] = .string(value)
         }
-        return ProvenanceOptions(explicit: explicit)
+        var defaults: [String: ParameterValue] = [:]
+        var resolvedDefaults: [String: ParameterValue] = [:]
+        mergeOptions(from: grouped?.defaults, into: &defaults)
+        mergeOptions(from: grouped?.resolvedDefaults, into: &resolvedDefaults)
+        return ProvenanceOptions(explicit: explicit, defaults: defaults, resolvedDefaults: resolvedDefaults)
+    }
+
+    /// The three groups of an `options` object that holds only `explicit`, `defaults` and
+    /// `resolvedDefaults`, each an object, or nil for any other value. A record such as the shipped
+    /// MHC reference record, whose options hold a `defaults` object beside other keys, is not grouped.
+    private static func groupedOptions(
+        _ value: Any?
+    ) -> (explicit: [String: Any]?, defaults: [String: Any]?, resolvedDefaults: [String: Any]?)? {
+        guard let options = dictionary(value), !options.isEmpty,
+              Set(options.keys).isSubset(of: ["explicit", "defaults", "resolvedDefaults"]),
+              options.values.allSatisfy({ $0 is [String: Any] }) else {
+            return nil
+        }
+        return (dictionary(options["explicit"]), dictionary(options["defaults"]), dictionary(options["resolvedDefaults"]))
     }
 
     private static func mergeOptions(from dictionary: [String: Any]?, into explicit: inout [String: ParameterValue]) {
