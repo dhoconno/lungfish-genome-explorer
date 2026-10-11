@@ -318,7 +318,8 @@ struct ProvenanceSection: View {
     }
 
     private var rawJSONContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let display = viewModel.rawJSONDisplay
+        return VStack(alignment: .leading, spacing: 8) {
             if viewModel.rawJSON.isEmpty {
                 emptyMessage("No raw provenance JSON is available.")
             } else {
@@ -334,10 +335,14 @@ struct ProvenanceSection: View {
                     .accessibilityIdentifier("provenance-copy-json")
                 }
 
+                ForEach(display.captions, id: \.self) { caption in
+                    emptyMessage(caption)
+                        .accessibilityIdentifier("provenance-raw-json-caption")
+                }
+
                 SelectableWrappingText(
-                    viewModel.rawJSON,
+                    display.shownText,
                     font: ContentTypographyModel.shared.resolvedNSFont(for: .monospaced),
-                    maximumNumberOfLines: 80,
                     accessibilityIdentifier: "provenance-raw-json-text"
                 )
                     .frame(maxWidth: .infinity, alignment: .leading)
