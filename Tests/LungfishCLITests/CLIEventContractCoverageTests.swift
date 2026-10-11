@@ -135,6 +135,9 @@ final class CLIEventContractCoverageTests: XCTestCase {
     /// that still print each and the sub-phase that retires it. A lane that retires a shape
     /// deletes its rows in `CLIEventContractTable` and its entry here in the same commit.
     /// A lane that adds a private shape has to add both, which is what makes it a decision.
+    /// `fastq genotype`, `genotype-cohort`, `ont-barcode-genotype` and `full-length-ont-mhc-genotype`
+    /// also print R3 on standard error beside their document, so the lane that retires R3 converts
+    /// all six leaves.
     private static let shapesLeft: [String: (removeBy: String, leaves: [String])] = [
         "s1-import-fastq": ("2.7", ["import fastq", "import-fastq"]),
         "s2-native-bundle-import": ("2.6", ["import msa", "import tree"]),

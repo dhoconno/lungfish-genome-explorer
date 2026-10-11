@@ -176,6 +176,9 @@ public enum CLIEventContractTable {
 
     // MARK: Private stream shapes still in use (20 leaves)
 
+    // `fastq genotype`, `genotype-cohort`, `ont-barcode-genotype` and `full-length-ont-mhc-genotype`
+    // also print R3 on standard error beside their document, so the lane that retires R3 converts
+    // all six leaves.
     private static let legacy: [String: CLIEventContract] = [
         "bam annotate": .legacy(schemaID: "s11-bam-annotate", removeBy: "2.9"),
         "bam annotate-best": .legacy(schemaID: "s12-bam-annotate-best", removeBy: "2.9"),

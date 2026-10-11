@@ -102,18 +102,18 @@ Some commands print events in shapes of their own. The MSA and tree imports, the
 
 ## The contract table
 
-`CLIEventContractTable` in `Sources/LungfishCLI/Support/CLIEventContract.swift` holds one row for each of the 236 leaf commands of `lungfish-cli`. A leaf is a command with no subcommands. A row is keyed by the leaf's path without the program name, such as `msa annotate add`, and it says in one of four cases what the leaf writes for a machine reader.
+`CLIEventContractTable` in `Sources/LungfishCLI/Support/CLIEventContract.swift` holds one row for each leaf command of `lungfish-cli`. A leaf is a command with no subcommands. A row is keyed by the leaf's path without the program name, such as `msa annotate add`, and it says in one of four cases what the leaf writes for a machine reader.
 
 | Case | What the leaf does |
 | --- | --- |
-| `.events` | Prints the event lines of this page when its switch is on, and names the switch and the stream. Twenty leaves use `--format json` on standard output, and `assemble` uses `--json-events` on standard error |
+| `.events` | Prints the event lines of this page when its switch is on, and names the switch and the stream. `assemble` uses `--json-events` on standard error until 2.8, and the others use `--format json` on standard output |
 | `.result` | Prints one JSON document to standard output, under its JSON switch or on every run. The row names the schema of that document |
 | `.legacy` | Prints a private stream shape that a later sub-phase retires. The row names the shape and the sub-phase |
 | `.text` | Prints human text only, or prints text for a switch it lists. The row gives the reason |
 
 A leaf that lists `--format json` and prints text anyway is a `.text` row, and sub-phases 2.10 to 2.12 settle each of them. Some `.result` leaves print status lines or sequences before their document unless `--quiet` and an output file are given, so a script that needs the document alone passes both.
 
-`CLIEventContractCoverageTests` walks the command tree the way `--experimental-dump-help` does and fails when a leaf has no row or a row names no leaf. A change that adds, renames or removes a command edits its row in the same commit. The same suite fails when the checked-in help of an `.events` leaf does not list its switch, and it decodes the document of each `.result` schema that a Swift type in the CLI, Workflow or IO module reads, with one extra key added. It also counts the `.legacy` rows. Fourteen private shapes are left in Phase 2.6, and a sub-phase that retires one deletes its rows and its entry in the test together, so no separate ratchet counts them.
+`CLIEventContractCoverageTests` walks the command tree the way `--experimental-dump-help` does and fails when a leaf has no row or a row names no leaf. A change that adds, renames or removes a command edits its row in the same commit. The same suite fails when the checked-in help of an `.events` leaf does not list its switch, and it decodes each checked-in `.result` document with one extra key added and names every other schema with its reason. It also counts the `.legacy` rows. A sub-phase that retires one deletes its rows and its entry in the test together, so no separate ratchet counts them.
 
 ## Tests
 
@@ -121,6 +121,6 @@ A leaf that lists `--format json` and prints text anyway is a `.text` row, and s
 
 `Tests/Fixtures/cli-events/v2/bam-primer-trim.ndjson` is a version 2 run of `bam primer-trim`. It was captured in process on the sarscov2 fixture, with standard output redirected for the length of the run and the scratch folder rewritten to `/work`. `CLIPrimerTrimRunnerTests` reads it with the runner and with the frozen version 1 reader, which gets the same outcome and `outputs`.
 
-`Tests/Fixtures/cli-events/commands` holds one folder for each of the 21 leaves that emit events, 25 transcripts in all. Twenty were captured in process, and five came from real runs of the built `lungfish-cli` for the leaves that run an external tool. `CLIEventTranscriptCoverageTests` decodes every line under version 2 with no ignored event and expects one terminal event last. It reads each run with the frozen version 1 reader to the same outcome and `outputs`, and it pins the order of `outputs` for `variants call` and `bam primer-trim`. It also runs the 16 leaves that need no tool again and fails when a line differs from its transcript. `Tests/Fixtures/cli-events/results` holds the documents of 13 result schemas, each from a real run.
+`Tests/Fixtures/cli-events/commands` holds one folder for each leaf that emits events. Most transcripts were captured in process, and five came from real runs of the built `lungfish-cli` for the leaves that run an external tool. `CLIEventTranscriptCoverageTests` decodes every line under version 2 with no ignored event and expects one terminal event last. It reads each run with the frozen version 1 reader to the same outcome and `outputs`, and it pins the order of `outputs` for `variants call` and `bam primer-trim`. It also runs the leaves that need no tool again and fails when a line differs from its transcript. `Tests/Fixtures/cli-events/results` holds the documents of the result schemas that have a fixture, each from a real run.
 
 `CLISubprocessTransportTests` plays every version 1 transcript, and the same run written as version 2 lines, through the transport and gets the same outcome both ways. `OperationCenterCLIBridgeTests` plays four of them through a runner and the bridge, one for each label a run can end on.
