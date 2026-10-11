@@ -26,6 +26,8 @@ extension AnalysisToolID {
     public static let primerOrder = AnalysisToolID(rawValue: "primer-order")
     public static let pbaa = AnalysisToolID(rawValue: "pbaa")
     public static let savont = AnalysisToolID(rawValue: "savont")
+    public static let illuminaAmpliconGenotyping = AnalysisToolID(rawValue: "illumina-amplicon-genotyping")
+    public static let ontSampleBundleGenotyping = AnalysisToolID(rawValue: "ont-sample-bundle-genotyping")
 }
 
 /// The directory name prefixes of one analysis kind, precomputed in registry order.
@@ -106,6 +108,14 @@ public enum AnalysisToolRegistry {
         AnalysisToolDescriptor(
             id: .savont, displayName: "Savont", sidebarSymbolName: nil,
             provisioning: .managedTool(ManagedToolID(rawValue: "savont"))),
+        // The two ids an amplicon genotyping run records in analysis-metadata.json beside ont-genotyping.
+        // Each name is the capitalized id, which is what the app showed before the ids were registered.
+        AnalysisToolDescriptor(
+            id: .illuminaAmpliconGenotyping, displayName: "Illumina-Amplicon-Genotyping",
+            sidebarSymbolName: nil, provisioning: .builtIn),
+        AnalysisToolDescriptor(
+            id: .ontSampleBundleGenotyping, displayName: "Ont-Sample-Bundle-Genotyping",
+            sidebarSymbolName: nil, provisioning: .builtIn),
     ]
 
     private static let byRawID: [String: AnalysisToolDescriptor] =

@@ -10,7 +10,7 @@ adding another literal. The recipes are in docs/contracts/ADDING-AN-ANALYSIS-SUR
 docs/contracts/RUNNING-A-TOOL.md.
 
 Counts, over Sources/**/*.swift, outside each count's exempt files:
-    analysis_id_decisions     a string literal that is one of the 21 analysis ids or one of the three
+    analysis_id_decisions     a string literal that is one of the 23 analysis ids or one of the three
                               legacy aliases (classification, kraken, nao-mgs), used as a decision.
                               A decision is one of three spellings.
                                   case "kraken2": or case "kraken2", "bbmap":   one per literal in the arm
@@ -38,7 +38,7 @@ Blind spots. The scan reads one line at a time and does not parse Swift, so revi
     - An id held in a constant or a variable and compared by name escapes analysis_id_decisions.
     - A fallback written as a ternary or with a different default text escapes
       unknown_version_fallbacks.
-The ids are the 21 in AnalysisToolRegistry. Add an id here in the same commit that adds a descriptor.
+The ids are the 23 in AnalysisToolRegistry. Add an id here in the same commit that adds a descriptor.
 
 Baseline file: one "<name> <count>" line per count. Lower it with --update after a count falls.
 A change that raises a count needs a reviewed reason.
@@ -67,6 +67,7 @@ ANALYSIS_IDS = (
     "esviritu", "kraken2", "taxtriage", "minimap2", "bwa-mem2", "bowtie2", "bbmap",
     "spades", "megahit", "skesa", "flye", "hifiasm", "naomgs", "nvd", "cz-id",
     "mafft", "ont-genotyping", "viralrecon", "primer-order", "pbaa", "savont",
+    "illumina-amplicon-genotyping", "ont-sample-bundle-genotyping",
 )
 LEGACY_ALIASES = ("classification", "kraken", "nao-mgs")
 

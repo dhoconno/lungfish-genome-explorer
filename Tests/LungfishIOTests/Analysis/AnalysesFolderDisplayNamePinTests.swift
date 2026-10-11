@@ -30,10 +30,12 @@ final class AnalysesFolderDisplayNamePinTests: XCTestCase {
         "spades": "SPAdes",
         "taxtriage": "TaxTriage",
         "viralrecon": "Viral Recon",
+        "illumina-amplicon-genotyping": "Illumina-Amplicon-Genotyping",
+        "ont-sample-bundle-genotyping": "Ont-Sample-Bundle-Genotyping",
     ]
 
-    func testKnownToolsEqualsTheLiteral21IDSet() {
-        XCTAssertEqual(Self.expectedDisplayNames.count, 21)
+    func testKnownToolsEqualsTheLiteral23IDSet() {
+        XCTAssertEqual(Self.expectedDisplayNames.count, 23)
         XCTAssertEqual(AnalysesFolder.knownTools, Set(Self.expectedDisplayNames.keys))
     }
 

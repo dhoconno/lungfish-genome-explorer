@@ -19,6 +19,7 @@ final class ToolRegistryAgreementTests: XCTestCase {
     /// Analysis kinds with no lock link: imported results, built-in code and a container.
     private static let expectedUnlinkedAnalysisIDs: Set<String> = [
         "naomgs", "nvd", "cz-id", "ont-genotyping", "primer-order", "pbaa",
+        "illumina-amplicon-genotyping", "ont-sample-bundle-genotyping",
     ]
 
     // MARK: - Checks

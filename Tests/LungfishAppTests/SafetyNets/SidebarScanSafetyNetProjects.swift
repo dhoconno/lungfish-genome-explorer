@@ -177,7 +177,7 @@ enum SidebarScanSafetyNetProjects {
     /// Classifier batches hold the result sidecar their sample count reads.
     static func writeKnownToolFolders(in analyses: URL) throws {
         // A literal list, not AnalysesFolder.knownTools, so a registry change alters the
-        // code under test and not its input. These are the 21 ids in today's sorted order.
+        // code under test and not its input. These are the other 21 ids in sorted order, since neither genotype id names a folder.
         let tools = [
             "bbmap", "bowtie2", "bwa-mem2", "cz-id", "esviritu", "flye", "hifiasm", "kraken2",
             "mafft", "megahit", "minimap2", "naomgs", "nvd", "ont-genotyping", "pbaa",

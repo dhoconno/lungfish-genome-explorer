@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Pins SidebarProjectScanner.classifierBatchBadge (T5) and analysisIcon (T7) for the
-// 21 known analysis ids and an unknown id. The Inspector icon table (T9) is a private
+// 23 known analysis ids and an unknown id. The Inspector icon table (T9) is a private
 // method of the AnalysesSection view and no behaviour exposes it, so it is not pinned here.
 
 import XCTest
@@ -15,7 +15,7 @@ final class SidebarPresentationPinTests: XCTestCase {
         "flye": nil, "hifiasm": nil, "kraken2": "K2", "mafft": nil, "megahit": nil,
         "minimap2": nil, "naomgs": "NM", "nvd": "NVD", "ont-genotyping": nil, "pbaa": nil,
         "primer-order": nil, "savont": nil, "skesa": nil, "spades": nil, "taxtriage": "TT",
-        "viralrecon": nil,
+        "viralrecon": nil, "illumina-amplicon-genotyping": nil, "ont-sample-bundle-genotyping": nil,
     ]
 
     private static let expectedIcons: [String: String] = [
@@ -25,11 +25,12 @@ final class SidebarPresentationPinTests: XCTestCase {
         "naomgs": "n.circle", "nvd": "circle", "ont-genotyping": "tablecells.badge.ellipsis",
         "pbaa": "circle", "primer-order": "circle", "savont": "circle", "skesa": "s.circle",
         "spades": "s.circle", "taxtriage": "t.circle", "viralrecon": "v.circle",
+        "illumina-amplicon-genotyping": "circle", "ont-sample-bundle-genotyping": "circle",
     ]
 
     func testTablesCoverTheKnownTools() {
         XCTAssertEqual(Set(Self.expectedBadges.keys), Set(Self.expectedIcons.keys))
-        XCTAssertEqual(Self.expectedBadges.count, 21)
+        XCTAssertEqual(Self.expectedBadges.count, 23)
     }
 
     func testClassifierBatchBadgeForEveryKnownID() {

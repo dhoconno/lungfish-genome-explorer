@@ -10,6 +10,7 @@ final class AnalysisToolRegistryTests: XCTestCase {
         "bbmap", "bowtie2", "bwa-mem2", "cz-id", "esviritu", "flye", "hifiasm", "kraken2",
         "mafft", "megahit", "minimap2", "naomgs", "nvd", "ont-genotyping", "pbaa",
         "primer-order", "savont", "skesa", "spades", "taxtriage", "viralrecon",
+        "illumina-amplicon-genotyping", "ont-sample-bundle-genotyping",
     ]
 
     // Duplicated from the sidebar pins (SidebarPresentationPinTests), which live in the App tests.
@@ -18,7 +19,7 @@ final class AnalysisToolRegistryTests: XCTestCase {
         "flye": nil, "hifiasm": nil, "kraken2": "K2", "mafft": nil, "megahit": nil,
         "minimap2": nil, "naomgs": "NM", "nvd": "NVD", "ont-genotyping": nil, "pbaa": nil,
         "primer-order": nil, "savont": nil, "skesa": nil, "spades": nil, "taxtriage": "TT",
-        "viralrecon": nil,
+        "viralrecon": nil, "illumina-amplicon-genotyping": nil, "ont-sample-bundle-genotyping": nil,
     ]
 
     // A nil symbol means the sidebar falls back to "circle".
@@ -29,6 +30,7 @@ final class AnalysisToolRegistryTests: XCTestCase {
         "naomgs": "n.circle", "nvd": nil, "ont-genotyping": "tablecells.badge.ellipsis",
         "pbaa": nil, "primer-order": nil, "savont": nil, "skesa": "s.circle",
         "spades": "s.circle", "taxtriage": "t.circle", "viralrecon": "v.circle",
+        "illumina-amplicon-genotyping": nil, "ont-sample-bundle-genotyping": nil,
     ]
 
     // The word `lungfish-cli build-db` takes and the stem a classify run gives its output, as the
@@ -45,7 +47,7 @@ final class AnalysisToolRegistryTests: XCTestCase {
 
     func testIDsEqualTheFrozenSet() {
         XCTAssertEqual(Set(AnalysisToolRegistry.all.map { $0.id.rawValue }), Self.frozenIDs)
-        XCTAssertEqual(AnalysisToolRegistry.all.count, 21)
+        XCTAssertEqual(AnalysisToolRegistry.all.count, 23)
     }
 
     func testIDsAreUnique() {
@@ -72,7 +74,7 @@ final class AnalysisToolRegistryTests: XCTestCase {
             AnalysisToolRegistry.all.map(\.id))
     }
 
-    func testSixDescriptorsHaveNeitherAManagedToolNorALockedPipeline() {
+    func testEightDescriptorsHaveNeitherAManagedToolNorALockedPipeline() {
         var unlinked: Set<String> = []
         for descriptor in AnalysisToolRegistry.all {
             switch descriptor.provisioning {
@@ -80,7 +82,10 @@ final class AnalysisToolRegistryTests: XCTestCase {
             case .container, .importedResult, .builtIn: unlinked.insert(descriptor.id.rawValue)
             }
         }
-        XCTAssertEqual(unlinked, ["naomgs", "nvd", "cz-id", "ont-genotyping", "primer-order", "pbaa"])
+        XCTAssertEqual(unlinked, [
+            "naomgs", "nvd", "cz-id", "ont-genotyping", "primer-order", "pbaa",
+            "illumina-amplicon-genotyping", "ont-sample-bundle-genotyping",
+        ])
     }
 
     func testProvisioningLinksUseLockIDsNotAnalysisIDs() {
@@ -152,6 +157,22 @@ final class AnalysisToolRegistryTests: XCTestCase {
         }
     }
 
+    func testTheTwoAmpliconGenotypingIdsAreRegisteredBesideOntGenotyping() {
+        // ONTBarcodeDemuxGenotypingPipeline.analysisToolName(for:) records these ids in the
+        // analysis-metadata.json of a genotype result bundle.
+        for raw in ["illumina-amplicon-genotyping", "ont-sample-bundle-genotyping"] {
+            let descriptor = AnalysisToolRegistry.descriptor(forRawID: raw)
+            XCTAssertNotNil(descriptor, raw)
+            XCTAssertTrue(AnalysesFolder.knownTools.contains(raw), raw)
+            XCTAssertEqual(descriptor?.provisioning, .builtIn, raw)
+            XCTAssertEqual(descriptor?.displayName, raw.capitalized, raw)
+            XCTAssertNil(descriptor?.sidebarSymbolName, raw)
+            XCTAssertNil(descriptor?.classifierBatchBadge, raw)
+            XCTAssertNil(descriptor?.buildDatabaseToken, raw)
+            XCTAssertNil(descriptor?.outputStem, raw)
+        }
+    }
+
     func testIDCodingRoundTrip() throws {
         let data = try JSONEncoder().encode([AnalysisToolID.kraken2, .czId])
         XCTAssertEqual(String(data: data, encoding: .utf8), "[\"kraken2\",\"cz-id\"]")
@@ -177,7 +198,7 @@ final class AnalysisToolRegistryTests: XCTestCase {
             }
         }
         let found = try AnalysesFolder.listAnalyses(in: root)
-        XCTAssertEqual(found.count, 42)
+        XCTAssertEqual(found.count, 46)
         for info in found {
             XCTAssertTrue(info.url.lastPathComponent.hasPrefix("\(info.tool)-"), info.url.lastPathComponent)
             XCTAssertEqual(info.url.lastPathComponent.contains("-batch-"), info.isBatch)
