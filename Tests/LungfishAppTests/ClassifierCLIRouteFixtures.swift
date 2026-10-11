@@ -314,17 +314,29 @@ enum ClassifierRouteFixtures {
     }
 
     /// A shell script in place of `lungfish-cli` that prints `lines`, touches `ready` and runs
-    /// until SIGTERM. On SIGTERM it touches `terminated`, prints the cancelled run's last line and
-    /// exits 125, as a command with `SIGTERMCancellation` does inside the transport's grace.
-    static func cancellableCLI(in folder: URL, lines: [String], ready: URL, terminated: URL, lastLine: String) throws -> URL {
+    /// until SIGTERM. On SIGTERM it records its cancel as the executor's `settle(.cancelled)`
+    /// does, by writing `cancelledRecord.record` over `cancelledRecord.runRecord` when given,
+    /// touches `terminated`, prints the cancelled run's last line and exits 125, as a command with
+    /// `SIGTERMCancellation` does inside the transport's grace. The stand-in writes the record in
+    /// place, so the run record keeps its file and a test tells a later rewrite by the app from
+    /// the command's own write.
+    static func cancellableCLI(
+        in folder: URL,
+        lines: [String],
+        ready: URL,
+        terminated: URL,
+        lastLine: String,
+        cancelledRecord: (record: URL, runRecord: URL)? = nil
+    ) throws -> URL {
         let tag = UUID().uuidString
         let head = folder.appendingPathComponent("head-\(tag).ndjson")
         let last = folder.appendingPathComponent("last-\(tag).ndjson")
         try (lines.joined(separator: "\n") + "\n").write(to: head, atomically: true, encoding: .utf8)
         try (lastLine + "\n").write(to: last, atomically: true, encoding: .utf8)
+        let recordCancel = cancelledRecord.map { "/bin/cat \"\($0.record.path)\" > \"\($0.runRecord.path)\"; " } ?? ""
         let script = """
         #!/bin/sh
-        trap '/usr/bin/touch "\(terminated.path)"; /bin/cat "\(last.path)"; exit 125' TERM
+        trap '\(recordCancel)/usr/bin/touch "\(terminated.path)"; /bin/cat "\(last.path)"; exit 125' TERM
         /bin/cat '\(head.path)'
         /usr/bin/touch '\(ready.path)'
         while :; do /bin/sleep 0.1; done
@@ -333,6 +345,16 @@ enum ClassifierRouteFixtures {
         try script.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
         return url
+    }
+
+    /// The command's cancel record of the running record `running`, made outside the project as
+    /// the executor's `settle(.cancelled)` makes it, in `scratch`.
+    static func cancelledRecord(of running: URL, in scratch: URL) throws -> URL {
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let record = AnalysisRunRecord.url(in: scratch)
+        try FileManager.default.copyItem(at: running, to: record)
+        AnalysisRunRecord.recordOutcome(.cancelled, in: scratch)
+        return record
     }
 
     /// Every file under `folder` with its bytes, the run record left out when `ignoring` names it.

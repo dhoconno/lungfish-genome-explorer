@@ -175,10 +175,19 @@ final class CLIClassifierRunnerTests: XCTestCase {
     }
 
     /// E5 and SWIFT X1. The command gets SIGTERM and time to record its run as cancelled before
-    /// SIGKILL, so its handler runs.
+    /// SIGKILL, so its handler runs and its cancel record is in the folder. The stand-in writes
+    /// the record the executor's `settle(.cancelled)` writes.
     func testTheGraceLetsTheCommandRecordItsCancel() async throws {
         let root = try TestTempDirectory.make(prefix: "cli-classifier-runner-grace")
         defer { TestTempDirectory.cleanup(root) }
+        let folder = root.appendingPathComponent("Project.lungfish/Analyses/kraken2-x", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try AnalysisRunRecord.begin(AnalysisRunRecord(analysisName: "kraken2", command: "lungfish-cli kraken2 classify"), in: folder)
+        let runRecord = AnalysisRunRecord.url(in: folder)
+        let commandsCancel = try ClassifierRouteFixtures.cancelledRecord(
+            of: runRecord,
+            in: root.appendingPathComponent("command-cancel", isDirectory: true)
+        )
         let ready = root.appendingPathComponent("ready")
         let terminated = root.appendingPathComponent("terminated")
         let cli = try ClassifierRouteFixtures.cancellableCLI(
@@ -186,7 +195,8 @@ final class CLIClassifierRunnerTests: XCTestCase {
             lines: [#"{"event":"start","message":"Starting Kraken2.","progress":0,"schemaVersion":2}"#],
             ready: ready,
             terminated: terminated,
-            lastLine: #"{"error":"Kraken2 was cancelled.","event":"failed","schemaVersion":2}"#
+            lastLine: #"{"error":"Kraken2 was cancelled.","event":"failed","schemaVersion":2}"#,
+            cancelledRecord: (commandsCancel, runRecord)
         )
         let runner = CLIClassifierRunner(cliURLOverride: cli)
         let run = Task {
@@ -207,6 +217,8 @@ final class CLIClassifierRunnerTests: XCTestCase {
             return XCTFail("a cancelled run must end in CancellationError, got \(outcome)")
         }
         XCTAssertTrue(FileManager.default.fileExists(atPath: terminated.path), "the command's SIGTERM handler never ran")
+        XCTAssertEqual(AnalysisRunRecord.load(from: folder)?.outcome, .cancelled, "the command recorded its cancel")
+        XCTAssertEqual(try Data(contentsOf: runRecord), try Data(contentsOf: commandsCancel))
         XCTAssertGreaterThanOrEqual(CLIClassifierRunner.terminationGracePeriod, .seconds(5))
         XCTAssertLessThanOrEqual(CLIClassifierRunner.terminationGracePeriod, .seconds(8))
     }

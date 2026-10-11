@@ -240,7 +240,10 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
     // MARK: - Cancelled
 
     /// D10, E5. A cancel stops the command through the transport, which gives it the grace to
-    /// record its cancel. The row reads Cancelled with no alert and the folder stays hidden.
+    /// record its cancel. The row reads Cancelled with no alert and the folder stays hidden with
+    /// the command's cancel record. The stand-in writes that record as the executor's
+    /// `settle(.cancelled)` does, until a real `kraken2 classify` or `esviritu detect` cancel
+    /// transcript exists.
     func testACancelledRunReadsCancelledWithNoAlert() async throws {
         let made = try ClassifierRouteFixtures.makeProject(in: root)
         let configs = [kraken2Config(inputs: made.inputs, sampleFolder: "classification-x")]
@@ -250,7 +253,12 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
         tool.runRecordCopy = recordCopy
         let transcript = await ClassifierRouteFixtures.transcript(of: tool, project: made.project, inputs: made.inputs, arguments: launch.arguments)
         let folder = try XCTUnwrap(transcript.report.analysisDirectory)
-        try FileManager.default.copyItem(at: recordCopy, to: AnalysisRunRecord.url(in: folder))
+        let runRecord = AnalysisRunRecord.url(in: folder)
+        try FileManager.default.copyItem(at: recordCopy, to: runRecord)
+        let commandsCancel = try ClassifierRouteFixtures.cancelledRecord(
+            of: recordCopy,
+            in: root.appendingPathComponent("command-cancel", isDirectory: true)
+        )
         let ready = root.appendingPathComponent("ready")
         let terminated = root.appendingPathComponent("terminated")
         let head = Array(transcript.lines.prefix { !$0.contains("Validating configuration") })
@@ -259,8 +267,10 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
             lines: head,
             ready: ready,
             terminated: terminated,
-            lastLine: #"{"error":"Kraken2 was cancelled.","event":"failed","schemaVersion":2}"#
+            lastLine: #"{"error":"Kraken2 was cancelled.","event":"failed","schemaVersion":2}"#,
+            cancelledRecord: (commandsCancel, runRecord)
         )
+        let before = try ClassifierRouteFixtures.snapshot(of: made.project, ignoring: [AnalysisRunRecord.fileName])
         let (delegate, viewer, window) = makeDelegateAndViewer()
         defer { close(window) }
 
@@ -289,6 +299,11 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
         XCTAssertNil(window.attachedSheet, "a cancel shows no alert")
         XCTAssertTrue(FileManager.default.fileExists(atPath: terminated.path), "the command got SIGTERM and the grace to handle it")
         XCTAssertEqual(AnalysisRunRecord.load(from: folder)?.outcome, .cancelled, "listed as a cancelled run at the next open")
+        XCTAssertEqual(try Data(contentsOf: runRecord), try Data(contentsOf: commandsCancel), "the command's cancel record, byte for byte (E5)")
+        XCTAssertEqual(
+            try ClassifierRouteFixtures.snapshot(of: made.project, ignoring: [AnalysisRunRecord.fileName]), before,
+            "no other file of the project changed"
+        )
         XCTAssertEqual(bundleImports.paths, [])
     }
 
