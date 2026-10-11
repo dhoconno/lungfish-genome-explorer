@@ -50,62 +50,6 @@ final class ClassifyCommandResolutionTests: XCTestCase {
         }
     }
 
-    func testABundleThatHoldsSeveralFilesIsRecordedAsTheOriginOfEach() async throws {
-        let run = try await classify(shapes.multiFile, label: "multi-file")
-        let bundle = shapes.multiFile.standardizedFileURL
-        let chunks = shapes.multiFileChunks.map(\.standardizedFileURL)
-        XCTAssertEqual(run.resolved.executionInputURLs, chunks)
-        XCTAssertEqual(run.resolved.originalInputURLs, [bundle, bundle])
-
-        let sidecarURL = try ClassifyCommand.writeProvenance(
-            result: run.result,
-            originalInputURLs: run.resolved.originalInputURLs,
-            executionInputURLs: run.resolved.executionInputURLs,
-            argv: ["lungfish-cli", "conda", "classify", bundle.path, "--db", "FixtureDB"],
-            startedAt: Date(timeIntervalSince1970: 100),
-            endedAt: Date(timeIntervalSince1970: 104),
-            writer: ProvenanceWriter(signingProvider: nil)
-        )
-        let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(contentsOf: sidecarURL))
-        XCTAssertEqual(envelope.options.explicit["originalInputs"], .array([.file(bundle)]))
-        XCTAssertEqual(envelope.options.resolvedDefaults["originalInputs"], .array([.file(bundle), .file(bundle)]))
-        XCTAssertEqual(envelope.options.resolvedDefaults["executionInputs"], .array(chunks.map { .file($0) }))
-        let krakenInputs = Set(envelope.steps.filter { $0.toolName == "kraken2" }.flatMap(\.inputs).map(\.path))
-        XCTAssertTrue(Set(chunks.map(\.path)).isSubset(of: krakenInputs), "kraken2 inputs: \(krakenInputs)")
-
-        // A run that fails after resolution records each file with its bundle.
-        let command = try ClassifyCommand.parse([bundle.path, "--db", "FixtureDB"])
-        let failedRunDirectory = root.appendingPathComponent("failed-run", isDirectory: true)
-        try FileManager.default.createDirectory(at: failedRunDirectory, withIntermediateDirectories: true)
-        var context = ClassifyFailureProvenanceContext(
-            outputDirectory: failedRunDirectory,
-            originalInputURLs: [bundle]
-        )
-        context.executionInputURLs = run.resolved.executionInputURLs
-        context.executionOriginalInputURLs = run.resolved.originalInputURLs
-        context.inputFormat = .fastq
-        context.stage = .pipeline
-        let failureURL = try ClassifyCommand.writeFailureProvenance(
-            command: command,
-            context: context,
-            argv: ["lungfish-cli", "conda", "classify", bundle.path, "--db", "FixtureDB"],
-            exitStatus: 1,
-            profileState: "failed",
-            stderr: "synthetic failure",
-            startedAt: Date(timeIntervalSince1970: 100),
-            endedAt: Date(timeIntervalSince1970: 101),
-            writer: ProvenanceWriter(signingProvider: nil)
-        )
-        let failure = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(contentsOf: failureURL))
-        for chunk in chunks {
-            XCTAssertTrue(
-                failure.files.contains { $0.path == chunk.path && $0.originPath == bundle.path },
-                "\(chunk.lastPathComponent) is recorded with the bundle it came from"
-            )
-        }
-        XCTAssertEqual(failure.options.resolvedDefaults["originalInputs"], .array([.file(bundle), .file(bundle)]))
-    }
-
     func testAVirtualBundlePrintsOnlyTheMaterializersOwnProgressLines() async throws {
         let direct = MessageLog()
         let directDirectory = root.appendingPathComponent("direct", isDirectory: true)

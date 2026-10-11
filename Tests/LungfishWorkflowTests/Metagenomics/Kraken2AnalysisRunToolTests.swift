@@ -202,6 +202,26 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
         }
     }
 
+    /// Review B-S4. An input inside an output an earlier run left in the named folder is refused in
+    /// the plan, before the folder is claimed, so the earlier run keeps its record byte for byte.
+    func testAnInputInsideAnEarlierRunsOutputsIsRefusedAndTheEarlierRecordStays() async throws {
+        let output = root.appendingPathComponent("earlier-run", isDirectory: true)
+        let copies = output.appendingPathComponent(".lungfish-provenance/intermediates/classification-inputs", isDirectory: true)
+        try FileManager.default.createDirectory(at: copies, withIntermediateDirectories: true)
+        let input = copies.appendingPathComponent("input-1-reads.fastq")
+        try ReadSetFixtures.fastq(["r1"]).write(to: input, atomically: true, encoding: .utf8)
+        let recordURL = output.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let earlier = Data("{\"earlier\":true}".utf8)
+        try earlier.write(to: recordURL)
+
+        let run = await execute(request([input.path]), .directory(output), argv: command([input.path, "--output-dir", output.path]))
+
+        XCTAssertEqual(run.report.status, .failed)
+        XCTAssertEqual(run.report.exitCode, 3)
+        XCTAssertEqual(try Data(contentsOf: recordURL), earlier)
+        XCTAssertNil(AnalysisRunRecord.load(from: output), "the folder was never claimed")
+    }
+
     // MARK: - Helpers
 
     private func kind(of event: CLIEvent?) -> String {

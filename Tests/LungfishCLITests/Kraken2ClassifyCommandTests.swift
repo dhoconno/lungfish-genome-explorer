@@ -42,11 +42,13 @@ final class Kraken2ClassifyCommandTests: XCTestCase {
                 "--memory-mapping", "--quick", "--bracken-read-length", "100",
                 "--bracken-level", "G", "--bracken-threshold", "5",
                 "--extra-args", "--report-minimizer-data",
+                "--batch", "--db-digest", "sha256:0123",
                 "--format", "json", "-vv", "--quiet", "--progress", "--no-progress", "--debug",
                 "--log-file", "classify.log", "--no-color", "--threads", "4",
             ],
             "PlusPF"
         ),
+        ("a batch in a project", ["reads/", "--db", "Viral", "--batch", "--project", "My.lungfish"], "Viral"),
     ]
 
     // MARK: - Helpers
@@ -57,6 +59,9 @@ final class Kraken2ClassifyCommandTests: XCTestCase {
         return [
             "fastqFiles": "\(command.fastqFiles)",
             "databaseName": command.databaseName,
+            "databaseDigest": "\(String(describing: command.databaseDigest))",
+            "project": "\(String(describing: command.project))",
+            "batch": "\(command.batch)",
             "preset": command.preset.rawValue,
             "outputDir": "\(String(describing: command.outputDir))",
             "pairedEnd": "\(command.pairedEnd)",
@@ -158,6 +163,8 @@ final class Kraken2ClassifyCommandTests: XCTestCase {
         XCTAssertEqual(command.brackenLevel, "G")
         XCTAssertEqual(command.brackenThreshold, 5)
         XCTAssertEqual(command.extraArgs, "--report-minimizer-data")
+        XCTAssertTrue(command.batch)
+        XCTAssertEqual(command.databaseDigest, "sha256:0123")
         let global = command.globalOptions
         XCTAssertEqual(global.outputFormat, .json)
         XCTAssertEqual(global.verbosity, 2)
@@ -168,6 +175,27 @@ final class Kraken2ClassifyCommandTests: XCTestCase {
         XCTAssertEqual(global.logFile, "classify.log")
         XCTAssertTrue(global.noColor)
         XCTAssertEqual(global.threads, 4)
+    }
+
+    /// Lane A8. `--project` makes a new folder and `--output-dir` claims a named one, so one run
+    /// takes one of them.
+    func testProjectAndOutputDirAreRefusedTogether() throws {
+        XCTAssertThrowsError(try LungfishCLI.parseAsRoot(
+            ["kraken2", "classify", "reads.fastq", "--db", "Viral", "--project", "My.lungfish", "--output-dir", "out"]
+        ))
+        let project = try classifyCommand(["kraken2", "classify"], ["reads.fastq", "--db", "Viral", "--project", "My.lungfish"])
+        XCTAssertEqual(project.project, "My.lungfish")
+        XCTAssertFalse(project.batch)
+    }
+
+    /// The analysis run's exit codes are `CLIExitCode`'s numbers, which LungfishWorkflow copies.
+    func testAnalysisRunExitCodesEqualTheCLIExitCodes() {
+        XCTAssertEqual(AnalysisRunExitCode.completed, CLIExitCode.success.rawValue)
+        XCTAssertEqual(AnalysisRunExitCode.workflowError, CLIExitCode.workflowError.rawValue)
+        XCTAssertEqual(AnalysisRunExitCode.cancelled, CLIExitCode.cancelled.rawValue)
+        XCTAssertEqual(Kraken2RunRefusal.inputErrorCode, CLIExitCode.inputError.rawValue)
+        XCTAssertEqual(Kraken2RunRefusal.dependencyCode, CLIExitCode.dependency.rawValue)
+        XCTAssertEqual(CLIError.validationFailed(errors: []).analysisRunExitCode, CLIExitCode.inputError.rawValue)
     }
 
     func testTheKraken2GroupHoldsClassifyCommandAndNoWrapper() throws {
