@@ -185,12 +185,13 @@ func detectToolVersion(
 ///
 /// Returns the first semver-like pattern (e.g. `2.1.3`) outside any file
 /// path, with a token written `v2.31.0` preferred (see `ProbeVersionText`),
-/// else the first output line unless it reads as an error (bwa-mem2's `ERROR:
-/// unknown command '--version'` is no version), else `nil` for empty output. Paths are
-/// skipped because several tools print their own location before the
-/// version. EsViritu prints `.../lib/python3.14/site-packages/EsViritu`
-/// then `1.3.3`, and a match inside that path recorded Python's `3.14` as
-/// EsViritu's version. Bowtie2 and SKESA print their executable path too.
+/// else the first output line unless it reads as an error, else `nil` for
+/// empty output. bwa-mem2's `ERROR: unknown command '--version'` is an error
+/// line and gives no version. Paths are skipped because several tools print
+/// their own location before the version. EsViritu prints
+/// `.../lib/python3.14/site-packages/EsViritu` then `1.3.3`, and a match
+/// inside that path recorded Python's `3.14` as EsViritu's version. Bowtie2
+/// and SKESA print their executable path too.
 func parseToolVersion(from output: String) -> String? {
     let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
