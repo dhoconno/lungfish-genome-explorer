@@ -7,7 +7,8 @@
 // never from a tool build: the subset holds 55 reads (never its 10 preview reads or its 100 root
 // reads), the merge bundle holds 100 fragments as 23 pairs and 77 merged reads with its read-set
 // plan, pairs run as pairs (`--paired`, `-p paired`), and the thresholds and thread count are
-// the ones the wizard chose. Side A's Operations row is held to today's labels (UX memo T2).
+// the ones the wizard chose. Every file a record names in the project exists with the digest
+// the record states. Side A's Operations row is held to today's labels (UX memo T2).
 
 import Foundation
 import XCTest
@@ -59,7 +60,7 @@ extension ClassifierCLIGUIParityReplayTests {
         guard let analysis = run.analysisFolder, FileManager.default.fileExists(atPath: analysis.path) else {
             return [ClassifierParityDifference(id: "fact: the run made its analysis folder", detail: "\(run.side) \(run.terminal)")]
         }
-        var violations: [ClassifierParityDifference] = []
+        var violations = try namedFileViolations(of: run)
         for bundle in parityCase.bundlePaths {
             let expected = ClassifierParitySampleFacts.forBundle(bundle)
             let folder = sampleFolder(of: parityCase, analysis: analysis, sampleID: expected.sampleID)
@@ -242,6 +243,57 @@ extension ClassifierCLIGUIParityReplayTests {
         let warnings = row.logLines.filter { $0.level == "warning" || $0.level == "error" }.map(\.description)
         check("warning and error log lines", warnings.joined(separator: "\n"), "")
         return violations
+    }
+
+    // MARK: - Named files
+
+    /// Every file a record under the side root names in the project that does not exist, or
+    /// that holds another digest than the record states (QA checklist 4, BIO checklist 7). Two
+    /// sides that share the fault cannot show it in a pair comparison, which leaves the digest of
+    /// a file both trees hold to the folder comparison. Paths under `<storage-root>/` and
+    /// `<external>/` are not checked, and a folder is checked for existence only. One difference
+    /// per record and named path, however often the record names it.
+    func namedFileViolations(of run: ClassifierParitySideRun) throws -> [ClassifierParityDifference] {
+        let token = "<project>/"
+        var digests: [String: String] = [:]
+        var found: [String: ClassifierParityDifference] = [:]
+        for record in ClassifierParityComparison.recordPaths(under: run.root) {
+            for named in Self.namedFiles(in: try ClassifierParityComparison.factsTree(of: run, record: record)) {
+                guard case .string(let path)? = named["path"], path.hasPrefix(token) else { continue }
+                let file = run.project.appendingPathComponent(String(path.dropFirst(token.count)))
+                var isDirectory: ObjCBool = false
+                let problem: String
+                var detail = "\(run.side) \(record) names \(path)"
+                if !FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory) {
+                    problem = "that does not exist"
+                } else if !isDirectory.boolValue, case .string(let recorded)? = named["sha256"] {
+                    let actual = try digests[file.path] ?? ClassifierParityFixtures.sha256(of: file)
+                    digests[file.path] = actual
+                    guard actual != recorded else { continue }
+                    problem = "with another digest"
+                    detail += ", recorded \(recorded), found \(actual)"
+                } else {
+                    continue
+                }
+                let id = "fact: record \(ClassifierParityComparison.maskedID(record)) names \(ClassifierParityComparison.maskedID(path)) \(problem)"
+                if found[id] == nil { found[id] = ClassifierParityDifference(id: id, detail: detail) }
+            }
+        }
+        return found.keys.sorted().compactMap { found[$0] }
+    }
+
+    /// Every object in `value` with a `path` string and a `role`, the files a record names.
+    static func namedFiles(in value: ProvenanceCompatFacts.Value) -> [[String: ProvenanceCompatFacts.Value]] {
+        switch value {
+        case .object(let members):
+            var found: [[String: ProvenanceCompatFacts.Value]] = []
+            if case .string(_)? = members["path"], members["role"] != nil { found.append(members) }
+            return found + members.values.flatMap(namedFiles(in:))
+        case .array(let items):
+            return items.flatMap(namedFiles(in:))
+        default:
+            return []
+        }
     }
 
     // MARK: - Evidence

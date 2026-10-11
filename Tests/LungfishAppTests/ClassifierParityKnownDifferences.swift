@@ -49,7 +49,7 @@ struct ClassifierParityKnownDifference: Sendable {
 
 enum ClassifierParityKnownDifferences {
     /// The D numbers are the GUI and CLI differences of the BIO inventory, section 1.3.
-    static let all: [ClassifierParityKnownDifference] = layout + kraken2Records + esVirituRecords + facts
+    static let all: [ClassifierParityKnownDifference] = layout + kraken2Records + esVirituRecords + facts + namedFiles
 
     private static let retire = "2.9, when the legacy GUI paths retire (E14)"
     /// One difference in each sample's record, two in the K3 batch.
@@ -183,6 +183,44 @@ enum ClassifierParityKnownDifferences {
             reason: "As on side A, the replay throws Empty Kraken2 report. After BR's parser fix the replay still exits 64 with a failed record (F2 bio ruling 1)",
             closedBy: "A8, whose classify exits 0 with status completed on a degraded profile (A8 M0, E4)"
         ),
+    ]
+
+    // MARK: Named files
+
+    /// Files the records of one side name that are gone or hold another digest (review F2
+    /// fix 5). Side C must hold this fact with nothing declared.
+    private static func namedFile(
+        _ side: ClassifierParitySide, _ counts: [ClassifierParityCase: Int], _ file: String, _ reason: String, closedBy: String
+    ) -> ClassifierParityKnownDifference {
+        ClassifierParityKnownDifference(counts: counts, scope: .side(side), id: "fact: record * names \(file)", reason: reason, closedBy: closedBy)
+    }
+
+    /// The per-read output and the empty mate come from the shared ClassificationPipeline.
+    private static let sharedPipeline = "A8 under E3, the owner review F2 proposes until the manager names another. The cause is in the shared ClassificationPipeline, so its fix moves A and B together"
+
+    private static let namedFiles: [ClassifierParityKnownDifference] = [
+        namedFile(.a, [.k1: 1, .k3: 2, .k4: 1, .e1: 2, .e3: 2], "<project>/.tmp/* that does not exist",
+                  "D4, D5. The GUI's materialized scratch input, which it deletes after the run", closedBy: retire),
+        namedFile(.a, [.k1: 1, .k2: 1, .k3: 4, .k4: 1], "*classification.kraken that does not exist",
+                  "ClassificationPipeline gzips the per-read output to classification.kraken.gz and deletes it, and no step records the compression",
+                  closedBy: sharedPipeline),
+        namedFile(.b, [.k1: 1, .k2: 1, .k3: 2, .k4: 1], "*classification.kraken that does not exist",
+                  "As on side A", closedBy: sharedPipeline),
+        namedFile(.a, [.k2: 1, .k3: 2], "*.lungfish-classify-inputs/merged.emptymate.fastq that does not exist",
+                  "ClassificationPipeline stages an empty mate for the merged reads and removes it after the run, where E3 keeps staged inputs",
+                  closedBy: sharedPipeline),
+        namedFile(.b, [.k2: 1, .k3: 1], "*.lungfish-classify-inputs/merged.emptymate.fastq that does not exist",
+                  "As on side A", closedBy: sharedPipeline),
+        namedFile(.a, [.e1: 5, .e2: 5, .e3: 14], "*/*.detected_virus.assembly_summary.tsv that does not exist",
+                  "The GUI's build-db esviritu cleanup deletes the assembly summary table the records name", closedBy: "A7 (E7)"),
+        namedFile(.a, [.e1: 5, .e2: 5, .e3: 14], "*/*.virus_coverage_windows.tsv that does not exist",
+                  "The GUI's build-db esviritu cleanup deletes the coverage windows table the records name", closedBy: "A7 (E7)"),
+        namedFile(.a, [.e1: 6, .e2: 6, .e3: 20], "*/*_temp/*.third.filt.sorted.bam* that does not exist",
+                  "The GUI's build-db esviritu moves the BAM and its index to bams/, and the records still name them in _temp/",
+                  closedBy: "A7, whose BAM move is a recorded step (E7)"),
+        namedFile(.a, [.e1: 3, .e2: 3, .e3: 10], "*/bams/*.third.filt.sorted.bam with another digest",
+                  "The BAM that build-db esviritu moved to bams/ holds another digest than the records state",
+                  closedBy: "A7, whose BAM move is a recorded step (E7)"),
     ]
 
     /// One line per found difference that no entry declares, and per entry that matches another
