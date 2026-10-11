@@ -167,7 +167,10 @@ func detectToolVersion(
                 environment: environment,
                 timeout: timeout
             )
-            if let version = parseToolVersion(from: result.stdout, stderr: result.stderr, exitCode: result.exitCode) {
+            if let version = parseToolVersion(
+                from: result.stdout, stderr: result.stderr, exitCode: result.exitCode,
+                storageRoot: condaManager.rootPrefix
+            ) {
                 return version
             }
         } catch is CancellationError {
@@ -184,14 +187,17 @@ func detectToolVersion(
 /// Extracts a version from a tool's `--version` style output.
 ///
 /// This is the detect call site of `ProbeVersionText.reading(exitCode:stdout:stderr:)`, which holds
-/// every rule. `output` is the probe's stdout. The result is the first semver-like pattern
-/// (e.g. `2.1.3`) outside any file path, with a token written `v2.31.0` preferred, else the first
-/// stdout line when the probe exited 0 and the line does not read as an error, else `nil`.
-/// bwa-mem2's `ERROR: unknown command '--version'` and micromamba's `critical libmamba ...` are
-/// error lines and give no version. EsViritu prints `.../lib/python3.14/site-packages/EsViritu`
-/// then `1.3.3`, and the path is skipped so Python's `3.14` is not read as EsViritu's version.
-func parseToolVersion(from output: String, stderr: String = "", exitCode: Int32 = 0) -> String? {
-    ProbeVersionText.reading(exitCode: exitCode, stdout: output, stderr: stderr)?.version
+/// every rule. `output` is the probe's stdout, and `storageRoot` is the conda root the tool ran
+/// under. The result is the first semver-like pattern (e.g. `2.1.3`) outside any file path, with a
+/// token written `v2.31.0` preferred, else the first stdout line when the probe exited 0 and the
+/// line does not read as an error, else `nil`. bwa-mem2's `ERROR: unknown command '--version'` and
+/// micromamba's `critical libmamba ...` are error lines and give no version. EsViritu prints
+/// `.../lib/python3.14/site-packages/EsViritu` then `1.3.3`, and the path is skipped so Python's
+/// `3.14` is not read as EsViritu's version.
+func parseToolVersion(
+    from output: String, stderr: String = "", exitCode: Int32 = 0, storageRoot: URL? = nil
+) -> String? {
+    ProbeVersionText.reading(exitCode: exitCode, stdout: output, stderr: stderr, storageRoot: storageRoot)?.version
 }
 
 /// A version a probe printed and the output line it came from.
@@ -240,41 +246,70 @@ public enum ProbeVersionText {
         line.split(whereSeparator: { $0.isWhitespace || $0 == ":" }).first?.lowercased() == "usage"
     }
 
-    /// The lines before the first one that opens usage text. Usage text lists option defaults
-    /// such as hifiasm's `-D FLOAT ... [5.0]` and holds no version, so nothing from that line on
-    /// is read. A tool that prints its version before the usage block, as bwa and samtools do,
-    /// keeps it.
-    static func linesBeforeUsage(_ lines: [String]) -> [String] {
-        Array(lines.prefix { !opensUsageText($0) })
+    /// An output line as the tool printed it, and the same line with the storage root taken out.
+    private struct ProbeLine {
+        let raw: String
+        let text: String
     }
 
     /// The version a probe printed and the line it came from, or nil when it printed none.
     ///
-    /// The first 8 lines of stdout and then of stderr are read, leaving blank lines out. In each
-    /// stream the lines from the first one that opens usage text on are dropped, and so is every
-    /// line that reads as an error, micromamba's own complaints included. The rest go to
-    /// `reading(in:)`.
+    /// The first 8 lines of stdout and then of stderr are read, leaving blank lines out. The
+    /// storage root is taken out of each line, so a volume named `Lab 2.0 Disk` cannot leave its
+    /// middle word behind when a path is split at its spaces. In each stream the lines from the
+    /// first one that opens usage text on are dropped, because usage text lists option defaults
+    /// such as hifiasm's `-D FLOAT ... [5.0]` and holds no version. A tool that prints its version
+    /// before the usage block, as bwa and samtools do, keeps it. Every line that reads as an error
+    /// is dropped too, micromamba's own complaints included. The rest go to `reading(in:)`.
     ///
     /// A probe that printed no version number keeps the first line of stdout as its version when it
     /// exited 0 and the line does not read as an error, as a plain `nightly-build` does. A probe
     /// that exited nonzero keeps nothing, because its first line is the tool's complaint.
-    public static func reading(exitCode: Int32, stdout: String, stderr: String) -> ProbeVersionReading? {
+    ///
+    /// `storageRoot` is the conda root the tool ran under. The reported line stays as printed.
+    public static func reading(
+        exitCode: Int32, stdout: String, stderr: String, storageRoot: URL? = nil
+    ) -> ProbeVersionReading? {
+        let spellings = rootSpellings(of: storageRoot)
+        func probeLines(of output: String, limit: Int) -> [ProbeLine] {
+            output.split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                .prefix(limit)
+                .map { raw in
+                    ProbeLine(raw: raw, text: spellings.reduce(raw) { $0.replacingOccurrences(of: $1, with: "") })
+                }
+        }
         let scanned = [stdout, stderr].flatMap { output in
-            linesBeforeUsage(Array(significantLines(of: output).prefix(linesPerStream)))
-                .filter { !looksLikeProbeError($0) }
+            probeLines(of: output, limit: linesPerStream)
+                .prefix { !opensUsageText($0.text) }
+                .filter { !looksLikeProbeError($0.text) }
         }
         if let found = reading(in: scanned) { return found }
-        guard exitCode == 0, let firstLine = significantLines(of: stdout).first,
-              !looksLikeProbeError(firstLine)
+        guard exitCode == 0, let first = probeLines(of: stdout, limit: 1).first,
+              !looksLikeProbeError(first.text)
         else { return nil }
-        return ProbeVersionReading(version: firstLine, reportedLine: firstLine)
+        return ProbeVersionReading(version: first.raw, reportedLine: first.raw)
     }
 
-    /// The lines of an output that hold something, each without the space around it.
-    private static func significantLines(of output: String) -> [String] {
-        output.split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+    /// The ways a storage root can appear in a probe's output, longest first. They are the root as
+    /// given, standardized, and as the file system names it once its symbolic links resolve, which
+    /// is how a tool that asks for its own real path prints a folder reached through `/var` as
+    /// `/private/var`. A root that is only a slash is left alone, because removing it would join
+    /// the parts of every path.
+    private static func rootSpellings(of root: URL?) -> [String] {
+        guard let root else { return [] }
+        var paths = [root.path, root.standardizedFileURL.path]
+        if let real = realpath(root.path, nil) {
+            paths.append(String(cString: real))
+            free(real)
+        }
+        return Set(paths).filter { $0.count > 1 }.sorted { $0.count > $1.count }
+    }
+
+    /// The same reading for lines that need no root removed, so a test can name each rule on its own.
+    static func reading(in lines: [String]) -> ProbeVersionReading? {
+        reading(in: lines.map { ProbeLine(raw: $0.trimmingCharacters(in: .whitespaces), text: $0) })
     }
 
     /// The version in the lines, outside any path. A token written `v2.31.0` is the tool naming
@@ -290,21 +325,20 @@ public enum ProbeVersionText {
     ///
     /// A token that holds a slash is a path, a URL or a DOI, and never counts. Several tools print
     /// their location before the version, and a volume name such as `LGE 2.0` splits a path on its
-    /// space, so each half still holds a slash. A name of three words leaves a bare middle word,
-    /// which 2.7 fixes by removing the storage root first.
+    /// space, so each half still holds a slash. A name of three words would leave a bare middle
+    /// word, so the storage root is taken out of the line before it is split.
     ///
     /// A line that echoes a JVM command (`java -ea ...`) is skipped. Every BBTools wrapper prints
     /// one before its banner, and it carries the install path and options such as `minratio=0.40`.
-    static func reading(in lines: [String]) -> ProbeVersionReading? {
+    private static func reading(in lines: [ProbeLine]) -> ProbeVersionReading? {
         let number = /\d+\.\d+(?:\.\d+){0,2}(?:\+[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?/
         var bare: ProbeVersionReading?
         for line in lines {
-            let tokens = line.split(whereSeparator: \.isWhitespace)
+            let tokens = line.text.split(whereSeparator: \.isWhitespace)
             if tokens.count >= 2, tokens[0] == "java", tokens[1].hasPrefix("-") { continue }
             for token in tokens where !token.contains("/") {
                 guard let match = token.firstMatch(of: number) else { continue }
-                let found = ProbeVersionReading(
-                    version: String(match.output), reportedLine: line.trimmingCharacters(in: .whitespaces))
+                let found = ProbeVersionReading(version: String(match.output), reportedLine: line.raw)
                 let before = token[..<match.range.lowerBound]
                 if before.last == "v", before.dropLast().allSatisfy({ !$0.isLetter && !$0.isNumber }) {
                     return found

@@ -37,7 +37,10 @@ enum CLIProvenanceSupport {
                     environment: environment,
                     timeout: 30
                 )
-                if let version = parseCondaToolVersion(result.stdout, stderr: result.stderr, exitCode: result.exitCode) {
+                if let version = parseCondaToolVersion(
+                    result.stdout, stderr: result.stderr, exitCode: result.exitCode,
+                    storageRoot: CondaManager.shared.rootPrefix
+                ) {
                     return version
                 }
             } catch {
@@ -47,13 +50,16 @@ enum CLIProvenanceSupport {
         return fallback
     }
 
-    /// The version in a probe's output, or nil when it printed none. `output` is stdout.
+    /// The version in a probe's output, or nil when it printed none. `output` is stdout, and
+    /// `storageRoot` is the conda root the tool ran under.
     ///
-    /// This is the CLI call site of `ProbeVersionText.reading(exitCode:stdout:stderr:)`, the one
-    /// parser that `detectToolVersion` and `NativeToolRunner.parseVersionProbe` call too, so all
-    /// three read a path, a `v` token, an echoed java command and an error line the same way.
-    static func parseCondaToolVersion(_ output: String, stderr: String = "", exitCode: Int32 = 0) -> String? {
-        ProbeVersionText.reading(exitCode: exitCode, stdout: output, stderr: stderr)?.version
+    /// This is the CLI call site of `ProbeVersionText.reading(exitCode:stdout:stderr:storageRoot:)`,
+    /// the one parser that `detectToolVersion` and `NativeToolRunner.parseVersionProbe` call too, so
+    /// all three read a path, a `v` token, an echoed java command and an error line the same way.
+    static func parseCondaToolVersion(
+        _ output: String, stderr: String = "", exitCode: Int32 = 0, storageRoot: URL? = nil
+    ) -> String? {
+        ProbeVersionText.reading(exitCode: exitCode, stdout: output, stderr: stderr, storageRoot: storageRoot)?.version
     }
 
     static func bundlePayloadURLs(in bundleURL: URL) -> [URL] {

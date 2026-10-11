@@ -533,7 +533,9 @@ public actor NativeToolRunner {
         // --version, but each tool can override `versionArguments` if needed
         // (e.g., iVar rejects --version and uses the `version` subcommand).
         guard let result = try? await run(tool, arguments: tool.versionArguments, timeout: 10),
-              let version = Self.parseVersionProbe(exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr)
+              let version = Self.parseVersionProbe(
+                  exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr,
+                  storageRoot: CoreToolLocator.condaRoot(homeDirectory: homeDirectory, appIdentity: appIdentity))
         else {
             return nil
         }
@@ -551,9 +553,11 @@ public actor NativeToolRunner {
     /// 40.02` on stderr and bwa's `Version: 0.7.17-r1188` after a usage exit
     /// all resolve. An error line never contributes, nor does a path token, an echoed
     /// `java` command or anything from a usage line on. The native call site of
-    /// `ProbeVersionText.reading(exitCode:stdout:stderr:)`, which holds every rule.
-    public static func parseVersionProbe(exitCode: Int32, stdout: String, stderr: String) -> String? {
-        ProbeVersionText.reading(exitCode: exitCode, stdout: stdout, stderr: stderr)?.version
+    /// `ProbeVersionText.reading(exitCode:stdout:stderr:storageRoot:)`, which holds every rule.
+    public static func parseVersionProbe(
+        exitCode: Int32, stdout: String, stderr: String, storageRoot: URL? = nil
+    ) -> String? {
+        ProbeVersionText.reading(exitCode: exitCode, stdout: stdout, stderr: stderr, storageRoot: storageRoot)?.version
     }
     
     // MARK: - Tool Execution

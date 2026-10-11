@@ -141,6 +141,43 @@ final class ProbeVersionTextTests: XCTestCase {
         XCTAssertNil(version(["no number here"]))
     }
 
+    /// A storage root named with three words is taken out of each line before the line is split (2.7).
+    /// Split at its spaces, `/Volumes/Lab 2.0 Disk/conda` leaves the middle word `2.0` bare, and a
+    /// parser would read it as the version. The reported line stays as the tool printed it.
+    func testTheStorageRootIsRemovedBeforeALineIsSplit() {
+        let root = URL(fileURLWithPath: "/Volumes/Lab 2.0 Disk/conda")
+        let line = "/Volumes/Lab 2.0 Disk/conda/envs/bowtie2/bin/bowtie2-align-s version 2.5.5"
+        let reading = ProbeVersionText.reading(exitCode: 0, stdout: line + "\n64-bit\n", stderr: "", storageRoot: root)
+        XCTAssertEqual(reading, ProbeVersionReading(version: "2.5.5", reportedLine: line))
+        // micromamba's complaint names the same root, and its markers keep it out of the scan.
+        let missing = "critical libmamba The given prefix does not exist: \"/Volumes/Lab 2.0 Disk/conda/envs/bbmap\"\n"
+        XCTAssertNil(ProbeVersionText.reading(exitCode: 1, stdout: "", stderr: missing))
+        XCTAssertNil(ProbeVersionText.reading(exitCode: 1, stdout: "", stderr: missing, storageRoot: root))
+    }
+
+    /// The root is also removed in the spelling the file system gives once its symbolic links resolve,
+    /// which is how a folder reached through `/var` prints as `/private/var` (2.7).
+    func testTheRootIsRemovedInItsResolvedSpellingToo() throws {
+        let top = FileManager.default.temporaryDirectory.appendingPathComponent("probe-root-\(UUID().uuidString)")
+        let root = top.appendingPathComponent("Lab 2.0 Disk/conda", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: top) }
+        let resolved = try XCTUnwrap(realpath(root.path, nil))
+        let real = String(cString: resolved)
+        free(resolved)
+        try XCTSkipIf(real == root.path, "the temporary folder holds no symbolic link")
+        let output = "\(real)/envs/bowtie2/bin/bowtie2-align-s version 2.5.5\n"
+        XCTAssertEqual(ProbeVersionText.reading(exitCode: 0, stdout: output, stderr: "", storageRoot: root)?.version, "2.5.5")
+    }
+
+    /// A root that is only a slash is left alone, because removing it would join the parts of every path.
+    func testARootOfOnlyASlashRemovesNothing() {
+        let slash = URL(fileURLWithPath: "/")
+        XCTAssertEqual(ProbeVersionText.reading(exitCode: 0, stdout: "tool 1.2\n", stderr: "", storageRoot: slash)?.version, "1.2")
+        XCTAssertNil(ProbeVersionText.reading(
+            exitCode: 1, stdout: "", stderr: "https://doi.org/10.7717/peerj.2584\n", storageRoot: slash))
+    }
+
     /// The reading names the line the version came from, with the space around it removed (2.7).
     func testTheReadingNamesTheLineItCameFrom() {
         let samtools = ProbeVersionText.reading(exitCode: 0, stdout: "samtools 1.24\nUsing htslib 1.24\n", stderr: "")

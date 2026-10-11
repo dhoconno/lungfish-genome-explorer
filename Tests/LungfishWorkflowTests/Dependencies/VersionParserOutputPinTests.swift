@@ -37,14 +37,17 @@ final class VersionParserOutputPinTests: XCTestCase {
         let exitCode: Int32
         let stdout: String
         let stderr: String
-        /// What `NativeToolRunner.parseVersionProbe` returns today.
+        /// What `NativeToolRunner.parseVersionProbe` returns.
         let native: String?
-        /// What `parseToolVersion(from: stdout + stderr)` returns today.
+        /// What `parseToolVersion(from:stderr:exitCode:storageRoot:)` returns.
         let detect: String?
         /// The version the tool really reports, for defect rows. Nil when the probe reports none, as
         /// bedGraphToBigWig, medaka_variant and bwa-mem2 reject it. Their version comes from the lock
         /// or conda-meta, and a parser must say nothing rather than record the error line.
         let correct: String?
+        /// The conda root the probe ran under, for a row whose output holds that root. Production
+        /// passes it to the parser, and the other rows write the shared `root` and need no help.
+        var storageRoot: String? = nil
     }
 
     private static let root = "/Users/test/.lungfish/conda"
@@ -290,6 +293,18 @@ final class VersionParserOutputPinTests: XCTestCase {
         Capture(name: "EsViritu under a root named LGE 2.0", exitCode: 0,
                 stdout: "/Volumes/LGE 2.0/conda/envs/esviritu/lib/python3.14/site-packages/EsViritu\n1.3.3\n", stderr: "",
                 native: "1.3.3", detect: "1.3.3", correct: "1.3.3"),
+        // A root named with three words, such as a volume "Lab 2.0 Disk", leaves its middle word bare
+        // when a path is split on spaces, so a parser removes the storage root from each line before it
+        // splits (2.7). The two parsers read 2.0 before. The head of the real bowtie2 output, with the
+        // root written as that volume.
+        Capture(name: "bowtie2 under a root named Lab 2.0 Disk", exitCode: 0,
+                stdout: lines(
+                    "/Volumes/Lab 2.0 Disk/conda/envs/bowtie2/bin/bowtie2-align-s version 2.5.5",
+                    "64-bit",
+                    "Built on VM-8b0b7afd3b"),
+                stderr: "",
+                native: "2.5.5", detect: "2.5.5", correct: "2.5.5",
+                storageRoot: "/Volumes/Lab 2.0 Disk/conda"),
         // vsearch prints its citation and a zlib line on stdout and its banner on stderr. A token written
         // v2.31.0 is the tool naming its own version, so both parsers prefer it to a bare number such as
         // zlib's 1.2.12 or a DOI (2.6). The real output from the owner's install, which the golden
@@ -378,8 +393,8 @@ final class VersionParserOutputPinTests: XCTestCase {
 
     /// Each row pins a wrong value as it is today. `correct` is what the tool reports. A row stays
     /// here until the parser change that fixes it lands, and that commit moves the row to `clean`.
-    /// Phase 2.6 moved its rows out. Three-word roots wait for the rest of 2.7. The bwa-mem2 and
-    /// Bracken banners name a version the package does not run.
+    /// Phases 2.6 and 2.7 moved their rows out. The bwa-mem2 and Bracken banners name a version the
+    /// package does not run.
     private static let knownDefects: [Capture] = [
         // The installed 2.3 build prints a stale 2.2.1 from the version subcommand, so both parsers
         // read a version the package does not have. Only conda-meta says 2.3 (the lock pin). The
@@ -392,16 +407,6 @@ final class VersionParserOutputPinTests: XCTestCase {
         Capture(name: "bracken", exitCode: 0,
                 stdout: "Bracken v3.0.1\n", stderr: "",
                 native: "3.0.1", detect: "3.0.1", correct: "3.1"),
-        // A root named with three words, such as a volume "Lab 2.0 Disk", leaves its middle word bare
-        // when a path is split on spaces, so both parsers read 2.0 (2.7 removes the storage root first).
-        // The head of the real bowtie2 output, with the root written as that volume.
-        Capture(name: "bowtie2 under a root named Lab 2.0 Disk", exitCode: 0,
-                stdout: lines(
-                    "/Volumes/Lab 2.0 Disk/conda/envs/bowtie2/bin/bowtie2-align-s version 2.5.5",
-                    "64-bit",
-                    "Built on VM-8b0b7afd3b"),
-                stderr: "",
-                native: "2.0", detect: "2.0", correct: "2.5.5"),
     ]
 
     // MARK: - Tests
@@ -504,12 +509,15 @@ final class VersionParserOutputPinTests: XCTestCase {
     }
 
     private func assertPins(_ capture: Capture, file: StaticString = #filePath, line: UInt = #line) {
+        let root = capture.storageRoot.map { URL(fileURLWithPath: $0) }
         XCTAssertEqual(
-            NativeToolRunner.parseVersionProbe(exitCode: capture.exitCode, stdout: capture.stdout, stderr: capture.stderr),
+            NativeToolRunner.parseVersionProbe(
+                exitCode: capture.exitCode, stdout: capture.stdout, stderr: capture.stderr, storageRoot: root),
             capture.native, "native parser on \(capture.name)", file: file, line: line
         )
         XCTAssertEqual(
-            parseToolVersion(from: capture.stdout, stderr: capture.stderr, exitCode: capture.exitCode),
+            parseToolVersion(
+                from: capture.stdout, stderr: capture.stderr, exitCode: capture.exitCode, storageRoot: root),
             capture.detect, "detect parser on \(capture.name)", file: file, line: line
         )
     }

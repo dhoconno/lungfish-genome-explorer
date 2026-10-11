@@ -134,6 +134,15 @@ final class CLIProvenanceSupportVersionTests: XCTestCase {
         XCTAssertEqual(CLIProvenanceSupport.parseCondaToolVersion(esviritu), "1.3.3")
     }
 
+    /// A root named with three words is taken out of the line before it is split, as `detectCondaToolVersion`
+    /// does with the conda root. Split at its spaces, `Lab 2.0 Disk` leaves a bare `2.0`.
+    func testARootNamedWithThreeWordsIsRemovedBeforeALineIsSplit() {
+        let root = URL(fileURLWithPath: "/Volumes/Lab 2.0 Disk/conda")
+        // EsViritu --version under that root. The path comes first and the version is the next line.
+        let esviritu = "/Volumes/Lab 2.0 Disk/conda/envs/esviritu/lib/python3.14/site-packages/EsViritu\n1.3.3\n"
+        XCTAssertEqual(CLIProvenanceSupport.parseCondaToolVersion(esviritu, storageRoot: root), "1.3.3")
+    }
+
     /// An echoed java command is skipped, so the `minratio=0.40` that mapPacBio.sh echoes is not the
     /// BBTools version. The install directory here holds no number, so only the skip is under test.
     func testAnEchoedJavaCommandIsSkipped() {
