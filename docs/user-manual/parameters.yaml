@@ -4413,7 +4413,7 @@ operations:
     entry_points:
       - "Tools > Classification > Kraken2..."
       - "Right-click a FASTQ in the sidebar > Classify with Kraken2..."
-      - "CLI: lungfish-cli conda classify <fastq-files> --db <db> --profile --output-dir <dir>"
+      - "CLI: lungfish-cli kraken2 classify <fastq-files> --db <db> --profile --output-dir <dir>"
     gating: [metagenomics]
     sources:
       - Sources/LungfishApp/Views/Metagenomics/ClassificationWizardSheet.swift
@@ -4521,7 +4521,7 @@ operations:
       path with a space in its name works. Input files may mix gzip and plain text. A
       file whose compression differs from the first file's is read from a copy in the
       first file's form, removed after the run and recorded as the provenance step
-      Lungfish Classification Input Compression Staging. conda classify refuses a run
+      Lungfish Classification Input Compression Staging. kraken2 classify refuses a run
       whose input sits inside an output it would remove before the run.
 
   classify.esviritu:

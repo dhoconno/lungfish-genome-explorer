@@ -233,13 +233,13 @@ Finally, remember the tool's boundary. An EsViritu result speaks about viruses i
 
 ## On the command line
 
-These commands repeat the procedure, as [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) explains. Every flag of `conda classify` and `esviritu detect` is listed in [Classification](../appendices/cli-reference.md#classification) in the CLI Reference.
+These commands repeat the procedure, as [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) explains. Every flag of `kraken2 classify` and `esviritu detect` is listed in [Classification](../appendices/cli-reference.md#classification) in the CLI Reference.
 
 ```bash
 PROJECT="$HOME/Documents/LGE Demo Projects/SARS-CoV-2 Amplicons.lungfish"
 
 # Survey the reads with Kraken 2 against the Viral database.
-lungfish-cli conda classify "$PROJECT/Imports/SRR36291587.lungfishfastq" \
+lungfish-cli kraken2 classify "$PROJECT/Imports/SRR36291587.lungfishfastq" \
   --db Viral --profile --output-dir "$PROJECT/Analyses/kraken2-srr36291587"
 
 # Detect viruses with EsViritu.
