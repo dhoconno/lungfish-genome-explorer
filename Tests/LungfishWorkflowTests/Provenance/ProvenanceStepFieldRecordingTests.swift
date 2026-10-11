@@ -76,6 +76,38 @@ final class ProvenanceStepFieldRecordingTests: XCTestCase {
         XCTAssertNil(converted.toolVersionEvidence)
     }
 
+    /// The FASTQ importer rebuilds the steps its ingestion recorded to name the published bundle, and
+    /// P4 attaches a tool id and version evidence to those steps. The rebuild keeps every field it does
+    /// not rewrite, the fields schema version 2 added among them.
+    func testTheImporterRehydratesIngestionStepsWithEveryField() throws {
+        let sourceOutput = URL(fileURLWithPath: "/Users/tester/ingest/S.fastq.gz")
+        let finalOutput = URL(fileURLWithPath: "/Users/tester/Demo.lungfish/Imports/.S.building-6127824B/S.fastq.gz")
+        let original = StepExecution(
+            id: UUID(), toolName: "clumpify.sh", toolVersion: "40.02", githubReleaseVersion: "v40.02",
+            containerImage: "bbtools:40.02", containerDigest: "sha256:abc123",
+            command: ["clumpify.sh", "in=/data/a.fastq", "out=\(sourceOutput.path)"],
+            durableReplayArgv: ["clumpify.sh", "in=/data/a.fastq", "out=\(sourceOutput.path)"],
+            resolvedOptions: ["groups": .string("auto")],
+            runtimeIdentity: ProvenanceRuntimeIdentity(condaEnvironment: "bbtools", condaPrefix: "/envs/bbtools"),
+            inputs: [FileRecord(path: "/data/a.fastq", role: .input)],
+            outputs: [FileRecord(path: sourceOutput.path, role: .output)],
+            exitCode: 0, wallTime: 3, peakMemoryBytes: 2_048, stderr: "a warning", dependsOn: [UUID()],
+            parentStepID: UUID(), managedToolID: ManagedToolID(rawValue: "bbtools"),
+            toolVersionEvidence: .observed(version: "40.02", reportedLine: nil),
+            startTime: Date(timeIntervalSince1970: 1_790_000_000), endTime: Date(timeIntervalSince1970: 1_790_000_003)
+        )
+        assertEveryPropertyIsSet(in: original)
+
+        let rehydrated = try XCTUnwrap(FASTQBatchImporter.rehydratedIngestionSteps(
+            [original], sourceOutputURL: sourceOutput, finalOutputURL: finalOutput, originalInputURLs: []
+        ).first)
+        assertEveryPropertyCarried(
+            rehydrated, from: original, except: ["durableReplayArgv", "inputs", "outputs"],
+            "FASTQBatchImporter.rehydratedIngestionSteps"
+        )
+        XCTAssertEqual(rehydrated.outputs.first?.path, finalOutput.path, "and it still names the published bundle")
+    }
+
     /// The conversions between a record's step and the run's step name every field. A field a step gains
     /// without a conversion line defaults to nothing there and a record that goes through the run view loses it,
     /// which is how a parent could have been dropped. This test fails when the step's fields change, so the

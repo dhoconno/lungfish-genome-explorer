@@ -1834,6 +1834,7 @@ public enum FASTQBatchImporter {
                 id: step.id,
                 toolName: step.toolName,
                 toolVersion: step.toolVersion,
+                githubReleaseVersion: step.githubReleaseVersion,
                 containerImage: step.containerImage,
                 containerDigest: step.containerDigest,
                 command: step.command,
@@ -1847,6 +1848,9 @@ public enum FASTQBatchImporter {
                 peakMemoryBytes: step.peakMemoryBytes,
                 stderr: step.stderr,
                 dependsOn: step.dependsOn,
+                parentStepID: step.parentStepID,
+                managedToolID: step.managedToolID,
+                toolVersionEvidence: step.toolVersionEvidence,
                 startTime: step.startTime,
                 endTime: step.endTime
             )

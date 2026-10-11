@@ -51,30 +51,8 @@ final class ProvenanceStepStagedPathRewriteTests: XCTestCase {
         )
     }
 
-    private struct Property {
-        let name: String
-        let text: String
-        let isUnset: Bool
-    }
-
-    private func properties(of value: Any) -> [Property] {
-        Mirror(reflecting: value).children.compactMap { child in
-            guard let name = child.label else { return nil }
-            let mirror = Mirror(reflecting: child.value)
-            let isUnset: Bool
-            switch mirror.displayStyle {
-            case .optional, .collection, .dictionary, .set: isUnset = mirror.children.isEmpty
-            default: isUnset = (child.value as? String)?.isEmpty == true
-            }
-            return Property(name: name, text: "\(child.value)", isUnset: isUnset)
-        }
-    }
-
     func testTheFixtureStepSetsEveryStoredProperty() {
-        XCTAssertEqual(
-            properties(of: fullStep()).filter(\.isUnset).map(\.name), [],
-            "a property the fixture leaves unset would pass the rewrite check even if the rewrite dropped it"
-        )
+        assertEveryPropertyIsSet(in: fullStep())
     }
 
     func testTheStagedPathRewriteKeepsEveryPropertyItDoesNotRewrite() throws {
@@ -84,14 +62,11 @@ final class ProvenanceStepStagedPathRewriteTests: XCTestCase {
             FASTQBatchImporter.rewriteStagedBundlePaths(in: record, stagingBundleURL: staging, publishedBundleURL: published)
                 .steps.first
         )
-
-        let rewrittenProperties: Set<String> = ["durableReplayArgv", "reproducibleCommand", "resolvedOptions", "inputs", "outputs"]
-        let before = Dictionary(uniqueKeysWithValues: properties(of: original).map { ($0.name, $0.text) })
-        let after = properties(of: rewritten)
-        for property in after where !rewrittenProperties.contains(property.name) {
-            XCTAssertEqual(property.text, before[property.name], "the rewrite changed or dropped \(property.name)")
-        }
-        XCTAssertEqual(Set(after.map(\.name)), Set(before.keys), "the rewrite returned a step with other properties")
+        assertEveryPropertyCarried(
+            rewritten, from: original,
+            except: ["durableReplayArgv", "reproducibleCommand", "resolvedOptions", "inputs", "outputs"],
+            "FASTQBatchImporter.rewriteStagedBundlePaths"
+        )
 
         // And it did rewrite the paths it exists to rewrite.
         let paths = (rewritten.durableReplayArgv ?? []) + rewritten.inputs.map(\.path) + rewritten.outputs.map(\.path)
