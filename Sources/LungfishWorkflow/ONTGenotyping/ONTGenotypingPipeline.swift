@@ -340,6 +340,11 @@ public struct ONTGenotypingPipeline: Sendable {
         }
     }
 
+    /// The pysam version a record names. Nothing runs pysam to ask, so it is the lock's pin and is
+    /// recorded as a pin, never as a measurement. `unknown` when the lock holds no pysam entry.
+    static let pysamID = ManagedToolID(rawValue: "pysam")
+    static var pysamVersionEvidence: ToolVersionEvidence { .lockPin(for: pysamID) }
+
     private func writeFilteredMappingProvenance(
         runRequest: ONTGenotypingRunRequest,
         request: MappingRunRequest,
@@ -350,7 +355,7 @@ public struct ONTGenotypingPipeline: Sendable {
         sampleDirectory: URL
     ) throws {
         let rawProvenance = MappingProvenance.load(from: sampleDirectory)
-        let pysamVersion = ManagedToolLock.bundled.entry(id: ManagedToolID(rawValue: "pysam"))?.version ?? "unknown"
+        let pysamVersion = Self.pysamVersionEvidence.recordedString
         let mappingResultURL = sampleDirectory.appendingPathComponent("mapping-result.json")
         let filterInputs = [
             ProvenanceRecorder.fileRecord(url: rawMappingResult.bamURL, format: .bam, role: .input),
@@ -419,9 +424,8 @@ public struct ONTGenotypingPipeline: Sendable {
         completedAt: Date
     ) throws {
         let lock = ManagedToolLock.bundled
-        let pysamEntry = lock.entry(id: ManagedToolID(rawValue: "pysam"))
-        let pysamVersion = pysamEntry?.version ?? "unknown"
-        let pysamPackageSpec = pysamEntry.flatMap { lock.packageSpec(of: $0) }
+        let pysamVersion = Self.pysamVersionEvidence.recordedString
+        let pysamPackageSpec = lock.entry(id: Self.pysamID).flatMap { lock.packageSpec(of: $0) }
             ?? lock.packageSpec(forEnvironment: "pysam") ?? "bioconda::pysam"
         let minimap2Requirement = PluginPack.builtInPack(id: "read-mapping")?
             .toolRequirements
