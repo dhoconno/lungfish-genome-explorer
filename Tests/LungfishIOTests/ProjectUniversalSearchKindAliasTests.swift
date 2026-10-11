@@ -181,13 +181,19 @@ final class ProjectUniversalSearchKindAliasTests: XCTestCase {
     }
 
     func testAResultFolderIsIndexedOnceAndItsFilesAreNotAlsoManifestDocuments() throws {
-        try makeResultFolder("Analyses/kraken2-2026-03-28T12-00-00", sidecar: "classification-result.json")
+        // An empty JSON object is never a manifest document, so the sidecar holds text a document would show.
+        try makeResultFolder(
+            "Analyses/kraken2-2026-03-28T12-00-00",
+            sidecar: "classification-result.json",
+            contents: #"{"config":{"databaseName":"PlusPF"}}"#
+        )
 
         let index = try ProjectUniversalSearchIndex(projectURL: projectURL)
         let stats = try index.rebuild()
 
         XCTAssertEqual(stats.perKindCounts["classification_result"], 1)
         XCTAssertNil(stats.perKindCounts["manifest_document"])
+        XCTAssertEqual(try index.search(rawQuery: "PlusPF", limit: 20).map(\.kind), ["classification_result"])
     }
 
     func testUpsertIndexesAKraken2Folder() throws {
@@ -342,11 +348,11 @@ final class ProjectUniversalSearchKindAliasTests: XCTestCase {
 
     // MARK: - Fixtures
 
-    /// A folder holding the one sidecar file an indexer reads, with an empty JSON object in it.
-    private func makeResultFolder(_ relativePath: String, sidecar: String) throws {
+    /// A folder holding the one sidecar file an indexer reads, with an empty JSON object in it unless told.
+    private func makeResultFolder(_ relativePath: String, sidecar: String, contents: String = "{}") throws {
         let folder = projectURL.appendingPathComponent(relativePath, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try "{}".write(to: folder.appendingPathComponent(sidecar), atomically: true, encoding: .utf8)
+        try contents.write(to: folder.appendingPathComponent(sidecar), atomically: true, encoding: .utf8)
     }
 
     /// A folder holding `manifest.json` with the given text and an empty `hits.sqlite`, as a NAO-MGS or
