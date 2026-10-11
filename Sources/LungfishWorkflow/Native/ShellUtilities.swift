@@ -184,7 +184,8 @@ func detectToolVersion(
 /// Extracts a version from a tool's `--version` style output.
 ///
 /// Returns the first semver-like pattern (e.g. `2.1.3`) outside any file
-/// path, else the first output line, else `nil` for empty output. Paths are
+/// path, with a token written `v2.31.0` preferred (see `ProbeVersionText`),
+/// else the first output line, else `nil` for empty output. Paths are
 /// skipped because several tools print their own location before the
 /// version. EsViritu prints `.../lib/python3.14/site-packages/EsViritu`
 /// then `1.3.3`, and a match inside that path recorded Python's `3.14` as
@@ -202,7 +203,13 @@ func parseToolVersion(from output: String) -> String? {
 /// its own copy in `CLIProvenanceSupport.parseCondaToolVersion`, and sub-phase 2.7 merges the
 /// three. A table of real probe output, `VersionParserOutputPinTests`, pins every tool's result.
 enum ProbeVersionText {
-    /// The first dotted number in the lines, left to right, outside any path.
+    /// The version in the lines, outside any path. A token written `v2.31.0` is the tool naming
+    /// its own version, so the first such token wins. Without one, the first dotted number wins.
+    ///
+    /// vsearch prints a zlib line (`zlib version 1.2.12`) on stdout before its banner
+    /// (`vsearch v2.31.0_macos_aarch64`) on stderr, and the prefix is what tells them apart. A
+    /// prefix wins even when it comes later than a bare number, so a tool that prints its own bare
+    /// version and then names a library as `v2.0` would read the library.
     ///
     /// A token that holds a slash is a path, a URL or a DOI, and never counts. Several tools print
     /// their location before the version, and a volume name such as `LGE 2.0` splits a path on its
@@ -213,13 +220,19 @@ enum ProbeVersionText {
     /// such as `minratio=0.40`.
     static func version(in lines: [String], skippingCommandEcho: Bool) -> String? {
         let number = /\d+\.\d+(?:\.\d+)?/
+        var bare: String?
         for line in lines {
             let tokens = line.split(whereSeparator: \.isWhitespace)
             if skippingCommandEcho, tokens.count >= 2, tokens[0] == "java", tokens[1].hasPrefix("-") { continue }
             for token in tokens where !token.contains("/") {
-                if let match = token.firstMatch(of: number) { return String(match.output) }
+                guard let match = token.firstMatch(of: number) else { continue }
+                let before = token[..<match.range.lowerBound]
+                if before.last == "v", before.dropLast().allSatisfy({ !$0.isLetter && !$0.isNumber }) {
+                    return String(match.output)
+                }
+                if bare == nil { bare = String(match.output) }
             }
         }
-        return nil
+        return bare
     }
 }

@@ -34,6 +34,19 @@ final class ProbeVersionTextTests: XCTestCase {
         XCTAssertEqual(version(["java version 21.0.2"], echo: true), "21.0.2")
     }
 
+    /// A token written v1.2.3 is the tool naming its own version. It outranks a bare number that comes
+    /// earlier, such as the zlib line in vsearch's citation block (2.6). A v inside a word is no prefix.
+    func testAnExplicitVPrefixOutranksABareNumber() {
+        XCTAssertEqual(
+            version(["zlib version 1.2.12, compile flags 2a9", "vsearch v2.31.0_macos_aarch64, 64.0GB RAM"]),
+            "2.31.0"
+        )
+        XCTAssertEqual(version(["(v7.526) 2024"]), "7.526")
+        XCTAssertEqual(version(["rev2.5 tool 3.1"]), "2.5")
+        // The trade-off: an explicit prefix wins even when it comes later than the tool's own bare number.
+        XCTAssertEqual(version(["tool 1.0", "built against libfoo v2.0"]), "2.0")
+    }
+
     /// The left-most dotted number wins, outside paths and echoed commands.
     func testTheFirstDottedNumberWins() {
         XCTAssertEqual(version(["samtools 1.24", "Using htslib 1.24"]), "1.24")

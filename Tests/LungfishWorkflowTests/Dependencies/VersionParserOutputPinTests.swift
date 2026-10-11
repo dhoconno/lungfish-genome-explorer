@@ -279,6 +279,24 @@ final class VersionParserOutputPinTests: XCTestCase {
         Capture(name: "EsViritu under a root named LGE 2.0", exitCode: 0,
                 stdout: "/Volumes/LGE 2.0/conda/envs/esviritu/lib/python3.14/site-packages/EsViritu\n1.3.3\n", stderr: "",
                 native: "1.3.3", detect: "1.3.3", correct: "1.3.3"),
+        // vsearch prints its citation and a zlib line on stdout and its banner on stderr. A token written
+        // v2.31.0 is the tool naming its own version, so both parsers prefer it to a bare number such as
+        // zlib's 1.2.12 or a DOI (2.6). The real output from the owner's install, which the golden
+        // environment lacks.
+        Capture(name: "vsearch citation", exitCode: 0,
+                stdout: lines(
+                    "Rognes T, Flouri T, Nichols B, Quince C, Mahe F (2016)",
+                    "VSEARCH: a versatile open source tool for metagenomics",
+                    "PeerJ 4:e2584 doi: 10.7717/peerj.2584 https://doi.org/10.7717/peerj.2584",
+                    "",
+                    "Compiled with support for gzip-compressed files, and the library is loaded.",
+                    "zlib version 1.2.12, compile flags 2a9",
+                    "Compiled with support for bzip2-compressed files, and the library is loaded."),
+                stderr: lines(
+                    "vsearch v2.31.0_macos_aarch64, 64.0GB RAM, 20 cores",
+                    "https://github.com/torognes/vsearch",
+                    ""),
+                native: "2.31.0", detect: "2.31.0", correct: "2.31.0"),
     ]
 
     // MARK: - Known defects, fixed in 2.6 and 2.7
@@ -323,14 +341,6 @@ final class VersionParserOutputPinTests: XCTestCase {
         // nothing parses this output in production, and the row stays to show why.
         Capture(name: "bwa-mem2 version subcommand", exitCode: 0, stdout: "2.2.1\n", stderr: "",
                 native: "2.2.1", detect: "2.2.1", correct: "2.3"),
-        // vsearch prints its citation first. Both parsers skip the DOI, which is a path token, and
-        // record zlib's 1.2.12 from the library line before the banner that holds 2.31.0 (2.6).
-        Capture(name: "vsearch citation", exitCode: 0,
-                stdout: "Rognes T, Flouri T, Nichols B, Quince C, Mahe F (2016)\nVSEARCH: a versatile open source tool for metagenomics\n"
-                    + "PeerJ 4:e2584 doi: 10.7717/peerj.2584 https://doi.org/10.7717/peerj.2584\n\n"
-                    + "Compiled with support for gzip-compressed files, and the library is loaded.\nzlib version 1.2.12, compile flags 2a9\n",
-                stderr: "vsearch v2.31.0_macos_aarch64, 64.0GB RAM, 20 cores\nhttps://github.com/torognes/vsearch\n\n",
-                native: "1.2.12", detect: "1.2.12", correct: "2.31.0"),
         // Tools that reject the probe: the detect parser records the error line (2.6).
         Capture(name: "bedGraphToBigWig --version", exitCode: 255, stdout: "",
                 stderr: "--version is not a valid option\n",
