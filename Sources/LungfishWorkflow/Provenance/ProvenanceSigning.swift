@@ -4,6 +4,7 @@
 
 import CryptoKit
 import Foundation
+import LungfishCore
 
 public protocol ProvenanceSigningProvider: Sendable {
     var providerIdentifier: String { get }
@@ -136,19 +137,25 @@ public struct LocalProvenanceSigningProvider:
         self.privateKey = privateKey
     }
 
+    /// Signs the record and publishes the signature file and the public key file through
+    /// ``DurableReplace`` in one transaction (Phase 2.7 scope row B8).
+    ///
+    /// Each file is fsynced before it takes its name, and is swapped in whole on ExFAT too, where
+    /// a plain atomic write can leave the name empty. One full flush covers both files, or joins
+    /// the transaction of a caller that already runs one, as the provenance writer does around a
+    /// whole write. The bytes are the ones the transactional overload hands its publisher.
+    /// A failure after the signature took its name leaves a whole signature and no key, which
+    /// verification reports as a missing key, and the next signing repairs the pair.
     public func sign(provenanceURL: URL) throws -> ProvenanceSignatureArtifact {
-        let prepared = try preparedSignature(
-            provenanceURL: provenanceURL
-        )
-        try prepared.signatureData.write(
-            to: prepared.artifact.signatureURL,
-            options: .atomic
-        )
-        try prepared.publicKeyData.write(
-            to: prepared.artifact.publicKeyURL,
-            options: .atomic
-        )
-        return prepared.artifact
+        try DurableReplace.transaction {
+            try sign(provenanceURL: provenanceURL) { data, destinationURL in
+                try DurableReplace.replace(
+                    data,
+                    named: destinationURL.lastPathComponent,
+                    in: destinationURL.deletingLastPathComponent()
+                )
+            }
+        }
     }
 
     public func sign(

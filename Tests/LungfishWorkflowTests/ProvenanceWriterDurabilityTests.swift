@@ -257,7 +257,11 @@ final class ProvenanceWriterDurabilityTests: XCTestCase {
         try withCountingOperations(counter) {
             try writer.write(Self.envelope("new"), toSidecar: record)
         }
-        XCTAssertEqual(counter["published"], 3, "the unsigned, placeholder and final records each swap in once")
+        // The record swaps in three times, unsigned, with the placeholder reference and final. Each
+        // of the three signings publishes its signature and its key through DurableReplace as well,
+        // inside the write's one transaction (Phase 2.7 lane S6b).
+        XCTAssertEqual(counter["published"], 3 + 3 * 2, "three record swaps, and a signature and a key for each")
+        XCTAssertEqual(counter["stageSynced"], 3 + 3 * 2, "every one of them is fsynced")
         XCTAssertEqual(counter["fullFlush"], 1)
         XCTAssertNoThrow(try ProvenanceSignatureVerifier.verify(provenanceURL: record))
         XCTAssertEqual(try workflowName(at: record), "new")
@@ -638,11 +642,14 @@ final class ProvenanceWriterDurabilityTests: XCTestCase {
         if run.scenario != .outsideProject, found.envelope.workflowName == "old" {
             XCTAssertNoThrow(try ProvenanceSignatureVerifier.verify(provenanceURL: run.record), "\(context): the old pair verifies")
         }
+        // The signature and the key publish the way the record does, so a leftover can belong to any of the three.
         let leftovers = try names(in: run.folder).filter { $0.hasPrefix(".\(name)") }
         XCTAssertLessThanOrEqual(leftovers.count, exited ? (run.rotates ? 2 : 1) : 0, "\(context): \(leftovers)")
+        let owners = Self.pair(run.record).map(\.lastPathComponent)
         for leftover in leftovers {
-            XCTAssertTrue(Self.leftoverInfixes.contains { Self.keepsUUIDTail(leftover, name: name, infix: $0) },
-                          "\(context): \(leftover)")
+            XCTAssertTrue(Self.leftoverInfixes.contains { infix in
+                owners.contains { Self.keepsUUIDTail(leftover, name: $0, infix: infix) }
+            }, "\(context): \(leftover)")
         }
         try Self.writer(for: run.scenario == .outsideProject ? .outsideProject : .signedPair)
             .write(Self.envelope("next"), toSidecar: run.record)
