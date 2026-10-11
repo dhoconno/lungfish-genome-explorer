@@ -209,6 +209,10 @@
     {
       "label" : "Conda Environment",
       "value" : "minimap2"
+    },
+    {
+      "label" : "Dependency Set",
+      "value" : "Not recorded"
     }
   ],
   "summary" : {

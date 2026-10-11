@@ -54,8 +54,7 @@ struct ProvenanceAuditResult: Equatable {
     var requirement: ProvenanceRequirement
     var sidecarURL: URL?
     var messages: [String]
-    /// Whether the record decoded as a bare run or through the primitive adapter, which is the
-    /// Older record format. It is set whatever the status, since that format never hides Incomplete.
+    /// Whether the record is a bare run or primitive record, the Older record format, whatever its status.
     var isOlderRecordFormat = false
 
     var isBlocking: Bool {
@@ -225,10 +224,11 @@ struct ProvenanceRunSummary: Equatable {
     var statusLabel: String = "No provenance required"
     var exitStatus: Int?
     var wallTimeSeconds: TimeInterval?
-    /// A date the reader invented, or an exit status the record's format never held, reads Not
+    /// A date the reader invented, or an exit status or wall time the record lacks, reads Not
     /// recorded in its row instead of the row being left out.
     var createdAtNotRecorded = false
     var exitStatusNotRecorded = false
+    var wallTimeNotRecorded = false
     var stepCount: Int = 0
     var inputCount: Int = 0
     var outputCount: Int = 0
@@ -993,7 +993,7 @@ final class ProvenanceInspectorViewModel {
         appendOptional("Plugin Pack", runtime.pluginPack, to: &rows)
         appendOptional("Container Image", runtime.containerImage, to: &rows)
         appendOptional("Container Digest", runtime.containerDigest, to: &rows)
-        appendOptional("Dependency Set", runtime.dependencySet, to: &rows)
+        rows.append(ProvenanceRuntimeRow(label: "Dependency Set", value: runtime.dependencySet.flatMap { $0.isEmpty ? nil : $0 } ?? "Not recorded"))
         return rows
     }
 
@@ -1021,7 +1021,7 @@ final class ProvenanceInspectorViewModel {
                     ("Tool", summary.toolVersion.isEmpty ? summary.toolName : "\(summary.toolName) \(summary.toolVersion)"),
                     ("Created", summary.createdAt?.formatted(date: .abbreviated, time: .shortened) ?? (summary.createdAtNotRecorded ? "Not recorded" : "")),
                     ("Exit Status", summary.exitStatus.map(String.init) ?? (summary.exitStatusNotRecorded ? "Not recorded" : "")),
-                    ("Wall Time", summary.wallTimeSeconds.map { "\(String(format: "%.2f", $0)) s" } ?? ""),
+                    ("Wall Time", summary.wallTimeSeconds.map { "\(String(format: "%.2f", $0)) s" } ?? (summary.wallTimeNotRecorded ? "Not recorded" : "")),
                     ("Steps", "\(summary.stepCount)"),
                     ("Inputs", "\(summary.inputCount)"),
                     ("Outputs", "\(summary.outputCount)"),

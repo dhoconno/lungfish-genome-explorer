@@ -43,7 +43,7 @@ struct ProvenanceDisplaySnapshot: Codable, Equatable {
         var signatureCount: Int
         var sidecarDisplayPath: String?
         /// The Run Summary rows that read Not recorded instead of being left out, because the reader
-        /// invented the date or the record's format never held the exit status. Nil when there is none.
+        /// invented the date or the record lacks the exit status or the wall time. Nil when there is none.
         var notRecorded: [String]?
     }
 
@@ -180,7 +180,9 @@ extension ProvenanceDisplaySnapshot {
 
     @MainActor
     private static func notRecordedRows(of summary: ProvenanceRunSummary) -> [String]? {
-        let rows = (summary.createdAtNotRecorded ? ["Created"] : []) + (summary.exitStatusNotRecorded ? ["Exit Status"] : [])
+        let rows = (summary.createdAtNotRecorded ? ["Created"] : [])
+            + (summary.exitStatusNotRecorded ? ["Exit Status"] : [])
+            + (summary.wallTimeNotRecorded ? ["Wall Time"] : [])
         return rows.isEmpty ? nil : rows
     }
 

@@ -223,6 +223,8 @@ struct ProvenanceSection: View {
             }
             if let wallTime = viewModel.summary.wallTimeSeconds {
                 summaryRow("Wall Time", value: formatDuration(wallTime))
+            } else if viewModel.summary.wallTimeNotRecorded {
+                summaryRow("Wall Time", value: "Not recorded")
             }
             summaryRow("Steps", value: "\(viewModel.summary.stepCount)")
             summaryRow("Inputs", value: "\(viewModel.summary.inputCount)")

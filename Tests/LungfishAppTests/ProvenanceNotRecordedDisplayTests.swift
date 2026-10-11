@@ -17,7 +17,7 @@ final class ProvenanceNotRecordedDisplayTests: XCTestCase {
         XCTAssertEqual(rows["Executable"], "Not recorded")
         XCTAssertEqual(rows["Process ID"], "Not recorded")
         XCTAssertEqual(rows["Architecture"], "Not recorded")
-        XCTAssertNil(rows["Dependency Set"], "an absent optional fact shows no row, as before")
+        XCTAssertEqual(rows["Dependency Set"], "Not recorded", "readers once filled it from the reading Mac, like Executable")
         XCTAssertEqual(rows["App Version"], "Lungfish 2026.10.10 (dev)")
         XCTAssertEqual(rows["OS"], "macOS 26.7.1 (arm64)")
     }

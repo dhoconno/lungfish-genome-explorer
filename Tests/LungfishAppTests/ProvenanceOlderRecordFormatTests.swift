@@ -115,6 +115,7 @@ final class ProvenanceOlderRecordFormatTests: XCTestCase {
         XCTAssertEqual(model.audit.status, .legacy)
         XCTAssertNil(model.summary.exitStatus)
         XCTAssertTrue(model.summary.exitStatusNotRecorded)
+        XCTAssertFalse(model.summary.wallTimeNotRecorded, "The assembler's record holds its wall time.")
         XCTAssertEqual(titles(model), [olderTitle])
         XCTAssertFalse(model.warnings.contains { $0.message.contains("Exit status") })
         XCTAssertEqual(model.summary.statusLabel, olderTitle)
@@ -134,6 +135,16 @@ final class ProvenanceOlderRecordFormatTests: XCTestCase {
         XCTAssertEqual(model.summary.statusLabel, "Incomplete")
         XCTAssertEqual(titles(model), ["Incomplete provenance", olderTitle])
         XCTAssertEqual(model.warnings.first?.message, "Wall time is missing.")
+        // The shape decides Incomplete and never whether a row shows, so the gap also reads in its row.
+        XCTAssertNil(model.summary.wallTimeSeconds)
+        XCTAssertTrue(model.summary.wallTimeNotRecorded)
+        XCTAssertTrue(model.copyableText.contains("Wall Time: Not recorded"), model.copyableText)
+        let inspected = try ProvenanceSection(viewModel: model).inspect()
+        XCTAssertTrue(inspected.findAll(ViewType.Text.self).compactMap { try? $0.string() }.contains("Wall Time"))
+        let values = inspected.findAll(ViewType.Text.self, where: {
+            (try? $0.accessibilityIdentifier()) == "provenance-summary-value"
+        }).compactMap { try? $0.string() }
+        XCTAssertTrue(values.contains("Not recorded"), "\(values)")
     }
 
     // MARK: - Envelopes and typed records
@@ -164,7 +175,10 @@ final class ProvenanceOlderRecordFormatTests: XCTestCase {
             model.warnings.contains { $0.message == "Exit status is missing." },
             "An envelope states its exit status, so a missing one is a gap."
         )
-        XCTAssertFalse(model.summary.exitStatusNotRecorded)
+        // The gap is a warning and its row reads Not recorded too, since the shape decides whether it
+        // is Incomplete and never whether the row shows.
+        XCTAssertTrue(model.summary.exitStatusNotRecorded)
+        XCTAssertTrue(model.summary.wallTimeNotRecorded)
     }
 
     func testACompleteEnvelopeStaysCompleteWithNoOlderRecordFormatNotice() async throws {
@@ -259,14 +273,17 @@ final class ProvenanceOlderRecordFormatTests: XCTestCase {
         let viewModel = ProvenanceInspectorViewModel()
         viewModel.summary.createdAtNotRecorded = true
         viewModel.summary.exitStatusNotRecorded = true
+        viewModel.summary.wallTimeNotRecorded = true
 
         let inspected = try ProvenanceSection(viewModel: viewModel).inspect()
         let values = inspected.findAll(ViewType.Text.self, where: {
             (try? $0.accessibilityIdentifier()) == "provenance-summary-value"
         }).compactMap { try? $0.string() }
-        XCTAssertEqual(values.filter { $0 == "Not recorded" }.count, 2, "\(values)")
+        XCTAssertEqual(values.filter { $0 == "Not recorded" }.count, 3, "\(values)")
         let labels = inspected.findAll(ViewType.Text.self).compactMap { try? $0.string() }
-        XCTAssertTrue(labels.contains("Created") && labels.contains("Exit Status"), "\(labels)")
+        XCTAssertTrue(
+            labels.contains("Created") && labels.contains("Exit Status") && labels.contains("Wall Time"), "\(labels)"
+        )
     }
 
     func testARunSummaryWithNothingMissingLeavesTheseRowsOut() throws {
@@ -275,6 +292,7 @@ final class ProvenanceOlderRecordFormatTests: XCTestCase {
 
         XCTAssertFalse(labels.contains("Created"))
         XCTAssertFalse(labels.contains("Exit Status"))
+        XCTAssertFalse(labels.contains("Wall Time"))
     }
 
     func testEmptyRuntimeRowsReadNotRecordedInPlaceOfTheOldMessage() throws {

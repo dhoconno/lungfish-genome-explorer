@@ -118,6 +118,10 @@
     {
       "label" : "Architecture",
       "value" : "Not recorded"
+    },
+    {
+      "label" : "Dependency Set",
+      "value" : "Not recorded"
     }
   ],
   "summary" : {

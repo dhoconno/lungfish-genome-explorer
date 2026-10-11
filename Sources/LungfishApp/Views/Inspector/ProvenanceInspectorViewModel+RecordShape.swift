@@ -86,15 +86,17 @@ extension ProvenanceCoverageMonitor {
 }
 
 extension ProvenanceInspectorViewModel {
-    /// Marks the Run Summary rows whose fact the record never held, from how the reader read it.
+    /// Marks the Run Summary rows whose fact the record lacks, from how the reader read it.
     ///
     /// A date the reader invented, with the file's date or 1970, is not a fact the record holds, so
-    /// the row reads Not recorded. So does an exit status a primitive record never held.
+    /// the row reads Not recorded. So does an exit status or wall time the record lacks. The shape
+    /// decides whether the record is Incomplete and never whether a row shows.
     func applyReading(_ reading: ProvenanceEnvelopeReader.Reading?, to envelope: ProvenanceEnvelope) {
         if reading?.createdAtWasInvented == true {
             summary.createdAt = nil
             summary.createdAtNotRecorded = true
         }
-        summary.exitStatusNotRecorded = envelope.exitStatus == nil && ProvenanceRecordShapeRule(reading).neverHeldAnExitStatus
+        summary.exitStatusNotRecorded = envelope.exitStatus == nil
+        summary.wallTimeNotRecorded = envelope.wallTimeSeconds == nil
     }
 }

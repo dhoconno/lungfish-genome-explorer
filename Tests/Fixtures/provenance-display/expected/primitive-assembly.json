@@ -114,6 +114,10 @@
     {
       "label" : "Conda Environment",
       "value" : "spades"
+    },
+    {
+      "label" : "Dependency Set",
+      "value" : "Not recorded"
     }
   ],
   "summary" : {
