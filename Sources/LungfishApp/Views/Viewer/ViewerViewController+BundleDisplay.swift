@@ -335,6 +335,15 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
                 if let frame = self.referenceFrame, self.viewerView.bounds.width > 0 {
                     frame.pixelWidth = Int(self.viewerView.bounds.width)
                 }
+                // The restore has settled. A save marked while it ran was its own echo, so drop it. A later save
+                // is compared with this state, so only a user change shows (S11).
+                if self.currentBundleURL == context.url {
+                    self.viewStateSaveWorkItem?.cancel()
+                    self.viewStateSaveWorkItem = nil
+                    var restored = self.capturedViewState()
+                    restored.markRestored()
+                    self.currentBundleViewState = restored
+                }
 
                 self.viewerView.needsDisplay = true
                 self.enhancedRulerView.needsDisplay = true
@@ -696,21 +705,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
 
     private static func defaultBundleViewStateFromAppSettings() -> BundleViewState {
         let settings = AppSettings.shared
-        return BundleViewState(
-            typeColorOverrides: [:],
-            annotationColorOverrides: [:],
-            annotationHeight: settings.defaultAnnotationHeight,
-            annotationSpacing: settings.defaultAnnotationSpacing,
-            showAnnotations: true,
-            visibleAnnotationTypes: nil,
-            showVariants: true,
-            visibleVariantTypes: nil,
-            translationColorScheme: .zappo,
-            isRNAMode: false,
-            lastChromosome: nil,
-            lastOrigin: nil,
-            lastScale: nil
-        )
+        return BundleViewState(annotationHeight: settings.defaultAnnotationHeight, annotationSpacing: settings.defaultAnnotationSpacing)
     }
 }
 
@@ -731,28 +726,36 @@ extension ViewerViewController {
 
     // MARK: - View State Persistence
 
-    /// Schedules a debounced save of the current view state to the bundle directory.
+    /// Marks the view state changed and schedules a debounced save 500ms ahead (plan row S11).
     ///
-    /// Cancels any pending save and schedules a new one 500ms in the future.
-    /// This prevents writes on every slider tick while still saving promptly after changes stop.
+    /// Only user event handlers call this, and a programmatic restore never does, so the pending save is the
+    /// mark that a person changed something. Each call replaces the pending save, which prevents a write on
+    /// every slider tick while still saving promptly after changes stop.
     public func scheduleViewStateSave() {
         viewStateSaveWorkItem?.cancel()
         let item = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            MainActor.assumeIsolated {
-                self.saveCurrentViewState()
-            }
+            MainActor.assumeIsolated { self?.saveCurrentViewState() }
         }
         viewStateSaveWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: item)
     }
 
-    /// Captures the current in-memory view state and writes it to the bundle.
+    /// Writes the pending view state ahead of the debounce. Showing another bundle and clearing the display call
+    /// this. With no save pending it writes nothing, and neither does a state equal to the one restored, because
+    /// the Inspector reports a change when it takes restored settings and that save carries the restored values.
     public func saveCurrentViewState() {
+        guard let pending = viewStateSaveWorkItem else { return }
+        pending.cancel()
+        viewStateSaveWorkItem = nil
         guard let bundleURL = currentBundleURL else { return }
+        var state = capturedViewState()
+        state.saveUnlessRestored(to: bundleURL)
+        currentBundleViewState = state
+    }
 
+    /// The stored state with the viewer's live display settings and position written into it.
+    private func capturedViewState() -> BundleViewState {
         var state = currentBundleViewState ?? .default
-
         state.annotationHeight = Double(annotationDisplayHeight)
         state.annotationSpacing = Double(annotationDisplaySpacing)
         state.showAnnotations = showAnnotations
@@ -765,16 +768,12 @@ extension ViewerViewController {
         state.variantFilterText = viewerView.variantFilterText
         state.hiddenVariantTrackIDs = viewerView.hiddenVariantTrackIDs
         state.sampleDisplayState = viewerView.sampleDisplayState
-
-        // Navigation state
         if let frame = referenceFrame {
             state.lastChromosome = frame.chromosome
             state.lastOrigin = frame.start
             state.lastScale = frame.scale
         }
-
-        currentBundleViewState = state
-        state.save(to: bundleURL)
+        return state
     }
 
     /// Extracts the chromosomes selected in the navigator into a new

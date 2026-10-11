@@ -24,6 +24,14 @@ private let logger = Logger(subsystem: LogSubsystem.core, category: "BundleViewS
 /// ├── annotations/
 /// └── ...
 /// ```
+///
+/// ## App state
+/// The file is declared app state (plan row S11). It sits inside the bundle but outside every
+/// checksum and provenance record, because its name is hidden. The viewer writes it only after a
+/// user change, so showing a bundle with no input writes nothing. `markRestored()` and
+/// `saveUnlessRestored(to:)` tell a user change from the programmatic restore of the same values.
+/// A `.lungfishmsa` or `.lungfishtree` bundle keeps a `.viewstate.json` that its creation wrote and
+/// its manifest checksums, so nothing here writes into those bundles.
 public struct BundleViewState: Codable, Sendable, Equatable {
 
     // MARK: - Annotation Display
@@ -85,6 +93,37 @@ public struct BundleViewState: Codable, Sendable, Equatable {
 
     /// Last zoom scale (bp/pixel).
     public var lastScale: Double?
+
+    // MARK: - Session Bookkeeping
+
+    /// The state the viewer last restored or wrote, held in memory only (plan row S11).
+    ///
+    /// It is not saved, and `==` ignores it. A save that a programmatic restore asked for carries the
+    /// values that were just restored, so it equals this state and writes nothing. A user change makes the
+    /// two differ.
+    fileprivate var restored = RestoredState()
+
+    /// A snapshot of a `BundleViewState`, kept apart from the values so a state can carry the one it restored.
+    fileprivate struct RestoredState: Sendable, Equatable {
+        var snapshot: Snapshot?
+
+        /// Every `RestoredState` is equal, so a snapshot never changes whether two states are equal.
+        static func == (lhs: RestoredState, rhs: RestoredState) -> Bool { true }
+    }
+
+    fileprivate final class Snapshot: Sendable {
+        let state: BundleViewState
+        init(_ state: BundleViewState) { self.state = state }
+    }
+
+    /// The keys of the saved file. The session bookkeeping above is not one of them.
+    private enum CodingKeys: String, CodingKey {
+        case typeColorOverrides, annotationColorOverrides, annotationHeight, annotationSpacing
+        case showAnnotations, visibleAnnotationTypes, annotationFilterText
+        case showVariants, visibleVariantTypes, variantFilterText, hiddenVariantTrackIDs, sampleDisplayState
+        case translationColorScheme, isRNAMode
+        case lastChromosome, lastOrigin, lastScale
+    }
 
     // MARK: - Defaults
 
@@ -212,14 +251,45 @@ extension BundleViewState {
 
     /// Saves view state to a bundle directory. Silently fails if the bundle is read-only.
     public func save(to bundleURL: URL) {
+        _ = write(to: bundleURL)
+    }
+
+    /// Records this state as what the viewer restored or wrote, in memory only.
+    public mutating func markRestored() {
+        var snapshot = self
+        snapshot.restored = RestoredState()
+        restored.snapshot = Snapshot(snapshot)
+    }
+
+    /// Whether the viewer restored or wrote a state and this one carries the same values.
+    public var matchesRestoredState: Bool {
+        restored.snapshot.map { $0.state == self } ?? false
+    }
+
+    /// Saves the state unless it equals the one the viewer restored or last wrote, and records it as written.
+    ///
+    /// This is how the viewer keeps a programmatic restore from reaching the file. With no restored state on
+    /// record the state is saved.
+    ///
+    /// - Returns: Whether the file was written.
+    @discardableResult
+    public mutating func saveUnlessRestored(to bundleURL: URL) -> Bool {
+        guard !matchesRestoredState, write(to: bundleURL) else { return false }
+        markRestored()
+        return true
+    }
+
+    private func write(to bundleURL: URL) -> Bool {
         let fileURL = bundleURL.appendingPathComponent(Self.filename)
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(self)
             try data.write(to: fileURL, options: .atomic)
+            return true
         } catch {
             logger.warning("Failed to save to \(fileURL.path): \(error)")
+            return false
         }
     }
 

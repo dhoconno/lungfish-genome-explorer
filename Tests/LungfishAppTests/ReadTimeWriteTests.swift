@@ -72,6 +72,55 @@ final class ReadTimeWriteTests: XCTestCase {
 
     // MARK: - Opening a project and viewing bundles
 
+    /// The plan's acceptance case. Open the project, then view two reference bundles, a multiple
+    /// sequence alignment, a tree and a FASTQ bundle that has no cached statistics, all through the
+    /// code the sidebar and the split view run. No byte outside the declared app state may change.
+    /// The alignment and the tree keep the `.viewstate.json` that their creation wrote, because
+    /// their manifests checksum it, and nothing may touch it.
+    func testOpeningAProjectAndViewingABundleOfEachKindChangesNoByteOutsideDeclaredAppState() async throws {
+        try await requireSeqkit()
+        let fixture = try makeFixtureProject()
+        let (windowController, delegate) = try makeMainWindowAndDelegate()
+        let before = try ProjectDigest(of: fixture.project)
+        let fastqDigestBefore = try ProvenanceFileHasher.directoryManifest(for: fixture.fastqBundle)
+
+        try await open(fixture.project, in: windowController)
+        try await view(fixture.reference, in: windowController)
+        try await view(fixture.secondReference, in: windowController)
+        try await view(fixture.alignment, in: windowController)
+        try await view(fixture.tree, in: windowController)
+        try await view(fixture.fastqBundle, in: windowController)
+        try await Task.sleep(for: Self.settleTime)
+
+        let after = try ProjectDigest(of: fixture.project)
+        let changes = after.differences(from: before)
+        XCTAssertEqual(
+            changes.filter { !DeclaredAppState.wholeRun.contains($0.path) }.map(\.summary), [],
+            "Opening and viewing changed paths outside the declared app state \(DeclaredAppState.wholeRun.sorted())."
+        )
+        XCTAssertEqual(
+            after.entries.keys.filter { $0.hasPrefix(".tmp/") }.sorted(), [],
+            "A view left a file in the project scratch folder."
+        )
+        // The registry names the files of a bundle that hold app state. A view with no input changes none of
+        // them, and `.viewstate.json` stays as the creation wrote it, or absent, in every kind.
+        for bundle in [fixture.reference, fixture.secondReference, fixture.alignment, fixture.tree] {
+            let declared = BundleKindRegistry.descriptor(forLowercasedExtensionOf: bundle)?.appStateFileNames ?? []
+            for name in Set(declared).union([BundleViewState.filename]) {
+                let path = Self.relativePath(of: bundle.appendingPathComponent(name), in: fixture.project)
+                XCTAssertEqual(
+                    before.entries[path], after.entries[path],
+                    "Viewing \(bundle.lastPathComponent) with no input changed its \(name)."
+                )
+            }
+        }
+        XCTAssertEqual(
+            try ProvenanceFileHasher.directoryManifest(for: fixture.fastqBundle), fastqDigestBefore,
+            "A record that covers the FASTQ bundle by directory digest no longer verifies."
+        )
+        withExtendedLifetime(delegate) {}
+    }
+
     /// Viewing a FASTQ bundle with no cached statistics computes them for the dashboard. The
     /// sidecar `<reads>.lungfish-meta.json` is covered by recorded directory digests, so the
     /// numbers stay in memory for the session and the sidecar keeps its bytes.
@@ -150,6 +199,103 @@ final class ReadTimeWriteTests: XCTestCase {
         withExtendedLifetime(delegate) {}
     }
 
+    // MARK: - The viewer and its view state
+
+    /// Showing another bundle and clearing the display used to save the previous bundle's view
+    /// state whether or not anyone had touched it. The embedded reference viewer does both when it
+    /// shows a bundle again.
+    func testShowingAnotherBundleAndClearingTheDisplayWriteNoViewStateWhenNothingChanged() async throws {
+        let (first, second) = try makeTwoReferences()
+        let viewer = makeViewer()
+
+        try viewer.displayBundle(at: first.url, mode: .sequence(name: first.firstSequence, restoreViewState: false))
+        viewer.clearViewport(statusMessage: "Loading reference viewer...")
+        try viewer.displayBundle(at: second.url, mode: .sequence(name: second.firstSequence, restoreViewState: false))
+        try viewer.displayBundle(at: first.url, mode: .sequence(name: first.firstSequence, restoreViewState: true))
+        viewer.clearBundleDisplay()
+        try await Task.sleep(for: Self.settleTime)
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: first.url.appendingPathComponent(BundleViewState.filename).path),
+            "Showing and leaving \(first.url.lastPathComponent) with no input wrote its \(BundleViewState.filename)."
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: second.url.appendingPathComponent(BundleViewState.filename).path),
+            "Showing and leaving \(second.url.lastPathComponent) with no input wrote its \(BundleViewState.filename)."
+        )
+    }
+
+    /// A save that a programmatic restore asks for carries the values that were just restored. The
+    /// Inspector does this when it takes the restored settings, because its controls report a change
+    /// whether a person or the restore made it. That save must not reach the file. This one is
+    /// marked while the restore still runs, as the Inspector's first report is.
+    func testASaveMarkedWhileTheRestoreRunsWritesNothing() async throws {
+        let (first, _) = try makeTwoReferences()
+        let viewer = makeViewer()
+        try viewer.displayBundle(at: first.url, mode: .sequence(name: first.firstSequence, restoreViewState: false))
+
+        viewer.scheduleViewStateSave()
+        try await Task.sleep(for: Self.settleTime)
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: first.url.appendingPathComponent(BundleViewState.filename).path),
+            "A save marked while the restore ran wrote \(BundleViewState.filename)."
+        )
+    }
+
+    /// The same echo can arrive after the restore has settled, 100 ms after the display. It carries
+    /// the restored values, so it equals the restored state and writes nothing.
+    func testASaveThatCarriesTheRestoredValuesAfterTheRestoreWritesNothing() async throws {
+        let (first, _) = try makeTwoReferences()
+        let viewer = makeViewer()
+        try viewer.displayBundle(at: first.url, mode: .sequence(name: first.firstSequence, restoreViewState: false))
+        try await Task.sleep(for: .milliseconds(400))
+
+        viewer.scheduleViewStateSave()
+        try await Task.sleep(for: Self.settleTime)
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: first.url.appendingPathComponent(BundleViewState.filename).path),
+            "A save that only repeated the restored values wrote \(BundleViewState.filename)."
+        )
+    }
+
+    /// A change that a person makes is still saved, by the debounce and when the viewer leaves
+    /// the bundle, and a later save that repeats it writes nothing more.
+    func testAUserChangeIsSavedByTheDebounceAndByLeavingTheBundle() async throws {
+        let (first, second) = try makeTwoReferences()
+        let viewer = makeViewer()
+        let viewStateURL = first.url.appendingPathComponent(BundleViewState.filename)
+        try viewer.displayBundle(at: first.url, mode: .sequence(name: first.firstSequence, restoreViewState: false))
+        try await Task.sleep(for: .milliseconds(400))
+        let restoredScale = try XCTUnwrap(viewer.referenceFrame?.scale)
+
+        viewer.zoomIn() // a user event handler, which marks the state changed
+        try await Task.sleep(for: Self.settleTime)
+
+        let saved = BundleViewState.load(from: first.url)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: viewStateURL.path), "The debounce did not save a zoom.")
+        XCTAssertLessThan(try XCTUnwrap(saved.lastScale), restoredScale, "The saved scale is the zoomed one.")
+        let writtenBytes = try Data(contentsOf: viewStateURL)
+        let writtenDate = try XCTUnwrap(
+            try FileManager.default.attributesOfItem(atPath: viewStateURL.path)[.modificationDate] as? Date
+        )
+
+        viewer.scheduleViewStateSave() // nothing new since the save
+        try await Task.sleep(for: Self.settleTime)
+        XCTAssertEqual(try Data(contentsOf: viewStateURL), writtenBytes)
+        XCTAssertEqual(
+            try FileManager.default.attributesOfItem(atPath: viewStateURL.path)[.modificationDate] as? Date, writtenDate,
+            "A save that repeated what was already saved rewrote the file."
+        )
+
+        // A change made just before the viewer leaves, inside the debounce, is flushed on the way out.
+        viewer.zoomOut()
+        try viewer.displayBundle(at: second.url, mode: .sequence(name: second.firstSequence, restoreViewState: false))
+        let flushed = BundleViewState.load(from: first.url)
+        XCTAssertGreaterThan(try XCTUnwrap(flushed.lastScale), try XCTUnwrap(saved.lastScale), "Leaving flushed the zoom out.")
+    }
+
     // MARK: - Window and project
 
     private func makeMainWindowAndDelegate() throws -> (MainWindowController, AppDelegate) {
@@ -225,6 +371,32 @@ final class ReadTimeWriteTests: XCTestCase {
         guard await NativeToolRunner.shared.isToolAvailable(.seqkit) else {
             try ToolAvailability.skipOrFail("managed seqkit is not installed (the dashboard statistics are computed with it)")
         }
+    }
+
+    // MARK: - Viewer fixtures
+
+    private struct ReferenceFixture {
+        let url: URL
+        let firstSequence: String
+    }
+
+    private func makeViewer() -> ViewerViewController {
+        let viewer = ViewerViewController()
+        _ = viewer.view
+        return viewer
+    }
+
+    /// Two copies of the committed reference bundles under a scratch folder.
+    private func makeTwoReferences() throws -> (ReferenceFixture, ReferenceFixture) {
+        let folder = scratch.appendingPathComponent("references-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        func copy(_ name: String) throws -> ReferenceFixture {
+            let destination = folder.appendingPathComponent(name, isDirectory: true)
+            try FileManager.default.copyItem(at: Self.testData(name), to: destination)
+            let manifest = try BundleManifest.load(from: destination)
+            return ReferenceFixture(url: destination, firstSequence: try XCTUnwrap(manifest.genome?.chromosomes.first?.name))
+        }
+        return (try copy("TestGenome.lungfishref"), try copy("HepatitisB.lungfishref"))
     }
 
     // MARK: - Fixture project
