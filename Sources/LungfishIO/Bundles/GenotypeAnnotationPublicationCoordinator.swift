@@ -40,11 +40,13 @@ public struct GenotypeAnnotationPublicationPayload: Sendable {
 public enum GenotypeAnnotationRecordPublication: Equatable, Sendable {
     /// The coordinator publishes the payload's record bytes over the file under the name.
     case payload
-    /// `alongside` publishes the record over the file under the name. A rollback puts back the
-    /// record the snapshot read when the name no longer holds it.
+    /// `alongside` publishes the record over the file under the name, and its writer may write or
+    /// remove the record's companion files beside it. A rollback puts back the record and every
+    /// companion as the snapshot read them, so a companion the snapshot did not find is removed.
     case alongside
-    /// `alongside` publishes a record that must be new and never replaces a file. A rollback
-    /// removes it only once `alongside` returned, so a file another writer put there stays.
+    /// `alongside` publishes a record that must be new and never replaces a file, with any
+    /// companion files its writer adds. A rollback removes the record and its companions only once
+    /// `alongside` returned, so a file another writer put there stays.
     case alongsideNew
 }
 
@@ -93,12 +95,18 @@ private enum GenotypeAnnotationPublicationCoordinatorError: Error, LocalizedErro
 /// The GUI annotation store, the CLI genotype annotation commands and the AI haplotyping publisher
 /// all publish through it (row B8). A CLI command's record goes out through `ProvenanceWriter` in
 /// `alongside`, so it keeps the writer's bytes and signing, and a coordinator without a record name
-/// publishes `annotations.json` only, for a caller whose record lives in another folder.
+/// publishes `annotations.json` only, for a caller whose record lives in another folder. The writer
+/// also writes `<record>.signature.json` and `<record>.pub` beside the record when a signing key is
+/// set and removes them when none is. The CLI names those two files as the record's companions, so
+/// a rollback undoes them with the record and never leaves a record beside another run's signature.
 public struct GenotypeAnnotationPublicationCoordinator {
     public let bundleURL: URL
     public let annotationFilename: String
     public let provenanceFilename: String?
     public let recordPublication: GenotypeAnnotationRecordPublication
+    /// Files beside the record that its writer writes or removes in `alongside`. A rollback undoes
+    /// them whenever it undoes the record.
+    public let recordCompanionFilenames: [String]
     public let faultInjector: GenotypeAnnotationPublicationFaultInjector?
 
     public init(
@@ -106,12 +114,14 @@ public struct GenotypeAnnotationPublicationCoordinator {
         annotationFilename: String,
         provenanceFilename: String?,
         recordPublication: GenotypeAnnotationRecordPublication = .payload,
+        recordCompanionFilenames: [String] = [],
         faultInjector: GenotypeAnnotationPublicationFaultInjector?
     ) {
         self.bundleURL = bundleURL
         self.annotationFilename = annotationFilename
         self.provenanceFilename = provenanceFilename
         self.recordPublication = recordPublication
+        self.recordCompanionFilenames = recordCompanionFilenames
         self.faultInjector = faultInjector
     }
 
@@ -153,7 +163,7 @@ public struct GenotypeAnnotationPublicationCoordinator {
         // An ExFAT swap that stopped halfway leaves its old file under a tombstone and nothing under
         // the name. Restore it first, or the snapshot would see nothing and an edit built from
         // nothing would replace it.
-        for filename in [annotationFilename, provenanceFilename].compactMap({ $0 }) {
+        for filename in [annotationFilename, provenanceFilename].compactMap({ $0 }) + recordCompanionFilenames {
             try DurableReplace.recover(named: filename, in: bundleURL)
         }
 
@@ -161,6 +171,10 @@ public struct GenotypeAnnotationPublicationCoordinator {
             annotationData: try readRegularFile(annotationFilename, directoryFD: directoryFD),
             provenanceData: try provenanceFilename.flatMap { try readRegularFile($0, directoryFD: directoryFD) }
         )
+        // Only a rollback reads the companions' bytes, so they stay out of the snapshot.
+        let companions: [(name: String, data: Data?)] = try recordCompanionFilenames.map {
+            ($0, try readRegularFile($0, directoryFD: directoryFD))
+        }
         guard let payload = try prepare(snapshot) else { return nil }
 
         var publishedAlongside = false
@@ -183,6 +197,7 @@ public struct GenotypeAnnotationPublicationCoordinator {
             // Nothing may have changed yet, so only a restored or failed file wraps the error.
             let outcome = rollBack(
                 snapshot,
+                companions: companions,
                 payload: payload,
                 publishedAlongside: publishedAlongside,
                 directoryFD: directoryFD
@@ -291,9 +306,12 @@ public struct GenotypeAnnotationPublicationCoordinator {
     }
 
     /// Puts back, in one transaction, every file that holds what this publication wrote or that
-    /// holds nothing, and syncs the folder. `restored` says whether any file had to change.
+    /// holds nothing, and syncs the folder. The record's companions go back whenever the record
+    /// does, as `companions` holds them from before `prepare` ran. `restored` says whether any file
+    /// had to change.
     private func rollBack(
         _ snapshot: GenotypeAnnotationPublicationSnapshot,
+        companions: [(name: String, data: Data?)],
         payload: GenotypeAnnotationPublicationPayload,
         publishedAlongside: Bool,
         directoryFD: Int32
@@ -309,8 +327,10 @@ public struct GenotypeAnnotationPublicationCoordinator {
                 names.append((provenanceFilename, snapshot.provenanceData, payload.provenanceData))
             case .alongside:
                 names.append((provenanceFilename, snapshot.provenanceData, nil))
+                names += companions.map { ($0.name, $0.data, nil) }
             case .alongsideNew where publishedAlongside:
                 names.append((provenanceFilename, snapshot.provenanceData, nil))
+                names += companions.map { ($0.name, $0.data, nil) }
             case .alongsideNew:
                 break
             }

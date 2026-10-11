@@ -132,6 +132,99 @@ final class GenotypeAnnotationPublicationDurabilityTests: XCTestCase {
         XCTAssertEqual(try names(in: real), [], "nothing is written through the link")
     }
 
+    // MARK: - The record's signing files
+
+    // A CLI command's record goes out in `alongside` through `ProvenanceWriter`,
+    // which writes `<record>.signature.json` and `<record>.pub` beside it when a
+    // signing key is set and removes them when none is. A rollback undoes them
+    // with the record, or a replay retry finds them in its way and an unchanged
+    // record sits beside the signature of a run that never landed.
+
+    /// A replay command's record must be new. A failure once the writer
+    /// returned removes the record and both signing files, so a retry finds
+    /// every name free.
+    func testARollbackRemovesANewRecordWithItsSigningFiles() throws {
+        for simulated in [false, true] {
+            let mode = simulated ? "ExFAT" : "APFS"
+            let bundle = try makeFolder("new-record-\(simulated)/P.lungfish/Analyses/Result.lungfishgenotype")
+            let old = Self.payload("old").annotationData
+            try old.write(to: bundle.appendingPathComponent(Self.annotationName))
+
+            XCTAssertThrowsError(try publishFailingAtCommit(
+                bundle,
+                .alongsideNew,
+                alongside: (Self.signingNames + [Self.provenanceName]).map { ($0, Data("new \($0)".utf8)) },
+                simulated: simulated
+            ), mode)
+
+            XCTAssertEqual(try Data(contentsOf: bundle.appendingPathComponent(Self.annotationName)), old, mode)
+            XCTAssertEqual(try names(in: bundle), [Self.annotationName], "\(mode): the record and its signing files are gone")
+        }
+    }
+
+    /// `apply-annotations` replaces its record. A failure once the writer
+    /// returned puts back the record and the signing file it replaced, and
+    /// removes the one it created.
+    func testARollbackPutsBackARewrittenRecordWithItsSigningFiles() throws {
+        for simulated in [false, true] {
+            let mode = simulated ? "ExFAT" : "APFS"
+            let bundle = try seed(.rewrite, label: "rewritten-record-\(simulated)")
+            let (signature, publicKey) = (Self.signingNames[0], Self.signingNames[1])
+            let oldSignature = Data(#"{"generation":"old","file":"signature"}"#.utf8)
+            try oldSignature.write(to: bundle.appendingPathComponent(signature))
+
+            XCTAssertThrowsError(try publishFailingAtCommit(
+                bundle,
+                .alongside,
+                alongside: [Self.provenanceName, signature, publicKey].map { ($0, Data("new \($0)".utf8)) },
+                simulated: simulated
+            ), mode)
+
+            let old = Self.payload("old")
+            XCTAssertEqual(try Data(contentsOf: bundle.appendingPathComponent(Self.annotationName)), old.annotationData, mode)
+            XCTAssertEqual(try Data(contentsOf: bundle.appendingPathComponent(Self.provenanceName)), old.provenanceData, mode)
+            XCTAssertEqual(try Data(contentsOf: bundle.appendingPathComponent(signature)), oldSignature, mode)
+            XCTAssertEqual(
+                try names(in: bundle),
+                [Self.annotationName, Self.provenanceName, signature].sorted(),
+                "\(mode): the public key the writer created is gone"
+            )
+        }
+    }
+
+    /// The names `ProvenanceWriter` gives the record's signature and public key.
+    private static let signingNames = ["\(provenanceName).signature.json", "\(provenanceName).pub"]
+
+    /// Publishes new annotations under the bundle's lock while `alongside`
+    /// writes each file through `DurableReplace`, as the record writer does,
+    /// then fails at `.commitDirectorySync`.
+    private func publishFailingAtCommit(
+        _ bundle: URL,
+        _ publication: GenotypeAnnotationRecordPublication,
+        alongside files: [(String, Data)],
+        simulated: Bool
+    ) throws {
+        let coordinator = GenotypeAnnotationPublicationCoordinator(
+            bundleURL: bundle,
+            annotationFilename: Self.annotationName,
+            provenanceFilename: Self.provenanceName,
+            recordPublication: publication,
+            recordCompanionFilenames: Self.signingNames,
+            faultInjector: { $0 == .commitDirectorySync ? Fault() : nil }
+        )
+        let lock = try ONTGenotypeBundlePublicationLock.acquire(for: bundle)
+        defer { lock.release() }
+        try DurableReplace.$overrideOperations.withValue(operations(Events(), simulated: simulated)) {
+            _ = try coordinator.transact(assuming: lock, alongside: {
+                for (name, data) in files {
+                    _ = try DurableReplace.replace(data, named: name, in: bundle)
+                }
+            }) { _ in
+                GenotypeAnnotationPublicationPayload(annotationData: Self.payload("new").annotationData)
+            }
+        }
+    }
+
     // MARK: - The fault matrix
 
     // Every event of one publication gets one fault, natively and as ExFAT

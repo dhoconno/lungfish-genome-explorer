@@ -14,8 +14,8 @@ import LungfishWorkflow
 /// `annotations.json` goes out through `DurableReplace` and the record through `ProvenanceWriter`,
 /// inside one transaction under the bundle's publication lock, so the record keeps the writer's
 /// bytes and signing and the pair shares one full flush. A failure before the transaction ends
-/// puts `annotations.json` back and undoes the record, so a record never cites bytes the file does
-/// not hold.
+/// puts `annotations.json` back and undoes the record with its signature and public key, so a
+/// record never cites bytes the file does not hold and a retry finds no signing file in its way.
 enum GenotypeAnnotationPairPublication {
     /// Restores an `annotations.json` that an interrupted ExFAT swap emptied, so the snapshot a
     /// writer reads under the lock is the file the app would show (docs/contracts/EXTERNAL-VOLUMES.md).
@@ -26,7 +26,8 @@ enum GenotypeAnnotationPairPublication {
     /// Publishes `annotationData`, then runs `publishRecord`, which writes the record at
     /// `recordURL` beside it, inside the same transaction. `check` sees the snapshot the coordinator
     /// reads under the lock and refuses a stale one. A record that must be new never replaces a
-    /// file, and a rollback removes it only once `publishRecord` returned.
+    /// file, and a rollback removes it only once `publishRecord` returned. The record's signature
+    /// and public key go back with the record.
     static func publish(
         annotationData: Data,
         recordURL: URL,
@@ -41,6 +42,10 @@ enum GenotypeAnnotationPairPublication {
             annotationFilename: GenotypeAnnotationSidecar.filename,
             provenanceFilename: recordURL.lastPathComponent,
             recordPublication: recordMustBeNew ? .alongsideNew : .alongside,
+            recordCompanionFilenames: [
+                ProvenanceSigningConfiguration.signatureURL(for: recordURL).lastPathComponent,
+                ProvenanceSigningConfiguration.publicKeyURL(for: recordURL).lastPathComponent,
+            ],
             faultInjector: nil
         )
         do {
