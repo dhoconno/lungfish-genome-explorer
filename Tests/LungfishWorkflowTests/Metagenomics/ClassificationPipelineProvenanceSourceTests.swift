@@ -1331,8 +1331,8 @@ extension ClassificationPipelineProvenanceSourceTests {
     }
 }
 
-private struct FakeClassificationCondaFixture {
-    enum ReportRank: String {
+public struct FakeClassificationCondaFixture {
+    public enum ReportRank: String {
         case genus = "G"
         case species = "S"
 
@@ -1340,7 +1340,7 @@ private struct FakeClassificationCondaFixture {
         var name: String { self == .genus ? "Escherichia" : "Escherichia coli" }
     }
 
-    enum DistributionState: CustomStringConvertible {
+    public enum DistributionState: CustomStringConvertible {
         case valid
         case missing
         case empty
@@ -1348,7 +1348,7 @@ private struct FakeClassificationCondaFixture {
         case unreadable
         case symbolicLink
 
-        var description: String {
+        public var description: String {
             switch self {
             case .valid: return "valid"
             case .missing: return "missing"
@@ -1360,7 +1360,7 @@ private struct FakeClassificationCondaFixture {
         }
     }
 
-    enum BrackenBehavior {
+    public enum BrackenBehavior {
         case success
         case nonzero(Int32)
         case unavailable
@@ -1371,13 +1371,13 @@ private struct FakeClassificationCondaFixture {
         case waitForCancellation
     }
 
-    enum KrakenBehavior {
+    public enum KrakenBehavior {
         case success
         case nonzero(Int32)
     }
 
     /// What the fixture's bracken environment holds, which decides the version a run records.
-    enum BrackenInstall {
+    public enum BrackenInstall {
         /// The conda package bracken 1.0.0 stays as a stale record, and the v3.1 source overlay is
         /// installed and validated beside it, as the lock installs Bracken.
         case sourceOverlay(version: String)
@@ -1388,7 +1388,7 @@ private struct FakeClassificationCondaFixture {
     }
 
     /// The help text `bracken --help` prints, which picks the dialect the pipeline speaks.
-    enum BrackenDialect: CaseIterable {
+    public enum BrackenDialect: CaseIterable {
         case database
         case kmerDistribution
 
@@ -1402,14 +1402,14 @@ private struct FakeClassificationCondaFixture {
         }
     }
 
-    let root: URL
-    let condaManager: CondaManager
-    let distributionURL: URL
+    public let root: URL
+    public let condaManager: CondaManager
+    public let distributionURL: URL
     private let invocationLogURL: URL
     private let reportRank: ReportRank
     private let distributionState: DistributionState
 
-    init(
+    public init(
         reportRank: ReportRank = .species,
         distributionState: DistributionState = .valid,
         krakenVersion: String = "2.1.3",
@@ -1511,11 +1511,11 @@ private struct FakeClassificationCondaFixture {
         }
     }
 
-    func cleanup() {
+    public func cleanup() {
         try? FileManager.default.removeItem(at: root)
     }
 
-    func toolInvocations(named toolName: String) throws -> [String] {
+    public func toolInvocations(named toolName: String) throws -> [String] {
         guard FileManager.default.fileExists(atPath: invocationLogURL.path) else { return [] }
         return try readRepositorySource(invocationLogURL)
             .split(separator: "\n")
@@ -1525,13 +1525,13 @@ private struct FakeClassificationCondaFixture {
 
     /// Bracken invocations that are actual profiling runs, excluding the version
     /// probes and the `--help` CLI-dialect probe.
-    func brackenProfileInvocations() throws -> [String] {
+    public func brackenProfileInvocations() throws -> [String] {
         try toolInvocations(named: "bracken").filter {
             $0 != "bracken -v" && $0 != "bracken --version" && $0 != "bracken --help"
         }
     }
 
-    func makeConfig(
+    public func makeConfig(
         goal: ClassificationConfig.Goal = .classify,
         databaseDigest: String? = "sha256:fixture-db",
         catalogID: String? = nil,
