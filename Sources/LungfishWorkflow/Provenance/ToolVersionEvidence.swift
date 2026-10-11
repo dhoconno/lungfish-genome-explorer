@@ -2,13 +2,13 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// A record's `toolVersion` is a free string today. It can hold a version a
-// probe printed, a pin copied from the lock without running the tool, the
-// literal `unknown` (or `unresolved`, `unavailable`, an empty string), or the
-// text of a failed probe. This type names those cases so a reader can tell a
-// measured version from a pin from a gap. It computes only. No writer, reader
-// or exporter uses it yet, and it is not `Codable`, because the record wire
-// shape belongs to Phase 2.6.
+// A record's `toolVersion` is a free string. It can hold a version a probe
+// printed, a pin copied from the lock without running the tool, the literal
+// `unknown` (or `unresolved`, `unavailable`, an empty string), or the text of a
+// failed probe. This type names those cases so a reader can tell a measured
+// version from a pin from a gap. A step records it under `toolVersionEvidence`
+// beside `toolVersion`, in the wire shape at the end of this file, and the
+// producers that fill it come later.
 
 import Foundation
 import LungfishIO
@@ -129,5 +129,97 @@ public enum ToolVersionEvidence: Sendable, Hashable {
             return .unknown(.recordedProbeError(head))
         }
         return .observed(version: head, reportedLine: nil)
+    }
+}
+
+// MARK: - Wire shape
+
+/// A step's `toolVersionEvidence` object. `source` is `observed`, `lockPin` or `unknown`. An observed
+/// or pinned version carries `version`, an observed one the probe's `reportedLine` when the caller
+/// kept it, and a pin its lock entry's `managedToolID`. An unknown version carries a `reason` and,
+/// for the reasons read from a stored value, that value as `recorded`.
+extension ToolVersionEvidence: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case source
+        case version
+        case reportedLine
+        case managedToolID
+        case reason
+        case recorded
+    }
+
+    private enum Source: String, Codable {
+        case observed
+        case lockPin
+        case unknown
+    }
+
+    private enum ReasonName: String, Codable {
+        case noProbe
+        case probeFailed
+        case outputUnparseable
+        case legacySpelling
+        case recordedProbeError
+        case recordedAppVersion
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Source.self, forKey: .source) {
+        case .observed:
+            self = .observed(
+                version: try container.decode(String.self, forKey: .version),
+                reportedLine: try container.decodeIfPresent(String.self, forKey: .reportedLine)
+            )
+        case .lockPin:
+            self = .lockPin(
+                version: try container.decode(String.self, forKey: .version),
+                id: try container.decode(ManagedToolID.self, forKey: .managedToolID)
+            )
+        case .unknown:
+            let recorded = try container.decodeIfPresent(String.self, forKey: .recorded) ?? ""
+            switch try container.decode(ReasonName.self, forKey: .reason) {
+            case .noProbe: self = .unknown(.noProbe)
+            case .probeFailed: self = .unknown(.probeFailed)
+            case .outputUnparseable: self = .unknown(.outputUnparseable)
+            case .legacySpelling: self = .unknown(.legacySpelling(recorded))
+            case .recordedProbeError: self = .unknown(.recordedProbeError(recorded))
+            case .recordedAppVersion: self = .unknown(.recordedAppVersion(recorded))
+            }
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .observed(let version, let reportedLine):
+            try container.encode(Source.observed, forKey: .source)
+            try container.encode(version, forKey: .version)
+            try container.encodeIfPresent(reportedLine, forKey: .reportedLine)
+        case .lockPin(let version, let id):
+            try container.encode(Source.lockPin, forKey: .source)
+            try container.encode(version, forKey: .version)
+            try container.encode(id, forKey: .managedToolID)
+        case .unknown(let reason):
+            try container.encode(Source.unknown, forKey: .source)
+            let name: ReasonName
+            var recorded: String?
+            switch reason {
+            case .noProbe: name = .noProbe
+            case .probeFailed: name = .probeFailed
+            case .outputUnparseable: name = .outputUnparseable
+            case .legacySpelling(let text):
+                name = .legacySpelling
+                recorded = text
+            case .recordedProbeError(let text):
+                name = .recordedProbeError
+                recorded = text
+            case .recordedAppVersion(let text):
+                name = .recordedAppVersion
+                recorded = text
+            }
+            try container.encode(name, forKey: .reason)
+            try container.encodeIfPresent(recorded, forKey: .recorded)
+        }
     }
 }

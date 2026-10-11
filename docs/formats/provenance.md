@@ -33,7 +33,15 @@ LGE writes every new record as an envelope. The encoder sorts the keys, writes d
 | `wallTimeSeconds`, `exitStatus`, `stderr` | How long it took, the exit status and the bounded standard error |
 | `signatures` | References to signature files, empty unless a signer is set |
 
-A step holds `id`, `toolName`, `toolVersion`, `argv`, `reproducibleCommand`, `resolvedOptions`, `inputs`, `outputs`, `exitStatus`, `wallTimeSeconds`, `peakMemoryBytes`, `stderr`, `dependsOn`, `startedAt` and `completedAt`, and a `runtimeIdentity` of its own when it ran somewhere else. A descriptor holds `path`, `checksumSHA256`, `fileSize`, `format`, `role`, `originPath` and `sourceProvenancePath`. A typed value is an object with a `type` and a `value`. A `file` value keeps the path the record holds, so `<workspace>/reads.fastq` reads back as written and never gains the reading folder in front.
+A step holds `id`, `toolName`, `toolVersion`, `argv`, `reproducibleCommand`, `resolvedOptions`, `inputs`, `outputs`, `exitStatus`, `wallTimeSeconds`, `peakMemoryBytes`, `stderr`, `dependsOn`, `startedAt` and `completedAt`, and a `runtimeIdentity` of its own when it ran somewhere else. Version 2 adds three step fields, each written only when the writer fills it.
+
+| Step field | What it holds |
+| --- | --- |
+| `parentStepID` | The `id` of the step this step ran under, such as the import step that ran a compression tool |
+| `managedToolID` | The managed tool the step ran, by its id in the tool lock. The run's `tool` object may hold one too |
+| `toolVersionEvidence` | Where `toolVersion` comes from, as an object with a `source` of `observed`, `lockPin` or `unknown` |
+
+An observed or pinned version holds `version`, an observed one may hold the probe's `reportedLine`, and a pin holds the lock entry's `managedToolID`. An unknown version holds a `reason`, and the reasons read from a stored value hold it as `recorded`. A reader that meets evidence in a shape it does not know reads the rest of the step and shows the evidence as Not recorded. A descriptor holds `path`, `checksumSHA256`, `fileSize`, `format`, `role`, `originPath` and `sourceProvenancePath`. A typed value is an object with a `type` and a `value`. A `file` value keeps the path the record holds, so `<workspace>/reads.fastq` reads back as written and never gains the reading folder in front.
 
 ## The shapes a reader accepts
 

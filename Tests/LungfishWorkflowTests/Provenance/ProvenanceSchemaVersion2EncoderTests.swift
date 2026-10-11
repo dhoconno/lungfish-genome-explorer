@@ -4,6 +4,7 @@
 
 import CryptoKit
 import XCTest
+import LungfishIO
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
@@ -432,5 +433,128 @@ final class ProvenanceSchemaVersion2EncoderTests: XCTestCase {
         let legacy = try ProvenanceEnvelopeReader.read(bareRun)
         XCTAssertEqual(legacy.shape, .workflowRun)
         XCTAssertNil(try Self.writtenLockHash(of: legacy.envelope.runtimeIdentity))
+    }
+
+    // MARK: Step fields
+
+    /// A record whose step names the step it ran under, its typed managed tool id and its version
+    /// evidence, and whose tool names its typed id, keeps all four through a read and a write.
+    func testAStepsParentTypedToolIDAndVersionEvidenceSurviveAReadAndAWrite() throws {
+        let first = try Self.write(Self.completedRun())
+        defer { first.cleanup() }
+        var object = try first.json()
+        var steps = try XCTUnwrap(object["steps"] as? [[String: Any]])
+        let parentID = try XCTUnwrap(steps[0]["id"] as? String)
+        var child = steps[0]
+        child["id"] = "00000000-0000-4000-8000-000000000002"
+        child["toolName"] = "samtools"
+        child["parentStepID"] = parentID
+        child["managedToolID"] = "samtools"
+        child["toolVersionEvidence"] = ["source": "lockPin", "version": "1.24", "managedToolID": "samtools"]
+        steps.append(child)
+        object["steps"] = steps
+        var tool = try XCTUnwrap(object["tool"] as? [String: Any])
+        tool["managedToolID"] = "fastp"
+        object["tool"] = tool
+
+        let read = try ProvenanceEnvelopeReader.decodeCanonical(try JSONSerialization.data(withJSONObject: object))
+        let rewritten = try Self.write(read)
+        defer { rewritten.cleanup() }
+        let json = try rewritten.json()
+        let writtenChild = try XCTUnwrap((json["steps"] as? [[String: Any]])?.last)
+        XCTAssertEqual(writtenChild["parentStepID"] as? String, parentID)
+        XCTAssertEqual(writtenChild["managedToolID"] as? String, "samtools")
+        let evidence = try XCTUnwrap(writtenChild["toolVersionEvidence"] as? [String: Any])
+        XCTAssertEqual(evidence["source"] as? String, "lockPin")
+        XCTAssertEqual(evidence["version"] as? String, "1.24")
+        XCTAssertEqual(evidence["managedToolID"] as? String, "samtools")
+        XCTAssertEqual((json["tool"] as? [String: Any])?["managedToolID"] as? String, "fastp")
+    }
+
+    /// The fields are written only when present, so a step and a tool without them hold none of the
+    /// keys.
+    func testAStepAndAToolWithoutTheNewFieldsWriteNoneOfTheirKeys() throws {
+        let written = try Self.write(Self.completedRun())
+        defer { written.cleanup() }
+        let json = try written.json()
+        for step in try XCTUnwrap(json["steps"] as? [[String: Any]]) {
+            for key in ["parentStepID", "managedToolID", "toolVersionEvidence"] {
+                XCTAssertNil(step[key], key)
+            }
+        }
+        XCTAssertNil((json["tool"] as? [String: Any])?["managedToolID"])
+    }
+
+    /// Every kind of evidence encodes to its wire shape and decodes to itself.
+    func testEveryKindOfVersionEvidenceRoundTrips() throws {
+        let samtools = ManagedToolID(rawValue: "samtools")
+        let cases: [(ToolVersionEvidence, [String: String])] = [
+            (.observed(version: "2.31", reportedLine: "2.31-r1302"), ["source": "observed", "version": "2.31", "reportedLine": "2.31-r1302"]),
+            (.observed(version: "2.31", reportedLine: nil), ["source": "observed", "version": "2.31"]),
+            (.lockPin(version: "1.24", id: samtools), ["source": "lockPin", "version": "1.24", "managedToolID": "samtools"]),
+            (.unknown(.noProbe), ["source": "unknown", "reason": "noProbe"]),
+            (.unknown(.probeFailed), ["source": "unknown", "reason": "probeFailed"]),
+            (.unknown(.outputUnparseable), ["source": "unknown", "reason": "outputUnparseable"]),
+            (.unknown(.legacySpelling("unresolved")), ["source": "unknown", "reason": "legacySpelling", "recorded": "unresolved"]),
+            (.unknown(.recordedProbeError("ERROR: unknown command")), ["source": "unknown", "reason": "recordedProbeError", "recorded": "ERROR: unknown command"]),
+            (.unknown(.recordedAppVersion("Lungfish 2026.10.10 (dev)")), ["source": "unknown", "reason": "recordedAppVersion", "recorded": "Lungfish 2026.10.10 (dev)"]),
+        ]
+        for (evidence, wire) in cases {
+            let data = try ProvenanceJSON.encoder.encode(evidence)
+            XCTAssertEqual(try JSONSerialization.jsonObject(with: data) as? [String: String], wire, "\(evidence)")
+            XCTAssertEqual(try ProvenanceJSON.decoder.decode(ToolVersionEvidence.self, from: data), evidence)
+        }
+    }
+
+    /// Evidence a later build records in a shape this one does not know leaves the step and the
+    /// record readable, with the evidence not recorded.
+    func testUnreadableVersionEvidenceLeavesTheStepReadable() throws {
+        let first = try Self.write(Self.completedRun())
+        defer { first.cleanup() }
+        var object = try first.json()
+        var steps = try XCTUnwrap(object["steps"] as? [[String: Any]])
+        steps[0]["toolVersionEvidence"] = ["source": "sourceBuild", "version": "3.1"]
+        object["steps"] = steps
+        object["schemaVersion"] = 3
+        let read = try ProvenanceEnvelopeReader.read(try JSONSerialization.data(withJSONObject: object))
+        XCTAssertEqual(read.shape, .envelope)
+        XCTAssertEqual(read.envelope.steps.first?.toolName, "fastp")
+        XCTAssertNil(read.envelope.steps.first?.toolVersionEvidence)
+    }
+
+    /// A writer that fills the fields through the Swift API writes them, and narrowing a step to some
+    /// of its outputs keeps them.
+    func testStepFieldsAWriterFillsAreWrittenAndKeptWhenAStepIsNarrowed() throws {
+        let parent = ProvenanceStep(toolName: "lungfish import fastq", exitStatus: 0)
+        let output = ProvenanceFileDescriptor(path: "/data/out.bam", role: .output)
+        let child = ProvenanceStep(
+            toolName: "samtools",
+            toolVersion: "1.24",
+            outputs: [output, ProvenanceFileDescriptor(path: "/data/out.bam.bai", role: .output)],
+            exitStatus: 0,
+            parentStepID: parent.id,
+            managedToolID: ManagedToolID(rawValue: "samtools"),
+            toolVersionEvidence: .lockPin(version: "1.24", id: ManagedToolID(rawValue: "samtools"))
+        )
+        let narrowed = child.withOutputs([output])
+        XCTAssertEqual(narrowed.outputs, [output])
+        XCTAssertEqual(narrowed.parentStepID, parent.id)
+        XCTAssertEqual(narrowed.managedToolID, child.managedToolID)
+        XCTAssertEqual(narrowed.toolVersionEvidence, child.toolVersionEvidence)
+
+        let envelope = ProvenanceEnvelope(
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            workflowName: "step.fields",
+            toolName: "samtools",
+            tool: ProvenanceToolIdentity(name: "samtools", managedToolID: ManagedToolID(rawValue: "samtools")),
+            steps: [parent, child],
+            exitStatus: 0
+        )
+        XCTAssertEqual(envelope.tool.managedToolID, ManagedToolID(rawValue: "samtools"))
+        let written = try Self.write(envelope)
+        defer { written.cleanup() }
+        let read = try ProvenanceEnvelopeReader.decodeCanonical(written.data)
+        XCTAssertEqual(read.steps.last, child)
+        XCTAssertEqual(read.tool.managedToolID, ManagedToolID(rawValue: "samtools"))
     }
 }

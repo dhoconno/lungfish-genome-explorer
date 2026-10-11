@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 // MARK: - ProvenanceStep
 
@@ -25,6 +26,14 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
     public let dependsOn: [UUID]
     public let startedAt: Date?
     public let completedAt: Date?
+    /// The id of the step this step ran under, such as the `lungfish-cli` step whose import ran it.
+    /// Nil for a step that ran on its own, and in every record written before schema version 2.
+    public let parentStepID: UUID?
+    /// The managed tool the step ran, by its lock id, when the writer knew it.
+    public let managedToolID: ManagedToolID?
+    /// What `toolVersion` is known from: a probe's output, a lock pin or a gap. A record holding
+    /// evidence this build cannot read keeps the rest of the step and reads it as not recorded.
+    public let toolVersionEvidence: ToolVersionEvidence?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -50,6 +59,9 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         case completedAt
         case startTime
         case endTime
+        case parentStepID
+        case managedToolID
+        case toolVersionEvidence
     }
 
     public init(
@@ -70,7 +82,10 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         stderr: String? = nil,
         dependsOn: [UUID] = [],
         startedAt: Date? = nil,
-        completedAt: Date? = nil
+        completedAt: Date? = nil,
+        parentStepID: UUID? = nil,
+        managedToolID: ManagedToolID? = nil,
+        toolVersionEvidence: ToolVersionEvidence? = nil
     ) {
         self.id = id
         self.toolName = ProvenanceName.required(toolName)
@@ -90,6 +105,9 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         self.dependsOn = dependsOn
         self.startedAt = startedAt
         self.completedAt = completedAt
+        self.parentStepID = parentStepID
+        self.managedToolID = managedToolID
+        self.toolVersionEvidence = toolVersionEvidence
     }
 
     public init(from decoder: Decoder) throws {
@@ -119,6 +137,10 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
             ?? container.decodeIfPresent(Date.self, forKey: .startTime)
         completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
             ?? container.decodeIfPresent(Date.self, forKey: .endTime)
+        parentStepID = try container.decodeIfPresent(UUID.self, forKey: .parentStepID)
+        managedToolID = try container.decodeIfPresent(ManagedToolID.self, forKey: .managedToolID)
+        // A later build may record a kind of evidence this one does not know. The step still reads.
+        toolVersionEvidence = try? container.decodeIfPresent(ToolVersionEvidence.self, forKey: .toolVersionEvidence)
     }
 
     /// Writes each fact under its canonical key only (schema version 2). The decoder keeps reading
@@ -143,5 +165,37 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         try container.encode(dependsOn, forKey: .dependsOn)
         try container.encodeIfPresent(startedAt, forKey: .startedAt)
         try container.encodeIfPresent(completedAt, forKey: .completedAt)
+        try container.encodeIfPresent(parentStepID, forKey: .parentStepID)
+        try container.encodeIfPresent(managedToolID, forKey: .managedToolID)
+        try container.encodeIfPresent(toolVersionEvidence, forKey: .toolVersionEvidence)
+    }
+
+    /// This step with `outputs` in place of its own and every other field kept, the fields schema
+    /// version 2 added among them. A site that narrows a step to some of its outputs calls this
+    /// instead of rebuilding the step field by field, which drops every field it does not name.
+    public func withOutputs(_ outputs: [ProvenanceFileDescriptor]) -> ProvenanceStep {
+        ProvenanceStep(
+            id: id,
+            toolName: toolName,
+            toolVersion: toolVersion,
+            githubReleaseVersion: githubReleaseVersion,
+            argv: argv,
+            durableReplayArgv: durableReplayArgv,
+            reproducibleCommand: reproducibleCommand,
+            resolvedOptions: resolvedOptions,
+            runtimeIdentity: runtimeIdentity,
+            inputs: inputs,
+            outputs: outputs,
+            exitStatus: exitStatus,
+            wallTimeSeconds: wallTimeSeconds,
+            peakMemoryBytes: peakMemoryBytes,
+            stderr: stderr,
+            dependsOn: dependsOn,
+            startedAt: startedAt,
+            completedAt: completedAt,
+            parentStepID: parentStepID,
+            managedToolID: managedToolID,
+            toolVersionEvidence: toolVersionEvidence
+        )
     }
 }

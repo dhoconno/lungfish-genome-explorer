@@ -4,11 +4,13 @@
 
 import Foundation
 import LungfishCore
+import LungfishIO
 
 private struct RawProvenanceToolIdentity: Decodable {
     let name: String?
     let version: String?
     let kind: String?
+    let managedToolID: ManagedToolID?
 }
 
 // MARK: - ProvenanceEnvelope
@@ -128,7 +130,12 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         self.toolName = ProvenanceName.required(toolName)
         self.toolVersion = ProvenanceVersion.required(toolVersion)
         self.githubReleaseVersion = githubReleaseVersion
-        self.tool = ProvenanceToolIdentity(name: self.toolName, version: self.toolVersion, kind: tool?.kind)
+        self.tool = ProvenanceToolIdentity(
+            name: self.toolName,
+            version: self.toolVersion,
+            kind: tool?.kind,
+            managedToolID: tool?.managedToolID
+        )
         self.argv = argv
         self.durableReplayArgv = durableReplayArgv
         self.reproducibleCommand = reproducibleCommand ?? argv.map(shellEscape).joined(separator: " ")
@@ -172,7 +179,8 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
             tool = ProvenanceToolIdentity(
                 name: toolName,
                 version: toolVersion,
-                kind: decodedTool.kind
+                kind: decodedTool.kind,
+                managedToolID: decodedTool.managedToolID
             )
         } else {
             tool = ProvenanceToolIdentity(name: toolName, version: toolVersion)
