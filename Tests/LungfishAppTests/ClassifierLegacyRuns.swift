@@ -244,6 +244,68 @@ enum ClassifierLegacyRuns {
         return (batchRoot, configs)
     }
 
+    /// A conda root whose stand-in micromamba runs a stand-in kraken2 2.1.3
+    /// that writes one per-read line for each pair or single read, as kraken2
+    /// does and as the pipeline checks, so a planned read set classifies. It
+    /// runs no Bracken, as the CLI suites' `ReadSetStandInKraken2` does not.
+    struct StandInKraken2Conda {
+        let condaManager: CondaManager
+        let databaseURL: URL
+
+        init(root: URL) throws {
+            let fm = FileManager.default
+            databaseURL = root.appendingPathComponent("kraken-db", isDirectory: true)
+            try fm.createDirectory(at: databaseURL, withIntermediateDirectories: true)
+            for filename in ["hash.k2d", "opts.k2d", "taxo.k2d"] {
+                try "fake-db\n".write(to: databaseURL.appendingPathComponent(filename), atomically: true, encoding: .utf8)
+            }
+            let micromamba = root.appendingPathComponent("stand-in-kraken2-micromamba")
+            try Self.script.write(to: micromamba, atomically: true, encoding: .utf8)
+            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: micromamba.path)
+            condaManager = CondaManager(
+                rootPrefix: root.appendingPathComponent("kraken2-conda", isDirectory: true),
+                bundledMicromambaProvider: { micromamba },
+                bundledMicromambaVersionProvider: { "2.0.0" }
+            )
+        }
+
+        private static let script = """
+            #!/bin/sh
+            if [ "$1" = "--version" ]; then echo "micromamba 2.0.0"; exit 0; fi
+            [ "$1" = "run" ] || { echo "unexpected micromamba invocation: $*" >&2; exit 64; }
+            shift
+            if [ "$1" = "-n" ]; then shift; shift; fi
+            tool="$1"; shift
+            [ "$tool" = "kraken2" ] || { echo "unexpected tool: $tool" >&2; exit 64; }
+            if [ "$1" = "--version" ]; then echo "Kraken version 2.1.3"; exit 0; fi
+            report=""; output=""; paired=0; files=""
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                --db|--threads|--confidence|--minimum-hit-groups) shift ;;
+                --report) shift; report="$1" ;;
+                --output) shift; output="$1" ;;
+                --paired) paired=1 ;;
+                --*) ;;
+                *) files="$files $1" ;;
+              esac
+              shift
+            done
+            total=0; position=0
+            for f in $files; do
+              position=$((position + 1))
+              if [ "$paired" = 1 ] && [ $((position % 2)) = 0 ]; then continue; fi
+              total=$((total + $(awk 'END { print int(NR / 4) }' "$f")))
+            done
+            mkdir -p "$(dirname "$report")" "$(dirname "$output")"
+            printf '100.00\\t1\\t0\\tR\\t1\\troot\\n100.00\\t1\\t1\\tS\\t562\\t  Escherichia coli\\n' > "$report"
+            : > "$output"
+            i=0
+            while [ "$i" -lt "$total" ]; do printf 'C\\tread%s\\t562\\t4\\t0:4\\n' "$i" >> "$output"; i=$((i + 1)); done
+            echo "$total sequences (0.00 Mbp) processed in 0.001s (1.0 Kseq/m, 0.01 Mbp/m)." >&2
+            exit 0
+            """
+    }
+
     /// A conda root whose stand-in micromamba runs a stand-in EsViritu 1.3.3.
     /// It writes an empty detection table for the sample in the `-o` folder,
     /// as the CLI suites' `StandInEsViritu` does, and keeps nothing else.
