@@ -693,9 +693,11 @@ def run_classifiers(ctx: CaptureContext) -> None:
     derived = project / DERIVED_BUNDLE
     analyses = project / "Analyses"
     analyses.mkdir()
-    # Kraken2 reads the virtual bundle directly and materializes it itself.
-    ctx.cli_run(["conda", "classify", derived, "--db", KRAKEN2_DATABASE, "--threads", THREADS,
-                 "--output-dir", analyses / "kraken2-golden"], label="conda-classify")
+    # Kraken2 reads the virtual bundle directly and materializes it itself. The run is spelled
+    # `kraken2 classify`, as the app's invocation builder writes it since decision E11. The older
+    # `conda classify` spelling runs the same command, and a run records the line as typed.
+    ctx.cli_run(["kraken2", "classify", derived, "--db", KRAKEN2_DATABASE, "--threads", THREADS,
+                 "--output-dir", analyses / "kraken2-golden"], label="kraken2-classify")
     # esviritu detect also takes the virtual bundle. It materializes the bundle into
     # .lungfish-esviritu-inputs in the output folder and runs EsViritu on those reads,
     # as the app does after its own materialization. The probe records that run, with
@@ -789,7 +791,7 @@ def collect_classifiers(ctx: CaptureContext) -> None:
         "kreportUnclassified": unclassified,
         "kreportTotal": root_clade + unclassified,
     })
-    ctx.put_text("kraken2/cli-stdout.txt", ctx.stdout("conda-classify"))
+    ctx.put_text("kraken2/cli-stdout.txt", ctx.stdout("kraken2-classify"))
     ctx.put_sorted_table("kraken2/classification.kreport.sorted", kraken / "classification.kreport", header_lines=0)
     ctx.put_sorted_table("kraken2/classification.kraken.sorted", kraken / "classification.kraken.gz", header_lines=0)
     ctx.put_text("kraken2/classification.kraken.gz.idx.sqlite.dump",
