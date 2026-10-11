@@ -64,6 +64,36 @@ struct AnalysisRunExecutorTests {
         #expect(try AnalysesFolder.listAnalyses(in: fixture.project).map(\.url.lastPathComponent) == [folder.lastPathComponent])
     }
 
+    @Test("Options a unit records reach the root record of a completed and of a failed run")
+    func unitOptionsReachTheRootRecord() async throws {
+        let fixture = try AnalysisRunTestProject()
+        defer { fixture.cleanup() }
+        let scripts: [(script: FakeUnitScript, completes: Bool)] = [(.complete, true), (.fail("kraken2 exited with status 2"), false)]
+        for (script, completes) in scripts {
+            var tool = FakeAnalysisRunTool(probe: FakeToolProbe())
+            tool.units = [AnalysisRunPlannedUnit(label: "s1", value: script)]
+            tool.readSetPlan = .string("planned before the reads were materialized")
+            tool.unitOptions = AnalysisRunRecordOptions(
+                resolved: ["profileState": .string("degraded"), "confidence": .number(0.3)],
+                readSetPlan: Self.readSetPlan
+            )
+            tool.finalizeOptions = AnalysisRunRecordOptions(resolved: ["viewerIndex": .string("kraken2.sqlite")])
+
+            let report = await AnalysisRunExecutor.unsigned.execute(tool, fixture.request(), events: .discarding)
+
+            let completed = report.status == .completed
+            #expect(completed == completes)
+            let options = try fixture.record(at: report.recordURL).options
+            #expect(options.resolvedDefaults["readSetPlan"] == Self.readSetPlan)
+            #expect(options.resolvedDefaults["profileState"] == .string("degraded"))
+            // The unit's value wins over the plan's, and the plan's other options stay.
+            #expect(options.resolvedDefaults["confidence"] == .number(0.3))
+            #expect(options.explicit["threads"] == .integer(2))
+            // Only a finalize that ran adds its options.
+            #expect(options.resolvedDefaults["viewerIndex"] == (completed ? .string("kraken2.sqlite") : nil))
+        }
+    }
+
     @Test("Events follow the phases and end with complete")
     func eventsFollowThePhases() async throws {
         let fixture = try AnalysisRunTestProject()

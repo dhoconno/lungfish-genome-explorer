@@ -9,6 +9,7 @@ import LungfishCore
 struct RootRecordInput: Sendable {
     let identity: AnalysisRunIdentity
     let request: AnalysisRunRequest
+    /// The plan's options with every contribution of the units and the finalize merged in.
     let options: AnalysisRunRecordOptions
     let finalization: AnalysisRunFinalization?
     let clock: ProvenanceRunClock
@@ -25,8 +26,9 @@ extension AnalysisRunExecutor {
     /// `ProvenanceWriter`, after every other record of the run, so a record written during the run
     /// (a unit's record in a one-folder layout, or an index builder's) never wins.
     ///
-    /// The record's argv is the command that ran, its options hold the read-set plan under
-    /// `resolvedDefaults` (E13), its status and exit status say how the run ended, and its stderr
+    /// The record's argv is the command that ran, its options are the plan's with what the units
+    /// and the finalize recorded merged in and hold the read-set plan under `resolvedDefaults`
+    /// (E13), its status and exit status say how the run ended, and its stderr
     /// holds the reason a run did not complete and every warning. A completed run lists the
     /// finalize's outputs, which are hashed here once. Every other descriptor is one the tool
     /// already took, so a failed or cancelled run hashes nothing, and a cancelled run's record is

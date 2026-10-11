@@ -130,6 +130,8 @@ public struct AnalysisRunExecutor: Sendable {
         }
         journal.emit(.output(path: folder.root.path, role: CLIEventArtifact.Role.analysisDirectory))
         plan.recordInputs.forEach(journal.recordInput)
+        // The plan's options come first, and what the units and the finalize record merges in.
+        journal.recordOptions(plan.options)
 
         // P2. Serial units with a cancellation check between them.
         let units = await runUnits(tool, plan: plan, folder: folder, journal: journal)
@@ -159,7 +161,7 @@ public struct AnalysisRunExecutor: Sendable {
             RootRecordInput(
                 identity: identity,
                 request: request,
-                options: plan.options,
+                options: journal.recordedOptions,
                 finalization: finalization,
                 clock: clock
             ),
@@ -212,6 +214,9 @@ public struct AnalysisRunExecutor: Sendable {
             // partial is hashed.
             guard !cancelIsRequested else { return (.cancelled, nil) }
             finalization.warnings.forEach(journal.warn)
+            if let options = finalization.options {
+                journal.recordOptions(options)
+            }
             return (.completed, finalization)
         } catch {
             guard !cancelIsRequested else { return (.cancelled, nil) }

@@ -149,6 +149,10 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
     var finalizeError: String?
     var finalizeWarnings: [String] = []
     var finalizeOutputs = true
+    /// Options each unit records right after its input, before it fails or completes.
+    var unitOptions: AnalysisRunRecordOptions?
+    /// Options the finalization adds.
+    var finalizeOptions: AnalysisRunRecordOptions?
     /// A plan that cancels its own run, then throws or returns its plan.
     var planCancels: PlanCancel?
     /// A finalize that cancels its own run, then returns what it wrote.
@@ -220,6 +224,9 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
         try Data("@r1\nACGT\n+\nIIII\n".utf8).write(to: input)
         let inputDescriptor = try ProvenanceFileDescriptor.file(url: input, format: .fastq, role: .input)
         context.recordInput(inputDescriptor)
+        if let unitOptions {
+            context.recordOptions(unitOptions)
+        }
 
         switch unit.value {
         case .fail(let reason):
@@ -324,7 +331,8 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
             } ?? [],
             artifacts: [CLIEventArtifact(kind: "tsv", path: summary.path, role: "summary")],
             completionDetail: "\(units.filter { $0.outcome.completed }.count) of \(units.count) samples classified",
-            warnings: finalizeWarnings
+            warnings: finalizeWarnings,
+            options: finalizeOptions
         )
     }
 

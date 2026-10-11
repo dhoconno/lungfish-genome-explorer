@@ -19,8 +19,8 @@ import LungfishIO
 ///    order, and checks for a cancel request between them. In a one-folder layout the unit's folder
 ///    is the result folder, and the root record written in P4 replaces any record the unit wrote
 ///    there. So a unit hands each fact of its record to the root record through the context's
-///    `recordInput` and `recordStep` as soon as it has it, as the Kraken2 wrapper record keeps the
-///    pipeline's steps today.
+///    `recordInput`, `recordStep` and `recordOptions` as soon as it has it, as the Kraken2
+///    wrapper record keeps the pipeline's steps today.
 /// 3. ``finalize(_:context:)`` (P3) writes the run-level artifacts, such as a summary, a batch
 ///    manifest and the viewer index, after every unit and before the executor writes the root
 ///    record. It runs only when the units leave the run completed.

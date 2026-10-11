@@ -227,15 +227,48 @@ struct AnalysisRunAPITests {
             progress: { fraction, message in seen.append("progress \(fraction) \(message)") },
             log: { level, message in seen.append("\(level.rawValue) \(message)") },
             recordInput: { descriptor in seen.append("input \(descriptor.path)") },
-            recordStep: { step in seen.append("step \(step.toolName)") }
+            recordStep: { step in seen.append("step \(step.toolName)") },
+            recordOptions: { options in seen.append("options \(options.resolved.keys.sorted().joined(separator: ","))") }
         )
 
         context.progress(0.5, "half")
         context.log(.warning, "careful")
         context.recordInput(ProvenanceFileDescriptor(path: "/tmp/reads.fastq", checksumSHA256: nil, fileSize: nil, format: .fastq, role: .input))
         context.recordStep(ProvenanceStep(toolName: "kraken2"))
+        context.recordOptions(AnalysisRunRecordOptions(resolved: ["profileState": .string("degraded")]))
 
-        #expect(seen.snapshot == ["progress 0.5 half", "warning careful", "input /tmp/reads.fastq", "step kraken2"])
+        #expect(seen.snapshot == [
+            "progress 0.5 half",
+            "warning careful",
+            "input /tmp/reads.fastq",
+            "step kraken2",
+            "options profileState",
+        ])
+    }
+
+    @Test("Recorded options merge key by key, a later value winning and a read-set plan replacing the one before")
+    func recordedOptionsMergeKeyByKey() {
+        let earlier: ParameterValue = .dictionary(["capability": .string("singlesPerRun")])
+        let later: ParameterValue = .dictionary(["capability": .string("pairsOrSinglesPerRun")])
+        let plan = AnalysisRunRecordOptions(
+            explicit: ["threads": .integer(4)],
+            defaults: ["confidence": .number(0)],
+            resolved: ["confidence": .number(0.1), "database": .string("standard")],
+            readSetPlan: earlier
+        )
+
+        let unit = plan.merging(AnalysisRunRecordOptions(
+            explicit: ["memoryMapping": .boolean(true)],
+            resolved: ["confidence": .number(0.2), "profileState": .string("degraded")],
+            readSetPlan: later
+        ))
+        #expect(unit.explicit == ["threads": .integer(4), "memoryMapping": .boolean(true)])
+        #expect(unit.defaults == ["confidence": .number(0)])
+        #expect(unit.resolved == ["confidence": .number(0.2), "database": .string("standard"), "profileState": .string("degraded")])
+        #expect(unit.readSetPlan == later)
+
+        // A contribution without a read-set plan keeps the one before.
+        #expect(unit.merging(AnalysisRunRecordOptions(resolved: ["index": .string("kraken2.sqlite")])).readSetPlan == later)
     }
 }
 

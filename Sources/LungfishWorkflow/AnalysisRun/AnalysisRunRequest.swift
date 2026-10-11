@@ -62,7 +62,7 @@ public struct AnalysisRunPlan<Value: Sendable>: Sendable {
     public var layout: AnalysisRunLayout
     /// The units in the order they run. A plan holds at least one.
     public var units: [AnalysisRunPlannedUnit<Value>]
-    /// The options of the root record.
+    /// The options of the root record, which the units and the finalize may add to.
     public var options: AnalysisRunRecordOptions
     /// Inputs of the root record that the plan already described, such as a database reference.
     /// The executor hashes none of them again (see ``AnalysisRunUnitContext/recordInput(_:)``).
@@ -95,6 +95,15 @@ public struct AnalysisRunPlannedUnit<Value: Sendable>: Sendable {
 }
 
 /// The options the root record holds.
+///
+/// The executor starts from the plan's options and merges each contribution in the order it
+/// arrives, a unit's through ``AnalysisRunUnitContext/recordOptions(_:)`` and then the
+/// finalization's ``AnalysisRunFinalization/options``. It merges key by key into `explicit`,
+/// `defaults` and `resolved`, a later value winning, and a non-nil `readSetPlan` replaces the one
+/// before. Options recorded before a failure or a cancel reach that run's record, as recorded
+/// inputs and steps do. In a batch the unit records keep the facts of each sample and a unit adds
+/// only run-level values. How a batch root records `readSetPlan` across its samples is the tool's
+/// to settle.
 public struct AnalysisRunRecordOptions: Sendable, Equatable {
     /// The key of the read-set plan in the resolved options, its one home (E13).
     public static let readSetPlanKey = "readSetPlan"
@@ -132,6 +141,17 @@ public struct AnalysisRunRecordOptions: Sendable, Equatable {
         var merged = resolved
         merged[Self.readSetPlanKey] = readSetPlan
         return merged
+    }
+
+    /// These options with `later` merged in by the rule above, key by key with the later value
+    /// winning, and `later`'s read-set plan replacing this one when it has one.
+    func merging(_ later: AnalysisRunRecordOptions) -> AnalysisRunRecordOptions {
+        AnalysisRunRecordOptions(
+            explicit: explicit.merging(later.explicit) { _, new in new },
+            defaults: defaults.merging(later.defaults) { _, new in new },
+            resolved: resolved.merging(later.resolved) { _, new in new },
+            readSetPlan: later.readSetPlan ?? readSetPlan
+        )
     }
 }
 

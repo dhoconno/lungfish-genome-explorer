@@ -23,6 +23,9 @@ public struct AnalysisRunFinalization: Sendable {
     /// Warnings the finalize found, such as an index that could not be built. Each becomes a
     /// warning line, and the run still completes.
     public var warnings: [String]
+    /// Options the finalize adds to the root record, merged after the plan's and the units' by
+    /// the rule ``AnalysisRunRecordOptions`` states. Nil adds none.
+    public var options: AnalysisRunRecordOptions?
 
     public init(
         outputs: [AnalysisRunOutput] = [],
@@ -30,7 +33,8 @@ public struct AnalysisRunFinalization: Sendable {
         sourceRecords: [any AnalysisSourceRecord] = [],
         artifacts: [CLIEventArtifact] = [],
         completionDetail: String? = nil,
-        warnings: [String] = []
+        warnings: [String] = [],
+        options: AnalysisRunRecordOptions? = nil
     ) {
         self.outputs = outputs
         self.steps = steps
@@ -38,5 +42,6 @@ public struct AnalysisRunFinalization: Sendable {
         self.artifacts = artifacts
         self.completionDetail = completionDetail
         self.warnings = warnings
+        self.options = options
     }
 }
