@@ -8,12 +8,15 @@
 // `CondaManager` and checksums installed files with
 // `ManagedToolSourceInstallationRecord.sha256(of:)`. Both are internal to
 // LungfishWorkflow, so this file imports it `@testable`, the one such import
-// in LungfishTestSupport. The package builds in the debug configuration,
-// the app included (scripts/build-app.sh), which compiles LungfishWorkflow
-// for testing.
+// in LungfishTestSupport. The `#if DEBUG` guard keeps a release build of the
+// package compiling, because a release build does not compile LungfishWorkflow
+// for testing. The lane that makes the `CondaManager` test initializer and
+// `ManagedToolSourceInstallationRecord.sha256(of:)` public removes both the
+// attribute and the guard.
 
 import Foundation
 import LungfishIO
+#if DEBUG
 @testable import LungfishWorkflow
 
 public struct FakeClassificationCondaFixture {
@@ -436,3 +439,4 @@ public struct FakeClassificationCondaFixture {
         """
     }
 }
+#endif
