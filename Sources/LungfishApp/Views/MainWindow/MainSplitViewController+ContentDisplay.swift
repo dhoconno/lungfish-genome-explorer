@@ -387,9 +387,8 @@ extension MainSplitViewController {
                         hiddenCells: hiddenCells
                     )
                 }
-                controller.onDisplayStateChanged = { [weak self] state in
-                    self?.inspectorController.updateGenotypeResultDisplayState(state)
-                }
+                controller.onDisplayStateChanged = { [weak self] state in self?.inspectorController.updateGenotypeResultDisplayState(state) }
+                controller.onActiveSmartCohortChanged = { [weak self] in self?.inspectorController.updateGenotypeActiveSmartCohort($0) }
                 controller.onAnnotationSidecarChanged = { [weak self, weak controller] sidecar in
                     guard let self,
                           self.viewerController.genotypeResultViewController === controller

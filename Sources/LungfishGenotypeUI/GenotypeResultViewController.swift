@@ -193,6 +193,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     public var manualHaplotypeBandDisclosureStore:
         GenotypeManualHaplotypeBandDisclosureStore?
     public var onAnnotationSidecarChanged: ((GenotypeAnnotationSidecar) -> Void)?
+    public var onActiveSmartCohortChanged: ((GenotypeCohortSmartFilter?) -> Void)?
     public var onMatrixReviewCapabilityChanged: ((GenotypeMatrixReviewCapabilityState) -> Void)?
     public var onMatrixVisibilityCapabilityChanged:
         ((GenotypeMatrixVisibilityCapabilitySnapshot) -> Void)?
@@ -236,6 +237,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         onDisplaySummaryChanged = nil
         onDisplayStateChanged = nil
         onAnnotationSidecarChanged = nil
+        onActiveSmartCohortChanged = nil
         onMatrixReviewCapabilityChanged = nil
         onMatrixVisibilityCapabilityChanged = nil
         onMatrixAnnotationCommandError = nil
@@ -410,7 +412,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     private var manualHaplotypingSelection: Set<String> = []
     private var manualHaplotypingDraftLabel: String = ""
     private var manualHaplotypingDraftColorTokenIndex: Int = 1
-    private(set) var activeSmartCohort: GenotypeCohortSmartFilter?
+    private(set) var activeSmartCohort: GenotypeCohortSmartFilter? { didSet { activeSmartCohortDidChange(from: oldValue) } }
     private var quickFilterPredicate: SmartCohortPredicate?
     private(set) var quickFilterSearchText: String = ""
     private(set) var quickFilterState = GenotypeQuickFilterBarView.FilterState()
@@ -700,7 +702,6 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard hasHaplotypingResult else {
             activeSmartCohort = nil
-            quickFilterBar.setSavedCohortName(nil)
             return
         }
         guard let data = notification.userInfo?["cohort"] as? Data else {
@@ -714,8 +715,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
 
     private func applySmartCohort(_ cohort: GenotypeCohortSmartFilter) {
         guard hasHaplotypingResult else { return }
-        activeSmartCohort = cohort
-        quickFilterBar.setSavedCohortName(cohort.name)
+        activeSmartCohort = Self.toggledSmartCohort(current: activeSmartCohort, selected: cohort)
         refreshVisibleFilterDependentViews()
     }
 
@@ -740,7 +740,6 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             try store.deleteSmartCohort(name: cohort.name, scope: cohort.scope, author: author)
             if activeSmartCohort?.name == cohort.name && activeSmartCohort?.scope == cohort.scope {
                 activeSmartCohort = nil
-                quickFilterBar.setSavedCohortName(nil)
             }
             refreshVisibleFilterDependentViews(rebuildCohortSummary: true)
             onAnnotationSidecarChanged?(store.sidecar)
@@ -801,7 +800,6 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         )
         try store.saveSmartCohort(cohort, author: author)
         activeSmartCohort = cohort
-        quickFilterBar.setSavedCohortName(cohort.name)
         refreshVisibleFilterDependentViews(rebuildCohortSummary: true)
         onAnnotationSidecarChanged?(store.sidecar)
     }
@@ -818,7 +816,6 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
 
     private func clearActiveSmartCohort() {
         activeSmartCohort = nil
-        quickFilterBar.setSavedCohortName(nil)
         refreshVisibleFilterDependentViews()
     }
 
@@ -1252,7 +1249,6 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         invalidateGenotypeSearchIndex()
         if !hasHaplotypingResult {
             activeSmartCohort = nil
-            quickFilterBar.setSavedCohortName(nil)
         }
         displayState = normalizedDisplayState(displayState)
         applyViewportHeaderVisibility()
@@ -3056,7 +3052,6 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             ])
         )
         activeSmartCohort = cohort
-        quickFilterBar.setSavedCohortName(cohort.name)
         rebuildOutline()
         rebuildHaplotypeMatrix()
         applyComparisonMatrixCohortFilter()
@@ -5700,7 +5695,6 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             rebuildCohortSummary()
         } else {
             activeSmartCohort = nil
-            quickFilterBar.setSavedCohortName(nil)
             displayState = normalizedDisplayState(displayState)
             clearUnsupportedHaplotypePresentation()
         }

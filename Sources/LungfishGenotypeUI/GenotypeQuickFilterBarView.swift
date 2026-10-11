@@ -193,6 +193,10 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
         needsLayout = true
     }
 
+    /// The glyph the active cohort pill shows after the cohort's name, so it
+    /// reads as a filter that one click clears (walk star 10).
+    static let savedCohortClearSymbolName = "xmark.circle.fill"
+
     private func configureSavedCohortButton() {
         savedCohortButton.title = ""
         savedCohortButton.bezelStyle = .roundRect
@@ -202,16 +206,23 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
         savedCohortButton.isHidden = true
         savedCohortButton.identifier = NSUserInterfaceItemIdentifier("savedCohort")
         savedCohortButton.toolTip = "Clear saved cohort filter"
+        savedCohortButton.image = NSImage(systemSymbolName: Self.savedCohortClearSymbolName, accessibilityDescription: nil)
+        savedCohortButton.imagePosition = .imageTrailing
     }
 
+    /// Shows the viewer's active cohort, or hides the pill for nil. The
+    /// viewer calls this from the one state the Inspector's checkmark reads.
     func setSavedCohortName(_ name: String?) {
         let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if trimmed.isEmpty {
             savedCohortButton.title = ""
             savedCohortButton.isHidden = true
+            savedCohortButton.setAccessibilityLabel(nil)
         } else {
             savedCohortButton.title = "Saved: \(trimmed)"
             savedCohortButton.isHidden = false
+            savedCohortButton.setAccessibilityLabel("Active cohort \(trimmed)")
+            savedCohortButton.setAccessibilityHelp("Clears the cohort filter \(trimmed)")
         }
         updatePillDocumentFrame()
     }
@@ -449,6 +460,14 @@ extension GenotypeQuickFilterBarView {
 extension GenotypeQuickFilterBarView {
     var testingSavedCohortChipTitle: String? {
         savedCohortButton.isHidden ? nil : savedCohortButton.title
+    }
+
+    var testingSavedCohortChipAccessibilityLabel: String? {
+        savedCohortButton.isHidden ? nil : savedCohortButton.accessibilityLabel()
+    }
+
+    var testingSavedCohortChipShowsClearGlyphAfterTheName: Bool {
+        savedCohortButton.image != nil && savedCohortButton.imagePosition == .imageTrailing
     }
 
     var testingVisibleButtonTitles: [String] {

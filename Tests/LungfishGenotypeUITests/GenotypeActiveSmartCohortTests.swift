@@ -7,10 +7,78 @@ import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishGenotypeUI
 
-/// The viewer's smart cohort state. Restore Built-In Cohorts from the
+/// Walk star 10. The viewer's `activeSmartCohort` is the one state behind
+/// the quick filter bar pill and the Inspector's checkmark, and a second
+/// click on the active cohort clears it. Restore Built-In Cohorts from the
 /// Inspector reaches the viewer's own store (plan decision S13).
 @MainActor
 final class GenotypeActiveSmartCohortTests: GenotypeResultViewportTestCase {
+    func testASecondClickOnTheActiveCohortClearsIt() throws {
+        let fixture = try makeFixture()
+        defer { TestTempDirectory.cleanup(fixture.root) }
+        let controller = configuredController(fixture)
+        let needsReview = try builtIn("Needs review")
+
+        controller.testingApplySmartCohort(needsReview)
+        XCTAssertEqual(controller.testingActiveSmartCohort, needsReview)
+        XCTAssertEqual(controller.testingSavedCohortChipTitle, "Saved: Needs review")
+
+        controller.testingApplySmartCohort(needsReview)
+        XCTAssertNil(controller.testingActiveSmartCohort)
+        XCTAssertNil(controller.testingSavedCohortChipTitle)
+    }
+
+    func testClickingAnotherCohortSwitchesTheActiveOne() throws {
+        let fixture = try makeFixture()
+        defer { TestTempDirectory.cleanup(fixture.root) }
+        let controller = configuredController(fixture)
+
+        controller.testingApplySmartCohort(try builtIn("Needs review"))
+        controller.testingApplySmartCohort(try builtIn("Homozygous"))
+
+        XCTAssertEqual(controller.testingActiveSmartCohort?.name, "Homozygous")
+        XCTAssertEqual(controller.testingSavedCohortChipTitle, "Saved: Homozygous")
+    }
+
+    func testThePillAndTheInspectorFollowTheOneState() throws {
+        let fixture = try makeFixture()
+        defer { TestTempDirectory.cleanup(fixture.root) }
+        let controller = configuredController(fixture)
+        var handedToInspector: [String?] = []
+        controller.onActiveSmartCohortChanged = { handedToInspector.append($0?.name) }
+
+        controller.testingApplySmartCohort(try builtIn("Recombinants"))
+        XCTAssertEqual(controller.quickFilterBar.testingSavedCohortChipAccessibilityLabel, "Active cohort Recombinants")
+        XCTAssertTrue(controller.quickFilterBar.testingSavedCohortChipShowsClearGlyphAfterTheName)
+
+        controller.quickFilterBar.testingClearSavedCohort()
+
+        XCTAssertNil(controller.testingActiveSmartCohort)
+        XCTAssertNil(controller.testingSavedCohortChipTitle)
+        XCTAssertNil(controller.quickFilterBar.testingSavedCohortChipAccessibilityLabel)
+        XCTAssertEqual(handedToInspector, ["Recombinants", nil])
+    }
+
+    func testDeletingTheActiveCohortClearsItEverywhere() throws {
+        let fixture = try makeFixture()
+        defer { TestTempDirectory.cleanup(fixture.root) }
+        let controller = configuredController(fixture)
+        let homozygous = try builtIn("Homozygous")
+        var handedToInspector: [String?] = []
+        controller.onActiveSmartCohortChanged = { handedToInspector.append($0?.name) }
+        controller.testingApplySmartCohort(homozygous)
+
+        NotificationCenter.default.post(
+            name: .genotypeResultSmartCohortDeleteRequested, object: nil,
+            userInfo: ScopedEventFilter.scopedUserInfo(["cohort": try JSONEncoder().encode(homozygous)], scope: fixture.scope)
+        )
+
+        XCTAssertNil(controller.testingActiveSmartCohort)
+        XCTAssertNil(controller.testingSavedCohortChipTitle)
+        XCTAssertEqual(handedToInspector, ["Homozygous", nil])
+        XCTAssertFalse(controller.annotationStore?.sidecar.smartCohorts.map(\.name).contains("Homozygous") ?? true)
+    }
+
     func testRestoreFromTheInspectorBringsTheDismissedCohortBackThroughTheViewersStore() throws {
         let fixture = try makeFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }

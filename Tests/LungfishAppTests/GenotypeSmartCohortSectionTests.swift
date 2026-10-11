@@ -145,10 +145,62 @@ final class GenotypeSmartCohortSectionTests: XCTestCase {
         XCTAssertGreaterThan(hosting.fittingSize.height, 0)
     }
 
+    // MARK: - The active cohort (walk star 10)
+
+    func testOnlyTheActiveRowShowsTheCheckmarkAndTheSelectedTrait() {
+        let cohorts = GenotypeSmartCohortSection.marking(sampleCohorts(), active: sampleCohorts()[1].filter)
+        let section = GenotypeSmartCohortSection(cohorts: cohorts, onSelect: { _ in }, onDelete: { _ in }, onAdd: { })
+
+        XCTAssertEqual(section.activeCohortID, "Bw6+ carriers/user")
+        XCTAssertEqual(cohorts.map(\.isActive), [false, true, false])
+        let active = GenotypeSmartCohortSection.rowPresentation(for: cohorts[1])
+        XCTAssertEqual(active, .init(
+            showsCheckmark: true, isSelected: true, accessibilityLabel: "Bw6+ carriers",
+            accessibilityValue: "Active, 12 samples", accessibilityHint: "Clears this cohort filter."
+        ))
+        let inactive = GenotypeSmartCohortSection.rowPresentation(for: cohorts[0])
+        XCTAssertEqual(inactive, .init(
+            showsCheckmark: false, isSelected: false, accessibilityLabel: "Needs Review",
+            accessibilityValue: "7 samples", accessibilityHint: "Filters the viewer to this cohort."
+        ))
+    }
+
+    func testMarkingMatchesTheActiveCohortByNameAndScopeAndNilClearsEveryMark() {
+        let sameNameOtherScope = GenotypeCohortSmartFilter(
+            name: "Needs Review", scope: "user", isStarred: false, predicate: .hasAnyComment
+        )
+        XCTAssertEqual(GenotypeSmartCohortSection.marking(sampleCohorts(), active: sameNameOtherScope).map(\.isActive), [false, false, false])
+        let marked = GenotypeSmartCohortSection.marking(sampleCohorts(), active: sampleCohorts()[2].filter)
+        XCTAssertEqual(marked.map(\.isActive), [false, false, true])
+        XCTAssertEqual(GenotypeSmartCohortSection.marking(marked, active: nil).map(\.isActive), [false, false, false])
+    }
+
+    func testTheActiveRowReachesAssistiveTechnologyAsSelected() throws {
+        let cohorts = GenotypeSmartCohortSection.marking(sampleCohorts(), active: sampleCohorts()[1].filter)
+        let window = AccessibilityTreeProbe.host(
+            GenotypeSmartCohortSection(cohorts: cohorts, onSelect: { _ in }, onDelete: { _ in }, onAdd: { }),
+            size: CGSize(width: 320, height: 260)
+        )
+        defer { window.orderOut(nil) }
+        let root = try XCTUnwrap(window.contentView)
+        var activeRow: NSObject?
+        AccessibilityTreeProbe.waitUntil {
+            activeRow = AccessibilityTreeProbe.elements(in: root, labelled: "Bw6+ carriers").first
+            return activeRow != nil
+        }
+
+        let row = try XCTUnwrap(activeRow, AccessibilityTreeProbe.dump(root))
+        XCTAssertTrue(AccessibilityTreeProbe.isSelected(row))
+        XCTAssertEqual(AccessibilityTreeProbe.value(row), "Active, 12 samples")
+        let other = try XCTUnwrap(AccessibilityTreeProbe.elements(in: root, labelled: "Needs Review").first)
+        XCTAssertFalse(AccessibilityTreeProbe.isSelected(other))
+    }
+
     // MARK: - Restore Built-In Cohorts (plan decision S13)
 
     func testRestoreIsOfferedOnlyWhenABuiltInCohortIsMissing() {
-        let all = GenotypeAnnotationStore.builtInSmartCohorts.map { GenotypeSmartCohortSection.DisplayedCohort(filter: $0, count: 0) }
+        let builtIns = GenotypeAnnotationStore.builtInSmartCohorts
+        let all = GenotypeSmartCohortSection.displayedCohorts(builtIns, subjects: [])
         let lacking = all.filter { $0.filter.name != "Homozygous" }
         var restores = 0
 
@@ -166,9 +218,9 @@ final class GenotypeSmartCohortSectionTests: XCTestCase {
     }
 
     func testTheRestoreButtonAppearsWithAMissingBuiltInAndAnAction() throws {
-        let lacking = GenotypeAnnotationStore.builtInSmartCohorts
-            .filter { $0.name != "Recombinants" }
-            .map { GenotypeSmartCohortSection.DisplayedCohort(filter: $0, count: 0) }
+        let lacking = GenotypeSmartCohortSection.displayedCohorts(
+            GenotypeAnnotationStore.builtInSmartCohorts.filter { $0.name != "Recombinants" }, subjects: []
+        )
         let offered = AccessibilityTreeProbe.host(
             GenotypeSmartCohortSection(cohorts: lacking, onSelect: { _ in }, onDelete: { _ in }, onAdd: { }, onRestoreBuiltIns: { }),
             size: CGSize(width: 320, height: 320)
@@ -194,6 +246,44 @@ final class GenotypeSmartCohortSectionTests: XCTestCase {
             AccessibilityTreeProbe.element(in: otherRoot, identifier: "genotypeSmartCohortAddButton") != nil
         }
         XCTAssertNil(AccessibilityTreeProbe.element(in: otherRoot, identifier: "genotypeSmartCohortRestoreButton"))
+    }
+
+    // MARK: - Inspector wiring
+
+    func testTheInspectorMarksTheViewersActiveCohortAndKeepsTheMarkThroughASidecarChange() throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("inspector-active-cohort-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let result = GenotypeTestFixtures.makeResult(
+            bundleURL: bundleURL,
+            calls: [],
+            haplotypeAnalysis: GenotypeHaplotypeAnalysis(
+                assayID: "MHC-exon2-miSeq", definitionSetID: "definitions",
+                definitionSetName: "Definitions", speciesName: "Test macaque", samples: []
+            )
+        )
+        let inspector = InspectorViewController()
+        _ = inspector.view
+        inspector.viewModel.contentMode = .genotype
+        inspector.updateGenotypeResultDocument(result)
+        func marks() -> [String] {
+            (inspector.viewModel.documentSectionViewModel.genotypeResultDocument?.smartCohorts ?? [])
+                .filter(\.isActive).map(\.filter.name)
+        }
+        XCTAssertEqual(marks(), [])
+        let needsReview = try XCTUnwrap(GenotypeAnnotationStore.builtInSmartCohorts.first { $0.name == "Needs review" })
+
+        inspector.updateGenotypeActiveSmartCohort(needsReview)
+        XCTAssertEqual(marks(), ["Needs review"])
+
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-08-01T00:00:00Z")
+        sidecar.smartCohorts = GenotypeAnnotationStore.builtInSmartCohorts
+        inspector.updateGenotypeAnnotationSidecar(sidecar)
+        XCTAssertEqual(marks(), ["Needs review"])
+
+        inspector.updateGenotypeActiveSmartCohort(nil)
+        XCTAssertEqual(marks(), [])
     }
 
     // MARK: - Helpers

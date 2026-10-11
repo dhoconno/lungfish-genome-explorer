@@ -13,7 +13,9 @@ import LungfishIO
 /// and a contextual delete button. Tapping a row selects the cohort; the "+ Add" affordance at the
 /// bottom invokes `onAdd` so the caller can present a "Save current filter" sheet.
 ///
-/// Restore Built-In Cohorts appears when a built-in cohort is missing (plan decision S13).
+/// The viewer's active cohort, the one state the filter bar pill also reads, shows with a
+/// checkmark and the selected accessibility trait, and a second click on it clears it (walk star
+/// 10). Restore Built-In Cohorts appears when a built-in cohort is missing (plan decision S13).
 public struct GenotypeSmartCohortSection: View {
     private let typographyModel = ContentTypographyModel.shared
     private var contentBodyFont: Font { typographyModel.font(for: .body) }
@@ -22,12 +24,24 @@ public struct GenotypeSmartCohortSection: View {
     public struct DisplayedCohort: Identifiable, Equatable {
         public let filter: GenotypeCohortSmartFilter
         public let count: Int
+        /// Whether this is the viewer's active cohort.
+        public var isActive: Bool
         public var id: String { filter.name + "/" + filter.scope }
 
-        public init(filter: GenotypeCohortSmartFilter, count: Int) {
+        public init(filter: GenotypeCohortSmartFilter, count: Int, isActive: Bool = false) {
             self.filter = filter
             self.count = count
+            self.isActive = isActive
         }
+    }
+
+    /// What a row shows and tells assistive technology.
+    public struct RowPresentation: Equatable {
+        public let showsCheckmark: Bool
+        public let isSelected: Bool
+        public let accessibilityLabel: String
+        public let accessibilityValue: String
+        public let accessibilityHint: String
     }
 
     let cohorts: [DisplayedCohort]
@@ -52,10 +66,49 @@ public struct GenotypeSmartCohortSection: View {
         self.onRestoreBuiltIns = onRestoreBuiltIns
     }
 
+    /// The id of the active cohort, or nil when no cohort filters the viewer.
+    public var activeCohortID: String? {
+        cohorts.first(where: \.isActive)?.id
+    }
+
     /// The built-in cohorts the list lacks, which Restore Built-In Cohorts brings back.
     public var restorableBuiltInNames: [String] {
         let shown = Set(cohorts.map(\.filter.name))
         return GenotypeAnnotationStore.builtInSmartCohorts.map(\.name).filter { !shown.contains($0) }
+    }
+
+    public static func rowPresentation(for cohort: DisplayedCohort) -> RowPresentation {
+        let matches = cohort.count == 1 ? "1 sample" : "\(cohort.count) samples"
+        return RowPresentation(
+            showsCheckmark: cohort.isActive,
+            isSelected: cohort.isActive,
+            accessibilityLabel: cohort.filter.name,
+            accessibilityValue: cohort.isActive ? "Active, \(matches)" : matches,
+            accessibilityHint: cohort.isActive
+                ? "Clears this cohort filter."
+                : "Filters the viewer to this cohort."
+        )
+    }
+
+    /// The rows for `filters`, each counting the subjects its predicate matches,
+    /// with the viewer's active cohort marked.
+    public static func displayedCohorts(
+        _ filters: [GenotypeCohortSmartFilter],
+        subjects: [GenotypeCohortSubject],
+        active: GenotypeCohortSmartFilter? = nil
+    ) -> [DisplayedCohort] {
+        marking(filters.map { filter in
+            DisplayedCohort(filter: filter, count: subjects.filter { filter.predicate.evaluate($0) }.count)
+        }, active: active)
+    }
+
+    /// `cohorts` with only the row of `active`, matched by name and scope, marked active.
+    public static func marking(_ cohorts: [DisplayedCohort], active: GenotypeCohortSmartFilter?) -> [DisplayedCohort] {
+        cohorts.map { cohort in
+            var marked = cohort
+            marked.isActive = active.map { $0.name == cohort.filter.name && $0.scope == cohort.filter.scope } ?? false
+            return marked
+        }
     }
 
     public var body: some View {
@@ -99,6 +152,7 @@ public struct GenotypeSmartCohortSection: View {
 
     @ViewBuilder
     private func cohortRow(_ cohort: DisplayedCohort) -> some View {
+        let presentation = Self.rowPresentation(for: cohort)
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Button(action: { onSelect(cohort.filter) }) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -111,9 +165,15 @@ public struct GenotypeSmartCohortSection: View {
                         .accessibilityIdentifier("genotypeSmartCohortStar")
                     Text(cohort.filter.name)
                         .font(contentBodyFont)
+                        .fontWeight(cohort.isActive ? .semibold : .regular)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    if presentation.showsCheckmark {
+                        Image(systemName: "checkmark")
+                            .foregroundStyle(Color.accentColor)
+                            .accessibilityIdentifier("genotypeSmartCohortActiveCheckmark")
+                    }
                     Text("\(cohort.count)")
                         .font(contentBodyFont.monospacedDigit())
                         .foregroundStyle(.secondary)
@@ -121,6 +181,11 @@ public struct GenotypeSmartCohortSection: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(presentation.accessibilityLabel)
+            .accessibilityValue(presentation.accessibilityValue)
+            .accessibilityHint(presentation.accessibilityHint)
+            .accessibilityAddTraits(presentation.isSelected ? [.isButton, .isSelected] : .isButton)
             .accessibilityIdentifier("genotypeSmartCohortRow")
 
             Button(action: { onDelete(cohort.filter) }) {

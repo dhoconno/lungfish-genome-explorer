@@ -400,13 +400,8 @@ extension InspectorViewController {
                 metadataStore?.records ?? [:]
             )
             : []
-        let smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] =
-            hasHaplotypingResult
-            ? sidecar.smartCohorts.map { cohort in
-                let count = subjects.filter { cohort.predicate.evaluate($0) }.count
-                return GenotypeSmartCohortSection.DisplayedCohort(filter: cohort, count: count)
-            }
-            : []
+        let smartCohorts = hasHaplotypingResult
+            ? GenotypeSmartCohortSection.displayedCohorts(sidecar.smartCohorts, subjects: subjects) : []
         let workbookArtifactRows: [GenotypeResultArtifactRow] = {
             var rows = [
                 GenotypeResultArtifactRow(label: "Workbook", fileURL: result.artifacts.workbookURL),
@@ -665,6 +660,13 @@ extension InspectorViewController {
         viewModel.twelveSResultDisplaySectionViewModel.updateDisplayState(state)
     }
 
+    /// Marks the viewer's active smart cohort, the state its filter bar pill shows, in Smart Cohorts (walk star 10).
+    func updateGenotypeActiveSmartCohort(_ cohort: GenotypeCohortSmartFilter?) {
+        guard var state = viewModel.documentSectionViewModel.genotypeResultDocument else { return }
+        state.smartCohorts = GenotypeSmartCohortSection.marking(state.smartCohorts, active: cohort)
+        viewModel.documentSectionViewModel.updateGenotypeResultDocument(state)
+    }
+
     func updateGenotypeAnnotationSidecar(_ sidecar: GenotypeAnnotationSidecar) {
         guard let state = viewModel.documentSectionViewModel.genotypeResultDocument else { return }
         var nextState = state.replacing(auditEntries: sidecar.auditLog)
@@ -680,12 +682,9 @@ extension InspectorViewController {
                     sidecar,
                     state.sampleMetadataStore?.records ?? [:]
                 )
-                nextState.smartCohorts = sidecar.smartCohorts.map { cohort in
-                    GenotypeSmartCohortSection.DisplayedCohort(
-                        filter: cohort,
-                        count: subjects.filter { cohort.predicate.evaluate($0) }.count
-                    )
-                }
+                nextState.smartCohorts = GenotypeSmartCohortSection.displayedCohorts(
+                    sidecar.smartCohorts, subjects: subjects, active: state.smartCohorts.first(where: \.isActive)?.filter
+                )
                 nextState.qcRows = genotypeHaplotypeQCRows(subjects: subjects)
             } else {
                 nextState.smartCohorts = []
