@@ -10,8 +10,11 @@ import LungfishTestSupport
 
 /// Tools print their banner first and their errors, versions and summaries last,
 /// so a record that keeps only the start of a long stderr loses the part that
-/// explains a failure. `ProvenanceStderr.truncated` keeps the first 2,048 and the
-/// last 8,192 characters around a marker that carries no count.
+/// explains a failure. `ProvenanceStderr.truncated` keeps the whole lines inside
+/// the first 2,048 and the last 8,192 characters around a marker that carries no
+/// count, and cuts at the character only where a window holds no line break and
+/// no space. `ProvenanceStderrLineBoundaryTests` in LungfishCoreTests pins where
+/// the cut falls. These tests pin the bound, the marker and the writers that apply it.
 @Suite("Provenance stderr")
 struct ProvenanceStderrTests {
     private static let marker = "\n... [truncated] ...\n"
@@ -28,6 +31,16 @@ struct ProvenanceStderrTests {
         lines += (1...(lineCount - 2)).map { "[progress] processed batch \($0) of \(lineCount - 2) without a warning" }
         lines.append(error)
         return (lines.joined(separator: "\n") + "\n", banner, error)
+    }
+
+    /// A cut of `longStderr` lines holds whole lines, so each side falls short of its
+    /// window by less than one line. The longest of those lines is 60 characters.
+    private static func expectWholeLinesFillTheBound(
+        _ kept: String,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        #expect(kept.count <= bound + marker.count, "at most the bound plus the marker", sourceLocation: sourceLocation)
+        #expect(kept.count >= bound + marker.count - 2 * 60, "each side within one line of its window", sourceLocation: sourceLocation)
     }
 
     // MARK: The bound
@@ -47,9 +60,10 @@ struct ProvenanceStderrTests {
         #expect(ProvenanceStderr.normalized("") == nil)
     }
 
-    @Test("stderr over 10,240 characters keeps the first 2,048 and the last 8,192 around one marker")
+    @Test("stderr over 10,240 characters with no line break and no space keeps the first 2,048 and the last 8,192 around one marker")
     func longerStderrKeepsItsHeadAndItsTail() throws {
         // Distinct characters at every position, so a wrong slice cannot pass by luck.
+        // The text holds no line break and no space, so the cut falls at the character.
         let alphabet = Array("abcdefghijklmnopqrstuvwxyz0123456789")
         for count in [Self.bound + 1, Self.bound + 2, 20_000, 123_457] {
             let text = String((0..<count).map { alphabet[($0 * 7 + $0 / 36) % alphabet.count] })
@@ -110,7 +124,7 @@ struct ProvenanceStderrTests {
 
         #expect(kept.hasPrefix(log.banner + "\n"), "the banner survives")
         #expect(kept.hasSuffix(log.error + "\n"), "the last error line survives")
-        #expect(kept.count == Self.bound + Self.marker.count)
+        Self.expectWholeLinesFillTheBound(kept)
         #expect(kept.contains(Self.marker))
         // The middle is gone, so a line from the middle of the log is not kept.
         #expect(!kept.contains("processed batch 25000 of"))
@@ -186,7 +200,7 @@ struct ProvenanceStderrTests {
         for kept in [stepKept, runKept] {
             #expect(kept.hasPrefix(log.banner))
             #expect(kept.hasSuffix(log.error + "\n"))
-            #expect(kept.count == Self.bound + Self.marker.count)
+            Self.expectWholeLinesFillTheBound(kept)
         }
     }
 
@@ -232,12 +246,16 @@ struct ProvenanceStderrTests {
 
         let envelope = try #require(ProvenanceRecorder.findProvenanceEnvelope(for: directory)?.envelope)
         let step = try #require(envelope.steps.first { $0.toolName == "TaxTriage" })
-        // The writer trims the log, which ends in a newline, and then cuts it.
-        let expected = String(log.text.prefix(Self.headLength)) + Self.marker + String(log.text.suffix(Self.tailLength))
+        // The writer trims the log, which ends in a newline, and then cuts it with the shared
+        // rule. The log between its banner and its error line is one line of 19,880
+        // characters with no space, and neither window can hold it whole, so the cut keeps
+        // the two whole lines on either side of it and nothing of the line between.
+        let expected = try #require(ProvenanceStderr.truncated(log.text))
+        #expect(expected == log.banner + Self.marker + log.error)
         #expect(step.stderr == expected)
         #expect(envelope.stderr == expected)
         let kept = try #require(step.stderr)
         #expect(kept.hasPrefix(log.banner), "the banner survives")
-        #expect(kept.hasSuffix(log.error), "the last 8,192 characters, and with them the error line, survive")
+        #expect(kept.hasSuffix(log.error), "the error line survives")
     }
 }
