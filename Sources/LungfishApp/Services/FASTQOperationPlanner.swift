@@ -988,7 +988,7 @@ extension FASTQOperationLaunchRequest {
         case .assemble(let request, _):
             return "assembly-\(request.tool.rawValue)"
         case .classify(let tool, _, _, _):
-            return tool.title.lowercased()
+            return tool.classifyOutputStem
         case .savont:
             return "savont-clusters"
         case .pbaa:
