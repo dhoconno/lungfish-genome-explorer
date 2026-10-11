@@ -1,6 +1,6 @@
 ##fileformat=VCFv4.2
 ##FILTER=<ID=PASS,Description="All filters passed">
-##source=iVar 1.4.4 (managed conda environment ivar; executable ivar; package ivar) (TSV-to-VCF: Lungfish Lungfish dev (0))
+##source=iVar 1.4.4 (managed conda environment ivar; executable ivar; package bioconda::ivar=1.4.4=hda5e58c_0) (TSV-to-VCF: Lungfish dev (0))
 ##contig=<ID=MN908947.3,length=29903>
 ##INFO=<ID=TYPE,Number=1,Type=String,Description="Either SNP (Single Nucleotide Polymorphism), DEL (deletion) or INS (Insertion)">
 ##FILTER=<ID=ft,Description="Fisher's exact test of variant frequency compared to mean error rate, p-value > 0.05">

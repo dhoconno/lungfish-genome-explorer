@@ -20,7 +20,7 @@ final class BAMPrimerTrimProvenanceTests: XCTestCase {
         )
         let step = StepExecution(
             toolName: "ivar",
-            toolVersion: "1.4.4 (managed conda environment ivar; executable ivar; package ivar)",
+            toolVersion: "1.4.4 (managed conda environment ivar; executable ivar; package bioconda::ivar=1.4.4=hda5e58c_0)",
             command: ["/tools/ivar", "trim", "-b", "/bundle/primers.bed"],
             inputs: [sourceRecord],
             outputs: [outputRecord],
@@ -55,7 +55,7 @@ final class BAMPrimerTrimProvenanceTests: XCTestCase {
             inputFiles: [sourceRecord],
             outputFiles: [outputRecord],
             runtimeIdentity: [
-                "ivar": "managed conda environment ivar; executable ivar; package ivar"
+                "ivar": "managed conda environment ivar; executable ivar; package bioconda::ivar=1.4.4=hda5e58c_0"
             ],
             steps: [step],
             wallTimeSeconds: 1.0,
@@ -79,7 +79,11 @@ final class BAMPrimerTrimProvenanceTests: XCTestCase {
         XCTAssertEqual(decoded.resolvedOptions["ivar_min_quality"], "20")
         XCTAssertEqual(decoded.inputFiles.first?.sha256, "source-sha")
         XCTAssertEqual(decoded.outputFiles.first?.sizeBytes, 23_456)
-        XCTAssertEqual(decoded.runtimeIdentity["ivar"], "managed conda environment ivar; executable ivar; package ivar")
+        XCTAssertEqual(
+            decoded.runtimeIdentity["ivar"],
+            "managed conda environment ivar; executable ivar; package bioconda::ivar=1.4.4=hda5e58c_0"
+        )
+        XCTAssertEqual(decoded.runtimeIdentity["ivar"], ProvenanceManagedEnvironment.recordedRuntime(for: .ivar))
         XCTAssertEqual(decoded.steps.first?.command.last, "/bundle/primers.bed")
         XCTAssertEqual(decoded.steps.first?.exitCode, 0)
     }
@@ -157,12 +161,23 @@ final class IVarExpectedVCFFixtureTests: XCTestCase {
         XCTAssertTrue(try fixtureLines()[2].hasPrefix("##source=iVar "))
     }
 
-    /// At the base of the lane the line carries the package the native tool sites recorded, `ivar`,
-    /// and the product name twice, as the pipeline wrote it before `6bb94c84f`.
-    func testTheSourceLineAtTheLaneBase() throws {
+    /// The line is what `ViralVariantCallingPipeline` writes when the app version reads `Lungfish dev (0)`,
+    /// the form this fixture was captured with. iVar is a pack tool, so its runtime text names the lock's
+    /// build-pinned package and not the source package `ivar` that the sites recorded while they looked the
+    /// lock up through the tools list. The product name appears once. The fixture was captured before
+    /// `6bb94c84f`, when the pipeline put `Lungfish ` in front of `WorkflowRun.currentAppVersion`, which
+    /// already names the product.
+    func testTheSourceLineIsWhatThePipelineWritesForTheLocksIVar() throws {
+        let line = try fixtureLines()[2]
         XCTAssertEqual(
-            try fixtureLines()[2],
-            "##source=iVar 1.4.4 (managed conda environment ivar; executable ivar; package ivar) (TSV-to-VCF: Lungfish Lungfish dev (0))"
+            line,
+            "##source=iVar 1.4.4 (managed conda environment ivar; executable ivar; package bioconda::ivar=1.4.4=hda5e58c_0) (TSV-to-VCF: Lungfish dev (0))"
         )
+        let ivarVersion = "1.4.4 (\(ProvenanceManagedEnvironment.recordedRuntime(for: .ivar)))"
+        XCTAssertEqual(
+            line,
+            "##source=" + ViralVariantCallingPipeline.ivarVCFSourceLine(ivarVersion: ivarVersion, lungfishVersion: "Lungfish dev (0)")
+        )
+        XCTAssertFalse(line.contains("Lungfish Lungfish"))
     }
 }
