@@ -141,9 +141,11 @@ final class ToolProcessEnvironmentChangeAdapterTests: XCTestCase {
         XCTAssertNil(try XCTUnwrap(change.set.first { $0.name == "PATH" }).value)
     }
 
-    /// An observer bound around runTool also sees the version probes that
-    /// ensureMicromamba runs inside it. Only the declared tool run carries an
-    /// identity hint and a change, so a binder tells them apart by those.
+    /// An observer bound around runTool also receives the micromamba version
+    /// probes that ensureMicromamba runs inside it. Today they carry no hint
+    /// and no change. That does not find the declared step, because a probe
+    /// that goes through runTool, such as `bracken --help`, carries both. P2
+    /// binds the observer around the declared launch alone.
     func testTheVersionProbesInsideRunToolCarryNeitherAHintNorAChange() async throws {
         let fixture = try await AdapterCondaRoot()
         defer { fixture.remove() }
@@ -156,8 +158,8 @@ final class ToolProcessEnvironmentChangeAdapterTests: XCTestCase {
         }
 
         let stages = log.all.flatMap(\.stages)
-        let declared = stages.filter { $0.identityHint != nil }
-        XCTAssertEqual(declared.map(\.label), ["dumper"])
+        let hinted = stages.filter { $0.identityHint != nil }
+        XCTAssertEqual(hinted.map(\.label), ["dumper"])
         XCTAssertEqual(stages.filter { $0.environmentChange != nil }.map(\.label), ["dumper"])
     }
 

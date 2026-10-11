@@ -16,7 +16,10 @@ extension NativeToolRunner {
     /// folder put before PATH, and for a BBTools script also its own JAVA_HOME
     /// and BBMAP_JAVA. The change is built only for an observed launch,
     /// because building it sanitizes paths and nothing else reads it. It never
-    /// changes the environment itself.
+    /// changes the environment itself. The observer is read here, when the
+    /// spec is built, so bind it around the spec's construction as well as its
+    /// launch. A binding around `ToolProcess.run` alone delivers the stage
+    /// with no change.
     func observedEnvironmentChange(overriding overrides: [String: String]?) -> ToolProcessEnvironmentChange? {
         guard ToolProcessObservation.observer != nil else { return nil }
         return Self.environmentChange(overriding: overrides, sanitizing: environmentChangeContext)
@@ -77,7 +80,7 @@ extension NativeToolRunner {
         name.flatMap { NativeTool(rawValue: $0)?.rawValue }
     }
 
-    /// The context that sanitizes a change: this runner's conda root reads
+    /// The context that sanitizes a change. This runner's conda root reads
     /// `<tool-root>`, and the managed storage root reads `<storage-root>`.
     var environmentChangeContext: PortablePath.Context {
         PortablePath.Context(
