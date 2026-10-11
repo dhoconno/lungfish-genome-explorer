@@ -1,10 +1,13 @@
-// ClassifierCLIGUIParityReplayTests+Sides.swift - The parity cases and the runs of sides A and B
+// ClassifierCLIGUIParityReplayTests+Sides.swift - The parity cases and the runs of their four sides
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
 // Side A drives today's GUI path through `AppDelegate` on `OperationCenter.shared`, with the
-// configs the wizards build. Side B rebases the command side A's row recorded onto a fresh root
-// and runs it in this process. Lane F3 adds sides C and C' beside them (panel decision T2).
+// configs the wizards build. Side C hands the same configs to the launch the FASTQ operations
+// dialog calls, with every route key set to the CLI route, so the run goes through
+// `CLIClassifierRunner` and the built `lungfish-cli` that `LUNGFISH_CLI_PATH` names. Side B rebases
+// the command side A's row recorded onto a fresh root and runs it in this process. Side C' rebases
+// side C's and runs it with the same built `lungfish-cli` (panel decision T2).
 
 import AppKit
 import ArgumentParser
@@ -170,15 +173,29 @@ enum ClassifierParityCase: String, CaseIterable, Sendable {
     }
 }
 
-/// The sides of a parity case (panel decision T2). Lane F3 adds `c`, the new GUI route through
-/// `lungfish-cli`, and `cPrime`, the command C records replayed as B replays A's.
+/// The sides of a parity case (panel decision T2).
 enum ClassifierParitySide: String, CaseIterable, Sendable, CustomStringConvertible {
     /// Today's GUI path through `AppDelegate`, run serially on `OperationCenter.shared`.
     case a = "A"
     /// The command side A's row recorded, rebased onto a fresh root and run in this process.
     case b = "B"
+    /// The GUI route through `lungfish-cli` (lane A10), run serially on `OperationCenter.shared`.
+    case c = "C"
+    /// The command side C's row recorded, rebased onto a fresh root and run by the built
+    /// `lungfish-cli` that side C ran.
+    case cPrime = "C'"
 
     var description: String { rawValue }
+
+    /// The folder of the side's root, a name a recorded command needs no quote for.
+    var folderName: String {
+        self == .cPrime ? "C-prime" : rawValue
+    }
+
+    /// Whether the side runs a GUI route and so has an Operations panel row.
+    var hasRow: Bool {
+        self == .a || self == .c
+    }
 }
 
 /// How a side's run ended.
@@ -244,6 +261,10 @@ struct ClassifierParityRowOutcome: Equatable, Sendable {
     /// The text of the alert sheet the run left on the viewer's window, nil for none.
     let alertText: String?
     let logLines: [LogLine]
+    /// Every detail the row showed while it ran, in order, the first detail first.
+    let details: [String]
+    /// Every line the viewer's progress overlay showed, in order.
+    let overlayLines: [String]
 }
 
 /// What one side's run left for the comparisons.
@@ -267,49 +288,69 @@ struct ClassifierParitySideRun {
 }
 
 extension ClassifierCLIGUIParityReplayTests {
-    /// Side A. The wizard's configs go to `runClassification(configs:...)` or
-    /// `runEsViritu(configs:...)`, which register the row on `OperationCenter.shared` and run
-    /// the pipelines in a detached task. The test waits for the row to finish and reads it.
-    func runSideA(
+    /// Side A or side C, a GUI route. Side A hands the wizard's configs to today's route,
+    /// `runClassification(configs:...)` or `runEsViritu(configs:...)`, which run the pipelines in a
+    /// detached task. Side C hands them to `launchClassification` or `launchEsViritu`, the
+    /// dialog's launch, with every route key set to the CLI route, so `CLIClassifierRunner` runs
+    /// the built `lungfish-cli` that `LUNGFISH_CLI_PATH` names. Both register the row on
+    /// `OperationCenter.shared`. The test keeps every detail the row and every line the viewer's
+    /// overlay showed, waits for the row to finish and reads it.
+    func runGUISide(
+        _ side: ClassifierParitySide,
         _ parityCase: ClassifierParityCase,
         root: URL,
         esVirituDatabase: URL?
     ) async throws -> ClassifierParitySideRun {
         let project = root.appendingPathComponent(ClassifierParityFixtures.projectName, isDirectory: true)
         let delegate = makeAppDelegateWithTemporaryState()
-        let viewer = ViewerViewController()
+        let viewer = OverlayRecordingViewer()
         // A failed run shows its alert as a sheet on the viewer's window, so the viewer gets a
         // window, never ordered front, whose sheet the row outcome reads.
         let window = NSWindow(contentViewController: viewer)
         window.isReleasedWhenClosed = false
+        let routes = try ClassifierParityCLIRoutes()
         defer {
             if let sheet = window.attachedSheet { window.endSheet(sheet) }
             window.contentViewController = nil
             window.close()
+            routes.remove()
         }
 
         let route = OperationRouteContext(projectURL: project, windowStateScopeID: nil)
         let existing = Set(OperationCenter.shared.items.map(\.id))
+        let recorder = RowDetailRecorder(ignoring: existing)
+        defer { recorder.stop() }
         switch parityCase.tool {
         case .kraken2:
             let configs = try await parityCase.kraken2Configs(project: project)
-            delegate.runClassification(configs: configs, viewerController: viewer, routeContext: route)
+            if side == .a {
+                delegate.runClassification(configs: configs, viewerController: viewer, routeContext: route)
+            } else {
+                delegate.launchClassification(configs: configs, viewerController: viewer, routeContext: route, routes: routes.settings)
+            }
         case .esViritu:
             let database = try XCTUnwrap(esVirituDatabase)
             let configs = await parityCase.esVirituConfigs(project: project, database: database)
-            delegate.runEsViritu(configs: configs, viewerController: viewer, routeContext: route)
+            if side == .a {
+                delegate.runEsViritu(configs: configs, viewerController: viewer, routeContext: route)
+            } else {
+                delegate.launchEsViritu(configs: configs, viewerController: viewer, routeContext: route, routes: routes.settings)
+            }
         }
         let started = try XCTUnwrap(
             OperationCenter.shared.items.first { !existing.contains($0.id) },
-            "\(parityCase.rawValue): side A started no row"
+            "\(parityCase.rawValue): side \(side) started no row"
         )
         let rowID = started.id
         let firstDetail = started.detail
         let finished = await waitUntil(timeout: parityCase.timeout, pollInterval: .milliseconds(100)) {
             OperationCenter.shared.items.first { $0.id == rowID }.map { !$0.state.isActive } ?? true
         }
-        XCTAssertTrue(finished, "\(parityCase.rawValue): side A's row did not finish in \(parityCase.timeout)")
+        XCTAssertTrue(finished, "\(parityCase.rawValue): side \(side)'s row did not finish in \(parityCase.timeout)")
         let item = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == rowID })
+        if item.state == .failed {
+            _ = await waitUntil(timeout: .seconds(5), pollInterval: .milliseconds(100)) { window.attachedSheet != nil }
+        }
         let row = ClassifierParityRowOutcome(
             title: item.title,
             firstDetail: firstDetail,
@@ -317,7 +358,9 @@ extension ClassifierCLIGUIParityReplayTests {
             completionDetail: item.detail,
             errorMessage: item.errorMessage,
             alertText: window.attachedSheet.map(Self.texts(in:)),
-            logLines: item.logEntries.map { .init(level: $0.level.rawValue, message: $0.message) }
+            logLines: item.logEntries.map { .init(level: $0.level.rawValue, message: $0.message) },
+            details: recorder.details[rowID] ?? [firstDetail],
+            overlayLines: viewer.overlayLines
         )
 
         let analyses = project.appendingPathComponent("Analyses", isDirectory: true)
@@ -330,10 +373,10 @@ extension ClassifierCLIGUIParityReplayTests {
         XCTAssertEqual(
             folders.count,
             item.state == .completed ? 1 : 0,
-            "\(parityCase.rawValue): side A, \(item.displayStateLabel), left \(folders.map(\.lastPathComponent)) in Analyses"
+            "\(parityCase.rawValue): side \(side), \(item.displayStateLabel), left \(folders.map(\.lastPathComponent)) in Analyses"
         )
         return ClassifierParitySideRun(
-            side: .a,
+            side: side,
             root: root,
             analysisPath: folders.first.map { "\(ClassifierParityFixtures.projectName)/Analyses/\($0.lastPathComponent)" },
             recordedCommand: item.cliCommand,
@@ -343,20 +386,29 @@ extension ClassifierCLIGUIParityReplayTests {
         )
     }
 
-    /// Side B. The command side A's row recorded, rebased onto `root` and run in this process
-    /// with `RecordedCLICommand`, the way docs/contracts/CLI-EQUIVALENCE.md replays a command.
-    /// The replay may take `timeout`, so a hung replay ends the case and not the tier.
-    func runSideB(replaying runA: ClassifierParitySideRun, root: URL, timeout: Duration) async -> ClassifierParitySideRun {
-        guard let command = runA.recordedCommand else {
+    /// Side B or side C'. The command the GUI side's row recorded, rebased onto `root`. Side B
+    /// runs it in this process with `RecordedCLICommand`, the way docs/contracts/CLI-EQUIVALENCE.md
+    /// replays a command, and side C' runs it with the built `lungfish-cli` (`binaryTerminal`).
+    /// The replay may take `timeout`, so a hung replay ends the case and not the tier. A line with `--project` names no folder, so its folder is the one the run made
+    /// in the project's `Analyses/`.
+    func runReplay(
+        _ side: ClassifierParitySide,
+        of gui: ClassifierParitySideRun,
+        root: URL,
+        timeout: Duration
+    ) async -> ClassifierParitySideRun {
+        guard let command = gui.recordedCommand else {
             return ClassifierParitySideRun(
-                side: .b, root: root, analysisPath: nil, recordedCommand: nil, replayedCommands: [],
-                terminal: .notRun("side A's row records no command"), row: nil
+                side: side, root: root, analysisPath: nil, recordedCommand: nil, replayedCommands: [],
+                terminal: .notRun("side \(gui.side)'s row records no command"), row: nil
             )
         }
+        let analyses = root.appendingPathComponent("\(ClassifierParityFixtures.projectName)/Analyses", isDirectory: true)
+        let before = Set(Self.visibleFolders(in: analyses))
         var replayed: [ClassifierParityReplayedCommand] = []
         let terminal: ClassifierParityTerminal
         do {
-            let replay = try RecordedCLICommand.rebased(command, from: runA.root, to: root)
+            let replay = try RecordedCLICommand.rebased(command, from: gui.root, to: root)
             for line in replay.components(separatedBy: "\n") {
                 let arguments = try RecordedCLICommand.arguments(of: line)
                 replayed.append(ClassifierParityReplayedCommand(
@@ -364,9 +416,18 @@ extension ClassifierCLIGUIParityReplayTests {
                     argv: [cliBinary.path] + arguments
                 ))
             }
-            terminal = await Self.replayTerminal(of: replay, timeout: timeout)
+            terminal = side == .cPrime
+                ? await Self.binaryTerminal(of: replayed.map { Array($0.argv.dropFirst()) }, cli: cliBinary, timeout: timeout)
+                : await Self.replayTerminal(of: replay, timeout: timeout)
         } catch {
             terminal = .error(String(describing: error))
+        }
+        let made = Self.visibleFolders(in: analyses).filter { !before.contains($0) }
+        if replayed.count == 1, replayed[0].outputFolder.isEmpty, made.count == 1 {
+            replayed[0] = ClassifierParityReplayedCommand(
+                outputFolder: analyses.appendingPathComponent(made[0], isDirectory: true).path,
+                argv: replayed[0].argv
+            )
         }
         // The folder the replay wrote, `Project.lungfish/Analyses/<name>`, from its first line.
         let base = root.resolvingSymlinksInPath().standardizedFileURL.path + "/"
@@ -376,14 +437,21 @@ extension ClassifierCLIGUIParityReplayTests {
             return String(path.dropFirst(base.count)).split(separator: "/").prefix(3).joined(separator: "/")
         }
         return ClassifierParitySideRun(
-            side: .b,
+            side: side,
             root: root,
-            analysisPath: analysisPath ?? runA.analysisPath,
+            analysisPath: analysisPath ?? gui.analysisPath,
             recordedCommand: nil,
             replayedCommands: replayed,
             terminal: terminal,
             row: nil
         )
+    }
+
+    /// The names of the folders in `folder` that are not hidden, sorted.
+    static func visibleFolders(in folder: URL) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
+            .map(\.lastPathComponent)
+            .sorted()
     }
 
     /// How `script` ends when it runs in this process, raced against `timeout` in a task group.
@@ -409,6 +477,41 @@ extension ClassifierCLIGUIParityReplayTests {
             group.cancelAll()
             return first
         }
+    }
+
+    /// How `lines` end when the built `lungfish-cli` runs each of them, one after another, through
+    /// `CLISubprocessTransport`, the launch the GUI route uses, each raced against `timeout`.
+    /// Side C' replays this way. A run in this process records the test runner's argv, its
+    /// version and the options `kraken2 classify` reads from that argv, where the binary side C
+    /// ran records its own.
+    nonisolated static func binaryTerminal(of lines: [[String]], cli: URL, timeout: Duration) async -> ClassifierParityTerminal {
+        for arguments in lines {
+            let transport = CLISubprocessTransport(cliURLOverride: cli)
+            let terminal = await withTaskGroup(of: ClassifierParityTerminal.self) { group in
+                group.addTask {
+                    do {
+                        _ = try await transport.run(arguments: arguments, isCancelled: { false }, onEvent: { _ in })
+                        return .exit(0)
+                    } catch CLISubprocessTransport.RunError.nonZeroExit(let status, _) {
+                        return .exit(status)
+                    } catch {
+                        return .error(String(describing: error))
+                    }
+                }
+                group.addTask {
+                    try? await Task.sleep(for: timeout)
+                    return .error("timed out after \(timeout)")
+                }
+                let first = await group.next() ?? .error("the replay returned nothing")
+                if case .error(let message) = first, message.hasPrefix("timed out") {
+                    transport.cancel()
+                }
+                group.cancelAll()
+                return first
+            }
+            guard terminal == .exit(0) else { return terminal }
+        }
+        return .exit(0)
     }
 
     /// The text fields of a sheet, top to bottom, one per line.

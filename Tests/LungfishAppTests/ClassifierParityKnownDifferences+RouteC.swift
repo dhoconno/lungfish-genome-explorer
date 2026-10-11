@@ -1,0 +1,140 @@
+// ClassifierParityKnownDifferences+RouteC.swift - Side A against side C, and the facts the command's runs do not hold
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+//
+// Lane F3, panel decisions T2, E10 and E15. Side C runs each case through the GUI route over
+// `lungfish-cli`, and side C' runs the command side C's row recorded. Each difference of side A,
+// today's GUI path, against side C is declared here with its reason and a count per case, and
+// the list may only shrink. Most close when the legacy GUI paths retire in 2.9 (E14). Sides C
+// and C' run the same command, so a fixed fact one of them does not hold is declared for both,
+// and C against C' declares nothing.
+//
+// The counts come from a run of the class with `LUNGFISH_PARITY_DUMP` set, as every count in
+// ClassifierParityKnownDifferences.swift does.
+
+import Foundation
+
+extension ClassifierParityKnownDifferences {
+    static let routeC: [ClassifierParityKnownDifference] = aAgainstC + commandFacts
+
+    /// The BAM relocation of `build-db esviritu`, which the legacy GUI's build-db step and the
+    /// CLI route's finalize share.
+    static let bamRelocation = "a later lane the manager names. The relocation that A7 made a recorded step (E7) still leaves the records written before it naming the BAM and its index in _temp/ with the digest from there, on both routes, so its fix moves sides A, C and C' together"
+
+    private static func aAgainstC(
+        _ counts: [ClassifierParityCase: Int], _ id: String, _ reason: String, closedBy: String = retire
+    ) -> ClassifierParityKnownDifference {
+        ClassifierParityKnownDifference(counts: counts, scope: .pair(.a, .c), id: id, reason: reason, closedBy: closedBy)
+    }
+
+    /// A fixed fact the command's run does not hold, on side C and on side C'.
+    private static func commandFact(
+        _ counts: [ClassifierParityCase: Int], _ id: String, _ reason: String, closedBy: String
+    ) -> [ClassifierParityKnownDifference] {
+        [ClassifierParitySide.c, .cPrime].map {
+            ClassifierParityKnownDifference(counts: counts, scope: .side($0), id: id, reason: reason, closedBy: closedBy)
+        }
+    }
+
+    // MARK: A against C
+
+    // Folders, then the rows, then the records. A record fact closes only when side A's legacy
+    // shape goes, so every entry closes in 2.9 unless it names another lane.
+    private static let aAgainstC: [ClassifierParityKnownDifference] = [
+        aAgainstC([.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1], "analysis: differs: *classification-result.json",
+            "D12. config.inputFiles names the GUI's deleted scratch file or the bundle's own files where the command names the files it kept, and the GUI's outputDirectory URL ends in a slash"),
+        aAgainstC([.k3: 1], "analysis: differs: classification-batch-result.json",
+            "The GUI's batch manifest names the merge sample single-end, as the grouper sees it, and the executor's names it paired, as its read-set plan runs it (E8, E13)"),
+        aAgainstC([.e1: 1, .e2: 1, .e3: 2], "analysis: differs: */esviritu-result.json",
+            "The GUI's outputDirectory URL ends in a slash, and for the subset config.inputFiles names the GUI's deleted scratch file (D12)"),
+        aAgainstC([.e1: 1, .e3: 1], "analysis: differs: */*.fastp.json",
+            "D4. fastp's command names the GUI's scratch input and the command's kept input"),
+        aAgainstC([.k1: 1, .k3: 1, .k4: 1], "analysis: only in A: *.lungfish-provenance/intermediates/classification-inputs/input-1-materialized-<UUID>.fastq",
+            "D4. The GUI materializes the subset into a scratch folder it deletes, so the pipeline keeps a replay copy"),
+        aAgainstC([.k1: 1, .k3: 1, .k4: 1], "analysis: only in C: *.lungfish-classify-inputs/materialized-<UUID>.fastq",
+            "D4, E3. The command materializes the subset into the result folder and keeps it, a batch at the batch root"),
+        aAgainstC([.e1: 1, .e3: 1], "analysis: only in C: .lungfish-esviritu-inputs/materialized-<UUID>.fastq",
+            "D4, E3. The command keeps the materialized subset at the root of the result folder, where the GUI deletes its scratch copy"),
+        aAgainstC([.k1: 2, .k2: 2, .k4: 2, .k5: 2, .k6: 2], "analysis: only in C: kraken2.sqlite*",
+            "D19, E6. A single run builds kraken2.sqlite and its record at the end of the run, where the GUI builds them the first time the user selects the result"),
+        aAgainstC([.k1: 3, .k2: 3, .k4: 3, .k5: 3, .k6: 3], "analysis: only in C: classification*.lungfish-provenance.json",
+            "D19, E6. The build-db core the finalize runs records each file it reads or writes beside it"),
+        aAgainstC([.e1: 1], "source manifest: differs: *",
+            "D18. The executor's entry in the source bundle's analyses-manifest.json records other parameters than the GUI's entry, isPairedEnd where the GUI's names inputReadLayout"),
+        aAgainstC([.k1: 3, .k3: 3, .k4: 3, .e1: 3, .e3: 3], "row: * only in A: *Materializing virtual FASTQ...",
+            "D5, D6. The GUI's own resolver reports the virtual subset's materialization in two lines around the materializer's, and the command reports the materializer's line alone. A UX ruling decides whether the CLI route needs them"),
+        aAgainstC([.k1: 3, .k3: 3, .k4: 3, .e1: 3, .e3: 3], "row: * only in A: *Materialization complete",
+            "As Materializing virtual FASTQ..."),
+        aAgainstC([.e1: 3, .e2: 3, .e3: 3], "row: * only in C: *Writing the EsViritu batch summary…",
+            "A9's finalize writes the batch summary with a progress line of its own (X1 review, section 3)"),
+        aAgainstC([.k1: 1, .k2: 1, .k3: 1, .k4: 1, .k5: 1, .k6: 1, .e1: 1, .e2: 1, .e3: 1], "row: log line only in C: [info] Parsed * rows from *",
+            "D19 and A9's finalize. The command builds the viewer database at the end of the run, and the row logs the builder's lines (X1 review, section 3)"),
+        aAgainstC([.e1: 1, .e2: 1, .e3: 1], "row: log line only in C: [info] Parsed * coverage windows from *",
+            "As Parsed, the EsViritu builder's coverage table"),
+        aAgainstC([.k1: 1, .k2: 1, .k3: 1, .k4: 1, .k5: 1, .k6: 1, .e1: 1, .e2: 1, .e3: 1], "row: log line only in C: [info] Built database at *",
+            "As Parsed"),
+        aAgainstC([.k1: 1, .k2: 1, .k3: 1, .k4: 1, .k5: 1, .k6: 1, .e1: 1, .e2: 1, .e3: 1], "row: log line only in C: [info] Cleanup complete. Freed *",
+            "As Parsed. Freed Zero KB is a 2.8 words item"),
+        aAgainstC([.e1: 1, .e2: 1, .e3: 1], "row: log line only in C: [info] Counting reads per organism...",
+            "As Parsed, the EsViritu builder's read count step"),
+        aAgainstC([.e1: 1, .e2: 1, .e3: 1], "row: log line only in C: [info]   Marked duplicates in *",
+            "As Counting reads per organism"),
+        aAgainstC([.e1: 1, .e2: 1, .e3: 1], "row: log line only in C: [info]   Updated read counts for *",
+            "As Counting reads per organism"),
+        aAgainstC([.e1: 1, .e2: 1, .e3: 1], "row: log line only in C: [info] Running markdup on *",
+            "As Counting reads per organism"),
+        aAgainstC([.k5: 1, .k6: 1], "row: log line only in C: [info] Kraken classification completed, but Bracken profiling did not complete: *",
+            "E4. The command also reports the degraded profile in a line of its own, which the row logs at info (S16), beside the one warning line both rows show"),
+        aAgainstC([.k3: 22], "row: log line only in C: [info] Sample */2 (*): *",
+            "D6. The CLI route logs every progress line of a batch sample at info, where today's batch row shows them as details and overlay lines and logs none"),
+        aAgainstC([.k1: 1, .k2: 1, .k3: 1, .k4: 1, .k5: 1, .k6: 1, .e1: 1, .e2: 1, .e3: 1], "record *: workflowName",
+            "D21. The pipeline's records (Metagenomics Classification or Profiling, EsViritu Batch) against the executor's root records, lungfish.classify and lungfish.esviritu.detect (E15)"),
+        aAgainstC([.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1, .e1: 1, .e2: 1, .e3: 1], "record *: toolName",
+            "The GUI record takes its run-level tool from its first step, and the executor's root record names lungfish-cli"),
+        aAgainstC([.k1: 1, .k2: 1, .k3: 3, .k4: 1, .k5: 1, .k6: 1, .e1: 1, .e2: 1, .e3: 1], "record *: toolVersion",
+            "As toolName, the version of that first step against the LGE version of lungfish-cli"),
+        aAgainstC([.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1, .e1: 2, .e2: 1, .e3: 2], "record *: argv",
+            "The GUI record's argv is its first step's, the copy or staging script or the tool's own, or the legacy batch writer's. The executor's root record names the command that ran (E11)"),
+        aAgainstC([.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1, .e1: 2, .e2: 1, .e3: 2], "record *: reproducibleCommand",
+            "As argv"),
+        aAgainstC([.k5: 1, .k6: 1], "record *: durableReplayArgv",
+            "The GUI record of a plain file holds kraken2's command as its replay argv, and the root record names the command that ran"),
+        aAgainstC([.k1: 11, .k2: 15, .k3: 21, .k4: 14, .k5: 14, .k6: 14, .e1: 9, .e2: 4, .e3: 4], "record *: explicitOptions.*",
+            "The GUI record holds every pipeline option, and the root record holds the options its command line gave (D6, E12, E13)"),
+        aAgainstC([.k1: 11, .k2: 15, .k3: 21, .k4: 14, .k5: 14, .k6: 14, .e1: 9, .e2: 4, .e3: 4], "record *: legacyRunParameters.*",
+            "As explicitOptions"),
+        aAgainstC([.k1: 6, .k2: 6, .k3: 7, .k4: 6, .k5: 6, .k6: 6, .e1: 3, .e2: 3, .e3: 3], "record *: defaultOptions.*",
+            "The pipeline's defaults against the command's one table (D7, D8, E12)"),
+        aAgainstC([.k1: 5, .k2: 5, .k3: 12, .k4: 5, .k5: 5, .k6: 5, .e1: 4, .e2: 4, .e3: 4], "record *: resolvedDefaultOptions.*",
+            "The root record resolves the database through the install receipt and names no core file sizes, memory mapping, extra arguments or minimizer flag (E9). The tool's step keeps them"),
+        aAgainstC([.k1: 4, .k2: 1, .k3: 18, .k4: 4, .k5: 1, .k6: 1, .e1: 4, .e2: 2, .e3: 4], "record *: files[*",
+            "D4. The GUI record names its scratch input and replay copy, the command's records the kept materialized input, and the database through another identity (E9)"),
+        aAgainstC([.k1: 1, .k3: 9, .k4: 1, .e1: 2, .e2: 2, .e3: 2], "record *: outputs[*",
+            "D4. The GUI record lists the replay copy of the materialized input as an output"),
+        aAgainstC([.k1: 2, .k2: 2, .k4: 2, .k5: 2, .k6: 2], "record *: output.*",
+            "The run's output is classification-result.json in the GUI record and the kreport or detection table in the root record"),
+        aAgainstC([.k1: 9, .k2: 8, .k3: 51, .k4: 10, .k5: 3, .k6: 3, .e1: 9, .e2: 3, .e3: 181], "record *: steps[*",
+            "D4. The GUI's copy or staging step and its legacy build-db run against the command's fastq materialize step and the finalize's steps, so each tool reads other paths and depends on other steps"),
+        aAgainstC([.k1: 6, .k2: 8, .k3: 31, .k4: 7, .k5: 3, .k6: 3, .e1: 5, .e2: 3, .e3: 71], "record *: canonicalRunSteps[*",
+            "As steps"),
+        aAgainstC([.k1: 6, .k2: 8, .k3: 31, .k4: 7, .k5: 3, .k6: 3, .e1: 5, .e2: 3, .e3: 71], "record *: legacyRunSteps[*",
+            "As steps"),
+        aAgainstC([.k3: 1, .e1: 1, .e2: 1, .e3: 1], "record *: stderr",
+            "The GUI record keeps EsViritu's log as the run's stderr, and the root record keeps it on the EsViritu step"),
+    ]
+
+    // MARK: Facts of the command's runs
+
+    /// Review F2 fix 5 asked side C to hold the named-file fact with nothing declared. These are
+    /// defects of code both routes share, so they show on side C and side C' as on side A.
+    private static let commandFacts: [ClassifierParityKnownDifference] = [
+        commandFact([.e1: 8, .e2: 8, .e3: 24], "fact: record * names *_temp/*.third.filt.sorted.bam* that does not exist",
+            "The finalize's BAM relocation moves EsViritu's BAM and its index from _temp/ to bams/ and records the move (A7, E7), yet every record written before the move still names them in _temp/", closedBy: bamRelocation),
+        commandFact([.e1: 5, .e2: 5, .e3: 14], "fact: record * names */bams/*.third.filt.sorted.bam* with another digest",
+            "The BAM and the index the relocation moved to bams/ hold other bytes than the digest the records state, the digest of the file in _temp/", closedBy: bamRelocation),
+        commandFact([.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1], "fact: record * names *classification.kraken that does not exist",
+            "As on sides A and B. ClassificationPipeline gzips the per-read output to classification.kraken.gz and deletes it, and no step records the compression", closedBy: sharedPipeline),
+        commandFact([.k2: 1, .k3: 1], "fact: record * names *.lungfish-classify-inputs/merged.emptymate.fastq that does not exist",
+            "As on sides A and B. ClassificationPipeline stages an empty mate for the merged reads and removes it after the run, where E3 keeps staged inputs", closedBy: sharedPipeline),
+    ].flatMap { $0 }
+}

@@ -2,32 +2,38 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.7 lane F2, the freeze of today's classifier runs before they move onto the analysis
-// run executor (panel decisions T1, T2, T3 and T9 in docs/plans/2026-10-11-phase-2-7.md).
-// Each case runs on two sides.
+// Phase 2.7 lanes F2 and F3, today's classifier runs against the GUI route through the analysis
+// run executor (panel decisions T1, T2, T3, T9, E10 and E15 in docs/plans/2026-10-11-phase-2-7.md).
+// Each case runs on four sides, one after another.
 //
 // - Side A is today's GUI path. `AppDelegate.runClassification(configs:...)` or
 //   `runEsViritu(configs:...)` runs the configs the wizard builds on `OperationCenter.shared`,
 //   one case at a time, with `LUNGFISH_CLI_PATH` naming the built CLI for its `build-db` step.
 // - Side B is the command side A's row recorded, rebased onto a fresh root and run in this
 //   process, as docs/contracts/CLI-EQUIVALENCE.md replays a command.
+// - Side C is the GUI route through `lungfish-cli` (lane A10). The dialog's launch,
+//   `launchClassification` or `launchEsViritu`, runs the same configs with every route key set
+//   to the CLI route, so `CLIClassifierRunner` runs the built CLI that `LUNGFISH_CLI_PATH` names.
+// - Side C' is the command side C's row recorded, rebased onto a fresh root and run by the
+//   same built CLI. A run in this process would record the test runner's argv and version, and
+//   `kraken2 classify` reads its explicit options from that argv, so only the binary can show
+//   that the recorded command reproduces side C.
 //
-// Lane F3 adds side C, the new GUI route through `lungfish-cli`, and side C', the command C
-// records replayed the same way, through `ClassifierParitySide` and `ClassifierParityScope`.
-//
-// Each case compares the two side roots (the analysis folder and the source bundle's
+// Each case compares two side roots (the analysis folder and the source bundle's
 // analyses-manifest.json, SQLite files as sorted dumps), every provenance record by its facts,
-// and the terminal state (ClassifierCLIGUIParityReplayTests+Compare.swift). It checks fixed facts
-// on every side and the row outcome of side A (ClassifierCLIGUIParityReplayTests+FixedFacts.swift).
-// ClassifierParityKnownDifferences declares every difference with its reason and the lane that
-// closes it.
+// and the terminal state (ClassifierCLIGUIParityReplayTests+Compare.swift), and the rows of
+// sides A and C field by field (ClassifierCLIGUIParityReplayTests+Rows.swift). It checks fixed
+// facts on every side and today's row outcome on sides A and C
+// (ClassifierCLIGUIParityReplayTests+FixedFacts.swift). C against C', both ways, lists nothing,
+// which is the acceptance. ClassifierParityKnownDifferences declares every difference of A
+// against B and A against C with its reason and the lane that closes it.
 //
 // Real tools run, so the class name ends in ReplayTests, which sends it to the integration tier
 // and the replay step and keeps it out of the parallel unit tier. The tools and the Kraken2
 // Viral database come from `~/.lungfish-stable`. The EsViritu database is read in place from
 // `LUNGFISH_TEST_ESVIRITU_DB`, by default the golden folder, with a listing taken before and
 // after, and the Stable database registry must keep its bytes. `LUNGFISH_REQUIRE_TOOLS=1` turns a
-// missing tool or database into a failure. `LUNGFISH_PARITY_DUMP=<folder>` keeps both side roots,
+// missing tool or database into a failure. `LUNGFISH_PARITY_DUMP=<folder>` keeps every side root,
 // the facts of every record and the differences of each case in that folder.
 
 import AppKit
@@ -138,39 +144,59 @@ final class ClassifierCLIGUIParityReplayTests: XCTestCase {
         let caseRoot = Self.dumpFolder?.appendingPathComponent(parityCase.rawValue, isDirectory: true)
             ?? scratch.appendingPathComponent(parityCase.rawValue, isDirectory: true)
         try? FileManager.default.removeItem(at: caseRoot)
-        let rootA = caseRoot.appendingPathComponent(ClassifierParitySide.a.rawValue, isDirectory: true)
-        let rootB = caseRoot.appendingPathComponent(ClassifierParitySide.b.rawValue, isDirectory: true)
-        // One project, copied, so both sides start from the same bytes.
-        let projectA = try ClassifierParityFixtures.makeProject(in: rootA)
-        try FileManager.default.createDirectory(at: rootB, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(at: projectA, to: rootB.appendingPathComponent(projectA.lastPathComponent, isDirectory: true))
+        func root(_ side: ClassifierParitySide) -> URL {
+            caseRoot.appendingPathComponent(side.folderName, isDirectory: true)
+        }
+        // One project, copied, so every side starts from the same bytes.
+        let projectA = try ClassifierParityFixtures.makeProject(in: root(.a))
+        for side in [ClassifierParitySide.b, .c, .cPrime] {
+            try FileManager.default.createDirectory(at: root(side), withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: projectA, to: root(side).appendingPathComponent(projectA.lastPathComponent, isDirectory: true))
+        }
 
-        let runA = try await runSideA(parityCase, root: rootA, esVirituDatabase: esVirituDatabase?.files)
-        if parityCase.tool == .esViritu, let analysis = runA.analysisFolder {
+        let runA = try await runGUISide(.a, parityCase, root: root(.a), esVirituDatabase: esVirituDatabase?.files)
+        let runB = await runReplay(.b, of: runA, root: root(.b), timeout: parityCase.timeout)
+        let runC = try await runGUISide(.c, parityCase, root: root(.c), esVirituDatabase: esVirituDatabase?.files)
+        let runCPrime = await runReplay(.cPrime, of: runC, root: root(.cPrime), timeout: parityCase.timeout)
+        for run in [runA, runC] where parityCase.tool == .esViritu {
+            guard let analysis = run.analysisFolder else { continue }
             XCTAssertTrue(
                 FileManager.default.fileExists(atPath: analysis.appendingPathComponent("esviritu.sqlite").path),
-                "\(parityCase.rawValue): side A's EsViritu tree has no esviritu.sqlite, so its build-db step failed"
+                "\(parityCase.rawValue): side \(run.side)'s EsViritu tree has no esviritu.sqlite, so its viewer index was not built"
             )
         }
-        let runB = await runSideB(replaying: runA, root: rootB, timeout: parityCase.timeout)
 
         var found: [ClassifierParityScope: [ClassifierParityDifference]] = [:]
-        found[.side(.a)] = try fixedFactViolations(parityCase, run: runA) + rowOutcomeViolations(parityCase, run: runA)
-        found[.side(.b)] = try fixedFactViolations(parityCase, run: runB)
-        found[.pair(.a, .b)] = try ClassifierParityComparison.differences(
-            reference: runA,
-            candidate: runB,
-            bundlePaths: parityCase.bundlePaths
-        )
-        try dumpIfRequested(parityCase, runs: [runA, runB], found: found)
+        for run in [runA, runB, runC, runCPrime] {
+            found[.side(run.side)] = try fixedFactViolations(parityCase, run: run)
+                + (run.side.hasRow ? rowOutcomeViolations(parityCase, run: run) : [])
+        }
+        func differences(_ reference: ClassifierParitySideRun, _ candidate: ClassifierParitySideRun) throws -> [ClassifierParityDifference] {
+            try ClassifierParityComparison.differences(reference: reference, candidate: candidate, bundlePaths: parityCase.bundlePaths)
+        }
+        found[.pair(.a, .b)] = try differences(runA, runB)
+        found[.pair(.a, .c)] = try differences(runA, runC) + ClassifierParityRowComparison.differences(reference: runA, candidate: runC)
+        // The acceptance (T2). The record comparison lets the candidate add facts, so C and C'
+        // are compared both ways.
+        found[.pair(.c, .cPrime)] = try differences(runC, runCPrime)
+        found[.pair(.cPrime, .c)] = try differences(runCPrime, runC)
+        try dumpIfRequested(parityCase, runs: [runA, runB, runC, runCPrime], found: found)
 
-        for scope in [ClassifierParityScope.side(.a), .side(.b), .pair(.a, .b)] {
+        for scope in Self.scopes {
             let failures = ClassifierParityKnownDifferences.failures(found: found[scope] ?? [], parityCase: parityCase, scope: scope)
             if !failures.isEmpty {
                 XCTFail("\(parityCase.rawValue), \(scope):\n" + failures.joined(separator: "\n"))
             }
         }
     }
+
+    /// Every side's fixed facts, then A against B (frozen until 2.9), A against C (the declared
+    /// changes of the switch, which may only shrink), and C against C' both ways, the acceptance,
+    /// which declares nothing.
+    static let scopes: [ClassifierParityScope] = [
+        .side(.a), .side(.b), .side(.c), .side(.cPrime),
+        .pair(.a, .b), .pair(.a, .c), .pair(.c, .cPrime), .pair(.cPrime, .c),
+    ]
 
     /// The tools and databases the case runs, through `ToolAvailability`, so
     /// `LUNGFISH_REQUIRE_TOOLS=1` fails instead of skipping. Returns the EsViritu database for
@@ -239,6 +265,8 @@ final class ClassifierCLIGUIParityReplayTests: XCTestCase {
             if let row = run.row {
                 report.append("row: \(row.title) | \(row.firstDetail) | \(row.stateLabel) | \(row.completionDetail) | error \(row.errorMessage ?? "none") | alert \(row.alertText ?? "none")")
                 report += row.logLines.map { "  \($0)" }
+                report += row.details.map { "  detail: \($0)" }
+                report += row.overlayLines.map { "  overlay: \($0)" }
             }
             for record in ClassifierParityComparison.recordPaths(under: run.root) {
                 let facts = try ProvenanceCompatFacts.project(sidecar: run.root.appendingPathComponent(record), projectRoot: run.project)

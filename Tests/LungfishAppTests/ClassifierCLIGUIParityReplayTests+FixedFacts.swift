@@ -8,7 +8,8 @@
 // reads), the merge bundle holds 100 fragments as 23 pairs and 77 merged reads with its read-set
 // plan, pairs run as pairs (`--paired`, `-p paired`), and the thresholds and thread count are
 // the ones the wizard chose. Every file a record names in the project exists with the digest
-// the record states. Side A's Operations row is held to today's labels (UX memo T2).
+// the record states. The Operations rows of sides A and C are held to today's labels (UX memo
+// T2, E15).
 
 import Foundation
 import XCTest
@@ -83,7 +84,12 @@ extension ClassifierCLIGUIParityReplayTests {
                 esVirituViolations(expected, folder: folder, facts: facts, violate: violate)
             }
             if let reads = expected.materializedReads {
-                let kept = materializedInputs(in: folder)
+                // A Kraken2 batch through the executor keeps the materialized inputs of its samples
+                // at the batch root.
+                let ownInputs = materializedInputs(in: folder)
+                let kept = ownInputs.isEmpty && parityCase.isBatch && parityCase.tool == .kraken2
+                    ? materializedInputs(in: analysis)
+                    : ownInputs
                 let counts = try kept.map { try ClassifierParityFixtures.fastqRecordCount($0) }
                 if parityCase.tool == .kraken2, kept.isEmpty {
                     violate("keeps its materialized input", "no FASTQ under the sample's materialization folders")
@@ -266,14 +272,15 @@ extension ClassifierCLIGUIParityReplayTests {
 
     // MARK: - Side A's row
 
-    /// Today's Operations row of side A (UX memo T2): its title, first detail, final state,
-    /// completion detail, alert and log levels.
+    /// Today's Operations row, which sides A and C must both show (UX memo T2, E15): its title,
+    /// first detail, final state, completion detail, alert and log levels, and for a run that
+    /// builds the viewer database at its end the detail and the overlay of that build.
     func rowOutcomeViolations(
         _ parityCase: ClassifierParityCase,
         run: ClassifierParitySideRun
     ) throws -> [ClassifierParityDifference] {
         guard let row = run.row else {
-            return [ClassifierParityDifference(id: "row: side A has a row", detail: "\(run.terminal)")]
+            return [ClassifierParityDifference(id: "row: side \(run.side) has a row", detail: "\(run.terminal)")]
         }
         var violations: [ClassifierParityDifference] = []
         func check(_ field: String, _ actual: String?, _ expected: String?) {
@@ -349,6 +356,19 @@ extension ClassifierCLIGUIParityReplayTests {
             check("state", row.stateLabel, "Completed")
             check("completion detail", row.completionDetail, "\(samples.count) of \(samples.count) samples completed")
             check("log Building esviritu.sqlite", row.logLines.first { $0.message.hasPrefix("Building esviritu.sqlite") }?.description, "[info] Building esviritu.sqlite from \(samples.count) sample(s)")
+        }
+        // X1 review fix 1. While the viewer database builds, the detail reads today's words and the
+        // overlay keeps the sample's last line, so neither the detail nor the log line shows there.
+        // A single Kraken2 row builds no database at its end today (D19).
+        if parityCase.tool == .esViritu || parityCase.isBatch {
+            let buildDetail = parityCase.tool == .kraken2 ? "Building Kraken2 database\u{2026}" : "Building EsViritu database\u{2026}"
+            if !row.details.contains(buildDetail) {
+                violations.append(ClassifierParityDifference(id: "row: shows \(buildDetail) as a detail", detail: row.details.suffix(4).joined(separator: " | ")))
+            }
+            let overlaid = row.overlayLines.filter { $0 == buildDetail || $0.contains(".sqlite") }
+            if !overlaid.isEmpty {
+                violations.append(ClassifierParityDifference(id: "row: the overlay never shows the database build", detail: overlaid.joined(separator: " | ")))
+            }
         }
         check("alert", row.alertText, nil)
         check("error message", row.errorMessage, nil)

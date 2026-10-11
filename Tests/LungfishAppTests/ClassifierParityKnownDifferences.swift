@@ -10,7 +10,8 @@
 // shrinks, one difference at a time, and a new difference cannot hide under an old pattern. A
 // lane that closes a difference lowers the count, or deletes the case or the entry, in the same
 // commit. A against B stays in place until the legacy GUI paths retire in 2.9 (E14). Lane F3
-// adds the entries of A against C, and C against C' declares none.
+// added the entries of A against C and the facts sides C and C' do not hold
+// (ClassifierParityKnownDifferences+RouteC.swift). C against C', both ways, declares none.
 
 import Foundation
 
@@ -49,9 +50,9 @@ struct ClassifierParityKnownDifference: Sendable {
 
 enum ClassifierParityKnownDifferences {
     /// The D numbers are the GUI and CLI differences of the BIO inventory, section 1.3.
-    static let all: [ClassifierParityKnownDifference] = layout + kraken2Records + esVirituRecords + facts + namedFiles
+    static let all: [ClassifierParityKnownDifference] = layout + kraken2Records + esVirituRecords + facts + namedFiles + routeC
 
-    private static let retire = "2.9, when the legacy GUI paths retire (E14)"
+    static let retire = "2.9, when the legacy GUI paths retire (E14)"
     /// One difference in each sample's record, two in the K3 batch.
     private static let oneInEachKraken2Record: [ClassifierParityCase: Int] = [.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1]
 
@@ -176,7 +177,7 @@ enum ClassifierParityKnownDifferences {
     }
 
     /// The per-read output and the empty mate come from the shared ClassificationPipeline.
-    private static let sharedPipeline = "A8 under E3, the owner review F2 proposes until the manager names another. The cause is in the shared ClassificationPipeline, so its fix moves A and B together"
+    static let sharedPipeline = "A8 under E3, the owner review F2 proposes until the manager names another. The cause is in the shared ClassificationPipeline, so its fix moves A and B together"
 
     private static let namedFiles: [ClassifierParityKnownDifference] = [
         namedFile(.a, [.k1: 1, .k3: 2, .k4: 1, .e1: 2, .e3: 2], "<project>/.tmp/* that does not exist",

@@ -21,8 +21,14 @@
 //   stderr that ProvenanceStderr cut compares on the whole lines both sides kept. Facts a
 //   real run measures (wall times, peak memory, the host values under `recorded`) are left out,
 //   and so are the checksum and size of a file both trees hold, whose content the folder
-//   comparison owns.
-// - The terminal state. A row that completed, with or without warnings, matches exit 0.
+//   comparison owns, and of a file neither tree holds any more, which the named-file fact of
+//   each side reports. Such a file's bytes can hold the run's own folder, as the header of
+//   EsViritu's BAM does before the BAM moves to bams/, so two runs cannot share its digest.
+// - The terminal state, in the words of a row. Exit 0 reads Completed, or Completed with Warnings
+//   when a Bracken profile degraded (E4), exit 125 Cancelled and any other end Failed.
+// - When the two runs named their analysis folders differently, as two runs with `--project`
+//   do, the candidate's records pair with the reference's and its facts name its folder as the
+//   reference's.
 //
 // A difference has a stable id, its class and the masked path of its file or fact, and a detail
 // with the values. ClassifierParityKnownDifferences matches the ids.
@@ -57,10 +63,11 @@ enum ClassifierParityComparison {
             return [ClassifierParityDifference(id: "command: \(candidate.side) has no command to run", detail: reason)]
         }
         var found: [ClassifierParityDifference] = []
-        if reference.terminal.succeeded != candidate.terminal.succeeded {
+        let outcomes = (outcome(of: reference), outcome(of: candidate))
+        if outcomes.0 != outcomes.1 {
             found.append(ClassifierParityDifference(
                 id: "terminal: \(reference.side) and \(candidate.side) end differently",
-                detail: "\(reference.side) \(reference.terminal), \(candidate.side) \(candidate.terminal)"
+                detail: "\(reference.side) \(reference.terminal) (\(outcomes.0)), \(candidate.side) \(candidate.terminal) (\(outcomes.1))"
             ))
         }
         found += try folderDifferences(reference, candidate, bundlePaths: bundlePaths)
@@ -117,6 +124,7 @@ enum ClassifierParityComparison {
             inputPolicy.records.removeAll { $0.name == unmasked }
             inputPolicy.provenance.removeAll { $0.name == unmasked }
             inputPolicy.names.removeAll { $0.name == unmasked }
+            inputPolicy.payloads.removeAll { $0.name == unmasked }
         }
         let importsA = reference.project.appendingPathComponent("Imports", isDirectory: true)
         let importsB = candidate.project.appendingPathComponent("Imports", isDirectory: true)
@@ -198,7 +206,17 @@ enum ClassifierParityComparison {
         var policy = OutputEquivalence.MaskPolicy.standard
         policy.provenance = inserted(policy.provenance) + [createdMask]
         policy.records = inserted(policy.records) + [createdMask]
-        policy.payloads = inserted(policy.payloads) + [createdMask]
+        // A payload such as classification-result.json names the materialized input, whose file
+        // name holds a UUID each run draws, and the second it was saved, so payloads mask UUIDs and
+        // times as records do. Its runtime is the seconds the pipeline ran, a measured value as a
+        // record's wall time is.
+        let runtimeMask = OutputEquivalence.Mask(name: "measuredRuntime") { text, _ in
+            text.replacingOccurrences(of: "\"runtime\" : [0-9.eE+-]+", with: "\"runtime\" : \"<RUNTIME>\"", options: .regularExpression)
+        }
+        policy.payloads = inserted(policy.payloads) + [
+            OutputEquivalence.Masks.uuids, OutputEquivalence.Masks.isoTimestamps, OutputEquivalence.Masks.epochValues,
+            createdMask, runtimeMask,
+        ]
         return policy
     }
 
@@ -234,14 +252,22 @@ enum ClassifierParityComparison {
         _ reference: ClassifierParitySideRun,
         _ candidate: ClassifierParitySideRun
     ) throws -> [ClassifierParityDifference] {
-        let candidateRecords = Set(recordPaths(under: candidate.root))
-        let context = FactContext(reference: reference, candidate: candidate)
+        // Records pair by their path, with the candidate's analysis folder named as the reference's.
+        let rename = folderRename(reference, candidate)
+        let candidateRecords = Dictionary(
+            recordPaths(under: candidate.root).map { path in
+                (rename.map { path.replacingOccurrences(of: $0.from, with: $0.to) } ?? path, path)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let context = FactContext(reference: reference, candidate: candidate, rename: rename)
         var found: [ClassifierParityDifference] = []
-        for path in recordPaths(under: reference.root) where candidateRecords.contains(path) {
+        for path in recordPaths(under: reference.root) {
+            guard let candidatePath = candidateRecords[path] else { continue }
             var missing: [(path: String, detail: String)] = []
             collectMissing(
                 try factsTree(of: reference, record: path),
-                try factsTree(of: candidate, record: path),
+                renaming(try factsTree(of: candidate, record: candidatePath), rename),
                 path: "",
                 into: &missing,
                 context: context
@@ -331,29 +357,43 @@ enum ClassifierParityComparison {
     struct FactContext {
         let reference: ClassifierParitySideRun
         let candidate: ClassifierParitySideRun
+        /// The candidate's analysis folder and the reference's name for it, when they differ.
+        var rename: (from: String, to: String)? = nil
 
-        /// Whether a recorded path names a file both projects hold, whose content the folder
-        /// comparison owns.
+        /// Whether a recorded path, in the reference's names, names a file both projects hold,
+        /// whose content the folder comparison owns.
         func namesFileInBothTrees(_ recordedPath: String) -> Bool {
             let token = "<project>/"
             guard recordedPath.hasPrefix(token) else { return false }
             let relative = String(recordedPath.dropFirst(token.count))
-            return [reference.project, candidate.project].allSatisfy {
-                FileManager.default.fileExists(atPath: $0.appendingPathComponent(relative).path)
-            }
+            let candidateRelative = rename.map { relative.replacingOccurrences(of: $0.to, with: $0.from) } ?? relative
+            return FileManager.default.fileExists(atPath: reference.project.appendingPathComponent(relative).path)
+                && FileManager.default.fileExists(atPath: candidate.project.appendingPathComponent(candidateRelative).path)
+        }
+
+        /// Whether a recorded path, in the reference's names, names a file in the project that
+        /// neither project holds any more.
+        func namesFileInNeitherTree(_ recordedPath: String) -> Bool {
+            let token = "<project>/"
+            guard recordedPath.hasPrefix(token) else { return false }
+            let relative = String(recordedPath.dropFirst(token.count))
+            let candidateRelative = rename.map { relative.replacingOccurrences(of: $0.to, with: $0.from) } ?? relative
+            return !FileManager.default.fileExists(atPath: reference.project.appendingPathComponent(relative).path)
+                && !FileManager.default.fileExists(atPath: candidate.project.appendingPathComponent(candidateRelative).path)
         }
     }
 
     /// Fact names a real run measures, which no two runs share.
     static let measuredFacts: Set<String> = ["wallTimeSeconds", "wallTime", "totalWallTimeSeconds", "peakMemoryBytes"]
 
-    /// Arrays whose elements are matched by identity rather than by position.
+    /// Arrays whose elements are matched by identity rather than by position. A file's identity
+    /// is its path with UUIDs masked, so the materialized input of two runs pairs up.
     static func elementKey(forArrayAt path: String) -> ((Value, Int) -> String)? {
         let last = path.split(separator: ".").last.map(String.init) ?? path
         if ["files", "outputs", "inputs"].contains(last) {
             return { element, _ in
                 guard case .object(let members) = element else { return "?" }
-                return "\(members["path"].map(text) ?? "?")|\(members["role"].map(text) ?? "?")"
+                return maskedUUIDs("\(members["path"].map(text) ?? "?")|\(members["role"].map(text) ?? "?")")
             }
         }
         if ["steps", "legacyRunSteps", "canonicalRunSteps"].contains(last) {
@@ -383,7 +423,7 @@ enum ClassifierParityComparison {
         switch (reference, candidate) {
         case (.object(var members), .object(let candidateMembers)):
             if case .string(let filePath)? = members["path"], members["role"] != nil,
-               context.namesFileInBothTrees(filePath) {
+               context.namesFileInBothTrees(filePath) || context.namesFileInNeitherTree(filePath) {
                 members["sha256"] = nil
                 members["size"] = nil
             }
@@ -539,6 +579,12 @@ enum ClassifierParityComparison {
                 withTemplate: mask.1
             )
         }
+    }
+
+    /// `text` with its UUIDs masked and nothing else.
+    static func maskedUUIDs(_ text: String) -> String {
+        let mask = idMasks[0]
+        return mask.0.stringByReplacingMatches(in: text, range: NSRange(location: 0, length: (text as NSString).length), withTemplate: mask.1)
     }
 
     private static let idMasks: [(NSRegularExpression, String)] = [
