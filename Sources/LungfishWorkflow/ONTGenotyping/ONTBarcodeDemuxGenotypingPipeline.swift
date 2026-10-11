@@ -4210,71 +4210,44 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let invocationBAMs = try mapping.invocations.map {
             try canonicalFileDescriptor(url: $0.outputBAMURL, role: .output)
         }
+        // Each tool step names its lock entry and the version the environment that ran holds, read once here
+        // after the run (see DemuxManagedTool).
+        let minimap2 = DemuxManagedTool(id: "minimap2", executable: minimap2URL)
+        let samtools = DemuxManagedTool(id: "samtools", executable: samtoolsURL)
+        let pysam = DemuxManagedTool(id: "pysam", executable: pythonURL)
         var canonicalSteps = try mapping.invocations.flatMap { invocation -> [ProvenanceStep] in
-            let invocationInputs = try invocation.inputFASTQURLs.map {
-                try canonicalFileDescriptor(url: $0, role: .input)
-            }
+            let invocationInputs = try invocation.inputFASTQURLs.map { try canonicalFileDescriptor(url: $0, role: .input) }
             let invocationBAM = try canonicalFileDescriptor(url: invocation.outputBAMURL, role: .output)
             return [
-                ProvenanceStep(
-                    toolName: "minimap2",
-                    toolVersion: "unknown",
-                    argv: [minimap2URL.path] + invocation.minimap2Arguments,
-                    inputs: invocationInputs + [referenceInput],
-                    outputs: [invocationBAM],
-                    exitStatus: 0,
-                    wallTimeSeconds: invocation.wallClockSeconds,
-                    stderr: invocation.minimap2Stderr
-                ),
-                ProvenanceStep(
-                    toolName: "samtools sort",
-                    toolVersion: "unknown",
-                    argv: [samtoolsURL.path] + invocation.samtoolsSortArguments,
-                    inputs: invocationInputs + [referenceInput],
-                    outputs: [invocationBAM],
-                    exitStatus: 0,
-                    wallTimeSeconds: invocation.wallClockSeconds,
-                    stderr: invocation.samtoolsSortStderr
-                ),
+                minimap2.step(
+                    "minimap2", argv: [minimap2URL.path] + invocation.minimap2Arguments,
+                    inputs: invocationInputs + [referenceInput], outputs: [invocationBAM],
+                    wallTimeSeconds: invocation.wallClockSeconds, stderr: invocation.minimap2Stderr),
+                samtools.step(
+                    "samtools sort", argv: [samtoolsURL.path] + invocation.samtoolsSortArguments,
+                    inputs: invocationInputs + [referenceInput], outputs: [invocationBAM],
+                    wallTimeSeconds: invocation.wallClockSeconds, stderr: invocation.samtoolsSortStderr),
             ]
         }
         canonicalSteps.insert(contentsOf: try Self.readSetProvenanceSteps(inputReads), at: 0)
         canonicalSteps += reviewableRowCatalogPublication?.provenance.steps ?? []
         if let mergeArguments = mapping.samtoolsMergeArguments {
             canonicalSteps.append(
-                ProvenanceStep(
-                    toolName: "samtools merge",
-                    toolVersion: "unknown",
-                    argv: [samtoolsURL.path] + mergeArguments,
-                    inputs: invocationBAMs,
-                    outputs: [mappingBAM],
-                    exitStatus: 0,
-                    wallTimeSeconds: mapping.wallClockSeconds,
-                    stderr: mapping.samtoolsMergeStderr
-                )
+                samtools.step(
+                    "samtools merge", argv: [samtoolsURL.path] + mergeArguments, inputs: invocationBAMs,
+                    outputs: [mappingBAM], wallTimeSeconds: mapping.wallClockSeconds, stderr: mapping.samtoolsMergeStderr)
             )
         }
         canonicalSteps += [
-            ProvenanceStep(
-                toolName: "samtools index",
-                toolVersion: "unknown",
-                argv: [samtoolsURL.path] + mapping.samtoolsIndexArguments,
-                inputs: [mappingBAM],
-                outputs: [mappingBAI],
-                exitStatus: 0,
-                wallTimeSeconds: mapping.wallClockSeconds,
-                stderr: mapping.samtoolsIndexStderr
-            ),
-            ProvenanceStep(
-                toolName: "pysam retained-read demux filter",
-                toolVersion: "unknown",
-                argv: [pythonURL.path] + filter.arguments,
+            samtools.step(
+                "samtools index", argv: [samtoolsURL.path] + mapping.samtoolsIndexArguments, inputs: [mappingBAM],
+                outputs: [mappingBAI], wallTimeSeconds: mapping.wallClockSeconds, stderr: mapping.samtoolsIndexStderr),
+            // The filter logic is the app's own script, so the evidence names the pysam package it imports.
+            pysam.step(
+                "pysam retained-read demux filter", argv: [pythonURL.path] + filter.arguments,
                 inputs: [mappingBAM, demuxInput, filterScriptInput] + (barcodeInput.map { [$0] } ?? []),
                 outputs: [retainedBAM, retainedBAI, genotypeCSV, sampleCSV, statsJSON, legacyProvenance],
-                exitStatus: 0,
-                wallTimeSeconds: filter.wallClockSeconds,
-                stderr: filter.stderr
-            ),
+                wallTimeSeconds: filter.wallClockSeconds, stderr: filter.stderr),
         ]
         if let publication = scientificArtifactPublication {
             canonicalSteps.append(

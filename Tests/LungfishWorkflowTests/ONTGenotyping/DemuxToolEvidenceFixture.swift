@@ -51,19 +51,9 @@ struct DemuxToolEvidenceFixture {
     /// Writes the conda-meta record of one package into an environment. The record holds host paths
     /// under the fixture root, as a real record does, so a test can check none reaches a step.
     func writeCondaMeta(environment: String, package: String, version: String, build: String) throws {
-        let directory = condaRoot.appendingPathComponent("envs/\(environment)/conda-meta", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let stem = "\(package)-\(version)-\(build)"
-        let record: [String: Any] = [
-            "name": package, "version": version, "build": build, "build_number": 0, "channel": "bioconda",
-            "subdir": "osx-arm64", "fn": "\(stem).conda",
-            "url": "https://conda.anaconda.org/bioconda/osx-arm64/\(stem).conda",
-            "extracted_package_dir": condaRoot.appendingPathComponent("pkgs/\(stem)").path,
-            "package_tarball_full_path": condaRoot.appendingPathComponent("pkgs/\(stem).tar.bz2").path,
-            "files": ["bin/\(package)"],
-        ]
-        let data = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
-        try data.write(to: directory.appendingPathComponent("\(stem).json"))
+        try CondaMetaRecordWriter.write(
+            environment: condaRoot.appendingPathComponent("envs/\(environment)", isDirectory: true),
+            package: package, version: version, build: build)
     }
 
     /// Runs the pipeline on two Illumina sample bundles, the shape of the genotype golden.
