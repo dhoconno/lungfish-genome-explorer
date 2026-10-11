@@ -199,7 +199,7 @@ enum ClassifierLegacyRuns {
     /// both complete: each sample's pipeline record, a summary TSV, the batch
     /// manifest, a stand-in for the `esviritu.sqlite` that `lungfish-cli
     /// build-db` writes, and the batch record whose argv folds every input into
-    /// one `esviritu detect` (`AppDelegate.esVirituBatchCLIArguments(for:)`).
+    /// one `esviritu detect` (`EsVirituCLIInvocationBuilder.esVirituBatchCLIArguments(for:)`).
     static func esVirituBatch(root: URL, esviritu: StandInEsVirituConda) async throws -> (batchRoot: URL, configs: [EsVirituConfig]) {
         let batchRoot = root.appendingPathComponent("Analyses/esviritu-batch", isDirectory: true)
         var configs: [EsVirituConfig] = []
@@ -239,7 +239,7 @@ enum ClassifierLegacyRuns {
             summaryURL: summaryURL,
             sqliteURL: sqliteURL,
             command: [CLICommandIdentity.executableName, "esviritu", "detect"]
-                + AppDelegate.esVirituBatchCLIArguments(for: configs)
+                + EsVirituCLIInvocationBuilder.esVirituBatchCLIArguments(for: configs)
         )
         return (batchRoot, configs)
     }

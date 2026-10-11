@@ -66,7 +66,7 @@ final class ClassifierLegacyRecordPinTests: XCTestCase {
         let batch = try await ClassifierLegacyRuns.esVirituBatch(root: root, esviritu: esviritu)
         let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: batch.batchRoot))
 
-        let folded = AppDelegate.esVirituBatchCLIArguments(for: batch.configs)
+        let folded = EsVirituCLIInvocationBuilder.esVirituBatchCLIArguments(for: batch.configs)
         XCTAssertEqual(record.argv, [CLICommandIdentity.executableName, "esviritu", "detect"] + folded)
         XCTAssertEqual(
             folded,
