@@ -68,8 +68,7 @@ enum ClassifierParityKnownDifferences {
              "AnalysesFolder writes it for the folder the GUI creates. The row's command names that folder with --output-dir, and a plain output folder gets none",
              closedBy: "A8, whose plain one-folder output gains analysis-metadata.json (A8 M2, E1)"),
         pair([.e1: 1, .e2: 1], "analysis: only in A: analysis-metadata.json",
-             "AnalysesFolder writes it for the folder the GUI creates. The row's command names that folder with --output, and a plain output folder gets none",
-             closedBy: "A9, whose plain one-folder output gains analysis-metadata.json (E1)"),
+             "AnalysesFolder writes it for the batch folder the GUI creates. The row's command names the sample folder below it with --output, which gets none under E1b"),
         pair([.k1: 1, .k2: 1, .k3: 2, .k4: 1, .e1: 1, .e2: 1], "source manifest: only in A: *",
              "Only the GUI records the run in the source bundle's analyses-manifest.json"),
         pair([.k1: 1, .k3: 1, .k4: 1], "analysis: only in A: *.lungfish-provenance/intermediates/classification-inputs/input-1-materialized-<UUID>.fastq",
@@ -89,11 +88,11 @@ enum ClassifierParityKnownDifferences {
         pair([.e1: 4, .e2: 4], "analysis: only in A: esviritu*",
              "A single GUI EsViritu run uses the batch layout and writes the batch manifest, the summary, esviritu.sqlite and its record (E2, E6)"),
         pair([.e1: 4, .e2: 4], "analysis: only in A: */bams/*",
-             "The GUI's build-db esviritu moves the BAM and its index from _temp/ to bams/ and records each move",
-             closedBy: "A7 records the move (E7). The CLI moves it once A9's finalize builds the index (E6), else 2.9"),
+             "The GUI's build-db esviritu moves the BAM and its index from _temp/ to bams/ and records each move. The row's command is a plain --output run, which builds no index, so side B keeps the BAM in _temp/ (E2)",
+             closedBy: retire),
         pair([.e1: 2, .e2: 2], "analysis: only in B: */*_temp/*.third.filt.sorted.bam*",
-             "The same BAM where the CLI leaves it, in _temp/",
-             closedBy: "A7 records the move (E7). The CLI moves it once A9's finalize builds the index (E6), else 2.9"),
+             "The same BAM where the CLI leaves it, in _temp/. The row's command is a plain --output run, which builds no index, so side B keeps the BAM in _temp/ (E2)",
+             closedBy: retire),
         pair([.e1: 1], "analysis: only in B: */.lungfish-esviritu-inputs/materialized-<UUID>.fastq",
              "D4. The CLI keeps the materialized subset, the GUI deletes its scratch copy"),
         pair([.e1: 1], "analysis: differs: */*.fastp.json",
@@ -143,11 +142,20 @@ enum ClassifierParityKnownDifferences {
         pair([.e1: count], "record Project.lungfish/Analyses/*/.lungfish-provenance.json: \(fact)", reason, closedBy: closedBy)
     }
 
+    private static func esVirituRecord(
+        _ fact: String, _ counts: [ClassifierParityCase: Int], _ reason: String, closedBy: String = retire
+    ) -> ClassifierParityKnownDifference {
+        pair(counts, "record Project.lungfish/Analyses/*/.lungfish-provenance.json: \(fact)", reason, closedBy: closedBy)
+    }
+
     private static let esVirituRecords: [ClassifierParityKnownDifference] = [
-        esVirituRecord("argv", 1, "D4, D5. EsViritu reads the GUI's deleted scratch file and the CLI's kept input"),
-        esVirituRecord("reproducibleCommand", 1, "As argv"),
-        esVirituRecord("explicitOptions.*", 5, "The GUI records its input layout scan (inputReadLayout and its counts), the CLI does not",
-                       closedBy: "A9"),
+        esVirituRecord("argv", [.e1: 1, .e2: 1], "The replayed command runs through the analysis run executor, whose root record names the lungfish-cli command that ran (E1, E15), where the pipeline's record took EsViritu's argv. EsViritu's argv stays on its step, which in E1 also names the GUI's deleted scratch file (D4, D5)"),
+        esVirituRecord("reproducibleCommand", [.e1: 1, .e2: 1], "As argv"),
+        esVirituRecord("workflowName", [.e1: 1, .e2: 1], "As argv. The executor's root record, lungfish.esviritu.detect, replaces the pipeline's Viral Metagenomics Detection record in the plain --output folder (E2)"),
+        esVirituRecord("toolName", [.e1: 1, .e2: 1], "As workflowName. The root record's tool is lungfish-cli, and EsViritu stays the tool of its step"),
+        esVirituRecord("toolVersion", [.e1: 1, .e2: 1], "As toolName. The LGE version of lungfish-cli against EsViritu 1.3.3, which the EsViritu step still records"),
+        esVirituRecord("output.*", [.e1: 2, .e2: 2], "The executor's run output is its first output, the detection table, where the pipeline's record names esviritu-result.json. Both stay in outputs with their digests"),
+        esVirituRecord("explicitOptions.*", 5, "The GUI scans the input's read layout and puts the format it chose in the row's command (--read-format unpaired), so the replay scans nothing and records no scan. Both sides record the format"),
         esVirituRecord("legacyRunParameters.*", 5, "As explicitOptions"),
         esVirituRecord("files[*", 1, "D5. The GUI record names the deleted scratch input"),
         esVirituRecord("steps[*", 3, "As argv, in the EsViritu step and its log"),
