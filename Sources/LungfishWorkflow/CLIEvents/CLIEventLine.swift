@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishCore
+import LungfishIO
 import os.log
 
 private let eventLineLogger = Logger(subsystem: LogSubsystem.workflow, category: "CLIEventLine")
@@ -45,6 +46,18 @@ public struct CLIEventArtifact: Sendable, Equatable, Codable {
         kind = (try? container.decodeIfPresent(String.self, forKey: .kind)) ?? ""
         role = try? container.decodeIfPresent(String.self, forKey: .role)
         provenancePath = try? container.decodeIfPresent(String.self, forKey: .provenancePath)
+    }
+}
+
+extension CLIEventArtifact {
+    /// The bundle kind that ``kind`` names, looked up in `BundleKindRegistry`.
+    ///
+    /// Nil when ``kind`` names no registered bundle kind, such as a file kind
+    /// like `bam` or a kind from a later registry. ``kind`` keeps the string the
+    /// writer gave either way, because kinds stay strings on the wire.
+    public var bundleKind: BundleKindID? {
+        let id = BundleKindID(rawValue: kind)
+        return BundleKindRegistry.descriptor(for: id) == nil ? nil : id
     }
 }
 

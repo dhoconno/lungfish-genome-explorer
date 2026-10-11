@@ -6,6 +6,7 @@ import Darwin
 import Foundation
 import XCTest
 import LungfishCore
+import LungfishIO
 import LungfishTestSupport
 @testable import LungfishKit
 import LungfishWorkflow
@@ -162,6 +163,145 @@ final class CLISubprocessTransportTests: XCTestCase {
         XCTAssertEqual(message, "no good")
         XCTAssertEqual(detail, "because")
         XCTAssertEqual(events.values, [.failed(message: "no good", detail: "because")])
+    }
+
+    // MARK: - Event lines of any version (Phase 2.6 lane C3)
+
+    /// A stand-in CLI that prints `lines` on standard output and exits with `status`.
+    /// The lines go through a file, so the shell never reads their backslashes.
+    private func fakeCLI(printing lines: [String], exitStatus: Int32 = 0) throws -> URL {
+        let transcript = folder.appendingPathComponent("stdout-\(UUID().uuidString).ndjson")
+        try (lines.joined(separator: "\n") + "\n").write(to: transcript, atomically: true, encoding: .utf8)
+        return try fakeCLI("#!/bin/sh\n/bin/cat '\(transcript.path)'\nexit \(exitStatus)\n")
+    }
+
+    private func run(_ cli: URL, events: EventLog = EventLog()) async throws -> Swift.Result<CLISubprocessTransport.Result, Error> {
+        let transport = CLISubprocessTransport(cliURLOverride: cli)
+        let task = Task {
+            try await transport.run(arguments: [], isCancelled: { false }, onEvent: { events.append($0) })
+        }
+        return try await wait(for: task)
+    }
+
+    /// The typed artifacts of the completion come back beside `outputs`, which keeps
+    /// its own order. A kind that names a registered bundle kind reads as that kind,
+    /// and every kind stays the string the CLI wrote.
+    func testTypedArtifactsOfTheCompletionComeBackBesideItsOutputs() async throws {
+        let complete = """
+        {"artifacts":[{"kind":"phylogenetic-tree","path":"/work/t.lungfishtree","role":"tree"},\
+        {"kind":"bam","path":"/work/a.bam","provenancePath":"/work/a.provenance.json","role":"alignment"},\
+        {"kind":"holographic-bundle","path":"/work/h","sizeBytes":12}],\
+        "event":"complete","message":"done","outputs":["/work/a.bam","/work/t.lungfishtree"],"schemaVersion":2}
+        """
+        let result = try await run(try fakeCLI(printing: [complete])).get()
+
+        XCTAssertEqual(result.outputs, ["/work/a.bam", "/work/t.lungfishtree"])
+        XCTAssertEqual(result.message, "done")
+        XCTAssertEqual(result.artifacts, [
+            CLIEventArtifact(kind: "phylogenetic-tree", path: "/work/t.lungfishtree", role: "tree"),
+            CLIEventArtifact(kind: "bam", path: "/work/a.bam", role: "alignment", provenancePath: "/work/a.provenance.json"),
+            CLIEventArtifact(kind: "holographic-bundle", path: "/work/h"),
+        ])
+        XCTAssertEqual(result.artifacts.map(\.bundleKind), [.phylogeneticTree, nil, nil])
+        XCTAssertEqual(result.artifacts.map(\.kind), ["phylogenetic-tree", "bam", "holographic-bundle"])
+    }
+
+    /// A version 1 completion carries no artifacts.
+    func testAVersion1CompletionComesBackWithNoArtifacts() async throws {
+        let result = try await run(try fakeCLI(printing: [
+            #"{"event":"complete","output":"\/work\/a.fa","outputs":["\/work\/a.fa"],"progress":1}"#,
+        ])).get()
+
+        XCTAssertEqual(result.outputs, ["/work/a.fa"])
+        XCTAssertEqual(result.artifacts, [])
+    }
+
+    /// A line whose event this reader does not know, and a known event from a later
+    /// version whose fields it cannot read, are skipped, and the run goes on.
+    func testALineFromALaterCLIIsSkippedAndTheRunGoesOn() async throws {
+        let events = EventLog()
+        let result = try await run(try fakeCLI(printing: [
+            #"{"event":"start","message":"Starting.","progress":0,"schemaVersion":2}"#,
+            #"{"event":"checkpoint","schemaVersion":3,"step":4,"artifacts":[{"kind":"k","path":"\/work\/x"}]}"#,
+            #"{"event":"progress","progress":"half","schemaVersion":3}"#,
+            #"{"event":"progress","message":"halfway","progress":0.5,"schemaVersion":3,"eta":12}"#,
+            #"{"event":"complete","outputs":["\/work\/a.fa"],"schemaVersion":3,"checksum":"abc"}"#,
+        ]), events: events).get()
+
+        XCTAssertEqual(events.values, [.start(message: "Starting."), .progress(fraction: 0.5, message: "halfway")])
+        XCTAssertEqual(result.outputs, ["/work/a.fa"])
+    }
+
+    /// A known event with unreadable fields at a version this reader knows is a
+    /// broken line. It is logged and skipped, and the run goes on.
+    func testABrokenLineIsSkippedAndTheRunGoesOn() async throws {
+        let events = EventLog()
+        let result = try await run(try fakeCLI(printing: [
+            #"{"event":"progress","progress":"half","schemaVersion":2}"#,
+            #"{"event":"progress","progress":0.5,"message":"halfway"}"#,
+            #"{"event":"complete","outputs":["\/work\/a.fa"],"schemaVersion":2}"#,
+        ]), events: events).get()
+
+        XCTAssertEqual(events.values, [.progress(fraction: 0.5, message: "halfway")])
+        XCTAssertEqual(result.outputs, ["/work/a.fa"])
+    }
+
+    /// Artifacts never stand in for outputs, so a completion that names no output
+    /// still fails the run.
+    func testACompletionThatNamesNoOutputFailsEvenWithArtifacts() async throws {
+        let outcome = try await run(try fakeCLI(printing: [
+            #"{"artifacts":[{"kind":"bam","path":"\/work\/a.bam"}],"event":"complete","outputs":[],"schemaVersion":2}"#,
+        ]))
+
+        guard case .failure(let error) = outcome,
+              case CLISubprocessTransport.RunError.missingCompletion = error else {
+            return XCTFail("expected missingCompletion, got \(outcome)")
+        }
+    }
+
+    /// Every version 1 run captured from a real command, and the same run written as
+    /// version 2 lines with artifacts on its completion, give the same events,
+    /// outcome and `outputs`.
+    func testEveryCapturedRunGivesTheSameOutcomeAsVersion1AndVersion2() async throws {
+        let decoder = CLIEventLineDecoder()
+        for name in CLIEventCompatCorpus.capturedRuns {
+            let url = CLIEventCompatCorpus.v1Folder.appendingPathComponent("\(name).ndjson")
+            let version1 = try String(contentsOf: url, encoding: .utf8)
+                .split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+            var version2: [String] = []
+            var addedArtifacts: [CLIEventArtifact] = []
+            let emitter = CLIEventEmitter(enabled: true) { version2.append($0) }
+            for line in version1 {
+                let event = try XCTUnwrap(try decoder.decode(line: line), "\(name): \(line)")
+                if case let .complete(outputs, _) = event {
+                    addedArtifacts = outputs.map { CLIEventArtifact(kind: "kind-from-a-later-registry", path: $0, role: "primary") }
+                }
+                emitter.emit(event, artifacts: addedArtifacts)
+            }
+            XCTAssertTrue(version2.allSatisfy { $0.contains(#""schemaVersion":2"#) }, name)
+            let status: Int32 = name.hasSuffix("-failed") ? 1 : 0
+
+            let events1 = EventLog()
+            let events2 = EventLog()
+            let outcome1 = try await run(try fakeCLI(printing: version1, exitStatus: status), events: events1)
+            let outcome2 = try await run(try fakeCLI(printing: version2, exitStatus: status), events: events2)
+
+            XCTAssertEqual(events2.values, events1.values, name)
+            switch (outcome1, outcome2) {
+            case let (.success(result1), .success(result2)):
+                XCTAssertEqual(result2.outputs, result1.outputs, name)
+                XCTAssertEqual(result2.message, result1.message, name)
+                XCTAssertEqual(result1.artifacts, [], name)
+                XCTAssertEqual(result2.artifacts, addedArtifacts, name)
+            case let (.failure(error1), .failure(error2)):
+                XCTAssertEqual(error2 as? CLISubprocessTransport.RunError, error1 as? CLISubprocessTransport.RunError, name)
+                guard case CLISubprocessTransport.RunError.failedEvent = error1 else {
+                    return XCTFail("\(name) must fail with its failed event, got \(error1)")
+                }
+            default:
+                XCTFail("\(name) ended differently: \(outcome1) against \(outcome2)")
+            }
+        }
     }
 
     func testAnUnlaunchableBinaryThrowsLaunchFailed() async throws {

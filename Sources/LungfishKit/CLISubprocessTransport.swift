@@ -10,8 +10,12 @@ import os.log
 private let transportLogger = Logger(subsystem: LogSubsystem.app, category: "CLISubprocessTransport")
 
 /// Runs `lungfish-cli` as a subprocess, decodes its `--json-events` stdout
-/// stream line by line into ``CLIEvent`` values, and bridges them onto an
-/// ``OperationCenter`` item.
+/// stream line by line through ``CLIEventLine`` into ``CLIEvent`` values and
+/// typed artifacts, and bridges them onto an ``OperationCenter`` item.
+///
+/// A line of any schema version decodes. A line whose event this reader does
+/// not know is noted at debug level and skipped, and the run goes on.
+/// `docs/formats/cli-events.md` has the wire format and the version rule.
 ///
 /// Before this type existed, nine `CLI*Runner` actors under
 /// `Sources/LungfishApp/Services/` each hand-rolled this exact
@@ -61,8 +65,18 @@ public actor CLISubprocessTransport {
     /// interpret `outputs` (a tree bundle URL, an import manifest, …) without
     /// this type knowing about any particular feature's result shape.
     public struct Result: Sendable, Equatable {
+        /// Every path the `complete` line named, in the order the command
+        /// documents. This list is what a runner imports, and a runner that
+        /// reads a file by its place reads it here.
         public let outputs: [String]
         public let message: String?
+        /// The typed artifacts of the `complete` line, in the order the command
+        /// wrote them, or empty when the CLI wrote none, as a version 1 CLI
+        /// never does. They describe outputs beside `outputs` and never replace
+        /// it as the input to bundle import. A kind stays the string the CLI
+        /// wrote, and ``CLIEventArtifact/bundleKind`` reads a kind that names a
+        /// registered bundle kind.
+        public let artifacts: [CLIEventArtifact]
     }
 
     private let cliURLOverride: URL?
@@ -81,8 +95,8 @@ public actor CLISubprocessTransport {
     }
 
     /// Launches `lungfish-cli` with `arguments`, streams decoded `CLIEvent`s
-    /// to `onEvent` as they arrive (already hopped to the main actor — see
-    /// below), and returns the `.complete` outputs on success.
+    /// to `onEvent` as they arrive, and returns the `.complete` outputs and
+    /// typed artifacts on success.
     ///
     /// - Parameters:
     ///   - arguments: Full CLI argv, e.g. `["tree", "infer", "iqtree", ...]`.
@@ -90,9 +104,11 @@ public actor CLISubprocessTransport {
     ///     operation cancelled via its `OperationCenter` row rather than
     ///     `cancel()` directly (matches the previous per-runner
     ///     `isOperationCancelled` check).
-    ///   - onEvent: Invoked on the main actor for every decoded event except
-    ///     `.complete`/`.failed`, which are folded into the return value /
-    ///     thrown error instead so callers cannot forget to check them.
+    ///   - onEvent: Invoked off the main actor, one event at a time and in
+    ///     order, for every decoded event except `.complete`, which is folded
+    ///     into the return value. A `.failed` event is delivered and also
+    ///     thrown, so callers cannot forget to check it. The bridge hops each
+    ///     event to the main actor itself.
     public func run(
         arguments: [String],
         isCancelled: @Sendable () async -> Bool,
@@ -108,6 +124,7 @@ public actor CLISubprocessTransport {
         final class StreamState: @unchecked Sendable {
             var outputs: [String] = []
             var completeMessage: String?
+            var artifacts: [CLIEventArtifact] = []
             var failed: (message: String, detail: String?)?
         }
 
@@ -118,19 +135,23 @@ public actor CLISubprocessTransport {
             guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return
             }
-            let event: CLIEvent?
+            let envelope: CLIEventLine?
             do {
-                event = try decoder.decode(line: line)
+                envelope = try decoder.decodeLine(line)
             } catch {
                 transportLogger.warning("Failed to decode CLIEvent line: \(error.localizedDescription, privacy: .public)")
                 return
             }
-            guard let event else { return }
+            // Nil for chatter that is not a JSON object. A line whose event this
+            // reader does not know, such as one from a later CLI, has no event. The
+            // decoder notes it at debug level, and the run goes on without it.
+            guard let envelope, let event = envelope.event else { return }
             switch event {
             case let .complete(outputs, message):
                 state.withLock {
                     $0.outputs = outputs
                     $0.completeMessage = message
+                    $0.artifacts = envelope.artifacts
                 }
             case let .failed(message, detail):
                 state.withLock { $0.failed = (message, detail) }
@@ -164,6 +185,7 @@ public actor CLISubprocessTransport {
             (
                 outputs: current.outputs,
                 completeMessage: current.completeMessage,
+                artifacts: current.artifacts,
                 failed: current.failed
             )
         }
@@ -176,10 +198,12 @@ public actor CLISubprocessTransport {
             }
             throw RunError.nonZeroExit(status: exit.status, stderr: exit.failureDetail)
         }
+        // Artifacts never stand in for outputs, so a completion that names no
+        // output fails even when it lists artifacts.
         guard !snapshot.outputs.isEmpty else {
             throw RunError.missingCompletion
         }
 
-        return Result(outputs: snapshot.outputs, message: snapshot.completeMessage)
+        return Result(outputs: snapshot.outputs, message: snapshot.completeMessage, artifacts: snapshot.artifacts)
     }
 }
