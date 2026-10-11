@@ -272,7 +272,7 @@ extension MainSplitViewController {
                 filterBatchViewToSingleSample(sampleId: sampleId)
             }
         } else {
-            showDatabaseBuildPlaceholder(tool: route.displayName, resultURL: route.resultURL)
+            showDatabaseBuildPlaceholder(tool: route.analysisID, resultURL: route.resultURL)
         }
     }
 
@@ -363,7 +363,7 @@ extension MainSplitViewController {
                 if Self.shouldRebuildStaleKraken2Database(db, resultURL: batchURL) {
                     Kraken2StaleDatabaseRebuilds.markAttempted(batchURL)
                     mainSplitLogger.info("displayBatchGroup: Rebuilding stale kraken2.sqlite in '\(dirName, privacy: .public)'")
-                    showDatabaseBuildPlaceholder(tool: "Kraken2", resultURL: batchURL)
+                    showDatabaseBuildPlaceholder(tool: .kraken2, resultURL: batchURL)
                     return
                 }
                 viewerController.displayTaxonomyFromDatabase(db: db, resultURL: batchURL)
@@ -380,7 +380,7 @@ extension MainSplitViewController {
                 }
             } else {
                 // No SQLite DB — show placeholder and auto-build.
-                showDatabaseBuildPlaceholder(tool: "Kraken2", resultURL: batchURL)
+                showDatabaseBuildPlaceholder(tool: .kraken2, resultURL: batchURL)
                 return
             }
             // Build params starting from the manifest-level fields (if available).
@@ -445,7 +445,7 @@ extension MainSplitViewController {
                 }
             } else {
                 // No SQLite DB — show placeholder and auto-build.
-                showDatabaseBuildPlaceholder(tool: "EsViritu", resultURL: batchURL)
+                showDatabaseBuildPlaceholder(tool: .esviritu, resultURL: batchURL)
                 return
             }
             // Build params from the first sample's EsViritu result sidecar.
@@ -497,7 +497,7 @@ extension MainSplitViewController {
                 mainSplitLogger.info(
                     "displayBatchGroup: Rebuilding stale TaxTriage database for '\(dirName, privacy: .public)'"
                 )
-                showDatabaseBuildPlaceholder(tool: "TaxTriage", resultURL: batchURL)
+                showDatabaseBuildPlaceholder(tool: .taxtriage, resultURL: batchURL)
                 return
             }
             if let db = existingDB {
@@ -514,7 +514,7 @@ extension MainSplitViewController {
                 }
             } else {
                 // No SQLite DB — show placeholder and auto-build.
-                showDatabaseBuildPlaceholder(tool: "TaxTriage", resultURL: batchURL)
+                showDatabaseBuildPlaceholder(tool: .taxtriage, resultURL: batchURL)
                 return
             }
 
@@ -623,10 +623,10 @@ extension MainSplitViewController {
     /// the placeholder switches to an error state with a Retry button.
     ///
     /// - Parameters:
-    ///   - tool: Human-readable tool name (e.g. "TaxTriage").
+    ///   - tool: The classifier, whose registry descriptor names the build.
     ///   - resultURL: The batch result directory URL.
-    func showDatabaseBuildPlaceholder(tool: String, resultURL: URL) {
-        let databaseBuildRequest = beginDatabaseBuildRequest(tool: tool, resultURL: resultURL)
+    func showDatabaseBuildPlaceholder(tool: AnalysisToolID, resultURL: URL) {
+        let databaseBuildRequest = beginDatabaseBuildRequest(tool: tool.rawValue, resultURL: resultURL)
 
         // Clear any existing viewport content so the placeholder is the only thing shown.
         viewerController.clearViewport(statusMessage: "")
@@ -636,7 +636,7 @@ extension MainSplitViewController {
 
         let dirName = resultURL.lastPathComponent
         mainSplitLogger.info(
-            "showDatabaseBuildPlaceholder: Shown for tool='\(tool, privacy: .public)' result='\(dirName, privacy: .public)'"
+            "showDatabaseBuildPlaceholder: Shown for tool='\(tool.rawValue, privacy: .public)' result='\(dirName, privacy: .public)'"
         )
 
         // Auto-trigger the database build.
@@ -695,17 +695,17 @@ extension MainSplitViewController {
     /// ``runClassificationBatch``). This path exists as a fallback for
     /// legacy/imported batches that were created without an attached SQLite DB.
     func triggerDatabaseBuild(
-        tool: String,
+        tool: AnalysisToolID,
         resultURL: URL,
         placeholder: DatabaseBuildPlaceholderView,
         request: (identity: ContentSelectionIdentity, token: AsyncRequestToken<ContentSelectionIdentity>)
     ) {
-        let cliTool = tool.lowercased()
+        let (displayName, cliTool) = ClassifierDatabaseRouter.buildNames(for: tool)
         let requestIdentity = request.identity
         let requestGeneration = request.token.generation
 
         // Show the "building" spinner state immediately so the user sees feedback.
-        placeholder.showBuilding(tool: tool)
+        placeholder.showBuilding(tool: displayName)
 
         Task.detached { [weak self] in
             do {
@@ -850,7 +850,7 @@ extension MainSplitViewController {
     }
 
     nonisolated static func classifierDatabaseBuildSampleDirectories(tool: String, resultURL: URL) throws -> [URL] {
-        guard tool.lowercased() == "kraken2" else {
+        guard tool.lowercased() == ClassifierDatabaseRouter.buildNames(for: .kraken2).token else {
             return []
         }
         guard let manifest = MetagenomicsBatchResultStore.loadClassification(from: resultURL) else {

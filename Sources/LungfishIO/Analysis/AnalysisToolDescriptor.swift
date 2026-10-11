@@ -24,7 +24,7 @@ public enum AnalysisToolProvisioning: Sendable, Hashable {
 /// Everything the app knows about one analysis kind as plain data.
 public struct AnalysisToolDescriptor: Sendable, Hashable {
     public let id: AnalysisToolID
-    /// Human-readable name. It doubles as a CLI token and an output folder stem.
+    /// Human-readable name. The `build-db` word and the classify output stem are the fields below.
     public let displayName: String
     /// True when imported results use `{id}-{sampleName}` directory naming.
     public let acceptsImportedSampleNames: Bool
@@ -32,6 +32,16 @@ public struct AnalysisToolDescriptor: Sendable, Hashable {
     public let sidebarSymbolName: String?
     /// The short sidebar badge of a classifier batch, or nil when the kind has none.
     public let classifierBatchBadge: String?
+    /// The word `lungfish-cli build-db` takes for this kind, or nil when the CLI builds no database for it.
+    ///
+    /// Today it is the display name in lowercase. Holding it as data keeps a new display name from
+    /// changing the command line the app launches.
+    public let buildDatabaseToken: String?
+    /// The stem of the name a classify run gives its output, or nil when the kind has none.
+    ///
+    /// Today it is the title of the FASTQ operation tool in lowercase. Holding it as data keeps a new
+    /// title from renaming the folders a project already holds.
+    public let outputStem: String?
     public let provisioning: AnalysisToolProvisioning
 
     public init(
@@ -40,6 +50,8 @@ public struct AnalysisToolDescriptor: Sendable, Hashable {
         acceptsImportedSampleNames: Bool = false,
         sidebarSymbolName: String?,
         classifierBatchBadge: String? = nil,
+        buildDatabaseToken: String? = nil,
+        outputStem: String? = nil,
         provisioning: AnalysisToolProvisioning
     ) {
         self.id = id
@@ -47,6 +59,8 @@ public struct AnalysisToolDescriptor: Sendable, Hashable {
         self.acceptsImportedSampleNames = acceptsImportedSampleNames
         self.sidebarSymbolName = sidebarSymbolName
         self.classifierBatchBadge = classifierBatchBadge
+        self.buildDatabaseToken = buildDatabaseToken
+        self.outputStem = outputStem
         self.provisioning = provisioning
     }
 }

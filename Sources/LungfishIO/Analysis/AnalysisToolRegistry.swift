@@ -43,13 +43,16 @@ public enum AnalysisToolRegistry {
     public static let all: [AnalysisToolDescriptor] = [
         AnalysisToolDescriptor(
             id: .esviritu, displayName: "EsViritu", sidebarSymbolName: "e.circle",
-            classifierBatchBadge: "ES", provisioning: .managedTool(ManagedToolID(rawValue: "esviritu"))),
+            classifierBatchBadge: "ES", buildDatabaseToken: "esviritu", outputStem: "esviritu",
+            provisioning: .managedTool(ManagedToolID(rawValue: "esviritu"))),
         AnalysisToolDescriptor(
             id: .kraken2, displayName: "Kraken2", sidebarSymbolName: "k.circle",
-            classifierBatchBadge: "K2", provisioning: .managedTool(ManagedToolID(rawValue: "kraken2"))),
+            classifierBatchBadge: "K2", buildDatabaseToken: "kraken2", outputStem: "kraken2",
+            provisioning: .managedTool(ManagedToolID(rawValue: "kraken2"))),
         AnalysisToolDescriptor(
             id: .taxtriage, displayName: "TaxTriage", sidebarSymbolName: "t.circle",
-            classifierBatchBadge: "TT", provisioning: .lockedPipeline("taxtriage")),
+            classifierBatchBadge: "TT", buildDatabaseToken: "taxtriage", outputStem: "taxtriage",
+            provisioning: .lockedPipeline("taxtriage")),
         AnalysisToolDescriptor(
             id: .minimap2, displayName: "Minimap2", sidebarSymbolName: "m.circle",
             provisioning: .managedTool(ManagedToolID(rawValue: "minimap2"))),

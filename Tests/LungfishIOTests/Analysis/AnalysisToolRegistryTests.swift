@@ -31,6 +31,18 @@ final class AnalysisToolRegistryTests: XCTestCase {
         "spades": "s.circle", "taxtriage": "t.circle", "viralrecon": "v.circle",
     ]
 
+    // The word `lungfish-cli build-db` takes and the stem a classify run gives its output, as the
+    // app derived them by lowercasing the display name before S14. Only the three classifiers have
+    // either. BuildDatabaseTokenPinTests in the App tests pins the same values through the argv the
+    // app launches and the stems the planner returns.
+    private static let expectedBuildDatabaseTokens: [String: String] = [
+        "esviritu": "esviritu", "kraken2": "kraken2", "taxtriage": "taxtriage",
+    ]
+
+    private static let expectedOutputStems: [String: String] = [
+        "esviritu": "esviritu", "kraken2": "kraken2", "taxtriage": "taxtriage",
+    ]
+
     func testIDsEqualTheFrozenSet() {
         XCTAssertEqual(Set(AnalysisToolRegistry.all.map { $0.id.rawValue }), Self.frozenIDs)
         XCTAssertEqual(AnalysisToolRegistry.all.count, 21)
@@ -110,6 +122,33 @@ final class AnalysisToolRegistryTests: XCTestCase {
             let raw = descriptor.id.rawValue
             XCTAssertEqual(descriptor.sidebarSymbolName, Self.expectedSymbols[raw]!, "symbol of \(raw)")
             XCTAssertEqual(descriptor.classifierBatchBadge, Self.expectedBadges[raw]!, "badge of \(raw)")
+        }
+    }
+
+    func testBuildDatabaseTokensAndOutputStemsAreTodaysValues() {
+        for descriptor in AnalysisToolRegistry.all {
+            let raw = descriptor.id.rawValue
+            XCTAssertEqual(descriptor.buildDatabaseToken, Self.expectedBuildDatabaseTokens[raw], "build-db token of \(raw)")
+            XCTAssertEqual(descriptor.outputStem, Self.expectedOutputStems[raw], "output stem of \(raw)")
+        }
+    }
+
+    func testBuildDatabaseTokensAreUnique() {
+        let tokens = AnalysisToolRegistry.all.compactMap(\.buildDatabaseToken)
+        XCTAssertEqual(tokens.count, Set(tokens).count)
+    }
+
+    func testTokensAndStemsAreLowercaseWordsWithNoSpace() {
+        // A token is one word of a command line and a stem starts a folder name.
+        for descriptor in AnalysisToolRegistry.all {
+            if let token = descriptor.buildDatabaseToken {
+                XCTAssertEqual(token, token.lowercased(), descriptor.id.rawValue)
+                XCTAssertFalse(token.contains(" "), descriptor.id.rawValue)
+            }
+            if let stem = descriptor.outputStem {
+                XCTAssertEqual(stem, stem.lowercased(), descriptor.id.rawValue)
+                XCTAssertFalse(stem.contains(" "), descriptor.id.rawValue)
+            }
         }
     }
 

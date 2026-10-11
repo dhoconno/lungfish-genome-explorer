@@ -227,6 +227,63 @@ final class ClassifierDatabaseRoutingTests: XCTestCase {
         XCTAssertNotNil(route?.databaseURL)
     }
 
+    // MARK: - The registry names the route by analysis id
+
+    func testRoute_carriesTheAnalysisIDAndTheRegistryNames() throws {
+        let cases: [(folder: String, id: AnalysisToolID)] = [
+            ("taxtriage-batch-2026-04-06T20-46-18", .taxtriage),
+            ("esviritu-batch-2026-04-06T20-46-01", .esviritu),
+            ("kraken2-batch-2026-04-06T20-45-49", .kraken2),
+            ("classification-batch-2026-04-06", .kraken2),
+        ]
+        for (folder, id) in cases {
+            let dir = try makeTempDir()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let resultDir = dir.appendingPathComponent(folder)
+            try FileManager.default.createDirectory(at: resultDir, withIntermediateDirectories: true)
+
+            let route = try XCTUnwrap(ClassifierDatabaseRouter.route(for: resultDir), folder)
+            let descriptor = try XCTUnwrap(AnalysisToolRegistry.descriptor(for: id), folder)
+            XCTAssertEqual(route.analysisID, id, folder)
+            XCTAssertEqual(route.tool, descriptor.buildDatabaseToken, folder)
+            XCTAssertEqual(route.displayName, descriptor.displayName, folder)
+        }
+    }
+
+    func testRoute_aSampleSubfolderCarriesItsBatchsAnalysisID() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let sampleDir = dir.appendingPathComponent("esviritu-batch-2026-04-06T20-46-01").appendingPathComponent("SRR35517702")
+        try FileManager.default.createDirectory(at: sampleDir, withIntermediateDirectories: true)
+
+        let route = try XCTUnwrap(ClassifierDatabaseRouter.route(for: sampleDir))
+        XCTAssertEqual(route.analysisID, .esviritu)
+        XCTAssertEqual(route.tool, "esviritu")
+        XCTAssertEqual(route.sampleId, "SRR35517702")
+    }
+
+    func testBuildNames_readTheRegistryDescriptor() {
+        let expected: [(id: AnalysisToolID, displayName: String, token: String)] = [
+            (.taxtriage, "TaxTriage", "taxtriage"),
+            (.esviritu, "EsViritu", "esviritu"),
+            (.kraken2, "Kraken2", "kraken2"),
+        ]
+        for (id, displayName, token) in expected {
+            let names = ClassifierDatabaseRouter.buildNames(for: id)
+            XCTAssertEqual(names.displayName, displayName, id.rawValue)
+            XCTAssertEqual(names.token, token, id.rawValue)
+        }
+    }
+
+    func testBuildNames_aKindWithoutATokenFallsBackToItsID() {
+        let names = ClassifierDatabaseRouter.buildNames(for: .spades)
+        XCTAssertEqual(names.displayName, "SPAdes")
+        XCTAssertEqual(names.token, "spades")
+        let unknown = ClassifierDatabaseRouter.buildNames(for: AnalysisToolID(rawValue: "from-a-newer-build"))
+        XCTAssertEqual(unknown.displayName, "from-a-newer-build")
+        XCTAssertEqual(unknown.token, "from-a-newer-build")
+    }
+
     func testRoute_renamedDirectoryWithoutMetadataDoesNotRoute() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

@@ -10,10 +10,12 @@ enum ClassifierDatabaseRouter {
 
     /// A routing decision for a classifier result directory.
     struct Route {
-        /// Tool identifier used by the CLI (e.g. "taxtriage", "esviritu", "kraken2").
+        /// The word `lungfish-cli build-db` takes (e.g. "taxtriage", "esviritu", "kraken2").
         let tool: String
         /// Human-readable tool name for UI display.
         let displayName: String
+        /// The analysis kind, whose registry descriptor holds both names above.
+        let analysisID: AnalysisToolID
         /// URL of the SQLite database file, or `nil` if no DB exists yet.
         let databaseURL: URL?
         /// URL of the top-level classifier result directory.
@@ -22,12 +24,22 @@ enum ClassifierDatabaseRouter {
         let sampleId: String?
     }
 
-    private static let toolDefinitions: [(prefix: String, dbName: String, tool: String, displayName: String)] = [
-        ("taxtriage",      "taxtriage.sqlite", "taxtriage", "TaxTriage"),
-        ("esviritu",       "esviritu.sqlite",  "esviritu",  "EsViritu"),
-        ("kraken2",        "kraken2.sqlite",   "kraken2",   "Kraken2"),
-        ("classification", "kraken2.sqlite",   "kraken2",   "Kraken2"),
+    /// The classifiers with a SQLite database, each by the folder prefix that names a run of it. The
+    /// legacy `classification` prefix is a Kraken2 run.
+    private static let toolDefinitions: [(prefix: String, dbName: String, id: AnalysisToolID)] = [
+        (AnalysisToolID.taxtriage.rawValue, "taxtriage.sqlite", .taxtriage),
+        (AnalysisToolID.esviritu.rawValue,  "esviritu.sqlite",  .esviritu),
+        (AnalysisToolID.kraken2.rawValue,   "kraken2.sqlite",   .kraken2),
+        ("classification",                  "kraken2.sqlite",   .kraken2),
     ]
+
+    /// The name the placeholder shows and the word `build-db` takes for the classifier `id`, both read
+    /// from its registry descriptor. A kind the registry gives no token falls back to its id, which the
+    /// CLI rejects with its own message.
+    static func buildNames(for id: AnalysisToolID) -> (displayName: String, token: String) {
+        let descriptor = AnalysisToolRegistry.descriptor(for: id)
+        return (descriptor?.displayName ?? id.rawValue, descriptor?.buildDatabaseToken ?? id.rawValue)
+    }
 
     /// Checks whether `url` is a classifier result directory or a per-sample
     /// subdirectory inside one.
@@ -49,6 +61,7 @@ enum ClassifierDatabaseRouter {
             return Route(
                 tool: parentRoute.tool,
                 displayName: parentRoute.displayName,
+                analysisID: parentRoute.analysisID,
                 databaseURL: parentRoute.databaseURL,
                 resultURL: parentRoute.resultURL,
                 sampleId: url.lastPathComponent
@@ -66,9 +79,11 @@ enum ClassifierDatabaseRouter {
         for def in toolDefinitions where resolvedTool.hasPrefix(def.prefix) || dirName.hasPrefix(def.prefix) {
             let dbURL = url.appendingPathComponent(def.dbName)
             let exists = FileManager.default.fileExists(atPath: dbURL.path)
+            let names = buildNames(for: def.id)
             return Route(
-                tool: def.tool,
-                displayName: def.displayName,
+                tool: names.token,
+                displayName: names.displayName,
+                analysisID: def.id,
                 databaseURL: exists ? dbURL : nil,
                 resultURL: url,
                 sampleId: nil
