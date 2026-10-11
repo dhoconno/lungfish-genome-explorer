@@ -113,8 +113,9 @@ public actor CLISubprocessTransport {
     ///     sooner ends the wait at once, so the grace costs nothing when the
     ///     CLI cleans up and exits quickly. The default is zero, which sends
     ///     SIGKILL right after SIGTERM and gives the CLI's own cleanup no time.
-    ///     Keep a real value under the 10 seconds `OperationCenter` allows
-    ///     before it marks a cancelling row cancelled.
+    ///     Keep a real value at 8 seconds or less, because SIGKILL can take
+    ///     another second to settle and `OperationCenter` marks a cancelling
+    ///     row cancelled after 10 seconds.
     ///   - drainGracePeriod: How long to wait for a descendant that holds the
     ///     CLI's output open after the CLI has exited. Nil keeps the
     ///     ``ToolProcess`` default of five seconds.

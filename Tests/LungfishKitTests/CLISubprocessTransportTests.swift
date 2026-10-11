@@ -546,13 +546,13 @@ final class CLISubprocessTransportTests: XCTestCase {
     }
 
     /// A run given no grace keeps the behaviour it had before this lane. SIGKILL
-    /// follows SIGTERM at once, so the cleanup handler, which needs 20 seconds,
+    /// follows SIGTERM at once, so the cleanup handler, which needs three seconds,
     /// never finishes.
     func testWithoutAGraceTheCancelStillKillsTheCLIAtOnce() async throws {
         let hold = makeHold()
         let started = folder.appendingPathComponent("started")
         let marker = folder.appendingPathComponent("cleaned")
-        let cli = try cleaningCLI(cleanupSeconds: 20, hold: hold, started: started, marker: marker)
+        let cli = try cleaningCLI(cleanupSeconds: 3, hold: hold, started: started, marker: marker)
 
         _ = try await cancelOnceStarted(cli, started: started) { transport in
             try await transport.run(arguments: [], isCancelled: { false }, onEvent: { _ in })
