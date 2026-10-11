@@ -74,6 +74,9 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
     var sidecarPublicationPreparationHook:
         (@Sendable () throws -> Void)? = nil
     var sidecarPostRenameHook: (@Sendable () throws -> Void)? = nil
+    /// Test seams. `sidecarPostRenameHook` runs inside the pair's transaction once
+    /// `annotations.json` holds the replayed bytes, and `provenancePublisher` replaces the writer
+    /// that then publishes the record. A throw from either rolls the pair back.
     var provenancePublisher: ProvenancePublisher? = nil
 
     private enum CodingKeys: String, CodingKey {
@@ -142,6 +145,9 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
         try validateOutputAvailability(outputProvenanceURL)
         let manifestData = try ONTGenotypeResultBundle
             .readManifestDataNoFollow(from: bundleURL)
+        try GenotypeAnnotationPairPublication.restoreInterruptedSwap(
+            inBundleAt: bundleURL
+        )
         let priorSnapshot =
             try ONTGenotypeResultBundleData.loadAnnotationSidecarSnapshot(
                 forBundleAt: bundleURL
@@ -156,179 +162,159 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
             targetManifestData: manifestData
         )
         let outputData = try reconstructed.encoded()
-        let replayedRevision = GenotypeAnnotationSidecarRevision.sha256(
-            sha256Hex(outputData)
-        )
 
-        do {
-            try sidecarPublicationPreparationHook?()
-            try ONTGenotypeResultBundleData.writeAnnotationSidecar(
-                reconstructed,
-                expectedRevision: priorSnapshot.revision,
-                forBundleAt: bundleURL,
-                assuming: publicationLock,
-                precommitValidation: {
-                    let reattestedManifestData =
-                        try ONTGenotypeResultBundle
-                            .readManifestDataNoFollow(from: bundleURL)
-                    guard reattestedManifestData == manifestData else {
-                        throw GenotypeReplayManualHaplotypeAssignmentsError
-                            .manifestChanged(manifestURL.path)
-                    }
-                },
-                postRenameHook: sidecarPostRenameHook
-            )
-            let command = commandArgv(
-                sourceProvenanceURL: sourceProvenanceURL,
-                bundleURL: bundleURL
-            )
-            let reproducibleCommand = command.map(shellEscape)
-                .joined(separator: " ")
-            let sourceDescriptor = descriptor(
-                data: sourceProvenanceData,
-                url: sourceProvenanceURL,
-                role: .input
-            )
-            let manifestDescriptor = descriptor(
-                data: manifestData,
-                url: manifestURL,
-                role: .input
-            )
-            let priorDescriptor = descriptor(
-                data: priorData,
-                url: annotationURL,
-                role: .input
-            )
-            let outputDescriptor = descriptor(
-                data: outputData,
-                url: annotationURL,
-                role: .output
-            )
-            let explicitOptions: [String: ParameterValue] = [
-                "provenance": .file(sourceProvenanceURL),
-                "bundle": .file(bundleURL),
-            ]
-            let defaultOptions: [String: ParameterValue] = [
-                "outputProvenance": .file(outputProvenanceURL),
-                "replayFormat": .string(
-                    GenotypeManualHaplotypeAssignmentReplayPayload.format
-                ),
-            ]
-            let resolvedOptions: [String: ParameterValue] = [
-                "provenance": .file(sourceProvenanceURL),
-                "bundle": .file(bundleURL),
-                "annotationSidecar": .file(annotationURL),
-                "outputProvenance": .file(outputProvenanceURL),
-                "replayFormat": .string(
-                    GenotypeManualHaplotypeAssignmentReplayPayload.format
-                ),
-                "replaySchemaVersion": .integer(payload.schemaVersion),
-                "operationID": .string(payload.operation.operationID),
-                "sample": .string(payload.operation.sample),
-                "author": .string(payload.operation.author),
-                "timestamp": .string(payload.operation.timestamp),
-                "copySourceSample": payload.operation.copySourceSample
-                    .map(ParameterValue.string) ?? .null,
-                "targetManifestSHA256": .string(
-                    payload.targetBundle.manifest.checksumSHA256
-                ),
-                "priorSidecarSHA256": .string(
-                    payload.priorSidecar.descriptor.checksumSHA256
-                ),
-                "priorSidecarRevisionSHA256": .string(
-                    payload.priorSidecar.revisionSHA256
-                ),
-                "replayPayloadSHA256": .string(sha256Hex(payloadData)),
-            ]
-            let completedAt = runClock.now
-            let wallTime = max(
-                0,
-                completedAt.timeIntervalSince(startedAt)
-            )
-            let runtimeIdentity = ProvenanceRuntimeIdentity()
-            let step = ProvenanceStep(
-                toolName: CLICommandIdentity.executableName,
-                toolVersion: WorkflowRun.currentAppVersion,
-                argv: command,
-                durableReplayArgv: command,
-                reproducibleCommand: reproducibleCommand,
-                resolvedOptions: resolvedOptions,
-                runtimeIdentity: runtimeIdentity,
-                inputs: [
-                    sourceDescriptor, manifestDescriptor, priorDescriptor,
-                ],
-                outputs: [outputDescriptor],
-                exitStatus: 0,
-                wallTimeSeconds: wallTime,
-                stderr: "",
-                startedAt: startedAt,
-                completedAt: completedAt
-            )
-            let envelope = ProvenanceEnvelope(
-                createdAt: startedAt,
-                workflowName:
-                    "lungfish genotype \(GenotypeManualHaplotypeAssignmentReplayPayload.cliSubcommandName)",
-                workflowVersion: WorkflowRun.currentAppVersion,
-                toolName: CLICommandIdentity.executableName,
-                toolVersion: WorkflowRun.currentAppVersion,
-                tool: ProvenanceToolIdentity(
-                    name: CLICommandIdentity.executableName,
-                    version: WorkflowRun.currentAppVersion,
-                    kind: "cli"
-                ),
-                argv: command,
-                durableReplayArgv: command,
-                reproducibleCommand: reproducibleCommand,
-                options: ProvenanceOptions(
-                    explicit: explicitOptions,
-                    defaults: defaultOptions,
-                    resolvedDefaults: resolvedOptions
-                ),
-                runtimeIdentity: runtimeIdentity,
-                files: [
-                    sourceDescriptor, manifestDescriptor, priorDescriptor,
-                    outputDescriptor,
-                ],
-                output: outputDescriptor,
-                outputs: [outputDescriptor],
-                steps: [step],
-                wallTimeSeconds: wallTime,
-                exitStatus: 0,
-                stderr: ""
-            )
-            if let provenancePublisher {
-                try provenancePublisher(envelope, outputProvenanceURL)
-            } else {
-                try ProvenanceWriter().writeNew(
-                    envelope,
-                    toSidecar: outputProvenanceURL
+        let command = commandArgv(
+            sourceProvenanceURL: sourceProvenanceURL,
+            bundleURL: bundleURL
+        )
+        let reproducibleCommand = command.map(shellEscape)
+            .joined(separator: " ")
+        let sourceDescriptor = descriptor(
+            data: sourceProvenanceData,
+            url: sourceProvenanceURL,
+            role: .input
+        )
+        let manifestDescriptor = descriptor(
+            data: manifestData,
+            url: manifestURL,
+            role: .input
+        )
+        let priorDescriptor = descriptor(
+            data: priorData,
+            url: annotationURL,
+            role: .input
+        )
+        let outputDescriptor = descriptor(
+            data: outputData,
+            url: annotationURL,
+            role: .output
+        )
+        let explicitOptions: [String: ParameterValue] = [
+            "provenance": .file(sourceProvenanceURL),
+            "bundle": .file(bundleURL),
+        ]
+        let defaultOptions: [String: ParameterValue] = [
+            "outputProvenance": .file(outputProvenanceURL),
+            "replayFormat": .string(
+                GenotypeManualHaplotypeAssignmentReplayPayload.format
+            ),
+        ]
+        let resolvedOptions: [String: ParameterValue] = [
+            "provenance": .file(sourceProvenanceURL),
+            "bundle": .file(bundleURL),
+            "annotationSidecar": .file(annotationURL),
+            "outputProvenance": .file(outputProvenanceURL),
+            "replayFormat": .string(
+                GenotypeManualHaplotypeAssignmentReplayPayload.format
+            ),
+            "replaySchemaVersion": .integer(payload.schemaVersion),
+            "operationID": .string(payload.operation.operationID),
+            "sample": .string(payload.operation.sample),
+            "author": .string(payload.operation.author),
+            "timestamp": .string(payload.operation.timestamp),
+            "copySourceSample": payload.operation.copySourceSample
+                .map(ParameterValue.string) ?? .null,
+            "targetManifestSHA256": .string(
+                payload.targetBundle.manifest.checksumSHA256
+            ),
+            "priorSidecarSHA256": .string(
+                payload.priorSidecar.descriptor.checksumSHA256
+            ),
+            "priorSidecarRevisionSHA256": .string(
+                payload.priorSidecar.revisionSHA256
+            ),
+            "replayPayloadSHA256": .string(sha256Hex(payloadData)),
+        ]
+        let completedAt = runClock.now
+        let wallTime = max(
+            0,
+            completedAt.timeIntervalSince(startedAt)
+        )
+        let runtimeIdentity = ProvenanceRuntimeIdentity()
+        let step = ProvenanceStep(
+            toolName: CLICommandIdentity.executableName,
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: command,
+            durableReplayArgv: command,
+            reproducibleCommand: reproducibleCommand,
+            resolvedOptions: resolvedOptions,
+            runtimeIdentity: runtimeIdentity,
+            inputs: [
+                sourceDescriptor, manifestDescriptor, priorDescriptor,
+            ],
+            outputs: [outputDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: wallTime,
+            stderr: "",
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+        let envelope = ProvenanceEnvelope(
+            createdAt: startedAt,
+            workflowName:
+                "lungfish genotype \(GenotypeManualHaplotypeAssignmentReplayPayload.cliSubcommandName)",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: CLICommandIdentity.executableName,
+            toolVersion: WorkflowRun.currentAppVersion,
+            tool: ProvenanceToolIdentity(
+                name: CLICommandIdentity.executableName,
+                version: WorkflowRun.currentAppVersion,
+                kind: "cli"
+            ),
+            argv: command,
+            durableReplayArgv: command,
+            reproducibleCommand: reproducibleCommand,
+            options: ProvenanceOptions(
+                explicit: explicitOptions,
+                defaults: defaultOptions,
+                resolvedDefaults: resolvedOptions
+            ),
+            runtimeIdentity: runtimeIdentity,
+            files: [
+                sourceDescriptor, manifestDescriptor, priorDescriptor,
+                outputDescriptor,
+            ],
+            output: outputDescriptor,
+            outputs: [outputDescriptor],
+            steps: [step],
+            wallTimeSeconds: wallTime,
+            exitStatus: 0,
+            stderr: ""
+        )
+        try GenotypeAnnotationPairPublication.publish(
+            annotationData: outputData,
+            recordURL: outputProvenanceURL,
+            recordMustBeNew: true,
+            bundleURL: bundleURL,
+            assuming: publicationLock,
+            check: { snapshot in
+                try sidecarPublicationPreparationHook?()
+                try GenotypeAnnotationPairPublication.checkRevision(
+                    snapshot,
+                    expected: priorSnapshot.revision
                 )
-            }
-        } catch {
-            try throwAfterProvenancePublicationFailure(error) {
-                let currentSnapshot =
-                    try ONTGenotypeResultBundleData
-                        .loadAnnotationSidecarSnapshot(
-                            forBundleAt: bundleURL
-                        )
-                if currentSnapshot.revision == replayedRevision {
-                    try ONTGenotypeResultBundleData
-                        .restoreAnnotationSidecarData(
-                            priorData,
-                            expectedRevision: replayedRevision,
-                            forBundleAt: bundleURL,
-                            assuming: publicationLock
-                        )
-                } else if currentSnapshot.revision
-                            != priorSnapshot.revision {
-                    throw GenotypeAnnotationSidecarPublicationError
-                        .staleRevision(
-                            expected: replayedRevision,
-                            actual: currentSnapshot.revision
-                        )
+                guard snapshot.provenanceData == nil else {
+                    throw GenotypeReplayManualHaplotypeAssignmentsError.outputExists(outputProvenanceURL.path)
+                }
+                try validateOutputAvailability(outputProvenanceURL)
+                let reattestedManifestData = try ONTGenotypeResultBundle
+                    .readManifestDataNoFollow(from: bundleURL)
+                guard reattestedManifestData == manifestData else {
+                    throw GenotypeReplayManualHaplotypeAssignmentsError.manifestChanged(manifestURL.path)
+                }
+            },
+            publishRecord: {
+                try sidecarPostRenameHook?()
+                if let provenancePublisher {
+                    try provenancePublisher(envelope, outputProvenanceURL)
+                } else {
+                    try ProvenanceWriter().writeNew(
+                        envelope,
+                        toSidecar: outputProvenanceURL
+                    )
                 }
             }
-        }
+        )
     }
 
     private func validateDistinctPaths() throws {

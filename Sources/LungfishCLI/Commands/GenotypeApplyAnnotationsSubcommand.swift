@@ -76,48 +76,64 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
         )
         defer { publicationLock.release() }
 
+        try GenotypeAnnotationPairPublication.restoreInterruptedSwap(inBundleAt: bundleURL)
         let snapshot = try ONTGenotypeResultBundleData
             .loadAnnotationSidecarSnapshot(forBundleAt: bundleURL)
         let sidecarURL = ONTGenotypeResultBundleData.annotationSidecarURL(
             forBundleAt: bundleURL
         )
-        let priorSidecarInput = snapshot.data.map { _ in
-            ProvenanceRecorder.fileRecord(
-                url: sidecarURL,
-                format: .json,
-                role: .input
-            )
-        }
         let merge = try Self.merge(
             existing: snapshot.sidecar,
             patch: patchSidecar
         )
         try beforePublication()
-        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
-            merge.sidecar,
-            expectedRevision: snapshot.revision,
-            forBundleAt: bundleURL,
-            assuming: publicationLock
+        var published = merge.sidecar
+        try published.promoteToCurrentSchema()
+        let annotationData = try published.encoded()
+        let output = GenotypeAnnotationPairPublication.descriptor(
+            data: annotationData,
+            url: sidecarURL,
+            role: .output
         )
-        try await recordApplyAnnotationsProvenance(
+        let envelope = try applyAnnotationsEnvelope(
             bundleURL: bundleURL,
             patchURL: patchURL,
             sidecarURL: sidecarURL,
-            priorSidecarInput: priorSidecarInput,
+            priorData: snapshot.data,
+            output: output,
             merge: merge,
             runClock: runClock
         )
+        // The sidecar and its record go out as one pair, and the bundle's own records follow.
+        let recordURL = ProvenanceRecorder.fileSidecarURL(for: sidecarURL)
+        try GenotypeAnnotationPairPublication.publish(
+            annotationData: annotationData,
+            recordURL: recordURL,
+            recordMustBeNew: false,
+            bundleURL: bundleURL,
+            assuming: publicationLock,
+            check: {
+                try GenotypeAnnotationPairPublication.checkRevision($0, expected: snapshot.revision)
+            },
+            publishRecord: {
+                try ProvenanceWriter().write(envelope.focusedOnOutput(output), toSidecar: recordURL)
+            }
+        )
+        try ProvenanceWriter().write(envelope, to: bundleURL)
         return merge
     }
 
-    private static func recordApplyAnnotationsProvenance(
+    /// The run record, built from the bytes the command read and wrote, never from paths that
+    /// change while it runs.
+    private static func applyAnnotationsEnvelope(
         bundleURL: URL,
         patchURL: URL,
         sidecarURL: URL,
-        priorSidecarInput: FileRecord?,
+        priorData: Data?,
+        output: ProvenanceFileDescriptor,
         merge: MergeResult,
         runClock: ProvenanceRunClock
-    ) async throws {
+    ) throws -> ProvenanceEnvelope {
         var parameters: [String: ParameterValue] = [
             "bundle": .file(bundleURL),
             "patch": .file(patchURL),
@@ -125,39 +141,59 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
         ]
         Self.addCounts(merge.appendedCounts, prefix: "appended", to: &parameters)
         Self.addCounts(merge.skippedDuplicateCounts, prefix: "skippedDuplicate", to: &parameters)
-        let inputs = [
-            ProvenanceRecorder.fileRecord(url: patchURL, format: .json, role: .input),
-            priorSidecarInput,
-        ].compactMap { $0 }
-        let outputs = [
-            ProvenanceRecorder.fileRecord(url: sidecarURL, format: .json, role: .output),
+        let defaults: [String: ParameterValue] = [
+            "patchSchema": .string(GenotypeAnnotationSidecar.filename),
+            "mergeMode": .string("append-deduplicate-with-current-matrix-targets"),
         ]
-        try await CLIProvenanceSupport.recordSingleStepRun(
-            name: "lungfish genotype apply-annotations",
-            parameters: parameters,
-            defaults: [
-                "patchSchema": .string(GenotypeAnnotationSidecar.filename),
-                "mergeMode": .string("append-deduplicate-with-current-matrix-targets"),
-            ],
-            resolved: parameters,
+        let command = [
+            CLICommandIdentity.executableName,
+            "genotype",
+            "apply-annotations",
+            "--bundle", bundleURL.path,
+            "--patch", patchURL.path,
+        ]
+        let patchInput = try ProvenanceFileDescriptor.file(url: patchURL, format: .json, role: .input)
+        let priorInput = priorData.map {
+            GenotypeAnnotationPairPublication.descriptor(data: $0, url: sidecarURL, role: .input)
+        }
+        let completedAt = Date()
+        let wallTime = runClock.elapsed
+        let startedAt = completedAt.addingTimeInterval(-wallTime)
+        var builder = ProvenanceRunBuilder(
+            workflowName: "lungfish genotype apply-annotations",
+            workflowVersion: WorkflowRun.currentAppVersion,
             toolName: CLICommandIdentity.executableName,
-            toolVersion: WorkflowRun.currentAppVersion,
-            command: [
-                CLICommandIdentity.executableName,
-                "genotype",
-                "apply-annotations",
-                "--bundle", bundleURL.path,
-                "--patch", patchURL.path,
-            ],
-            inputs: inputs,
-            outputs: outputs,
-            exitCode: 0,
-            wallTime: runClock.elapsed,
-            stderr: nil,
-            status: .completed,
-            outputDirectory: bundleURL,
-            writeFileSidecars: true
+            toolVersion: WorkflowRun.currentAppVersion
         )
+        .argv(command)
+        .durableReplayArgv(command)
+        .options(
+            explicit: parameters,
+            defaults: defaults,
+            resolved: CLIProvenanceSupport.resolvedOptions(
+                explicit: parameters,
+                defaults: defaults,
+                resolved: parameters
+            )
+        )
+        .runtime(ProvenanceRuntimeIdentity())
+        builder = try builder.input(patchURL, format: .json, role: .input)
+        if let priorInput {
+            builder = try builder.consumedInputSnapshot(priorInput)
+        }
+        return try builder
+            .step(ProvenanceStep(
+                toolName: CLICommandIdentity.executableName,
+                toolVersion: WorkflowRun.currentAppVersion,
+                argv: command,
+                inputs: [patchInput] + [priorInput].compactMap { $0 },
+                outputs: [output],
+                exitStatus: 0,
+                wallTimeSeconds: wallTime,
+                startedAt: startedAt,
+                completedAt: completedAt
+            ))
+            .complete(exitStatus: 0, startedAt: startedAt, endedAt: completedAt)
     }
 
     private static func addCounts(
