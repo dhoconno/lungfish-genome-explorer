@@ -41,7 +41,10 @@ public protocol AnalysisRunTool: Sendable {
 
     /// Phase P0. Turns the request into units without writing anything.
     ///
-    /// A thrown error refuses the request. The run fails before any folder exists, and its
+    /// Every check that refuses a request without running a tool belongs here, such as the
+    /// options, the inputs and their read layout, the database and its digest, and an input inside
+    /// an output the run would remove. A refused request then leaves a named folder and any record
+    /// in it as they were. A thrown error refuses the request. The run fails before any folder exists, and its
     /// command exits with the code the error carries (``AnalysisRunExitCoding``), else with
     /// ``AnalysisRunExitCode/workflowError``.
     func plan(
@@ -53,6 +56,10 @@ public protocol AnalysisRunTool: Sendable {
     /// description. A thrown error or a failed outcome while a cancel is requested ends the whole
     /// run as cancelled, whatever the error or the reason says, because a unit whose child the
     /// cancel signalled fails before or after its task sees the cancel (SWIFT X2).
+    ///
+    /// A refusal here is a failed unit. The run's failed root record replaces any record a named
+    /// folder already held, so refuse in ``plan(_:context:)`` whatever can be refused before a
+    /// tool runs.
     func run(
         _ unit: AnalysisRunUnit<Unit>,
         context: AnalysisRunUnitContext
