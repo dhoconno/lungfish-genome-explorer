@@ -12,6 +12,12 @@ import XCTest
 /// the bundle's kind declares are never outputs, so none of them gets a record or a line in the
 /// roll-up. A manifest and a typed record stay outputs, because recorded digests cite them (plan
 /// decisions V10 and P6, Phase 2.7 lane S7).
+///
+/// There are three exceptions. A bundle whose outputs inside it are all dropped gets a roll-up that
+/// falls back to the whole record, as a record with no output inside the bundle does, so that
+/// roll-up still cites the dropped files. A kind with a frozen record format drops nothing, because
+/// the rule never applies to it. A hidden record that an earlier build wrote under `provenance/`
+/// can stay after a rewrite, because the pruning skips hidden files.
 final class ProvenanceWriterBundleOutputsTests: XCTestCase {
     private var root: URL!
 
@@ -103,6 +109,13 @@ final class ProvenanceWriterBundleOutputsTests: XCTestCase {
         ])
         XCTAssertEqual(layout.records, ["bundle.lungfish-provenance.json"])
         XCTAssertEqual(layout.written.count, 1)
+        // The roll-up falls back to the whole record here, as it does for a record with no output inside the bundle.
+        XCTAssertEqual(layout.rollupOutputs, [
+            ".lungfish-provenance.json",
+            ".lungfish-provenance.json.pub",
+            ".lungfish-provenance.json.signature.json",
+            ".viewstate.json",
+        ])
     }
 
     func testTheLimitOf100RecordsCountsOnlyTheOutputsThatGetOne() throws {

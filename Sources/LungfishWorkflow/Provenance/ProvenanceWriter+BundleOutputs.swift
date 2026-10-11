@@ -17,10 +17,17 @@ extension ProvenanceWriter {
     /// A folder, a path outside the bundle and a path under `provenance/` are dropped. So is a file that
     /// the standard record rule keeps out of a bundle's outputs (plan decision V10 and Phase 2.7
     /// decision P6), which is a record file, the signature or key file of a record, or the app state
-    /// file that the bundle's kind declares. The layout therefore never holds a record of a record.
-    /// Manifests and typed records stay, because recorded digests cite them. `bundleURL` is the
+    /// file that the bundle's kind declares. A layout written now therefore holds no record of a
+    /// record. Manifests and typed records stay, because recorded digests cite them. A kind with a
+    /// frozen record format drops nothing, because the rule never applies to it. `bundleURL` is the
     /// bundle's final location, and its extension names the kind. The rule is
     /// ``BundleKindRegistry/excludesFromBundleOutputs(relativePath:inBundleAt:)``.
+    ///
+    /// There are two exceptions. When no output is left, `writeBundleLayout` rolls up the whole record,
+    /// so a bundle whose only outputs inside it are dropped files still has a roll-up that cites them,
+    /// as a record with no output inside the bundle does. And the pruning of the layout skips hidden
+    /// files, so a hidden record that an earlier build wrote under `provenance/` can stay after a
+    /// rewrite.
     func bundleOutputEntries(
         from envelope: ProvenanceEnvelope,
         relativeTo bundleURL: URL
