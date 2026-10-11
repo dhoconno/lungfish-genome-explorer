@@ -1,0 +1,278 @@
+// CLIEventContractCoverageTests.swift - Every leaf command declares what it writes for a machine reader
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import ArgumentParser
+import Foundation
+import LungfishTestSupport
+import XCTest
+@testable import LungfishCLI
+
+/// The per-leaf contract table of plan decision S18, checked in the unit tier.
+///
+/// A1 walks the command tree and compares it with the table. A2 reads the checked-in help
+/// golden of each `.events` leaf. The legacy tests pin the private shapes that are left,
+/// so the list can only fall when a lane deletes a row.
+final class CLIEventContractCoverageTests: XCTestCase {
+
+    // MARK: The command tree
+
+    /// The path of every leaf, found the way `--experimental-dump-help` finds them. A leaf
+    /// is a command with no subcommands, and a hidden one counts. ArgumentParser adds a
+    /// `help` subcommand to the root only when it builds that dump, so the walk adds it.
+    static func leafPaths() -> [String] {
+        var paths: [String] = []
+        func walk(_ command: ParsableCommand.Type, _ path: [String]) {
+            let subcommands = command.configuration.subcommands
+            if subcommands.isEmpty {
+                paths.append(path.joined(separator: " "))
+                return
+            }
+            for subcommand in subcommands {
+                walk(subcommand, path + [subcommand._commandName])
+            }
+        }
+        walk(LungfishCLI.self, [])
+        paths.append("help")
+        return paths
+    }
+
+    static var repositoryRoot: URL { ProvenanceCompatCorpus.repositoryRoot }
+
+    // MARK: A1
+
+    func testEveryLeafHasOneRowAndNoRowNamesAMissingLeaf() {
+        let leaves = Self.leafPaths()
+        XCTAssertEqual(leaves.count, Set(leaves).count, "Two leaves share one path, so the table cannot key them")
+        let rows = Set(CLIEventContractTable.entries.keys)
+
+        let withoutRow = Set(leaves).subtracting(rows).sorted()
+        XCTAssertTrue(
+            withoutRow.isEmpty,
+            "Leaves with no row in CLIEventContractTable, add one for each of \(withoutRow)"
+        )
+        let withoutLeaf = rows.subtracting(leaves).sorted()
+        XCTAssertTrue(
+            withoutLeaf.isEmpty,
+            "Rows in CLIEventContractTable that name no leaf, delete or rename \(withoutLeaf)"
+        )
+        XCTAssertEqual(CLIEventContractTable.entries.count, leaves.count)
+    }
+
+    func testTheWalkSeesTheHiddenLeafAndTheHelpSubcommand() {
+        let leaves = Set(Self.leafPaths())
+        XCTAssertTrue(leaves.contains("fastq ont-genotype"), "A hidden leaf counts")
+        XCTAssertTrue(leaves.contains("help"))
+        XCTAssertFalse(leaves.contains("fastq"), "A group is not a leaf")
+        XCTAssertFalse(leaves.contains(""), "The root is not a leaf")
+    }
+
+    // MARK: A2
+
+    func testEveryEventsLeafHelpListsTheDeclaredSwitch() throws {
+        var checked = 0
+        for (path, contract) in CLIEventContractTable.entries.sorted(by: { $0.key < $1.key }) {
+            guard case let .events(flag, _) = contract else { continue }
+            let help = try Self.helpText(forLeaf: path)
+            let options = Self.optionBlocks(in: help)
+            let parts = flag.split(separator: " ").map(String.init)
+            let name = try XCTUnwrap(parts.first, "\(path) declares an empty switch")
+            guard let block = options[name] else {
+                XCTFail("The help of '\(path)' lists no \(name), though its row declares '\(flag)'")
+                continue
+            }
+            if parts.count > 1 {
+                XCTAssertTrue(
+                    block.contains(parts[1]),
+                    "The help of '\(path)' lists \(name) without the value \(parts[1])"
+                )
+            }
+            checked += 1
+        }
+        XCTAssertEqual(checked, 21, "The 21 leaves that emit CLIEvent lines")
+    }
+
+    func testTheHelpCheckCanFail() throws {
+        let help = try Self.helpText(forLeaf: "msa annotate add")
+        let options = Self.optionBlocks(in: help)
+        XCTAssertNotNil(options["--format"])
+        XCTAssertTrue(options["--format"]?.contains("json") == true)
+        XCTAssertNil(options["--json-events"], "Only assemble lists --json-events")
+        XCTAssertFalse(options["--format"]?.contains("yaml") == true)
+
+        let wrapped = Self.optionBlocks(in: try Self.helpText(forLeaf: "bam primer-trim"))
+        XCTAssertTrue(wrapped["--format"]?.contains("json") == true, "A value list that wraps onto the next line still counts")
+
+        let assemble = Self.optionBlocks(in: try Self.helpText(forLeaf: "assemble"))
+        XCTAssertNotNil(assemble["--json-events"])
+    }
+
+    func testEveryEventsRowDeclaresAKnownSwitchAndChannel() {
+        let known: Set<String> = ["--format json", "--json-events"]
+        for (path, contract) in CLIEventContractTable.entries {
+            guard case let .events(flag, channel) = contract else { continue }
+            XCTAssertTrue(known.contains(flag), "\(path) declares the unknown switch '\(flag)'")
+            XCTAssertEqual(
+                channel == .standardError,
+                flag == "--json-events",
+                "Only assemble keeps its events on standard error until 2.8"
+            )
+        }
+    }
+
+    // MARK: Legacy rows
+
+    /// The private shapes that are left, as plan decision S18 counts them, with the leaves
+    /// that still print each and the sub-phase that retires it. A lane that retires a shape
+    /// deletes its rows in `CLIEventContractTable` and its entry here in the same commit.
+    /// A lane that adds a private shape has to add both, which is what makes it a decision.
+    private static let shapesLeft: [String: (removeBy: String, leaves: [String])] = [
+        "s1-import-fastq": ("2.7", ["import fastq", "import-fastq"]),
+        "s2-native-bundle-import": ("2.6", ["import msa", "import tree"]),
+        "s3-application-export-import": ("2.6", ["import application-export", "import geneious"]),
+        "s8-ont-fluidigm-progress": ("2.6", ["fastq ont-fluidigm-samples"]),
+        "s9-ont-pacbio-demux-progress": ("2.6", ["fastq ont-pacbio-barcode-demux"]),
+        "s10-bam-filter": ("2.9", ["bam filter"]),
+        "s11-bam-annotate": ("2.9", ["bam annotate"]),
+        "s12-bam-annotate-best": ("2.9", ["bam annotate-best"]),
+        "s13-bam-annotate-cds-best": ("2.9", ["bam annotate-cds-best"]),
+        "s14-build-db-progress": ("2.7", ["build-db esviritu", "build-db kraken2", "build-db taxtriage"]),
+        "r1-ont-barcode-genotyping": ("2.8", ["fastq ont-barcode-genotype"]),
+        "r2-full-length-ont-mhc": ("2.8", ["fastq full-length-ont-mhc-genotype"]),
+        "r3-twelve-s-progress-text": ("2.8", ["fastq 12s-match", "fastq 12s-reference-bundle"]),
+        "r4-reference-bundle-path-line": ("2.9", ["extract contigs"]),
+    ]
+
+    func testLegacyRowsAreExactlyTheShapesLeft() {
+        var found: [String: (removeBy: Set<String>, leaves: [String])] = [:]
+        for (path, contract) in CLIEventContractTable.entries {
+            guard case let .legacy(schemaID, removeBy) = contract else { continue }
+            var shape = found[schemaID] ?? ([], [])
+            shape.removeBy.insert(removeBy)
+            shape.leaves.append(path)
+            found[schemaID] = shape
+        }
+
+        XCTAssertEqual(
+            Set(found.keys),
+            Set(Self.shapesLeft.keys),
+            "The private shapes in the table differ from the shapes left. A retired shape loses its rows and its entry in shapesLeft together"
+        )
+        for (schemaID, expected) in Self.shapesLeft {
+            guard let shape = found[schemaID] else { continue }
+            XCTAssertEqual(shape.removeBy, [expected.removeBy], "\(schemaID) names one sub-phase that retires it")
+            XCTAssertEqual(shape.leaves.sorted(), expected.leaves.sorted(), "The leaves that print \(schemaID)")
+        }
+
+        let legacyRows = CLIEventContractTable.entries.values.filter {
+            if case .legacy = $0 { return true }
+            return false
+        }
+        XCTAssertEqual(found.count, 14, "Fourteen private shapes are left")
+        XCTAssertEqual(legacyRows.count, Self.shapesLeft.values.map(\.leaves.count).reduce(0, +))
+        XCTAssertEqual(legacyRows.count, 20, "Twenty leaves still print one of them")
+    }
+
+    func testEveryLegacyRowNamesAFutureSubPhase() {
+        let subPhases: Set<String> = ["2.6", "2.7", "2.8", "2.9"]
+        for (path, contract) in CLIEventContractTable.entries {
+            guard case let .legacy(schemaID, removeBy) = contract else { continue }
+            XCTAssertTrue(subPhases.contains(removeBy), "\(path) retires \(schemaID) in the unknown sub-phase '\(removeBy)'")
+            XCTAssertEqual(schemaID, schemaID.lowercased(), "Schema ids are lower case")
+            XCTAssertFalse(schemaID.contains(" "), "Schema ids have no spaces")
+        }
+    }
+
+    // MARK: Row hygiene
+
+    func testSchemaIDsAndReasonsAreStableStrings() {
+        var resultIDs: [String: [String]] = [:]
+        for (path, contract) in CLIEventContractTable.entries {
+            switch contract {
+            case let .result(schemaID):
+                XCTAssertFalse(schemaID.isEmpty, "\(path) has an empty schema id")
+                XCTAssertEqual(schemaID, schemaID.lowercased())
+                XCTAssertFalse(schemaID.contains(" "))
+                resultIDs[schemaID, default: []].append(path)
+            case let .text(reason):
+                XCTAssertFalse(reason.isEmpty, "\(path) has an empty reason")
+            case .events, .legacy:
+                break
+            }
+        }
+        for (schemaID, paths) in resultIDs where paths.count > 1 {
+            XCTAssertTrue(
+                ["markdup-summary", "haplotypes-write"].contains(schemaID),
+                "\(schemaID) is shared by \(paths.sorted()). Share an id only when one encoder writes the document"
+            )
+        }
+    }
+
+    func testTheRowCountsByCase() {
+        var counts: [String: Int] = [:]
+        for contract in CLIEventContractTable.entries.values {
+            switch contract {
+            case .events: counts["events", default: 0] += 1
+            case .result: counts["result", default: 0] += 1
+            case .legacy: counts["legacy", default: 0] += 1
+            case .text: counts["text", default: 0] += 1
+            }
+        }
+        XCTAssertEqual(counts["events"], 21)
+        XCTAssertEqual(counts["legacy"], 20)
+        XCTAssertEqual(counts.values.reduce(0, +), CLIEventContractTable.entries.count)
+    }
+
+    // MARK: Help golden helpers
+
+    static var helpFolder: URL {
+        repositoryRoot.appendingPathComponent("Tests/Fixtures/golden/cli-help", isDirectory: true)
+    }
+
+    /// `Tests/Fixtures/golden/cli-help/lungfish-cli.<path with dots>.txt`.
+    static func helpText(forLeaf path: String) throws -> String {
+        let name = "lungfish-cli." + path.split(separator: " ").joined(separator: ".") + ".txt"
+        return try String(contentsOf: helpFolder.appendingPathComponent(name), encoding: .utf8)
+    }
+
+    /// Each option the OPTIONS section lists, by its long name, with the text of its entry.
+    /// An entry runs from its first line to the next option, so a value list that wraps onto
+    /// the next line belongs to the option that started it.
+    static func optionBlocks(in help: String) -> [String: String] {
+        var blocks: [String: String] = [:]
+        var current: String?
+        var inOptions = false
+        for line in help.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+            if line.hasPrefix("OPTIONS:") {
+                inOptions = true
+                continue
+            }
+            guard inOptions else { continue }
+            if let first = line.first, first != " " {
+                inOptions = false
+                current = nil
+                continue
+            }
+            if let name = optionName(in: line) {
+                current = name
+                blocks[name] = line
+            } else if let current, line.hasPrefix("   ") {
+                blocks[current, default: ""] += "\n" + line
+            }
+        }
+        return blocks
+    }
+
+    /// The long name that starts an option entry, such as `--format` in
+    /// `  --format <format>       Output format`, or nil for a continuation line.
+    private static func optionName(in line: String) -> String? {
+        guard line.hasPrefix("  "), !line.hasPrefix("   ") else { return nil }
+        var rest = line.dropFirst(2)
+        if rest.hasPrefix("-"), !rest.hasPrefix("--"), let comma = rest.firstIndex(of: ",") {
+            rest = rest[rest.index(after: comma)...].drop(while: { $0 == " " })
+        }
+        guard rest.hasPrefix("--") else { return nil }
+        let name = rest.prefix { $0.isLetter || $0.isNumber || $0 == "-" }
+        return name.count > 2 ? String(name) : nil
+    }
+}
