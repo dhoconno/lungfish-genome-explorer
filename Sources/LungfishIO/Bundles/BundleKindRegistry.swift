@@ -225,3 +225,49 @@ extension BundleKindDescriptor {
         return fileManager.fileExists(atPath: url.appendingPathComponent(manifestFileName).path)
     }
 }
+
+extension BundleKindRegistry {
+    /// The tails that turn a record file's name into the name of its signature file and of its public
+    /// key file. `ProvenanceSigningConfiguration` in LungfishWorkflow spells the same two names. This
+    /// module cannot see it, so `BundleKindAgreementTests` checks that they agree.
+    private static let signingArtifactSuffixes = [".signature.json", ".pub"]
+
+    /// True when the standard record rule keeps the file at `relativePath` out of the outputs of the
+    /// bundle record of the folder at `bundleURL` (plan decision V10 and Phase 2.7 decision P6).
+    ///
+    /// `relativePath` is the path of the file inside the folder, with `/` between components. Three
+    /// kinds of file are never an output, so a bundle holds no record of a record, of a signature or
+    /// of a viewer setting.
+    ///
+    /// - A record file, at any depth. Its name ends in
+    ///   ``BundleKindDescriptor/SidecarNaming/rootRecordFileName``, which covers the root record, the
+    ///   record written beside a file and the roll-up.
+    /// - The signature file or the public key file of a record, at any depth, named
+    ///   `<record name>.signature.json` and `<record name>.pub`.
+    /// - The app state file that the kind of the folder declares in
+    ///   ``BundleKindDescriptor/appStateFileNames``, at the root of the folder, such as
+    ///   `.viewstate.json` in a reference bundle.
+    ///
+    /// Nothing else is dropped. A manifest stays an output, because a reference manifest decides which
+    /// tracks the bundle shows. A typed record such as `retained-demux-genotyping-provenance.json` or
+    /// `<name>.xlsx.provenance.json` stays an output, because the genotype roll-up cites its digest.
+    /// A folder of a kind with a frozen record format drops nothing, because the writer-wide rule never
+    /// applies to it. A folder whose extension names no kind follows the rule with no app state.
+    /// The kind comes from the extension of `bundleURL`, ignoring case, and no file is touched.
+    public static func excludesFromBundleOutputs(relativePath: String, inBundleAt bundleURL: URL) -> Bool {
+        let descriptor = descriptor(forLowercasedExtensionOf: bundleURL)
+        if let naming = descriptor?.sidecarNaming, case .frozenException = naming {
+            return false
+        }
+        let components = relativePath.split(separator: "/").filter { $0 != "." }.map(String.init)
+        guard let fileName = components.last else { return false }
+        let recordSuffix = BundleKindDescriptor.SidecarNaming.rootRecordFileName
+        if fileName.hasSuffix(recordSuffix) {
+            return true
+        }
+        if signingArtifactSuffixes.contains(where: { fileName.hasSuffix(recordSuffix + $0) }) {
+            return true
+        }
+        return components.count == 1 && (descriptor?.appStateFileNames.contains(fileName) ?? false)
+    }
+}

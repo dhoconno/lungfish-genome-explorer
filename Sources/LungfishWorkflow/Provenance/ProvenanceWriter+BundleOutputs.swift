@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 extension ProvenanceWriter {
     struct BundleOutputEntry {
@@ -10,6 +11,16 @@ extension ProvenanceWriter {
         let relativePath: String
     }
 
+    /// The outputs of `envelope` that sit inside the bundle, in the order the envelope lists them and
+    /// each once. The bundle's roll-up cites them, and each gets a record of its own.
+    ///
+    /// A folder, a path outside the bundle and a path under `provenance/` are dropped. So is a file that
+    /// the standard record rule keeps out of a bundle's outputs (plan decision V10 and Phase 2.7
+    /// decision P6), which is a record file, the signature or key file of a record, or the app state
+    /// file that the bundle's kind declares. The layout therefore never holds a record of a record.
+    /// Manifests and typed records stay, because recorded digests cite them. `bundleURL` is the
+    /// bundle's final location, and its extension names the kind. The rule is
+    /// ``BundleKindRegistry/excludesFromBundleOutputs(relativePath:inBundleAt:)``.
     func bundleOutputEntries(
         from envelope: ProvenanceEnvelope,
         relativeTo bundleURL: URL
@@ -22,6 +33,7 @@ extension ProvenanceWriter {
         var entries: [BundleOutputEntry] = []
         for descriptor in descriptors {
             guard let relativePath = Self.bundleRelativePath(for: descriptor.path, relativeTo: bundleURL),
+                  !BundleKindRegistry.excludesFromBundleOutputs(relativePath: relativePath, inBundleAt: bundleURL),
                   !isDirectoryOutput(descriptor, relativePath: relativePath, bundleURL: bundleURL) else {
                 continue
             }

@@ -104,6 +104,32 @@ final class BundleKindAgreementTests: XCTestCase {
         XCTAssertEqual(BundleKindDescriptor.SidecarNaming.layoutFolderName, ProvenanceWriter.bundleProvenanceDirectoryName)
     }
 
+    func testTheOutputRuleNamesTheRecordsAndSigningFilesTheWriterAndTheSignerProduce() {
+        // The rule lives in LungfishIO, which spells the record and signing file names itself.
+        let bundle = scratch.appendingPathComponent("probe.lungfishref", isDirectory: true)
+        let output = bundle.appendingPathComponent("sequence.fa")
+        let records = [
+            ProvenanceWriter.provenanceFilename,
+            ProvenanceWriter.bundleRollupFilename,
+            ProvenanceRecorder.fileSidecarURL(for: output).lastPathComponent,
+            ProvenanceWriter.bundleOutputSidecarURL(for: output, inBundle: bundle)?.lastPathComponent ?? "",
+        ]
+        for record in records {
+            let recordURL = bundle.appendingPathComponent(record)
+            let signingFiles = [
+                ProvenanceSigningConfiguration.signatureURL(for: recordURL),
+                ProvenanceSigningConfiguration.publicKeyURL(for: recordURL),
+            ].map(\.lastPathComponent)
+            for name in [record] + signingFiles {
+                XCTAssertTrue(
+                    BundleKindRegistry.excludesFromBundleOutputs(relativePath: name, inBundleAt: bundle),
+                    "\(name) is a record or a signing file the writer or the signer produces"
+                )
+            }
+        }
+        XCTAssertFalse(BundleKindRegistry.excludesFromBundleOutputs(relativePath: "sequence.fa", inBundleAt: bundle))
+    }
+
     func testTheProvenanceWriterTreatsEveryRegistryExtensionAsABundleFolder() {
         // ProvenanceWriter.isBundleDirectory accepts any lungfish prefix, so the layout folder is written
         // for every kind, the project and the frozen exceptions included.
