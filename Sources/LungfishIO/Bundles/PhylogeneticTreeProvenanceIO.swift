@@ -37,6 +37,7 @@ func derivedTreeProvenance(
         "checksums": try treeChecksumMap(paths: payloadPaths, bundleURL: outputBundleURL),
         "fileSizes": try treeFileSizeMap(paths: payloadPaths, bundleURL: outputBundleURL),
         "exitStatus": 0,
+        "status": NativeProvenanceRecordFacts.completedStatus,
         "wallTimeSeconds": wallTimeSeconds,
         "warnings": warnings,
         "stderr": provenance.stderr as Any,
@@ -53,11 +54,13 @@ func writeTreeJSONObject(_ object: [String: Any], to url: URL) throws {
     try data.write(to: url, options: .atomic)
 }
 
+/// The writer's runtime. The conda and container keys stay in the shape and hold null, because a value
+/// inherited from the shell that started LGE does not describe the run (``NativeProvenanceRecordFacts``).
 private func treeRuntimeIdentityDictionary() -> [String: Any] {
     [
         "operatingSystem": ProcessInfo.processInfo.operatingSystemVersionString,
         "swiftRuntime": "swift",
-        "condaEnvironment": ProcessInfo.processInfo.environment["CONDA_DEFAULT_ENV"] as Any,
+        "condaEnvironment": NSNull(),
         "containerImage": NSNull(),
     ]
 }

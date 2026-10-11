@@ -234,10 +234,10 @@ public struct GenotypeExcelExportService: Sendable {
             "toolVersion": provenance.toolVersion, "argv": provenance.argv, "executedArgv": executedArgv,
             "durableReplayArgv": replayArgv, "replayCommand": replayArgv.map(Self.shellQuote).joined(separator: " "),
             "options": provenance.options, "resolvedDefaults": provenance.defaults,
-            "runtimeContext": provenance.runtimeContext, "runtime": runtime,
+            "runtimeContext": Self.recorded(runtimeContext: provenance.runtimeContext), "runtime": Self.recorded(runtime: runtime),
             "generatedAt": snapshot.generatedAt, "startedAt": ISO8601DateFormatter().string(from: runClock.startedAt),
             "completedAt": ISO8601DateFormatter().string(from: runClock.now), "wallTimeSeconds": runClock.elapsed,
-            "exitStatus": execution.status, "stderr": execution.stderr,
+            "exitStatus": execution.status, "status": NativeProvenanceRecordFacts.completedStatus, "stderr": execution.stderr,
             "inputs": witnessedInputs, "scientificInputWitnesses": snapshot.sourceRevision,
             "snapshot": descriptor(snapshotURL, bytes: snapshotBytes),
             "script": descriptor(scriptURL, bytes: Data(Self.rendererScript.utf8)),
@@ -359,6 +359,28 @@ public struct GenotypeExcelExportService: Sendable {
             throw OwnedWorkDirectoryMarkerError.identityMismatch(file.url.path)
         }
         return (data, identity)
+    }
+
+    /// The run's context as the receipt states it (Phase 2.7 B6). The CLI that ran reads
+    /// `<external>/<file name>`, and a path under the managed tool or storage root takes its
+    /// placeholder. The request file and the replay keep the real paths they need to run again.
+    private static func recorded(runtimeContext: [String: String]) -> [String: String] {
+        let roots = PortablePath.defaultManagedRoots
+        return runtimeContext.reduce(into: [:]) { recorded, entry in
+            recorded[entry.key] = entry.key == "cliExecutable"
+                ? NativeProvenanceRecordFacts.externalExecutablePath(entry.value)
+                : NativeProvenanceRecordFacts.storagePath(entry.value, managedRoots: roots)
+        }
+    }
+
+    /// The renderer's report of itself, with a storage path such as `pythonExecutable` in its placeholder form.
+    private static func recorded(runtime: Any) -> Any {
+        guard var object = runtime as? [String: Any] else { return runtime }
+        let roots = PortablePath.defaultManagedRoots
+        for (key, value) in object {
+            if let path = value as? String { object[key] = NativeProvenanceRecordFacts.storagePath(path, managedRoots: roots) }
+        }
+        return object
     }
 
     private static func shellQuote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }

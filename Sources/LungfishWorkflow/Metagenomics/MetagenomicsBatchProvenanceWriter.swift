@@ -885,11 +885,10 @@ public enum MetagenomicsBatchProvenanceWriter {
         )
     }
 
+    /// No `CONDA_PREFIX`, which names the shell that started LGE and not the run (2.7 B6).
     private static func taxTriageRuntimeIdentity() -> ProvenanceRuntimeIdentity {
-        let environment = ProcessInfo.processInfo.environment
-        return ProvenanceRuntimeIdentity(
-            condaEnvironment: "nextflow",
-            condaPrefix: environment["CONDA_PREFIX"]
+        ProvenanceRuntimeIdentity(
+            condaEnvironment: "nextflow"
         )
     }
 

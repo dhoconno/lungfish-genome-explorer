@@ -399,10 +399,12 @@ struct MSADiscriminatingSitesProvenance: Codable, Equatable {
         }
     }
 
+    /// Since Phase 2.7 the writer names itself `<external>/<file name>` and records no process ID and
+    /// no conda or container value it inherited (``NativeProvenanceRecordFacts``).
     struct RuntimeIdentity: Codable, Equatable {
         let executablePath: String?
         let operatingSystemVersion: String
-        let processIdentifier: Int32
+        let processIdentifier: Int32?
         let condaEnvironment: String?
         let containerImage: String?
     }
@@ -444,6 +446,8 @@ struct MSADiscriminatingSitesProvenance: Codable, Equatable {
     let candidateWindowCount: Int
     let runtimeIdentity: MSADiscriminatingSitesProvenance.RuntimeIdentity
     let exitStatus: Int
+    /// How the run ended, `completed` since Phase 2.7. Older records hold none.
+    let status: String?
     let wallTimeSeconds: Double
     let createdAt: Date
 
@@ -478,12 +482,11 @@ struct MSADiscriminatingSitesProvenance: Codable, Equatable {
         self.discriminatingColumnCount = discriminatingColumnCount
         self.candidateWindowCount = candidateWindowCount
         runtimeIdentity = MSADiscriminatingSitesProvenance.RuntimeIdentity(
-            executablePath: ProcessInfo.processInfo.arguments.first,
+            executablePath: NativeProvenanceRecordFacts.executablePath,
             operatingSystemVersion: ProcessInfo.processInfo.operatingSystemVersionString,
-            processIdentifier: ProcessInfo.processInfo.processIdentifier,
-            condaEnvironment: ProcessInfo.processInfo.environment["CONDA_DEFAULT_ENV"],
-            containerImage: ProcessInfo.processInfo.environment["LUNGFISH_CONTAINER_IMAGE"])
+            processIdentifier: nil, condaEnvironment: nil, containerImage: nil)
         self.exitStatus = exitStatus
+        status = exitStatus == 0 ? NativeProvenanceRecordFacts.completedStatus : nil
         self.wallTimeSeconds = wallTimeSeconds
         createdAt = Date()
     }

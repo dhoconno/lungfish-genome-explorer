@@ -16,10 +16,13 @@ public struct PhylogeneticTreeProvenance: Codable, Sendable, Equatable {
         public let resolvedDefaults: [String: String]
     }
 
+    /// The writer's identity. Since Phase 2.7 it names its executable `<external>/<file name>` and
+    /// records no process ID and no conda value it inherited (``NativeProvenanceRecordFacts``), so
+    /// those read nil unless an older record holds them.
     public struct RuntimeIdentity: Codable, Sendable, Equatable {
         public let appVersion: String
         public let executablePath: String
-        public let processIdentifier: Int
+        public let processIdentifier: Int?
         public let operatingSystemVersion: String
         public let architecture: String
         public let gitRevision: String?
@@ -33,11 +36,10 @@ public struct PhylogeneticTreeProvenance: Codable, Sendable, Equatable {
         public let containerDigest: String?
 
         public static var current: RuntimeIdentity {
-            let environment = ProcessInfo.processInfo.environment
-            return RuntimeIdentity(
+            RuntimeIdentity(
                 appVersion: PhylogeneticTreeBundleImporter.toolVersion,
-                executablePath: Bundle.main.executablePath ?? CommandLine.arguments.first ?? "unknown",
-                processIdentifier: Int(ProcessInfo.processInfo.processIdentifier),
+                executablePath: NativeProvenanceRecordFacts.executablePath,
+                processIdentifier: nil,
                 operatingSystemVersion: Self.currentHostOS,
                 architecture: Self.currentArchitecture,
                 gitRevision: nil,
@@ -45,8 +47,8 @@ public struct PhylogeneticTreeProvenance: Codable, Sendable, Equatable {
                 pluginPack: nil,
                 operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
                 swiftRuntime: "swift",
-                condaEnvironment: environment["CONDA_DEFAULT_ENV"],
-                condaPrefix: environment["CONDA_PREFIX"],
+                condaEnvironment: nil,
+                condaPrefix: nil,
                 containerImage: nil,
                 containerDigest: nil
             )
@@ -127,6 +129,8 @@ public struct PhylogeneticTreeProvenance: Codable, Sendable, Equatable {
     public let checksums: [String: String]
     public let fileSizes: [String: Int64]
     public let exitStatus: Int
+    /// How the run ended, `completed` since Phase 2.7. Older records hold none.
+    public let status: String?
     public let wallTimeSeconds: TimeInterval
     public let warnings: [String]
     public let stderr: String?
@@ -198,6 +202,7 @@ public struct PhylogeneticTreeProvenance: Codable, Sendable, Equatable {
         self.checksums = checksums
         self.fileSizes = fileSizes
         self.exitStatus = exitStatus
+        status = NativeProvenanceRecordFacts.completedStatus
         self.wallTimeSeconds = wallTimeSeconds
         self.warnings = warnings
         self.stderr = stderr

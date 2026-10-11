@@ -757,17 +757,16 @@ private struct MSAReferenceBundleProvenance: Codable, Equatable {
     struct RuntimeIdentity: Codable, Equatable {
         let executablePath: String?
         let operatingSystemVersion: String
-        let processIdentifier: Int32
+        let processIdentifier: Int32?
         let condaEnvironment: String?
         let containerImage: String?
 
+        /// No process ID and nothing inherited from the shell that started LGE (2.7 B6).
         static func current() -> RuntimeIdentity {
             RuntimeIdentity(
-                executablePath: CommandLine.arguments.first,
+                executablePath: NativeProvenanceRecordFacts.executablePath,
                 operatingSystemVersion: ProcessInfo.processInfo.operatingSystemVersionString,
-                processIdentifier: ProcessInfo.processInfo.processIdentifier,
-                condaEnvironment: ProcessInfo.processInfo.environment["CONDA_DEFAULT_ENV"],
-                containerImage: ProcessInfo.processInfo.environment["LUNGFISH_CONTAINER_IMAGE"]
+                processIdentifier: nil, condaEnvironment: nil, containerImage: nil
             )
         }
     }
@@ -814,6 +813,7 @@ private struct MSAReferenceBundleProvenance: Codable, Equatable {
     let metadataFiles: [FileRecord]
     let options: Options
     let exitStatus: Int
+    var status: String? = NativeProvenanceRecordFacts.completedStatus
     let wallTimeSeconds: Double
     let warnings: [String]
 }

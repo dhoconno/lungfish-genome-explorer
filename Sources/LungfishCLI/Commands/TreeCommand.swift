@@ -218,7 +218,7 @@ struct TreeCommand: AsyncParsableCommand {
                     "inputBundle": try fileRecord(path: bundleURL.path, url: bundleURL),
                     "inputTreeFile": try fileRecord(path: primaryTreeURL.path, url: primaryTreeURL),
                     "outputFile": try fileRecord(path: outputURL.path, url: outputURL),
-                    "exitStatus": 0,
+                    "exitStatus": 0, "status": NativeProvenanceRecordFacts.completedStatus,
                     "wallTimeSeconds": wallTimeSeconds,
                     "warnings": [],
                     "stderr": NSNull(),
@@ -687,6 +687,7 @@ func rewriteManifestAndProvenance(
         "checksums": updatedChecksums,
         "fileSizes": updatedFileSizes,
         "exitStatus": Int(exitStatus),
+        "status": NativeProvenanceRecordFacts.completedStatus,
         "wallTimeSeconds": wallTimeSeconds,
         "warnings": warnings,
         "stderr": stderr,
@@ -725,14 +726,12 @@ private func writeJSONObject(_ object: [String: Any], to url: URL) throws {
     try data.write(to: url, options: .atomic)
 }
 
+/// No process ID, and null for the conda and container values the shell that started LGE set (2.7 B6).
 private func runtimeIdentityDictionary() -> [String: Any] {
     [
-        "executablePath": ProcessInfo.processInfo.arguments.first ?? NSNull(),
+        "executablePath": NativeProvenanceRecordFacts.executablePath, "swiftRuntime": "swift",
         "operatingSystem": ProcessInfo.processInfo.operatingSystemVersionString,
-        "swiftRuntime": "swift",
-        "processIdentifier": ProcessInfo.processInfo.processIdentifier,
-        "condaEnvironment": ProcessInfo.processInfo.environment["CONDA_DEFAULT_ENV"] ?? NSNull(),
-        "containerImage": ProcessInfo.processInfo.environment["LUNGFISH_CONTAINER_IMAGE"] ?? NSNull(),
+        "condaEnvironment": NSNull(), "containerImage": NSNull(),
     ]
 }
 

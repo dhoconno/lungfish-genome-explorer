@@ -445,6 +445,8 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
         public let output: FileRecord
         public let files: [String: FileRecord]
         public let exitStatus: Int
+        /// How the run ended, `completed` since Phase 2.7 (``NativeProvenanceRecordFacts``). Older records hold none.
+        public let status: String?
         public let wallTimeSeconds: Double
         public let warnings: [String]
         public let stderr: String?
@@ -502,7 +504,7 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
     public struct RuntimeIdentity: Codable, Sendable, Equatable {
         public let executablePath: String?
         public let operatingSystemVersion: String
-        public let processIdentifier: Int32
+        public let processIdentifier: Int32?
         public let condaEnvironment: String?
         public let containerImage: String?
     }
@@ -1120,20 +1122,18 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
                 writeSQLiteIndex: true
             ),
             runtimeIdentity: RuntimeIdentity(
-                executablePath: ProcessInfo.processInfo.arguments.first,
+                executablePath: NativeProvenanceRecordFacts.executablePath,
                 operatingSystemVersion: ProcessInfo.processInfo.operatingSystemVersionString,
-                processIdentifier: ProcessInfo.processInfo.processIdentifier,
-                condaEnvironment: ProcessInfo.processInfo.environment["CONDA_DEFAULT_ENV"],
-                containerImage: ProcessInfo.processInfo.environment["LUNGFISH_CONTAINER_IMAGE"]
+                processIdentifier: nil, condaEnvironment: nil, containerImage: nil
             ),
             input: try fileRecord(for: sourceURL),
             output: FileRecord(
-                path: bundleURL.path,
-                checksumSHA256: bundleDigest(checksums: bundleChecksums),
+                path: bundleURL.path, checksumSHA256: bundleDigest(checksums: bundleChecksums),
                 fileSize: try directorySize(at: bundleURL)
             ),
             files: allFileRecords,
             exitStatus: 0,
+            status: NativeProvenanceRecordFacts.completedStatus,
             wallTimeSeconds: options.wallTimeSeconds ?? runClock.elapsed,
             warnings: warnings,
             stderr: options.stderr ?? (warnings.isEmpty ? nil : warnings.joined(separator: "\n")),

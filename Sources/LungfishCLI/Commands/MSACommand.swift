@@ -1936,7 +1936,7 @@ struct MSAFileExportProvenance: Codable, Equatable {
     struct RuntimeIdentity: Codable, Equatable {
         let executablePath: String?
         let operatingSystemVersion: String
-        let processIdentifier: Int32
+        let processIdentifier: Int32?
         let condaEnvironment: String?
         let containerImage: String?
     }
@@ -2021,6 +2021,7 @@ struct MSAFileExportProvenance: Codable, Equatable {
     let inputAlignmentFile: FileRecord
     let outputFile: FileRecord
     let exitStatus: Int
+    let status: String?
     let wallTimeSeconds: Double
     let warnings: [String]
     let stderr: String?
@@ -2049,17 +2050,16 @@ struct MSAFileExportProvenance: Codable, Equatable {
         self.argv = argv
         self.reproducibleCommand = reproducibleCommand
         self.options = options
-        self.runtimeIdentity = RuntimeIdentity(
-            executablePath: ProcessInfo.processInfo.arguments.first,
+        self.runtimeIdentity = RuntimeIdentity( // 2.7 B6, no process ID and nothing inherited
+            executablePath: NativeProvenanceRecordFacts.executablePath,
             operatingSystemVersion: ProcessInfo.processInfo.operatingSystemVersionString,
-            processIdentifier: ProcessInfo.processInfo.processIdentifier,
-            condaEnvironment: ProcessInfo.processInfo.environment["CONDA_DEFAULT_ENV"],
-            containerImage: ProcessInfo.processInfo.environment["LUNGFISH_CONTAINER_IMAGE"]
+            processIdentifier: nil, condaEnvironment: nil, containerImage: nil
         )
         self.inputBundle = inputBundle
         self.inputAlignmentFile = inputAlignmentFile
         self.outputFile = outputFile
         self.exitStatus = exitStatus
+        self.status = exitStatus == 0 ? NativeProvenanceRecordFacts.completedStatus : nil
         self.wallTimeSeconds = wallTimeSeconds
         self.warnings = warnings
         self.stderr = stderr
