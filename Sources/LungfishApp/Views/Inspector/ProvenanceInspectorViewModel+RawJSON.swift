@@ -31,7 +31,7 @@ struct ProvenanceRawJSONDisplay: Equatable {
     static let maximumShownCharacters = 20_000
 
     static let noRecordMessage = "No raw provenance JSON is available."
-    static let tooLargeMessage = "This record is too large to show here."
+    static let tooLargeMessage = "This record is too large to show here. Choose Export > Full Provenance (JSON)\u{2026} to save all of it."
     static let notShownMessage = "This record could not be shown as text."
     static let decodedRecordCaption = "Shows the decoded record, not the file."
 
@@ -75,13 +75,13 @@ struct ProvenanceRawJSONDisplay: Equatable {
         if withinLines.count > Self.maximumShownCharacters {
             shownText = String(withinLines.prefix(Self.maximumShownCharacters))
             captions.append(
-                "Showing the first \(Self.maximumShownCharacters) of \(text.count) characters. "
+                "Showing the first \(Self.maximumShownCharacters.formatted()) of \(text.count.formatted()) characters. "
                     + "Copy takes the whole record."
             )
         } else if scan.cut != nil {
             shownText = withinLines
             captions.append(
-                "Showing the first \(Self.maximumShownLines) of \(scan.lines) lines. "
+                "Showing the first \(Self.maximumShownLines.formatted()) of \(scan.lines.formatted()) lines. "
                     + "Copy takes the whole record."
             )
         } else {

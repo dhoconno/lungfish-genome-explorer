@@ -94,10 +94,23 @@ final class ProvenanceRawJSONDisplayTests: XCTestCase {
 
         XCTAssertEqual(
             captions(of: viewModel),
-            ["Showing the first 20000 of \(whole.count) characters. Copy takes the whole record."]
+            ["Showing the first \(20_000.formatted()) of \(whole.count.formatted()) characters. Copy takes the whole record."]
         )
         XCTAssertEqual(try pane(of: viewModel).text.count, 20_000)
         XCTAssertTrue(whole.hasPrefix(try pane(of: viewModel).text))
+    }
+
+    /// The counts of a caption read with the grouping the Mac's locale uses, so a record of a thousand
+    /// lines or more reads "1,234" and not "1234".
+    func testTheCountsOfACaptionAreGrouped() throws {
+        try XCTSkipIf(1_234.formatted() == "1234", "This locale does not group digits, so the case proves nothing.")
+        let viewModel = ProvenanceInspectorViewModel()
+        viewModel.rawJSON = record(lines: 1_234)
+
+        XCTAssertEqual(
+            captions(of: viewModel),
+            ["Showing the first 80 of \(1_234.formatted()) lines. Copy takes the whole record."]
+        )
     }
 
     func testCopyTakesTheWholeRecordNotTheLinesShown() throws {
@@ -121,7 +134,7 @@ final class ProvenanceRawJSONDisplayTests: XCTestCase {
 
     /// The sentences the pane shows in place of text it does not hold.
     private enum Message {
-        static let tooLarge = "This record is too large to show here."
+        static let tooLarge = "This record is too large to show here. Choose Export > Full Provenance (JSON)\u{2026} to save all of it."
         static let noRecord = "No raw provenance JSON is available."
         static let notShown = "This record could not be shown as text."
     }
