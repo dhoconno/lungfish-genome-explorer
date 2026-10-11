@@ -62,9 +62,6 @@ protocol CLIOutputHandler {
     /// Write structured data
     func writeData<T: Encodable>(_ data: T, label: String?)
 
-    /// Write a progress update
-    func writeProgress(_ progress: Double, message: String?)
-
     /// Finish output (flush buffers, close files)
     func finish()
 }
@@ -114,14 +111,6 @@ class StandardOutputHandler: CLIOutputHandler {
         }
     }
 
-    func writeProgress(_ progress: Double, message: String?) {
-        // Progress is written to stderr so it doesn't pollute stdout
-        let percent = Int(progress * 100)
-        let msg = message ?? ""
-        let formatted = "\r[\(percent)%] \(msg)"
-        errorFile.write(formatted.data(using: .utf8) ?? Data())
-    }
-
     func finish() {
         outputFile?.closeFile()
     }
@@ -167,18 +156,6 @@ class JSONOutputHandler: CLIOutputHandler {
         }
     }
 
-    func writeProgress(_ progress: Double, message: String?) {
-        // Progress is written to stderr in JSON mode too
-        let progressData: [String: Any] = [
-            "progress": progress,
-            "message": message ?? ""
-        ]
-        if let jsonData = try? JSONSerialization.data(withJSONObject: progressData),
-           let jsonString = String(data: jsonData, encoding: .utf8) {
-            FileHandle.standardError.write((jsonString + "\n").data(using: .utf8) ?? Data())
-        }
-    }
-
     func finish() {
         // Output is written incrementally, nothing to do here
     }
@@ -208,13 +185,6 @@ class TSVOutputHandler: CLIOutputHandler {
     func writeData<T: Encodable>(_ data: T, label: String?) {
         // TSV output needs to be handled specially by each command
         write(String(describing: data))
-    }
-
-    func writeProgress(_ progress: Double, message: String?) {
-        // Progress to stderr
-        let percent = Int(progress * 100)
-        let msg = message ?? ""
-        FileHandle.standardError.write(("\r[\(percent)%] \(msg)").data(using: .utf8) ?? Data())
     }
 
     /// Set column headers for TSV output
