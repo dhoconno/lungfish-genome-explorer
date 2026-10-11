@@ -10,6 +10,10 @@ import XCTest
 /// as `text-<case>.stdout` and `text-<case>.stderr`. Standard output there leaves out the JSON lines
 /// that text mode printed at the base. The runs need no external tool, and a duration reads `<t>`.
 /// Set `LUNGFISH_RECAPTURE_IMPORT_TEXT=1` to write the files instead of comparing with them.
+///
+/// Since lane Q4 text mode prints no JSON line. Standard output is the base without them, and
+/// standard error is the base with one `⚠` line for each notice and skipped sample that only the S1
+/// lines reported, apart from a `--platform` notice, which text mode prints on standard output.
 final class ImportFastqTextOutputPinTests: XCTestCase {
     /// A pair and the run's third file, which the check leaves out, so its sample is skipped.
     func testAPairWhoseThirdFileIsLeftOutPrintsTheBaseLines() async throws {
@@ -24,7 +28,7 @@ final class ImportFastqTextOutputPinTests: XCTestCase {
         let output = try await Self.run(files.map(\.path) + ["--pairing", "paired"], in: scratch)
 
         XCTAssertNil(output.thrown)
-        try assertPrints(output, "pair-with-skip")
+        try assertPrints(output, "pair-with-skip", warnings: ["⚠ SRR125 skipped: Bundle already exists"])
     }
 
     /// A single-end file that the WGS recipe refuses, a failed sample.
@@ -36,7 +40,7 @@ final class ImportFastqTextOutputPinTests: XCTestCase {
         let output = try await Self.run([file.path, "--pairing", "single", "--recipe", "wgs"], in: scratch)
 
         XCTAssertNotNil(output.thrown, "a failed sample is a failed import")
-        try assertPrints(output, "failed")
+        try assertPrints(output, "failed", warnings: [])
     }
 
     // MARK: Helpers
@@ -50,11 +54,19 @@ final class ImportFastqTextOutputPinTests: XCTestCase {
     }
 
     /// Compares what the run printed, without the JSON lines of standard output, with the base files.
-    private func assertPrints(_ output: ImportStreamCapture.Output, _ name: String, file: StaticString = #filePath, line: UInt = #line) throws {
+    private func assertPrints(
+        _ output: ImportStreamCapture.Output,
+        _ name: String,
+        warnings: [String],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        XCTAssertEqual(output.standardOutput.filter { $0.hasPrefix("{") }, [], "text mode prints no JSON line", file: file, line: line)
         let folder = CLIEventContractCoverageTests.repositoryRoot
             .appendingPathComponent("Tests/Fixtures/cli-events/import-fastq-runs", isDirectory: true)
         let standardOutput = output.standardOutput.filter { !$0.hasPrefix("{") }.map(Self.withoutDurations)
-        let standardError = output.standardError.map(Self.withoutDurations)
+        let standardError = output.standardError.map(Self.withoutDurations).filter { !warnings.contains($0) }
+        XCTAssertEqual(output.standardError.filter { $0.hasPrefix("⚠ ") }, warnings, "the warnings of the \(name) run", file: file, line: line)
         let outputFile = folder.appendingPathComponent("text-\(name).stdout")
         let errorFile = folder.appendingPathComponent("text-\(name).stderr")
         if ProcessInfo.processInfo.environment["LUNGFISH_RECAPTURE_IMPORT_TEXT"] == "1" {

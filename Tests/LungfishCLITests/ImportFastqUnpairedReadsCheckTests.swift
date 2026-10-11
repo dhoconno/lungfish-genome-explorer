@@ -74,9 +74,9 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         XCTAssertEqual(metadata.ingestion?.originalFilenames, ["SRR123_1.fastq", "SRR123_2.fastq"])
         // The third file is a sample of the same name, which the pair's
         // bundle keeps out, as before the join.
-        let skips = Self.jsonEvents(in: run.output).filter { $0["event"] as? String == "sampleSkip" }
-        XCTAssertEqual(skips.map { $0["sample"] as? String }, ["SRR123"], run.output)
-        XCTAssertEqual(skips.first?["reason"] as? String, "Bundle already exists")
+        let skips = Self.skips(in: run.output)
+        XCTAssertEqual(skips.map(\.sample), ["SRR123"], run.output)
+        XCTAssertEqual(skips.first?.reason, "Bundle already exists")
     }
 
     func testADryRunShowsTheWarningAndListsTheThirdFileAsItsOwnSample() async throws {
@@ -125,8 +125,8 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
             try Self.headers(in: try importedBundle("Patient7")),
             ["SRR126.1.1 1 length=8", "SRR126.1.2 1 length=8"]
         )
-        let skips = Self.jsonEvents(in: run.output).filter { $0["event"] as? String == "sampleSkip" }
-        XCTAssertEqual(skips.compactMap { $0["sample"] as? String }, ["Patient7"], run.output)
+        let skips = Self.skips(in: run.output)
+        XCTAssertEqual(skips.map(\.sample), ["Patient7"], run.output)
         XCTAssertEqual(
             try FileManager.default.contentsOfDirectory(atPath: project.appendingPathComponent("Imports").path)
                 .filter { !$0.hasPrefix(".") },
@@ -166,9 +166,9 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
             ["SRR131.1.1 1", "SRR131.1.2 1", "SRR131.2.1 2", "SRR131.2.2 2"].map { "\($0) length=8" },
             "the pair's bundle keeps the pair"
         )
-        let skips = Self.jsonEvents(in: run.output).filter { $0["event"] as? String == "sampleSkip" }
-        XCTAssertEqual(skips.compactMap { $0["sample"] as? String }, ["SRR131"], run.output)
-        XCTAssertTrue((skips.first?["reason"] as? String)?.contains("An earlier sample of this import wrote it") == true, run.output)
+        let skips = Self.skips(in: run.output)
+        XCTAssertEqual(skips.map(\.sample), ["SRR131"], run.output)
+        XCTAssertTrue(skips.first?.reason.contains("An earlier sample of this import wrote it") == true, run.output)
     }
 
     func testTheWindowsJSONOutputCarriesTheWarningAsANoticeEvent() async throws {
@@ -185,14 +185,9 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         ])
 
         XCTAssertNil(run.error, run.output)
-        // CLIImportRunner logs a notice event in the Operations row as a warning.
-        let notices = Self.jsonEvents(in: run.output).filter { $0["event"] as? String == "notice" }
-        let notice = try XCTUnwrap(
-            notices.first { ($0["message"] as? String)?.contains("was not joined") == true },
-            run.output
-        )
-        XCTAssertEqual(notice["sample"] as? String, "SRR125")
-        XCTAssertTrue((notice["message"] as? String)?.hasPrefix("SRR125.fastq was not joined to SRR125_1.fastq and SRR125_2.fastq") == true)
+        // A version 2 log event at level warning, which the Operations row logs as a warning.
+        let notice = try XCTUnwrap(Self.warningLogs(in: run.output).first { $0.contains("was not joined") }, run.output)
+        XCTAssertTrue(notice.hasPrefix("SRR125 — SRR125.fastq was not joined to SRR125_1.fastq and SRR125_2.fastq"), notice)
         XCTAssertEqual(try Self.headers(in: try importedBundle("SRR125")).count, 4, "the pair imports on its own")
     }
 
@@ -268,9 +263,9 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         }
         // As the warning says, each copy is a sample of its own that the
         // pair's bundle keeps out.
-        let skips = Self.jsonEvents(in: run.output).filter { $0["event"] as? String == "sampleSkip" }
-        XCTAssertEqual(skips.compactMap { $0["sample"] as? String }, ["S", "T"], run.output)
-        XCTAssertEqual(Set(skips.compactMap { $0["reason"] as? String }), ["Bundle already exists"])
+        let skips = Self.skips(in: run.output)
+        XCTAssertEqual(skips.map(\.sample), ["S", "T"], run.output)
+        XCTAssertEqual(Set(skips.map(\.reason)), ["Bundle already exists"])
     }
 
     func testACopyOfThePairThatStartsWithHalfAPairIsNotJoinedSoEachReadIsStoredOnce() async throws {
@@ -326,12 +321,12 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         // mate file, and SRR130.fastq is skipped, so the run's name never
         // holds its reads whose mate is missing alone (review B-S2).
         XCTAssertNotNil(run.error, "the pair is a failed sample. Output:\n\(run.output)")
-        let failures = Self.jsonEvents(in: run.output).filter { $0["event"] as? String == "sampleFailed" }
+        let failures = Self.failures(in: run.output)
         XCTAssertEqual(failures.count, 1, run.output)
-        XCTAssertTrue((failures.first?["error"] as? String)?.contains("SRR130_1.fastq") == true, run.output)
-        let skips = Self.jsonEvents(in: run.output).filter { $0["event"] as? String == "sampleSkip" }
-        XCTAssertEqual(skips.map { $0["sample"] as? String }, ["SRR130"], run.output)
-        XCTAssertEqual(skips.first?["reason"] as? String, Self.failedBundleReason)
+        XCTAssertTrue(failures.first?.contains("SRR130_1.fastq") == true, run.output)
+        let skips = Self.skips(in: run.output)
+        XCTAssertEqual(skips.map(\.sample), ["SRR130"], run.output)
+        XCTAssertEqual(skips.first?.reason, Self.failedBundleReason)
         let bundle = project.appendingPathComponent("Imports/SRR130.lungfishfastq", isDirectory: true)
         XCTAssertFalse(FileManager.default.fileExists(atPath: bundle.path), "no bundle takes the run's name")
     }
@@ -358,11 +353,10 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         // The pair fails and publishes nothing, and the third file's sample
         // is skipped, so the run's complete bundle stays where it was.
         XCTAssertNotNil(run.error, "the pair is a failed sample. Output:\n\(run.output)")
-        let events = Self.jsonEvents(in: run.output)
-        XCTAssertEqual(events.filter { $0["event"] as? String == "sampleFailed" }.count, 1, run.output)
-        let skips = events.filter { $0["event"] as? String == "sampleSkip" }
-        XCTAssertEqual(skips.map { $0["sample"] as? String }, ["SRR132"], run.output)
-        XCTAssertEqual(skips.first?["reason"] as? String, Self.failedBundleReason)
+        XCTAssertEqual(Self.failures(in: run.output).count, 1, run.output)
+        let skips = Self.skips(in: run.output)
+        XCTAssertEqual(skips.map(\.sample), ["SRR132"], run.output)
+        XCTAssertEqual(skips.first?.reason, Self.failedBundleReason)
         XCTAssertEqual(try Self.headers(in: try importedBundle("SRR132")), before, "the earlier bundle is kept")
     }
 
@@ -463,8 +457,11 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         FileManager.default.createFile(atPath: outputFile.path, contents: nil)
         let handle = try FileHandle(forWritingTo: outputFile)
         fflush(stdout)
+        fflush(stderr)
         let savedStdout = dup(STDOUT_FILENO)
+        let savedStderr = dup(STDERR_FILENO)
         dup2(handle.fileDescriptor, STDOUT_FILENO)
+        dup2(handle.fileDescriptor, STDERR_FILENO)
         var thrown: Error?
         do {
             try await command.run()
@@ -472,8 +469,11 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
             thrown = error
         }
         fflush(stdout)
+        fflush(stderr)
         dup2(savedStdout, STDOUT_FILENO)
+        dup2(savedStderr, STDERR_FILENO)
         close(savedStdout)
+        close(savedStderr)
         try handle.close()
         return ImportRun(output: String(decoding: try Data(contentsOf: outputFile), as: UTF8.self), error: thrown)
     }
@@ -514,13 +514,29 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         return try FASTQReadLayoutClassifier.readHeaders(from: fastq, limit: 1_000).headers
     }
 
-    /// The JSON objects among the printed lines.
-    private static func jsonEvents(in output: String) -> [[String: Any]] {
+    /// The samples that text mode reports as skipped, one `⚠ <sample> skipped: <reason>` line on
+    /// standard error each.
+    private static func skips(in output: String) -> [(sample: String, reason: String)] {
+        output.split(separator: "\n").compactMap { line in
+            guard line.hasPrefix("⚠ "), let range = line.range(of: " skipped: ") else { return nil }
+            return (String(line[line.index(line.startIndex, offsetBy: 2)..<range.lowerBound]), String(line[range.upperBound...]))
+        }
+    }
+
+    /// The failed samples that the summary lists, one `✗   <sample>: <error>` line each.
+    private static func failures(in output: String) -> [String] {
+        output.split(separator: "\n").filter { $0.hasPrefix("✗   ") }.map { String($0.dropFirst(4)) }
+    }
+
+    /// The messages of the version 2 `log` events at level `warning` among the printed lines, which
+    /// the Operations row logs as warnings.
+    private static func warningLogs(in output: String) -> [String] {
         output.split(separator: "\n").compactMap { line in
             guard line.hasPrefix("{"),
-                  let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+                  let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                  object["event"] as? String == "log", object["level"] as? String == "warning"
             else { return nil }
-            return object
+            return object["message"] as? String
         }
     }
 }

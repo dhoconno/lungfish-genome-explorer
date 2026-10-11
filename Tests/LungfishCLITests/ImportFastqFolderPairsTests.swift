@@ -117,9 +117,7 @@ final class ImportFastqFolderPairsTests: XCTestCase {
         let run = try await runImport([a1, b2, c2].map(\.path), ["--dry-run", "--format", "json"])
 
         XCTAssertNil(run.error, run.output)
-        let notices = Self.jsonEvents(in: run.output).filter { $0["event"] as? String == "notice" }
-        XCTAssertEqual(notices.compactMap { $0["sample"] as? String }, ["x_R1"], run.output)
-        XCTAssertEqual(notices.first?["message"] as? String, Self.mateWarning(a1, [b2, c2]), run.output)
+        XCTAssertEqual(Self.warningLogs(in: run.output), ["x_R1 — " + Self.mateWarning(a1, [b2, c2])], run.output)
     }
 
     func testARunsThirdFileInAnotherFolderJoinsItsPairWhenNoOtherListedFileHasItsNames() async throws {
@@ -254,13 +252,15 @@ final class ImportFastqFolderPairsTests: XCTestCase {
         spots.map { "@SRR7.\($0)\(mate)\n\(bases)\n+\nIIIIIIII\n" }.joined()
     }
 
-    /// The JSON objects among the printed lines.
-    private static func jsonEvents(in output: String) -> [[String: Any]] {
+    /// The messages of the version 2 `log` events at level `warning` among the printed lines, which
+    /// the Operations row logs as warnings.
+    private static func warningLogs(in output: String) -> [String] {
         output.split(separator: "\n").compactMap { line in
             guard line.hasPrefix("{"),
-                  let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+                  let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                  object["event"] as? String == "log", object["level"] as? String == "warning"
             else { return nil }
-            return object
+            return object["message"] as? String
         }
     }
 }

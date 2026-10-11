@@ -40,7 +40,7 @@ extension ImportCommand {
     /// Import a directory of FASTQ files (or explicit file paths) into a Lungfish project.
     ///
     /// Detects R1/R2 pairs automatically, optionally applies a processing recipe,
-    /// and streams structured JSON log events to stdout during import.
+    /// and with `--format json` prints version 2 events on stdout (`ImportFastqReporter`).
     ///
     /// ## Examples
     ///
@@ -188,14 +188,18 @@ extension ImportCommand {
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+            // With --format json the run prints version 2 events and its human text on standard error
+            // (ImportFastqReporter). Every failure below ends in one failed line.
+            let reporter = ImportFastqReporter(
+                globalOptions: globalOptions, formatter: formatter, projectDirectory: URL(fileURLWithPath: project)
+            )
+            reporter.start()
 
             guard !input.isEmpty || samplesheet != nil else {
-                print(formatter.error("At least one input path or --samplesheet is required."))
-                throw CLIExitCode.inputError.exitCode
+                throw reporter.fail("At least one input path or --samplesheet is required.", exitCode: .inputError)
             }
             guard !(samplesheet != nil && !input.isEmpty) else {
-                print(formatter.error("Pass either FASTQ input paths or --samplesheet, not both."))
-                throw CLIExitCode.inputError.exitCode
+                throw reporter.fail("Pass either FASTQ input paths or --samplesheet, not both.", exitCode: .inputError)
             }
 
             // MARK: Detect pairs
@@ -209,14 +213,12 @@ extension ImportCommand {
             if let samplesheet {
                 let sheetURL = URL(fileURLWithPath: samplesheet)
                 guard fm.fileExists(atPath: sheetURL.path) else {
-                    print(formatter.error("Sample sheet not found: \(samplesheet)"))
-                    throw CLIExitCode.inputError.exitCode
+                    throw reporter.fail("Sample sheet not found: \(samplesheet)", exitCode: .inputError)
                 }
                 do {
                     detectedPairs = try FASTQSampleSheet.parse(url: sheetURL).samplePairs()
                 } catch {
-                    print(formatter.error("Could not parse sample sheet: \(error.localizedDescription)"))
-                    throw CLIExitCode.formatError.exitCode
+                    throw reporter.fail("Could not parse sample sheet: \(error.localizedDescription)", exitCode: .formatError)
                 }
             } else if input.count == 1 {
                 // Single argument: could be a directory or a single file
@@ -234,13 +236,11 @@ extension ImportCommand {
                             detectedPairs = try FASTQBatchImporter.detectPairsFromDirectory(inputURL)
                         }
                     } catch let batchError as BatchImportError {
-                        print(formatter.error(batchError.errorDescription ?? batchError.localizedDescription))
-                        throw CLIExitCode.inputError.exitCode
+                        throw reporter.fail(batchError.errorDescription ?? batchError.localizedDescription, exitCode: .inputError)
                     }
                 } else {
                     guard exists else {
-                        print(formatter.error("Input not found: \(input[0])"))
-                        throw CLIExitCode.inputError.exitCode
+                        throw reporter.fail("Input not found: \(input[0])", exitCode: .inputError)
                     }
                     detectedPairs = FASTQBatchImporter.detectPairs(from: [inputURL])
                 }
@@ -250,8 +250,7 @@ extension ImportCommand {
                 for path in input {
                     let url = URL(fileURLWithPath: path)
                     guard fm.fileExists(atPath: url.path) else {
-                        print(formatter.error("Input file not found: \(path)"))
-                        throw CLIExitCode.inputError.exitCode
+                        throw reporter.fail("Input file not found: \(path)", exitCode: .inputError)
                     }
                     fileURLs.append(url)
                 }
@@ -263,8 +262,7 @@ extension ImportCommand {
             // MARK: Apply --pairing
 
             guard let pairingChoice = FASTQBatchImporter.ImportPairing(rawValue: pairing.lowercased()) else {
-                print(formatter.error("Unknown pairing value '\(pairing)'. Valid: auto, single, paired, interleaved"))
-                throw CLIExitCode.inputError.exitCode
+                throw reporter.fail("Unknown pairing value '\(pairing)'. Valid: auto, single, paired, interleaved", exitCode: .inputError)
             }
             var samples = FASTQBatchImporter.applyPairing(pairingChoice, to: detectedPairs)
 
@@ -279,8 +277,7 @@ extension ImportCommand {
             // (finding F11-N2).
             if let name {
                 guard samples.count == 1 else {
-                    print(formatter.error("--name requires exactly one detected sample (found \(samples.count))."))
-                    throw CLIExitCode.inputError.exitCode
+                    throw reporter.fail("--name requires exactly one detected sample (found \(samples.count)).", exitCode: .inputError)
                 }
                 samples = [samples[0].named(name)]
             }
@@ -296,44 +293,41 @@ extension ImportCommand {
             // notice about a pair detection did not make says nothing to them.
             let warnings = (pairingChoice.keepsDetectedPairs ? pairingNotices.map(\.event) : [])
                 + unpairedReadsCheck.warnings
-            let isJSON = globalOptions.outputFormat == .json
 
             // MARK: Print detected pairs
 
-            print(formatter.header("FASTQ Import"))
-            print("")
-            print(formatter.info("Detected \(effectivePairs.count) sample(s):"))
+            reporter.text(formatter.header("FASTQ Import"))
+            reporter.text("")
+            reporter.text(formatter.info("Detected \(effectivePairs.count) sample(s):"))
             for (i, pair) in effectivePairs.enumerated() {
                 let index = String(format: "%3d", i + 1)
                 if let r2 = pair.r2 {
-                    print("  \(index). \(pair.sampleName)  [paired]")
-                    print("        R1: \(pair.r1.lastPathComponent)")
-                    print("        R2: \(r2.lastPathComponent)")
+                    reporter.text("  \(index). \(pair.sampleName)  [paired]")
+                    reporter.text("        R1: \(pair.r1.lastPathComponent)")
+                    reporter.text("        R2: \(r2.lastPathComponent)")
                     if let unpaired = pair.unpaired {
-                        print("        Unpaired: \(unpaired.lastPathComponent)")
+                        reporter.text("        Unpaired: \(unpaired.lastPathComponent)")
                     }
                 } else {
-                    print("  \(index). \(pair.sampleName)  [single-end]")
-                    print("        R1: \(pair.r1.lastPathComponent)")
+                    reporter.text("  \(index). \(pair.sampleName)  [single-end]")
+                    reporter.text("        R1: \(pair.r1.lastPathComponent)")
                 }
             }
-            print("")
+            reporter.text("")
             if !warnings.isEmpty {
                 for case .notice(let sample, let message) in warnings {
-                    print(isJSON
-                        ? FASTQBatchImporter.encodeLogEvent(.notice(sample: sample, message: message))
-                        : formatter.warning("\(sample): \(message)"))
+                    reporter.pairingNotice(sample: sample, message: message)
                 }
-                print("")
+                reporter.text("")
             }
 
             // MARK: Resolve platform request
 
             guard let platformRequest = ImportPlatformRequest(cliValue: platform) else {
-                print(formatter.error(
-                    "Unknown platform '\(platform)'. Valid: \(ImportPlatformRequest.cliValues.joined(separator: ", "))"
-                ))
-                throw CLIExitCode.inputError.exitCode
+                throw reporter.fail(
+                    "Unknown platform '\(platform)'. Valid: \(ImportPlatformRequest.cliValues.joined(separator: ", "))",
+                    exitCode: .inputError
+                )
             }
 
             // MARK: Dry-run exit
@@ -341,9 +335,10 @@ extension ImportCommand {
             if dryRun {
                 for pair in effectivePairs {
                     let resolution = FASTQBatchImporter.resolvePlatform(for: pair, request: platformRequest)
-                    print("  \(pair.sampleName): \(resolution.summaryLine)")
+                    reporter.text("  \(pair.sampleName): \(resolution.summaryLine)")
                 }
-                print(formatter.info("Dry-run mode — no files were imported."))
+                reporter.text(formatter.info("Dry-run mode — no files were imported."))
+                reporter.complete(message: "Dry-run mode — no files were imported.")
                 return
             }
 
@@ -357,8 +352,7 @@ extension ImportCommand {
                     newRecipe = resolvedRecipe.newRecipe
                     oldRecipe = resolvedRecipe.legacyRecipe
                 } catch let batchError as BatchImportError {
-                    print(formatter.error(batchError.errorDescription ?? batchError.localizedDescription))
-                    throw CLIExitCode.inputError.exitCode
+                    throw reporter.fail(batchError.errorDescription ?? batchError.localizedDescription, exitCode: .inputError)
                 }
             }
 
@@ -373,17 +367,15 @@ extension ImportCommand {
             case "none":
                 binningScheme = .none
             default:
-                print(formatter.error("Unknown quality-binning value '\(qualityBinning)'. Valid: illumina4, eightLevel, none"))
-                throw CLIExitCode.inputError.exitCode
+                throw reporter.fail(
+                    "Unknown quality-binning value '\(qualityBinning)'. Valid: illumina4, eightLevel, none", exitCode: .inputError
+                )
             }
 
             // MARK: Resolve compression level
 
             guard let compLevel = CompressionLevel(rawValue: compression.lowercased()) else {
-                print(formatter.error(
-                    "Unknown compression '\(compression)'. Valid: fast, balanced, maximum"
-                ))
-                throw CLIExitCode.inputError.exitCode
+                throw reporter.fail("Unknown compression '\(compression)'. Valid: fast, balanced, maximum", exitCode: .inputError)
             }
 
             // MARK: Resolve clumping tool
@@ -394,8 +386,9 @@ extension ImportCommand {
                     ? ClumpingTool.none
                     : try clumpingTool.map(Self.parseClumpingTool)
             } catch {
-                print(formatter.error("Unknown clumping-tool value '\(clumpingTool ?? "")'. Valid: auto, bbtools, trim-galore, none"))
-                throw CLIExitCode.inputError.exitCode
+                throw reporter.fail(
+                    "Unknown clumping-tool value '\(clumpingTool ?? "")'. Valid: auto, bbtools, trim-galore, none", exitCode: .inputError
+                )
             }
 
             // MARK: Build config
@@ -422,25 +415,21 @@ extension ImportCommand {
                 pairing: pairingChoice
             )
 
-            if !dryRun {
-                try await Self.installRequiredManagedDatabases(
-                    requiredIDs: Self.requiredManagedDatabaseIDs(
-                        legacyRecipe: oldRecipe,
-                        newRecipe: newRecipe
-                    ),
-                    formatter: formatter,
-                    isQuiet: globalOptions.quiet
-                )
-            }
+            try await Self.installRequiredManagedDatabases(
+                requiredIDs: Self.requiredManagedDatabaseIDs(legacyRecipe: oldRecipe, newRecipe: newRecipe),
+                formatter: formatter,
+                isQuiet: globalOptions.quiet,
+                emit: { reporter.text($0) },
+                failure: { reporter.failedEvent($0) }
+            )
 
             // MARK: Run import
 
             if !globalOptions.quiet {
-                print(formatter.info("Starting import with \(threadCount) thread(s)…"))
-                print("")
+                reporter.text(formatter.info("Starting import with \(threadCount) thread(s)…"))
+                reporter.text("")
             }
 
-            let quiet = globalOptions.quiet
             // SIGTERM (the window's Cancel) cancels the import, so it removes
             // its staging bundle and workspace before the command exits. It
             // listens before the task starts, and a SIGTERM caught before then
@@ -454,39 +443,22 @@ extension ImportCommand {
                 await FASTQBatchImporter.runBatchImport(
                     pairs: effectivePairs,
                     config: config,
-                    log: { event in
-                        if !isJSON, !quiet, case .platformResolved(let sample, let platform, let source, _, _, _, let message) = event {
-                            let line = "\(sample): \(message)"
-                            print(platform == "unknown" && source == "inferred" ? formatter.warning(line) : formatter.info(line))
-                        }
-                        if !isJSON, case .notice(let sample, let message) = event, message.hasPrefix("--platform ") {
-                            print(formatter.warning("\(sample): \(message)"))
-                        }
-                        if isJSON || !quiet {
-                            let json = FASTQBatchImporter.encodeLogEvent(event)
-                            print(json)
-                            // stdout is a pipe when the app runs this import, so
-                            // print buffers. Flush each event, or the Operations
-                            // Panel sees none of them until the import ends.
-                            fflush(stdout)
-                        }
-                    }
+                    log: { event in reporter.log(event) }
                 )
             }
             pendingCancel.attach(importTask)
             let result = await importTask.value
             termination.end()
             if result.cancelled {
-                print(formatter.error("Import cancelled"))
-                throw CLIExitCode.cancelled.exitCode
+                throw reporter.fail("Import cancelled", exitCode: .cancelled)
             }
 
             // MARK: Print summary
 
-            print("")
-            print(formatter.header("Import Summary"))
-            print("")
-            print(formatter.keyValueTable([
+            reporter.text("")
+            reporter.text(formatter.header("Import Summary"))
+            reporter.text("")
+            reporter.text(formatter.keyValueTable([
                 ("Completed", "\(result.completed)"),
                 ("Skipped",   "\(result.skipped)"),
                 ("Failed",    "\(result.failed)"),
@@ -494,13 +466,14 @@ extension ImportCommand {
             ]))
 
             if !result.errors.isEmpty {
-                print("")
-                print(formatter.warning("Failed samples:"))
+                reporter.text("")
+                reporter.text(formatter.warning("Failed samples:"))
                 for (sample, error) in result.errors {
-                    print(formatter.error("  \(sample): \(error)"))
+                    reporter.text(formatter.error("  \(sample): \(error)"))
                 }
-                throw CLIExitCode.workflowError.exitCode
+                throw reporter.failSamples(result.errors)
             }
+            reporter.complete(message: "Imported \(result.completed) sample(s)")
         }
 
         static func requiredManagedDatabaseIDs(
@@ -625,7 +598,8 @@ extension ImportCommand {
             formatter: TerminalFormatter,
             isQuiet: Bool,
             databaseRegistry: any ManagedDatabaseProvisioning = DatabaseRegistry.shared,
-            emit: @escaping @Sendable (String) -> Void = { print($0) }
+            emit: @escaping @Sendable (String) -> Void = { print($0) },
+            failure: @escaping @Sendable (String) -> Void = { _ in }
         ) async throws {
             guard !requiredIDs.isEmpty else { return }
 
@@ -654,9 +628,12 @@ extension ImportCommand {
                     }
                 } catch let error as HumanScrubberDatabaseError {
                     emit(formatter.error(error.localizedDescription))
+                    failure(error.localizedDescription)
                     throw CLIExitCode.dependency.exitCode
                 } catch {
-                    emit(formatter.error("Failed to install \(displayName): \(error.localizedDescription)"))
+                    let message = "Failed to install \(displayName): \(error.localizedDescription)"
+                    emit(formatter.error(message))
+                    failure(message)
                     throw CLIExitCode.dependency.exitCode
                 }
             }
