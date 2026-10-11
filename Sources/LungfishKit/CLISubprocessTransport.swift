@@ -174,18 +174,12 @@ public actor CLISubprocessTransport {
             onEvent(.log(level: .info, message: line))
         }
 
-        // The one spec and the one outcome mapping of `CLIProcessLauncher`, with
-        // both streams delivered line by line.
-        let launch = await cancellation.run(
-            CLIProcessLauncher.spec(executableURL: binaryURL, arguments: arguments)
-        ) { processEvent in
-            guard case let .output(stream, line) = processEvent else { return }
-            switch stream {
-            case .stdout: handleLine(line)
-            case .stderr: handleStandardErrorLine(line)
-            }
-        }
-        let outcome = CLIProcessLauncher.map(launch.result, cancelRequested: launch.cancelRequested)
+        let outcome = await CLIProcessLauncher.run(
+            CLIProcessLauncher.spec(executableURL: binaryURL, arguments: arguments),
+            cancellation: cancellation,
+            onStdoutLine: handleLine,
+            onStderrLine: handleStandardErrorLine
+        )
 
         let exit: CLIProcessExit
         switch outcome {

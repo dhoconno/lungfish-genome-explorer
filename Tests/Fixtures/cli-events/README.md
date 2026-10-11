@@ -1,6 +1,6 @@
 # CLI event fixtures
 
-These folders hold transcripts of the event lines that `lungfish-cli` prints when a command runs with events on. `CLIEventCompatibilityTests` decodes every file here. The wire format is written down in `docs/formats/cli-events.md`.
+These folders hold transcripts of the event lines that `lungfish-cli` prints when a command runs with events on. `CLIEventCompatibilityTests` decodes every file in `v1`, and `CLIPrimerTrimRunnerTests` reads the file in `v2`. The wire format is written down in `docs/formats/cli-events.md`.
 
 ## v1
 
@@ -33,6 +33,10 @@ These files must not be captured again. After the version 2 encoder landed, the 
 | `fastq-platform` | `fastq platform --set ont` on a bundle recorded as Illumina |
 | `fastq-platform-failed` | `fastq platform --set ont` on a bundle whose metadata file cannot be read |
 
+## v2
+
+`v2/bam-primer-trim.ndjson` is a version 2 run of `bam primer-trim` captured in process in lane C3, with paths rewritten to `/work` and `outputs` in version 1 order. `CLIPrimerTrimRunnerTests` asserts its track id.
+
 ## Commands that are not captured
 
 Five of the 21 leaf commands that emit `CLIEvent` need an external tool, so they were skipped. They get real transcripts in the golden environment when the contract coverage lane adds the per-command table.
@@ -42,7 +46,7 @@ Five of the 21 leaf commands that emit `CLIEvent` need an external tool, so they
 | `tree infer iqtree` | Runs IQ-TREE |
 | `align mafft` | Runs MAFFT |
 | `assemble` | Runs a managed assembler, and writes its events to standard error |
-| `bam primer-trim` | Runs iVar on a bundle alignment |
+| `bam primer-trim` | Runs iVar on a bundle alignment. A version 2 run is in `v2`. |
 | `variants call` | Runs LoFreq, iVar or Medaka |
 
 ## Shapes no run produced

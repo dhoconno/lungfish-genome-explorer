@@ -127,6 +127,39 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
         }
     }
 
+    /// A CLI that exits nonzero without a `failed` event fails the row with its standard
+    /// error. The line reaches the log once at info, and the failure entry stays last.
+    func testANonzeroExitWithNoFailedEventReadsFailedWithItsStandardError() async throws {
+        let errorLine = "Error: Tree node not found: NoSuchTip"
+        let failure = "lungfish-cli exited with status 2: \(errorLine)"
+        let lines = Array(try transcript("tree-reroot-failed", as: .version1).prefix(3))
+        XCTAssertFalse(lines.contains { $0.contains(#""event":"failed""#) }, "the stand-in prints no failed event")
+        let cli = try standInCLI(playing: lines, variant: .version1, standardError: [errorLine], exitStatus: 2)
+        let id = beginRow(title: "Reroot tree", type: .phylogeneticTreeTransform)
+        defer { OperationCenter.shared.clearItem(id: id) }
+
+        do {
+            _ = try await CLITreeRunner(label: "tree transform", cliURLOverride: cli)
+                .run(arguments: ["tree", "reroot"], operationID: id)
+            XCTFail("a nonzero exit must throw")
+        } catch let error as CLITreeRunner.RunError {
+            XCTAssertEqual(error, .underlying(failure))
+        }
+
+        await waitUntil(timeout: .seconds(30)) {
+            guard let item = self.item(id), !item.state.isActive else { return false }
+            return self.loggedLines(of: item).count == 3
+        }
+        let item = try XCTUnwrap(item(id))
+        let logged = loggedLines(of: item)
+        XCTAssertEqual(item.displayStateLabel, "Failed")
+        XCTAssertEqual(item.errorMessage, failure)
+        XCTAssertEqual(logged.last, "error: Failed: \(failure)", "the failure entry stays last")
+        XCTAssertEqual(logged.filter { $0 == "info: \(errorLine)" }.count, 1, "the standard error line is logged once at info")
+        XCTAssertEqual(Set(logged), ["info: Starting tree transform.", "info: \(errorLine)", "error: Failed: \(failure)"])
+        XCTAssertEqual(bundleImports.paths, [])
+    }
+
     /// The user cancels while the CLI is finishing. The CLI still prints its `complete`
     /// line, naming a bundle, but a row that is cancelling when its run ends reads
     /// Cancelled and imports nothing.
@@ -196,12 +229,14 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
     }
 
     /// A shell script in place of `lungfish-cli` that prints `lines` on standard output,
-    /// after ``standardErrorText`` on standard error for version 2, and exits with
-    /// `exitStatus`. With `go` set it prints every line but the last, touches `ready`, and
+    /// after `standardError` on standard error, and exits with `exitStatus`. Without
+    /// `standardError` it writes ``standardErrorText`` for version 2 and nothing for
+    /// version 1. With `go` set it prints every line but the last, touches `ready`, and
     /// waits for `go` to exist before it prints the last line.
     private func standInCLI(
         playing lines: [String],
         variant: Variant,
+        standardError: [String]? = nil,
         exitStatus: Int32 = 0,
         holdingTheLastLineUntil go: URL? = nil,
         announcing ready: URL? = nil
@@ -211,8 +246,9 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
         let last = folder.appendingPathComponent("last-\(tag).ndjson")
         let text = folder.appendingPathComponent("stderr-\(tag).txt")
         var script = "#!/bin/sh\n"
-        if variant == .version2 {
-            try (Self.standardErrorText.joined(separator: "\n") + "\n").write(to: text, atomically: true, encoding: .utf8)
+        let errorLines = standardError ?? (variant == .version2 ? Self.standardErrorText : [])
+        if !errorLines.isEmpty {
+            try (errorLines.joined(separator: "\n") + "\n").write(to: text, atomically: true, encoding: .utf8)
             script += "/bin/cat '\(text.path)' >&2\n"
         }
         if let go, let ready {

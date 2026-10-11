@@ -42,7 +42,7 @@ A run that succeeds ends with one `complete` line, and a run that fails ends wit
 | `role` | Why the command made it, such as `alignment` |
 | `provenancePath` | The provenance record that describes it |
 
-A reader keeps a `kind` it does not know as a plain string. In the app, `CLIEventArtifact.bundleKind` reads a kind that names a bundle kind in `BundleKindRegistry` as that `BundleKindID`, and gives nil for any other kind, which keeps its string. An element without a `path` is dropped, and the rest of the line is kept. The app takes the paths it imports from `outputs` only, and `artifacts` adds information beside them.
+A reader keeps a `kind` it does not know as a plain string. In the app, `CLIEventArtifact.bundleKind` reads a kind that names a bundle kind in `BundleKindRegistry` as that `BundleKindID` when the path carries that kind's folder extension, and gives nil for any other kind, which keeps its string. An element without a `path` is dropped, and the rest of the line is kept. The app takes the paths it imports from `outputs` only, and `artifacts` adds information beside them.
 
 ### Roles and the primer trim example
 

@@ -11,11 +11,11 @@ private let eventLineLogger = Logger(subsystem: LogSubsystem.workflow, category:
 
 /// One output that a `complete` or `output` line describes beyond its path.
 ///
-/// `kind` is a plain string today. Once the bundle kind registry exists it holds a
-/// bundle kind id, and a reader that does not know the id still gets the string
-/// (decision S9), so an unknown kind never fails a line.
+/// `kind` is a string on the wire, a bundle kind id such as `phylogenetic-tree` or a
+/// file kind such as `bam`, and ``bundleKind`` reads the first. A reader keeps an
+/// unknown kind as the string (decision S9).
 public struct CLIEventArtifact: Sendable, Equatable, Codable {
-    /// What the artifact is, such as a bundle kind id. Empty when the writer did not say.
+    /// What the artifact is, such as a bundle kind id or a file kind. Empty when the writer did not say.
     public let kind: String
     /// The file or folder, as a path the reader can open.
     public let path: String
@@ -65,11 +65,17 @@ extension CLIEventArtifact {
     /// The bundle kind that ``kind`` names, looked up in `BundleKindRegistry`.
     ///
     /// Nil when ``kind`` names no registered bundle kind, such as a file kind
-    /// like `bam` or a kind from a later registry. ``kind`` keeps the string the
-    /// writer gave either way, because kinds stay strings on the wire.
+    /// like `bam` or a kind from a later registry, and nil when ``path`` does not
+    /// carry one of that kind's folder extensions. A file kind that shares a
+    /// bundle kind id, such as `fastq`, reads as nil. ``kind`` keeps the string
+    /// the writer gave either way, because kinds stay strings on the wire.
     public var bundleKind: BundleKindID? {
         let id = BundleKindID(rawValue: kind)
-        return BundleKindRegistry.descriptor(for: id) == nil ? nil : id
+        guard let descriptor = BundleKindRegistry.descriptor(for: id),
+              descriptor.folderExtensions.contains(URL(fileURLWithPath: path).pathExtension.lowercased()) else {
+            return nil
+        }
+        return id
     }
 }
 

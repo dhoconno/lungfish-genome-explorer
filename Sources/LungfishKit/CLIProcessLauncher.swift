@@ -62,7 +62,7 @@ public struct CLIProcessExit: Sendable, Equatable {
 /// Launches `lungfish-cli` from the app on ``ToolProcess``.
 ///
 /// Every runner that spawns the CLI builds its spec here and reads its
-/// outcome through ``run(_:cancellation:onStdoutLine:)``, so the environment,
+/// outcome through ``run(_:cancellation:onStdoutLine:onStderrLine:)``, so the environment,
 /// the event line limit, stdin and the mapping of the result are the same for
 /// all of them. Callers keep only their own event decoding and messages.
 public enum CLIProcessLauncher {
@@ -122,14 +122,21 @@ public enum CLIProcessLauncher {
     ///     calling task cancels it too.
     ///   - onStdoutLine: Receives each stdout line, one at a time, before
     ///     this method returns.
+    ///   - onStderrLine: Receives each stderr line, one at a time and in
+    ///     order with the stdout lines, before this method returns. The
+    ///     result still keeps stderr for the failure detail.
     public static func run(
         _ spec: ToolProcessSpec,
         cancellation: CLIRunCancellation,
-        onStdoutLine: (@Sendable (String) -> Void)? = nil
+        onStdoutLine: (@Sendable (String) -> Void)? = nil,
+        onStderrLine: (@Sendable (String) -> Void)? = nil
     ) async -> CLIProcessOutcome {
         let outcome = await cancellation.run(spec) { event in
-            guard let onStdoutLine, case .output(.stdout, let line) = event else { return }
-            onStdoutLine(line)
+            guard case .output(let stream, let line) = event else { return }
+            switch stream {
+            case .stdout: onStdoutLine?(line)
+            case .stderr: onStderrLine?(line)
+            }
         }
         return map(outcome.result, cancelRequested: outcome.cancelRequested)
     }

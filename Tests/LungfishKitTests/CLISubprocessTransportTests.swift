@@ -188,13 +188,16 @@ final class CLISubprocessTransportTests: XCTestCase {
     }
 
     /// The typed artifacts of the completion come back beside `outputs`, which keeps
-    /// its own order. A kind that names a registered bundle kind reads as that kind,
-    /// and every kind stays the string the CLI wrote.
+    /// its own order. A kind that names a registered bundle kind reads as that kind
+    /// when the path carries the kind's folder extension, so a FASTQ file is not read
+    /// as a FASTQ bundle, and every kind stays the string the CLI wrote.
     func testTypedArtifactsOfTheCompletionComeBackBesideItsOutputs() async throws {
         let complete = """
         {"artifacts":[{"kind":"phylogenetic-tree","path":"/work/t.lungfishtree","role":"tree"},\
         {"kind":"bam","path":"/work/a.bam","provenancePath":"/work/a.provenance.json","role":"alignment"},\
-        {"kind":"holographic-bundle","path":"/work/h","sizeBytes":12}],\
+        {"kind":"holographic-bundle","path":"/work/h","sizeBytes":12},\
+        {"kind":"fastq","path":"/work/reads.fastq.gz","role":"reads"},\
+        {"kind":"fastq","path":"/work/S.lungfishfastq","role":"reads"}],\
         "event":"complete","message":"done","outputs":["/work/a.bam","/work/t.lungfishtree"],"schemaVersion":2}
         """
         let result = try await run(try fakeCLI(printing: [complete])).get()
@@ -205,9 +208,11 @@ final class CLISubprocessTransportTests: XCTestCase {
             CLIEventArtifact(kind: "phylogenetic-tree", path: "/work/t.lungfishtree", role: "tree"),
             CLIEventArtifact(kind: "bam", path: "/work/a.bam", role: "alignment", provenancePath: "/work/a.provenance.json"),
             CLIEventArtifact(kind: "holographic-bundle", path: "/work/h"),
+            CLIEventArtifact(kind: "fastq", path: "/work/reads.fastq.gz", role: "reads"),
+            CLIEventArtifact(kind: "fastq", path: "/work/S.lungfishfastq", role: "reads"),
         ])
-        XCTAssertEqual(result.artifacts.map(\.bundleKind), [.phylogeneticTree, nil, nil])
-        XCTAssertEqual(result.artifacts.map(\.kind), ["phylogenetic-tree", "bam", "holographic-bundle"])
+        XCTAssertEqual(result.artifacts.map(\.bundleKind), [.phylogeneticTree, nil, nil, nil, .fastq])
+        XCTAssertEqual(result.artifacts.map(\.kind), ["phylogenetic-tree", "bam", "holographic-bundle", "fastq", "fastq"])
     }
 
     /// A version 1 completion carries no artifacts.
