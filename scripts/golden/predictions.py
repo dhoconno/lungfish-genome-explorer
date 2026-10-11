@@ -78,6 +78,12 @@ Predictions file, one JSON object:
   `oldPattern`, `value` or `pattern` decide. A change that all of them refuse
   is a wrong value even when a rule without one covers it too, and then no
   rule counts it.
+- A clean run shows that every change the check reads was predicted and that
+  every prediction happened. The check reads neither inside a file that is
+  added or removed nor inside an object or array that a rule accepts without a
+  `value`, so read those in full. A rule without `count` accepts any number of
+  matching changes, so give a `count` to every rule whose file is a glob or
+  whose path holds `[*]` or `*`.
 """
 
 from __future__ import annotations
