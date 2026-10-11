@@ -103,6 +103,40 @@ struct AnalysisRunExecutorCancelTests {
         #expect(try fixture.record(at: cancelled.recordURL).status == .cancelled)
     }
 
+    @Test("A unit that fails or throws while a cancel is requested, before the task is cancelled, ends the run cancelled")
+    func failedUnitBeforeTheTaskIsCancelledReadsCancelled() async throws {
+        let fixture = try AnalysisRunTestProject()
+        defer { fixture.cleanup() }
+        let signalled = "kraken2 ended by signal 15"
+        for throwing in [false, true] {
+            let probe = FakeToolProbe()
+            let recorder = AnalysisRunEventRecorder()
+            var tool = FakeAnalysisRunTool(probe: probe)
+            tool.units = [AnalysisRunPlannedUnit(label: "s1", value: .requestCancelThenFail(signalled, throwing: throwing))]
+            let executor = AnalysisRunExecutor(services: AnalysisRunServices(
+                writer: ProvenanceWriter(signingProvider: nil),
+                cancelRequested: { probe.cancelRequested }
+            ))
+
+            // The run's task is never cancelled. Only the services report the cancel.
+            let report = await executor.execute(tool, fixture.request(), events: recorder.events)
+
+            #expect(report.status == .cancelled)
+            #expect(report.exitCode == 125)
+            #expect(report.message == "\(tool.identity.displayName) was cancelled.")
+            #expect(probe.phases == ["plan", "run s1"])
+            let folder = try #require(report.analysisDirectory)
+            #expect(AnalysisRunRecord.load(from: folder)?.outcome == .cancelled)
+            let record = try fixture.record(at: report.recordURL)
+            #expect(record.status == .cancelled)
+            #expect(record.exitStatus == 125)
+            #expect(record.stderr == report.message)
+            // Nothing was hashed for the record, which lists no output.
+            #expect(record.outputs.isEmpty)
+            #expect(recorder.snapshot.last?.event == .failed(message: report.message, detail: nil))
+        }
+    }
+
     @Test("A cancel during the plan leaves no folder")
     func cancelDuringThePlan() async throws {
         let fixture = try AnalysisRunTestProject()

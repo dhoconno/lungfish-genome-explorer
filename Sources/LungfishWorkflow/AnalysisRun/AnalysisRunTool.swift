@@ -46,7 +46,9 @@ public protocol AnalysisRunTool: Sendable {
     ) async throws -> AnalysisRunPlan<Unit>
 
     /// Phase P2. Runs one unit. A thrown error ends the unit as failed with the error's
-    /// description, unless the run was cancelled, which ends the whole run as cancelled.
+    /// description. A thrown error or a failed outcome while a cancel is requested ends the whole
+    /// run as cancelled, whatever the error or the reason says, because a unit whose child the
+    /// cancel signalled fails before or after its task sees the cancel (SWIFT X2).
     func run(
         _ unit: AnalysisRunUnit<Unit>,
         context: AnalysisRunUnitContext

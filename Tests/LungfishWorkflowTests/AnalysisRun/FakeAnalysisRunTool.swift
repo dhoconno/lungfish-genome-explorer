@@ -31,6 +31,10 @@ enum FakeUnitScript: Sendable {
     case cancelRunThen(String?)
     /// Runs `/bin/sleep 30` through `ToolProcess`, says it started and waits for the cancel.
     case runProcessUntilCancelled
+    /// Asks for a cancel through the probe, as a SIGTERM counted before the run's task is
+    /// cancelled does, then fails for the reason given, or throws it, as a unit whose child
+    /// process the cancel signalled would.
+    case requestCancelThenFail(String, throwing: Bool)
 }
 
 struct FakeToolError: Error, LocalizedError {
@@ -46,10 +50,18 @@ final class FakeToolProbe: Sendable {
         var finalizedOutcomes: [String] = []
         var sampleNames: [String] = []
         var launchedProcess: Int32?
+        var cancelRequested = false
     }
 
     private let state = Mutex(State())
     private let started = AsyncStream<Void>.makeStream()
+
+    /// Asks for a cancel, for an executor whose services read ``cancelRequested``.
+    func requestCancel() {
+        state.withLock { $0.cancelRequested = true }
+    }
+
+    var cancelRequested: Bool { state.withLock { $0.cancelRequested } }
 
     /// Says a unit is running and waiting for the cancel.
     func signalStarted() {
@@ -235,6 +247,12 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
                 probe.signalStarted()
             })
             return .failed(reason: "sleep ended without a cancel request")
+        case .requestCancelThenFail(let reason, let throwing):
+            probe.requestCancel()
+            if throwing {
+                throw FakeToolError(message: reason)
+            }
+            return .failed(reason: reason)
         case .complete, .warn:
             break
         }

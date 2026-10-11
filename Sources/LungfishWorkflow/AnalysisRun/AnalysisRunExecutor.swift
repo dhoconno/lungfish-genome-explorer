@@ -14,10 +14,20 @@ public struct AnalysisRunServices: Sendable {
     /// its conformance over the `build-db` cores. Nil leaves a finalize that asks for an index
     /// with ``AnalysisRunError/noResultIndexer(_:)``.
     public var indexing: (any AnalysisResultIndexing)?
+    /// Whether a cancel was requested before the run's task saw it, such as a SIGTERM the
+    /// command's `SIGTERMCancellation` counted in its signal handler. The executor reads it beside
+    /// `Task.isCancelled` at every cancel check, so a unit that fails because the cancel signalled
+    /// its child still ends the run as cancelled (SWIFT X2). The default reports none.
+    public var cancelRequested: @Sendable () -> Bool
 
-    public init(writer: ProvenanceWriter = ProvenanceWriter(), indexing: (any AnalysisResultIndexing)? = nil) {
+    public init(
+        writer: ProvenanceWriter = ProvenanceWriter(),
+        indexing: (any AnalysisResultIndexing)? = nil,
+        cancelRequested: @escaping @Sendable () -> Bool = { false }
+    ) {
         self.writer = writer
         self.indexing = indexing
+        self.cancelRequested = cancelRequested
     }
 
     /// The writer with the signing provider the environment names, and no index builder.
@@ -42,11 +52,13 @@ public struct AnalysisRunServices: Sendable {
 /// | P6 settle | executor | completes the run record, or records the outcome and keeps the folder hidden (E5) |
 /// | P7 report | executor | the `complete` or `failed` event and the exit code |
 ///
-/// A cancel is task cancellation only, such as the command's `SIGTERMCancellation` cancelling
-/// its task. The status `cancelled` and exit 125 come from that cancel request and never from
-/// how a unit or its child process ended (SWIFT X2). The cancelled path skips the finalize,
-/// records only descriptors the tool already took and hashes no partial output, so it ends well
-/// inside the grace the app's transport gives a cancelled command.
+/// A cancel request is the cancellation of the run's task, such as the command's
+/// `SIGTERMCancellation` cancelling it, or the services' `cancelRequested`, which can report the
+/// SIGTERM before the task is cancelled. The status `cancelled` and exit 125 come from that cancel
+/// request and never from how a unit or its child process ended (SWIFT X2), so a unit that fails
+/// or throws while a cancel is requested ends the run as cancelled. The cancelled path skips the
+/// finalize, records only descriptors the tool already took and hashes no partial output, so it
+/// ends well inside the grace the app's transport gives a cancelled command.
 ///
 /// The executor keeps no state of its own. Each `execute` call keeps its run state in locals,
 /// so one executor can run several requests (SWIFT X3).
@@ -83,11 +95,11 @@ public struct AnalysisRunExecutor: Sendable {
                 throw AnalysisRunError.emptyPlan(identity.toolID)
             }
         } catch {
-            let ending: AnalysisRunEnding = Task.isCancelled ? .cancelled : .failed(reason: Self.reason(for: error))
+            let ending: AnalysisRunEnding = cancelIsRequested ? .cancelled : .failed(reason: Self.reason(for: error))
             return report(ending, identity: identity, folder: nil, recordURL: nil, finalization: nil, journal: journal)
         }
         // A cancel during the plan leaves no folder, like a refused plan.
-        if Task.isCancelled {
+        if cancelIsRequested {
             return report(.cancelled, identity: identity, folder: nil, recordURL: nil, finalization: nil, journal: journal)
         }
 
@@ -187,11 +199,11 @@ public struct AnalysisRunExecutor: Sendable {
             )
             // A cancel during the finalize drops what it wrote from the record, so nothing
             // partial is hashed.
-            guard !Task.isCancelled else { return (.cancelled, nil) }
+            guard !cancelIsRequested else { return (.cancelled, nil) }
             finalization.warnings.forEach(journal.warn)
             return (.completed, finalization)
         } catch {
-            guard !Task.isCancelled else { return (.cancelled, nil) }
+            guard !cancelIsRequested else { return (.cancelled, nil) }
             let reason = "The \(tool.identity.displayName) results could not be finished: \(Self.reason(for: error))"
             return (.failed(reason: reason), nil)
         }
@@ -252,6 +264,12 @@ public struct AnalysisRunExecutor: Sendable {
             recordURL: recordURL,
             message: message
         )
+    }
+
+    /// Whether a cancel was requested, by the run's task being cancelled or through the services.
+    /// Only this ends a run as cancelled.
+    var cancelIsRequested: Bool {
+        Task.isCancelled || services.cancelRequested()
     }
 
     /// The text a run gives for an error, its description. A cancellation error without a cancel

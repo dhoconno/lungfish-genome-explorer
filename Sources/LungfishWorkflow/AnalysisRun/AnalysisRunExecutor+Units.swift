@@ -16,10 +16,12 @@ extension AnalysisRunExecutor {
     ///
     /// A batch root gives each unit its own folder through `AnalysesFolder.batchSampleDirectory`,
     /// the one sanitizer, and the unit's sample name is that folder's name. The loop checks for a
-    /// cancel request before each unit and after it. A cancel request, and nothing else, makes the
-    /// run cancelled, so a unit that failed because its child process was signalled during a
-    /// cancel still reads cancelled, and one that failed the same way without a cancel request
-    /// reads failed (SWIFT X2). The tool's policy says whether the loop goes on after a failed unit.
+    /// cancel request, the task's cancellation or the services' `cancelRequested`, before each
+    /// unit and after it, whatever the unit returned or threw. A cancel request, and nothing else,
+    /// makes the run cancelled, so a unit that failed because its child process was signalled
+    /// during a cancel still reads cancelled, also when it failed before the task was cancelled,
+    /// and one that failed the same way without a cancel request reads failed (SWIFT X2). The
+    /// tool's policy says whether the loop goes on after a failed unit.
     func runUnits<Tool: AnalysisRunTool>(
         _ tool: Tool,
         plan: AnalysisRunPlan<Tool.Unit>,
@@ -30,7 +32,7 @@ extension AnalysisRunExecutor {
         let policy = tool.terminalPolicy
         var reports: [AnalysisUnitReport<Tool.UnitResult>] = []
         for (index, planned) in plan.units.enumerated() {
-            guard !Task.isCancelled else {
+            guard !cancelIsRequested else {
                 return AnalysisRunUnitResults(reports: reports, cancelled: true)
             }
             journal.emit(.progress(
@@ -67,7 +69,7 @@ extension AnalysisRunExecutor {
             }
             // What the unit recorded before the cancel stays in the root record. Its outcome,
             // whatever ended its child process, does not decide the status.
-            guard !Task.isCancelled else {
+            guard !cancelIsRequested else {
                 return AnalysisRunUnitResults(reports: reports, cancelled: true)
             }
 
