@@ -547,14 +547,93 @@ final class KreportParserTests: XCTestCase {
 
     // MARK: - Edge Cases
 
-    func testOnlyUnclassifiedThrows() throws {
-        // Only an unclassified line with no classified data
-        let text = """
-        100.00\t10000\t10000\tU\t0\tunclassified
-        """
+    // MARK: - A Sample With Nothing Classified (Phase 2.7, ruling 1)
 
-        XCTAssertThrowsError(try KreportParser.parse(text: text)) { error in
-            XCTAssertTrue(error is KreportParserError)
+    /// kraken2 leaves out a clade whose count is zero, so a sample with no
+    /// classified read, such as an extraction blank or a no-template control,
+    /// reports one `U` line and no root. That report is complete and its result
+    /// is valid, because a clean negative control is evidence.
+    ///
+    /// The 6-column line is kraken2's default report. The 8-column line is the
+    /// `--report-minimizer-data` form, which the classification pipeline asks for.
+    private static let sixColumnControl = "100.00\t40\t40\tU\t0\tunclassified\n"
+    private static let eightColumnControl = "100.00\t40\t40\t0\t0\tU\t0\tunclassified\n"
+
+    /// What every reader of a control's tree relies on. The totals count the
+    /// unclassified reads, the root exists with no reads, and no taxon sits at
+    /// any rank, which is what the Bracken rank preflight asks.
+    private func assertAllUnclassified(
+        _ tree: TaxonTree,
+        reads: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(tree.totalReads, reads, file: file, line: line)
+        XCTAssertEqual(tree.classifiedReads, 0, file: file, line: line)
+        XCTAssertEqual(tree.unclassifiedReads, reads, file: file, line: line)
+        XCTAssertEqual(tree.classifiedFraction, 0, file: file, line: line)
+        XCTAssertEqual(tree.unclassifiedFraction, 1, file: file, line: line)
+
+        XCTAssertEqual(tree.root.taxId, 1, file: file, line: line)
+        XCTAssertEqual(tree.root.name, "root", file: file, line: line)
+        XCTAssertEqual(tree.root.rank, .root, file: file, line: line)
+        XCTAssertEqual(tree.root.readsClade, 0, file: file, line: line)
+        XCTAssertEqual(tree.root.readsDirect, 0, file: file, line: line)
+        XCTAssertTrue(tree.root.children.isEmpty, file: file, line: line)
+
+        XCTAssertEqual(tree.unclassifiedNode?.rank, .unclassified, file: file, line: line)
+        XCTAssertEqual(tree.unclassifiedNode?.name, "unclassified", file: file, line: line)
+        XCTAssertEqual(tree.unclassifiedNode?.readsClade, reads, file: file, line: line)
+
+        XCTAssertEqual(tree.speciesCount, 0, file: file, line: line)
+        XCTAssertTrue(tree.nodes(at: .species).isEmpty, file: file, line: line)
+        XCTAssertNil(tree.dominantSpecies, file: file, line: line)
+        XCTAssertEqual(tree.allNodes().count, 1, file: file, line: line)
+    }
+
+    func testSixColumnReportWithOnlyUnclassifiedParses() throws {
+        let tree = try KreportParser.parse(text: Self.sixColumnControl)
+        assertAllUnclassified(tree, reads: 40)
+    }
+
+    func testEightColumnReportWithOnlyUnclassifiedParses() throws {
+        let tree = try KreportParser.parse(text: Self.eightColumnControl)
+        assertAllUnclassified(tree, reads: 40)
+    }
+
+    func testOnlyUnclassifiedReportParsesFromAFile() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kreport-control-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        // The pipeline parses the report file that kraken2 wrote.
+        for (name, text) in [("six.kreport", Self.sixColumnControl), ("eight.kreport", Self.eightColumnControl)] {
+            let url = directory.appendingPathComponent(name)
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            assertAllUnclassified(try KreportParser.parse(url: url), reads: 40)
+        }
+    }
+
+    func testOnlyUnclassifiedReportParsesWhateverSurroundsTheLine() throws {
+        for text in [
+            "100.00\t40\t40\tU\t0\tunclassified",
+            "# a comment\n  100.00\t40\t40\tU\t0\tunclassified\n\n",
+            "\n\n100.00\t40\t40\tU\t0\tunclassified\r\n",
+            "this is not a kreport line\n100.00\t40\t40\t0\t0\tU\t0\tunclassified\n",
+        ] {
+            assertAllUnclassified(try KreportParser.parse(text: text), reads: 40)
+        }
+    }
+
+    func testReportWithNoDataLineStillThrowsEmptyReport() throws {
+        // A line that is not kreport-shaped is skipped, so nothing is left to read.
+        for text in ["# only a comment\n", "this is not a kreport line\n", "\t\t\n"] {
+            XCTAssertThrowsError(try KreportParser.parse(text: text), text) { error in
+                guard case .emptyReport? = error as? KreportParserError else {
+                    return XCTFail("Expected emptyReport, got \(error)")
+                }
+            }
         }
     }
 
