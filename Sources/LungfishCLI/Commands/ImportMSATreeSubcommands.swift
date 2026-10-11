@@ -32,7 +32,7 @@ extension ImportCommand {
             let sourceURL = URL(fileURLWithPath: inputFile).standardizedFileURL
             let projectURL = URL(fileURLWithPath: projectPath).standardizedFileURL
             let eventsOn = globalOptions.outputFormat == .json
-            let emitter = ImportCLIEventEmitter(enabled: eventsOn)
+            let emitter = ImportCLIEventEmitter(enabled: eventsOn, quiet: globalOptions.quiet)
             emitter.emitStart(kind: BundleKindID.multipleSequenceAlignment.rawValue)
 
             guard FileManager.default.fileExists(atPath: sourceURL.path) else {
@@ -131,7 +131,7 @@ extension ImportCommand {
             let sourceURL = URL(fileURLWithPath: inputFile).standardizedFileURL
             let projectURL = URL(fileURLWithPath: projectPath).standardizedFileURL
             let eventsOn = globalOptions.outputFormat == .json
-            let emitter = ImportCLIEventEmitter(enabled: eventsOn)
+            let emitter = ImportCLIEventEmitter(enabled: eventsOn, quiet: globalOptions.quiet)
             emitter.emitStart(kind: BundleKindID.phylogeneticTree.rawValue)
 
             guard FileManager.default.fileExists(atPath: sourceURL.path) else {
@@ -202,11 +202,20 @@ extension ImportCommand {
 /// collection in `outputs`, the one list an app imports from, and holds one typed artifact that
 /// describes it. A command with `--format json` prints its summary through `printHumanLine`, which
 /// puts the text on standard error while events are on.
+///
+/// With events off nothing is written as an event, so a person would learn of neither a warning nor a
+/// failure. The emitter then writes each warning as a `Warning: <message>` line and the failure as an
+/// `Error: <message>` line on standard error, through `printStatusLine`. `--quiet` drops the warnings
+/// and keeps the failure.
 struct ImportCLIEventEmitter: Sendable {
     private let events: CLIEventEmitter
+    private let eventsOn: Bool
+    private let quiet: Bool
 
-    init(enabled: Bool) {
+    init(enabled: Bool, quiet: Bool = false) {
         events = CLIEventEmitter(enabled: enabled) { printEventLine($0) }
+        eventsOn = enabled
+        self.quiet = quiet
     }
 
     /// The start line names the kind of what the command imports, such as `phylogenetic-tree`.
@@ -220,6 +229,9 @@ struct ImportCLIEventEmitter: Sendable {
 
     func emitWarning(_ message: String) {
         events.emitLog(.warning, message)
+        if !eventsOn, !quiet {
+            printStatusLine("Warning: \(message)")
+        }
     }
 
     /// The completion of an import that made a bundle. The artifact is typed by the bundle kind and
@@ -252,6 +264,9 @@ struct ImportCLIEventEmitter: Sendable {
 
     func emitFailed(_ message: String) {
         events.emitFailed(message)
+        if !eventsOn {
+            printStatusLine("Error: \(message)")
+        }
     }
 }
 

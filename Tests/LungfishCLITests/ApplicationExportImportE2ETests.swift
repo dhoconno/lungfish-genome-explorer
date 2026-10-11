@@ -1,8 +1,10 @@
+import ArgumentParser
 import Foundation
 import LungfishTestSupport
 import LungfishWorkflow
 import XCTest
 import LungfishCore
+@testable import LungfishCLI
 
 final class ApplicationExportImportE2ETests: XCTestCase {
     // `ImportStreamCapture`, the in-process capture of the import streams, is declared in
@@ -23,6 +25,82 @@ final class ApplicationExportImportE2ETests: XCTestCase {
     /// `Tests/Fixtures/cli-events/legacy`. The old stream is read through the legacy name table.
     func testTheGeneiousAndApplicationExportImportsPrintVersion2EventsThatReadLikeTheOldStreams() async throws {
         try await ImportStreamCapture.assertVersion2Streams(ofLeaves: ["import geneious", "import application-export"])
+    }
+
+    /// Review of lane C5, fix 4. The other two import commands share the emitter of `import msa`, so with
+    /// `--format json` off they write each warning and failure as one line of text on standard error too,
+    /// `Warning: <message>` and `Error: <message>`. `--quiet` drops the warnings and keeps the failures.
+    func testWithoutEventsTheGeneiousAndApplicationExportImportsWriteWarningsAndFailuresAsText() async throws {
+        /// `Warning: <message>` for each warning that an older CLI logged on the warning run of `leaf`.
+        func expectedWarnings(leaf: String) throws -> [String] {
+            let decoder = CLIEventLineDecoder()
+            let url = ImportStreamCapture.legacyTranscriptURL(leaf: leaf, name: "complete-with-warning")
+            return try String(contentsOf: url, encoding: .utf8)
+                .split(separator: "\n", omittingEmptySubsequences: true)
+                .compactMap { try decoder.decode(line: String($0)) }
+                .compactMap { event -> String? in
+                    if case let .log(.warning, message) = event { return "Warning: \(message)" }
+                    return nil
+                }
+        }
+
+        func geneious(_ arguments: [String], missingSource: Bool = false) async throws -> ImportStreamCapture.Output {
+            let scratch = try ImportStreamCapture.Scratch()
+            defer { scratch.remove() }
+            let source = missingSource
+                ? scratch.root.appendingPathComponent("inputs/missing.geneious")
+                : try ImportStreamCapture.geneiousSource(scratch)
+            let command = try ImportCommand.GeneiousSubcommand.parse(
+                [source.path, "--project", scratch.project.path, "--no-import-references", "--preserve-unsupported"] + arguments
+            )
+            return try await ImportStreamCapture.capture(in: scratch) { try await command.run() }
+        }
+
+        func applicationExport(_ arguments: [String], missingSource: Bool = false) async throws -> ImportStreamCapture.Output {
+            let scratch = try ImportStreamCapture.Scratch()
+            defer { scratch.remove() }
+            let source = missingSource
+                ? scratch.root.appendingPathComponent("inputs/missing")
+                : try ImportStreamCapture.nativeBundlesSource(scratch, extraFiles: true)
+            let command = try ImportCommand.ApplicationExportSubcommand.parse(
+                ["alignment-tree", source.path, "--project", scratch.project.path, "--no-import-references"] + arguments
+            )
+            return try await ImportStreamCapture.capture(in: scratch) { try await command.run() }
+        }
+
+        let geneiousWarned = try await geneious([])
+        XCTAssertNil(geneiousWarned.thrown)
+        XCTAssertEqual(geneiousWarned.standardError, try expectedWarnings(leaf: "import geneious"))
+        XCTAssertEqual(geneiousWarned.standardError.count, 5)
+        XCTAssertEqual(
+            geneiousWarned.standardOutput,
+            ["Imported /work/Project.lungfish/Geneious Imports/Representative Geneious Import"]
+        )
+        let geneiousQuiet = try await geneious(["--quiet"])
+        XCTAssertEqual(geneiousQuiet.standardError, [])
+        let geneiousRefused = try await geneious([], missingSource: true)
+        XCTAssertTrue(geneiousRefused.thrown is ExitCode)
+        XCTAssertEqual(geneiousRefused.standardError, ["Error: Input file not found: /work/inputs/missing.geneious"])
+        let geneiousQuietRefused = try await geneious(["--quiet"], missingSource: true)
+        XCTAssertEqual(geneiousQuietRefused.standardError, ["Error: Input file not found: /work/inputs/missing.geneious"])
+
+        let exportWarned = try await applicationExport([])
+        XCTAssertNil(exportWarned.thrown)
+        XCTAssertEqual(exportWarned.standardError, try expectedWarnings(leaf: "import application-export"))
+        XCTAssertEqual(exportWarned.standardError.count, 1)
+        let exportQuiet = try await applicationExport(["--quiet"])
+        XCTAssertEqual(exportQuiet.standardError, [])
+        let exportRefused = try await applicationExport([], missingSource: true)
+        XCTAssertTrue(exportRefused.thrown is ExitCode)
+        XCTAssertEqual(exportRefused.standardError, ["Error: Input file not found: /work/inputs/missing"])
+        let exportQuietRefused = try await applicationExport(["--quiet"], missingSource: true)
+        XCTAssertEqual(exportQuietRefused.standardError, ["Error: Input file not found: /work/inputs/missing"])
+
+        // With events on the events carry the warnings and the failure, and no text is written for them.
+        let eventsGeneious = try await geneious(["--format", "json"])
+        XCTAssertFalse(eventsGeneious.standardError.contains { $0.hasPrefix("Warning: ") }, "\(eventsGeneious.standardError)")
+        let eventsRefused = try await applicationExport(["--format", "json"], missingSource: true)
+        XCTAssertEqual(eventsRefused.standardError, [])
     }
 
     func testGeneiousImportRunsThroughCLIWithRepresentativeArchive() throws {

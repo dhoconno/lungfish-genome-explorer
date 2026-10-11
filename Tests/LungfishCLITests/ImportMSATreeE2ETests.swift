@@ -149,6 +149,54 @@ final class ImportMSATreeE2ETests: XCTestCase {
         XCTAssertEqual(text.standardError, [])
     }
 
+    /// Review of lane C5, fix 4. With `--format json` off no event is written, so a warning and a failure
+    /// reach a person as one line of text each on standard error, `Warning: <message>` and
+    /// `Error: <message>`. The summary stays on standard output. `--quiet` drops the warning and keeps
+    /// the failure. With events on the events carry both, and no text is written for them.
+    func testWithoutEventsAWarningAndAFailureAreWrittenAsTextOnStandardError() async throws {
+        let warning = "Warning: Duplicate row names are present; stable row IDs preserve row order."
+        let failure = "Error: Input file not found: /work/inputs/missing.aln"
+
+        func run(_ arguments: [String], duplicateRows: Bool) async throws -> ImportStreamCapture.Output {
+            let scratch = try ImportStreamCapture.Scratch()
+            defer { scratch.remove() }
+            let source = duplicateRows
+                ? try scratch.write("inputs/duplicates.fasta", ImportStreamCapture.duplicateRows)
+                : scratch.root.appendingPathComponent("inputs/missing.aln")
+            let command = try ImportCommand.MSASubcommand.parse(
+                [source.path, "--project", scratch.project.path] + arguments
+            )
+            return try await ImportStreamCapture.capture(in: scratch) { try await command.run() }
+        }
+
+        let warned = try await run([], duplicateRows: true)
+        XCTAssertNil(warned.thrown)
+        XCTAssertEqual(warned.standardError, [warning])
+        XCTAssertEqual(warned.standardOutput, [
+            "Imported /work/Project.lungfish/Multiple Sequence Alignments/duplicates.lungfishmsa",
+            "Rows: 2",
+            "Columns: 6",
+        ])
+
+        let refused = try await run([], duplicateRows: false)
+        XCTAssertTrue(refused.thrown is ExitCode)
+        XCTAssertEqual(refused.standardError, [failure])
+        XCTAssertEqual(refused.standardOutput, [])
+
+        let quietWarned = try await run(["--quiet"], duplicateRows: true)
+        XCTAssertEqual(quietWarned.standardError, [])
+        let quietRefused = try await run(["--quiet"], duplicateRows: false)
+        XCTAssertTrue(quietRefused.thrown is ExitCode)
+        XCTAssertEqual(quietRefused.standardError, [failure])
+
+        let eventsWarned = try await run(["--format", "json"], duplicateRows: true)
+        XCTAssertFalse(eventsWarned.standardError.contains { $0.hasPrefix("Warning: ") }, "\(eventsWarned.standardError)")
+        XCTAssertTrue(eventsWarned.standardOutput.contains { $0.contains("\"level\":\"warning\"") }, "The warning is an event")
+        let eventsRefused = try await run(["--format", "json"], duplicateRows: false)
+        XCTAssertEqual(eventsRefused.standardError, [])
+        XCTAssertTrue(eventsRefused.standardOutput.last?.contains("\"event\":\"failed\"") == true, "The failure is an event")
+    }
+
     /// `printHumanLine` is the helper of C-L1 that these commands are the first to call.
     func testPrintHumanLineWritesToStandardErrorOnlyWhileEventsAreOn() async throws {
         let scratch = try ImportStreamCapture.Scratch()
@@ -487,7 +535,7 @@ enum ImportStreamCapture {
     """
 
     /// Two rows that share a name, which the importer warns about.
-    private static let duplicateRows = ">seq1\nACGT-A\n>seq1\nAC-TTA\n"
+    static let duplicateRows = ">seq1\nACGT-A\n>seq1\nAC-TTA\n"
 
     private static func msaCases() -> [Case] {
         func run(_ scratch: Scratch, source: URL) async throws -> Output {
@@ -530,7 +578,7 @@ enum ImportStreamCapture {
     }
 
     /// A folder that scans as a Geneious export, with a reference, a report and the document XML.
-    private static func geneiousSource(_ scratch: Scratch) throws -> URL {
+    static func geneiousSource(_ scratch: Scratch) throws -> URL {
         try scratch.write("inputs/Representative/refs/reference.fa", ">chr1\nACGTACGTACGTACGT\n")
         try scratch.write("inputs/Representative/reports/summary.tsv", "sample\tmetric\nA\t1\n")
         try scratch.write("inputs/Representative/document.geneious", """
@@ -565,7 +613,7 @@ enum ImportStreamCapture {
     }
 
     /// A folder of one alignment and one tree, which the `alignment-tree` card imports as native bundles.
-    private static func nativeBundlesSource(_ scratch: Scratch, extraFiles: Bool) throws -> URL {
+    static func nativeBundlesSource(_ scratch: Scratch, extraFiles: Bool) throws -> URL {
         try scratch.write("inputs/Alignment Tree Export/alignments/example.aln", clustal)
         try scratch.write("inputs/Alignment Tree Export/trees/example.nwk", "((A:0.1,B:0.2)Clade:0.3,C:0.4);\n")
         if extraFiles {

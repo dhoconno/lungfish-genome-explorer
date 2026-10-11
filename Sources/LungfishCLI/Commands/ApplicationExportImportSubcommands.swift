@@ -39,7 +39,7 @@ extension ImportCommand {
             let sourceURL = URL(fileURLWithPath: sourcePath)
             let projectURL = URL(fileURLWithPath: projectPath)
             let eventsOn = globalOptions.outputFormat == .json
-            let emitter = ImportCLIEventEmitter(enabled: eventsOn)
+            let emitter = ImportCLIEventEmitter(enabled: eventsOn, quiet: globalOptions.quiet)
             emitter.emitStart(kind: "geneious-export")
 
             guard FileManager.default.fileExists(atPath: sourceURL.path) else {
@@ -130,7 +130,7 @@ extension ImportCommand {
             let sourceURL = URL(fileURLWithPath: sourcePath)
             let projectURL = URL(fileURLWithPath: projectPath)
             let eventsOn = globalOptions.outputFormat == .json
-            let emitter = ImportCLIEventEmitter(enabled: eventsOn)
+            let emitter = ImportCLIEventEmitter(enabled: eventsOn, quiet: globalOptions.quiet)
             emitter.emitStart(kind: applicationKind.cliArgument)
 
             guard FileManager.default.fileExists(atPath: sourceURL.path) else {
