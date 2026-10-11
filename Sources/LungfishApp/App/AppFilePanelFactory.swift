@@ -25,17 +25,14 @@ enum AppFilePanelFactory {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
-        panel.allowedContentTypes = FASTAFileTypes.readableContentTypes + contentTypes(forFilenameExtensions: [
-            "fq",
-            "fastq",
-            "gz",
-            FASTQBundle.directoryExtension,
-            "lungfishprimeranalysis",
-            "gb",
-            "gbk",
-            "gff",
-            "gff3",
-        ])
+        // The panel opens two bundle kinds, read bundles and saved primer analyses, and takes
+        // their folder extensions from BundleKindRegistry.
+        let sequenceExtensions = ["fq", "fastq", "gz"]
+        let bundleExtensions = folderExtensions(of: [.fastq, .primerAnalysis])
+        let annotationExtensions = ["gb", "gbk", "gff", "gff3"]
+        panel.allowedContentTypes = FASTAFileTypes.readableContentTypes + contentTypes(
+            forFilenameExtensions: sequenceExtensions + bundleExtensions + annotationExtensions
+        )
         return panel
     }
 
@@ -210,5 +207,10 @@ enum AppFilePanelFactory {
 
     private static func contentTypes(forFilenameExtensions extensions: [String]) -> [UTType] {
         extensions.compactMap { UTType(filenameExtension: $0) }
+    }
+
+    /// The folder extensions the registry declares for each kind, in the order the kinds are given.
+    private static func folderExtensions(of kinds: [BundleKindID]) -> [String] {
+        kinds.compactMap { BundleKindRegistry.descriptor(for: $0) }.flatMap(\.folderExtensions)
     }
 }
