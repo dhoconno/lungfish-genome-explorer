@@ -530,8 +530,9 @@ struct AssembleCommand: AsyncParsableCommand {
         writer: ProvenanceWriter = ProvenanceWriter()
     ) throws -> URL {
         let toolVersion = result.assemblerVersion ?? "unknown"
-        // A sample of pairs and single reads records the plan and the split
-        // steps that wrote its files (decision 1 of 2026-10-03).
+        // A sample of pairs and single reads records the plan, once, in the
+        // resolved options (E13), and the split steps that wrote its files
+        // (decision 1 of 2026-10-03).
         let readSetOptions = readSets?.provenanceParameters ?? [:]
         var builder = ProvenanceRunBuilder(
             workflowName: "lungfish.assemble",
@@ -546,7 +547,7 @@ struct AssembleCommand: AsyncParsableCommand {
                 originalInputURLs: originalInputURLs,
                 executionInputURLs: executionInputURLs,
                 layoutResolution: layoutResolution
-            ).merging(readSetOptions) { _, plan in plan },
+            ),
             defaults: assemblyDefaultOptions(),
             resolved: assemblyResolvedOptions(
                 for: request,

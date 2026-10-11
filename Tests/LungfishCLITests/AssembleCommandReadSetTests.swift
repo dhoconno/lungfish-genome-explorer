@@ -145,7 +145,8 @@ final class AssembleCommandReadSetTests: XCTestCase {
 
     /// The split of a mixed file is a provenance step with its record counts,
     /// the assembler's inputs name their bundle, and the run's options say
-    /// the pairs were assembled as pairs.
+    /// the pairs were assembled as pairs. The read-set plan sits once, in the
+    /// resolved defaults, the one home of the plan (E13).
     func testProvenanceRecordsTheSplitStepAndEachFileNamesItsBundle() async throws {
         let bundle = try mixedRootBundle(mergedCount: 4, pairCount: 3)
         let run = try await assembleThroughTheCLISteps(bundle, tool: .spades)
@@ -162,11 +163,11 @@ final class AssembleCommandReadSetTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["readPairing"], .string(AssemblyReadPairing.pairedFilesWithSingleReads.rawValue))
         XCTAssertEqual(envelope.options.resolvedDefaults["pairedEnd"], .boolean(true))
         XCTAssertEqual(envelope.options.explicit["originalInputs"], .array([.file(bundle.standardizedFileURL)]))
-        guard case .dictionary(let plan)? = envelope.options.resolvedDefaults["readSetPlan"] else {
-            return XCTFail("the run parameters record the read-set plan")
-        }
-        XCTAssertEqual(plan["pairedFragments"], .integer(3))
-        XCTAssertEqual(plan["mergedReads"], .integer(4))
+        let recorded = try XCTUnwrap(envelope.readSetPlan, "the run records the read-set plan")
+        XCTAssertEqual(recorded.place, .resolvedDefaults, "the plan's one home (E13)")
+        XCTAssertNil(envelope.options.explicit[RecordedReadSetPlan.key], "no second copy in the explicit options")
+        XCTAssertEqual(recorded.fields["pairedFragments"], .integer(3))
+        XCTAssertEqual(recorded.fields["mergedReads"], .integer(4))
     }
 
     /// A virtual bundle is materialized and then split, so the provenance has
@@ -187,7 +188,17 @@ final class AssembleCommandReadSetTests: XCTestCase {
         let run = try await assembleThroughTheCLISteps(fixtures.mergeDerivative, tool: .spades)
         let envelope = try writeProvenance(for: run, inputs: [fixtures.mergeDerivative])
         XCTAssertEqual(envelope.steps.map(\.toolName), [AssemblyTool.spades.rawValue])
-        XCTAssertNotNil(envelope.options.resolvedDefaults["readSetPlan"])
+        XCTAssertEqual(envelope.readSetPlan?.place, .resolvedDefaults, "only the plan is recorded, in its one home (E13)")
+        XCTAssertNil(envelope.options.explicit[RecordedReadSetPlan.key], "no second copy in the explicit options")
+    }
+
+    /// A sample of only pairs records no plan in any home, as it always did.
+    func testASampleOfOnlyPairsRecordsNoReadSetPlan() async throws {
+        let run = try await assembleThroughTheCLISteps(fixtures.pairedDerivative, tool: .spades)
+        let envelope = try writeProvenance(for: run, inputs: [fixtures.pairedDerivative])
+        XCTAssertNil(envelope.readSetPlan)
+        XCTAssertNil(envelope.options.resolvedDefaults[RecordedReadSetPlan.key])
+        XCTAssertNil(envelope.options.explicit[RecordedReadSetPlan.key])
     }
 
     // MARK: - Unchanged
