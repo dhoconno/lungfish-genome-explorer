@@ -1,0 +1,2 @@
+{"event":"start","message":"Starting EsViritu.","progress":0,"schemaVersion":2}
+{"error":"Database directory not found: \/work\/missing-db","event":"failed","schemaVersion":2}

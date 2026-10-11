@@ -74,7 +74,7 @@ public enum CLIEventContractTable {
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
-    // MARK: Leaves that emit events (30)
+    // MARK: Leaves that emit events (31)
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
@@ -83,6 +83,7 @@ public enum CLIEventContractTable {
         "build-db esviritu": .events(flag: formatJSON, channel: .standardOutput),
         "build-db kraken2": .events(flag: formatJSON, channel: .standardOutput),
         "build-db taxtriage": .events(flag: formatJSON, channel: .standardOutput),
+        "esviritu detect": .events(flag: formatJSON, channel: .standardOutput),
         "fastq ont-fluidigm-samples": .events(flag: alwaysOn, channel: .standardError),
         "fastq ont-pacbio-barcode-demux": .events(flag: alwaysOn, channel: .standardError),
         "fastq platform": .events(flag: formatJSON, channel: .standardOutput),
@@ -206,7 +207,7 @@ public enum CLIEventContractTable {
         "import-fastq": .legacy(schemaID: "s1-import-fastq", removeBy: "2.7"),
     ]
 
-    // MARK: Leaves with human text only (123)
+    // MARK: Leaves with human text only (122)
 
     private static let text: [String: CLIEventContract] = [
         "bam adopt-mapping": .text(reason: ignoresFormat),
@@ -238,7 +239,6 @@ public enum CLIEventContractTable {
         "debug resource-smoke": .text(reason: humanTextOnly),
         "debug workflow-log": .text(reason: ignoresFormat),
         "esviritu db-status": .text(reason: ignoresFormat),
-        "esviritu detect": .text(reason: ignoresFormat),
         "esviritu download-db": .text(reason: ignoresFormat),
         "extract reads": .text(reason: ignoresFormat),
         "fastq 12s-export": .text(reason: humanTextOnly),

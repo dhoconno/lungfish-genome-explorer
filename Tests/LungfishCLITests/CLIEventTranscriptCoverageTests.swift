@@ -32,10 +32,10 @@ import XCTest
 final class CLIEventTranscriptCoverageTests: XCTestCase {
     // MARK: Transcript locations
 
-    /// The five `.events` leaves that run an external tool. A unit test cannot run them, so their
+    /// The `.events` leaves that run an external tool. A unit test cannot run them, so their
     /// transcripts come from real runs of the built `lungfish-cli`, which the fixtures README describes.
     static let toolLeaves: Set<String> = [
-        "tree infer iqtree", "align mafft", "assemble", "variants call", "bam primer-trim",
+        "tree infer iqtree", "align mafft", "assemble", "variants call", "bam primer-trim", "esviritu detect",
     ]
 
     static var transcriptsFolder: URL {
@@ -92,7 +92,7 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         XCTAssertEqual(
             eventsLeaves.subtracting(withTranscript).sorted(),
             [],
-            "Every leaf that emits events has a checked-in transcript. The five tool leaves get theirs from a real run of the built CLI"
+            "Every leaf that emits events has a checked-in transcript. The tool leaves get theirs from a real run of the built CLI"
         )
         XCTAssertTrue(Self.toolLeaves.isSubset(of: eventsLeaves))
         for leaf in withTranscript {

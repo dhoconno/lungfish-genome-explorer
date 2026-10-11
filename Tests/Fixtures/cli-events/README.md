@@ -120,6 +120,16 @@ Four of the five print their events on standard output. `assemble` prints them o
 
 These five files are not captured again by a test. A lane that changes one of these emitters runs the command again and replaces the file.
 
+Lane A9 of Phase 2.7 ran `esviritu-detect` the same way with the CLI built from its branch, in the locked golden storage, with `LUNGFISH_STORAGE_ROOT` at `/Users/Shared/lungfish-golden/storage` and the EsViritu database of that storage read in place. A listing of the database folder taken before and after the runs was the same. The command lines and the paths the lines name are rewritten to `/work`, and the database path stands as `<database>` below.
+
+| File | Command |
+| --- | --- |
+| `complete` | `esviritu detect --input /work/inputs/test_1.fastq.gz --sample sarscov2 --db <database> --project /work/Project.lungfish --threads 2 --format json` |
+| `complete-batch` | `esviritu detect --input /work/inputs/test_1.fastq.gz /work/inputs/test_2.fastq.gz --batch --db <database> --project /work/Project.lungfish --threads 2 --format json`, which groups the two files into the one paired sample `test` |
+| `failed` | `esviritu detect --input /work/inputs/test_1.fastq.gz --sample sarscov2 --db /work/missing-db --project /work/Project.lungfish --threads 2 --format json`, which the plan refuses before any folder exists |
+
+The inputs are `Tests/Fixtures/sarscov2/test_1.fastq.gz` and `test_2.fastq.gz`.
+
 ## results
 
 `results` holds the document that a leaf prints when the contract table marks it `.result`, one file for each of 13 schemas. Each file is the standard output of one real run of the built `lungfish-cli` on a repository fixture, run the way the commands above were. The scratch folder is `/work` in the file, and nothing else is edited. `CLIEventContractCoverageTests` decodes each file with the Swift type that reads it, adds one key that no reader knows, and expects the same value back.
