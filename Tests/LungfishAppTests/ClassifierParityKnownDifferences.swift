@@ -102,9 +102,6 @@ enum ClassifierParityKnownDifferences {
              "The GUI's outputDirectory URL ends in a slash, and for the subset config.inputFiles names the GUI's deleted scratch file (D12)"),
         pair([.e3: 1], "command: B has no command to run",
              "cli-parity-gap esviritu-batch. The EsViritu batch row records no command, so nothing replays the batch (E8). Side C' replays the new route's batch command"),
-        pair([.k5: 1], "analysis: only B keeps its analysis folder",
-             "D2. The GUI deletes a failed run's folder, and the CLI keeps it with its failed record and its run record (E5). Both K5 runs fail on the known defect of F2 bio ruling 1",
-             closedBy: "BR's kreport parser fix, after which side A completes and keeps its folder. A8 deletes this entry when it pins K5 (A8 M0)"),
     ]
 
     // MARK: Records
