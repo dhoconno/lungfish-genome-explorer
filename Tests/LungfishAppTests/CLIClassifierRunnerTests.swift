@@ -143,10 +143,11 @@ final class CLIClassifierRunnerTests: XCTestCase {
         defer { TestTempDirectory.cleanup(root) }
         let childPIDURL = root.appendingPathComponent("child.pid")
         let cli = root.appendingPathComponent("lungfish-cli")
+        // The child writes its PID only once it ignores SIGTERM, so the cancel always meets a
+        // descendant that only SIGKILL stops after the grace.
         try """
         #!/bin/sh
-        nohup /bin/sh -c 'trap "" TERM HUP INT; while :; do sleep 1; done' >/dev/null 2>&1 &
-        echo "$!" > "\(childPIDURL.path)"
+        nohup /bin/sh -c 'trap "" TERM HUP INT; echo "$$" > "\(childPIDURL.path)"; while :; do sleep 1; done' >/dev/null 2>&1 &
         printf '%s\\n' '{"event":"start","message":"Starting Kraken2.","progress":0,"schemaVersion":2}'
         while kill -0 "$!" 2>/dev/null; do
           sleep 0.1
