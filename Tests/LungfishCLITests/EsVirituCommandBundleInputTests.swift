@@ -83,7 +83,13 @@ final class EsVirituCommandBundleInputTests: XCTestCase {
             inputPaths.contains(shapes.single.appendingPathComponent("single.fastq").standardizedFileURL.path),
             "the root FASTQ the virtual bundle points at is recorded: \(inputPaths)"
         )
-        XCTAssertEqual(envelope.argv.first, "EsViritu", "the run is still named by its tool")
+        XCTAssertEqual(step.argv.first, "EsViritu", "the tool's step is still named by its tool")
+        XCTAssertEqual(
+            Array(envelope.argv.prefix(3)),
+            [CLICommandIdentity.executableName, "esviritu", "detect"],
+            "2.7 A9: the result folder's record names the command that ran"
+        )
+        XCTAssertEqual(envelope.workflowName, EsVirituAnalysisRunTool.workflowName)
     }
 
     func testAPhysicalBundleRecordsTheBundleAndEachFileOnce() async throws {
@@ -153,21 +159,28 @@ final class EsVirituCommandBundleInputTests: XCTestCase {
 }
 
 /// A conda root whose stand-in micromamba runs a stand-in EsViritu: it keeps a
-/// copy of every read file passed after `-r`, notes the `-p` read format, and
-/// writes an empty detection table in the `-o` folder.
+/// copy of every read file passed after `-r`, notes the `-p` read format and
+/// each `-s` sample, and writes an empty detection table in the `-o` folder.
+///
+/// Given `tables`, the path of a sample's tables without their suffix, it
+/// copies that sample's detection, coverage windows and assembly summary
+/// tables under the `-s` name instead. A run of `failSample` exits 1 with no
+/// table, and a run of `holdSample` notes that it started and waits 60
+/// seconds, so a test can cancel it.
 struct StandInEsViritu {
     let condaManager: CondaManager
     let databaseURL: URL
     private let seenDirectory: URL
 
-    init(root: URL) throws {
+    init(root: URL, tables: URL? = nil, failSample: String? = nil, holdSample: String? = nil) throws {
         let fm = FileManager.default
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         databaseURL = root.appendingPathComponent("esviritu-db", isDirectory: true)
         try fm.createDirectory(at: databaseURL, withIntermediateDirectories: true)
         seenDirectory = root.appendingPathComponent("esviritu-saw", isDirectory: true)
         let micromamba = root.appendingPathComponent("stand-in-micromamba")
-        try Self.script(seenDirectory: seenDirectory).write(to: micromamba, atomically: true, encoding: .utf8)
+        try Self.script(seenDirectory: seenDirectory, tables: tables, failSample: failSample, holdSample: holdSample)
+            .write(to: micromamba, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: micromamba.path)
         condaManager = CondaManager(
             rootPrefix: root.appendingPathComponent("conda", isDirectory: true),
@@ -185,11 +198,22 @@ struct StandInEsViritu {
             .map { seenDirectory.appendingPathComponent($0) }
     }
 
+    /// The `-s` sample of each run, in run order.
+    var samplesSeen: [String] {
+        let text = (try? String(contentsOf: seenDirectory.appendingPathComponent("samples"), encoding: .utf8)) ?? ""
+        return text.split(separator: "\n").map(String.init)
+    }
+
+    /// Whether the run of the held sample has started.
+    var holdStarted: Bool {
+        FileManager.default.fileExists(atPath: seenDirectory.appendingPathComponent("held").path)
+    }
+
     var formatSeen: String {
         (try? String(contentsOf: seenDirectory.appendingPathComponent("format"), encoding: .utf8)) ?? ""
     }
 
-    private static func script(seenDirectory: URL) -> String {
+    private static func script(seenDirectory: URL, tables: URL?, failSample: String?, holdSample: String?) -> String {
         """
         #!/bin/sh
         if [ "$1" = "--version" ]; then
@@ -257,7 +281,24 @@ struct StandInEsViritu {
           esac
           shift
         done
+        printf '%s\n' "$sample" >> "$seen/samples"
+        if [ "$sample" = '\(failSample ?? "")' ]; then
+          echo "stand-in failure for $sample" >&2
+          exit 1
+        fi
+        if [ "$sample" = '\(holdSample ?? "")' ]; then
+          touch "$seen/held"
+          sleep 60
+        fi
         mkdir -p "$output"
+        tables='\(tables?.path ?? "")'
+        if [ -n "$tables" ]; then
+          for suffix in detected_virus.info.tsv virus_coverage_windows.tsv detected_virus.assembly_summary.tsv; do
+            cp "$tables.$suffix" "$output/$sample.$suffix"
+          done
+          echo "EsViritu stand-in finished" >&2
+          exit 0
+        fi
         printf 'sample_ID\\tName\\tdescription\\tLength\\tSegment\\tAccession\\tAssembly\\tAsm_length\\tkingdom\\tphylum\\ttclass\\torder\\tfamily\\tgenus\\tspecies\\tsubspecies\\tRPKMF\\tread_count\\tcovered_bases\\tmean_coverage\\tavg_read_identity\\tPi\\tfiltered_reads_in_sample\\n' > "$output/$sample.detected_virus.info.tsv"
         echo "EsViritu stand-in finished" >&2
         exit 0

@@ -26,6 +26,9 @@ import LungfishWorkflow
 /// # Interleaved pairs in one file (auto-detected by default)
 /// lungfish esviritu detect --input interleaved.fastq.gz --read-format interleaved --sample MySample
 ///
+/// # Every sample of a set of files into one batch of a project, as the app runs it
+/// lungfish esviritu detect --input A_R1.fastq.gz A_R2.fastq.gz B.fastq.gz --batch --project My.lungfish
+///
 /// # Download the EsViritu database
 /// lungfish esviritu download-db
 ///
@@ -58,6 +61,15 @@ struct EsVirituCommand: AsyncParsableCommand {
 extension EsVirituCommand {
 
     /// Run EsViritu viral detection on FASTQ input files.
+    ///
+    /// The run goes through the analysis run executor with ``EsVirituAnalysisRunTool`` (2.7 A9), so
+    /// this command and the app write one result tree. A plain `--output` keeps the one folder this
+    /// command has always written (E2). `--project` makes `Analyses/esviritu-batch-<timestamp>/`
+    /// with a folder per sample, as the app's EsViritu runs do (E1), and `--batch` groups the inputs
+    /// into samples as the app's dialog does (E8). With `--format json` standard output holds the
+    /// executor's version 2 events only, and in text mode the command prints what it always printed,
+    /// with its errors and warnings on standard error. A SIGTERM cancels the run, which records
+    /// `cancelled` and exits 125.
     struct DetectSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "detect",
@@ -75,9 +87,9 @@ extension EsVirituCommand {
 
         @Option(
             name: [.customLong("sample"), .customShort("s")],
-            help: "Sample name for output file prefixes"
+            help: "Sample name for output file prefixes (required without --batch)"
         )
-        var sampleName: String
+        var sampleName: String?
 
         @Option(
             name: .customLong("db"),
@@ -90,6 +102,24 @@ extension EsVirituCommand {
             help: "Output directory (default: current directory)"
         )
         var outputDir: String?
+
+        @Option(
+            name: .customLong("project"),
+            help: ArgumentHelp(
+                "The .lungfish project the run belongs to: the result lands in its Analyses/esviritu-batch-<timestamp>/ folder, one folder per sample, where the app's EsViritu runs put it",
+                discussion: "Each sample folder is named after the sample, made safe for a folder name, and EsViritu names its tables after that folder. The result gets the batch summary, the batch manifest and esviritu.sqlite, and each source bundle records the run. Not with --output."
+            )
+        )
+        var project: String?
+
+        @Flag(
+            name: .customLong("batch"),
+            help: ArgumentHelp(
+                "Group the inputs into samples by their file names, as the app's EsViritu dialog does, and run each sample into its own folder of one batch result",
+                discussion: "Each sample's read layout is planned from its files, so --batch takes --read-format auto and no --sample. A batch completes while one sample completes, and each failed sample is a warning. Give --output or --project."
+            )
+        )
+        var batch: Bool = false
 
         @Flag(
             name: .customLong("paired"),
@@ -143,67 +173,6 @@ extension EsVirituCommand {
             case interleaved
         }
 
-        // MARK: - Execution
-
-        /// Resolves `--read-format` and `--paired` into the EsViritu read format.
-        ///
-        /// `auto` classifies a single input with ``FASTQReadLayoutClassifier``.
-        func resolveReadFormat(
-            inputURLs: [URL]
-        ) throws -> (format: EsVirituReadFormat, layout: FASTQReadLayoutClassification?) {
-            if pairedEnd {
-                guard readFormat == .auto || readFormat == .paired else {
-                    throw CLIError.validationFailed(errors: [
-                        "--paired conflicts with --read-format \(readFormat.rawValue)."
-                    ])
-                }
-                return (.paired, nil)
-            }
-            switch readFormat {
-            case .unpaired: return (.unpaired, nil)
-            case .paired: return (.paired, nil)
-            case .interleaved: return (.interleaved, nil)
-            case .auto:
-                guard inputURLs.count == 1 else { return (.unpaired, nil) }
-                let layout = FASTQReadLayoutClassifier.classify(inputURL: inputURLs[0])
-                return (EsVirituReadFormat.forSingleFile(layout.layout), layout)
-            }
-        }
-
-        /// The folder in the output directory that holds the files a virtual
-        /// bundle is materialized into.
-        static let materializationDirectoryName = ".lungfish-esviritu-inputs"
-
-        /// Resolves the inputs as the app's EsViritu launch does. Every file a
-        /// `.lungfishfastq` bundle holds is its own EsViritu input, a virtual
-        /// bundle is materialized into `materializationDirectory`, and an input
-        /// with no readable sequence file is refused before anything is written.
-        static func resolveExecutionInputs(
-            for inputURLs: [URL],
-            materializationDirectory: URL,
-            materializer: any CLISequenceInputMaterializing & Sendable,
-            progress: (@Sendable (String) -> Void)? = nil
-        ) async throws -> ResolvedSequenceInputs {
-            try await ResolvedSequenceInputs.resolvePreflighted(
-                inputURLs: inputURLs,
-                operationName: "EsViritu detection",
-                materializationDirectory: materializationDirectory,
-                materializer: materializer,
-                progress: progress
-            )
-        }
-
-        /// Why `fileCount` input files do not fit `format`, or nil when they do.
-        static func inputCountError(format: EsVirituReadFormat, fileCount: Int) -> String? {
-            if format == .paired && fileCount != 2 {
-                return "Paired-end mode requires exactly 2 input files, got \(fileCount)"
-            }
-            if format == .interleaved && fileCount != 1 {
-                return "Interleaved mode requires exactly 1 input file, got \(fileCount)"
-            }
-            return nil
-        }
-
         static func parse(_ arguments: [String]) throws -> Self {
             let trimmed = arguments.first == configuration.commandName
                 ? Array(arguments.dropFirst())
@@ -214,271 +183,237 @@ extension EsVirituCommand {
             return parsed
         }
 
+        // MARK: - Execution
+
+        /// Runs the detection, with a SIGTERM turned into a cancel of the run, so the run records
+        /// `cancelled`, settles its folder and exits 125 inside the grace the app's transport gives
+        /// it. A cancel is taken from the SIGTERM count, never from how EsViritu ended (SWIFT X2).
         func run() async throws {
-            try await execute(
-                pipeline: .shared,
-                materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared)
-            )
+            let pendingCancel = PendingTaskCancel<Int32>()
+            let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
+            defer { termination.end() }
+            let task = Task { () -> Int32 in
+                await self.detect(
+                    pipeline: .shared,
+                    materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared),
+                    cancelRequested: { pendingCancel.cancelRequested }
+                )
+            }
+            pendingCancel.attach(task)
+            try Self.exit(with: await task.value)
         }
 
-        /// The body of ``run()`` with the pipeline and the materializer passed
-        /// in, so a test can run a stand-in EsViritu.
+        /// The body of ``run()`` with the pipeline and the materializer passed in, so a test can run
+        /// a stand-in EsViritu. It throws the run's exit code when the run did not complete.
         func execute(
             pipeline: EsVirituPipeline,
-            materializer: any CLISequenceInputMaterializing & Sendable
+            materializer: any CLISequenceInputMaterializing & Sendable,
+            installedDatabase: @escaping @Sendable () async -> URL? = EsVirituAnalysisRunTool.installedDatabase
         ) async throws {
-            let formatter = TerminalFormatter(useColors: globalOptions.useColors)
-
-            // Resolve input files.
-            let inputURLs = try CLIClassificationFolderResolver.expandInputArguments(
-                inputFiles,
-                recursive: recursive
-            )
-            guard !inputURLs.isEmpty else {
-                print(formatter.error("At least one --input file is required"))
-                throw CLIExitCode.inputError.exitCode
-            }
-
-            // Resolve the read format (auto-detects interleaving for one file).
-            let resolvedReadFormat: (format: EsVirituReadFormat, layout: FASTQReadLayoutClassification?)
-            do {
-                resolvedReadFormat = try resolveReadFormat(inputURLs: inputURLs)
-            } catch {
-                print(formatter.error(error.localizedDescription))
-                throw CLIExitCode.inputError.exitCode
-            }
-
-            // Validate the input count. A .lungfishfastq bundle is counted
-            // once it resolves to the files it holds, below.
-            let namesABundle = inputURLs.contains { SequenceInputResolver.enclosingFASTQBundleURL(for: $0) != nil }
-            if !namesABundle, let message = Self.inputCountError(format: resolvedReadFormat.format, fileCount: inputURLs.count) {
-                print(formatter.error(message))
-                throw CLIExitCode.inputError.exitCode
-            }
-
-            // Resolve database path.
-            let dbURL: URL
-            if let dbPath = databasePath {
-                dbURL = URL(fileURLWithPath: dbPath)
-            } else {
-                // Try auto-detect from the database manager.
-                let dbManager = EsVirituDatabaseManager.shared
-                let isInstalled = await dbManager.isInstalled()
-                if isInstalled {
-                    dbURL = await dbManager.databaseURL
-                } else {
-                    print(formatter.error("EsViritu database not found. Download it first:"))
-                    print(formatter.info("  lungfish-cli esviritu download-db"))
-                    throw CLIExitCode.dependency.exitCode
-                }
-            }
-
-            guard FileManager.default.fileExists(atPath: dbURL.path) else {
-                print(formatter.error("Database directory not found: \(dbURL.path)"))
-                throw CLIExitCode.inputError.exitCode
-            }
-
-            // Resolve output directory.
-            let outputDirectory: URL
-            if let dir = outputDir {
-                outputDirectory = URL(fileURLWithPath: dir)
-            } else {
-                outputDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-                    .appendingPathComponent("esviritu-\(sampleName)")
-            }
-            // Inside a project, the output directory carries a run record
-            // until detection completes, so it stays out of the sidebar while
-            // the run is going. A failed run keeps it (hidden, listed for
-            // review as Interrupted); nothing is deleted.
-            let runRecordClaim = try? AnalysesFolder.beginRunInOutputDirectory(
-                outputDirectory,
-                record: AnalysisRunRecord(
-                    analysisName: "EsViritu",
-                    command: CommandLine.arguments.map(shellEscape).joined(separator: " ")
-                )
-            )
-            var runRecordCompleted = false
-            defer {
-                if !runRecordCompleted, runRecordClaim == .owned {
-                    AnalysisRunRecord.recordOutcome(Task.isCancelled ? .cancelled : .failed, in: outputDirectory)
-                }
-            }
-
-            // A .lungfishfastq bundle resolves to every file it holds, each
-            // its own EsViritu input, and a virtual bundle is materialized
-            // into the output directory first, as the app's EsViritu launch
-            // resolves it (R3).
-            let resolvedInputs: ResolvedSequenceInputs
-            do {
-                resolvedInputs = try await Self.resolveExecutionInputs(
-                    for: inputURLs,
-                    materializationDirectory: outputDirectory.appendingPathComponent(
-                        Self.materializationDirectoryName,
-                        isDirectory: true
-                    ),
-                    materializer: materializer,
-                    progress: { message in
-                        if !globalOptions.quiet {
-                            print(formatter.info(message))
-                        }
-                    }
-                )
-            } catch {
-                print(formatter.error(error.localizedDescription))
-                throw CLIExitCode.inputError.exitCode
-            }
-            let executionInputURLs = resolvedInputs.executionInputURLs
-
-            let effectiveThreads = globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount
-
-            // Build config.
-            var config = EsVirituConfig(
-                inputFiles: executionInputURLs,
-                isPairedEnd: resolvedReadFormat.format == .paired,
-                sampleName: sampleName,
-                outputDirectory: outputDirectory,
-                databasePath: dbURL,
-                qualityFilter: !noQC,
-                // No CLI flag feeds this any more -- see the removed
-                // `--min-read-length` option above. EsViritu itself has no
-                // minimum-read-length option and its fastp invocation is not
-                // parameterized with one either, so the flag never reached
-                // the tool; `EsVirituConfig` keeps its documented default.
-                threads: effectiveThreads,
-                extraArguments: try AdvancedCommandLineOptions.parse(extraArgs),
-                readFormat: resolvedReadFormat.format,
-                inputLayout: resolvedReadFormat.layout
-            )
-            // Provenance names the bundle behind each file. Files run as
-            // given record nothing more.
-            config.recordInputLineage(resolvedInputs)
-
-            // One bundle or file under `--read-format auto` is planned as the
-            // app's EsViritu launch plans it: separate R1 and R2 files run as
-            // a pair, and every read of a mixed or chunked sample runs in one
-            // file (docs/contracts/READ-PAIRING.md).
-            do {
-                _ = try await planReadSet(
-                    inputURLs: inputURLs,
-                    executionInputURLs: executionInputURLs,
-                    config: &config,
-                    materializationDirectory: outputDirectory.appendingPathComponent(
-                        Self.materializationDirectoryName,
-                        isDirectory: true
-                    ),
-                    progress: { message in
-                        if !globalOptions.quiet {
-                            print(formatter.info(message))
-                        }
-                    }
-                )
-            } catch {
-                print(formatter.error(error.localizedDescription))
-                throw CLIExitCode.inputError.exitCode
-            }
-            if let message = Self.inputCountError(format: config.readFormat, fileCount: config.inputFiles.count) {
-                print(formatter.error(message))
-                throw CLIExitCode.inputError.exitCode
-            }
-
-            // Print configuration.
-            print(formatter.header("EsViritu Viral Detection"))
-            print("")
-            print(formatter.keyValueTable([
-                ("Input files", inputURLs.map(\.lastPathComponent).joined(separator: ", ")),
-                ("Read format", "\(config.readFormat.rawValue) (\(EsVirituReadFormat.inputLabel(format: config.readFormat, layout: config.inputLayout?.layout)))"),
-                ("Sample name", sampleName),
-                ("Database", dbURL.path),
-                ("Quality filter", config.qualityFilter ? "yes" : "no"),
-                ("Threads", String(config.threads)),
-                ("Output", outputDirectory.path),
-            ]))
-            print("")
-            if let reason = config.readSetPlan?.singleReadReason {
-                print(formatter.info(reason))
-                print("")
-            }
-
-            // Same read-length gate as the EsViritu dialog: warn, never block.
-            if let advisory = EsVirituReadLengthAdvisory.evaluate(inputURLs: config.inputFiles) {
-                print(formatter.warning(advisory.wizardMessage))
-                print("")
-            }
-
-            // Run pipeline.
-            let result: LungfishWorkflow.EsVirituResult
-            do {
-                result = try await pipeline.detect(config: config) { fraction, message in
-                    if !globalOptions.quiet {
-                        print("\r\(formatter.info(message))", terminator: "")
-                    }
-                }
-            } catch let error as EsVirituPipelineError {
-                // Surface EsViritu's own reason (for example "No reads aligned
-                // to the EsViritu DB") and any short-read hint, not only the
-                // missing-file path.
-                print("")
-                print(formatter.error(error.localizedDescription))
-                if let logTail = error.logTail {
-                    print("")
-                    print("EsViritu log (last lines):")
-                    print(logTail)
-                }
-                throw CLIExitCode.failure.exitCode
-            }
-            if let runRecordClaim {
-                AnalysisRunRecord.completeRun(runRecordClaim, in: outputDirectory)
-            }
-            runRecordCompleted = true
-
-            // Clear progress line.
-            print("")
-            print("")
-
-            // Print summary.
-            print(formatter.header("Results"))
-            print("")
-            print(result.summary)
-            print("")
-
-            // Print output file paths.
-            print(formatter.header("Output Files"))
-            print("  Detection: \(formatter.path(result.detectionURL.path))")
-            if let assembly = result.assemblyURL {
-                print("  Assembly:  \(formatter.path(assembly.path))")
-            }
-            if let taxProfile = result.taxProfileURL {
-                print("  Profile:   \(formatter.path(taxProfile.path))")
-            }
-            if let coverage = result.coverageURL {
-                print("  Coverage:  \(formatter.path(coverage.path))")
-            }
-            print("")
-            print(formatter.success("Detection completed in \(String(format: "%.1f", result.runtime))s"))
-            print("\(result.virusCount) virus(es) detected")
+            try Self.exit(with: await detect(
+                pipeline: pipeline,
+                materializer: materializer,
+                installedDatabase: installedDatabase,
+                cancelRequested: { false }
+            ))
         }
 
-        func makeConfigForTesting(
-            databaseURL: URL,
-            outputDirectory: URL
-        ) throws -> EsVirituConfig {
-            let inputURLs = try CLIClassificationFolderResolver.expandInputArguments(
-                inputFiles,
-                recursive: recursive
+        /// Runs the request through the executor and returns the exit code of its report.
+        func detect(
+            pipeline: EsVirituPipeline,
+            materializer: any CLISequenceInputMaterializing & Sendable,
+            installedDatabase: @escaping @Sendable () async -> URL? = EsVirituAnalysisRunTool.installedDatabase,
+            cancelRequested: @escaping @Sendable () -> Bool
+        ) async -> Int32 {
+            let eventsOn = globalOptions.outputFormat == .json
+            let (destination, conflict) = resultDestination()
+            let recursive = recursive
+            let tool = EsVirituAnalysisRunTool(
+                options: EsVirituAnalysisRunOptions(
+                    sampleName: sampleName,
+                    readFormat: EsVirituAnalysisRunOptions.ReadFormatChoice(rawValue: readFormat.rawValue) ?? .auto,
+                    pairedEnd: pairedEnd,
+                    databasePath: databasePath.map { URL(fileURLWithPath: $0) },
+                    threads: globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount,
+                    qualityFilter: !noQC,
+                    extraArguments: extraArgs,
+                    usageConflict: conflict
+                ),
+                groupsSamples: batch,
+                pipeline: pipeline,
+                materializer: materializer,
+                installedDatabase: installedDatabase,
+                expandInputs: { urls in
+                    try CLIClassificationFolderResolver.expandInputArguments(urls.map(\.path), recursive: recursive)
+                },
+                reporter: eventsOn ? nil : EsVirituTextReporter(useColors: globalOptions.useColors, quiet: globalOptions.quiet)
             )
-            let resolved = try resolveReadFormat(inputURLs: inputURLs)
-            return EsVirituConfig(
-                inputFiles: inputURLs,
-                isPairedEnd: resolved.format == .paired,
-                sampleName: sampleName,
-                outputDirectory: outputDirectory,
-                databasePath: databaseURL,
-                qualityFilter: !noQC,
-                threads: globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount,
-                extraArguments: try AdvancedCommandLineOptions.parse(extraArgs),
-                readFormat: resolved.format,
-                inputLayout: resolved.layout
+            let request = AnalysisRunRequest(
+                inputs: inputFiles.map { URL(fileURLWithPath: $0) },
+                destination: destination,
+                groupsSamples: batch,
+                commandLine: Self.recordedCommandLine(CommandLine.arguments, fallback: canonicalArguments())
             )
+            let events = eventsOn
+                ? AnalysisRunEvents.jsonLines { printEventLine($0) }
+                : EsVirituTextReporter.events(
+                    useColors: globalOptions.useColors,
+                    quiet: globalOptions.quiet,
+                    namesResultFolder: batch || project != nil
+                )
+            let services = AnalysisRunServices(indexing: EsVirituResultIndexing(), cancelRequested: cancelRequested)
+            return await AnalysisRunExecutor(services: services).execute(tool, request, events: events).exitCode
+        }
+
+        /// Where the result goes, and a conflict of the flags that name it, which the plan refuses.
+        /// `--project` makes a new batch folder in the project, `--output` names the folder, and
+        /// without either a run of one sample goes to `./esviritu-<sample>` as it always did.
+        func resultDestination() -> (AnalysisRunDestination, conflict: String?) {
+            let currentDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            if let project {
+                let projectURL = URL(fileURLWithPath: project, isDirectory: true).standardizedFileURL
+                if outputDir != nil {
+                    return (.project(projectURL), "--project makes the result folder in the project, so it takes no --output.")
+                }
+                var isDirectory: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: projectURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                    return (.project(projectURL), "Project not found: \(projectURL.path)")
+                }
+                return (.project(projectURL), nil)
+            }
+            if let outputDir {
+                return (.directory(URL(fileURLWithPath: outputDir)), nil)
+            }
+            if batch {
+                return (.directory(currentDirectory), "--batch needs --output or --project to name where the batch goes.")
+            }
+            return (.directory(currentDirectory.appendingPathComponent("esviritu-\(sampleName ?? "sample")")), nil)
+        }
+
+        /// The argv the root record names, the one this process was started with when it ran this
+        /// leaf, else ``canonicalArguments()`` (a test runs the command inside another process).
+        static func recordedCommandLine(_ arguments: [String], fallback: @autoclosure () -> [String]) -> [String] {
+            if let index = arguments.firstIndex(of: "esviritu"),
+               arguments.indices.contains(index + 1),
+               arguments[index + 1] == "detect" {
+                return arguments
+            }
+            return fallback()
+        }
+
+        /// The command that runs these options again, every option it was given spelled out.
+        func canonicalArguments() -> [String] {
+            var arguments = [CLICommandIdentity.executableName, "esviritu", "detect"]
+            if !inputFiles.isEmpty { arguments += ["--input"] + inputFiles }
+            if let sampleName { arguments += ["--sample", sampleName] }
+            if batch { arguments.append("--batch") }
+            arguments += ["--read-format", readFormat.rawValue]
+            if pairedEnd { arguments.append("--paired") }
+            if recursive { arguments.append("--recursive") }
+            if let databasePath { arguments += ["--db", databasePath] }
+            if let project { arguments += ["--project", project] }
+            if let outputDir { arguments += ["--output", outputDir] }
+            if let threads = globalOptions.threads { arguments += ["--threads", String(threads)] }
+            if noQC { arguments.append("--no-qc") }
+            if !extraArgs.isEmpty { arguments += ["--extra-args", extraArgs] }
+            if globalOptions.outputFormat == .json { arguments += ["--format", "json"] }
+            return arguments
+        }
+
+        private static func exit(with code: Int32) throws {
+            guard code != 0 else { return }
+            throw ExitCode(code)
+        }
+    }
+}
+
+/// What `esviritu detect` prints in text mode, the lines it has always printed at the points it
+/// printed them, with its errors and warnings on standard error.
+struct EsVirituTextReporter: EsVirituRunReporting {
+    let useColors: Bool
+    let quiet: Bool
+
+    private var formatter: TerminalFormatter { TerminalFormatter(useColors: useColors) }
+
+    func resolving(_ message: String) {
+        if !quiet { print(formatter.info(message)) }
+    }
+
+    func willRun(_ config: EsVirituConfig, inputs: [URL], advisory: String?) {
+        let formatter = formatter
+        print(formatter.header("EsViritu Viral Detection"))
+        print("")
+        print(formatter.keyValueTable([
+            ("Input files", inputs.map(\.lastPathComponent).joined(separator: ", ")),
+            ("Read format", "\(config.readFormat.rawValue) (\(EsVirituReadFormat.inputLabel(format: config.readFormat, layout: config.inputLayout?.layout)))"),
+            ("Sample name", config.sampleName),
+            ("Database", config.databasePath.path),
+            ("Quality filter", config.qualityFilter ? "yes" : "no"),
+            ("Threads", String(config.threads)),
+            ("Output", config.outputDirectory.path),
+        ]))
+        print("")
+        if let reason = config.readSetPlan?.singleReadReason {
+            print(formatter.info(reason))
+            print("")
+        }
+        // Same read-length gate as the EsViritu dialog: warn, never block.
+        if let advisory, !quiet {
+            printStatusLine(formatter.warning(advisory))
+        }
+    }
+
+    func progress(_ fraction: Double, _ message: String) {
+        if !quiet { print("\r\(formatter.info(message))", terminator: "") }
+    }
+
+    func didRun(_ result: LungfishWorkflow.EsVirituResult) {
+        let formatter = formatter
+        // Clear the progress line.
+        print("")
+        print("")
+        print(formatter.header("Results"))
+        print("")
+        print(result.summary)
+        print("")
+        print(formatter.header("Output Files"))
+        print("  Detection: \(formatter.path(result.detectionURL.path))")
+        if let assembly = result.assemblyURL {
+            print("  Assembly:  \(formatter.path(assembly.path))")
+        }
+        if let taxProfile = result.taxProfileURL {
+            print("  Profile:   \(formatter.path(taxProfile.path))")
+        }
+        if let coverage = result.coverageURL {
+            print("  Coverage:  \(formatter.path(coverage.path))")
+        }
+        print("")
+        print(formatter.success("Detection completed in \(String(format: "%.1f", result.runtime))s"))
+        print("\(result.virusCount) virus(es) detected")
+    }
+
+    /// The executor's events in text mode. The human text comes from the reporter, so the events
+    /// print only what went wrong, on standard error, and a batch names its result folder.
+    static func events(useColors: Bool, quiet: Bool, namesResultFolder: Bool) -> AnalysisRunEvents {
+        let formatter = TerminalFormatter(useColors: useColors)
+        return AnalysisRunEvents { line in
+            switch line.event {
+            case .log(.warning, let message)?:
+                if !quiet { printStatusLine(formatter.warning(message)) }
+            case .log(.error, let message)?:
+                printStatusLine(formatter.error(message))
+            case .failed(let message, let detail)?:
+                printStatusLine(formatter.error(message))
+                if let detail { printStatusLine(detail) }
+            case .complete(let outputs, let message)? where namesResultFolder:
+                print("")
+                print(formatter.success(message ?? "EsViritu finished."))
+                if let folder = outputs.first {
+                    print("  Result folder: \(formatter.path(folder))")
+                }
+            default:
+                break
+            }
         }
     }
 }

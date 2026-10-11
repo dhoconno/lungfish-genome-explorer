@@ -86,23 +86,43 @@ final class BuildDbClassifierLayoutTests: XCTestCase {
         }
     }
 
-    /// R4. A batch sample folder takes the sanitized id (`Patient_07`), while EsViritu names its tables by
-    /// the raw id it was given (`Patient.07`). Known defect: build-db reads a sample folder only through
-    /// `<folder>/<folder>.detected_virus.info.tsv`, so every detection of that sample is dropped. Lane A9
-    /// fixes it with one sanitizer for the folder and EsViritu's `-s`, so this pin stays as it is in A7.
-    func testDottedBatchSampleIsDroppedKnownDefect() async throws {
+    /// R4. A batch sample folder takes the sanitized id (`Patient_07`), and build-db reads a sample folder
+    /// only through `<folder>/<folder>.detected_virus.info.tsv`. It was a known defect at base `18e422c4f`,
+    /// where EsViritu named its tables by the raw id it was given (`Patient.07`), so every detection of that
+    /// sample was dropped. Lane A9 gives EsViritu's `-s` the folder's name from the executor's one sanitizer,
+    /// so `esviritu detect` with a dotted sample id keeps every detection (a stand-in EsViritu writes the
+    /// fixture's tables under the `-s` name it is given). A folder whose tables carry another name is still
+    /// not read, as before.
+    func testDottedSampleKeepsItsDetectionsThroughEsVirituDetect() async throws {
         let root = try TestTempDirectory.make(prefix: "BuildDbDottedSample")
         defer { TestTempDirectory.cleanup(root) }
+        let reads = root.appendingPathComponent("reads/Patient.07.fastq")
+        try FileManager.default.createDirectory(at: reads.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "@r1\nACGT\n+\nIIII\n".write(to: reads, atomically: true, encoding: .utf8)
+        let esviritu = try StandInEsViritu(
+            root: root.appendingPathComponent("tool", isDirectory: true),
+            tables: BuildDbStreamCapture.fixturesFolder.appendingPathComponent("esviritu-mini/\(Self.fixtureSample)/\(Self.fixtureSample)")
+        )
         let batch = root.appendingPathComponent("esviritu-batch-2026-10-11T10-00-00", isDirectory: true)
-        try writeTables(as: "Patient.07", into: batch.appendingPathComponent("Patient_07", isDirectory: true))
-        try writeTables(as: "Patient_08", into: batch.appendingPathComponent("Patient_08", isDirectory: true))
+        let parsed = try LungfishCLI.parseAsRoot([
+            "esviritu", "detect", "--input", reads.path, "--batch", "--db", esviritu.databaseURL.path,
+            "--output", batch.path, "--threads", "2", "--quiet",
+        ])
+        let command = try XCTUnwrap(parsed as? EsVirituCommand.DetectSubcommand)
+        try await command.execute(
+            pipeline: EsVirituPipeline(condaManager: esviritu.condaManager),
+            materializer: FASTQCLIMaterializer(runner: .shared)
+        )
 
-        try await BuildDbCommand.EsVirituSubcommand.parse([batch.path, "--quiet"]).run()
-
+        XCTAssertEqual(esviritu.samplesSeen, ["Patient_07"], "EsViritu's -s is the sample folder's name")
         let database = try EsVirituDatabase(at: batch.appendingPathComponent("esviritu.sqlite"))
-        XCTAssertEqual(try database.fetchSamples().map(\.sample), ["Patient_08"], "R4: Patient.07 is dropped")
-        XCTAssertEqual(try database.fetchRows(samples: ["Patient_08"]).count, 2)
-        XCTAssertEqual(try database.fetchRows(samples: ["Patient.07", "Patient_07"]).count, 0)
+        XCTAssertEqual(try database.fetchSamples().map(\.sample), ["Patient_07"], "R4: Patient.07 keeps its detections")
+        XCTAssertEqual(try database.fetchRows(samples: ["Patient_07"]).count, 2)
+
+        try writeTables(as: "Patient.08", into: batch.appendingPathComponent("Patient_08", isDirectory: true))
+        try await BuildDbCommand.EsVirituSubcommand.parse([batch.path, "--force", "--quiet"]).run()
+        let rebuilt = try EsVirituDatabase(at: batch.appendingPathComponent("esviritu.sqlite"))
+        XCTAssertEqual(try rebuilt.fetchSamples().map(\.sample), ["Patient_07"], "tables named unlike their folder are not read")
     }
 
     /// R6. The sample record lists the coverage windows and the assembly summary as outputs, as

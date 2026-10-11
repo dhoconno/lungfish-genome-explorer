@@ -169,12 +169,10 @@ final class EsVirituReadSetTests: XCTestCase {
         let filesSeen: [[String]]
         let formatSeen: String
         let parameters: [String: ParameterValue]?
-
-        /// The recorded read-set plan, or nil when the run recorded none.
-        var plan: [String: ParameterValue]? {
-            if case .dictionary(let plan)? = parameters?["readSetPlan"] { return plan }
-            return nil
-        }
+        /// The recorded read-set plan, or nil when the run recorded none, read by the one reader.
+        let plan: [String: ParameterValue]?
+        /// Where the record holds the plan, which is `options.resolvedDefaults` since 2.7 A9 (E13).
+        let planPlace: RecordedReadSetPlan.Place?
     }
 
     /// Runs `lungfish-cli esviritu detect --input <input> --read-format
@@ -208,13 +206,17 @@ final class EsVirituReadSetTests: XCTestCase {
             outputDirectory: outputDirectory,
             filesSeen: try esviritu.inputsSeen().map(ReadSetFixtures.readNames(in:)),
             formatSeen: esviritu.formatSeen,
-            parameters: envelope.options.explicit
+            parameters: envelope.options.explicit,
+            plan: envelope.readSetPlan?.fields,
+            planPlace: envelope.readSetPlan?.place
         )
     }
 
     /// A mixed sample runs single-end and says why, in the run parameters.
     private func assertReasonRecorded(_ run: DetectRun, file: StaticString = #filePath, line: UInt = #line) throws {
         let plan = try XCTUnwrap(run.plan, "the run records its read-set plan", file: file, line: line)
+        XCTAssertEqual(run.planPlace, .resolvedDefaults, "the plan's one home (E13)", file: file, line: line)
+        XCTAssertNil(run.parameters?["readSetPlan"], "no second copy in the explicit options", file: file, line: line)
         guard case .string(let reason)? = plan["singleReadReason"] else {
             return XCTFail("the plan records why every read ran single-end: \(plan)", file: file, line: line)
         }
