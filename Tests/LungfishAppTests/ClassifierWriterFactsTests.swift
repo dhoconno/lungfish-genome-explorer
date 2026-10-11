@@ -114,6 +114,37 @@ final class ClassifierWriterFactsTests: XCTestCase {
         }
     }
 
+    // MARK: - The peak-memory mask
+
+    /// No classifier writer records a peak at the base, so the five files hold no `peakMemoryBytes` and the
+    /// mask has nothing to act on there. This runs it over steps that record one. The value goes, the key
+    /// stays, and a writer that starts to record a peak differs from the captured facts.
+    func testAPeakMemoryIsMaskedAndItsKeyStays() throws {
+        let captured = try ProvenanceCompatFacts.decode(
+            Data(contentsOf: Self.folder.appendingPathComponent(BareRunWriterParity.Scenario.kraken2Pipeline.id + Self.suffix))
+        )
+        XCTAssertFalse(captured.steps.isEmpty)
+        XCTAssertEqual(captured.steps.count, captured.legacyRunSteps.count)
+        XCTAssertEqual(captured.steps.count, captured.canonicalRunSteps.count)
+        func recording(_ peak: UInt64) -> ProvenanceCompatFacts {
+            var facts = captured
+            facts.opsStats.peakMemoryBytes = peak
+            facts.steps[0].peakMemoryBytes = peak
+            facts.legacyRunSteps[0].peakMemoryBytes = peak
+            facts.canonicalRunSteps[0].peakMemoryBytes = peak
+            return facts
+        }
+        let masked = try Self.maskingPeakMemory(recording(123_456_789))
+        XCTAssertEqual(masked.opsStats.peakMemoryBytes, UInt64(Self.peakMemoryMask))
+        XCTAssertEqual(masked.steps[0].peakMemoryBytes, UInt64(Self.peakMemoryMask))
+        XCTAssertEqual(masked.legacyRunSteps[0].peakMemoryBytes, UInt64(Self.peakMemoryMask))
+        XCTAssertEqual(masked.canonicalRunSteps[0].peakMemoryBytes, UInt64(Self.peakMemoryMask))
+        XCTAssertNil(masked.steps[1].peakMemoryBytes, "a step that records no peak stays without one")
+        XCTAssertEqual(try Self.maskingPeakMemory(recording(7)), masked, "two different peaks give the same facts")
+        XCTAssertNotEqual(masked.differences(from: captured), [], "a peak the captured facts lack shows as a difference")
+        XCTAssertEqual(try Self.maskingPeakMemory(captured), captured, "facts without a peak do not change")
+    }
+
     // MARK: - Capture and compare
 
     private static let suffix = ".facts.json"
@@ -144,7 +175,7 @@ final class ClassifierWriterFactsTests: XCTestCase {
         line: UInt = #line
     ) throws {
         let sidecar = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        let facts = try Self.withoutPeakMemory(BareRunWriterParity.normalized(
+        let facts = try Self.maskingPeakMemory(BareRunWriterParity.normalized(
             try ProvenanceCompatFacts.project(sidecar: sidecar, projectRoot: projectRoot),
             scenario: scenario,
             replacing: Self.cliVersionReplacement
@@ -170,21 +201,31 @@ final class ClassifierWriterFactsTests: XCTestCase {
         XCTAssertEqual(problems, [], "\(scenario.id) differs from the facts captured on the base", file: file, line: line)
     }
 
-    /// The facts without any `peakMemoryBytes`, which a fake tool's process
-    /// reports differently on every run.
-    private static func withoutPeakMemory(_ facts: ProvenanceCompatFacts) throws -> ProvenanceCompatFacts {
-        func strip(_ value: ProvenanceCompatFacts.Value) -> ProvenanceCompatFacts.Value {
+    /// What every `peakMemoryBytes` becomes. The field is a number in
+    /// `ProvenanceCompatFacts`, so its mask is a number and not a token.
+    private static let peakMemoryMask: Int64 = 0
+
+    /// The facts with the value of every `peakMemoryBytes` masked and the key
+    /// kept. A process reports a different peak on every run, so the value
+    /// cannot compare. A writer that starts or stops recording a peak for a
+    /// step still shows as a difference, which dropping the key would hide.
+    private static func maskingPeakMemory(_ facts: ProvenanceCompatFacts) throws -> ProvenanceCompatFacts {
+        func mask(_ value: ProvenanceCompatFacts.Value) -> ProvenanceCompatFacts.Value {
             switch value {
             case .object(let members):
-                return .object(members.filter { $0.key != "peakMemoryBytes" }.mapValues(strip))
+                var masked: [String: ProvenanceCompatFacts.Value] = [:]
+                for (key, member) in members {
+                    masked[key] = key == "peakMemoryBytes" ? .integer(Self.peakMemoryMask) : mask(member)
+                }
+                return .object(masked)
             case .array(let items):
-                return .array(items.map(strip))
+                return .array(items.map(mask))
             default:
                 return value
             }
         }
         let tree = try JSONDecoder().decode(ProvenanceCompatFacts.Value.self, from: JSONEncoder().encode(facts))
-        return try JSONDecoder().decode(ProvenanceCompatFacts.self, from: JSONEncoder().encode(strip(tree)))
+        return try JSONDecoder().decode(ProvenanceCompatFacts.self, from: JSONEncoder().encode(mask(tree)))
     }
 }
 

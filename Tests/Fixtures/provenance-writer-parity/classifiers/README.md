@@ -16,7 +16,7 @@ The normalization keeps the facts the same on every Mac and every run.
 
 - Host values become tokens, namely `<app-version>`, `<host-os>`, `<host-name>`, and `<cli-version>` when the CLI version differs from the app version.
 - Any UUID becomes `<uuid>`.
-- The times a clock decides are cleared (timing `clockedRunAndSteps`), and every `peakMemoryBytes` is removed.
+- The times a clock decides are cleared (timing `clockedRunAndSteps`), and the value of every `peakMemoryBytes` becomes `0`, because the field is a number and a token cannot take its place. The key stays, so a writer that starts or stops recording a peak shows as a difference. No classifier writer records a peak at the base, so no file here holds the key yet.
 - The checksum and size of a file whose bytes differ on every run are cleared. These are the result sidecars `classification-result.json` and `esviritu-result.json`, the gzipped per-read output and its SQLite index, and the Kraken2 batch manifest.
 
 The two batch indexes `kraken2.sqlite` and `esviritu.sqlite` are fixed stand-in files, because `lungfish-cli build-db` runs as a subprocess that the unit tier does not start.
