@@ -236,6 +236,9 @@ extension Kraken2AnalysisRunToolTests {
         XCTAssertEqual(run.report.exitCode, AnalysisRunExitCode.cancelled)
         let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: XCTUnwrap(folders.values.first)))
         XCTAssertEqual(record.status, .cancelled, "never failed from the child's signal (E5)")
+        XCTAssertEqual(record.exitStatus, Int(AnalysisRunExitCode.cancelled), "the cancel request's exit, as the root record says (E5)")
+        XCTAssertEqual(record.steps.map(\.toolName), ["kraken2"])
+        XCTAssertEqual(record.steps.first?.exitStatus, 2, "the step keeps the exit its child ended with")
         XCTAssertEqual(record.options.resolvedDefaults["profileState"], .string("cancelled"))
         XCTAssertNil(record.options.defaults["preset"])
     }

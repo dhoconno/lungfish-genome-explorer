@@ -166,9 +166,11 @@ extension Kraken2AnalysisRunTool {
     /// A batch sample whose pipeline failed or was cancelled keeps the record the pipeline wrote
     /// during this run, converged as ``convergeSampleRecord(in:)`` converges a completed sample's,
     /// so the result holds one defaults table and one home of the read-set plan (E12, E13, D8). A
-    /// cancel also sets the record's status and `profileState` to cancelled, from the cancel
-    /// request and never from how the child ended (E5). Nothing is hashed, and a record that cannot
-    /// be rewritten stays as the pipeline left it, so the unit throws its own error.
+    /// cancel also sets the record's status and `profileState` to cancelled and its exit status to
+    /// 125, from the cancel request and never from how the child ended, as the root record of the
+    /// run says (E5). Its steps keep the exit status each child ended with. Nothing is hashed, and
+    /// a record that cannot be rewritten stays as the pipeline left it, so the unit throws its own
+    /// error.
     static func convergeStoppedSampleRecord(in directory: URL, startedAt: Date, endedAt: Date, cancelled: Bool) {
         guard let envelope = Kraken2RunRecordOptions.pipelineRecordOfThisRun(
             in: directory,
@@ -185,7 +187,10 @@ extension Kraken2AnalysisRunTool {
         }
         let converged = envelope.with { record in
             record.options = options
-            if cancelled { record.status = .cancelled }
+            if cancelled {
+                record.status = .cancelled
+                record.exitStatus = Int(AnalysisRunExitCode.cancelled)
+            }
         }
         _ = try? ProvenanceWriter().write(converged, to: directory)
     }
