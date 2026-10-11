@@ -4,6 +4,9 @@
 
 import Foundation
 import LungfishWorkflow
+// `ProvenanceRuntimeIdentity.fixture` exists only in debug builds of LungfishWorkflow,
+// so a release build of the package leaves this file out.
+#if DEBUG
 
 /// Installs a small NCBI Taxonomy in place of the 80 MB taxdump download.
 ///
@@ -64,3 +67,4 @@ public enum NCBITaxonomyFixture {
         func toolVersion(name: String, environment: String, workingDirectory: URL) async throws -> String { throw UnexpectedRun() }
     }
 }
+#endif
