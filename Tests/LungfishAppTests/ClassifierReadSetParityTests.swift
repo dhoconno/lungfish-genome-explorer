@@ -59,7 +59,18 @@ final class ClassifierReadSetParityTests: XCTestCase {
 
     /// Every row has a frozen value for both tools, and every known difference names a row and a route.
     func testTheTableCoversEveryFixtureBundle() {
-        XCTAssertEqual(rows.count, 20, "the 19 ReadSetFixtures bundles and the oriented DerivedFASTQBundleFixture bundle")
+        // Every bundle ReadSetFixtures holds, read from its stored properties, so a bundle a later lane adds
+        // fails here until it has a row. The project folder and its Imports folder are not bundles.
+        let fixtureBundles = Set(
+            Mirror(reflecting: fixtures!).children
+                .filter { $0.label != "projectURL" && $0.label != "importsURL" }
+                .compactMap { $0.value as? URL }
+        )
+        XCTAssertEqual(
+            Set(rows.map(\.bundle).filter { $0 != derived.derivedBundleURL }),
+            fixtureBundles,
+            "the rows are the ReadSetFixtures bundles and the oriented DerivedFASTQBundleFixture bundle"
+        )
         XCTAssertEqual(Set(rows.map(\.name)).count, rows.count, "row names are unique")
         for tool in Tool.allCases {
             XCTAssertEqual(Set(ClassifierReadSetParityTable.frozen[tool]?.keys.map { $0 } ?? []), Set(rows.map(\.name)), "\(tool)")
