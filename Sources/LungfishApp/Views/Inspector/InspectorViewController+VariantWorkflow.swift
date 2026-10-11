@@ -113,18 +113,14 @@ extension InspectorViewController {
 
             let task = Task(priority: .userInitiated) { [weak self] in
                 do {
-                    let result = try await runner.run(arguments: cliArguments) { event in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                Self.applyVariantCallingEvent(event, operationID: opID)
-                            }
-                        }
-                    }
+                    let result = try await runner.run(
+                        arguments: cliArguments,
+                        onEvent: Self.variantCallingEventHandler(operationID: opID)
+                    )
 
                     DispatchQueue.main.async { [weak self] in
                         MainActor.assumeIsolated {
-                            let detail = result.trackName.map { "Created variant track \($0)" }
-                                ?? "Variant calling complete"
+                            let detail = Self.variantCallingCompletionDetail(for: result)
                             guard OperationCenter.shared.complete(id: opID, detail: detail) else { return }
                             if let self, let split = self.parent as? MainSplitViewController {
                                 split.sidebarController.requestReloadFromFilesystem()
@@ -358,6 +354,23 @@ extension InspectorViewController {
             )
         }
         return output
+    }
+
+    /// The `onEvent` closure the launcher gives the runner. It is a static function
+    /// so a test can feed it the events of a run and read the row.
+    static func variantCallingEventHandler(operationID: UUID) -> @Sendable (CLIEvent) -> Void {
+        { event in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    InspectorViewController.applyVariantCallingEvent(event, operationID: operationID)
+                }
+            }
+        }
+    }
+
+    /// The detail the row ends on after a successful run.
+    static func variantCallingCompletionDetail(for result: CLIVariantCallingResult) -> String {
+        result.trackName.map { "Created variant track \($0)" } ?? "Variant calling complete"
     }
 
     @MainActor

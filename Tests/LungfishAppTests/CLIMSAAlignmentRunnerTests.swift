@@ -147,6 +147,56 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
         }
     }
 
+    /// Phase 2.6 lane C6. The captured run of `align mafft` played through a stand-in CLI, and the
+    /// same run as a version 1 CLI wrote it, with no version and no artifacts. Both give the
+    /// bundle, the row count and the aligned length, and leave the row Completed with the bundle.
+    func testRunReadsTheBundleAndCountsFromTheCapturedRunAndFromAVersion1CLI() async throws {
+        let url = repoRoot.appendingPathComponent("Tests/Fixtures/cli-events/commands/align-mafft/complete.ndjson")
+        let captured = try String(contentsOf: url, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        let decoder = CLIEventLineDecoder()
+        guard case let .complete(outputs, message)? = try decoder.decode(line: try XCTUnwrap(captured.last)),
+              let bundlePath = outputs.first,
+              let counts = message else {
+            return XCTFail("The captured run does not end in a completion with a bundle")
+        }
+        let version1 = try captured.map { line -> String in
+            var object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+            object["schemaVersion"] = nil
+            object["artifacts"] = nil
+            return String(decoding: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), as: UTF8.self)
+        }
+        XCTAssertEqual(outputs, [bundlePath], "The completion names the bundle as its one output")
+
+        for (name, lines) in [("captured", captured), ("version 1", version1)] {
+            let tempDir = try makeTemporaryDirectory()
+            let text = tempDir.appendingPathComponent("lines.ndjson")
+            try (lines.joined(separator: "\n") + "\n").write(to: text, atomically: true, encoding: .utf8)
+            let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")
+            try "#!/bin/sh\n/bin/cat '\(text.path)'\n".write(to: fakeCLI, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
+            let opID = await MainActor.run {
+                OperationCenter.shared.begin(
+                    title: "MAFFT Alignment",
+                    detail: "Launching...",
+                    operationType: .multipleSequenceAlignmentGeneration,
+                    cliCommand: nil
+                ).rowID
+            }
+
+            let result = try await CLIMSAAlignmentRunner(cliURLOverride: fakeCLI).run(arguments: [], operationID: opID)
+
+            XCTAssertEqual(result.bundleURL.path, bundlePath, name)
+            XCTAssertEqual(result.rowCount, 5, name)
+            XCTAssertEqual(result.alignedLength, 29834, name)
+            XCTAssertEqual(counts, "rows=5 alignedLength=29834", name)
+            await MainActor.run {
+                _ = OperationCenter.shared.complete(id: opID, detail: "Test complete")
+                OperationCenter.shared.clearItem(id: opID)
+            }
+        }
+    }
+
     func testCancelTerminatesRunningMAFFTProcessTree() async throws {
         let tempDir = try makeTemporaryDirectory()
         let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")

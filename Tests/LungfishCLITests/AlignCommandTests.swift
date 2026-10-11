@@ -63,6 +63,42 @@ final class AlignCommandTests: XCTestCase {
         XCTAssertTrue(complete.contains("alignedLength=6"))
     }
 
+    /// Phase 2.6 lane C6. The whole stream of a run, in order. The completion names the bundle as
+    /// its one output, which a version 1 runner reads by its place, and carries the counts in
+    /// its message.
+    func testMAFFTCommandStreamsItsEventsInOrderAndCompletesWithTheBundleAsItsOnlyOutput() async throws {
+        let project = URL(fileURLWithPath: "/workspace/Project.lungfish")
+        let input = project.appendingPathComponent("input.fasta")
+        let output = project.appendingPathComponent("Aligned.lungfishmsa", isDirectory: true)
+        let command = try AlignCommand.MAFFTSubcommand.parse([
+            "mafft", input.path, "--project", project.path, "--output", output.path, "--format", "json",
+        ])
+        let runtime = AlignCommand.MAFFTSubcommand.Runtime(
+            runMAFFT: { _, progress in
+                progress(0.25, "Running MAFFT...")
+                return MSAAlignmentRunResult(
+                    bundleURL: output,
+                    rowCount: 2,
+                    alignedLength: 6,
+                    warnings: ["Duplicate row names were rewritten."],
+                    wallTimeSeconds: 1.25
+                )
+            }
+        )
+
+        let recorder = SendableLineRecorder()
+        _ = try await command.executeForTesting(runtime: runtime) { recorder.append($0) }
+
+        let decoder = CLIEventLineDecoder()
+        let events = try recorder.lines().map { try XCTUnwrap(try decoder.decode(line: $0), $0) }
+        XCTAssertEqual(events, [
+            .start(message: "Starting MAFFT alignment for 1 input file(s)."),
+            .progress(fraction: 0.25, message: "Running MAFFT..."),
+            .log(level: .warning, message: "Duplicate row names were rewritten."),
+            .complete(outputs: [output.path], message: "rows=2 alignedLength=6"),
+        ])
+    }
+
     func testMAFFTCommandUsesAutoStrategyByDefault() throws {
         let project = URL(fileURLWithPath: "/workspace/Project.lungfish")
         let input = project.appendingPathComponent("input.fasta")

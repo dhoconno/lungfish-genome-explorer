@@ -12,11 +12,24 @@ import XCTest
 @testable import LungfishCLI
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 import LungfishWorkflow
 
 @MainActor
 final class InspectorVariantWorkflowOperationTests: XCTestCase {
     private let bundleURL = URL(fileURLWithPath: "/tmp/lane 1a1/Sample.lungfishref", isDirectory: true)
+    private var folder: URL!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        folder = try TestTempDirectory.make(prefix: "variant-launcher")
+        OperationCenter.useTemporaryFailureReportsForTesting()
+    }
+
+    override func tearDown() async throws {
+        TestTempDirectory.cleanup(folder)
+        try await super.tearDown()
+    }
 
     private func centerHoldingBundleLock() throws -> OperationCenter {
         let center = OperationCenter()
@@ -163,5 +176,191 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
             item.logs.map(\.message),
             request.commands.map { "GATK command: \($0.shellCommand)" }
         )
+    }
+
+    // MARK: - What the launcher does with the events of a run (Phase 2.6 lane C6)
+
+    /// Each event kind, fed through the closure the launcher gives its runner, and what the row
+    /// shows afterwards. The closure hops to the main queue, so each step waits for its log line.
+    func testEachEventLandsOnTheRowTheWayTheLauncherHandlesIt() async throws {
+        let id = beginRow()
+        defer { OperationCenter.shared.clearItem(id: id) }
+        let handle = InspectorViewController.variantCallingEventHandler(operationID: id)
+
+        handle(.start(message: "Starting LoFreq variant calling"))
+        await waitForLog(of: id, count: 1)
+        XCTAssertEqual(row(id)?.detail, "Starting LoFreq variant calling")
+        XCTAssertEqual(row(id)?.progress, 0.01)
+
+        // The caller workflow and the SQLite import each report 0 to 1, and the bar keeps to 0.10...0.88.
+        handle(.progress(fraction: 0.0, message: "Staging reference and alignment inputs"))
+        await waitForLog(of: id, count: 2)
+        XCTAssertEqual(row(id)?.progress, 0.10)
+        handle(.progress(fraction: 0.45, message: "Running LoFreq"))
+        await waitForLog(of: id, count: 3)
+        XCTAssertEqual(row(id)?.progress, 0.45)
+        XCTAssertEqual(row(id)?.detail, "Running LoFreq")
+        handle(.progress(fraction: 1.0, message: "Done (2 variants, 0 samples)"))
+        await waitForLog(of: id, count: 4)
+        XCTAssertEqual(row(id)?.progress, 0.88)
+
+        // A log event changes the history only, at its own level.
+        handle(.log(level: .warning, message: "Reference contig names were matched by alias."))
+        await waitForLog(of: id, count: 5)
+        XCTAssertEqual(row(id)?.progress, 0.88)
+        XCTAssertEqual(row(id)?.detail, "Done (2 variants, 0 samples)")
+
+        // An output event changes nothing.
+        handle(.output(path: "/work/variants.vcf.gz", role: "variants"))
+        handle(.log(level: .debug, message: "After the output event"))
+        await waitForLog(of: id, count: 6)
+
+        handle(.failed(message: "LoFreq stopped", detail: nil))
+        await waitForLog(of: id, count: 7)
+        XCTAssertEqual(row(id)?.progress, 0.99)
+        XCTAssertEqual(row(id)?.detail, "LoFreq stopped")
+
+        XCTAssertEqual(loggedLines(of: id), [
+            "info: Starting LoFreq variant calling",
+            "info: Staging reference and alignment inputs",
+            "info: Running LoFreq",
+            "info: Done (2 variants, 0 samples)",
+            "warning: Reference contig names were matched by alias.",
+            "debug: After the output event",
+            "error: LoFreq stopped",
+        ])
+    }
+
+    /// The captured run of `variants call` played through a stand-in CLI, the runner and the
+    /// launcher's closure, then ended the way the launcher ends a success. The row keeps every
+    /// start, progress and log line, and the runner finds the three files and the track.
+    func testPlayingTheCapturedRunLeavesTheRowCompletedWithItsLogAndTheRunnerWithItsFiles() async throws {
+        for oldCLI in [false, true] {
+            let lines = try capturedRun(asVersion1: oldCLI)
+            let completion = try completion(of: lines)
+            let id = beginRow()
+            defer { OperationCenter.shared.clearItem(id: id) }
+
+            let result = try await CLIVariantCallingRunner(cliURLOverride: try standInCLI(printing: lines))
+                .run(arguments: [], onEvent: InspectorViewController.variantCallingEventHandler(operationID: id))
+
+            let expectedLog = try expectedHistory(of: lines)
+            await waitForLog(of: id, count: expectedLog.count)
+            XCTAssertTrue(
+                OperationCenter.shared.complete(id: id, detail: InspectorViewController.variantCallingCompletionDetail(for: result))
+            )
+
+            XCTAssertEqual(result.databasePath, completion.outputs[0], "oldCLI \(oldCLI)")
+            XCTAssertEqual(result.vcfPath, completion.outputs[1], "oldCLI \(oldCLI)")
+            XCTAssertEqual(result.tbiPath, completion.outputs[2], "oldCLI \(oldCLI)")
+            XCTAssertEqual(result.trackName, completion.trackName, "oldCLI \(oldCLI)")
+            XCTAssertEqual(result.trackID, completion.trackID, "oldCLI \(oldCLI)")
+            XCTAssertTrue(try XCTUnwrap(result.databasePath).hasSuffix(".db"))
+            XCTAssertTrue(try XCTUnwrap(result.vcfPath).hasSuffix(".vcf.gz"))
+            XCTAssertTrue(try XCTUnwrap(result.tbiPath).hasSuffix(".vcf.gz.tbi"))
+            let item = try XCTUnwrap(row(id))
+            XCTAssertEqual(item.displayStateLabel, "Completed", "oldCLI \(oldCLI)")
+            XCTAssertEqual(item.detail, "Created variant track \(completion.trackName)", "oldCLI \(oldCLI)")
+            XCTAssertEqual(item.progress, 1, "oldCLI \(oldCLI)")
+            XCTAssertEqual(loggedLines(of: id), expectedLog, "oldCLI \(oldCLI)")
+            XCTAssertEqual(item.bundleURLs, [], "oldCLI \(oldCLI): the run imports no file, the track is already in the bundle")
+            XCTAssertEqual(item.outputURLs, [], "oldCLI \(oldCLI)")
+        }
+    }
+
+    /// A warning logged during the run reads Completed with Warnings, as it does for every runner.
+    func testAWarningLoggedDuringTheRunReadsCompletedWithWarnings() async throws {
+        let id = beginRow()
+        defer { OperationCenter.shared.clearItem(id: id) }
+        let handle = InspectorViewController.variantCallingEventHandler(operationID: id)
+
+        handle(.start(message: "Starting LoFreq variant calling"))
+        handle(.log(level: .warning, message: "Reference contig names were matched by alias."))
+        await waitForLog(of: id, count: 2)
+        XCTAssertTrue(OperationCenter.shared.complete(id: id, detail: "Created variant track Sample LoFreq"))
+
+        XCTAssertEqual(row(id)?.displayStateLabel, "Completed with Warnings")
+    }
+
+    // MARK: Rows, logs and the captured run
+
+    private func beginRow() -> UUID {
+        OperationCenter.shared.begin(
+            title: "Calling variants with LoFreq",
+            detail: "Preparing LoFreq...",
+            operationType: .variantCalling,
+            cliCommand: nil
+        ).rowID
+    }
+
+    private func row(_ id: UUID) -> OperationCenter.Item? {
+        OperationCenter.shared.items.first { $0.id == id }
+    }
+
+    /// The log as the expanded row shows it, one `level: message` string per entry.
+    private func loggedLines(of id: UUID) -> [String] {
+        (row(id)?.logEntries ?? [])
+            .filter { !$0.isElisionMarker }
+            .map { "\($0.level.rawValue): \($0.message)" }
+    }
+
+    private func waitForLog(of id: UUID, count: Int) async {
+        await waitUntil(timeout: .seconds(30)) { self.loggedLines(of: id).count >= count }
+    }
+
+    /// The lines of the real run of `variants call` kept under `Tests/Fixtures/cli-events`, or
+    /// the same lines as a version 1 CLI wrote them, with no version and no artifacts.
+    private func capturedRun(asVersion1: Bool) throws -> [String] {
+        let url = ProvenanceCompatCorpus.repositoryRoot
+            .appendingPathComponent("Tests/Fixtures/cli-events/commands/variants-call/complete.ndjson")
+        let lines = try String(contentsOf: url, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        guard asVersion1 else { return lines }
+        return try lines.map { line in
+            var object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+            object["schemaVersion"] = nil
+            object["artifacts"] = nil
+            return String(decoding: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), as: UTF8.self)
+        }
+    }
+
+    private func completion(of lines: [String]) throws -> (outputs: [String], trackID: String, trackName: String) {
+        let decoder = CLIEventLineDecoder()
+        guard case let .complete(outputs, message)? = try decoder.decode(line: try XCTUnwrap(lines.last)),
+              let message,
+              let idRange = message.range(of: "trackID="),
+              let nameRange = message.range(of: " trackName=") else {
+            throw XCTSkip("The captured run does not end in a completion that names its track")
+        }
+        return (
+            outputs,
+            String(message[idRange.upperBound..<nameRange.lowerBound]),
+            String(message[nameRange.upperBound...])
+        )
+    }
+
+    /// What the launcher has always kept in the history. Each start, progress and log line, in
+    /// order and at its own level, and nothing for the completion.
+    private func expectedHistory(of lines: [String]) throws -> [String] {
+        let decoder = CLIEventLineDecoder()
+        return try lines.compactMap { line in
+            switch try decoder.decode(line: line) {
+            case let .start(message)?: return "info: \(message)"
+            case let .progress(_, message)?: return "info: \(message)"
+            case let .log(level, message)?: return "\(level.rawValue): \(message)"
+            default: return nil
+            }
+        }
+    }
+
+    /// A shell script in place of `lungfish-cli` that prints `lines` on standard output.
+    private func standInCLI(printing lines: [String]) throws -> URL {
+        let tag = UUID().uuidString
+        let text = folder.appendingPathComponent("lines-\(tag).ndjson")
+        try (lines.joined(separator: "\n") + "\n").write(to: text, atomically: true, encoding: .utf8)
+        let url = folder.appendingPathComponent("lungfish-cli-\(tag)")
+        try "#!/bin/sh\n/bin/cat '\(text.path)'\n".write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        return url
     }
 }

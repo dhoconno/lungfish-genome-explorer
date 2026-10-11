@@ -698,6 +698,202 @@ final class VariantsCommandTests: XCTestCase {
         XCTAssertTrue(lines.contains { $0.contains("Medaka requires ONT model metadata") })
     }
 
+    // MARK: - The stream and the result of a call (Phase 2.6 lane C6)
+
+    /// The event stream of a call, step by step. A step before the caller workflow is a log line,
+    /// the caller workflow reports its own progress, and the completion names `[database, vcf,
+    /// tbi]` in that order, which an app that finds a file by its place reads.
+    func testCallEmitsItsStepsInOrderAndCompletesWithItsOutputsInVersion1Order() async throws {
+        let command = try VariantsCommand.CallSubcommand.parse([
+            "call",
+            "--bundle", callBundleURL.path,
+            "--alignment-track", "aln-1",
+            "--caller", "lofreq",
+            "--format", "json",
+        ])
+        let runtime = try makeRuntime(onRunPipeline: { context in
+            context.emitStageProgress(0.45, "Running LoFreq")
+        })
+        var lines: [String] = []
+
+        _ = try await command.executeForTesting(runtime: runtime) { lines.append($0) }
+
+        let decoder = CLIEventLineDecoder()
+        let events = try lines.map { try XCTUnwrap(try decoder.decode(line: $0), $0) }
+        let name = "Sample BAM \u{2022} LoFreq"
+        XCTAssertEqual(events, [
+            .start(message: "Starting LoFreq variant calling"),
+            .log(level: .info, message: "Checking bundle and alignment inputs"),
+            .log(level: .info, message: "Preflight checks passed"),
+            .log(level: .info, message: "Running caller workflow"),
+            .progress(fraction: 0.45, message: "Running LoFreq"),
+            .log(level: .info, message: "Caller workflow completed"),
+            .log(level: .info, message: "Importing normalized variants into SQLite"),
+            .log(level: .info, message: "Imported 2 variants into SQLite"),
+            .log(level: .info, message: "Attaching variant track to bundle"),
+            .log(level: .info, message: "trackID=vc-1 trackName=\(name): Attached variant track \(name)"),
+            .complete(
+                outputs: [
+                    tempDir.appendingPathComponent("variants.db").path,
+                    tempDir.appendingPathComponent("variants.vcf.gz").path,
+                    tempDir.appendingPathComponent("variants.vcf.gz.tbi").path,
+                ],
+                message: "trackID=vc-1 trackName=\(name)"
+            ),
+        ])
+    }
+
+    /// With the real attach service, the called VCF lands in the bundle's `variants` folder with
+    /// its index and database, its track is in the manifest, and the record that describes it is
+    /// the one a lookup from the VCF finds.
+    func testTheCalledVCFReachesItsBundleTrackAndManifestEntryWithItsRecordFound() async throws {
+        let bundle = try makeAttachableBundle()
+        let staged = try makeStagedArtifacts()
+        let command = try VariantsCommand.CallSubcommand.parse([
+            "call",
+            "--bundle", bundle.path,
+            "--alignment-track", "aln-1",
+            "--caller", "lofreq",
+            "--name", "Sample LoFreq",
+            "--format", "json",
+        ])
+        let manifest = try BundleManifest.load(from: bundle)
+        let runtime = VariantsCommand.Runtime(
+            preflight: { _ in
+                BAMVariantCallingPreflightResult(
+                    manifest: manifest,
+                    alignmentTrack: manifest.alignments[0],
+                    genome: try XCTUnwrap(manifest.genome),
+                    alignmentURL: bundle.appendingPathComponent("alignments/sample.sorted.bam"),
+                    alignmentIndexURL: bundle.appendingPathComponent("alignments/sample.sorted.bam.bai"),
+                    referenceFASTAURL: bundle.appendingPathComponent("genome/sequence.fa.gz"),
+                    referenceFAIURL: bundle.appendingPathComponent("genome/sequence.fa.gz.fai"),
+                    bamReferenceSequences: [
+                        SAMParser.ReferenceSequence(name: "chr1", length: 20, md5: nil, assembly: nil, uri: nil, species: nil)
+                    ],
+                    referenceNameMap: ["chr1": "chr1"],
+                    contigValidation: .exactMatch
+                )
+            },
+            runPipeline: { _, _, _ in
+                ViralVariantCallingPipelineResult(
+                    normalizedVCFURL: staged.vcfURL,
+                    stagedVCFGZURL: staged.vcfGZURL,
+                    stagedTabixURL: staged.tbiURL,
+                    referenceFASTAURL: bundle.appendingPathComponent("genome/sequence.fa.gz"),
+                    referenceFASTASHA256: "reference-sha",
+                    callerVersion: "2.1.5",
+                    callerParametersJSON: #"{"caller":"lofreq"}"#
+                )
+            },
+            importSQLite: { _, _ in
+                VariantSQLiteImportResult(
+                    databaseURL: staged.dbURL,
+                    variantCount: 2,
+                    didResumeIndexBuild: false,
+                    didResumeMaterialization: false
+                )
+            },
+            attachTrack: { request in
+                try await BundleVariantTrackAttachmentService().attach(request: request)
+            }
+        )
+        var lines: [String] = []
+
+        _ = try await command.executeForTesting(runtime: runtime) { lines.append($0) }
+
+        let decoder = CLIEventLineDecoder()
+        guard case let .complete(outputs, message)? = try lines.last.flatMap({ try decoder.decode(line: $0) }) else {
+            return XCTFail("Expected a terminal complete event")
+        }
+        let trackID = try XCTUnwrap(
+            message?.split(separator: " ").first { $0.hasPrefix("trackID=") }.map { String($0.dropFirst("trackID=".count)) }
+        )
+        let variants = bundle.appendingPathComponent("variants", isDirectory: true)
+        let databaseURL = variants.appendingPathComponent("\(trackID).db")
+        let vcfURL = variants.appendingPathComponent("\(trackID).vcf.gz")
+        let tabixURL = variants.appendingPathComponent("\(trackID).vcf.gz.tbi")
+        XCTAssertEqual(outputs, [databaseURL.path, vcfURL.path, tabixURL.path], "The order a version 1 runner reads")
+        for url in [databaseURL, vcfURL, tabixURL] {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: url.path), "\(url.lastPathComponent) is in the bundle")
+        }
+        for url in [staged.vcfGZURL, staged.tbiURL, staged.dbURL] {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "\(url.lastPathComponent) was moved out of staging")
+        }
+
+        let track = try XCTUnwrap(BundleManifest.load(from: bundle).variants.first { $0.id == trackID })
+        XCTAssertEqual(track.name, "Sample LoFreq")
+        XCTAssertEqual(track.path, "variants/\(trackID).vcf.gz")
+        XCTAssertEqual(track.indexPath, "variants/\(trackID).vcf.gz.tbi")
+        XCTAssertEqual(track.databasePath, "variants/\(trackID).db")
+        XCTAssertEqual(track.variantCount, 2)
+        XCTAssertEqual(VariantDatabase.metadataValue(at: databaseURL, key: "source_alignment_track_id"), "aln-1")
+
+        let found = try XCTUnwrap(ProvenanceRecorder.findProvenanceEnvelope(for: vcfURL), "The record of the called VCF is found")
+        XCTAssertEqual(found.sidecarURL.lastPathComponent, "\(trackID).lungfish-provenance.json")
+        XCTAssertTrue(
+            found.envelope.steps.flatMap(\.outputs).contains { $0.path == vcfURL.path },
+            "The record names the VCF in the bundle as an output"
+        )
+    }
+
+    private func makeAttachableBundle() throws -> URL {
+        let bundle = tempDir.appendingPathComponent("Attach.lungfishref", isDirectory: true)
+        let genome = bundle.appendingPathComponent("genome", isDirectory: true)
+        let alignments = bundle.appendingPathComponent("alignments", isDirectory: true)
+        try FileManager.default.createDirectory(at: genome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: alignments, withIntermediateDirectories: true)
+        try ">chr1\nACGTACGTACGTACGTACGT\n".write(to: genome.appendingPathComponent("sequence.fa.gz"), atomically: true, encoding: .utf8)
+        try "chr1\t20\t6\t20\t21\n".write(to: genome.appendingPathComponent("sequence.fa.gz.fai"), atomically: true, encoding: .utf8)
+        try Data("bam".utf8).write(to: alignments.appendingPathComponent("sample.sorted.bam"))
+        try Data("bai".utf8).write(to: alignments.appendingPathComponent("sample.sorted.bam.bai"))
+        try BundleManifest(
+            formatVersion: "1.0",
+            name: "Attach",
+            identifier: "bundle.attach",
+            source: SourceInfo(organism: "Virus", assembly: "TestAssembly", database: "Test"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa.gz",
+                indexPath: "genome/sequence.fa.gz.fai",
+                totalLength: 20,
+                chromosomes: [ChromosomeInfo(name: "chr1", length: 20, offset: 6, lineBases: 20, lineWidth: 21, aliases: [])]
+            ),
+            alignments: [
+                AlignmentTrackInfo(
+                    id: "aln-1",
+                    name: "Sample BAM",
+                    format: .bam,
+                    sourcePath: "alignments/sample.sorted.bam",
+                    indexPath: "alignments/sample.sorted.bam.bai",
+                    checksumSHA256: "bam-sha-256"
+                )
+            ]
+        ).save(to: bundle)
+        return bundle
+    }
+
+    /// The files a caller leaves in staging, with a real variant database for two records. The
+    /// compressed VCF and its index are placeholders, which the attach service only moves.
+    private func makeStagedArtifacts() throws -> (vcfURL: URL, vcfGZURL: URL, tbiURL: URL, dbURL: URL) {
+        let staging = tempDir.appendingPathComponent("staging-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let vcfURL = staging.appendingPathComponent("staged.vcf")
+        let vcfGZURL = staging.appendingPathComponent("staged.vcf.gz")
+        let tbiURL = staging.appendingPathComponent("staged.vcf.gz.tbi")
+        let dbURL = staging.appendingPathComponent("staged.db")
+        try """
+        ##fileformat=VCFv4.3
+        ##contig=<ID=chr1,length=20>
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t2\tvar1\tA\tG\t50\tPASS\tAF=0.5
+        chr1\t5\tvar2\tC\tT\t45\tPASS\tAF=0.4
+        """.write(to: vcfURL, atomically: true, encoding: .utf8)
+        try Data("placeholder-vcfgz".utf8).write(to: vcfGZURL)
+        try Data("placeholder-tabix".utf8).write(to: tbiURL)
+        try VariantDatabase.createFromVCF(vcfURL: vcfURL, outputURL: dbURL, importSemantics: .viralFrequency)
+        return (vcfURL, vcfGZURL, tbiURL, dbURL)
+    }
+
     private func makeRuntime(
         onRunPipeline: (@Sendable (VariantsCommand.CallContext) -> Void)? = nil,
         onPreflight: (@Sendable (BundleVariantCallingRequest) -> Void)? = nil
