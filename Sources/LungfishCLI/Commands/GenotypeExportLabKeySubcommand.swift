@@ -368,9 +368,9 @@ struct LabKeyExporter {
 
     // MARK: Smart cohorts
 
-    /// Smart cohorts get a deterministic `cohort_id` derived from
-    /// `name + scope` so LabKey rows survive re-exports without colliding on
-    /// `cohort_name` collisions across scopes. The predicate is serialized
+    /// `cohort_id` is the row's position in this export, so it names a cohort
+    /// only within one export, and deleting a cohort renumbers the rows after
+    /// it. The predicate is serialized
     /// as JSON exactly as it lives in the sidecar so analysts can round-trip
     /// it into Lungfish. `sample_count` is the number of bundle samples the
     /// predicate currently matches — useful for sanity-checking the cohort

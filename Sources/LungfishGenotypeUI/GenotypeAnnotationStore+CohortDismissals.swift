@@ -40,8 +40,7 @@ extension GenotypeAnnotationStore {
     /// published, writes to the bundle for the first time. Empty for an edit
     /// that writes none, such as a replayed edit, which starts from the file.
     func seededBuiltInSmartCohortOptions(publishing sidecar: GenotypeAnnotationSidecar) -> [String: ParameterValue] {
-        let published = Set(sidecar.smartCohorts.map(\.name))
-        let seeded = unsavedBuiltInSmartCohorts.filter { published.contains($0.name) }
+        let seeded = unsavedBuiltInSmartCohorts.filter { sidecar.smartCohorts.contains($0) }
         guard !seeded.isEmpty else { return [:] }
         return ["seededBuiltInSmartCohorts": .array(seeded.map { .string($0.name) })]
     }

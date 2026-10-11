@@ -137,6 +137,7 @@ final class GenotypeAnnotationStoreCohortDismissalTests: XCTestCase {
         try store.saveSmartCohort(GenotypeCohortSmartFilter(
             name: "Homozygous", scope: "bundle", isStarred: false, predicate: .hasAnyComment
         ))
+        try assertRecord(layout, action: "saveSmartCohort", seeded: ["Incomplete haplotypes", "Needs review", "Recombinants"])
 
         try store.deleteSmartCohort(name: "Homozygous", scope: "bundle")
 
