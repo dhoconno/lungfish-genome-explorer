@@ -313,6 +313,56 @@ final class ProvenanceStepParentTests: XCTestCase {
         XCTAssertFalse(shell(steps).contains("micromamba"), "no environment is created for a step the script does not run")
     }
 
+    // MARK: - The pin gate sees what the script runs
+
+    private func envelope(_ steps: [StepExecution]) -> ProvenanceEnvelope {
+        ProvenanceEnvelope(
+            workflowName: "step parent test", toolName: "lungfish-cli",
+            steps: steps.map { ProvenanceStep(stepExecution: $0) }, legacyWorkflowRun: run(steps)
+        )
+    }
+
+    private func shellGate(_ steps: [StepExecution]) -> ProvenanceExportPinGate {
+        ProvenanceExporter(signingProvider: nil).pinGate(
+            for: envelope(steps), shape: .envelope, format: .shell, sourceSidecarURL: nil
+        )
+    }
+
+    /// The released clumpify step with a version the lock does not hold, which the gate refuses
+    /// when a script runs it.
+    private func releasedFASTQImportWithAnUnlockedClumpify() -> [StepExecution] {
+        var steps = releasedFASTQImport("S1")
+        let clumpify = steps[0]
+        steps[0] = StepExecution(
+            id: clumpify.id,
+            toolName: clumpify.toolName,
+            toolVersion: "39.99",
+            command: clumpify.command,
+            durableReplayArgv: clumpify.durableReplayArgv,
+            inputs: clumpify.inputs,
+            outputs: clumpify.outputs,
+            exitCode: 0,
+            wallTime: 1
+        )
+        return steps
+    }
+
+    func testTheGateDoesNotAssessAStepTheScriptLeavesOut() {
+        let steps = releasedFASTQImportWithAnUnlockedClumpify()
+        let alone = shellGate([steps[0]])
+        XCTAssertEqual(alone.unpinnedSteps.map(\.toolName), ["clumpify.sh"], "run by the script, the step is refused")
+        let beside = shellGate(steps)
+        XCTAssertEqual(beside.unpinnedSteps, [], "the import runs clumpify itself, so the script never installs it")
+        XCTAssertFalse(beside.requiresOverride)
+    }
+
+    func testAnOverrideNamesNoStepTheScriptLeavesOut() {
+        let steps = releasedFASTQImportWithAnUnlockedClumpify()
+        let script = ProvenanceExporter(signingProvider: nil).exportShell(run(steps), allowUnpinned: true)
+        XCTAssertFalse(script.contains("Not pinned"), "no step the script runs is unpinned")
+        XCTAssertTrue(script.contains("# Step 1 (clumpify.sh v39.99) ran inside step 2"), "the skipped step keeps its version in a comment")
+    }
+
     // MARK: - The released MHC demo project
 
     private func installedMHCProject() async throws -> (project: URL, exports: URL) {
