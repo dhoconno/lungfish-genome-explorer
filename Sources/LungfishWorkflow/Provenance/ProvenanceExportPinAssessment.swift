@@ -376,11 +376,18 @@ public struct ProvenanceExportPinGate: Sendable, Hashable {
             numbers.count == 1 ? "Step \(numbers[0])" : "Steps " + numbers.map(String.init).joined(separator: " and ")
         }
 
-        /// The step, its tool, its environment and the reason, as the CLI, the script header and the
-        /// export record name it.
+        /// The version the step recorded, parsed from `recordedVersion` (`3.1`).
+        public var version: String {
+            ProvenanceToolIdentityText.parse(toolName: toolName, toolVersion: recordedVersion).version
+        }
+
+        /// The step, its tool and the version that ran, its environment and the reason, as the CLI, the
+        /// script header and the export record name it. The version is left out when none was recorded.
         public var summary: String {
+            var tool = toolName
+            if case .versionNotRecorded = reason {} else { tool += " \(version)" }
             let place = environmentName.isEmpty ? "" : " in \(environmentName)"
-            return "\(stepLabel), \(toolName)\(place). \(reason.sentence)"
+            return "\(stepLabel), \(tool)\(place). \(reason.sentence)"
         }
     }
 

@@ -72,6 +72,11 @@ final class ProvenanceExportPinGateTests: XCTestCase {
         XCTAssertTrue(result.requiresOverride)
         XCTAssertFalse(result.permitsExport(allowUnpinned: false))
         XCTAssertTrue(result.permitsExport(allowUnpinned: true))
+        // The summary names the version that ran.
+        XCTAssertEqual(
+            result.unpinnedSteps.first?.summary,
+            "Step 1, samtools 1.19 in lge-samtools. Version 1.19 ran, but LGE pins version 1.24."
+        )
     }
 
     func testUnknownErrorAndEmptyVersionsAreUnpinned() {
@@ -194,7 +199,7 @@ final class ProvenanceExportPinGateTests: XCTestCase {
         XCTAssertEqual(result.refusalLines, [
             "LGE did not write the Python script, because it cannot pin the tool version of 2 steps.",
             "Step 1, minimap2 in lge-minimap2. Its version was not recorded, so no version can be pinned.",
-            "Step 3, bracken in lge-bracken. LGE builds this tool from source, which a conda package spec cannot pin.",
+            "Step 3, bracken 3.1 in lge-bracken. LGE builds this tool from source, which a conda package spec cannot pin.",
             "Pass --allow-unpinned to write it anyway. The Python script and its export record then name each of these steps.",
         ])
     }
@@ -449,7 +454,7 @@ final class ProvenanceExportPinGateTests: XCTestCase {
     func testTheOverrideNamesEachUnpinnedStepInTheHeaderBesideTheStepAndInTheRecord() throws {
         let summaries = [
             "Step 1, minimap2 in lge-minimap2. Its version was not recorded, so no version can be pinned.",
-            "Step 3, bracken in lge-bracken. LGE builds this tool from source, which a conda package spec cannot pin.",
+            "Step 3, bracken 3.1 in lge-bracken. LGE builds this tool from source, which a conda package spec cannot pin.",
         ]
         for (format, prefix) in [(ProvenanceExportFormat.shell, "# "), (.python, ""), (.nextflow, " * "), (.snakemake, "# ")] {
             let directory = try temporaryDirectory("pin-override-\(format.cliToken)")
