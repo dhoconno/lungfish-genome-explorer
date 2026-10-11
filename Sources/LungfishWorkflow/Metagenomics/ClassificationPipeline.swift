@@ -1658,9 +1658,11 @@ public actor ClassificationPipeline {
         // validated source overlay (3.1) and then the conda package. `bracken -v` is never
         // asked, because the 1.0.0 wrapper prints an argparse usage error and the 3.1 build
         // prints `Bracken v3.0.1`.
-        let brackenVersion = await ManagedMetagenomicsDatabaseToolRunner.managedBrackenVersion(
+        let bracken = await ManagedMetagenomicsDatabaseToolRunner.managedBracken(
             condaManager, environment: Self.brackenEnvironment
-        ) ?? "unknown"
+        )
+        let brackenVersion = bracken?.version ?? "unknown"
+        let brackenEvidence = bracken?.evidence
         logger.info("Detected bracken version: \(brackenVersion, privacy: .public)")
         try Task.checkCancellation()
 
@@ -1801,7 +1803,7 @@ public actor ClassificationPipeline {
                 exitCode: 130,
                 wallTime: brackenClock.elapsed,
                 stderr: "Bracken profiling cancelled.",
-                dependsOn: dependsOn
+                dependsOn: dependsOn, managedToolID: ManagedBrackenVersion.toolID, toolVersionEvidence: brackenEvidence
             )
             throw CancellationError()
         } catch let error as CondaError {
@@ -1825,7 +1827,7 @@ public actor ClassificationPipeline {
                 exitCode: unavailable ? 127 : 1,
                 wallTime: brackenClock.elapsed,
                 stderr: message,
-                dependsOn: dependsOn
+                dependsOn: dependsOn, managedToolID: ManagedBrackenVersion.toolID, toolVersionEvidence: brackenEvidence
             )
             return BrackenExecutionResult(
                 tree: tree,
@@ -1853,7 +1855,7 @@ public actor ClassificationPipeline {
                 exitCode: 1,
                 wallTime: brackenClock.elapsed,
                 stderr: message,
-                dependsOn: dependsOn
+                dependsOn: dependsOn, managedToolID: ManagedBrackenVersion.toolID, toolVersionEvidence: brackenEvidence
             )
             return BrackenExecutionResult(
                 tree: tree,
@@ -1891,7 +1893,7 @@ public actor ClassificationPipeline {
                 exitCode: processResult.exitCode,
                 wallTime: processWallTime,
                 stderr: processResult.stderr,
-                dependsOn: dependsOn
+                dependsOn: dependsOn, managedToolID: ManagedBrackenVersion.toolID, toolVersionEvidence: brackenEvidence
             )
             _ = await provenanceRecorder.recordStep(
                 runID: runID,
@@ -1954,7 +1956,7 @@ public actor ClassificationPipeline {
                 exitCode: processResult.exitCode,
                 wallTime: processWallTime,
                 stderr: processResult.stderr,
-                dependsOn: dependsOn
+                dependsOn: dependsOn, managedToolID: ManagedBrackenVersion.toolID, toolVersionEvidence: brackenEvidence
             )
             return BrackenExecutionResult(
                 tree: tree,
@@ -2026,7 +2028,7 @@ public actor ClassificationPipeline {
                 exitCode: processResult.exitCode,
                 wallTime: processWallTime,
                 stderr: processResult.stderr,
-                dependsOn: dependsOn
+                dependsOn: dependsOn, managedToolID: ManagedBrackenVersion.toolID, toolVersionEvidence: brackenEvidence
             )
             let validationStepID = await provenanceRecorder.recordStep(
                 runID: runID,
@@ -2077,7 +2079,7 @@ public actor ClassificationPipeline {
             exitCode: processResult.exitCode,
             wallTime: processWallTime,
             stderr: processResult.stderr,
-            dependsOn: dependsOn
+            dependsOn: dependsOn, managedToolID: ManagedBrackenVersion.toolID, toolVersionEvidence: brackenEvidence
         )
         logger.info("Bracken profiling merged successfully")
         return BrackenExecutionResult(

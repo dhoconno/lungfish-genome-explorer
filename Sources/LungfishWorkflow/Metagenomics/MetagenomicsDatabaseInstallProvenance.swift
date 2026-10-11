@@ -2,6 +2,7 @@ import CryptoKit
 import Darwin
 import Foundation
 import LungfishCore
+import LungfishIO
 
 public struct MetagenomicsDatabasePayloadSnapshot: Sendable, Equatable {
     public let rootURL: URL
@@ -150,6 +151,10 @@ public struct MetagenomicsDatabaseInstallStepEvidence: Sendable, Equatable {
     public let startedAt: Date
     public let completedAt: Date
     public let stderr: String
+    /// The managed tool the step ran, by its lock id, when the installer knows it.
+    public let managedToolID: ManagedToolID?
+    /// What `toolVersion` is known from, when the installer knows it.
+    public let toolVersionEvidence: ToolVersionEvidence?
 
     public init(
         toolName: String,
@@ -163,7 +168,9 @@ public struct MetagenomicsDatabaseInstallStepEvidence: Sendable, Equatable {
         exitStatus: Int32,
         startedAt: Date,
         completedAt: Date,
-        stderr: String
+        stderr: String,
+        managedToolID: ManagedToolID? = nil,
+        toolVersionEvidence: ToolVersionEvidence? = nil
     ) {
         self.toolName = toolName
         self.toolVersion = toolVersion
@@ -177,6 +184,8 @@ public struct MetagenomicsDatabaseInstallStepEvidence: Sendable, Equatable {
         self.startedAt = startedAt
         self.completedAt = completedAt
         self.stderr = stderr
+        self.managedToolID = managedToolID
+        self.toolVersionEvidence = toolVersionEvidence
     }
 }
 
@@ -429,7 +438,9 @@ public struct CanonicalMetagenomicsDatabaseInstallProvenanceWriter: Metagenomics
             wallTimeSeconds: max(0, evidence.completedAt.timeIntervalSince(evidence.startedAt)),
             stderr: ProvenanceStderr.normalized(evidence.stderr),
             startedAt: evidence.startedAt,
-            completedAt: evidence.completedAt
+            completedAt: evidence.completedAt,
+            managedToolID: evidence.managedToolID,
+            toolVersionEvidence: evidence.toolVersionEvidence
         )
     }
 
@@ -447,7 +458,9 @@ public struct CanonicalMetagenomicsDatabaseInstallProvenanceWriter: Metagenomics
             wallTimeSeconds: max(0, evidence.completedAt.timeIntervalSince(evidence.startedAt)),
             stderr: ProvenanceStderr.normalized(evidence.stderr),
             startedAt: evidence.startedAt,
-            completedAt: evidence.completedAt
+            completedAt: evidence.completedAt,
+            managedToolID: evidence.managedToolID,
+            toolVersionEvidence: evidence.toolVersionEvidence
         )
     }
 

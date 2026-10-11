@@ -735,10 +735,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         }
 
         let evidence = await versionEvidence(for: .clumpify)
-        let toolVersion = evidence.version
         return StepExecution(
             toolName: "clumpify.sh",
-            toolVersion: toolVersion ?? "unknown",
+            toolVersion: evidence.recordedString,
             command: [clumpifyScript.path] + args,
             inputs: inputs.map {
                 ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
@@ -747,6 +746,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             exitCode: result.exitCode,
             wallTime: stepCompletedAt.timeIntervalSince(stepClock.startedAt),
             stderr: result.stderr.isEmpty ? nil : result.stderr,
+            managedToolID: NativeTool.clumpify.managedToolID, toolVersionEvidence: evidence,
             startTime: stepClock.startedAt,
             endTime: stepCompletedAt
         )
@@ -761,7 +761,6 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         progress(1.0, "clumpify.sh complete")
         logger.info("Clumpified reads with bbtools (\(config.qualityBinning.rawValue) binning)")
         let evidence = await versionEvidence(for: .clumpify)
-        let toolVersion = evidence.version
         let commandLine = steps
             .filter { $0.toolName == "clumpify.sh" }
             .map { "clumpify.sh " + $0.command.dropFirst().joined(separator: " ") }
@@ -769,7 +768,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         return FASTQProcessingRecord(
             url: outputFile,
             tool: "clumpify.sh",
-            toolVersion: toolVersion,
+            toolVersion: evidence.version,
             commandLine: commandLine,
             steps: steps
         )
@@ -864,10 +863,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         }
 
         let evidence = await versionEvidence(for: .trimGalore)
-        let toolVersion = evidence.version
         let trimStep = StepExecution(
             toolName: "trim_galore",
-            toolVersion: toolVersion ?? "unknown",
+            toolVersion: evidence.recordedString,
             command: [trimGalore.path] + args,
             inputs: config.inputFiles.map {
                 ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
@@ -876,6 +874,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             exitCode: result.exitCode,
             wallTime: stepCompletedAt.timeIntervalSince(stepClock.startedAt),
             stderr: result.stderr.isEmpty ? nil : result.stderr,
+            managedToolID: NativeTool.trimGalore.managedToolID, toolVersionEvidence: evidence,
             startTime: stepClock.startedAt,
             endTime: stepCompletedAt
         )
@@ -892,7 +891,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             return FASTQProcessingRecord(
                 url: interleaveRecord.url,
                 tool: "trim_galore",
-                toolVersion: toolVersion,
+                toolVersion: evidence.version,
                 commandLine: "trim_galore \(args.joined(separator: " ")) && \(interleaveRecord.commandLine)",
                 steps: [trimStep] + interleaveRecord.steps
             )
@@ -925,7 +924,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         return FASTQProcessingRecord(
             url: outputFile,
             tool: "trim_galore",
-            toolVersion: toolVersion,
+            toolVersion: evidence.version,
             commandLine: "trim_galore \(args.joined(separator: " "))" + compressionCommand,
             steps: [trimStep] + compressionSteps
         )
@@ -972,10 +971,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         }
 
         let evidence = await versionEvidence(for: .reformat)
-        let toolVersion = evidence.version
         let step = StepExecution(
             toolName: "reformat.sh",
-            toolVersion: toolVersion ?? "unknown",
+            toolVersion: evidence.recordedString,
             command: [reformat.path] + args,
             inputs: [
                 ProvenanceRecorder.fileRecord(url: r1, format: .fastq, role: .input),
@@ -985,6 +983,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             exitCode: result.exitCode,
             wallTime: stepCompletedAt.timeIntervalSince(stepClock.startedAt),
             stderr: result.stderr.isEmpty ? nil : result.stderr,
+            managedToolID: NativeTool.reformat.managedToolID, toolVersionEvidence: evidence,
             startTime: stepClock.startedAt,
             endTime: stepCompletedAt
         )
@@ -993,7 +992,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         return FASTQProcessingRecord(
             url: outputFile,
             tool: "reformat.sh",
-            toolVersion: toolVersion,
+            toolVersion: evidence.version,
             commandLine: "reformat.sh \(args.joined(separator: " "))",
             steps: [step]
         )
@@ -1107,11 +1106,10 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         )
 
         let evidence = await versionEvidence(for: tool)
-        let toolVersion = evidence.version
         let interleaveCommand = ["LungfishWorkflow", "interleave-pairs", r1.path, r2.path]
         let step = StepExecution(
             toolName: tool.executableName,
-            toolVersion: toolVersion ?? "unknown",
+            toolVersion: evidence.recordedString,
             command: interleaveCommand + ["|", executableURL.path] + args + [">", outputFile.path],
             inputs: [
                 ProvenanceRecorder.fileRecord(url: r1, format: .fastq, role: .input),
@@ -1121,13 +1119,14 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             exitCode: outcome.exitCode,
             wallTime: stepCompletedAt.timeIntervalSince(stepClock.startedAt),
             stderr: stderr.isEmpty ? nil : stderr,
+            managedToolID: tool.managedToolID, toolVersionEvidence: evidence,
             startTime: stepClock.startedAt,
             endTime: stepCompletedAt
         )
         return FASTQProcessingRecord(
             url: outputFile,
             tool: tool.executableName,
-            toolVersion: toolVersion,
+            toolVersion: evidence.version,
             commandLine: "lungfish interleave-pairs \(r1.path) \(r2.path) | \(tool.executableName) \(args.joined(separator: " ")) > \(outputFile.path)",
             steps: [step]
         )
@@ -1226,10 +1225,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         logger.info("Binned quality scores with reformat.sh (\(config.qualityBinning.rawValue))")
 
         let evidence = await versionEvidence(for: .reformat)
-        let toolVersion = evidence.version
         let step = StepExecution(
             toolName: "reformat.sh",
-            toolVersion: toolVersion ?? "unknown",
+            toolVersion: evidence.recordedString,
             command: [reformat.path] + args,
             inputs: config.inputFiles.map {
                 ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
@@ -1238,13 +1236,14 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             exitCode: result.exitCode,
             wallTime: stepCompletedAt.timeIntervalSince(stepClock.startedAt),
             stderr: result.stderr.isEmpty ? nil : result.stderr,
+            managedToolID: NativeTool.reformat.managedToolID, toolVersionEvidence: evidence,
             startTime: stepClock.startedAt,
             endTime: stepCompletedAt
         )
         return FASTQProcessingRecord(
             url: outputFile,
             tool: "reformat.sh",
-            toolVersion: toolVersion,
+            toolVersion: evidence.version,
             commandLine: "reformat.sh \(args.joined(separator: " "))",
             steps: [step]
         )
@@ -1332,23 +1331,23 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
 
         progress(1.0, "Compression complete")
         let evidence = await versionEvidence(for: tool)
-        let toolVersion = evidence.version
         let step = StepExecution(
             toolName: tool.executableName,
-            toolVersion: toolVersion ?? "unknown",
+            toolVersion: evidence.recordedString,
             command: [executableURL.path] + args + [">", outputFile.path],
             inputs: [ProvenanceRecorder.fileRecord(url: inputFile, format: .fastq, role: .input)],
             outputs: [ProvenanceRecorder.fileRecord(url: outputFile, format: .fastq, role: .output)],
             exitCode: result.exitCode,
             wallTime: stepCompletedAt.timeIntervalSince(stepClock.startedAt),
             stderr: result.stderr.isEmpty ? nil : result.stderr,
+            managedToolID: tool.managedToolID, toolVersionEvidence: evidence,
             startTime: stepClock.startedAt,
             endTime: stepCompletedAt
         )
         return FASTQProcessingRecord(
             url: outputFile,
             tool: tool.executableName,
-            toolVersion: toolVersion,
+            toolVersion: evidence.version,
             commandLine: "\(tool.executableName) \(args.joined(separator: " ")) > \(outputFile.path)",
             steps: [step]
         )

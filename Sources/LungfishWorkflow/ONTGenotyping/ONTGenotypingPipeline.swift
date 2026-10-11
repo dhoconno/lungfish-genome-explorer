@@ -375,7 +375,9 @@ public struct ONTGenotypingPipeline: Sendable {
             outputs: filterOutputs,
             exitCode: filterResult.exitCode,
             wallTime: filterResult.wallClockSeconds,
-            stderr: filterResult.stderr.isEmpty ? nil : filterResult.stderr
+            stderr: filterResult.stderr.isEmpty ? nil : filterResult.stderr,
+            managedToolID: Self.pysamID,
+            toolVersionEvidence: Self.pysamVersionEvidence
         )
         let mapperInvocation = MappingCommandInvocation(
             label: "lungfish fastq ont-genotype",

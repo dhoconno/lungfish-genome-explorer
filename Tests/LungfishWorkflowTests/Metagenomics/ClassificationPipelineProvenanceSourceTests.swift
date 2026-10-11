@@ -520,6 +520,8 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["profileState"], .string("completed"))
         let brackenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "bracken" })
         XCTAssertEqual(brackenStep.toolVersion, "3.1")
+        XCTAssertEqual(brackenStep.managedToolID, ManagedToolID(rawValue: "bracken"))
+        XCTAssertEqual(brackenStep.toolVersionEvidence, .sourceBuild(version: "3.1", id: ManagedToolID(rawValue: "bracken")))
         XCTAssertEqual(brackenStep.runtimeIdentity?.condaEnvironment, ClassificationPipeline.brackenEnvironment)
     }
 
@@ -528,19 +530,24 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
     /// 1.0.0 wrapper prints a usage error. With neither record the version is unknown.
     func testBrackenRecordsTheValidatedSourceOverlayVersionOnBothDialects() async throws {
         for dialect in FakeClassificationCondaFixture.BrackenDialect.allCases {
-            try await assertBrackenVersion(install: .sourceOverlay(version: "3.1"), dialect: dialect, expected: "3.1")
+            try await assertBrackenVersion(
+                install: .sourceOverlay(version: "3.1"), dialect: dialect, expected: "3.1",
+                evidence: .sourceBuild(version: "3.1", id: ManagedToolID(rawValue: "bracken"))
+            )
         }
     }
 
     func testBrackenRecordsTheCondaPackageVersionWithoutAnOverlay() async throws {
         for dialect in FakeClassificationCondaFixture.BrackenDialect.allCases {
-            try await assertBrackenVersion(install: .condaPackage(version: "1.0.0"), dialect: dialect, expected: "1.0.0")
+            try await assertBrackenVersion(
+                install: .condaPackage(version: "1.0.0"), dialect: dialect, expected: "1.0.0", evidence: nil
+            )
         }
     }
 
     func testBrackenRecordsUnknownWithoutAnyInstallRecord() async throws {
         for dialect in FakeClassificationCondaFixture.BrackenDialect.allCases {
-            try await assertBrackenVersion(install: .none, dialect: dialect, expected: "unknown")
+            try await assertBrackenVersion(install: .none, dialect: dialect, expected: "unknown", evidence: nil)
         }
     }
 
@@ -576,10 +583,63 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
         }
     }
 
+    /// The fixture's bracken environment holds the validated v3.1 source overlay, so a Bracken step of
+    /// any outcome names the managed tool and says its version is a source build (plan decision S20).
+    private func assertBrackenStepIsTheOverlayBuild(
+        id: ManagedToolID?, evidence: ToolVersionEvidence?, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let bracken = ManagedToolID(rawValue: "bracken")
+        XCTAssertEqual(id, bracken, file: file, line: line)
+        XCTAssertEqual(evidence, .sourceBuild(version: "3.1", id: bracken), file: file, line: line)
+    }
+
+    /// `executeBracken` records a step at seven places. A thrown error that is not a conda error and a
+    /// cancel that lands after the process exited are out of reach of the fixture, so the source holds
+    /// every site to the same two arguments, the managed tool's id and the evidence behind its version.
+    func testEveryBrackenStepSiteNamesTheManagedToolAndItsEvidence() throws {
+        let source = try readRepositorySource(pipelineSourceURL)
+        let opening = "provenanceRecorder.recordStep("
+        var brackenCalls: [Substring] = []
+        var rest = Substring(source)
+        while let found = rest.range(of: opening) {
+            let afterOpening = rest[found.upperBound...]
+            // The call ends at its own closing parenthesis, which a string literal can hide.
+            var depth = 1
+            var inString = false
+            var index = afterOpening.startIndex
+            while index < afterOpening.endIndex, depth > 0 {
+                let character = afterOpening[index]
+                if inString {
+                    if character == "\\" {
+                        index = afterOpening.index(after: index)
+                    } else if character == "\"" {
+                        inString = false
+                    }
+                } else if character == "\"" {
+                    inString = true
+                } else if character == "(" {
+                    depth += 1
+                } else if character == ")" {
+                    depth -= 1
+                }
+                index = afterOpening.index(after: index)
+            }
+            let call = afterOpening[..<index]
+            if call.contains(#"toolName: "bracken","#) { brackenCalls.append(call) }
+            rest = afterOpening[index...]
+        }
+        XCTAssertGreaterThanOrEqual(brackenCalls.count, 7, "executeBracken records seven Bracken steps")
+        for call in brackenCalls {
+            XCTAssertTrue(call.contains("managedToolID: ManagedBrackenVersion.toolID"), String(call.prefix(200)))
+            XCTAssertTrue(call.contains("toolVersionEvidence: brackenEvidence"), String(call.prefix(200)))
+        }
+    }
+
     private func assertBrackenVersion(
         install: FakeClassificationCondaFixture.BrackenInstall,
         dialect: FakeClassificationCondaFixture.BrackenDialect,
         expected: String,
+        evidence: ToolVersionEvidence?,
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
@@ -593,8 +653,15 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
         XCTAssertEqual(result.profileOutcome.state, .completed, "\(dialect) \(install)", file: file, line: line)
         XCTAssertEqual(result.profileOutcome.toolVersion, expected, "\(dialect) \(install)", file: file, line: line)
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: config.outputDirectory), file: file, line: line)
-        let brackenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "bracken" }, file: file, line: line)
-        XCTAssertEqual(brackenStep.toolVersion, expected, "\(dialect) \(install)", file: file, line: line)
+        let brackenSteps = envelope.steps.filter { $0.toolName == "bracken" }
+        XCTAssertFalse(brackenSteps.isEmpty, "\(dialect) \(install)", file: file, line: line)
+        for brackenStep in brackenSteps {
+            XCTAssertEqual(brackenStep.toolVersion, expected, "\(dialect) \(install)", file: file, line: line)
+            // Every Bracken step names the managed tool. Only a validated source overlay is a source build, and
+            // the conda package alone or no record at all carries no evidence of its own.
+            XCTAssertEqual(brackenStep.managedToolID, ManagedToolID(rawValue: "bracken"), "\(dialect) \(install)", file: file, line: line)
+            XCTAssertEqual(brackenStep.toolVersionEvidence, evidence, "\(dialect) \(install)", file: file, line: line)
+        }
         let invocations = try fixture.toolInvocations(named: "bracken")
         XCTAssertFalse(invocations.contains("bracken -v"), "\(dialect) asked the banner", file: file, line: line)
         XCTAssertFalse(invocations.contains("bracken --version"), "\(dialect) asked the banner", file: file, line: line)
@@ -793,6 +860,7 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
                 && $0.sha256 != nil && $0.sizeBytes != nil
         })
         XCTAssertEqual(brackenStep.stderr, "synthetic bracken failure\n")
+        assertBrackenStepIsTheOverlayBuild(id: brackenStep.managedToolID, evidence: brackenStep.toolVersionEvidence)
     }
 
     func testBrackenExit127IsReportedAsToolUnavailable() async throws {
@@ -810,6 +878,7 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
         let brackenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "bracken" })
         XCTAssertEqual(brackenStep.exitStatus, 127)
         XCTAssertEqual(brackenStep.outputs, [])
+        assertBrackenStepIsTheOverlayBuild(id: brackenStep.managedToolID, evidence: brackenStep.toolVersionEvidence)
     }
 
     func testMissingAndMalformedBrackenOutputsDegradeAfterZeroExit() async throws {
@@ -847,6 +916,7 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
             let brackenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "bracken" })
             XCTAssertEqual(brackenStep.exitStatus, 0, "The recorded process exit remains exact")
             XCTAssertEqual(brackenStep.outputs, [])
+            assertBrackenStepIsTheOverlayBuild(id: brackenStep.managedToolID, evidence: brackenStep.toolVersionEvidence)
             let validation = try XCTUnwrap(
                 envelope.steps.first { $0.toolName == "Lungfish Bracken Output Validation" }
             )
@@ -888,6 +958,7 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
         let brackenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "bracken" })
         XCTAssertNotEqual(brackenStep.exitStatus, 0)
         XCTAssertTrue((brackenStep.stderr ?? "").localizedCaseInsensitiveContains("micromamba"))
+        assertBrackenStepIsTheOverlayBuild(id: brackenStep.managedToolID, evidence: brackenStep.toolVersionEvidence)
     }
 
     func testCancellationDuringBrackenPropagatesInsteadOfDegrading() async throws {
@@ -932,6 +1003,7 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
         let brackenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "bracken" })
         XCTAssertEqual(brackenStep.exitStatus, 130)
         XCTAssertEqual(brackenStep.outputs, [])
+        assertBrackenStepIsTheOverlayBuild(id: brackenStep.managedToolID, evidence: brackenStep.toolVersionEvidence)
     }
 
     func testStaleBrackenOutputCannotSatisfyANewMissingOutputRun() async throws {

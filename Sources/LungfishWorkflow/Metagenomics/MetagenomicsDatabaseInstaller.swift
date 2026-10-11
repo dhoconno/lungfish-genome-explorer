@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishCore
+import LungfishIO
 
 public struct MetagenomicsDatabaseToolResult: Sendable, Equatable {
     public let stdout: String
@@ -14,11 +15,20 @@ public struct MetagenomicsDatabaseToolResult: Sendable, Equatable {
     public let toolVersion: String
     public let startedAt: Date
     public let completedAt: Date
+    /// The managed tool the step ran, by its lock id, when the runner knows it.
+    public let managedToolID: ManagedToolID?
+    /// What `toolVersion` is known from, when the runner knows it.
+    public let toolVersionEvidence: ToolVersionEvidence?
 
-    public init(stdout: String, stderr: String, exitStatus: Int32, argv: [String], runtimeIdentity: ProvenanceRuntimeIdentity, toolVersion: String, startedAt: Date, completedAt: Date) {
+    public init(
+        stdout: String, stderr: String, exitStatus: Int32, argv: [String], runtimeIdentity: ProvenanceRuntimeIdentity,
+        toolVersion: String, startedAt: Date, completedAt: Date,
+        managedToolID: ManagedToolID? = nil, toolVersionEvidence: ToolVersionEvidence? = nil
+    ) {
         self.stdout = stdout; self.stderr = stderr; self.exitStatus = exitStatus; self.argv = argv
         self.runtimeIdentity = runtimeIdentity; self.toolVersion = toolVersion
         self.startedAt = startedAt; self.completedAt = completedAt
+        self.managedToolID = managedToolID; self.toolVersionEvidence = toolVersionEvidence
     }
 }
 
@@ -32,8 +42,21 @@ struct ManagedBrackenVersion: Sendable, Equatable {
         case condaPackage
     }
 
+    /// The lock entry that installs Bracken.
+    static let toolID = ManagedToolID(rawValue: "bracken")
+
     let version: String
     let source: Source
+
+    /// What a record keeps as the evidence behind `version`. A validated source overlay is a source
+    /// build, and the receipt names its version. The conda package alone carries none, because the
+    /// lock's pin is the only claim a reader could compare it with.
+    var evidence: ToolVersionEvidence? {
+        switch source {
+        case .sourceOverlay: return .sourceBuild(version: version, id: Self.toolID)
+        case .condaPackage: return nil
+        }
+    }
 }
 
 public protocol MetagenomicsDatabaseToolRunning: Sendable {
@@ -116,10 +139,21 @@ public struct ManagedMetagenomicsDatabaseToolRunner: MetagenomicsDatabaseToolRun
         let result = try await condaManager.runTool(name: name, arguments: arguments, environment: environment, workingDirectory: workingDirectory, timeout: timeout)
         let completed = toolClock.now
         let argv = [await condaManager.micromambaPath.path, "run", "-n", environment, name] + arguments
+        // bracken-build names its lock entry, and says source build only when a validated overlay
+        // is what runs, which is the claim behind the version the step records (plan decision S20).
+        let isBrackenBuild = name == "bracken-build"
+        let claim: ManagedBrackenVersion?
+        if isBrackenBuild {
+            claim = await Self.managedBracken(condaManager, environment: environment)
+        } else {
+            claim = nil
+        }
         return MetagenomicsDatabaseToolResult(
             stdout: result.stdout, stderr: result.stderr, exitStatus: result.exitCode, argv: argv,
             runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: executable.path, condaEnvironment: environment, condaPrefix: await condaManager.environmentURL(named: environment).path, pluginPack: "Metagenomics"),
-            toolVersion: version, startedAt: toolClock.startedAt, completedAt: completed
+            toolVersion: version, startedAt: toolClock.startedAt, completedAt: completed,
+            managedToolID: isBrackenBuild ? ManagedBrackenVersion.toolID : nil,
+            toolVersionEvidence: claim?.version == version ? claim?.evidence : nil
         )
     }
 
@@ -609,7 +643,7 @@ public struct MetagenomicsDatabaseInstaller: MetagenomicsDatabaseInstalling, Sen
         catch { throw MetagenomicsDatabaseInstallerError.missingManagedTool(name: executable) }
     }
     private func evidence(from result: MetagenomicsDatabaseToolResult, toolName: String, inputs: [ProvenanceFileDescriptor], options: [String: ParameterValue]) -> MetagenomicsDatabaseInstallStepEvidence {
-        .init(toolName: toolName, toolVersion: result.toolVersion, argv: result.argv, durableReplayArgv: result.argv, resolvedOptions: options, runtimeIdentity: result.runtimeIdentity, inputs: inputs, outputs: [], exitStatus: result.exitStatus, startedAt: result.startedAt, completedAt: result.completedAt, stderr: Self.bounded(result.stderr))
+        .init(toolName: toolName, toolVersion: result.toolVersion, argv: result.argv, durableReplayArgv: result.argv, resolvedOptions: options, runtimeIdentity: result.runtimeIdentity, inputs: inputs, outputs: [], exitStatus: result.exitStatus, startedAt: result.startedAt, completedAt: result.completedAt, stderr: Self.bounded(result.stderr), managedToolID: result.managedToolID, toolVersionEvidence: result.toolVersionEvidence)
     }
     private func plannedEvidence(name: String, arguments: [String], environment: String, executableDirectory: URL, toolVersion: String, options: [String: ParameterValue], startedAt: Date) -> MetagenomicsDatabaseInstallStepEvidence {
         let argv = [name] + arguments

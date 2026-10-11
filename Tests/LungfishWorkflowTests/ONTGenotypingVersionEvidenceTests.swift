@@ -75,6 +75,18 @@ final class ONTGenotypingVersionEvidenceTests: XCTestCase {
             XCTAssertEqual(step.toolVersion, pinned, "the value stays and the source changes")
         }
 
+        // The sample folder's record is built from StepExecution, and its pysam step carries the same facts.
+        let sampleEnvelope = try XCTUnwrap(
+            ProvenanceRecorder.loadEnvelope(from: output.appendingPathComponent("FLD0001", isDirectory: true))
+        )
+        let samplePysamSteps = sampleEnvelope.steps.filter { $0.toolName == "pysam" }
+        XCTAssertEqual(samplePysamSteps.count, 1)
+        for step in samplePysamSteps {
+            XCTAssertEqual(step.managedToolID, ONTGenotypingPipeline.pysamID)
+            XCTAssertEqual(step.toolVersionEvidence, .lockPin(version: pinned, id: ONTGenotypingPipeline.pysamID))
+            XCTAssertEqual(step.toolVersion, pinned, "the value stays and the source changes")
+        }
+
         // The mapping step's version is the read-mapping pack's pin, which is the lock's pin for minimap2.
         let minimap2ID = ManagedToolID(rawValue: "minimap2")
         let minimap2Pin = try XCTUnwrap(ManagedToolLock.bundled.entry(id: minimap2ID)?.version)

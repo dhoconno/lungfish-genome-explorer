@@ -1,4 +1,5 @@
 import Foundation
+import LungfishIO
 import Testing
 @testable import LungfishWorkflow
 
@@ -144,73 +145,7 @@ struct MetagenomicsDatabaseInstallerTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let manager = CondaManager(rootPrefix: root)
         let environment = await manager.environmentURL(named: "bracken")
-        let condaMeta = environment.appendingPathComponent("conda-meta", isDirectory: true)
-        try FileManager.default.createDirectory(at: condaMeta, withIntermediateDirectories: true)
-        try "{\"name\":\"bracken\",\"version\":\"1.0.0\",\"subdir\":\"noarch\"}".write(
-            to: condaMeta.appendingPathComponent("bracken-1.0.0-0.json"),
-            atomically: true,
-            encoding: .utf8
-        )
-        for package in managedBrackenRuntimePackages {
-            let metadata = "{\"name\":\"\(package.name)\",\"version\":\"\(package.version)\",\"build\":\"\(package.build)\",\"subdir\":\"\(package.subdir)\"}"
-            try metadata.write(
-                to: condaMeta.appendingPathComponent("\(package.name)-\(package.version)-\(package.build).json"),
-                atomically: true,
-                encoding: .utf8
-            )
-        }
-        let compiler = environment.appendingPathComponent("bin/c++")
-        try FileManager.default.createDirectory(
-            at: compiler.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try "#!/bin/sh\nexit 0\n".write(to: compiler, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: compiler.path)
-        let openMPRuntime = environment.appendingPathComponent("lib/libomp.dylib")
-        try FileManager.default.createDirectory(
-            at: openMPRuntime.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try Data("OpenMP runtime\n".utf8).write(to: openMPRuntime)
-        let overlay = PackToolSourceOverlay(
-            kind: .bracken,
-            version: "3.1",
-            sourceURL: URL(string: "https://example.test/Bracken-v3.1.tar.gz")!,
-            sha256: String(repeating: "a", count: 64)
-        )
-        let fixtureFiles = ["bin/bracken", "bin/bracken-build", "bin/src/kmer2read_distr"]
-        let installedFiles = try fixtureFiles.map { relativePath in
-            let url = environment.appendingPathComponent(relativePath)
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Data("fixture \(relativePath)\n".utf8).write(to: url)
-            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-            guard let sha256 = ManagedToolSourceInstallationRecord.sha256(of: url) else {
-                throw CocoaError(.fileReadUnknown)
-            }
-            return ManagedToolSourceInstallationRecord.InstalledFile(
-                relativePath: relativePath,
-                sha256: sha256,
-                sizeBytes: (attributes[.size] as? NSNumber)?.uint64Value ?? 0
-            )
-        }
-        let record = ManagedToolSourceInstallationRecord(
-            source: overlay,
-            commands: [.init(argv: ["bracken-build", "-v"], reproducibleCommand: "bracken-build -v")],
-            runtime: .init(
-                environmentPath: environment.path,
-                compilerPath: compiler.path,
-                openMPRuntimePath: openMPRuntime.path,
-                condaPackages: managedBrackenRuntimePackages
-            ),
-            installedFiles: installedFiles,
-            startedAt: .now,
-            completedAt: .now,
-            wallTimeSeconds: 0,
-            exitStatus: 0,
-            stderr: ""
-        )
-        let recordURL = environment.appendingPathComponent("share/lungfish/managed-tools/bracken.json")
-        try record.write(to: recordURL)
+        try writeBrackenInstall(in: environment, overlayVersion: "3.1")
 
         let version = try await ManagedMetagenomicsDatabaseToolRunner.resolveManagedToolVersion(
             manager,
@@ -220,6 +155,103 @@ struct MetagenomicsDatabaseInstallerTests {
         )
 
         #expect(version == "3.1")
+    }
+
+    // MARK: - Evidence on the build steps (plan decision S20)
+
+    /// Installs a Silva database through the production runner, so the claim behind bracken-build's
+    /// version is read the way a real install reads it, and returns the canonical receipt's steps.
+    private func installedSteps(
+        fixture: Fixture,
+        tools: ManagedBuildToolsFixture
+    ) async throws -> [ProvenanceStep] {
+        let installer = MetagenomicsDatabaseInstaller(
+            toolRunner: tools.runner, archiveTransfer: FixtureArchiveTransfer(), provenanceWriter: fixture.writer
+        )
+        _ = try await installer.prepareInstallation(
+            database: fixture.database(recipe: .kraken2Special(type: .silva)),
+            databasesBaseURL: fixture.root,
+            threads: 4,
+            progress: { _, _ in }
+        )
+        let final = fixture.root.appendingPathComponent("kraken2/fixture", isDirectory: true)
+        let envelope = try ProvenanceEnvelopeReader.loadCanonical(from: final)
+        return try #require(envelope).steps
+    }
+
+    @Test("bracken-build names Bracken and records a source build when a validated overlay runs")
+    func brackenBuildRecordsASourceBuildForAnOverlay() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let tools = try await ManagedBuildToolsFixture(in: fixture.root, overlayVersion: "3.1")
+
+        let steps = try await installedSteps(fixture: fixture, tools: tools)
+
+        let bracken = ManagedToolID(rawValue: "bracken")
+        let build = try #require(steps.first { $0.toolName == "bracken-build" })
+        #expect(build.toolVersion == "3.1")
+        #expect(build.managedToolID == bracken)
+        #expect(build.toolVersionEvidence == .sourceBuild(version: "3.1", id: bracken))
+        // kraken2-build is not part of this change, so it still carries neither.
+        let special = try #require(steps.first { $0.toolName == "kraken2-build" })
+        #expect(special.managedToolID == nil)
+        #expect(special.toolVersionEvidence == nil)
+    }
+
+    @Test("bracken-build names Bracken and carries no evidence from the conda package alone")
+    func brackenBuildRecordsNoEvidenceForTheCondaPackage() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let tools = try await ManagedBuildToolsFixture(in: fixture.root, overlayVersion: nil)
+
+        let steps = try await installedSteps(fixture: fixture, tools: tools)
+
+        let build = try #require(steps.first { $0.toolName == "bracken-build" })
+        #expect(build.toolVersion == "1.0.0")
+        #expect(build.managedToolID == ManagedToolID(rawValue: "bracken"))
+        #expect(build.toolVersionEvidence == nil)
+    }
+
+    @Test("a version the overlay did not supply is never called a source build")
+    func brackenBuildClaimsNoSourceBuildForAnotherVersion() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let tools = try await ManagedBuildToolsFixture(
+            in: fixture.root, overlayVersion: "3.1", versionOfBrackenBuild: "9.9"
+        )
+
+        let steps = try await installedSteps(fixture: fixture, tools: tools)
+
+        let build = try #require(steps.first { $0.toolName == "bracken-build" })
+        #expect(build.toolVersion == "9.9")
+        #expect(build.toolVersionEvidence == nil)
+    }
+
+    @Test("a failed bracken-build keeps its tool id and evidence in the failure receipt")
+    func failedBrackenBuildKeepsItsEvidenceInTheFailureReceipt() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let tools = try await ManagedBuildToolsFixture(in: fixture.root, overlayVersion: "3.1", brackenBuildStatus: 42)
+        let installer = MetagenomicsDatabaseInstaller(
+            toolRunner: tools.runner, archiveTransfer: FixtureArchiveTransfer(), provenanceWriter: fixture.writer
+        )
+
+        await #expect(throws: MetagenomicsDatabaseInstallerError.self) {
+            _ = try await installer.prepareInstallation(
+                database: fixture.database(recipe: .kraken2Special(type: .silva)),
+                databasesBaseURL: fixture.root,
+                threads: 4,
+                progress: { _, _ in }
+            )
+        }
+
+        let failure = try #require(fixture.writer.failures.only)
+        let envelope = CanonicalMetagenomicsDatabaseInstallProvenanceWriter()
+            .makeFailureEnvelope(failure.attempt, error: failure.error)
+        let build = try #require(envelope.steps.first { $0.toolName == "bracken-build" })
+        #expect(build.exitStatus == 42)
+        #expect(build.managedToolID == ManagedToolID(rawValue: "bracken"))
+        #expect(build.toolVersionEvidence == .sourceBuild(version: "3.1", id: ManagedToolID(rawValue: "bracken")))
     }
 
     @Test("Greengenes selects its exact special source")
@@ -780,6 +812,168 @@ private let managedBrackenRuntimePackages: [ManagedToolSourceInstallationRecord.
     .init(name: "llvm-openmp", version: "21.1.8", build: "h2", subdir: "osx-arm64"),
     .init(name: "python", version: "3.11.13", build: "h3", subdir: "osx-arm64"),
 ]
+
+/// What a bracken environment holds after the lock installs it. The conda package bracken 1.0.0 is
+/// always there, and with an `overlayVersion` the validated v-that-version source overlay sits beside it.
+private func writeBrackenInstall(in environment: URL, overlayVersion: String?) throws {
+    let condaMeta = environment.appendingPathComponent("conda-meta", isDirectory: true)
+    try FileManager.default.createDirectory(at: condaMeta, withIntermediateDirectories: true)
+    try "{\"name\":\"bracken\",\"version\":\"1.0.0\",\"subdir\":\"noarch\"}".write(
+        to: condaMeta.appendingPathComponent("bracken-1.0.0-0.json"),
+        atomically: true,
+        encoding: .utf8
+    )
+    guard let overlayVersion else { return }
+    for package in managedBrackenRuntimePackages {
+        let metadata = "{\"name\":\"\(package.name)\",\"version\":\"\(package.version)\",\"build\":\"\(package.build)\",\"subdir\":\"\(package.subdir)\"}"
+        try metadata.write(
+            to: condaMeta.appendingPathComponent("\(package.name)-\(package.version)-\(package.build).json"),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+    let compiler = environment.appendingPathComponent("bin/c++")
+    try FileManager.default.createDirectory(
+        at: compiler.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    try "#!/bin/sh\nexit 0\n".write(to: compiler, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: compiler.path)
+    let openMPRuntime = environment.appendingPathComponent("lib/libomp.dylib")
+    try FileManager.default.createDirectory(
+        at: openMPRuntime.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    try Data("OpenMP runtime\n".utf8).write(to: openMPRuntime)
+    let overlay = PackToolSourceOverlay(
+        kind: .bracken,
+        version: overlayVersion,
+        sourceURL: URL(string: "https://example.test/Bracken-v\(overlayVersion).tar.gz")!,
+        sha256: String(repeating: "a", count: 64)
+    )
+    let fixtureFiles = ["bin/bracken", "bin/bracken-build", "bin/src/kmer2read_distr"]
+    let installedFiles = try fixtureFiles.map { relativePath in
+        let url = environment.appendingPathComponent(relativePath)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("fixture \(relativePath)\n".utf8).write(to: url)
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        guard let sha256 = ManagedToolSourceInstallationRecord.sha256(of: url) else {
+            throw CocoaError(.fileReadUnknown)
+        }
+        return ManagedToolSourceInstallationRecord.InstalledFile(
+            relativePath: relativePath,
+            sha256: sha256,
+            sizeBytes: (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+        )
+    }
+    let record = ManagedToolSourceInstallationRecord(
+        source: overlay,
+        commands: [.init(argv: ["bracken-build", "-v"], reproducibleCommand: "bracken-build -v")],
+        runtime: .init(
+            environmentPath: environment.path,
+            compilerPath: compiler.path,
+            openMPRuntimePath: openMPRuntime.path,
+            condaPackages: managedBrackenRuntimePackages
+        ),
+        installedFiles: installedFiles,
+        startedAt: .now,
+        completedAt: .now,
+        wallTimeSeconds: 0,
+        exitStatus: 0,
+        stderr: ""
+    )
+    let recordURL = environment.appendingPathComponent("share/lungfish/managed-tools/bracken.json")
+    try record.write(to: recordURL)
+}
+
+/// The production managed runner over a conda root of its own. A fake micromamba stands in for the real
+/// one and writes the payload each build tool would, the `kraken2` environment holds an executable
+/// kraken2-build, and the `bracken` environment holds the install `writeBrackenInstall` writes.
+private struct ManagedBuildToolsFixture {
+    let runner: ManagedMetagenomicsDatabaseToolRunner
+
+    /// `versionOfBrackenBuild` replaces the version the production rule reads, to model a runner whose
+    /// version is not the one the overlay supplied.
+    init(
+        in parent: URL, overlayVersion: String?, brackenBuildStatus: Int32 = 0, versionOfBrackenBuild: String? = nil
+    ) async throws {
+        let root = parent.appendingPathComponent("managed-build-tools", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let micromamba = root.appendingPathComponent("micromamba")
+        try Self.writeFakeMicromamba(at: micromamba, brackenBuildStatus: brackenBuildStatus)
+        let manager = CondaManager(
+            rootPrefix: root.appendingPathComponent("conda", isDirectory: true),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.0" }
+        )
+        let krakenEnvironment = await manager.environmentURL(named: "kraken2")
+        try Self.writeExecutable(krakenEnvironment.appendingPathComponent("bin/kraken2-build"))
+        let brackenEnvironment = await manager.environmentURL(named: "bracken")
+        try writeBrackenInstall(in: brackenEnvironment, overlayVersion: overlayVersion)
+        try Self.writeExecutable(brackenEnvironment.appendingPathComponent("bin/bracken-build"))
+        runner = ManagedMetagenomicsDatabaseToolRunner(
+            condaManager: manager,
+            versionResolver: { manager, name, environment, directory in
+                if name == "bracken-build" {
+                    if let versionOfBrackenBuild { return versionOfBrackenBuild }
+                    return try await ManagedMetagenomicsDatabaseToolRunner.resolveManagedToolVersion(
+                        manager, name, environment, directory
+                    )
+                }
+                return "2.1.3"
+            }
+        )
+    }
+
+    /// An executable file. An overlay's file already exists, and keeps the bytes its receipt hashes.
+    private static func writeExecutable(_ url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try "#!/bin/sh\nexit 0\n".write(to: url, atomically: true, encoding: .utf8)
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    private static func writeFakeMicromamba(at url: URL, brackenBuildStatus: Int32) throws {
+        let script = """
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then echo "micromamba 2.0.0"; exit 0; fi
+        if [ "$1" != "run" ]; then echo "unexpected micromamba invocation: $*" >&2; exit 64; fi
+        shift
+        if [ "$1" = "-n" ]; then shift; shift; fi
+        tool="$1"
+        shift
+        database=""
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            --db|-d) shift; database="$1" ;;
+          esac
+          shift
+        done
+        mkdir -p "$database/taxonomy" "$database/library"
+        case "$tool" in
+          kraken2-build)
+            for name in hash.k2d opts.k2d taxo.k2d; do echo payload > "$database/$name"; done
+            echo nodes > "$database/taxonomy/nodes.dmp"
+            echo names > "$database/taxonomy/names.dmp"
+            echo ">seq" > "$database/library/library.fna"
+            echo ACTG >> "$database/library/library.fna"
+            ;;
+          bracken-build)
+            if [ "\(brackenBuildStatus)" != "0" ]; then echo "synthetic bracken-build failure" >&2; exit \(brackenBuildStatus); fi
+            echo payload > "$database/database150mers.kmer_distrib"
+            ;;
+          *)
+            echo "unexpected tool: $tool" >&2
+            exit 64
+            ;;
+        esac
+        exit 0
+        """
+        try script.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+}
 
 enum EsVirituPayloadMutation: CaseIterable, Sendable {
     case missingReference
