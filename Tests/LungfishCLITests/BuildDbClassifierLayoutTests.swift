@@ -21,8 +21,10 @@ final class BuildDbClassifierLayoutTests: XCTestCase {
 
     /// R5. `esviritu detect --output` and an EsViritu import leave one sample's tables at the folder root,
     /// named by the sample, with the run's record beside them (`Tests/Fixtures/golden/classifiers/esviritu`).
-    /// Known defect: `build-db esviritu` reads only sample folders, so the index of such a folder is empty.
-    func testOneFolderResultBuildsNoRowsKnownDefect() async throws {
+    /// `build-db esviritu` reads such a root when no sample folder holds a detection table, as
+    /// `build-db kraken2` reads a root that holds one run. It was a known defect at base `18e422c4f`, where
+    /// the index of such a folder was empty.
+    func testOneFolderResultIsReadFromTheFolderRoot() async throws {
         let root = try TestTempDirectory.make(prefix: "BuildDbOneFolder")
         defer { TestTempDirectory.cleanup(root) }
         let result = root.appendingPathComponent("esviritu-detect", isDirectory: true)
@@ -32,13 +34,40 @@ final class BuildDbClassifierLayoutTests: XCTestCase {
         try await BuildDbCommand.EsVirituSubcommand.parse([result.path, "--quiet"]).run()
 
         let database = try EsVirituDatabase(at: result.appendingPathComponent("esviritu.sqlite"))
-        XCTAssertEqual(try database.fetchSamples().map(\.sample), [], "R5: the root tables are not read")
-        XCTAssertEqual(try database.fetchCoverageWindows(sample: "sample-A", accession: "OR708245.1").count, 0)
+        XCTAssertEqual(try database.fetchSamples().map(\.sample), ["sample-A"], "R5: the root tables are read")
+        XCTAssertEqual(try database.fetchRows(samples: ["sample-A"]).map(\.accession).sorted(), ["MF094130.1", "OR708245.1"])
+        XCTAssertEqual(try database.fetchCoverageWindows(sample: "sample-A", accession: "OR708245.1").count, 100)
         XCTAssertEqual(
             ProvenanceRecorder.loadEnvelope(from: result)?.workflowName,
             "EsViritu",
             "The folder keeps the record of the run that made it"
         )
+    }
+
+    /// A one-folder result keeps its BAM in `<root>/<sample>_temp/`. Its rows name the BAM under the root's
+    /// `bams`, the run moves it there before samtools counts its reads, and the cleanup removes `_temp`. A
+    /// stand-in samtools reports the BAM as marked and counts two reads, so no real tool runs.
+    func testOneFolderResultMovesItsBAMToTheRootBams() async throws {
+        let root = try TestTempDirectory.make(prefix: "BuildDbOneFolderBAM")
+        defer { TestTempDirectory.cleanup(root) }
+        let samtools = try ManagedSamtoolsHome.makeStub(rootURL: root, namePrefix: "Home", script: Self.markedSamtools)
+        let result = root.appendingPathComponent("esviritu-detect", isDirectory: true)
+        try writeTables(as: "sample-A", into: result)
+        let temp = result.appendingPathComponent("sample-A_temp", isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        try Data("BAM".utf8).write(to: temp.appendingPathComponent("sample-A.third.filt.sorted.bam"))
+        try Data("BAI".utf8).write(to: temp.appendingPathComponent("sample-A.third.filt.sorted.bam.bai"))
+
+        try await withHome(samtools.homeURL) {
+            try await BuildDbCommand.EsVirituSubcommand.parse([result.path, "--quiet"]).run()
+        }
+
+        let database = try EsVirituDatabase(at: result.appendingPathComponent("esviritu.sqlite"))
+        let rows = try database.fetchRows(samples: ["sample-A"])
+        XCTAssertEqual(Set(rows.map(\.bamPath)), ["bams/sample-A.third.filt.sorted.bam"])
+        XCTAssertEqual(Set(rows.map(\.uniqueReads)), [2])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.appendingPathComponent("bams/sample-A.third.filt.sorted.bam").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temp.path), "The cleanup removes _temp")
     }
 
     /// R4. A batch sample folder takes the sanitized id (`Patient_07`), while EsViritu names its tables by
@@ -86,6 +115,31 @@ final class BuildDbClassifierLayoutTests: XCTestCase {
     }
 
     // MARK: Fixtures
+
+    /// A stand-in samtools that reports every BAM as marked by `samtools markdup` and counts two reads, so
+    /// `build-db` keeps the BAM and its index as they are.
+    private static let markedSamtools = """
+    #!/bin/sh
+    case "$1" in
+      --version) echo "samtools 1.21" ;;
+      view)
+        case "$2" in
+          -H) printf '@HD\\tVN:1.6\\n@PG\\tID:samtools.markdup\\tPN:samtools\\tCL:samtools markdup in.bam out.bam\\n' ;;
+          -c) echo 2 ;;
+        esac ;;
+    esac
+    exit 0
+    """
+
+    /// Runs `body` with `HOME` at `home`, where `build-db` finds its managed samtools.
+    private func withHome(_ home: URL, _ body: () async throws -> Void) async throws {
+        let original = ProcessInfo.processInfo.environment["HOME"]
+        setenv("HOME", home.path, 1)
+        defer {
+            if let original { setenv("HOME", original, 1) } else { unsetenv("HOME") }
+        }
+        try await body()
+    }
 
     /// Copies the detection, coverage windows and assembly summary tables of the fixture sample into
     /// `directory`, named by `prefix` as EsViritu names them by its `-s` sample id.

@@ -98,6 +98,17 @@ extension BuildDbCommand {
                         }
                     }
                 }
+                for sampleName in rootLayoutSamples(in: resultURL) {
+                    let cwURL = resultURL.appendingPathComponent("\(sampleName).virus_coverage_windows.tsv")
+                    guard fm.fileExists(atPath: cwURL.path), let parsed = try? EsVirituCoverageParser.parse(url: cwURL) else { continue }
+                    allWindows.append(contentsOf: parsed.map { w in
+                        EsVirituCoverageWindow(
+                            sample: sampleName, accession: w.accession,
+                            windowIndex: w.windowIndex, windowStart: w.windowStart,
+                            windowEnd: w.windowEnd, averageCoverage: w.averageCoverage
+                        )
+                    })
+                }
 
                 events.text("Parsed \(allWindows.count) coverage windows from EsViritu results")
 
@@ -204,14 +215,48 @@ extension BuildDbCommand {
                 allRows.append(contentsOf: rows)
             }
 
+            for sampleName in rootLayoutSamples(in: resultURL) {
+                let tsvURL = resultURL.appendingPathComponent("\(sampleName).detected_virus.info.tsv")
+                allRows.append(contentsOf: try parseDetectionTSV(
+                    at: tsvURL, sampleName: sampleName, sampleDir: resultURL, atResultRoot: true
+                ))
+            }
+
             return allRows
         }
 
-        /// Parses a single EsViritu `detected_virus.info.tsv` file into detection rows.
+        /// The samples of a one-folder result, whose tables sit at the folder root named by the sample, as
+        /// `esviritu detect --output` and an EsViritu import leave them. Empty when a sample folder holds its
+        /// detection table, because the folder is then a batch whose root is not read, in the way that
+        /// `build-db kraken2` reads a root only when no sample folder holds a report.
+        static func rootLayoutSamples(in resultURL: URL) -> [String] {
+            let suffix = ".detected_virus.info.tsv"
+            let fm = FileManager.default
+            let contents = (try? fm.contentsOfDirectory(at: resultURL, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+            let isBatch = contents.contains { dir in
+                let name = dir.lastPathComponent
+                guard (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
+                      !name.hasPrefix("."), !name.hasSuffix("_temp") else { return false }
+                return fm.fileExists(atPath: dir.appendingPathComponent(name + suffix).path)
+            }
+            guard !isBatch else { return [] }
+            return contents.compactMap { url -> String? in
+                let name = url.lastPathComponent
+                guard !name.hasPrefix("."), name.hasSuffix(suffix), name.count > suffix.count,
+                      (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true else { return nil }
+                return String(name.dropLast(suffix.count))
+            }
+            .sorted()
+        }
+
+        /// Parses a single EsViritu `detected_virus.info.tsv` file into detection rows. A table at the
+        /// result root (`atResultRoot`) names its BAM under the root's `bams`, and a sample folder's table
+        /// under that folder's `bams`.
         static func parseDetectionTSV(
             at url: URL,
             sampleName: String,
-            sampleDir: URL
+            sampleDir: URL,
+            atResultRoot: Bool = false
         ) throws -> [EsVirituDetectionRow] {
             let content = try String(contentsOf: url, encoding: .utf8)
             let lines = content.components(separatedBy: .newlines)
@@ -263,7 +308,7 @@ extension BuildDbCommand {
 
                 // Resolve BAM path in persistent `bams/` location (relative to result root).
                 let bamBasename = "\(sampleName).third.filt.sorted.bam"
-                let bamRelative = "\(sampleName)/bams/\(bamBasename)"
+                let bamRelative = atResultRoot ? "bams/\(bamBasename)" : "\(sampleName)/bams/\(bamBasename)"
 
                 // BAM may be in _temp/ at parse time — relocation happens later in run().
                 let tempBamURL = sampleDir.appendingPathComponent("\(sampleName)_temp")
@@ -327,42 +372,60 @@ extension BuildDbCommand {
 
         /// Moves `*.third.filt.sorted.bam{,.bai,.csi}` from each sample's `_temp/`
         /// directory into a sibling `bams/` directory so post-build cleanup can
-        /// remove `_temp/` without breaking DB-referenced BAM paths.
-        private static func relocateEsVirituBAMs(resultURL: URL) {
+        /// remove `_temp/` without breaking DB-referenced BAM paths. A one-folder
+        /// result moves `<root>/<sample>_temp/` into `<root>/bams/`. Returns each
+        /// file it moved.
+        @discardableResult
+        private static func relocateEsVirituBAMs(resultURL: URL) -> [(source: URL, destination: URL)] {
             let fm = FileManager.default
             guard let sampleDirs = try? fm.contentsOfDirectory(
                 at: resultURL, includingPropertiesForKeys: [.isDirectoryKey]
-            ) else { return }
+            ) else { return [] }
 
+            var moved: [(source: URL, destination: URL)] = []
             for sampleDir in sampleDirs {
                 let isDir = (try? sampleDir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
                 guard isDir else { continue }
                 let sampleName = sampleDir.lastPathComponent
                 guard !sampleName.hasPrefix(".") else { continue }
+                moved += moveBAMs(of: sampleName, in: sampleDir)
+            }
+            for sampleName in rootLayoutSamples(in: resultURL) {
+                moved += moveBAMs(of: sampleName, in: resultURL)
+            }
+            return moved
+        }
 
-                let tempDir = sampleDir.appendingPathComponent("\(sampleName)_temp")
-                let bamsDir = sampleDir.appendingPathComponent("bams")
-                guard fm.fileExists(atPath: tempDir.path) else { continue }
+        /// Moves `<sample>.third.filt.sorted.bam` and its index from `folder/<sample>_temp/` into
+        /// `folder/bams/`, keeping a file that a run before this one already moved.
+        private static func moveBAMs(of sampleName: String, in folder: URL) -> [(source: URL, destination: URL)] {
+            let fm = FileManager.default
+            let tempDir = folder.appendingPathComponent("\(sampleName)_temp")
+            let bamsDir = folder.appendingPathComponent("bams")
+            guard fm.fileExists(atPath: tempDir.path) else { return [] }
 
-                let bamBasename = "\(sampleName).third.filt.sorted.bam"
-                let sourceURLs = [
-                    tempDir.appendingPathComponent(bamBasename),
-                    tempDir.appendingPathComponent(bamBasename + ".bai"),
-                    tempDir.appendingPathComponent(bamBasename + ".csi"),
-                ]
+            let bamBasename = "\(sampleName).third.filt.sorted.bam"
+            let sourceURLs = [
+                tempDir.appendingPathComponent(bamBasename),
+                tempDir.appendingPathComponent(bamBasename + ".bai"),
+                tempDir.appendingPathComponent(bamBasename + ".csi"),
+            ]
 
-                // Only create bams/ if we have something to move
-                let movable = sourceURLs.filter { fm.fileExists(atPath: $0.path) }
-                guard !movable.isEmpty else { continue }
-                try? fm.createDirectory(at: bamsDir, withIntermediateDirectories: true)
+            // Only create bams/ if we have something to move
+            let movable = sourceURLs.filter { fm.fileExists(atPath: $0.path) }
+            guard !movable.isEmpty else { return [] }
+            try? fm.createDirectory(at: bamsDir, withIntermediateDirectories: true)
 
-                for source in movable {
-                    let dest = bamsDir.appendingPathComponent(source.lastPathComponent)
-                    // If destination already exists (re-run), skip
-                    guard !fm.fileExists(atPath: dest.path) else { continue }
-                    try? fm.moveItem(at: source, to: dest)
+            var moved: [(source: URL, destination: URL)] = []
+            for source in movable {
+                let dest = bamsDir.appendingPathComponent(source.lastPathComponent)
+                // If destination already exists (re-run), skip
+                guard !fm.fileExists(atPath: dest.path) else { continue }
+                if (try? fm.moveItem(at: source, to: dest)) != nil {
+                    moved.append((source: source, destination: dest))
                 }
             }
+            return moved
         }
 
         // MARK: - Post-Build Cleanup
