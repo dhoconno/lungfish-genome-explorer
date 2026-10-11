@@ -234,7 +234,8 @@ enum ProbeVersionText {
     ///
     /// A token that holds a slash is a path, a URL or a DOI, and never counts. Several tools print
     /// their location before the version, and a volume name such as `LGE 2.0` splits a path on its
-    /// space, so each half still holds a slash.
+    /// space, so each half still holds a slash. A name of three words leaves a bare middle word,
+    /// which 2.7 fixes by removing the storage root first.
     ///
     /// `skippingCommandEcho` also skips a line that echoes a JVM command (`java -ea ...`). Every
     /// BBTools wrapper prints one before its banner, and it carries the install path and options

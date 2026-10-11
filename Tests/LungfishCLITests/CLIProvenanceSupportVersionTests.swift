@@ -14,8 +14,8 @@ import XCTest
 /// install under `~/.lungfish/conda` on 2026-10-11, with the root written as `/Users/test/.lungfish/conda`.
 /// The golden environment holds neither tool.
 ///
-/// The defect rows show what the regex and the first-line fallback do to output the two tools
-/// never print today, so the rules stay the same as the Workflow parsers' (Phase 2.7 merges the three).
+/// It shares four numeric parts, the build suffix and the error markers with the Workflow parsers,
+/// still reads a number inside a path and ignores a `v` prefix, and Phase 2.7 merges the three.
 final class CLIProvenanceSupportVersionTests: XCTestCase {
     private static let root = "/Users/test/.lungfish/conda"
 
@@ -109,5 +109,37 @@ final class CLIProvenanceSupportVersionTests: XCTestCase {
             "3.3.0+lge.5"
         )
         XCTAssertEqual(CLIProvenanceSupport.parseCondaToolVersion("blastn: 2.16.0+\n"), "2.16.0")
+    }
+
+    // MARK: - What this parser still reads wrongly
+
+    /// The regex reads the first dotted number in the text, so a number inside a path wins. The two
+    /// Workflow parsers skip any token that holds a slash. This parser does not, and the value is
+    /// wrong. No tool the CLI probes prints a path first, so production never meets it, and the 2.7
+    /// merge moves this to 1.3.3.
+    func testANumberInsideAPathIsStillRead() {
+        // EsViritu --version, the real output. The path holds python3.14, and the version is the next line.
+        let esviritu = "\(Self.root)/envs/esviritu/lib/python3.14/site-packages/EsViritu\n1.3.3\n"
+        XCTAssertEqual(CLIProvenanceSupport.parseCondaToolVersion(esviritu), "3.14")
+    }
+
+    /// The regex ignores a `v` prefix too, so a DOI on stdout wins over the banner on stderr. The
+    /// Workflow parsers prefer the token written `v2.31.0`. `detectCondaToolVersion` gives this
+    /// parser stdout then stderr, and the correct value is 2.31.0, which the 2.7 merge restores.
+    func testAVPrefixIsStillIgnored() {
+        // vsearch --version, the real output from the owner's install.
+        let stdout = Self.lines(
+            "Rognes T, Flouri T, Nichols B, Quince C, Mahe F (2016)",
+            "VSEARCH: a versatile open source tool for metagenomics",
+            "PeerJ 4:e2584 doi: 10.7717/peerj.2584 https://doi.org/10.7717/peerj.2584",
+            "",
+            "Compiled with support for gzip-compressed files, and the library is loaded.",
+            "zlib version 1.2.12, compile flags 2a9",
+            "Compiled with support for bzip2-compressed files, and the library is loaded.")
+        let stderr = Self.lines(
+            "vsearch v2.31.0_macos_aarch64, 64.0GB RAM, 20 cores",
+            "https://github.com/torognes/vsearch",
+            "")
+        XCTAssertEqual(CLIProvenanceSupport.parseCondaToolVersion(stdout + stderr), "10.7717")
     }
 }
