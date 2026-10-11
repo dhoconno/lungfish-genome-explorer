@@ -229,9 +229,17 @@ final class GenotypeSmartCohortSectionTests: XCTestCase {
             GenotypeSmartCohortSection(cohorts: lacking, onSelect: { _ in }, onDelete: { _ in }, onAdd: { }),
             size: CGSize(width: 320, height: 320)
         )
+        let full = AccessibilityTreeProbe.host(
+            GenotypeSmartCohortSection(
+                cohorts: GenotypeSmartCohortSection.displayedCohorts(GenotypeAnnotationStore.builtInSmartCohorts, subjects: []),
+                onSelect: { _ in }, onDelete: { _ in }, onAdd: { }, onRestoreBuiltIns: { }
+            ),
+            size: CGSize(width: 320, height: 320)
+        )
         defer {
             offered.orderOut(nil)
             withoutAction.orderOut(nil)
+            full.orderOut(nil)
         }
         let offeredRoot = try XCTUnwrap(offered.contentView)
         var button: NSObject?
@@ -241,11 +249,21 @@ final class GenotypeSmartCohortSectionTests: XCTestCase {
         }
 
         XCTAssertNotNil(button, AccessibilityTreeProbe.dump(offeredRoot))
+        XCTAssertTrue(isAccessibilityEnabled(try XCTUnwrap(button)))
         let otherRoot = try XCTUnwrap(withoutAction.contentView)
         AccessibilityTreeProbe.waitUntil {
             AccessibilityTreeProbe.element(in: otherRoot, identifier: "genotypeSmartCohortAddButton") != nil
         }
         XCTAssertNil(AccessibilityTreeProbe.element(in: otherRoot, identifier: "genotypeSmartCohortRestoreButton"))
+        // With every built-in listed the button stays, disabled, so focus never drops and the undo stays visible.
+        let fullRoot = try XCTUnwrap(full.contentView)
+        var disabled: NSObject?
+        AccessibilityTreeProbe.waitUntil {
+            disabled = AccessibilityTreeProbe.element(in: fullRoot, identifier: "genotypeSmartCohortRestoreButton")
+            return disabled != nil
+        }
+        let fullButton = try XCTUnwrap(disabled, AccessibilityTreeProbe.dump(fullRoot))
+        XCTAssertFalse(isAccessibilityEnabled(fullButton))
     }
 
     // MARK: - Inspector wiring
@@ -284,9 +302,19 @@ final class GenotypeSmartCohortSectionTests: XCTestCase {
 
         inspector.updateGenotypeActiveSmartCohort(nil)
         XCTAssertEqual(marks(), [])
+
+        // A rebuild, such as the one after an AI haplotyping run, keeps the viewer's mark it is handed.
+        inspector.updateGenotypeResultDocument(result, activeSmartCohort: needsReview)
+        XCTAssertEqual(marks(), ["Needs review"])
     }
 
     // MARK: - Helpers
+
+    /// SwiftUI's accessibility nodes speak the informal protocol, as `AccessibilityTreeProbe` reads them.
+    private func isAccessibilityEnabled(_ element: NSObject) -> Bool {
+        if let enabled = (element as AnyObject).isAccessibilityEnabled?() { return enabled }
+        return (element.accessibilityAttributeValue(.enabled) as? Bool) ?? true
+    }
 
     private func sampleCohorts() -> [GenotypeSmartCohortSection.DisplayedCohort] {
         [

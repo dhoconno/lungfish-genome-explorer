@@ -138,7 +138,6 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
         pillStack.alignment = .centerY
         pillStack.spacing = 6
         configureSavedCohortButton()
-        pillStack.addArrangedSubview(savedCohortButton)
         pillStack.translatesAutoresizingMaskIntoConstraints = true
         updatePillDocumentFrame()
         pillScrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -155,7 +154,7 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
         containerStack.alignment = .leading
         containerStack.spacing = 6
         containerStack.edgeInsets = NSEdgeInsets(top: 7, left: 10, bottom: 7, right: 10)
-        containerStack.addArrangedSubview(searchField)
+        containerStack.addArrangedSubview(NSStackView(views: [searchField, savedCohortButton]))
         containerStack.addArrangedSubview(emptyStateLabel)
 
         addSubview(containerStack)
@@ -205,9 +204,11 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
         savedCohortButton.action = #selector(clearSavedCohort(_:))
         savedCohortButton.isHidden = true
         savedCohortButton.identifier = NSUserInterfaceItemIdentifier("savedCohort")
-        savedCohortButton.toolTip = "Clear saved cohort filter"
+        savedCohortButton.toolTip = "Clear the cohort filter"
         savedCohortButton.image = NSImage(systemSymbolName: Self.savedCohortClearSymbolName, accessibilityDescription: nil)
         savedCohortButton.imagePosition = .imageTrailing
+        savedCohortButton.lineBreakMode = .byTruncatingTail
+        savedCohortButton.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     }
 
     /// Shows the viewer's active cohort, or hides the pill for nil. The
@@ -219,9 +220,9 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
             savedCohortButton.isHidden = true
             savedCohortButton.setAccessibilityLabel(nil)
         } else {
-            savedCohortButton.title = "Saved: \(trimmed)"
+            savedCohortButton.title = "Cohort: \(trimmed)"
             savedCohortButton.isHidden = false
-            savedCohortButton.setAccessibilityLabel("Active cohort \(trimmed)")
+            savedCohortButton.setAccessibilityLabel("Cohort: \(trimmed)")
             savedCohortButton.setAccessibilityHelp("Clears the cohort filter \(trimmed)")
         }
         updatePillDocumentFrame()

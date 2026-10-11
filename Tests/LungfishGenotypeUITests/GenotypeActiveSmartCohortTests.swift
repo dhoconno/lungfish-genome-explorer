@@ -21,7 +21,7 @@ final class GenotypeActiveSmartCohortTests: GenotypeResultViewportTestCase {
 
         controller.testingApplySmartCohort(needsReview)
         XCTAssertEqual(controller.testingActiveSmartCohort, needsReview)
-        XCTAssertEqual(controller.testingSavedCohortChipTitle, "Saved: Needs review")
+        XCTAssertEqual(controller.testingSavedCohortChipTitle, "Cohort: Needs review")
 
         controller.testingApplySmartCohort(needsReview)
         XCTAssertNil(controller.testingActiveSmartCohort)
@@ -37,7 +37,7 @@ final class GenotypeActiveSmartCohortTests: GenotypeResultViewportTestCase {
         controller.testingApplySmartCohort(try builtIn("Homozygous"))
 
         XCTAssertEqual(controller.testingActiveSmartCohort?.name, "Homozygous")
-        XCTAssertEqual(controller.testingSavedCohortChipTitle, "Saved: Homozygous")
+        XCTAssertEqual(controller.testingSavedCohortChipTitle, "Cohort: Homozygous")
     }
 
     func testThePillAndTheInspectorFollowTheOneState() throws {
@@ -48,7 +48,11 @@ final class GenotypeActiveSmartCohortTests: GenotypeResultViewportTestCase {
         controller.onActiveSmartCohortChanged = { handedToInspector.append($0?.name) }
 
         controller.testingApplySmartCohort(try builtIn("Recombinants"))
-        XCTAssertEqual(controller.quickFilterBar.testingSavedCohortChipAccessibilityLabel, "Active cohort Recombinants")
+        XCTAssertEqual(controller.quickFilterBar.testingSavedCohortChipAccessibilityLabel, "Cohort: Recombinants")
+        XCTAssertTrue(
+            controller.quickFilterBar.testingVisibleButtonTitles.contains("Cohort: Recombinants"),
+            "the pill is in the bar's view tree"
+        )
         XCTAssertTrue(controller.quickFilterBar.testingSavedCohortChipShowsClearGlyphAfterTheName)
 
         controller.quickFilterBar.testingClearSavedCohort()
@@ -57,6 +61,22 @@ final class GenotypeActiveSmartCohortTests: GenotypeResultViewportTestCase {
         XCTAssertNil(controller.testingSavedCohortChipTitle)
         XCTAssertNil(controller.quickFilterBar.testingSavedCohortChipAccessibilityLabel)
         XCTAssertEqual(handedToInspector, ["Recombinants", nil])
+    }
+
+    /// The Inspector builds its rows from the sidecar, so a saved filter's
+    /// sidecar must reach it before the mark, or the mark finds no row.
+    func testASavedFiltersSidecarReachesTheInspectorBeforeItsMark() throws {
+        let fixture = try makeFixture()
+        defer { TestTempDirectory.cleanup(fixture.root) }
+        let controller = configuredController(fixture)
+        var events: [String] = []
+        controller.onAnnotationSidecarChanged = { events.append("sidecar " + ($0.smartCohorts.last?.name ?? "")) }
+        controller.onActiveSmartCohortChanged = { events.append("mark " + ($0?.name ?? "none")) }
+        controller.testingSetUnifiedSampleFilter("AnimalA")
+
+        try controller.testingSaveCurrentFilterAsSmartCohort()
+
+        XCTAssertEqual(events, ["sidecar Filter: AnimalA", "mark Filter: AnimalA"])
     }
 
     func testDeletingTheActiveCohortClearsItEverywhere() throws {

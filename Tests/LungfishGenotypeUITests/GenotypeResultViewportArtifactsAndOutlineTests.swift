@@ -1036,7 +1036,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         controller.testingSelectLens(.review)
 
         XCTAssertEqual(controller.testingVisibleOutlineSamples, ["LowSupport"])
-        XCTAssertEqual(controller.testingSavedCohortChipTitle, "Saved: Needs review")
+        XCTAssertEqual(controller.testingSavedCohortChipTitle, "Cohort: Needs review")
     }
 
 
@@ -1074,7 +1074,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         controller.testingApplySmartCohort(cohort)
         XCTAssertTrue(controller.testingHasHaplotypingResult)
         XCTAssertEqual(controller.testingActiveSmartCohort, cohort)
-        XCTAssertEqual(controller.testingSavedCohortChipTitle, "Saved: Animal A")
+        XCTAssertEqual(controller.testingSavedCohortChipTitle, "Cohort: Animal A")
         controller.testingResetHaplotypeCapabilityWorkCounters()
 
         controller.configure(result: makeResult(
@@ -1184,7 +1184,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         ))
         controller.testingApplySmartCohort(cohort)
         XCTAssertEqual(controller.testingActiveSmartCohort, cohort)
-        XCTAssertEqual(controller.testingSavedCohortChipTitle, "Saved: Animal A")
+        XCTAssertEqual(controller.testingSavedCohortChipTitle, "Cohort: Animal A")
         controller.testingResetHaplotypeCapabilityWorkCounters()
 
         controller.applyAIHaplotypingCompleted(result: makeResult(

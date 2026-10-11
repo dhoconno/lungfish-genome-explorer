@@ -412,7 +412,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     private var manualHaplotypingSelection: Set<String> = []
     private var manualHaplotypingDraftLabel: String = ""
     private var manualHaplotypingDraftColorTokenIndex: Int = 1
-    private(set) var activeSmartCohort: GenotypeCohortSmartFilter? { didSet { activeSmartCohortDidChange(from: oldValue) } }
+    public private(set) var activeSmartCohort: GenotypeCohortSmartFilter? { didSet { activeSmartCohortDidChange(from: oldValue) } }
     private var quickFilterPredicate: SmartCohortPredicate?
     private(set) var quickFilterSearchText: String = ""
     private(set) var quickFilterState = GenotypeQuickFilterBarView.FilterState()
@@ -799,9 +799,9 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             searchProjectionText: searchProjectionText
         )
         try store.saveSmartCohort(cohort, author: author)
+        onAnnotationSidecarChanged?(store.sidecar)
         activeSmartCohort = cohort
         refreshVisibleFilterDependentViews(rebuildCohortSummary: true)
-        onAnnotationSidecarChanged?(store.sidecar)
     }
 
     private func savedSmartCohortName(for summary: String) -> String {

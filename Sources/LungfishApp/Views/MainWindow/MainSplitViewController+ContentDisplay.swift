@@ -435,7 +435,7 @@ extension MainSplitViewController {
                             )
                             let updated = try await ONTGenotypeResultBundle.loadResultAsync(from: bundleURL)
                             controller?.applyAIHaplotypingCompleted(result: updated)
-                            self.inspectorController.updateGenotypeResultDocument(updated)
+                            self.inspectorController.updateGenotypeResultDocument(updated, activeSmartCohort: controller?.activeSmartCohort)
                             self.sidebarController.requestReloadFromFilesystem()
                         } catch {
                             controller?.applyAIHaplotypingFailed(error)

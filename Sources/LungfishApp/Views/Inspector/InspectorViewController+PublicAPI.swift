@@ -370,7 +370,7 @@ extension InspectorViewController {
     }
 
     /// Updates the Document inspector with genotype-result bundle statistics.
-    func updateGenotypeResultDocument(_ result: ONTGenotypeResultBundleData) {
+    func updateGenotypeResultDocument(_ result: ONTGenotypeResultBundleData, activeSmartCohort: GenotypeCohortSmartFilter? = nil) {
         loadedGenotypeResult = result
         let hasHaplotypingResult = result.haplotypeAnalysis != nil
         let sampleIds = genotypeSampleIds(result)
@@ -401,7 +401,7 @@ extension InspectorViewController {
             )
             : []
         let smartCohorts = hasHaplotypingResult
-            ? GenotypeSmartCohortSection.displayedCohorts(sidecar.smartCohorts, subjects: subjects) : []
+            ? GenotypeSmartCohortSection.displayedCohorts(sidecar.smartCohorts, subjects: subjects, active: activeSmartCohort) : []
         let workbookArtifactRows: [GenotypeResultArtifactRow] = {
             var rows = [
                 GenotypeResultArtifactRow(label: "Workbook", fileURL: result.artifacts.workbookURL),

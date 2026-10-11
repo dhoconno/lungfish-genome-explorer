@@ -84,7 +84,8 @@ final class GenotypeQuickFilterBarViewTests: XCTestCase {
         view.onSavedCohortCleared = { didClear = true }
 
         view.setSavedCohortName("Needs review")
-        XCTAssertEqual(view.testingSavedCohortChipTitle, "Saved: Needs review")
+        XCTAssertEqual(view.testingSavedCohortChipTitle, "Cohort: Needs review")
+        XCTAssertTrue(view.testingVisibleButtonTitles.contains("Cohort: Needs review"), "the pill is in the bar's view tree")
 
         view.testingClearSavedCohort()
         XCTAssertTrue(didClear)

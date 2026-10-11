@@ -15,7 +15,7 @@ import LungfishIO
 ///
 /// The viewer's active cohort, the one state the filter bar pill also reads, shows with a
 /// checkmark and the selected accessibility trait, and a second click on it clears it (walk star
-/// 10). Restore Built-In Cohorts appears when a built-in cohort is missing (plan decision S13).
+/// 10). Restore Built-In Cohorts is enabled when a built-in cohort is missing (plan decision S13).
 public struct GenotypeSmartCohortSection: View {
     private let typographyModel = ContentTypographyModel.shared
     private var contentBodyFont: Font { typographyModel.font(for: .body) }
@@ -134,14 +134,17 @@ public struct GenotypeSmartCohortSection: View {
                 .padding(.top, 4)
                 .accessibilityIdentifier("genotypeSmartCohortAddButton")
 
-                if let onRestoreBuiltIns, !restorableBuiltInNames.isEmpty {
+                if let onRestoreBuiltIns {
                     Button(action: onRestoreBuiltIns) {
                         Label("Restore Built-In Cohorts", systemImage: "arrow.uturn.backward.circle")
                             .font(contentBodyFont)
                     }
                     .buttonStyle(.borderless)
                     .controlSize(.regular)
-                    .help("Bring back " + restorableBuiltInNames.joined(separator: ", "))
+                    .disabled(restorableBuiltInNames.isEmpty)
+                    .help(restorableBuiltInNames.isEmpty
+                        ? "Every built-in cohort is in the list."
+                        : "Bring back " + restorableBuiltInNames.joined(separator: ", "))
                     .accessibilityIdentifier("genotypeSmartCohortRestoreButton")
                 }
             }
