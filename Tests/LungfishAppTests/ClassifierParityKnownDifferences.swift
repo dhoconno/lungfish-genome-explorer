@@ -49,7 +49,9 @@ struct ClassifierParityKnownDifference: Sendable {
 }
 
 enum ClassifierParityKnownDifferences {
-    /// The D numbers are the GUI and CLI differences of the BIO inventory, section 1.3.
+    /// A D number names a difference of one of two inventories and always carries its prefix. BIO
+    /// D numbers are the GUI and CLI differences of the BIO inventory, section 1.3. UX D numbers are
+    /// the user-visible differences of the UX inventory, section 1.4.
     static let all: [ClassifierParityKnownDifference] = layout + kraken2Records + esVirituRecords + facts + namedFiles + routeC
 
     static let retire = "2.9, when the legacy GUI paths retire (E14)"
@@ -72,11 +74,11 @@ enum ClassifierParityKnownDifferences {
         pair([.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1, .e1: 1, .e2: 1], "source manifest: only in A: *",
              "Only the GUI records the run in the source bundle's analyses-manifest.json"),
         pair([.k1: 1, .k3: 1, .k4: 1], "analysis: only in A: *.lungfish-provenance/intermediates/classification-inputs/input-1-materialized-<UUID>.fastq",
-             "D4. The GUI materializes the subset into a scratch folder it deletes, so the pipeline keeps a replay copy"),
+             "BIO D4. The GUI materializes the subset into a scratch folder it deletes, so the pipeline keeps a replay copy"),
         pair([.k1: 1, .k3: 1, .k4: 1], "analysis: only in B: *.lungfish-classify-inputs/materialized-<UUID>.fastq",
-             "D4. The CLI materializes the subset into the output folder and keeps it"),
+             "BIO D4. The CLI materializes the subset into the output folder and keeps it"),
         pair([.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1], "analysis: differs: *classification-result.json",
-             "D12. config.inputFiles names the GUI's deleted scratch file and the CLI's kept file, and the GUI's outputDirectory URL ends in a slash"),
+             "BIO D12. config.inputFiles names the GUI's deleted scratch file and the CLI's kept file, and the GUI's outputDirectory URL ends in a slash"),
         pair([.k3: 1, .e1: 1, .e2: 1], "analysis: only in A: .lungfish-provenance.json",
              "The GUI's batch record at the batch root. The row's command runs each sample alone (E8)"),
         pair([.k3: 2], "analysis: only in A: classification-batch-*",
@@ -94,11 +96,11 @@ enum ClassifierParityKnownDifferences {
              "The same BAM where the CLI leaves it, in _temp/. The row's command is a plain --output run, which builds no index, so side B keeps the BAM in _temp/ (E2)",
              closedBy: retire),
         pair([.e1: 1], "analysis: only in B: */.lungfish-esviritu-inputs/materialized-<UUID>.fastq",
-             "D4. The CLI keeps the materialized subset, the GUI deletes its scratch copy"),
+             "BIO D4. The CLI keeps the materialized subset, the GUI deletes its scratch copy"),
         pair([.e1: 1], "analysis: differs: */*.fastp.json",
-             "D4. fastp's command names the GUI's scratch input and the CLI's kept input"),
+             "BIO D4. fastp's command names the GUI's scratch input and the CLI's kept input"),
         pair([.e1: 1, .e2: 1], "analysis: differs: */esviritu-result.json",
-             "The GUI's outputDirectory URL ends in a slash, and for the subset config.inputFiles names the GUI's deleted scratch file (D12)"),
+             "The GUI's outputDirectory URL ends in a slash, and for the subset config.inputFiles names the GUI's deleted scratch file (BIO D12)"),
         pair([.e3: 1], "command: B has no command to run",
              "cli-parity-gap esviritu-batch. The EsViritu batch row records no command, so nothing replays the batch (E8). Side C' replays the new route's batch command"),
     ]
@@ -122,14 +124,14 @@ enum ClassifierParityKnownDifferences {
         kraken2Record("argv", oneInEachKraken2Record, "The GUI record's argv is its first step's, the copy or staging script, or kraken2's own for a plain file. The CLI root record's argv is its process's command line, which an in-process replay takes from the test runner (E11)"),
         kraken2Record("reproducibleCommand", oneInEachKraken2Record, "As argv"),
         kraken2Record("durableReplayArgv", [.k5: 1, .k6: 1], "The GUI record of a plain file holds kraken2's command as its replay argv. The CLI root record names none, because the command it ran replays the run"),
-        kraken2Record("explicitOptions.*", [.k1: 16, .k2: 20, .k3: 39, .k4: 19, .k5: 19, .k6: 19], "The GUI record holds every pipeline option, the database identity and a merge bundle's readSetPlan among them. The CLI root record holds the options its command line gave, which an in-process replay reads from the test runner's argv, and keeps the readSetPlan in resolvedDefaults (D6, E13)"),
+        kraken2Record("explicitOptions.*", [.k1: 16, .k2: 20, .k3: 39, .k4: 19, .k5: 19, .k6: 19], "The GUI record holds every pipeline option, the database identity and a merge bundle's readSetPlan among them. The CLI root record holds the options its command line gave, which an in-process replay reads from the test runner's argv, and keeps the readSetPlan in resolvedDefaults (BIO D6, E13)"),
         kraken2Record("legacyRunParameters.*", [.k1: 16, .k2: 20, .k3: 39, .k4: 19, .k5: 19, .k6: 19], "As explicitOptions"),
-        kraken2Record("defaultOptions.*", [.k1: 6, .k2: 6, .k3: 12, .k4: 6, .k5: 6, .k6: 6], "The pipeline's defaults (confidence 0, read format unpaired) in the GUI record against the command's one table in the CLI root record (D7, D8, E12)"),
+        kraken2Record("defaultOptions.*", [.k1: 6, .k2: 6, .k3: 12, .k4: 6, .k5: 6, .k6: 6], "The pipeline's defaults (confidence 0, read format unpaired) in the GUI record against the command's one table in the CLI root record (BIO D7, BIO D8, E12)"),
         kraken2Record("resolvedDefaultOptions.*", [.k1: 5, .k2: 5, .k3: 10, .k4: 5, .k5: 5, .k6: 5], "The CLI root record names no database identity status, core file sizes, effective memory mapping, extra arguments string or minimizer report flag. Its --db-digest names the database through the install receipt instead (E9). The kraken2 step of both records keeps databaseIdentityStatus, databaseCoreFileSizes, databaseDigest and databasePath in its resolvedOptions"),
-        kraken2Record("files[*", [.k1: 4, .k2: 1, .k3: 5, .k4: 4, .k5: 1, .k6: 1], "D4. The GUI record names the scratch input and the replay copy, the CLI record the kept materialized input. Both name the database as a reference, the GUI record with the size of its core files and the CLI record with the install receipt's payload size (E9)"),
-        kraken2Record("outputs[*", [.k1: 1, .k3: 1, .k4: 1], "The GUI record lists the pipeline's replay copy of the materialized input as an output, the CLI record does not (D4)"),
+        kraken2Record("files[*", [.k1: 4, .k2: 1, .k3: 5, .k4: 4, .k5: 1, .k6: 1], "BIO D4. The GUI record names the scratch input and the replay copy, the CLI record the kept materialized input. Both name the database as a reference, the GUI record with the size of its core files and the CLI record with the install receipt's payload size (E9)"),
+        kraken2Record("outputs[*", [.k1: 1, .k3: 1, .k4: 1], "The GUI record lists the pipeline's replay copy of the materialized input as an output, the CLI record does not (BIO D4)"),
         kraken2Record("output.*", [.k1: 2, .k2: 2, .k3: 4, .k4: 2, .k5: 2, .k6: 2], "The run's output is classification-result.json in the GUI record and the kreport in the CLI record"),
-        kraken2Record("steps[*", [.k1: 7, .k2: 4, .k3: 11, .k4: 7], "D4. The GUI's copy or staging step against the CLI's fastq materialize step, so kraken2 reads another path and depends on another step"),
+        kraken2Record("steps[*", [.k1: 7, .k2: 4, .k3: 11, .k4: 7], "BIO D4. The GUI's copy or staging step against the CLI's fastq materialize step, so kraken2 reads another path and depends on another step"),
         kraken2Record("canonicalRunSteps[*", [.k1: 4, .k2: 4, .k3: 8, .k4: 4], "As steps"),
         kraken2Record("legacyRunSteps[*", [.k1: 4, .k2: 4, .k3: 8, .k4: 4], "As steps"),
     ]
@@ -147,7 +149,7 @@ enum ClassifierParityKnownDifferences {
     }
 
     private static let esVirituRecords: [ClassifierParityKnownDifference] = [
-        esVirituRecord("argv", [.e1: 1, .e2: 1], "The replayed command runs through the analysis run executor, whose root record names the lungfish-cli command that ran (E1, E15), where the pipeline's record took EsViritu's argv. EsViritu's argv stays on its step, which in E1 also names the GUI's deleted scratch file (D4, D5)"),
+        esVirituRecord("argv", [.e1: 1, .e2: 1], "The replayed command runs through the analysis run executor, whose root record names the lungfish-cli command that ran (E1, E15), where the pipeline's record took EsViritu's argv. EsViritu's argv stays on its step, which in E1 also names the GUI's deleted scratch file (BIO D4, BIO D5)"),
         esVirituRecord("reproducibleCommand", [.e1: 1, .e2: 1], "As argv"),
         esVirituRecord("workflowName", [.e1: 1, .e2: 1], "As argv. The executor's root record, lungfish.esviritu.detect, replaces the pipeline's Viral Metagenomics Detection record in the plain --output folder (E2)"),
         esVirituRecord("toolName", [.e1: 1, .e2: 1], "As workflowName. The root record's tool is lungfish-cli, and EsViritu stays the tool of its step"),
@@ -155,7 +157,7 @@ enum ClassifierParityKnownDifferences {
         esVirituRecord("output.*", [.e1: 2, .e2: 2], "The executor's run output is its first output, the detection table, where the pipeline's record names esviritu-result.json. Both stay in outputs with their digests"),
         esVirituRecord("explicitOptions.*", 5, "The GUI scans the input's read layout and puts the format it chose in the row's command (--read-format unpaired), so the replay scans nothing and records no scan. Both sides record the format"),
         esVirituRecord("legacyRunParameters.*", 5, "As explicitOptions"),
-        esVirituRecord("files[*", 1, "D5. The GUI record names the deleted scratch input"),
+        esVirituRecord("files[*", 1, "BIO D5. The GUI record names the deleted scratch input"),
         esVirituRecord("steps[*", 3, "As argv, in the EsViritu step and its log"),
         esVirituRecord("canonicalRunSteps[*", 1, "As argv"),
         esVirituRecord("legacyRunSteps[*", 1, "As argv"),
@@ -182,7 +184,7 @@ enum ClassifierParityKnownDifferences {
 
     private static let namedFiles: [ClassifierParityKnownDifference] = [
         namedFile(.a, [.k1: 1, .k3: 2, .k4: 1, .e1: 2, .e3: 2], "<project>/.tmp/* that does not exist",
-                  "D4, D5. The GUI's materialized scratch input, which it deletes after the run", closedBy: retire),
+                  "BIO D4, BIO D5. The GUI's materialized scratch input, which it deletes after the run", closedBy: retire),
         namedFile(.a, [.k1: 1, .k2: 1, .k3: 4, .k4: 1, .k5: 1, .k6: 1], "*classification.kraken that does not exist",
                   "ClassificationPipeline gzips the per-read output to classification.kraken.gz and deletes it, and no step records the compression",
                   closedBy: sharedPipeline),
