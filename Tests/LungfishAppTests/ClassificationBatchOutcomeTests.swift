@@ -228,6 +228,37 @@ final class ClassificationBatchOutcomeTests: XCTestCase {
         )
     }
 
+    func testSingleCompletedResultReadsTheClassifiedCountWithNoWarning() throws {
+        let result = try makeResult(kreport: minimalKreport, outcome: .completed(resolution: genusResolution))
+
+        let metadata = ClassificationBatchOutcomePolicy.singleResultMetadata(for: result)
+
+        XCTAssertFalse(metadata.requiresWarningCompletion)
+        XCTAssertEqual(
+            metadata.completionDetail,
+            "\(result.tree.classifiedReads) of \(result.tree.totalReads) reads classified"
+        )
+    }
+
+    func testSingleDegradedResultDetailNamesTheResolvedRankAndTheReason() throws {
+        let result = try makeResult(
+            kreport: minimalKreport,
+            outcome: .degraded(
+                resolution: genusResolution,
+                reason: .distributionUnavailable,
+                message: "Missing database100mers.kmer_distrib"
+            )
+        )
+
+        let metadata = ClassificationBatchOutcomePolicy.singleResultMetadata(for: result)
+
+        XCTAssertEqual(
+            metadata.completionDetail,
+            "\(result.tree.classifiedReads) of \(result.tree.totalReads) reads classified; "
+                + "Bracken profiling degraded at resolved rank G: Missing database100mers.kmer_distrib"
+        )
+    }
+
     func testAllFailedRetainedBatchReloadsSidebarAfterTerminalFailure() throws {
         let sourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

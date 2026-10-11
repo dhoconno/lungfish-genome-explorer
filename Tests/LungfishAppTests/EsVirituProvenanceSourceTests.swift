@@ -21,11 +21,11 @@ final class EsVirituProvenanceSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("MetagenomicsBatchResultStore.saveEsViritu(manifest, to: batchRoot)"))
     }
 
-    func testSingleSampleZeroHitEsVirituCompletionUsesNoHitsDetail() throws {
+    /// The words of a zero-hit and a hit run moved to `ClassificationCompletionDetail`, which
+    /// `ClassificationCompletionDetailTests` pins. The launch still completes its row with that detail.
+    func testSingleSampleEsVirituCompletionCompletesTheRowWithItsDetail() throws {
         let source = combinedAppDelegateSource()
 
-        XCTAssertTrue(source.contains("capturedResult.detections.isEmpty"))
-        XCTAssertTrue(source.contains(#""No viral hits detected""#))
         XCTAssertTrue(source.contains("OperationCenter.shared.complete(\n                                id: opID,\n                                detail: completionDetail"))
     }
 
