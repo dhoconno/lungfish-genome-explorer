@@ -400,6 +400,7 @@ extension ProvenanceEnvelope {
                     peakMemoryBytes: step.peakMemoryBytes,
                     stderr: step.stderr,
                     dependsOn: step.dependsOn,
+                    parentStepID: step.parentStepID,
                     startTime: step.startedAt ?? createdAt,
                     endTime: step.completedAt
                 )
@@ -548,7 +549,8 @@ extension ProvenanceStep {
             stderr: stepExecution.stderr,
             dependsOn: stepExecution.dependsOn,
             startedAt: stepExecution.startTime,
-            completedAt: stepExecution.endTime
+            completedAt: stepExecution.endTime,
+            parentStepID: stepExecution.parentStepID
         )
     }
 }

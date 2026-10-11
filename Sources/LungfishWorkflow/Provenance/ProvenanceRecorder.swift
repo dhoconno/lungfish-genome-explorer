@@ -117,6 +117,7 @@ public actor ProvenanceRecorder {
     ///   - peakMemoryBytes: Peak resident memory in bytes, when available
     ///   - stderr: Standard error output (the first 2,048 and last 8,192 characters when longer than 10,240)
     ///   - dependsOn: IDs of upstream steps
+    ///   - parentStepID: The step this one ran under, such as the CLI step whose import ran it
     /// - Returns: The step ID
     @discardableResult
     public func recordStep(
@@ -136,7 +137,8 @@ public actor ProvenanceRecorder {
         wallTime: TimeInterval,
         peakMemoryBytes: UInt64? = nil,
         stderr: String? = nil,
-        dependsOn: [UUID] = []
+        dependsOn: [UUID] = [],
+        parentStepID: UUID? = nil
     ) -> UUID? {
         guard runs[runID] != nil else {
             logger.warning("Provenance: no active run \(runID) — step not recorded")
@@ -163,6 +165,7 @@ public actor ProvenanceRecorder {
             peakMemoryBytes: peakMemoryBytes,
             stderr: truncatedStderr,
             dependsOn: dependsOn,
+            parentStepID: parentStepID,
             startTime: recordedAt,
             endTime: recordedAt
         )

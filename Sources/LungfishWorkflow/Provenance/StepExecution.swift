@@ -65,6 +65,10 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
     /// IDs of upstream steps this step depends on (DAG edges).
     public let dependsOn: [UUID]
 
+    /// The step this step ran under, when a writer recorded it as part of another step, such as the
+    /// `lungfish-cli` step whose import ran it (plan decision S6). Nil for a step that ran on its own.
+    public var parentStepID: UUID?
+
     /// When this step started.
     public let startTime: Date
 
@@ -89,6 +93,7 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
         peakMemoryBytes: UInt64? = nil,
         stderr: String? = nil,
         dependsOn: [UUID] = [],
+        parentStepID: UUID? = nil,
         startTime: Date = Date(),
         endTime: Date? = nil
     ) {
@@ -109,6 +114,7 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
         self.peakMemoryBytes = peakMemoryBytes
         self.stderr = stderr
         self.dependsOn = dependsOn
+        self.parentStepID = parentStepID
         self.startTime = startTime
         self.endTime = endTime
     }

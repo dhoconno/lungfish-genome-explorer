@@ -21,7 +21,7 @@ final class ProvenanceStepParentTests: XCTestCase {
 
     // MARK: - Fixtures
 
-    private let project = "/Users/tester/Demo.lungfish"
+    private let project = StepParentSupport.project
 
     private func step(
         _ tool: String,
@@ -117,18 +117,11 @@ final class ProvenanceStepParentTests: XCTestCase {
     /// The lines of `script` that run something: no comment, no blank line and none of the fixed
     /// preamble every script opens with.
     private func commandLines(of script: String) -> [String] {
-        let preamble = ["set ", "PROJECT=", "OUTDIR=", "mkdir ", "INPUT_", "echo "]
-        return script.split(separator: "\n", omittingEmptySubsequences: true).map(String.init).filter { line in
-            !line.hasPrefix("#") && !preamble.contains { line.hasPrefix($0) }
-        }
+        StepParentSupport.commandLines(of: script)
     }
 
     private func makeTempDirectory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("step-parent-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
-        return url.resolvingSymlinksInPath()
+        try makeStepParentDirectory()
     }
 
     /// Runs `script` with bash, with a stub for each name in `stubs` first on PATH. A stub appends
