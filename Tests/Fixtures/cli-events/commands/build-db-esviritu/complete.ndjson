@@ -1,0 +1,47 @@
+{"event":"start","message":"Building esviritu.sqlite in \/work\/esviritu","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Schema created","progress":0.05,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 1\/19...","progress":0.08947368421052632,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 2\/19...","progress":0.12894736842105264,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 3\/19...","progress":0.16842105263157894,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 4\/19...","progress":0.20789473684210524,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 5\/19...","progress":0.24736842105263157,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 6\/19...","progress":0.2868421052631579,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 7\/19...","progress":0.3263157894736842,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 8\/19...","progress":0.3657894736842105,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 9\/19...","progress":0.4052631578947368,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 10\/19...","progress":0.44473684210526315,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 11\/19...","progress":0.4842105263157895,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 12\/19...","progress":0.5236842105263158,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 13\/19...","progress":0.5631578947368422,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 14\/19...","progress":0.6026315789473685,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 15\/19...","progress":0.6421052631578947,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 16\/19...","progress":0.6815789473684211,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 17\/19...","progress":0.7210526315789474,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 18\/19...","progress":0.7605263157894737,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 19\/19...","progress":0.8,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows...","progress":0.75,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 200\/4000...","progress":0.7525,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 400\/4000...","progress":0.755,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 600\/4000...","progress":0.7575,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 800\/4000...","progress":0.76,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 1000\/4000...","progress":0.7625,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 1200\/4000...","progress":0.765,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 1400\/4000...","progress":0.7675,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 1600\/4000...","progress":0.77,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 1800\/4000...","progress":0.7725,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 2000\/4000...","progress":0.775,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 2200\/4000...","progress":0.7775,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 2400\/4000...","progress":0.78,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 2600\/4000...","progress":0.7825,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 2800\/4000...","progress":0.785,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 3000\/4000...","progress":0.7875,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 3200\/4000...","progress":0.79,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 3400\/4000...","progress":0.7925,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 3600\/4000...","progress":0.795,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 3800\/4000...","progress":0.7975,"schemaVersion":2}
+{"event":"progress","message":"Inserting coverage windows 4000\/4000...","progress":0.8,"schemaVersion":2}
+{"event":"progress","message":"Inserting metadata...","progress":0.8,"schemaVersion":2}
+{"event":"progress","message":"Building indices...","progress":0.85,"schemaVersion":2}
+{"event":"progress","message":"Finalizing...","progress":0.95,"schemaVersion":2}
+{"event":"progress","message":"Complete","progress":1,"schemaVersion":2}
+{"event":"complete","message":"Built database at \/work\/esviritu\/esviritu.sqlite with 19 rows","output":"\/work\/esviritu\/esviritu.sqlite","outputs":["\/work\/esviritu\/esviritu.sqlite"],"progress":1,"schemaVersion":2}

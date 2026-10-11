@@ -123,7 +123,15 @@ The app reads the stream of each import command through `CLISubprocessTransport`
 
 The two ONT FASTQ commands need no row. `progress` is a name of version 1, and the decoder ignores the `operation` key, so their lines already read as `progress` events.
 
+The three `build-db` leaves wrote objects with `progress` and `message` and no `event` key on standard error under `--format json`, beside their human text on standard output. The app never ran them with the switch, and no reader read the objects, so the legacy table has no row for them. Since 2.7 these leaves print version 2 events, as the next section says.
+
 `CLIEventLegacyNamesTests` decodes each transcript in `Tests/Fixtures/cli-events/legacy` and compares every line with a frozen copy of how the two import runners read it. The table is dated 2026-10-11. It is deleted as a unit when the last `.legacy` row goes, 2.9 by today's rows. The unit also holds the legacy branch of the decoder, `CLIEventLegacyNamesTests` with those transcripts, the legacy check in `ImportStreamCapture`, the runner tests that print an old name, and the legacy sections of this page and the fixtures README. The contract table below lists the four import commands and the two ONT FASTQ commands as `.events` rows.
+
+## Building a viewer database
+
+`build-db kraken2`, `build-db esviritu` and `build-db taxtriage` build the SQLite database that a classifier viewer reads, in the result folder they are given. With `--format json` a run is one `start` line, a `progress` line for each step that the database writer reports, with the fraction and the message the writer gives, and one `complete` line. Its `outputs` names the database file, such as `kraken2.sqlite` in the result folder, and its message is the last sentence the run prints about the database. A run that finds the database there and has no `--force` keeps it and completes with the same file. A run that fails ends with one `failed` line.
+
+The rows parsed, the database path and the cleanup summary go to standard error while the switch is on. Without the switch, which is how the app runs these leaves, the text stays on standard output and no event is printed. Warnings go to standard error in both modes, and `--quiet` drops the text and the warnings.
 
 ## The contract table
 

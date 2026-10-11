@@ -1,0 +1,23 @@
+{"event":"start","message":"Building taxtriage.sqlite in \/work\/taxtriage","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Schema created","progress":0.05,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 1\/15...","progress":0.1,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 2\/15...","progress":0.15000000000000002,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 3\/15...","progress":0.2,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 4\/15...","progress":0.25,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 5\/15...","progress":0.3,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 6\/15...","progress":0.35,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 7\/15...","progress":0.39999999999999997,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 8\/15...","progress":0.45,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 9\/15...","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 10\/15...","progress":0.55,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 11\/15...","progress":0.6000000000000001,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 12\/15...","progress":0.65,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 13\/15...","progress":0.7000000000000001,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 14\/15...","progress":0.75,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 15\/15...","progress":0.8,"schemaVersion":2}
+{"event":"progress","message":"Inserting accession map...","progress":0.75,"schemaVersion":2}
+{"event":"progress","message":"Inserting metadata...","progress":0.8,"schemaVersion":2}
+{"event":"progress","message":"Building indices...","progress":0.85,"schemaVersion":2}
+{"event":"progress","message":"Finalizing...","progress":0.95,"schemaVersion":2}
+{"event":"progress","message":"Complete","progress":1,"schemaVersion":2}
+{"event":"complete","message":"Built database at \/work\/taxtriage\/taxtriage.sqlite with 15 rows","output":"\/work\/taxtriage\/taxtriage.sqlite","outputs":["\/work\/taxtriage\/taxtriage.sqlite"],"progress":1,"schemaVersion":2}

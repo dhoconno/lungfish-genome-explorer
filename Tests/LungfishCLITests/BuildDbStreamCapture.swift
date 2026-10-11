@@ -62,6 +62,36 @@ enum BuildDbStreamCapture {
         }
     }
 
+    /// The runs whose `--format json` standard output is checked in under
+    /// `Tests/Fixtures/cli-events/commands/build-db-<tool>`. `complete-existing` finds the database that a
+    /// first run built and keeps it. `failed` names a `--sample-dir` that holds no `classification.kreport`,
+    /// a failure whose message Lungfish writes.
+    static func cases() -> [ImportStreamCapture.Case] {
+        let json = ["--format", "json"]
+        return [
+            ImportStreamCapture.Case(leaf: "build-db kraken2", name: "complete") { scratch in
+                try await run("build-db kraken2", try kraken2Result(in: scratch), json, in: scratch)
+            },
+            ImportStreamCapture.Case(leaf: "build-db kraken2", name: "complete-existing") { scratch in
+                let result = try kraken2Result(in: scratch)
+                _ = try await run("build-db kraken2", result, ["--quiet"], in: scratch)
+                return try await run("build-db kraken2", result, json, in: scratch)
+            },
+            ImportStreamCapture.Case(leaf: "build-db kraken2", name: "failed") { scratch in
+                let result = try kraken2Result(in: scratch)
+                let noReport = result.appendingPathComponent("no-report", isDirectory: true)
+                try FileManager.default.createDirectory(at: noReport, withIntermediateDirectories: true)
+                return try await run("build-db kraken2", result, ["--sample-dir", noReport.path] + json, in: scratch)
+            },
+            ImportStreamCapture.Case(leaf: "build-db esviritu", name: "complete") { scratch in
+                try await run("build-db esviritu", try esVirituResultWithoutBAMs(in: scratch), json, in: scratch)
+            },
+            ImportStreamCapture.Case(leaf: "build-db taxtriage", name: "complete") { scratch in
+                try await run("build-db taxtriage", try taxTriageResultWithoutBAMs(in: scratch), json, in: scratch)
+            },
+        ]
+    }
+
     /// The size a cleanup line reports depends on gzip and on the locale's number format, so a
     /// comparison reads the line up to the size.
     static func withoutFreedSize(_ lines: [String]) -> [String] {

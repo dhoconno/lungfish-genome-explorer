@@ -1,0 +1,2 @@
+{"event":"start","message":"Building kraken2.sqlite in \/work\/kraken2","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Database already exists at \/work\/kraken2\/kraken2.sqlite. Use --force to rebuild.","output":"\/work\/kraken2\/kraken2.sqlite","outputs":["\/work\/kraken2\/kraken2.sqlite"],"progress":1,"schemaVersion":2}

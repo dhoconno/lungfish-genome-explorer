@@ -1,0 +1,27 @@
+{"event":"start","message":"Building kraken2.sqlite in \/work\/kraken2","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Schema created","progress":0.05,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 264\/5294...","progress":0.08740083112958066,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 528\/5294...","progress":0.12480166225916131,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 792\/5294...","progress":0.162202493388742,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 1056\/5294...","progress":0.19960332451832263,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 1320\/5294...","progress":0.23700415564790328,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 1584\/5294...","progress":0.27440498677748393,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 1848\/5294...","progress":0.3118058179070646,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 2112\/5294...","progress":0.3492066490366452,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 2376\/5294...","progress":0.3866074801662259,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 2640\/5294...","progress":0.4240083112958066,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 2904\/5294...","progress":0.4614091424253872,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 3168\/5294...","progress":0.49880997355496787,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 3432\/5294...","progress":0.5362108046845485,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 3696\/5294...","progress":0.5736116358141292,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 3960\/5294...","progress":0.6110124669437099,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 4224\/5294...","progress":0.6484132980732905,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 4488\/5294...","progress":0.6858141292028712,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 4752\/5294...","progress":0.7232149603324519,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 5016\/5294...","progress":0.7606157914620325,"schemaVersion":2}
+{"event":"progress","message":"Inserting rows 5280\/5294...","progress":0.7980166225916132,"schemaVersion":2}
+{"event":"progress","message":"Inserting metadata...","progress":0.8,"schemaVersion":2}
+{"event":"progress","message":"Building indices...","progress":0.85,"schemaVersion":2}
+{"event":"progress","message":"Finalizing...","progress":0.95,"schemaVersion":2}
+{"event":"progress","message":"Complete","progress":1,"schemaVersion":2}
+{"event":"complete","message":"Built database at \/work\/kraken2\/kraken2.sqlite with 5294 rows","output":"\/work\/kraken2\/kraken2.sqlite","outputs":["\/work\/kraken2\/kraken2.sqlite"],"progress":1,"schemaVersion":2}

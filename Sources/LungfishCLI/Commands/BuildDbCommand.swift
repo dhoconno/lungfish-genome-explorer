@@ -120,7 +120,7 @@ private struct BuildDbDatabaseSnapshot {
 ///   - bamPathCol: Column name for the relative BAM path.
 ///   - resultURL: Base URL for resolving relative BAM paths.
 ///   - bamPathResolver: Closure that resolves (resultURL, sample, bamRelPath) to an absolute path.
-///   - quiet: Whether to suppress progress output.
+///   - events: Where the lines that report the pass go.
 private func updateUniqueReadsInDB(
     dbPath: String,
     table: String,
@@ -131,12 +131,12 @@ private func updateUniqueReadsInDB(
     resultURL: URL,
     bamPathResolver: (URL, String, String) -> String,
     updateAccessionLength: Bool,
-    quiet: Bool,
+    events: BuildDbEventSink,
     provenance: BuildDbSamtoolsProvenanceCollector
 ) async throws {
     var db: OpaquePointer?
     guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
-        if !quiet { print("Warning: could not open database for unique reads update") }
+        events.text("Warning: could not open database for unique reads update")
         return
     }
     defer { sqlite3_close(db) }
@@ -145,7 +145,7 @@ private func updateUniqueReadsInDB(
     let selectSQL = "SELECT rowid, \(sampleCol), \(accessionCol), \(bamPathCol) FROM \(table) WHERE \(bamPathCol) IS NOT NULL AND \(accessionCol) IS NOT NULL AND \(accessionCol) != ''"
     var selectStmt: OpaquePointer?
     guard sqlite3_prepare_v2(db, selectSQL, -1, &selectStmt, nil) == SQLITE_OK else {
-        if !quiet { print("Warning: failed to prepare SELECT for unique reads") }
+        events.text("Warning: failed to prepare SELECT for unique reads")
         return
     }
     defer { sqlite3_finalize(selectStmt) }
@@ -171,7 +171,7 @@ private func updateUniqueReadsInDB(
     }
 
     guard !rowsToProcess.isEmpty else {
-        if !quiet { print("  No rows with BAM paths found, skipping unique reads") }
+        events.text("  No rows with BAM paths found, skipping unique reads")
         return
     }
 
@@ -185,7 +185,7 @@ private func updateUniqueReadsInDB(
 
     // Step 1: Run markdup on each unique BAM file
     let uniqueBAMPaths = Set(rowsToProcess.map { bamPathResolver(resultURL, $0.sample, $0.bamRelPath) })
-    if !quiet { print("Running markdup on \(uniqueBAMPaths.count) BAM file(s)...") }
+    events.text("Running markdup on \(uniqueBAMPaths.count) BAM file(s)...")
     var marked = 0
     for bamFullPath in uniqueBAMPaths {
         let bamURL = URL(fileURLWithPath: bamFullPath)
@@ -196,13 +196,13 @@ private func updateUniqueReadsInDB(
         } catch let provenanceError as BuildDbSamtoolsProvenanceError {
             throw provenanceError
         } catch {
-            if !quiet { print("  Warning: markdup failed on \(bamURL.lastPathComponent): \(error.localizedDescription)") }
+            events.text("  Warning: markdup failed on \(bamURL.lastPathComponent): \(error.localizedDescription)")
         }
     }
-    if !quiet && marked > 0 { print("  Marked duplicates in \(marked) BAM file(s)") }
+    if marked > 0 { events.text("  Marked duplicates in \(marked) BAM file(s)") }
 
     // Step 2: Count reads_aligned and unique_reads per (sample, accession)
-    if !quiet { print("Counting reads per organism...") }
+    events.text("Counting reads per organism...")
 
     // Build accession_length map from samtools idxstats if needed
     var refLengths: [String: Int] = [:]
@@ -241,7 +241,7 @@ private func updateUniqueReadsInDB(
             }
             sqlite3_exec(db, "COMMIT", nil, nil, nil)
             sqlite3_finalize(lenStmt)
-            if !quiet && lenUpdated > 0 { print("  Updated accession lengths for \(lenUpdated) organisms") }
+            if lenUpdated > 0 { events.text("  Updated accession lengths for \(lenUpdated) organisms") }
         }
     }
 
@@ -252,7 +252,7 @@ private func updateUniqueReadsInDB(
     let updateSQL = "UPDATE \(table) SET \(totalReadsCol) = ?, unique_reads = ? WHERE rowid = ?"
     var updateStmt: OpaquePointer?
     guard sqlite3_prepare_v2(db, updateSQL, -1, &updateStmt, nil) == SQLITE_OK else {
-        if !quiet { print("Warning: failed to prepare UPDATE for read counts") }
+        events.text("Warning: failed to prepare UPDATE for read counts")
         return
     }
     defer { sqlite3_finalize(updateStmt) }
@@ -309,12 +309,12 @@ private func updateUniqueReadsInDB(
         sqlite3_step(updateStmt)
         updated += 1
 
-        if (i + 1) % 50 == 0 && !quiet {
-            print("  Processed \(i + 1)/\(rowsToProcess.count) organisms...")
+        if (i + 1) % 50 == 0 {
+            events.text("  Processed \(i + 1)/\(rowsToProcess.count) organisms...")
         }
     }
     sqlite3_exec(db, "COMMIT", nil, nil, nil)
-    if !quiet { print("  Updated read counts for \(updated)/\(rowsToProcess.count) organisms") }
+    events.text("  Updated read counts for \(updated)/\(rowsToProcess.count) organisms")
 }
 
 extension BuildDbCommand {
@@ -360,16 +360,24 @@ extension BuildDbCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
-            let runClock = ProvenanceRunClock()
             let resultURL = URL(fileURLWithPath: resultDir)
+            try await BuildDbCLIEvents(globalOptions: globalOptions).report(
+                database: resultURL.appendingPathComponent("taxtriage.sqlite")
+            ) { events in
+                try await build(resultURL: resultURL, events: events)
+            }
+        }
+
+        /// Builds `taxtriage.sqlite` in the result folder and returns the sentence that ends the run.
+        private func build(resultURL: URL, events: BuildDbEventSink) async throws -> String {
+            let runClock = ProvenanceRunClock()
             let dbURL = resultURL.appendingPathComponent("taxtriage.sqlite")
 
             // Skip if exists (unless --force)
             if !force && FileManager.default.fileExists(atPath: dbURL.path) {
-                if !globalOptions.quiet {
-                    print("Database already exists at \(dbURL.path). Use --force to rebuild.")
-                }
-                return
+                let existing = "Database already exists at \(dbURL.path). Use --force to rebuild."
+                events.text(existing)
+                return existing
             }
 
             let provenanceInputs = BuildDbCommand.buildDbInputRecords(tool: .taxTriage, resultURL: resultURL)
@@ -382,9 +390,7 @@ extension BuildDbCommand {
                 let rows = resolvedInput.rows
                 let accessionMap = resolvedInput.accessionMap
 
-                if !globalOptions.quiet {
-                    print("Parsed \(rows.count) taxonomy rows, \(accessionMap.count) accession entries from \(resolvedInput.sourceDescription)")
-                }
+                events.text("Parsed \(rows.count) taxonomy rows, \(accessionMap.count) accession entries from \(resolvedInput.sourceDescription)")
 
                 // 3. Build database
                 let metadata: [String: String] = [
@@ -397,19 +403,12 @@ extension BuildDbCommand {
                     TaxTriageDatabase.tassScaleMetadataKey: TaxTriageDatabase.currentTASSScale,
                 ]
 
-                try TaxTriageDatabase.create(at: dbURL, rows: rows, accessionMap: accessionMap, metadata: metadata) { fraction, msg in
-                    if self.globalOptions.outputFormat == .json {
-                        let obj: [String: Any] = ["progress": fraction, "message": msg]
-                        if let data = try? JSONSerialization.data(withJSONObject: obj),
-                           let json = String(data: data, encoding: .utf8) {
-                            FileHandle.standardError.write(Data((json + "\n").utf8))
-                        }
-                    }
-                }
+                try TaxTriageDatabase.create(
+                    at: dbURL, rows: rows, accessionMap: accessionMap, metadata: metadata, progress: events.progress
+                )
 
-                if !globalOptions.quiet {
-                    print("Built database at \(dbURL.path) with \(rows.count) rows")
-                }
+                let built = "Built database at \(dbURL.path) with \(rows.count) rows"
+                events.text(built)
 
                 // 4. Compute unique reads from BAMs and update DB
                 try await updateUniqueReadsInDB(
@@ -425,12 +424,12 @@ extension BuildDbCommand {
                         resultURL.appendingPathComponent(bamRelPath).path
                     },
                     updateAccessionLength: true,
-                    quiet: globalOptions.quiet,
+                    events: events,
                     provenance: samtoolsProvenance
                 )
 
                 if !noCleanup {
-                    performCleanup(resultURL: resultURL)
+                    performCleanup(resultURL: resultURL, events: events)
                 }
 
                 try await BuildDbCommand.recordBuildDbProvenance(
@@ -445,13 +444,12 @@ extension BuildDbCommand {
                     additionalSteps: samtoolsProvenance.steps
                 )
                 try databaseSnapshot.discard()
+                return built
             } catch {
                 do {
                     try databaseSnapshot.restore()
                 } catch {
-                    if !globalOptions.quiet {
-                        fputs("Warning: could not restore previous TaxTriage database: \(error.localizedDescription)\n", stderr)
-                    }
+                    events.warning("Warning: could not restore previous TaxTriage database: \(error.localizedDescription)")
                 }
                 await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
                     tool: .taxTriage,
@@ -472,7 +470,7 @@ extension BuildDbCommand {
 
         // MARK: - Post-Build Cleanup
 
-        private func performCleanup(resultURL: URL) {
+        private func performCleanup(resultURL: URL, events: BuildDbEventSink) {
             var freedBytes: Int64 = 0
 
             let cleanupRoots = [resultURL] + serialTaxTriageResultDirectories(in: resultURL)
@@ -480,9 +478,7 @@ extension BuildDbCommand {
                 freedBytes += performCleanupForSingleResult(resultURL: cleanupRoot)
             }
 
-            if !globalOptions.quiet {
-                print("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
-            }
+            events.text("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
         }
 
         private func performCleanupForSingleResult(resultURL: URL) -> Int64 {
@@ -1232,16 +1228,24 @@ extension BuildDbCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
-            let runClock = ProvenanceRunClock()
             let resultURL = URL(fileURLWithPath: resultDir)
+            try await BuildDbCLIEvents(globalOptions: globalOptions).report(
+                database: resultURL.appendingPathComponent("esviritu.sqlite")
+            ) { events in
+                try await build(resultURL: resultURL, events: events)
+            }
+        }
+
+        /// Builds `esviritu.sqlite` in the result folder and returns the sentence that ends the run.
+        private func build(resultURL: URL, events: BuildDbEventSink) async throws -> String {
+            let runClock = ProvenanceRunClock()
             let dbURL = resultURL.appendingPathComponent("esviritu.sqlite")
 
             // Skip if exists (unless --force)
             if !force && FileManager.default.fileExists(atPath: dbURL.path) {
-                if !globalOptions.quiet {
-                    print("Database already exists at \(dbURL.path). Use --force to rebuild.")
-                }
-                return
+                let existing = "Database already exists at \(dbURL.path). Use --force to rebuild."
+                events.text(existing)
+                return existing
             }
 
             let provenanceInputs = BuildDbCommand.buildDbInputRecords(tool: .esViritu, resultURL: resultURL)
@@ -1252,9 +1256,7 @@ extension BuildDbCommand {
                 // 1. Enumerate sample subdirectories containing detection TSVs
                 let rows = try parseSampleDirectories(resultURL: resultURL)
 
-                if !globalOptions.quiet {
-                    print("Parsed \(rows.count) detection rows from EsViritu results")
-                }
+                events.text("Parsed \(rows.count) detection rows from EsViritu results")
 
                 // 2. Parse coverage windows from virus_coverage_windows.tsv files
                 var allWindows: [EsVirituCoverageWindow] = []
@@ -1282,9 +1284,7 @@ extension BuildDbCommand {
                     }
                 }
 
-                if !globalOptions.quiet {
-                    print("Parsed \(allWindows.count) coverage windows from EsViritu results")
-                }
+                events.text("Parsed \(allWindows.count) coverage windows from EsViritu results")
 
                 // 3. Build database
                 let metadata: [String: String] = [
@@ -1293,19 +1293,12 @@ extension BuildDbCommand {
                     "source_dir": resultURL.path,
                 ]
 
-                _ = try EsVirituDatabase.create(at: dbURL, rows: rows, coverageWindows: allWindows, metadata: metadata) { fraction, msg in
-                    if self.globalOptions.outputFormat == .json {
-                        let obj: [String: Any] = ["progress": fraction, "message": msg]
-                        if let data = try? JSONSerialization.data(withJSONObject: obj),
-                           let json = String(data: data, encoding: .utf8) {
-                            FileHandle.standardError.write(Data((json + "\n").utf8))
-                        }
-                    }
-                }
+                _ = try EsVirituDatabase.create(
+                    at: dbURL, rows: rows, coverageWindows: allWindows, metadata: metadata, progress: events.progress
+                )
 
-                if !globalOptions.quiet {
-                    print("Built database at \(dbURL.path) with \(rows.count) rows")
-                }
+                let built = "Built database at \(dbURL.path) with \(rows.count) rows"
+                events.text(built)
 
                 // 4. Relocate BAMs from <sample>/<sample>_temp/ to <sample>/bams/ so the
                 // resolver in updateUniqueReadsInDB and post-cleanup VC can both find them.
@@ -1325,12 +1318,12 @@ extension BuildDbCommand {
                         resultURL.appendingPathComponent(bamRelPath).path
                     },
                     updateAccessionLength: false,
-                    quiet: globalOptions.quiet,
+                    events: events,
                     provenance: samtoolsProvenance
                 )
 
                 if !noCleanup {
-                    performCleanup(resultURL: resultURL)
+                    performCleanup(resultURL: resultURL, events: events)
                 }
 
                 try await BuildDbCommand.recordBuildDbProvenance(
@@ -1345,13 +1338,12 @@ extension BuildDbCommand {
                     additionalSteps: samtoolsProvenance.steps
                 )
                 try databaseSnapshot.discard()
+                return built
             } catch {
                 do {
                     try databaseSnapshot.restore()
                 } catch {
-                    if !globalOptions.quiet {
-                        fputs("Warning: could not restore previous EsViritu database: \(error.localizedDescription)\n", stderr)
-                    }
+                    events.warning("Warning: could not restore previous EsViritu database: \(error.localizedDescription)")
                 }
                 await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
                     tool: .esViritu,
@@ -1566,7 +1558,7 @@ extension BuildDbCommand {
         /// Removes: `*_temp/` directories, `*.virus_coverage_windows.tsv`,
         /// `*.detected_virus.assembly_summary.tsv`.
         /// Keeps: `*.detected_virus.info.tsv`, `esviritu.sqlite`.
-        private func performCleanup(resultURL: URL) {
+        private func performCleanup(resultURL: URL, events: BuildDbEventSink) {
             let fm = FileManager.default
             var freedBytes: Int64 = 0
 
@@ -1612,9 +1604,7 @@ extension BuildDbCommand {
                 }
             }
 
-            if !globalOptions.quiet {
-                print("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
-            }
+            events.text("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
         }
 
         private func directorySize(_ url: URL) -> Int64? {
@@ -1718,17 +1708,25 @@ extension BuildDbCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
-            let runClock = ProvenanceRunClock()
             let resultURL = URL(fileURLWithPath: resultDir)
+            try await BuildDbCLIEvents(globalOptions: globalOptions).report(
+                database: resultURL.appendingPathComponent("kraken2.sqlite")
+            ) { events in
+                try await build(resultURL: resultURL, events: events)
+            }
+        }
+
+        /// Builds `kraken2.sqlite` in the result folder and returns the sentence that ends the run.
+        private func build(resultURL: URL, events: BuildDbEventSink) async throws -> String {
+            let runClock = ProvenanceRunClock()
             let dbURL = resultURL.appendingPathComponent("kraken2.sqlite")
             let requestedSampleDirectories = sampleDirs.map { URL(fileURLWithPath: $0).standardizedFileURL }
 
             // Skip if exists (unless --force)
             if !force && FileManager.default.fileExists(atPath: dbURL.path) {
-                if !globalOptions.quiet {
-                    print("Database already exists at \(dbURL.path). Use --force to rebuild.")
-                }
-                return
+                let existing = "Database already exists at \(dbURL.path). Use --force to rebuild."
+                events.text(existing)
+                return existing
             }
 
             let explicitSampleDirectories = try validatedExplicitSampleDirectories(requestedSampleDirectories)
@@ -1746,9 +1744,7 @@ extension BuildDbCommand {
                     sampleDirectories: explicitSampleDirectories
                 )
 
-                if !globalOptions.quiet {
-                    print("Parsed \(rows.count) classification rows from Kraken2 results")
-                }
+                events.text("Parsed \(rows.count) classification rows from Kraken2 results")
 
                 // 2. Build database
                 var metadata: [String: String] = [
@@ -1761,22 +1757,13 @@ extension BuildDbCommand {
                     metadata[key] = value
                 }
 
-                try Kraken2Database.create(at: dbURL, rows: rows, metadata: metadata) { fraction, msg in
-                    if self.globalOptions.outputFormat == .json {
-                        let obj: [String: Any] = ["progress": fraction, "message": msg]
-                        if let data = try? JSONSerialization.data(withJSONObject: obj),
-                           let json = String(data: data, encoding: .utf8) {
-                            FileHandle.standardError.write(Data((json + "\n").utf8))
-                        }
-                    }
-                }
+                try Kraken2Database.create(at: dbURL, rows: rows, metadata: metadata, progress: events.progress)
 
-                if !globalOptions.quiet {
-                    print("Built database at \(dbURL.path) with \(rows.count) rows")
-                }
+                let built = "Built database at \(dbURL.path) with \(rows.count) rows"
+                events.text(built)
 
                 if !noCleanup {
-                    performCleanup(resultURL: resultURL, sampleDirectories: explicitSampleDirectories)
+                    performCleanup(resultURL: resultURL, sampleDirectories: explicitSampleDirectories, events: events)
                 }
 
                 try await BuildDbCommand.recordBuildDbProvenance(
@@ -1791,13 +1778,12 @@ extension BuildDbCommand {
                     sampleDirectories: explicitSampleDirectories
                 )
                 try databaseSnapshot.discard()
+                return built
             } catch {
                 do {
                     try databaseSnapshot.restore()
                 } catch {
-                    if !globalOptions.quiet {
-                        fputs("Warning: could not restore previous Kraken2 database: \(error.localizedDescription)\n", stderr)
-                    }
+                    events.warning("Warning: could not restore previous Kraken2 database: \(error.localizedDescription)")
                 }
                 await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
                     tool: .kraken2,
@@ -2068,7 +2054,7 @@ extension BuildDbCommand {
         /// Keeps: `classification.kraken.gz`,
         /// `classification.kraken.gz.idx.sqlite`, `classification.kreport`,
         /// `classification-result.json`, `kraken2.sqlite`.
-        private func performCleanup(resultURL: URL, sampleDirectories: [URL] = []) {
+        private func performCleanup(resultURL: URL, sampleDirectories: [URL] = [], events: BuildDbEventSink) {
             let fm = FileManager.default
             var freedBytes: Int64 = 0
 
@@ -2110,16 +2096,11 @@ extension BuildDbCommand {
                             includeUnclassifiedInIndex: false,
                             removeRawOnSuccess: true
                         )
-                        updateClassificationResultSidecar(in: dir, outputURL: compressedOutput)
+                        updateClassificationResultSidecar(in: dir, outputURL: compressedOutput, events: events)
                         let compressedSize = fileSize(compressedOutput) ?? 0
                         freedBytes += max(0, originalSize - compressedSize)
                     } catch {
-                        if !globalOptions.quiet {
-                            fputs(
-                                "Warning: could not compact \(krakenOutput.path): \(error.localizedDescription)\n",
-                                stderr
-                            )
-                        }
+                        events.warning("Warning: could not compact \(krakenOutput.path): \(error.localizedDescription)")
                     }
                 }
 
@@ -2132,9 +2113,7 @@ extension BuildDbCommand {
                 }
             }
 
-            if !globalOptions.quiet {
-                print("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
-            }
+            events.text("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
         }
 
         private func fileSize(_ url: URL) -> Int64? {
@@ -2143,7 +2122,7 @@ extension BuildDbCommand {
             return Int64(size)
         }
 
-        private func updateClassificationResultSidecar(in directory: URL, outputURL: URL) {
+        private func updateClassificationResultSidecar(in directory: URL, outputURL: URL, events: BuildDbEventSink) {
             guard ClassificationResult.exists(in: directory) else { return }
 
             do {
@@ -2161,12 +2140,9 @@ extension BuildDbCommand {
                 )
                 try updated.save(to: directory)
             } catch {
-                if !globalOptions.quiet {
-                    fputs(
-                        "Warning: could not update \(directory.appendingPathComponent("classification-result.json").path): \(error.localizedDescription)\n",
-                        stderr
-                    )
-                }
+                events.warning(
+                    "Warning: could not update \(directory.appendingPathComponent("classification-result.json").path): \(error.localizedDescription)"
+                )
             }
         }
     }

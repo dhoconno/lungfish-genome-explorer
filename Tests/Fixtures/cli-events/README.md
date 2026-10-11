@@ -68,7 +68,7 @@ The contract table `CLIEventContractTable` names the leaf commands that emit eve
 
 ### Captured in process
 
-The leaves that need no external tool ran in process on a small fixture, as the version 1 captures did. A command with a test seam handed its lines to a capturing sink. `fastq platform` and the four import commands have none, so their standard output was redirected for the length of the run, and `ImportStreamCapture` builds the fixtures of the four import commands. The two ONT split commands print their events on standard error, so their `execute(emit:)` seam handed the lines to the sink. The scratch folder is rewritten to `/work` in its plain and slash-escaped spellings, and nothing else is edited.
+The leaves that need no external tool ran in process on a small fixture, as the version 1 captures did. A command with a test seam handed its lines to a capturing sink. `fastq platform`, the four import commands and the three `build-db` leaves have none, so their standard output was redirected for the length of the run, and `ImportStreamCapture` builds the fixtures of the four import commands. `BuildDbStreamCapture` builds those of the `build-db` leaves. The two ONT split commands print their events on standard error, so their `execute(emit:)` seam handed the lines to the sink. The scratch folder is rewritten to `/work` in its plain and slash-escaped spellings, and nothing else is edited.
 
 `CLIEventTranscriptCoverageTests` runs the same captures again and fails when a line differs from its file. After a deliberate change to an emitter, run that suite with `LUNGFISH_RECAPTURE_CLI_EVENTS=1`, which writes the files instead of comparing them, and review the diff.
 
@@ -98,6 +98,9 @@ A failed run is kept only when Lungfish wrote its message. A Foundation message 
 | `import-tree` | `complete`, `complete-with-warning`, `failed` | `import tree` of a tree with numeric support values, then of a tree with no branch lengths, then of a file that does not exist |
 | `import-geneious` | `complete`, `complete-with-warning`, `failed` | `import geneious --no-import-references` of a folder that scans as a Geneious export, then the same with `--preserve-unsupported`, then of a file that does not exist |
 | `import-application-export` | `complete`, `complete-with-warning`, `failed` | `import application-export alignment-tree --no-import-references` of a folder with one alignment and one tree, then of the same folder with a report file the card does not import, then of a folder that does not exist |
+| `build-db-kraken2` | `complete`, `complete-existing`, `failed` | `build-db kraken2` on a copy of `Tests/Fixtures/kraken2-mini`, then a second run that finds the database the first one built, then a run whose `--sample-dir` names a folder with no `classification.kreport` |
+| `build-db-esviritu` | `complete` | `build-db esviritu` on a copy of `Tests/Fixtures/esviritu-mini` without the `_temp` folders that hold its BAMs, so no samtools runs |
+| `build-db-taxtriage` | `complete` | `build-db taxtriage` on a copy of `Tests/Fixtures/taxtriage-mini` without `minimap2`, the folder that holds its BAMs |
 
 ### Captured from the built CLI
 

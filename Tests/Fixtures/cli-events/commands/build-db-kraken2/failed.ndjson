@@ -1,0 +1,2 @@
+{"event":"start","message":"Building kraken2.sqlite in \/work\/kraken2","progress":0,"schemaVersion":2}
+{"error":"Missing classification.kreport in --sample-dir \/work\/kraken2\/no-report","event":"failed","schemaVersion":2}

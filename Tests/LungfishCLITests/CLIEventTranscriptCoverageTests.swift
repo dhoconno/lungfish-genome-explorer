@@ -329,10 +329,10 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
             + importCaptures() + ontSplitCaptures()
     }
 
-    /// The four import commands, run by `ImportStreamCapture`, which builds each fixture and a scratch
-    /// folder of its own and returns the standard output already rewritten to `/work`.
+    /// The four import commands and the three `build-db` leaves (`BuildDbStreamCapture`), run by `ImportStreamCapture`,
+    /// which gives each run a scratch folder of its own and returns the standard output already rewritten to `/work`.
     private static func importCaptures() -> [Capture] {
-        ImportStreamCapture.cases().map { testCase in
+        (ImportStreamCapture.cases() + BuildDbStreamCapture.cases()).map { testCase in
             Capture(leaf: testCase.leaf, name: testCase.name) { _ in
                 let scratch = try ImportStreamCapture.Scratch()
                 defer { scratch.remove() }

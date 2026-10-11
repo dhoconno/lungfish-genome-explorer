@@ -74,12 +74,15 @@ public enum CLIEventContractTable {
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
-    // MARK: Leaves that emit events (27)
+    // MARK: Leaves that emit events (30)
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
         "assemble": .events(flag: jsonEvents, channel: .standardError),
         "bam primer-trim": .events(flag: formatJSON, channel: .standardOutput),
+        "build-db esviritu": .events(flag: formatJSON, channel: .standardOutput),
+        "build-db kraken2": .events(flag: formatJSON, channel: .standardOutput),
+        "build-db taxtriage": .events(flag: formatJSON, channel: .standardOutput),
         "fastq ont-fluidigm-samples": .events(flag: alwaysOn, channel: .standardError),
         "fastq ont-pacbio-barcode-demux": .events(flag: alwaysOn, channel: .standardError),
         "fastq platform": .events(flag: formatJSON, channel: .standardOutput),
@@ -184,7 +187,7 @@ public enum CLIEventContractTable {
         "workflow validate": .result(schemaID: "workflow-validate"),
     ]
 
-    // MARK: Private stream shapes still in use (14 leaves)
+    // MARK: Private stream shapes still in use (11 leaves)
 
     // `fastq genotype`, `genotype-cohort`, `ont-barcode-genotype` and `full-length-ont-mhc-genotype`
     // also print R3 on standard error beside their document, so the lane that retires R3 converts
@@ -194,9 +197,6 @@ public enum CLIEventContractTable {
         "bam annotate-best": .legacy(schemaID: "s12-bam-annotate-best", removeBy: "2.9"),
         "bam annotate-cds-best": .legacy(schemaID: "s13-bam-annotate-cds-best", removeBy: "2.9"),
         "bam filter": .legacy(schemaID: "s10-bam-filter", removeBy: "2.9"),
-        "build-db esviritu": .legacy(schemaID: "s14-build-db-progress", removeBy: "2.7"),
-        "build-db kraken2": .legacy(schemaID: "s14-build-db-progress", removeBy: "2.7"),
-        "build-db taxtriage": .legacy(schemaID: "s14-build-db-progress", removeBy: "2.7"),
         "extract contigs": .legacy(schemaID: "r4-reference-bundle-path-line", removeBy: "2.9"),
         "fastq 12s-match": .legacy(schemaID: "r3-twelve-s-progress-text", removeBy: "2.8"),
         "fastq 12s-reference-bundle": .legacy(schemaID: "r3-twelve-s-progress-text", removeBy: "2.8"),
