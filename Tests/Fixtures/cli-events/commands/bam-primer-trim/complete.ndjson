@@ -1,0 +1,13 @@
+{"event":"start","message":"Starting primer trim","progress":0,"schemaVersion":2}
+{"event":"log","level":"info","message":"Resolving primer scheme","schemaVersion":2}
+{"event":"log","level":"info","message":"Scheme: mt192765-integration (2 primers)","schemaVersion":2}
+{"event":"log","level":"info","message":"ivar trim","schemaVersion":2}
+{"event":"progress","message":"Resolving primer scheme","progress":0.1,"schemaVersion":2}
+{"event":"progress","message":"Running ivar trim","progress":0.16999999999999998,"schemaVersion":2}
+{"event":"progress","message":"Sorting BAM","progress":0.485,"schemaVersion":2}
+{"event":"progress","message":"Indexing BAM","progress":0.695,"schemaVersion":2}
+{"event":"progress","message":"Primer trim complete","progress":0.7999999999999999,"schemaVersion":2}
+{"event":"log","level":"info","message":"Pipeline complete; adopting into bundle","schemaVersion":2}
+{"event":"log","level":"info","message":"Adopting trimmed BAM into bundle","schemaVersion":2}
+{"event":"log","level":"info","message":"trackID=aln_920EF023 trackName=Primer-trimmed Sample: Adopted track Primer-trimmed Sample","schemaVersion":2}
+{"artifacts":[{"kind":"bam","path":"\/work\/Project.lungfish\/Reference Sequences\/Sample.lungfishref\/alignments\/primer-trimmed\/aln_920EF023.bam","provenancePath":"\/work\/Project.lungfish\/Reference Sequences\/Sample.lungfishref\/alignments\/primer-trimmed\/aln_920EF023.primer-trim-provenance.json","role":"alignment"},{"kind":"bai","path":"\/work\/Project.lungfish\/Reference Sequences\/Sample.lungfishref\/alignments\/primer-trimmed\/aln_920EF023.bam.bai","provenancePath":"\/work\/Project.lungfish\/Reference Sequences\/Sample.lungfishref\/alignments\/primer-trimmed\/aln_920EF023.primer-trim-provenance.json","role":"alignment-index"},{"kind":"provenance","path":"\/work\/Project.lungfish\/Reference Sequences\/Sample.lungfishref\/alignments\/primer-trimmed\/aln_920EF023.primer-trim-provenance.json","role":"provenance"}],"event":"complete","message":"trackID=aln_920EF023 trackName=Primer-trimmed Sample","output":"\/work\/Project.lungfish\/Reference Sequences\/Sample.lungfishref\/alignments\/primer-trimmed\/aln_920EF023.bam","outputs":["\/work\/Project.lungfish\/Reference Sequences\/Sample.lungfishref\/alignments\/primer-trimmed\/aln_920EF023.bam","\/work\/Project.lungfish\/Reference Sequences\/Sample.lungfishref\/alignments\/primer-trimmed\/aln_920EF023.bam.bai","\/work\/Project.lungfish\/Reference Sequences\/Sample.lungfishref\/alignments\/primer-trimmed\/aln_920EF023.primer-trim-provenance.json"],"progress":1,"schemaVersion":2}

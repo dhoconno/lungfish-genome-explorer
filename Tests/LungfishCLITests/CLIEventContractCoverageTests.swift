@@ -15,7 +15,8 @@ import XCTest
 /// A1 walks the command tree and compares it with the table. A2 reads the checked-in help
 /// golden of each `.events` leaf. The legacy tests pin the private shapes that are left,
 /// so the list can only fall when a lane deletes a row. The warning tests show that the
-/// three `msa annotate` commands emit each warning they count.
+/// three `msa annotate` commands emit each warning they count. `CLIEventTranscriptCoverageTests`
+/// holds check A3, which reads the transcripts of the `.events` leaves.
 final class CLIEventContractCoverageTests: XCTestCase {
 
     // MARK: The command tree

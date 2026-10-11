@@ -1,0 +1,29 @@
+{"message":"Starting LoFreq variant calling","schemaVersion":2,"progress":0,"event":"start"}
+{"message":"Checking bundle and alignment inputs","schemaVersion":2,"event":"log","level":"info"}
+{"level":"info","event":"log","schemaVersion":2,"message":"Preflight checks passed"}
+{"level":"info","event":"log","schemaVersion":2,"message":"Running caller workflow"}
+{"message":"Staging reference and alignment inputs","schemaVersion":2,"event":"progress","progress":0.08}
+{"message":"Running LoFreq","schemaVersion":2,"progress":0.45,"event":"progress"}
+{"message":"Normalizing VCF headers","schemaVersion":2,"progress":0.64,"event":"progress"}
+{"message":"Sorting VCF","schemaVersion":2,"progress":0.7,"event":"progress"}
+{"message":"Removing machine-specific paths from VCF header","schemaVersion":2,"progress":0.78,"event":"progress"}
+{"message":"Compressing normalized VCF","schemaVersion":2,"progress":0.82,"event":"progress"}
+{"message":"Indexing compressed VCF","schemaVersion":2,"progress":0.92,"event":"progress"}
+{"message":"Caller workflow completed","schemaVersion":2,"event":"log","level":"info"}
+{"message":"Importing normalized variants into SQLite","schemaVersion":2,"event":"log","level":"info"}
+{"message":"Parsing VCF (Ultra Low Memory profile)...","schemaVersion":2,"progress":0.05,"event":"progress"}
+{"message":"Parsing variants (0)...","schemaVersion":2,"progress":0.9,"event":"progress"}
+{"schemaVersion":2,"message":"Parsing variants (0)...","progress":0.9,"event":"progress"}
+{"schemaVersion":2,"message":"Creating indexes...","progress":0.92,"event":"progress"}
+{"schemaVersion":2,"message":"Creating index 1 of 6...","progress":0.92,"event":"progress"}
+{"schemaVersion":2,"message":"Creating index 2 of 6...","progress":0.9316666666666668,"event":"progress"}
+{"schemaVersion":2,"message":"Creating index 3 of 6...","progress":0.9433333333333334,"event":"progress"}
+{"schemaVersion":2,"message":"Creating index 4 of 6...","progress":0.9550000000000001,"event":"progress"}
+{"schemaVersion":2,"message":"Creating index 5 of 6...","progress":0.9666666666666667,"event":"progress"}
+{"schemaVersion":2,"message":"Creating index 6 of 6...","progress":0.9783333333333334,"event":"progress"}
+{"schemaVersion":2,"message":"Building filter indexes...","progress":0.99,"event":"progress"}
+{"schemaVersion":2,"message":"Done (0 variants, 0 samples)","progress":1,"event":"progress"}
+{"schemaVersion":2,"level":"info","message":"Imported 0 variants into SQLite","event":"log"}
+{"schemaVersion":2,"level":"info","message":"Attaching variant track to bundle","event":"log"}
+{"schemaVersion":2,"level":"info","message":"trackID=vc-7fc7b1dc-7641-4b3e-9ffb-2ba68c038dd7 trackName=Sample LoFreq: Attached variant track Sample LoFreq","event":"log"}
+{"schemaVersion":2,"message":"trackID=vc-7fc7b1dc-7641-4b3e-9ffb-2ba68c038dd7 trackName=Sample LoFreq","outputs":["\/work\/Project.lungfish\/Reference Sequences\/Sample.lungfishref\/variants\/vc-7fc7b1dc-7641-4b3e-9ffb-2ba68c038dd7.db","\/work\/Project.lungfish\/Reference Sequences\/Sample.lungfishref\/variants\/vc-7fc7b1dc-7641-4b3e-9ffb-2ba68c038dd7.vcf.gz","\/work\/Project.lungfish\/Reference Sequences\/Sample.lungfishref\/variants\/vc-7fc7b1dc-7641-4b3e-9ffb-2ba68c038dd7.vcf.gz.tbi"],"output":"\/work\/Project.lungfish\/Reference Sequences\/Sample.lungfishref\/variants\/vc-7fc7b1dc-7641-4b3e-9ffb-2ba68c038dd7.db","progress":1,"event":"complete"}

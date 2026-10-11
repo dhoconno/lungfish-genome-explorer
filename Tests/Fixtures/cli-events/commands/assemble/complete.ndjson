@@ -1,0 +1,29 @@
+{"event":"start","message":"Launching MEGAHIT","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Running MEGAHIT...","progress":0,"schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - MEGAHIT v1.2.9","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - Using megahit_core without POPCNT and BMI2 support, because --no-hw-accel option manually specified","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - Convert reads to binary library","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - b'INFO  sequence\/io\/sequence_lib.cpp  :   77 - Lib 0 (\/work\/inputs\/test_1.fastq.gz,\/work\/inputs\/test_2.fastq.gz): pe, 200 reads, 151 max length'","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - b'INFO  utils\/utils.h                 :  152 - Real: 0.0051\\tuser: 0.0027\\tsys: 0.0039\\tmaxrss: 2965504'","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - k-max reset to: 141 ","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - Start assembly. Number of CPU threads 1 ","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - k list: 21,29,39,59,79,99,119,141 ","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - Memory used: 61847529062","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - Extract solid (k+1)-mers for k = 21 ","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - Build graph for k = 21 ","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - Assemble contigs from SdBG for k = 21","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - Local assembly for k = 21","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - Extract iterative edges from k = 21 to 29 ","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - Build graph for k = 29 ","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - Assemble contigs from SdBG for k = 29","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - Local assembly for k = 29","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - Extract iterative edges from k = 29 to 39 ","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - Build graph for k = 39 ","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - Assemble contigs from SdBG for k = 39","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - Local assembly for k = 39","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - Extract iterative edges from k = 39 to 59 ","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - Merging to output final contigs ","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - 12 contigs, total 3941 bp, min 202 bp, max 642 bp, avg 328 bp, N50 332 bp","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-10 23:38:26 - ALL DONE. Time elapsed: 0.505873 seconds ","schemaVersion":2}
+{"event":"progress","message":"Normalizing MEGAHIT output...","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Assembly completed","output":"\/work\/assembly","outputs":["\/work\/assembly"],"progress":1,"schemaVersion":2}

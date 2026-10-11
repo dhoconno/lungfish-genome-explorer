@@ -1,0 +1,8 @@
+{"event":"start","message":"Starting IQ-TREE inference.","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Preparing aligned FASTA input.","progress":0.12,"schemaVersion":2}
+{"event":"progress","message":"Resolving IQ-TREE executable.","progress":0.2,"schemaVersion":2}
+{"event":"progress","message":"Running IQ-TREE.","progress":0.34,"schemaVersion":2}
+{"event":"progress","message":"Rooting the tree on the outgroup.","progress":0.66,"schemaVersion":2}
+{"event":"progress","message":"Creating native .lungfishtree bundle with MSA tip names.","progress":0.72,"schemaVersion":2}
+{"event":"progress","message":"Preserving IQ-TREE artifacts.","progress":0.84,"schemaVersion":2}
+{"event":"complete","output":"\/work\/Project.lungfish\/known-sarcopterygian.lungfishtree","outputs":["\/work\/Project.lungfish\/known-sarcopterygian.lungfishtree"],"progress":1,"schemaVersion":2}

@@ -1,0 +1,4 @@
+{"event":"start","message":"Starting tree transform.","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Loading tree bundle.","progress":0.25,"schemaVersion":2}
+{"event":"progress","message":"Writing transformed tree bundle.","progress":0.65,"schemaVersion":2}
+{"event":"complete","output":"\/work\/extracted.lungfishtree","outputs":["\/work\/extracted.lungfishtree"],"progress":1,"schemaVersion":2}

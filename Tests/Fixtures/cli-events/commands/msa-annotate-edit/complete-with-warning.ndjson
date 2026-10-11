@@ -1,0 +1,5 @@
+{"event":"start","message":"Starting MSA annotation edit.","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Loading MSA annotation store.","progress":0.2,"schemaVersion":2}
+{"event":"progress","message":"Writing edited annotation and provenance.","progress":0.75,"schemaVersion":2}
+{"event":"log","level":"warning","message":"Projection split into 2 intervals because gaps or unaligned columns interrupt the target feature.","schemaVersion":2}
+{"event":"complete","output":"\/work\/aln.lungfishmsa","outputs":["\/work\/aln.lungfishmsa"],"progress":1,"schemaVersion":2,"warningCount":1}

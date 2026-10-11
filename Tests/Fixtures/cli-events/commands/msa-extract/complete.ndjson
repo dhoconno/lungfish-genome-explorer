@@ -1,0 +1,5 @@
+{"event":"start","message":"Starting MSA extraction.","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Loading MSA bundle.","progress":0.15,"schemaVersion":2}
+{"event":"progress","message":"Writing derived .lungfishmsa bundle.","progress":0.55,"schemaVersion":2}
+{"event":"progress","message":"Extraction complete.","progress":0.92,"schemaVersion":2}
+{"event":"complete","output":"\/work\/selected.lungfishmsa","outputs":["\/work\/selected.lungfishmsa"],"progress":1,"schemaVersion":2,"warningCount":0}

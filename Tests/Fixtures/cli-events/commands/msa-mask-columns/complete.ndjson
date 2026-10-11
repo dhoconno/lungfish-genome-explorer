@@ -1,0 +1,5 @@
+{"event":"start","message":"Starting MSA column masking.","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Loading MSA bundle.","progress":0.15,"schemaVersion":2}
+{"event":"progress","message":"Writing derived bundle inputs.","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"Creating derived .lungfishmsa bundle.","progress":0.72,"schemaVersion":2}
+{"event":"complete","output":"\/work\/masked.lungfishmsa","outputs":["\/work\/masked.lungfishmsa"],"progress":1,"schemaVersion":2,"warningCount":0}

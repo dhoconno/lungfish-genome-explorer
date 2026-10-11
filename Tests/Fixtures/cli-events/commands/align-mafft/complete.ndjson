@@ -1,0 +1,68 @@
+{"event":"start","message":"Starting MAFFT alignment for 1 input file(s).","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Preparing MAFFT workspace...","progress":0.02,"schemaVersion":2}
+{"event":"progress","message":"Running MAFFT...","progress":0.12,"schemaVersion":2}
+{"event":"progress","message":"nthread = 1","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"nthreadpair = 1","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"nthreadtb = 1","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"ppenalty_ex = 0","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"stacksize: 8176 kb","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"generating a scoring matrix for nucleotide (dist=200) ... done","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"Gap Penalty = -1.53, +0.00, +0.00","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"Making a distance matrix ..","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"    1 \/ 5 (thread    0)","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"done.","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"Constructing a UPGMA tree (efffree=0) ... ","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"    0 \/ 5","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"done.","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"Progressive alignment 1\/2... ","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"STEP     1 \/ 4 (thread    0) f\b\b","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"STEP     2 \/ 4 (thread    0) f\b\b","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"STEP     3 \/ 4 (thread    0) f\b\b","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"STEP     4 \/ 4 (thread    0) f\b\b","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"done.","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"Making a distance matrix from msa.. ","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"    0 \/ 5 (thread    0)","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"done.","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"Constructing a UPGMA tree (efffree=1) ... ","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"    0 \/ 5","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"done.","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"Progressive alignment 2\/2... ","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"STEP     1 \/ 4 (thread    0) f\b\b","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"STEP     2 \/ 4 (thread    0) f\b\b","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"STEP     3 \/ 4 (thread    0) f\b\b","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"STEP     4 \/ 4 (thread    0) f\b\b","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"done.","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"disttbfast (nuc) Version 7.526","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"alg=A, model=DNA200 (2), 1.53 (4.59), -0.00 (-0.00), noshift, amax=0.0","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"1 thread(s)","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"Strategy:","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":" FFT-NS-2 (Fast but rough)","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":" Progressive method (guide trees were built 2 times.)","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"If unsure which option to use, try 'mafft --auto input > output'.","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"For more information, see 'mafft --help', 'mafft --man' and the mafft page.","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"The default gap scoring scheme has been changed in version 7.110 (2013 Oct).","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"It tends to insert more gaps into gap-rich regions than previous versions.","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"To disable this change, add the --leavegappyregion option.","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"Creating native MSA bundle...","progress":0.82,"schemaVersion":2}
+{"event":"progress","message":"MAFFT alignment complete.","progress":1,"schemaVersion":2}
+{"event":"complete","message":"rows=5 alignedLength=29834","output":"\/work\/Project.lungfish\/Analyses\/Multiple Sequence Alignments\/sars-cov-2-genomes.lungfishmsa","outputs":["\/work\/Project.lungfish\/Analyses\/Multiple Sequence Alignments\/sars-cov-2-genomes.lungfishmsa"],"progress":1,"schemaVersion":2}

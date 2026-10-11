@@ -1,0 +1,2 @@
+{"event":"start","message":"Recording the sequencing platform of 1 FASTQ bundle(s)","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Recorded the platform of 1 FASTQ bundle(s)","output":"\/work\/Project.lungfish\/Imports\/Legacy.lungfishfastq\/Legacy.fastq.lungfish-meta.json","outputs":["\/work\/Project.lungfish\/Imports\/Legacy.lungfishfastq\/Legacy.fastq.lungfish-meta.json"],"progress":1,"schemaVersion":2}

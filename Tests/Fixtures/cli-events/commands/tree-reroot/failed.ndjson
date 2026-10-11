@@ -1,0 +1,4 @@
+{"event":"start","message":"Starting tree transform.","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Loading tree bundle.","progress":0.25,"schemaVersion":2}
+{"event":"progress","message":"Writing transformed tree bundle.","progress":0.65,"schemaVersion":2}
+{"error":"Tree node not found: Missing","event":"failed","schemaVersion":2}
