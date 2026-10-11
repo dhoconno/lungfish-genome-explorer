@@ -1002,6 +1002,13 @@ final class ProvenanceInspectorViewModel {
         rows.append(ProvenanceRuntimeRow(label: label, value: value))
     }
 
+    /// The record encoded again, for the Raw JSON pane when the file's own text cannot be shown. The
+    /// provenance-writers ratchet exempts this file, which encodes only to show.
+    static func encodedJSON(_ envelope: ProvenanceEnvelope) -> String {
+        guard let data = try? ProvenanceJSON.encoder.encode(envelope) else { return "" }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
     private func buildCopyableText() -> String {
         var sections: [String] = []
 

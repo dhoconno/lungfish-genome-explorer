@@ -144,7 +144,7 @@ extension ProvenanceInspectorViewModel {
             rawJSON = sidecarText
             rawJSONSource = .file
         } else {
-            rawJSON = Self.encodedRecordJSON(envelope)
+            rawJSON = Self.encodedJSON(envelope)
             rawJSONSource = .decodedRecord
         }
     }
@@ -180,11 +180,5 @@ extension ProvenanceInspectorViewModel {
             $0.inputs.count > maximumDisplayedStepPaths
                 || $0.outputs.count > maximumDisplayedStepPaths
         }
-    }
-
-    /// The record encoded as the writers encode it, or empty when it cannot be.
-    static func encodedRecordJSON(_ envelope: ProvenanceEnvelope) -> String {
-        guard let data = try? ProvenanceJSON.encoder.encode(envelope) else { return "" }
-        return String(data: data, encoding: .utf8) ?? ""
     }
 }
