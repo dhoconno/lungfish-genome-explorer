@@ -16,7 +16,7 @@ import XCTest
 ///
 /// The table holds one capture for every tool a parser probes in production. That is each case of
 /// `NativeTool` (any of them can reach `getToolVersion`), each tool `detectToolVersion` is called
-/// with (kraken2, bracken, EsViritu, minimap2, bwa-mem2, bowtie2, mafft, gatk and the assemblers)
+/// with (kraken2, EsViritu, minimap2, bwa-mem2, bowtie2, mafft, gatk and the assemblers)
 /// and the two the CLI parser probes. `testEveryProbedToolHasACapture` fails when a `NativeTool`
 /// case or a listed tool has no row, so a parser rule cannot move a version no row pins.
 ///
@@ -215,10 +215,6 @@ final class VersionParserOutputPinTests: XCTestCase {
             stdout: "MEGAHIT v1.2.9\n",
             stderr: "",
             native: "1.2.9", detect: "1.2.9", correct: "1.2.9"),
-        Capture(name: "bracken", exitCode: 0,
-            stdout: "Bracken v3.0.1\n",
-            stderr: "",
-            native: "3.0.1", detect: "3.0.1", correct: "3.0.1"),
         Capture(name: "hifiasm", exitCode: 0,
             stdout: "0.25.0-r726\n",
             stderr: "",
@@ -343,8 +339,8 @@ final class VersionParserOutputPinTests: XCTestCase {
 
     /// Each row pins a wrong value as it is today. `correct` is what the tool reports. A row stays
     /// here until the parser change that fixes it lands, and that commit moves the row to `clean`.
-    /// Phase 2.6 moved its rows out. These four wait for the parser merge of 2.7, which stops the
-    /// first-line fallback and the echoed option tokens in the detect parser.
+    /// Phase 2.6 moved its rows out. minratio, micromamba, hifiasm's help text and three-word roots
+    /// wait for the 2.7 merge. The bwa-mem2 and Bracken banners name a version the package does not run.
     private static let knownDefects: [Capture] = [
         // The detect parser reads minratio=0.40 from the echoed command line (2.7). The native parser
         // skips that line, as it skips every echoed java command, so it reads the banner. This is the
@@ -390,6 +386,21 @@ final class VersionParserOutputPinTests: XCTestCase {
                     "    -f INT       number of bits for bloom filter; 0 to disable [37]",
                     "    -D FLOAT     drop k-mers occurring >FLOAT*coverage times [5.0]"),
                 native: nil, detect: "5.0", correct: "0.25.0"),
+        // The 3.1 build prints a stale v3.0.1, and since 2.6 production reads the overlay's 3.1 (S20).
+        // The real output from the owner's install, which the golden environment lacks.
+        Capture(name: "bracken", exitCode: 0,
+                stdout: "Bracken v3.0.1\n", stderr: "",
+                native: "3.0.1", detect: "3.0.1", correct: "3.1"),
+        // A root named with three words, such as a volume "Lab 2.0 Disk", leaves its middle word bare
+        // when a path is split on spaces, so both parsers read 2.0 (2.7 removes the storage root first).
+        // The head of the real bowtie2 output, with the root written as that volume.
+        Capture(name: "bowtie2 under a root named Lab 2.0 Disk", exitCode: 0,
+                stdout: lines(
+                    "/Volumes/Lab 2.0 Disk/conda/envs/bowtie2/bin/bowtie2-align-s version 2.5.5",
+                    "64-bit",
+                    "Built on VM-8b0b7afd3b"),
+                stderr: "",
+                native: "2.0", detect: "2.0", correct: "2.5.5"),
     ]
 
     // MARK: - Tests
@@ -433,7 +444,7 @@ final class VersionParserOutputPinTests: XCTestCase {
     /// `ManagedAssemblyPipeline`, the mappers from `MappingToolVersionProbe` and the rest from the
     /// classification, EsViritu and MSA pipelines and the two CLI fastq commands.
     private static let condaProbedExecutables = [
-        "kraken2", "bracken", "EsViritu", "minimap2", "bwa-mem2", "bowtie2", "mafft", "gatk",
+        "kraken2", "EsViritu", "minimap2", "bwa-mem2", "bowtie2", "mafft", "gatk",
         "spades.py", "megahit", "skesa", "flye", "hifiasm", "deacon", "ribodetector_cpu",
     ]
 
