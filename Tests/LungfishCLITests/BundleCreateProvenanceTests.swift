@@ -121,4 +121,40 @@ final class BundleCreateProvenanceTests: XCTestCase {
         })
         XCTAssertTrue(run.steps[0].command.contains("--identifier"))
     }
+
+    /// `bundle create` drops the builder's own step and records a CLI step of its own, with the builder's
+    /// tool steps beside it. Each tool step names that CLI step as its parent, so a record the command
+    /// writes now needs no staging-folder reading to export the create once.
+    func testBundleCreateParentsTheBuildersToolStepsUnderItsOwnStep() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bundle-create-parent-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let fastaURL = tempDir.appendingPathComponent("genome.fa")
+        try ">chr1\nACGTACGTACGT\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        let command = try BundleCreateSubcommand.parse([
+            "--fasta", fastaURL.path,
+            "--name", "Parent Bundle",
+            "--identifier", "org.lungfish.test.parent",
+            "--organism", "Test organism",
+            "--assembly", "Test assembly",
+            "--output-dir", tempDir.path,
+        ])
+        try await command.run()
+
+        let bundleURL = tempDir.appendingPathComponent("Parent_Bundle.lungfishref", isDirectory: true)
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
+        let createStep = try XCTUnwrap(record.steps.first { $0.toolName == "lungfish bundle create" })
+        XCTAssertNil(createStep.parentStepID)
+        let tools = record.steps.filter { $0.id != createStep.id }
+        XCTAssertFalse(tools.isEmpty, "the builder ran a tool")
+        XCTAssertEqual(tools.map(\.parentStepID), tools.map { _ -> UUID? in createStep.id }, "\(tools.map(\.toolName))")
+
+        let script = ProvenanceExporter(signingProvider: nil).exportShell(record.legacyWorkflowRun(preferCanonicalSteps: true))
+        let commands = script.split(separator: "\n").filter {
+            !$0.hasPrefix("#") && ($0.hasPrefix("lungfish-cli") || $0.hasPrefix("samtools") || $0.hasPrefix("bgzip"))
+        }
+        XCTAssertEqual(commands.count, 1, "\(commands)")
+    }
 }

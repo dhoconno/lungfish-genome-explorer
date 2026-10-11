@@ -214,7 +214,9 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
             bundleIdentifier: bundleIdentifier,
             compress: compress
         )
-        let nativeToolSteps = Self.nativeBuilderToolSteps(in: bundleURL)
+        // The builder's own step is dropped, so its tool steps name this command's step as their parent.
+        let stepID = UUID()
+        let nativeToolSteps = Self.nativeBuilderToolSteps(in: bundleURL).map { $0.with { $0.parentStepID = stepID } }
         try await CLIProvenanceSupport.recordSingleStepRun(
             name: "lungfish bundle create",
             parameters: parameters,
@@ -225,6 +227,7 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
                 bundleIdentifier: bundleIdentifier,
                 compress: compress
             ),
+            stepID: stepID,
             extraSteps: nativeToolSteps,
             inputs: inputs,
             outputs: outputs,
