@@ -1391,13 +1391,15 @@ public struct ProvenanceWriter: Sendable {
         }
         return standardizedURL.path
     }
+}
 
-    private struct BundleOutputEntry {
+extension ProvenanceWriter {
+    struct BundleOutputEntry {
         let descriptor: ProvenanceFileDescriptor
         let relativePath: String
     }
 
-    private func bundleOutputEntries(
+    func bundleOutputEntries(
         from envelope: ProvenanceEnvelope,
         relativeTo bundleURL: URL
     ) -> [BundleOutputEntry] {
@@ -1425,7 +1427,7 @@ public struct ProvenanceWriter: Sendable {
         return entries
     }
 
-    private func isDirectoryOutput(
+    func isDirectoryOutput(
         _ descriptor: ProvenanceFileDescriptor,
         relativePath: String,
         bundleURL: URL
