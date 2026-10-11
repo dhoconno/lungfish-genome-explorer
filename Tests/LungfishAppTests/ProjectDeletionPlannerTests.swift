@@ -154,6 +154,23 @@ final class ProjectDeletionPlannerTests: XCTestCase {
         XCTAssertTrue(extensions.contains("lungfishtax"))
     }
 
+    func testProjectObjectDirectoryExtensionsAreExactlyTheElevenKindsThePlannerNeverEnters() throws {
+        // A folder with one of these extensions is one opaque object. The set is read from
+        // BundleKindRegistry, so a registry edit that moves a kind in or out of it fails here first.
+        XCTAssertEqual(
+            ProjectDeletionPlanner.projectObjectDirectoryExtensions,
+            [
+                "lungfishref", "lungfishfastq", "lungfishmsa", "lungfishtree", "lungfishprimers",
+                "lungfishprimeranalysis", "lungfishmhcref", "lungfishgenotype", "lungfish12s",
+                "lungfish12sref", "lungfishtax",
+            ]
+        )
+        // A project, a run bundle, a retired workflow bundle and a workflow package are walked like any folder.
+        for ext in ["lungfish", "lungfishrun", "lungfishflow", "lungfishflowpkg"] {
+            XCTAssertFalse(ProjectDeletionPlanner.projectObjectDirectoryExtensions.contains(ext), ext)
+        }
+    }
+
     func testDeletionImpactTreatsMHCAndTwelveSBundlesAsOpaqueObjects() throws {
         // Each newer reference/result bundle is a directory holding internal
         // files (manifest + reference FASTA). The planner must treat the bundle
