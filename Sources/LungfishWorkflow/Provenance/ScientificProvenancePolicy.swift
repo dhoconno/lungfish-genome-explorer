@@ -67,20 +67,25 @@ public enum ScientificProvenancePolicy {
         return cliCommandPolicies[key]
     }
 
+    /// The entry for a command given as its path below the executable, such as `["import", "bam"]`.
+    ///
+    /// The path takes the exact row of ``cliCommandPathPolicies``, else the row of its longest
+    /// registered prefix there, else the entry of the command group that starts the path in
+    /// ``cliCommandPolicies``. It never takes the entry of its last component, because another
+    /// command can share that name (`import bam` is no `bam` command), and a leaf of a group that
+    /// holds no entry, such as `conda search`, gets none (plan decision E16). Case and blanks are
+    /// not part of the path.
     public static func cliCommand(path commandPath: [String]) -> ProvenancePolicyEntry? {
-        let key = canonicalCommandPath(commandPath)
-        guard !key.isEmpty else { return nil }
-        if let exact = cliCommandPathPolicies[key] {
-            return exact
+        let words = commandPath
+            .flatMap { $0.split(whereSeparator: \.isWhitespace) }
+            .map { $0.lowercased() }
+        guard let group = words.first else { return nil }
+        for length in stride(from: words.count, through: 2, by: -1) {
+            if let row = cliCommandPathPolicies[words.prefix(length).joined(separator: " ")] {
+                return row
+            }
         }
-        return commandPath.last.flatMap(cliCommand)
-    }
-
-    private static func canonicalCommandPath(_ commandPath: [String]) -> String {
-        commandPath
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+        return cliCommandPolicies[group]
     }
 
     public static let canonicalCLICommandNames: [String] = [
@@ -127,6 +132,8 @@ public enum ScientificProvenancePolicy {
         "tools"
     ]
 
+    /// The entry of each top-level command, by its name or an alias. Every leaf below a command takes
+    /// the entry of its group unless ``cliCommandPathPolicies`` holds a row for it.
     public static let cliCommandPolicies: [String: ProvenancePolicyEntry] = [
         "convert": dataWriting("cli.convert"),
         "analyze": inspectOnly("cli.analyze"),
@@ -144,10 +151,6 @@ public enum ScientificProvenancePolicy {
         "blast": dataWriting("cli.blast"),
         // The group's one subcommand is `classify`, which writes the record.
         "kraken2": dataWriting("cli.kraken2", writer: "ClassifyCommand/ProvenanceRunBuilder"),
-        // `kraken2 classify` and `conda classify` are one command, `ClassifyCommand`. The
-        // last-component rule of `cliCommand(path:)` gives both spellings this entry (S19). It is
-        // read by tests only, so it changes no field a run records.
-        "classify": dataWriting("cli.kraken2.classify", writer: "ClassifyCommand/ProvenanceRunBuilder"),
         "esviritu": dataWriting("cli.esviritu"),
         "taxtriage": dataWriting("cli.taxtriage"),
         "align": dataWriting("cli.align"),
@@ -183,15 +186,12 @@ public enum ScientificProvenancePolicy {
             "cli.tools",
             requiresProvenance: true,
             writer: "DependencyReconcilerProvenance"
-        ),
-        "12s-match": dataWriting("cli.fastq.12s-match", writer: "TwelveSAmpliconMatchingWorkflow"),
-        "12s-reference-metadata": dataWriting("cli.fastq.12s-reference-metadata", writer: "TwelveSReferenceMetadataBuilder"),
-        "12s-reference-bundle": dataWriting("cli.fastq.12s-reference-bundle", writer: "TwelveSReferenceBundleBuilder"),
-        "mhc-reference-bundle": dataWriting("cli.fastq.mhc-reference-bundle", writer: "MHCAmpliconReferenceBundleBuilder"),
-        "12s-export": dataWriting("cli.fastq.12s-export", writer: "TwelveSResultExportWorkflow"),
-        "12s-export-unresolved": dataWriting("cli.fastq.12s-export-unresolved", writer: "TwelveSUnresolvedFastaExportWorkflow")
+        )
     ]
 
+    /// The rows of a command path whose policy differs from the entry of its command group. A path
+    /// with no row here takes the row of its longest registered prefix, else the entry of its group
+    /// in ``cliCommandPolicies`` (``cliCommand(path:)``), so a leaf needs a row only when it differs.
     public static let cliCommandPathPolicies: [String: ProvenancePolicyEntry] = [
         "primers analysis inspect": inspectOnly("cli.primers.analysis.inspect"),
         "primers analysis history": dataWriting("cli.primers.analysis.history", writer: "PrimerAnalysisNativeInspectionService"),
@@ -200,19 +200,42 @@ public enum ScientificProvenancePolicy {
         "primers design primalscheme3": dataWriting("cli.primers.design.primalscheme3"),
         "primers analysis annotated-reference": dataWriting("cli.primers.analysis.annotated-reference"),
         "primers analysis export-order": dataWriting("cli.primers.analysis.export-order", writer: "PrimerOrderExportService"),
+        // `kraken2 classify` and `conda classify` are one command, `ClassifyCommand`, and both
+        // spellings hold this entry (S19). It is read by tests only, so it changes no field a run
+        // records.
+        "kraken2 classify": dataWriting("cli.kraken2.classify", writer: "ClassifyCommand/ProvenanceRunBuilder"),
+        "conda classify": dataWriting("cli.kraken2.classify", writer: "ClassifyCommand/ProvenanceRunBuilder"),
+        // The `conda` group holds no entry, because most of its commands maintain the installation.
+        // These two write scientific data.
         "conda db download": dataWriting(
             "cli.conda.db.download",
             writer: "CanonicalMetagenomicsDatabaseInstallProvenanceWriter"
         ),
-        // `import kraken2` and `build-db kraken2` are leaves of their own commands. Without an exact
-        // entry the last-component rule would give them the `kraken2` group's entry.
-        "import kraken2": dataWriting("cli.import"),
-        "build-db kraken2": dataWriting("cli.build-db"),
+        "conda extract": dataWriting("cli.conda.extract", writer: "TaxonomyExtractionPipeline"),
         "debug fastq-ingest": dataWriting("cli.debug.fastq-ingest", writer: "FASTQIngestSubcommand"),
         "fastq pbaa-cluster": dataWriting("cli.fastq.pbaa-cluster", writer: "PBAAClusteringPipeline"),
         "fastq savont-cluster": dataWriting(
             "cli.fastq.savont-cluster",
             writer: "SavontClusteringPipeline"
+        ),
+        // The 12S and MHC leaves of `fastq` keep the ids they had as top-level keys.
+        "fastq 12s-match": dataWriting("cli.fastq.12s-match", writer: "TwelveSAmpliconMatchingWorkflow"),
+        "fastq 12s-reference-metadata": dataWriting(
+            "cli.fastq.12s-reference-metadata",
+            writer: "TwelveSReferenceMetadataBuilder"
+        ),
+        "fastq 12s-reference-bundle": dataWriting(
+            "cli.fastq.12s-reference-bundle",
+            writer: "TwelveSReferenceBundleBuilder"
+        ),
+        "fastq mhc-reference-bundle": dataWriting(
+            "cli.fastq.mhc-reference-bundle",
+            writer: "MHCAmpliconReferenceBundleBuilder"
+        ),
+        "fastq 12s-export": dataWriting("cli.fastq.12s-export", writer: "TwelveSResultExportWorkflow"),
+        "fastq 12s-export-unresolved": dataWriting(
+            "cli.fastq.12s-export-unresolved",
+            writer: "TwelveSUnresolvedFastaExportWorkflow"
         )
     ]
 

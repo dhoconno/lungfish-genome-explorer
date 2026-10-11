@@ -78,6 +78,7 @@ struct ScientificProvenancePolicyTests {
     @Test("data-writing policies declare concrete final-output provenance writers")
     func dataWritingPoliciesDeclareConcreteFinalOutputWriters() {
         let policies = Array(ScientificProvenancePolicy.cliCommandPolicies.values)
+            + Array(ScientificProvenancePolicy.cliCommandPathPolicies.values)
             + Array(ScientificProvenancePolicy.nativeToolPolicies.values)
         let incomplete = policies.compactMap { policy -> String? in
             guard policy.workflowKind == .dataWriting else { return nil }
@@ -162,6 +163,7 @@ struct ScientificProvenancePolicyTests {
     @Test("non-data-writing policies do not claim scientific payload mutation")
     func nonDataWritingPoliciesDoNotClaimScientificPayloadMutation() {
         let policies = Array(ScientificProvenancePolicy.cliCommandPolicies.values)
+            + Array(ScientificProvenancePolicy.cliCommandPathPolicies.values)
             + Array(ScientificProvenancePolicy.nativeToolPolicies.values)
         let invalid = policies.compactMap { policy -> String? in
             guard policy.workflowKind != .dataWriting else { return nil }
@@ -215,10 +217,8 @@ struct ScientificProvenancePolicyTests {
     func bothClassifySpellingsResolveToOnePolicyEntry() throws {
         let underKraken2 = try #require(ScientificProvenancePolicy.cliCommand(path: ["kraken2", "classify"]))
         let underConda = try #require(ScientificProvenancePolicy.cliCommand(path: ["conda", "classify"]))
-        let leaf = try #require(ScientificProvenancePolicy.cliCommand("classify"))
 
         #expect(underKraken2 == underConda)
-        #expect(underKraken2 == leaf)
         #expect(underKraken2.id == "cli.kraken2.classify")
         #expect(underKraken2.workflowKind == .dataWriting)
         #expect(underKraken2.createsOrModifiesScientificData)
@@ -242,7 +242,8 @@ struct ScientificProvenancePolicyTests {
 
     @Test("import kraken2 and build-db kraken2 keep their own command's policy")
     func otherKraken2LeavesKeepTheirOwnCommandPolicy() throws {
-        // The last path component of both is kraken2, which is also a top-level policy key.
+        // The last path component of both is kraken2, which is also a top-level policy key. A path
+        // takes the entry of the group that starts it and never the entry of its last component.
         let imported = try #require(ScientificProvenancePolicy.cliCommand(path: ["import", "kraken2"]))
         let built = try #require(ScientificProvenancePolicy.cliCommand(path: ["build-db", "kraken2"]))
         let group = try #require(ScientificProvenancePolicy.cliCommand("kraken2"))
@@ -263,7 +264,7 @@ struct ScientificProvenancePolicyTests {
         // The golden run recorded `conda classify` and still does until 2.7.
         #expect(record.range(of: "\"conda\"") != nil)
         for entry in [
-            try #require(ScientificProvenancePolicy.cliCommand("classify")),
+            try #require(ScientificProvenancePolicy.cliCommand(path: ["kraken2", "classify"])),
             try #require(ScientificProvenancePolicy.cliCommand("kraken2")),
         ] {
             #expect(!record.contains(entry.id), "the record names the policy id \(entry.id)")
