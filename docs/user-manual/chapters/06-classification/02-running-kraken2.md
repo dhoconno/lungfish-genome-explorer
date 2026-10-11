@@ -152,7 +152,7 @@ These controls change what you are looking at, not what was computed.
 
 **Filter taxa….** Shows only the rows whose sample, name, rank, read counts, or percentage contain what you type, together with each match's parent taxa and everything beneath it, and dims the sunburst wedges that no longer match. It is empty by default, showing everything. Use it whenever you are hunting one organism in a report of thousands of rows. This setting has no command-line flag.
 
-**Bracken.** Is a column rather than a control, holding the species counts Bracken re-estimated. It appears on its own whenever the result carries Bracken numbers, which every dialog-started run does, and stays hidden on a result made without Bracken. There is nothing to set, so read it when it is there. This setting has no command-line flag.
+**Bracken.** Is a column rather than a control, holding the species counts Bracken re-estimated. It appears on its own whenever the result carries Bracken numbers, which a dialog-started run does unless its Bracken profile could not be made, and stays hidden on a result made without Bracken. There is nothing to set, so read it when it is there. This setting has no command-line flag.
 
 **Select All.** Ticks or unticks every sample visible in the Sample Filter list, in the Inspector's Samples & Metadata section. It starts ticked, because every sample is shown at first. Use it to clear the list and then tick the few samples you want, rather than unticking twenty by hand. This setting has no command-line flag.
 
