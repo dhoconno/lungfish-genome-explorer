@@ -50,6 +50,7 @@ struct LungfishCLI: AsyncParsableCommand {
             ToolsCommand.self,
             CondaCommand.self,
             BlastCommand.self,
+            Kraken2Command.self,
             EsVirituCommand.self,
             TaxTriageCommand.self,
             AlignCommand.self,

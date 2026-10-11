@@ -98,6 +98,7 @@ public enum ScientificProvenancePolicy {
         "bundle",
         "project",
         "blast",
+        "kraken2",
         "esviritu",
         "taxtriage",
         "align",
@@ -141,6 +142,8 @@ public enum ScientificProvenancePolicy {
         "bundle": dataWriting("cli.bundle"),
         "project": dataWriting("cli.project"),
         "blast": dataWriting("cli.blast"),
+        // The group's one subcommand is `classify`, which writes the record.
+        "kraken2": dataWriting("cli.kraken2", writer: "ClassifyCommand/ProvenanceRunBuilder"),
         "esviritu": dataWriting("cli.esviritu"),
         "taxtriage": dataWriting("cli.taxtriage"),
         "align": dataWriting("cli.align"),

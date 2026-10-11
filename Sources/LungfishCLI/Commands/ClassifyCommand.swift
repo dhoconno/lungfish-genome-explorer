@@ -81,7 +81,7 @@ struct ClassifyCommand: AsyncParsableCommand {
     @Option(name: .customLong("db"), help: "Database name (e.g., 'Viral', 'Standard-8')")
     var databaseName: String
 
-    @Option(name: .customLong("preset"), help: "Sensitivity preset: sensitive, balanced, precise (default: balanced)")
+    @Option(name: .customLong("preset"), help: "Sensitivity preset: sensitive, balanced, precise")
     var preset: ClassificationPresetArgument = .balanced
 
     @Option(name: [.customLong("output-dir"), .customShort("o")], help: "Output directory (default: current directory)")
