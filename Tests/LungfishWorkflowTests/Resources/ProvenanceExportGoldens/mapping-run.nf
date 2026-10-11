@@ -138,7 +138,7 @@ process LUNGFISH_IMPORT_FASTQ_5 {
  * Original wall time: 0.7s
  */
 process MINIMAP2_6 {
-    conda 'bioconda::minimap2=2.31'
+    conda 'bioconda::minimap2=2.31=h6bd33b9_0'
     publishDir params.outdir, mode: 'copy'
 
     input:

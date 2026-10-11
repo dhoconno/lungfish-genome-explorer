@@ -94,7 +94,7 @@ rule lungfish_import_fastq_5:
     shell:
         "mkdir -p \"$(dirname {log:q})\"\nlungfish-cli import fastq \"{input.reads_r1_fastq_gz}\" \"{input.reads_r2_fastq_gz}\" --project \"{config[project]}\" --recipe none 2> {log:q}"
 
-# Step 6: minimap2 v2.31 (bioconda::minimap2=2.31)
+# Step 6: minimap2 v2.31 (bioconda::minimap2=2.31=h6bd33b9_0)
 # Original wall time: 0.7s
 rule minimap2_6:
     input:
