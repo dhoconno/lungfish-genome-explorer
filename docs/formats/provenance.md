@@ -15,7 +15,7 @@ Some results keep a typed record of their own, such as `mapping-provenance.json`
 
 ## The envelope
 
-LGE writes every new record as an envelope. The encoder sorts the keys, writes dates in ISO 8601 with whole seconds in UTC, and escapes slashes, so a path appears as `@\/Analyses\/run` in the raw bytes. A reader parses the JSON and relies on neither key order nor escaping.
+LGE writes every new record as an envelope. The encoder sorts the keys, writes dates in ISO 8601 with whole seconds in UTC, and writes slashes as typed, so a path appears as `@/Analyses/run` in the raw bytes. A record written before version 2 escapes them, as in `@\/Analyses\/run`. A reader parses the JSON and relies on neither key order nor escaping.
 
 | Key | What it holds |
 | --- | --- |

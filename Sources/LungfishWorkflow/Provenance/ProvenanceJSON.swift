@@ -7,10 +7,13 @@ import Foundation
 // MARK: - ProvenanceJSON
 
 public enum ProvenanceJSON {
+    /// Pretty, sorted, whole-second ISO 8601 dates and slashes written as typed, so the raw bytes
+    /// show `@/Analyses/run` and never `@\/Analyses\/run`. A signature covers the parsed record
+    /// reserialized (`ProvenanceSigningPayload`), so the escaping of the bytes never reaches it.
     public static var encoder: JSONEncoder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         return encoder
     }
 

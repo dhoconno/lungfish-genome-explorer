@@ -163,7 +163,7 @@ final class ProvenanceHonestRuntimeTests: XCTestCase {
               "architecture" : "arm64",
               "condaEnvironment" : "lungfish",
               "dependencySet" : "2026.2",
-              "executablePath" : "\\/usr\\/local\\/bin\\/lungfish-cli",
+              "executablePath" : "/usr/local/bin/lungfish-cli",
               "operatingSystemVersion" : "macOS 26.0.0 (arm64)",
               "processIdentifier" : 12345
             }

@@ -82,9 +82,11 @@ final class PortableProvenanceTests: XCTestCase {
 
         let text = try String(contentsOf: sidecar, encoding: .utf8)
         assertNoPrivatePaths(text)
-        XCTAssertTrue(text.contains("@\\/Imports\\/reads.lungfishfastq\\/reads.fastq.gz"), text)
-        XCTAssertTrue(text.contains("<tool-root>\\/envs\\/samtools\\/bin\\/samtools"), text)
-        XCTAssertTrue(text.contains("<external>\\/external-reads.fastq.gz"), text)
+        // The encoder writes slashes as typed.
+        XCTAssertTrue(text.contains("@/Imports/reads.lungfishfastq/reads.fastq.gz"), text)
+        XCTAssertTrue(text.contains("<tool-root>/envs/samtools/bin/samtools"), text)
+        XCTAssertTrue(text.contains("<external>/external-reads.fastq.gz"), text)
+        XCTAssertFalse(text.contains("\\/"), text)
 
         let loaded = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
         let argv = try XCTUnwrap(loaded.steps.first?.argv)
@@ -113,7 +115,7 @@ final class PortableProvenanceTests: XCTestCase {
         // Written outside any project (kept verbatim), then moved in.
         let staging = root.appendingPathComponent("staging", isDirectory: true)
         let sidecar = try ProvenanceWriter(signingProvider: nil).write(makeRun().canonicalEnvelope(), to: staging)
-        XCTAssertTrue(try String(contentsOf: sidecar, encoding: .utf8).contains(input.path.replacingOccurrences(of: "/", with: "\\/")))
+        XCTAssertTrue(try String(contentsOf: sidecar, encoding: .utf8).contains(input.path))
         let legacy = analysis.appendingPathComponent("legacy.lungfish-provenance.json")
         try FileManager.default.copyItem(at: sidecar, to: legacy)
 

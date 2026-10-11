@@ -200,4 +200,42 @@ final class ProvenanceSchemaVersion2EncoderTests: XCTestCase {
         defer { written.cleanup() }
         XCTAssertEqual(try ProvenanceEnvelopeReader.decodeCanonical(written.data), envelope)
     }
+
+    // MARK: S5, slashes without escapes
+
+    /// Raw JSON shows a path as it is typed. Outside a project the writer keeps the paths, and
+    /// inside one it writes the placeholders the project rewrite makes.
+    func testANewlyWrittenRecordWritesSlashesWithoutEscapes() throws {
+        for inProject in [false, true] {
+            let written = try Self.write(Self.completedRun(), inProject: inProject)
+            defer { written.cleanup() }
+            XCTAssertFalse(written.text.contains("\\/"), "inProject \(inProject): \(written.text)")
+            let readsPath = inProject ? "<external>/reads.fastq" : "/data/reads.fastq"
+            XCTAssertTrue(written.text.contains("\"path\" : \"\(readsPath)\""), "inProject \(inProject): \(written.text)")
+        }
+    }
+
+    /// A signature covers the parsed record reserialized, not its raw bytes, so a record signed with
+    /// unescaped slashes verifies, and the same record with escaped slashes has the same payload.
+    func testASignedRecordVerifiesAndItsSignedPayloadIgnoresSlashEscaping() throws {
+        let written = try Self.write(
+            Self.completedRun(),
+            inProject: true,
+            signingProvider: LocalProvenanceSigningProvider(privateKey: "unit-test-private-key")
+        )
+        defer { written.cleanup() }
+        XCTAssertFalse(written.text.contains("\\/"))
+        XCTAssertNoThrow(try ProvenanceSignatureVerifier.verify(provenanceURL: written.sidecar))
+
+        let object = try JSONSerialization.jsonObject(with: written.data)
+        let escaped = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+        let unescaped = try JSONSerialization.data(
+            withJSONObject: object,
+            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        )
+        XCTAssertNotEqual(escaped, unescaped)
+        let payload = try ProvenanceSigningPayload.data(forProvenanceData: written.data)
+        XCTAssertEqual(try ProvenanceSigningPayload.data(forProvenanceData: escaped), payload)
+        XCTAssertEqual(try ProvenanceSigningPayload.data(forProvenanceData: unescaped), payload)
+    }
 }
