@@ -24,9 +24,11 @@ struct AnalysisRunFolder: Sendable {
     ///   and metadata already inside.
     /// - A named folder is claimed with `AnalysesFolder.beginRunInOutputDirectory`, which writes
     ///   the run record only for a folder inside a project that is empty, missing or already a run
-    ///   folder. A missing folder is created. The metadata is written into a folder this run
-    ///   claimed, a folder another producer holds and a folder outside every project, and an
-    ///   existing file that already names this tool and layout is kept.
+    ///   folder. A missing folder is created. The metadata is written only into a folder that sits
+    ///   directly in a project's `Analyses/` folder, whoever holds its run record, and an existing
+    ///   file that already names this tool and layout is kept. Anywhere else the folder gets no
+    ///   metadata, because the sidebar hides every folder with metadata outside `Analyses/`
+    ///   (decision E1b, risk R11).
     static func prepare(
         destination: AnalysisRunDestination,
         toolID: AnalysisToolID,
@@ -70,7 +72,7 @@ struct AnalysisRunFolder: Sendable {
                 )
             )
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            if claim != nil || projectURL == nil {
+            if let projectURL, Self.sitsDirectlyInAnalyses(directory, projectURL: projectURL) {
                 let existing = AnalysesFolder.readAnalysisMetadata(from: directory)
                 if existing?.tool != toolID.rawValue || existing?.isBatch != isBatch {
                     try AnalysesFolder.writeAnalysisMetadata(
@@ -81,6 +83,15 @@ struct AnalysisRunFolder: Sendable {
             }
             return AnalysisRunFolder(root: directory, projectURL: projectURL, claim: claim)
         }
+    }
+
+    /// Whether `directory` is a child of `projectURL`'s `Analyses/` folder, compared by physical path.
+    static func sitsDirectlyInAnalyses(_ directory: URL, projectURL: URL) -> Bool {
+        guard let relative = CanonicalFilePath.relativePath(of: directory, within: projectURL) else {
+            return false
+        }
+        let components = relative.split(separator: "/", omittingEmptySubsequences: true)
+        return components.count == 2 && components[0] == Substring(AnalysesFolder.directoryName)
     }
 
     /// Phase P6. A completed run, with or without warnings, completes its run record so the

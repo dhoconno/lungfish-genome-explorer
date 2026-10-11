@@ -21,6 +21,8 @@ final class AnalysisRunJournal: Sendable {
         var steps: [ProvenanceStep] = []
         /// The root record's options, the plan's with every later contribution merged in.
         var options = AnalysisRootRecordOptions()
+        /// The replay argv a unit recorded, which replaces the request's.
+        var durableReplayArgv: [String]?
         /// Set once the last line went out. Every later line is dropped.
         var sealed = false
     }
@@ -81,8 +83,16 @@ final class AnalysisRunJournal: Sendable {
         state.withLock { $0.options = $0.options.merging(options) }
     }
 
+    func recordDurableReplayArgv(_ argv: [String]) {
+        state.withLock { $0.durableReplayArgv = argv }
+    }
+
     var warnings: [String] {
         state.withLock { $0.warnings }
+    }
+
+    var recordedDurableReplayArgv: [String]? {
+        state.withLock { $0.durableReplayArgv }
     }
 
     var recordedInputs: [ProvenanceFileDescriptor] {
@@ -116,7 +126,8 @@ final class AnalysisRunJournal: Sendable {
             log: { level, message in self.log(level, message) },
             recordInput: { descriptor in self.recordInput(descriptor) },
             recordStep: { step in self.recordStep(step) },
-            recordOptions: { options in self.recordOptions(options) }
+            recordOptions: { options in self.recordOptions(options) },
+            recordDurableReplayArgv: { argv in self.recordDurableReplayArgv(argv) }
         )
     }
 

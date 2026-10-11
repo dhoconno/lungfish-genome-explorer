@@ -27,7 +27,8 @@ extension AnalysisRunExecutor {
     /// (a unit's record in a one-folder layout or a shared batch root, or an index builder's)
     /// never wins.
     ///
-    /// The record's argv is the command that ran, its options are the plan's with what the units
+    /// The record's argv is the command that ran, its replay argv the one a unit recorded or else the
+    /// request's, its run-level files only those that still exist, its options are the plan's with what the units
     /// and the finalize recorded merged in and hold the read-set plan under `resolvedDefaults`
     /// (E13), its status and exit status say how the run ended, and its stderr
     /// holds the reason a run did not complete and every warning. A completed run lists the
@@ -46,6 +47,7 @@ extension AnalysisRunExecutor {
     ) -> RootRecordResult {
         let inputs = journal.recordedInputs
         let steps = journal.recordedSteps + (input.finalization?.steps ?? [])
+        let replayArgv = journal.recordedDurableReplayArgv ?? input.request.durableReplayArgv
         do {
             let envelope = try rootEnvelope(
                 input,
@@ -53,7 +55,8 @@ extension AnalysisRunExecutor {
                 inputs: inputs,
                 steps: steps,
                 outputs: ending == .completed ? input.finalization?.outputs ?? [] : [],
-                warnings: journal.warnings
+                warnings: journal.warnings,
+                replayArgv: replayArgv
             )
             return RootRecordResult(ending: ending, url: try services.writer.write(envelope, to: folder.root))
         } catch {
@@ -70,7 +73,8 @@ extension AnalysisRunExecutor {
                     inputs: attempt.0,
                     steps: attempt.1,
                     outputs: [],
-                    warnings: journal.warnings
+                    warnings: journal.warnings,
+                    replayArgv: replayArgv
                 ),
                     let url = try? services.writer.write(envelope, to: folder.root) {
                     return RootRecordResult(ending: settled, url: url)
@@ -86,7 +90,8 @@ extension AnalysisRunExecutor {
         inputs: [ProvenanceFileDescriptor],
         steps: [ProvenanceStep],
         outputs: [AnalysisRunOutput],
-        warnings: [String]
+        warnings: [String],
+        replayArgv: [String]?
     ) throws -> ProvenanceEnvelope {
         var builder = ProvenanceRunBuilder(
             workflowName: input.identity.workflowName,
@@ -95,7 +100,7 @@ extension AnalysisRunExecutor {
             toolVersion: LungfishAppVersion.short
         )
         .argv(input.request.commandLine)
-        .durableReplayArgv(input.request.durableReplayArgv)
+        .durableReplayArgv(replayArgv)
         .options(
             explicit: input.options.explicit,
             defaults: input.options.defaults,
@@ -115,13 +120,15 @@ extension AnalysisRunExecutor {
 
         let stderr = ([ending.message(displayName: input.identity.displayName)].compactMap { $0 } + warnings)
             .joined(separator: "\n")
+        // A step keeps the files it wrote as they were when it ran, such as a per-read output that a
+        // later step compressed and removed. The run level names only files the result still holds.
         return try builder.complete(
             exitStatus: Int(ending.exitCode),
             status: ending.status,
             stderr: stderr.isEmpty ? nil : stderr,
             startedAt: input.clock.startedAt,
             endedAt: input.clock.now
-        )
+        ).droppingMissingRunLevelFiles()
     }
 
     /// Adds a descriptor the tool already took, without hashing it. A local file goes in as a

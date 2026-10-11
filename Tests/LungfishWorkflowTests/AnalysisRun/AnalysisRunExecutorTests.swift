@@ -164,8 +164,8 @@ struct AnalysisRunExecutorTests {
         #expect(try fixture.record(at: report.recordURL).status == .completed)
     }
 
-    @Test("A named folder outside every project gets metadata and no run record")
-    func namedFolderOutsideAProjectGetsMetadata() async throws {
+    @Test("A named folder outside every project gets neither metadata nor a run record")
+    func namedFolderOutsideAProjectGetsNoMetadata() async throws {
         let fixture = try AnalysisRunTestProject()
         defer { fixture.cleanup() }
         let probe = FakeToolProbe()
@@ -179,7 +179,8 @@ struct AnalysisRunExecutorTests {
 
         #expect(report.status == .completed)
         #expect(probe.fact("runRecordAtRun") == false)
-        #expect(AnalysesFolder.readAnalysisMetadata(from: target)?.tool == "kraken2")
+        // Decision E1b. Metadata outside a project's Analyses folder would hide the folder.
+        #expect(AnalysesFolder.readAnalysisMetadata(from: target) == nil)
         #expect(FileManager.default.fileExists(atPath: target.appendingPathComponent("s1.kreport").path))
     }
 

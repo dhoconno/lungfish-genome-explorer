@@ -38,6 +38,7 @@ public struct AnalysisRunUnitContext: Sendable {
     private let inputRecorder: @Sendable (ProvenanceFileDescriptor) -> Void
     private let stepRecorder: @Sendable (ProvenanceStep) -> Void
     private let optionsRecorder: @Sendable (AnalysisRootRecordOptions) -> Void
+    private let replayRecorder: @Sendable ([String]) -> Void
 
     public init(
         rootDirectory: URL,
@@ -46,7 +47,8 @@ public struct AnalysisRunUnitContext: Sendable {
         log: @escaping @Sendable (CLIEventLogLevel, String) -> Void = { _, _ in },
         recordInput: @escaping @Sendable (ProvenanceFileDescriptor) -> Void = { _ in },
         recordStep: @escaping @Sendable (ProvenanceStep) -> Void = { _ in },
-        recordOptions: @escaping @Sendable (AnalysisRootRecordOptions) -> Void = { _ in }
+        recordOptions: @escaping @Sendable (AnalysisRootRecordOptions) -> Void = { _ in },
+        recordDurableReplayArgv: @escaping @Sendable ([String]) -> Void = { _ in }
     ) {
         self.rootDirectory = rootDirectory
         self.projectURL = projectURL
@@ -55,6 +57,7 @@ public struct AnalysisRunUnitContext: Sendable {
         self.inputRecorder = recordInput
         self.stepRecorder = recordStep
         self.optionsRecorder = recordOptions
+        self.replayRecorder = recordDurableReplayArgv
     }
 
     /// Reports how far the unit is, `fraction` from 0 to 1. The executor maps it onto the run as
@@ -94,6 +97,15 @@ public struct AnalysisRunUnitContext: Sendable {
     /// values, and its own record keeps the facts of its sample.
     public func recordOptions(_ options: AnalysisRootRecordOptions) {
         optionsRecorder(options)
+    }
+
+    /// Sets the argv a replay of the run runs, when the unit learned it only while it ran, such as
+    /// the command with a virtual bundle replaced by the file the unit materialized from it, which
+    /// the result folder keeps (E3). The root record names it in place of the request's
+    /// ``AnalysisRunRequest/durableReplayArgv``, also when the run fails or is cancelled after the
+    /// unit recorded it. The last value recorded wins.
+    public func recordDurableReplayArgv(_ argv: [String]) {
+        replayRecorder(argv)
     }
 }
 
