@@ -167,6 +167,7 @@ extension BuildDbCommand {
                     runClock: runClock,
                     inputRecords: provenanceInputs,
                     additionalSteps: relocationSteps + samtoolsProvenance.steps,
+                    writesFolderRecord: options.writesFolderRecord,
                     events: events
                 )
                 try databaseSnapshot.discard()
@@ -189,6 +190,7 @@ extension BuildDbCommand {
                     error: error,
                     additionalSteps: relocationSteps + samtoolsProvenance.steps,
                     includeOutputRecords: false,
+                    writesFolderRecord: options.writesFolderRecord,
                     events: events
                 )
                 throw error

@@ -83,6 +83,30 @@ final class BuildDbCoreTests: XCTestCase {
         XCTAssertFalse(json.standardOutput.contains { !$0.hasPrefix("{") }, "Standard output holds events only")
     }
 
+    /// The analysis run executor writes the root record last, in phase P4, so its index step runs the core
+    /// with `writesFolderRecord` false (risk R8, review fix 2 of lane A7). The core then leaves the result
+    /// root without a record, still writes the sidecar of the database and still returns the run's record,
+    /// whose last step is the database build.
+    func testACoreThatWritesNoFolderRecordLeavesTheRootToTheExecutor() async throws {
+        let scratch = try ImportStreamCapture.Scratch()
+        defer { scratch.remove() }
+        let result = try BuildDbStreamCapture.esVirituResultWithoutBAMs(in: scratch)
+
+        let built = try await BuildDbCommand.EsVirituSubcommand.buildDatabase(
+            in: result,
+            options: BuildDbRunOptions(globalOptions: try GlobalOptions.parse([]), writesFolderRecord: false),
+            events: .silent
+        )
+
+        let fileManager = FileManager.default
+        XCTAssertFalse(
+            fileManager.fileExists(atPath: result.appendingPathComponent(".lungfish-provenance.json").path),
+            "The root holds no record until the executor writes it"
+        )
+        XCTAssertTrue(fileManager.fileExists(atPath: result.appendingPathComponent("esviritu.sqlite.lungfish-provenance.json").path))
+        XCTAssertEqual(built.record?.steps.last?.toolName, "lungfish build-db esviritu")
+    }
+
     // MARK: Fixtures
 
     /// A stand-in samtools that reports no `samtools markdup` in a BAM header, fails every other command

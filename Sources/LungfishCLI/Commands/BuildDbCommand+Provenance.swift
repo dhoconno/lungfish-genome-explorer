@@ -35,9 +35,9 @@ extension BuildDbCommand {
         return records
     }
 
-    /// Records one build-db run in the result folder when no other workflow's record is there, and beside
-    /// each output. Returns the run's record. A record problem that leaves the run standing goes to
-    /// `events.warning`.
+    /// Records one build-db run beside each output and, unless `writesFolderRecord` is false, in the result
+    /// folder when no other workflow's record is there. Returns the run's record. A record problem that
+    /// leaves the run standing goes to `events.warning`.
     @discardableResult
     static func recordBuildDbProvenance(
         tool: BuildDbProvenanceTool,
@@ -53,6 +53,7 @@ extension BuildDbCommand {
         sampleDirectories: [URL] = [],
         additionalSteps: [ProvenanceStep] = [],
         includeOutputRecords: Bool = true,
+        writesFolderRecord: Bool = true,
         events: BuildDbEventSink
     ) async throws -> ProvenanceEnvelope {
         let startedAt = runClock.startedAt
@@ -132,7 +133,9 @@ extension BuildDbCommand {
         )
 
         let writer = ProvenanceWriter()
-        try writeFolderProvenance(envelope, tool: tool, resultURL: resultURL, writer: writer, events: events)
+        if writesFolderRecord {
+            try writeFolderProvenance(envelope, tool: tool, resultURL: resultURL, writer: writer, events: events)
+        }
         for output in envelope.outputs {
             let outputURL = URL(fileURLWithPath: output.path)
             let focused = envelope.focusedOnOutput(output)
@@ -211,6 +214,7 @@ extension BuildDbCommand {
         sampleDirectories: [URL] = [],
         additionalSteps: [ProvenanceStep] = [],
         includeOutputRecords: Bool = true,
+        writesFolderRecord: Bool = true,
         events: BuildDbEventSink
     ) async {
         do {
@@ -228,6 +232,7 @@ extension BuildDbCommand {
                 sampleDirectories: sampleDirectories,
                 additionalSteps: additionalSteps,
                 includeOutputRecords: includeOutputRecords,
+                writesFolderRecord: writesFolderRecord,
                 events: events
             )
         } catch {

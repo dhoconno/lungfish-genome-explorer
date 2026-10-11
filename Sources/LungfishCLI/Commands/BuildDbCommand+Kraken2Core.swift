@@ -122,6 +122,7 @@ extension BuildDbCommand {
                     runClock: runClock,
                     inputRecords: provenanceInputs,
                     sampleDirectories: explicitSampleDirectories,
+                    writesFolderRecord: options.writesFolderRecord,
                     events: events
                 )
                 try databaseSnapshot.discard()
@@ -144,6 +145,7 @@ extension BuildDbCommand {
                     error: error,
                     sampleDirectories: explicitSampleDirectories,
                     includeOutputRecords: false,
+                    writesFolderRecord: options.writesFolderRecord,
                     events: events
                 )
                 throw error

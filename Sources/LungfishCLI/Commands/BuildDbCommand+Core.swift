@@ -23,6 +23,13 @@ struct BuildDbRunOptions {
     /// `build-db kraken2` only, the sample folders to read in place of every folder in the result folder.
     var sampleDirectories: [URL] = []
     var globalOptions: GlobalOptions
+    /// Write the result folder's own record, `.lungfish-provenance.json`, when no other workflow's record is
+    /// there, as the commands do. The analysis run executor's index step, an `AnalysisResultIndexing`
+    /// builder that runs in phase P3, passes false, because the executor writes the root record itself in
+    /// phase P4, after every other record of the run, and a record the index step wrote at the root would
+    /// name the wrong workflow until then (risk R8). Each output's sidecar is still written, and the run's
+    /// record is still returned.
+    var writesFolderRecord = true
 }
 
 /// What one `build-db` run left in its result folder.
