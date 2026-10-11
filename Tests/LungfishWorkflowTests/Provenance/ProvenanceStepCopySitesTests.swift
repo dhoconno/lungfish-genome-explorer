@@ -142,8 +142,7 @@ final class ProvenanceStepCopySitesTests: XCTestCase {
         ])
         XCTAssertEqual(copiedStep.durableReplayArgv?.last, final.path)
         XCTAssertEqual(Facts.filePath(of: "input", in: copiedStep), final.path, "the option follows the replay command")
-        XCTAssertNil(copy.githubReleaseVersion, "the rewrite drops the record's release version")
-        XCTAssertNil(copy.options.resolvedDefaults["readSetPlan"], "the rewrite drops the nested run's plan")
+        Self.assertKeepsTheRecord(copy, of: source, nestedFileNow: final)
     }
 
     // MARK: GUIImportedProvenanceRehydrator.rehydrateImportedFileSidecar (selected outputs, then arguments)
@@ -169,8 +168,7 @@ final class ProvenanceStepCopySitesTests: XCTestCase {
         XCTAssertEqual(copiedStep.durableReplayArgv?.last, destination.path)
         XCTAssertEqual(Facts.filePath(of: "input", in: copiedStep), destination.path, "the option follows the replay command")
         XCTAssertEqual(copy.steps.last?.toolName, "lungfish-app", "the import step follows")
-        XCTAssertNil(copy.githubReleaseVersion, "the import drops the record's release version")
-        XCTAssertNil(copy.options.resolvedDefaults["readSetPlan"], "the import drops the nested run's plan")
+        Self.assertKeepsTheRecord(copy, of: source, nestedFileNow: destination)
     }
 
     // MARK: ProvenanceRehydrator.rehydrate
@@ -196,8 +194,7 @@ final class ProvenanceStepCopySitesTests: XCTestCase {
             "durableReplayArgv": .changed, "resolvedOptions": .changed,
         ])
         XCTAssertEqual(Facts.filePath(of: "input", in: copiedStep), finalOutput.path, "the step's options follow its replay command")
-        XCTAssertNil(copy.githubReleaseVersion, "the rehydrator drops the record's release version")
-        XCTAssertNil(copy.options.resolvedDefaults["readSetPlan"], "the rehydrator drops the nested run's plan")
+        Self.assertKeepsTheRecord(copy, of: source, nestedFileNow: finalOutput)
     }
 
     // MARK: MetagenomicsImportService, the NVD auxiliary and NAO-MGS materialization steps
@@ -255,6 +252,24 @@ final class ProvenanceStepCopySitesTests: XCTestCase {
     }
 
     // MARK: Helpers
+
+    /// The copy keeps the record's release version, and the nested run's plan and file value reach the
+    /// resolved defaults, the file value under the copy's path map.
+    static func assertKeepsTheRecord(
+        _ copy: ProvenanceEnvelope, of source: ProvenanceEnvelope, nestedFileNow expected: URL,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        XCTAssertEqual(copy.githubReleaseVersion, source.githubReleaseVersion, file: file, line: line)
+        XCTAssertEqual(
+            copy.options.resolvedDefaults["readSetPlan"], EnvelopeCopySources.readSetPlan,
+            "the nested run's plan survives", file: file, line: line
+        )
+        XCTAssertEqual(
+            copy.options.resolvedDefaults["copyPinNestedFile"]?.fileValue?.path, expected.path,
+            "a nested file value takes the copy's path map", file: file, line: line
+        )
+        XCTAssertNil(copy.legacyRun, file: file, line: line)
+    }
 
     /// A completed CLI record of one full step that read and wrote `output`, as a pre-2.4 build wrote it,
     /// with its plan, another parameter and a file value naming `output` only in the nested run.

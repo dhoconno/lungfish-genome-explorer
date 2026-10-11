@@ -99,40 +99,27 @@ public enum ProvenanceRehydrator {
             sourceEnvelope.durableReplayArgv ?? sourceEnvelope.argv,
             pathMap: replayPathMap
         )
-        let rehydrated = try ProvenanceEnvelope(
-            schemaVersion: sourceEnvelope.schemaVersion,
-            id: sourceEnvelope.id,
-            createdAt: sourceEnvelope.createdAt,
-            workflowName: sourceEnvelope.workflowName,
-            workflowVersion: sourceEnvelope.workflowVersion,
-            toolName: sourceEnvelope.toolName,
-            toolVersion: sourceEnvelope.toolVersion,
-            tool: sourceEnvelope.tool,
-            argv: sourceEnvelope.argv,
-            durableReplayArgv: topLevelReplayArgv,
-            reproducibleCommand: commandLine(
-                from: topLevelReplayArgv,
-                fallback: sourceEnvelope.reproducibleCommand,
-                pathMap: replayPathMap
-            ),
-            options: rewriteOptions(sourceEnvelope.options, pathMap: replayPathMap),
-            runtimeIdentity: sourceEnvelope.runtimeIdentity,
-            files: rewriteTopLevelFiles(
+        let rehydrated = try sourceEnvelope.with { copy in
+            copy.durableReplayArgv = topLevelReplayArgv
+            copy.reproducibleCommand = commandLine(
+                from: topLevelReplayArgv, fallback: sourceEnvelope.reproducibleCommand, pathMap: replayPathMap
+            )
+            copy.options = rewriteOptions(sourceEnvelope.options, pathMap: replayPathMap)
+            // The nested run's parameters merge into the options after this change, so they take the same map.
+            copy.legacyRun?.parameters = sourceEnvelope.legacyRun?.parameters.mapValues {
+                rewriteParameterValue($0, pathMap: replayPathMap)
+            } ?? [:]
+            copy.files = try rewriteTopLevelFiles(
                 sourceEnvelope.files,
                 pathMap: pathMap,
                 sourceProvenancePath: sourceProvenanceURL.path,
                 selectedProjection: selectedProjection,
                 preserveOriginMetadata: preserveOriginMetadata
-            ),
-            output: output,
-            outputs: outputs,
-            steps: steps,
-            wallTimeSeconds: sourceEnvelope.wallTimeSeconds,
-            exitStatus: sourceEnvelope.exitStatus,
-            stderr: sourceEnvelope.stderr,
-            signatures: [],
-            status: sourceEnvelope.status
-        )
+            )
+            copy.output = output
+            copy.outputs = outputs
+            copy.steps = steps
+        }
 
         try ProvenanceWriter(signingProvider: nil).write(rehydrated, to: finalDirectory)
         return rehydrated

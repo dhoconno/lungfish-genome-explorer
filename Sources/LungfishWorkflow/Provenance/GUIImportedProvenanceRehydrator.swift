@@ -249,34 +249,21 @@ public enum GUIImportedProvenanceRehydrator {
             }
         }
 
-        return ProvenanceEnvelope(
-            schemaVersion: envelope.schemaVersion,
-            id: envelope.id,
-            createdAt: envelope.createdAt,
-            workflowName: envelope.workflowName,
-            workflowVersion: envelope.workflowVersion,
-            toolName: envelope.toolName,
-            toolVersion: envelope.toolVersion,
-            tool: envelope.tool,
-            argv: envelope.argv,
-            durableReplayArgv: replayArgv,
-            reproducibleCommand: commandLine(
-                from: replayArgv,
-                fallback: envelope.reproducibleCommand,
-                pathMap: standardizedPathMap
-            ),
-            options: rewriteOptions(envelope.options, pathMap: standardizedPathMap),
-            runtimeIdentity: envelope.runtimeIdentity,
-            files: files,
-            output: output,
-            outputs: outputs,
-            steps: steps,
-            wallTimeSeconds: envelope.wallTimeSeconds,
-            exitStatus: envelope.exitStatus,
-            stderr: envelope.stderr,
-            signatures: [],
-            status: envelope.status
-        )
+        return envelope.with { copy in
+            copy.durableReplayArgv = replayArgv
+            copy.reproducibleCommand = commandLine(
+                from: replayArgv, fallback: envelope.reproducibleCommand, pathMap: standardizedPathMap
+            )
+            copy.options = rewriteOptions(envelope.options, pathMap: standardizedPathMap)
+            // The nested run's parameters merge into the options after this change, so they take the same map.
+            copy.legacyRun?.parameters = envelope.legacyRun?.parameters.mapValues {
+                rewriteParameterValue($0, pathMap: standardizedPathMap)
+            } ?? [:]
+            copy.files = files
+            copy.output = output
+            copy.outputs = outputs
+            copy.steps = steps
+        }
     }
 
     private static func rewriteSelectedOutputDescriptors(
@@ -339,34 +326,21 @@ public enum GUIImportedProvenanceRehydrator {
             }
         }
 
-        return ProvenanceEnvelope(
-            schemaVersion: envelope.schemaVersion,
-            id: envelope.id,
-            createdAt: envelope.createdAt,
-            workflowName: envelope.workflowName,
-            workflowVersion: envelope.workflowVersion,
-            toolName: envelope.toolName,
-            toolVersion: envelope.toolVersion,
-            tool: envelope.tool,
-            argv: envelope.argv,
-            durableReplayArgv: replayArgv,
-            reproducibleCommand: commandLine(
-                from: replayArgv,
-                fallback: envelope.reproducibleCommand,
-                pathMap: standardizedPathMap
-            ),
-            options: rewriteOptions(envelope.options, pathMap: standardizedPathMap),
-            runtimeIdentity: envelope.runtimeIdentity,
-            files: files,
-            output: output,
-            outputs: outputs,
-            steps: steps,
-            wallTimeSeconds: envelope.wallTimeSeconds,
-            exitStatus: envelope.exitStatus,
-            stderr: envelope.stderr,
-            signatures: [],
-            status: envelope.status
-        )
+        return envelope.with { copy in
+            copy.durableReplayArgv = replayArgv
+            copy.reproducibleCommand = commandLine(
+                from: replayArgv, fallback: envelope.reproducibleCommand, pathMap: standardizedPathMap
+            )
+            copy.options = rewriteOptions(envelope.options, pathMap: standardizedPathMap)
+            // The nested run's parameters merge into the options after this change, so they take the same map.
+            copy.legacyRun?.parameters = envelope.legacyRun?.parameters.mapValues {
+                rewriteParameterValue($0, pathMap: standardizedPathMap)
+            } ?? [:]
+            copy.files = files
+            copy.output = output
+            copy.outputs = outputs
+            copy.steps = steps
+        }
     }
 
     private static func provenanceRoot(for sourceURL: URL) -> URL {
@@ -727,30 +701,10 @@ public enum GUIImportedProvenanceRehydrator {
             )
         }
 
-        return ProvenanceEnvelope(
-            schemaVersion: envelope.schemaVersion,
-            id: envelope.id,
-            createdAt: envelope.createdAt,
-            workflowName: envelope.workflowName,
-            workflowVersion: envelope.workflowVersion,
-            toolName: envelope.toolName,
-            toolVersion: envelope.toolVersion,
-            tool: envelope.tool,
-            argv: envelope.argv,
-            durableReplayArgv: envelope.durableReplayArgv,
-            reproducibleCommand: envelope.reproducibleCommand,
-            options: envelope.options,
-            runtimeIdentity: envelope.runtimeIdentity,
-            files: deduplicated(envelope.files + importStep.inputs + importStep.outputs),
-            output: envelope.output,
-            outputs: envelope.outputs,
-            steps: envelope.steps + [importStep],
-            wallTimeSeconds: envelope.wallTimeSeconds,
-            exitStatus: envelope.exitStatus,
-            stderr: envelope.stderr,
-            signatures: [],
-            status: envelope.status
-        )
+        return envelope.with { copy in
+            copy.files = deduplicated(envelope.files + importStep.inputs + importStep.outputs)
+            copy.steps = envelope.steps + [importStep]
+        }
     }
 
     private static func importStepInput(for sourceURL: URL) throws -> ProvenanceFileDescriptor {
@@ -924,34 +878,18 @@ public enum GUIImportedProvenanceRehydrator {
                 }
             }
         }
-        return ProvenanceEnvelope(
-            schemaVersion: envelope.schemaVersion,
-            id: envelope.id,
-            createdAt: envelope.createdAt,
-            workflowName: envelope.workflowName,
-            workflowVersion: envelope.workflowVersion,
-            toolName: envelope.toolName,
-            toolVersion: envelope.toolVersion,
-            tool: envelope.tool,
-            argv: envelope.argv,
-            durableReplayArgv: replayArgv,
-            reproducibleCommand: commandLine(
-                from: replayArgv,
-                fallback: envelope.reproducibleCommand,
-                pathMap: standardizedPathMap
-            ),
-            options: rewriteOptions(envelope.options, pathMap: standardizedPathMap),
-            runtimeIdentity: envelope.runtimeIdentity,
-            files: envelope.files,
-            output: envelope.output,
-            outputs: envelope.outputs,
-            steps: steps,
-            wallTimeSeconds: envelope.wallTimeSeconds,
-            exitStatus: envelope.exitStatus,
-            stderr: envelope.stderr,
-            signatures: [],
-            status: envelope.status
-        )
+        return envelope.with { copy in
+            copy.durableReplayArgv = replayArgv
+            copy.reproducibleCommand = commandLine(
+                from: replayArgv, fallback: envelope.reproducibleCommand, pathMap: standardizedPathMap
+            )
+            copy.options = rewriteOptions(envelope.options, pathMap: standardizedPathMap)
+            // The nested run's parameters merge into the options after this change, so they take the same map.
+            copy.legacyRun?.parameters = envelope.legacyRun?.parameters.mapValues {
+                rewriteParameterValue($0, pathMap: standardizedPathMap)
+            } ?? [:]
+            copy.steps = steps
+        }
     }
 
     private static func rewriteParameterValue(_ value: ParameterValue, pathMap: [String: String]) -> ParameterValue {
