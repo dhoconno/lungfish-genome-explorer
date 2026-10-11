@@ -180,6 +180,35 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
         XCTAssertTrue(loggedLines(of: run.item).contains("info: Building esviritu.sqlite from single-sample result"))
     }
 
+    /// Review fix 4, a deliberate difference from today. A completed run whose result the app
+    /// cannot read back reads Completed with Warnings with the command's own detail and one
+    /// warning line, opens no taxonomy browser, and keeps the folder for Results and Reveal
+    /// Output Files. Today's route holds the result in memory and has no such case.
+    func testAResultThatCannotBeReadBackReadsCompletedWithWarningsAndTheCommandsDetail() async throws {
+        let made = try ClassifierRouteFixtures.makeProject(in: root)
+        let run = try await runThroughRoute(
+            .kraken2([kraken2Config(inputs: made.inputs, sampleFolder: "classification-x")]),
+            tool: StandInClassifierTool(tool: .kraken2, units: [("reads", .complete)], layout: .singleFolder),
+            project: made.project,
+            inputs: made.inputs,
+            alteringTheResult: { folder in
+                try FileManager.default.removeItem(at: folder.appendingPathComponent("classification-result.json"))
+            }
+        )
+
+        XCTAssertEqual(run.item.displayStateLabel, "Completed with Warnings")
+        XCTAssertEqual(run.item.detail, "the command's own detail")
+        let warnings = loggedLines(of: run.item).filter { $0.hasPrefix("warning:") }
+        XCTAssertEqual(warnings.count, 1, "\(warnings)")
+        XCTAssertTrue(
+            warnings.first?.hasPrefix("warning: The result in \(run.folder.lastPathComponent) could not be read back: ") == true,
+            "\(warnings)"
+        )
+        XCTAssertNil(run.viewer.taxonomyViewController, "no result opens")
+        XCTAssertNil(run.alertText)
+        XCTAssertEqual(run.item.bundleURLs.map(\.standardizedFileURL), [run.folder.standardizedFileURL])
+    }
+
     // MARK: - Failed
 
     /// D11 to D13, E5. A failed EsViritu run shows today's alert with the command's message, puts
@@ -370,14 +399,16 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
     /// Runs `configs` through the route with a stand-in command that plays what the real
     /// executor printed for `tool`, and checks the parts every outcome shares. The row tracks
     /// the folder while the command runs, which keeps it hidden (D16, D17), and the route writes
-    /// no byte into the project after the command exits.
+    /// no byte into the project after the command exits. `alteringTheResult` changes the folder
+    /// the executor left before the command plays.
     private func runThroughRoute(
         _ configs: Configs,
         tool: StandInClassifierTool,
         project: URL,
         inputs: [URL],
         standardError: [String] = [],
-        expectsAlert: Bool = false
+        expectsAlert: Bool = false,
+        alteringTheResult: ((URL) throws -> Void)? = nil
     ) async throws -> RouteRun {
         let routeContext = OperationRouteContext(projectURL: project, windowStateScopeID: nil)
         let launch: ClassifierCLIRouteLaunch
@@ -396,6 +427,7 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
             // The folder as it is while the command runs. The stand-in settles it at its end.
             try FileManager.default.copyItem(at: recordCopy, to: recordURL)
         }
+        try alteringTheResult?(folder)
         let before = try ClassifierRouteFixtures.snapshot(of: project, ignoring: [AnalysisRunRecord.fileName])
         let recordBefore = completed ? nil : try Data(contentsOf: recordURL)
         let go = root.appendingPathComponent("go-\(UUID().uuidString)")
