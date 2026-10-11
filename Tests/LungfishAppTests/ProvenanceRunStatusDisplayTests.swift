@@ -15,8 +15,9 @@ import LungfishWorkflow
 /// now has a Run Status row that reads the record's own `status`, and reads Not recorded when the record
 /// states none and the reader derived one. The Runtime rows have no Process ID row for a record whose format
 /// never holds one. That is an envelope at version 2 or later, a typed record, and a version 1 envelope that
-/// states its own status and holds no process ID, which is how the native alignment, tree and receipt writers
-/// of Phase 2.7 record a run.
+/// states its own status and holds no process ID, which is the shape of the alignment and tree records of
+/// Phase 2.7 that hold `createdAt` (alignment export, discriminating sites, subtree export, derived trees and
+/// tree import).
 ///
 /// The cases load the committed `fastq trim` records of `Tests/Fixtures/provenance-display/Analyses`,
 /// and edit their bytes where a case needs another record. Every case reads a copy in a temporary
@@ -111,9 +112,10 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
         XCTAssertEqual(processID(of: model), "4242")
     }
 
-    /// A version 1 envelope that states its own status and holds no process ID shows no row. The native
-    /// alignment, tree and receipt writers of Phase 2.7 write that shape and record no process ID (plan decision
-    /// P13), so the row could only read Not recorded beside a record that reads Complete record.
+    /// A version 1 envelope that states its own status and holds no process ID shows no row. The alignment and
+    /// tree records of Phase 2.7 that hold `createdAt` (alignment export, discriminating sites, subtree export,
+    /// derived trees and tree import) have that shape and record no process ID (plan decision P13), so the row
+    /// could only read Not recorded beside a record that reads Complete record.
     func testAVersion1RecordThatStatesItsStatusAndHoldsNoProcessIDShowsNoRow() async throws {
         let model = try await loadedModel(try recordBytes("fastq-trim-cancelled") { $0["schemaVersion"] = 1 })
 

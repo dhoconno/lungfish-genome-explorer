@@ -78,9 +78,10 @@ extension ProvenanceInspectorViewModel {
     /// never holds a process ID shows no row, because the row could only read Not recorded. That means an
     /// envelope at version 2 or later, whose encoder drops the ID (plan decision V5 of Phase 2.6), and a
     /// typed record such as `mapping-provenance.json`, which never held one. It also means a version 1
-    /// envelope that states its own status and holds no ID, which is how the native alignment, tree and
-    /// receipt writers of Phase 2.7 record a run (plan decision P13). A record that holds a process ID keeps
-    /// its row, because the tab shows every fact a record holds. Any other version 1 envelope keeps its row,
+    /// envelope that states its own status and holds no ID, which is the shape of the alignment and tree
+    /// records of Phase 2.7 that hold `createdAt` (alignment export, discriminating sites, subtree export,
+    /// derived trees and tree import, plan decision P13). A record that holds a process ID keeps its row,
+    /// because the tab shows every fact a record holds. Any other version 1 envelope keeps its row,
     /// because that format could hold an ID and no earlier writer left it out of an envelope that states a
     /// status. An envelope that embeds a legacy run keeps its row too, since the run states the status and
     /// that writer recorded the process. A bare run and a primitive record keep theirs, because the Older

@@ -1019,8 +1019,8 @@ features:
       prints what it always printed with its errors and warnings on standard
       error. A SIGTERM cancels the run, which records the status cancelled and
       exits 125. The run writes one root record whose command is the one that
-      ran. The commands build-db esviritu, build-db kraken2 and build-db taxtriage
-      print version 2 events under --format json.
+      ran. The command build-db esviritu prints version 2 events under --format
+      json, as build-db kraken2 and build-db taxtriage do.
   classify.nao-mgs:
     title: NAO-MGS metagenomic surveillance
     entry_points:
@@ -1819,15 +1819,16 @@ features:
       result with no record reads Missing provenance. The status line under the
       section title audits the record and not the run. It reads Complete record,
       Incomplete record, Older record format, Missing provenance or No provenance
-      required. Run Summary includes a Run Status row between Created and Exit
+      required, and Invalid when a record a native loader verified cannot be
+      read. Run Summary includes a Run Status row between Created and Exit
       Status. It reads the record's own status as Completed, Failed, Cancelled or
       Not finished, and reads Not recorded when the record states none and the
       reader derived one. A record whose format never holds a process ID shows no
       Process ID row. That covers an envelope at version 2 or later, a typed record
       such as mapping-provenance.json, and a version 1 envelope that states its
-      status and holds no process ID. A record that holds a process ID keeps the
-      row, and a bare run or primitive record in the Older record format that lacks
-      one reads Not recorded.
+      own status, embeds no legacy run and holds no process ID. A record that holds
+      a process ID keeps the row, and a bare run or primitive record in the Older
+      record format that lacks one reads Not recorded.
   provenance.result-popovers:
     title: Show a result viewer's pipeline information popover
     entry_points:
