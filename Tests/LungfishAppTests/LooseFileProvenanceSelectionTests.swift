@@ -199,9 +199,9 @@ final class LooseFileProvenanceSelectionTests: XCTestCase {
             "The tab resolved another sidecar.", file: file, line: line
         )
         // The bare legacy run has no checksum for the NCBI address it fetched from, so the
-        // converted record reads Incomplete and not Complete.
+        // converted record reads Incomplete record and not Complete record.
         XCTAssertEqual(provenance.audit.status, .incomplete, file: file, line: line)
-        XCTAssertEqual(provenance.summary.statusLabel, "Incomplete", file: file, line: line)
+        XCTAssertEqual(provenance.summary.statusLabel, "Incomplete record", file: file, line: line)
         XCTAssertEqual(
             Data(provenance.rawJSON.utf8), try Data(contentsOf: sidecar),
             "Raw JSON is not the sidecar file.", file: file, line: line

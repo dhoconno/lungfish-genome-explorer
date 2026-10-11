@@ -11,7 +11,7 @@ import LungfishTestSupport
 import LungfishWorkflow
 
 /// Plan decision P14, lane U3a. The coverage audit counts missing facts only, so a failed or cancelled
-/// run whose record holds every fact read Complete and said nothing else about the run. The Run Summary
+/// run whose record holds every fact read Complete record and said nothing else about the run. The Run Summary
 /// now has a Run Status row that reads the record's own `status`, and reads Not recorded when the record
 /// states none and the reader derived one. The Runtime rows have no Process ID row for a record whose format
 /// never holds one, which is an envelope at version 2 or later and a typed record.
@@ -27,7 +27,7 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
     func testACancelledRunReadsCancelledInTheCopyTextAndTheView() async throws {
         let model = try await loadedModel(try recordBytes("fastq-trim-cancelled"))
 
-        XCTAssertEqual(model.summary.statusLabel, "Complete", "The audit label still says the record holds every fact.")
+        XCTAssertEqual(model.summary.statusLabel, "Complete record", "The audit label still says the record holds every fact.")
         XCTAssertEqual(model.summary.runStatus, .stated(.cancelled))
         XCTAssertTrue(model.copyableText.contains("Run Status: Cancelled"), model.copyableText)
         let texts = try summaryTexts(of: model)
@@ -37,7 +37,7 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
     func testAFailedRunReadsFailedInTheCopyTextAndTheView() async throws {
         let model = try await loadedModel(try recordBytes("fastq-trim-failed"))
 
-        XCTAssertEqual(model.summary.statusLabel, "Complete")
+        XCTAssertEqual(model.summary.statusLabel, "Complete record")
         XCTAssertEqual(model.summary.runStatus, .stated(.failed))
         XCTAssertTrue(model.copyableText.contains("Run Status: Failed"), model.copyableText)
         let texts = try summaryTexts(of: model)
@@ -227,6 +227,24 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
         XCTAssertEqual(ProvenanceRunStatusDisplay.notRecorded.label, "Not recorded")
     }
 
+    /// The status line under the section title judges the record, and Run Status says how the run ended, so a
+    /// failed run can have a complete record. The two audit labels that stood alone now name their subject, and
+    /// "Complete record" beside "Failed" no longer reads as a contradiction (plan decision P14). The labels that
+    /// already name their subject keep their words.
+    func testTheAuditLabelsNameTheRecordTheyJudge() {
+        let words = [
+            ProvenanceAuditStatus.present, .incomplete, .legacy, .missing, .notRequired, .invalid, .stale,
+        ].map(\.displayName)
+
+        XCTAssertEqual(
+            words,
+            [
+                "Complete record", "Incomplete record", "Older record format", "Missing provenance",
+                "No provenance required", "Invalid", "Stale",
+            ]
+        )
+    }
+
     // MARK: - VoiceOver
 
     /// VoiceOver reads the section's accessibility tree in the order the view lists its rows. The Run Status
@@ -236,7 +254,7 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
         viewModel.summary = ProvenanceRunSummary(
             workflowName: "lungfish fastq trim",
             createdAt: Date(timeIntervalSince1970: 1_791_609_019),
-            statusLabel: "Complete",
+            statusLabel: "Complete record",
             runStatus: .stated(.cancelled),
             exitStatus: 0,
             wallTimeSeconds: 12.4,

@@ -220,7 +220,7 @@
     "runStatus" : "Not recorded",
     "sidecarDisplayPath" : "Analyses/minimap2-2026-07-14T15-20-00/mapping-provenance.json",
     "signatureCount" : 0,
-    "statusLabel" : "Incomplete",
+    "statusLabel" : "Incomplete record",
     "stepCount" : 3,
     "toolName" : "minimap2",
     "toolVersion" : "v2.31",

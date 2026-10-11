@@ -250,7 +250,7 @@
     "runStatus" : "Completed",
     "sidecarDisplayPath" : "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/.lungfish-provenance.json",
     "signatureCount" : 0,
-    "statusLabel" : "Complete",
+    "statusLabel" : "Complete record",
     "stepCount" : 3,
     "toolName" : "lungfish import fasta",
     "toolVersion" : "v2026.9.58 (5822)",

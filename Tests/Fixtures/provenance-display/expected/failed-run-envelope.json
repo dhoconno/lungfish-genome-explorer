@@ -107,7 +107,7 @@
     "runStatus" : "Failed",
     "sidecarDisplayPath" : "Analyses/fastq-trim-failed/.lungfish-provenance.json",
     "signatureCount" : 0,
-    "statusLabel" : "Complete",
+    "statusLabel" : "Complete record",
     "stepCount" : 1,
     "toolName" : "fastp",
     "toolVersion" : "v0.24.0",

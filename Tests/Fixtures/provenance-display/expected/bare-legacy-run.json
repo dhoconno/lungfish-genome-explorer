@@ -133,7 +133,7 @@
     "runStatus" : "Completed",
     "sidecarDisplayPath" : "Imports/MN908947.3.gff3.lungfish-provenance.json",
     "signatureCount" : 0,
-    "statusLabel" : "Incomplete",
+    "statusLabel" : "Incomplete record",
     "stepCount" : 1,
     "toolName" : "ncbi-efetch",
     "toolVersion" : "NCBI E-utilities API",

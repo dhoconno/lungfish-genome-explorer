@@ -50,13 +50,19 @@ struct ProvenanceRecordShapeRule: Equatable, Sendable {
 
 extension ProvenanceAuditStatus {
     /// The status as the Provenance tab spells it.
+    ///
+    /// Complete and Incomplete name their subject, the record. The audit judges whether the record holds
+    /// every fact LGE expects, and the Run Status row says how the run ended, so a failed or cancelled run
+    /// with a full record no longer reads "Complete" beside "Failed" (plan decision P14). The other words
+    /// already name their subject.
     var displayName: String {
         switch self {
         case .notRequired: return "No provenance required"
-        case .present: return "Complete"
+        case .present: return "Complete record"
         case .missing: return "Missing provenance"
         case .legacy: return ProvenanceRecordShapeRule.olderRecordFormatTitle
-        case .invalid, .incomplete, .stale: return rawValue.capitalized
+        case .incomplete: return "Incomplete record"
+        case .invalid, .stale: return rawValue.capitalized
         }
     }
 }

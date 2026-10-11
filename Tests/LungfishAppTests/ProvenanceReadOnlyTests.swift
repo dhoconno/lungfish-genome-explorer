@@ -55,7 +55,7 @@ final class ProvenanceReadOnlyTests: XCTestCase {
         )
 
         XCTAssertEqual(model.audit.status, .present)
-        XCTAssertEqual(model.summary.statusLabel, "Complete")
+        XCTAssertEqual(model.summary.statusLabel, "Complete record")
         XCTAssertEqual(model.summary.stepCount, 1, "The record has no index step, and reading adds none.")
         XCTAssertEqual(model.summary.signatureCount, 1, "The record's signature stays.")
         XCTAssertEqual(model.resolvedEnvelope?.steps.map(\.toolName), ["TaxTriage"])

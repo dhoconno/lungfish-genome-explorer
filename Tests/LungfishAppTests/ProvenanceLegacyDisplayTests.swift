@@ -32,7 +32,7 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
     /// The real record `lungfish-cli` 0.4.0-alpha.11 wrote beside a fetched GFF3. It has no
     /// `createdAt` or `runtimeIdentity`, so the reader converts it from the legacy run.
     ///
-    /// The tab reads Incomplete with a File metadata incomplete warning, because the NCBI
+    /// The header reads Incomplete record with a File metadata incomplete warning, because the NCBI
     /// address the step fetched from has no checksum or size. Both files read as outside the
     /// project.
     func testBareLegacyRunFetchedByLungfishCLIReadsAsConvertedRecord() async throws {
@@ -62,7 +62,7 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
     /// The record `lungfish import fasta` of Lungfish 2026.9.58 wrote for the MHC demo's
     /// reference bundle. It is a full envelope and also carries the nested `legacyWorkflowRun`.
     ///
-    /// The tab reads Complete with three steps and no warnings. The record carries its whole
+    /// The header reads Complete record with three steps and no warnings. The record carries its whole
     /// runtime identity.
     func testReleasedEnvelopeWithEmbeddedRunKeepsItsRecordedDisplay() async throws {
         let project = try makeProject()
@@ -92,7 +92,7 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
 
     /// An MSA record whose `files` is a keyed map, which the primitive adapter reads.
     ///
-    /// The tab reads Complete, with every file outside the project and no embedded run.
+    /// The header reads Complete record, with every file outside the project and no embedded run.
     func testPrimitiveMSARecordWithKeyedFileMapsReadsThroughTheAdapter() async throws {
         let project = try makeProject()
         let bundle = project.appendingPathComponent("Analyses/Aligned.lungfishmsa", isDirectory: true)
@@ -142,7 +142,7 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
 
     /// An assembler's own record, stored as `assembly/provenance.json` with no envelope.
     ///
-    /// The tab reads Incomplete because the record has no exit status. The output row names
+    /// The header reads Incomplete record because the record has no exit status. The output row names
     /// the bundle, since the record lists no output of its own.
     func testPrimitiveAssemblyRecordStoredUnderAssemblyDirectoryReadsThroughTheAdapter() async throws {
         let project = try makeProject()
@@ -167,7 +167,7 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
     /// A schema 3 `mapping-provenance.json`, which the reader turns into an envelope itself.
     /// It is also app state, so the file stays beside the mapping result.
     ///
-    /// The tab reads Incomplete because the viewer bundle it lists has no checksum, and it
+    /// The header reads Incomplete record because the viewer bundle it lists has no checksum, and it
     /// collapses the two FASTQ files into one bundle row.
     func testSchema3MappingProvenanceReadsAsTypedRecord() async throws {
         let project = try makeProject()
@@ -192,7 +192,7 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
     /// A `lungfish fastq trim` run the user cancelled, written by the version 2 encoder. The record states
     /// `status` cancelled, and its last step exited 0, so nothing else in it says the output is partial.
     ///
-    /// The record holds every fact, so the header reads Complete and the exit status is 0. Only the Run Status
+    /// The record holds every fact, so the header reads Complete record and the exit status is 0. Only the Run Status
     /// row says that the run was cancelled. A version 2 record holds no process ID, so the Runtime rows have
     /// no Process ID row.
     func testCancelledRunEnvelopeKeepsItsRecordedDisplay() async throws {
@@ -201,14 +201,14 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
         XCTAssertEqual(model.resolvedEnvelope?.status, .cancelled, "The record states that the run was cancelled.")
         XCTAssertEqual(model.resolvedEnvelope?.exitStatus, 0)
         XCTAssertEqual(model.audit.status, .present)
-        XCTAssertEqual(model.summary.statusLabel, "Complete")
+        XCTAssertEqual(model.summary.statusLabel, "Complete record")
         XCTAssertEqual(model.summary.runStatus, .stated(.cancelled))
     }
 
     /// The same run ended by a failing tool, written by the version 2 encoder. The record states `status`
     /// failed, holds the tool's stderr, and the step warning already names the non-zero exit.
     ///
-    /// The record holds every fact, so the header reads Complete. The Run Status row says that the run failed,
+    /// The record holds every fact, so the header reads Complete record. The Run Status row says that the run failed,
     /// and the Runtime rows have no Process ID row.
     func testFailedRunEnvelopeKeepsItsRecordedDisplay() async throws {
         let model = try await assertRunEnvelopeDisplay(folder: "fastq-trim-failed", matching: "failed-run-envelope")
@@ -216,7 +216,7 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
         XCTAssertEqual(model.resolvedEnvelope?.status, .failed, "The record states that the run failed.")
         XCTAssertEqual(model.resolvedEnvelope?.exitStatus, 1)
         XCTAssertEqual(model.audit.status, .present)
-        XCTAssertEqual(model.summary.statusLabel, "Complete")
+        XCTAssertEqual(model.summary.statusLabel, "Complete record")
         XCTAssertEqual(model.summary.runStatus, .stated(.failed))
     }
 
