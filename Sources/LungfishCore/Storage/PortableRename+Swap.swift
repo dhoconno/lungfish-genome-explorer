@@ -95,10 +95,13 @@ extension PortableRename {
 
     /// Restores entries that an interrupted swap left under a tombstone,
     /// anywhere under `projectURL` and at most `maximumDepth` levels down.
-    /// A tombstone is restored only when the entry it belongs to is missing.
-    /// One beside a present entry holds a retired generation and is left
-    /// alone, never deleted. Symbolic links are not followed. Opening a
-    /// project runs this. Returns the restored entries.
+    /// An entry that is missing, or is the empty file an interrupted ExFAT
+    /// rename reserved it with, takes its newest regular tombstone that holds
+    /// bytes, as `DurableReplace.recover` chooses. Otherwise a tombstone is
+    /// restored only when its entry is missing. One beside a present entry
+    /// holds a retired generation and is left alone, never deleted. Symbolic
+    /// links are not followed. Opening a project runs this, and a read runs
+    /// no recovery. Returns the restored entries.
     @discardableResult
     public static func recoverInterruptedSwaps(underProject projectURL: URL, maximumDepth: Int = 12) -> [URL] {
         guard let enumerator = FileManager.default.enumerator(
@@ -116,7 +119,12 @@ extension PortableRename {
             tombstonesByDirectory[url.deletingLastPathComponent(), default: []].append(name)
         }
         return tombstonesByDirectory.keys.sorted { $0.path < $1.path }.flatMap { directory in
-            restoreTombstones(tombstonesByDirectory[directory, default: []].sorted(), in: directory, operations: .current)
+            restoreTombstones(
+                tombstonesByDirectory[directory, default: []].sorted(),
+                in: directory,
+                replacingEmptyEntries: true,
+                operations: .current
+            )
         }
     }
 
@@ -125,13 +133,37 @@ extension PortableRename {
         let directory = entry.deletingLastPathComponent()
         let prefix = ".\(entry.lastPathComponent)\(swapTombstoneInfix)"
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        return restoreTombstones(names.filter { $0.hasPrefix(prefix) }.sorted(), in: directory, operations: operations)
+        // A swap's own pre-step keeps the missing-entry rule, so the name of
+        // an observed write never changes under it.
+        return restoreTombstones(
+            names.filter { $0.hasPrefix(prefix) }.sorted(),
+            in: directory,
+            replacingEmptyEntries: false,
+            operations: operations
+        )
     }
 
-    private static func restoreTombstones(_ names: [String], in directory: URL, operations: Operations) -> [URL] {
+    private static func restoreTombstones(
+        _ names: [String],
+        in directory: URL,
+        replacingEmptyEntries: Bool,
+        operations: Operations
+    ) -> [URL] {
         var restored: [URL] = []
+        var decided: Set<String> = []
+        if replacingEmptyEntries {
+            let byEntry = Dictionary(grouping: names.compactMap { name in entryName(forTombstone: name).map { ($0, name) } }) { $0.0 }
+            for entryName in byEntry.keys.sorted() {
+                let tombstones = byEntry[entryName, default: []].map { $0.1 }
+                guard let newest = newestFileHoldingBytes(tombstones, in: directory) else { continue }
+                decided.insert(entryName)
+                if let entry = restore(newest, over: entryName, in: directory, operations: operations) {
+                    restored.append(entry)
+                }
+            }
+        }
         for name in names {
-            guard let entryName = entryName(forTombstone: name) else { continue }
+            guard let entryName = entryName(forTombstone: name), !decided.contains(entryName) else { continue }
             let entry = directory.appendingPathComponent(entryName)
             var information = stat()
             guard lstat(entry.path, &information) != 0, errno == ENOENT else { continue }
@@ -141,6 +173,48 @@ extension PortableRename {
             }
         }
         return restored
+    }
+
+    /// The newest regular tombstone that holds bytes, by modification time and
+    /// then by name.
+    private static func newestFileHoldingBytes(_ tombstones: [String], in directory: URL) -> String? {
+        var newest: (name: String, modified: timespec)?
+        for name in tombstones {
+            var information = stat()
+            guard lstat(directory.appendingPathComponent(name).path, &information) == 0,
+                  information.st_mode & S_IFMT == S_IFREG,
+                  information.st_size > 0 else { continue }
+            let modified = information.st_mtimespec
+            if let current = newest {
+                let older = (modified.tv_sec, modified.tv_nsec, name) <= (current.modified.tv_sec, current.modified.tv_nsec, current.name)
+                if older { continue }
+            }
+            newest = (name, modified)
+        }
+        return newest?.name
+    }
+
+    /// Moves `tombstone` onto its entry when the entry is missing or an empty
+    /// regular file, unlinking the empty file only while `lstat` still finds
+    /// it empty. Returns the entry when it was restored.
+    private static func restore(
+        _ tombstone: String,
+        over entryName: String,
+        in directory: URL,
+        operations: Operations
+    ) -> URL? {
+        let entry = directory.appendingPathComponent(entryName)
+        var information = stat()
+        if lstat(entry.path, &information) == 0 {
+            // `lstat` runs right before the unlink, so only a file that is
+            // still empty is removed.
+            guard information.st_mode & S_IFMT == S_IFREG, information.st_size == 0,
+                  entry.path.withCString({ operations.removeEntry(AT_FDCWD, $0, 0) }) == 0 else { return nil }
+        } else if errno != ENOENT {
+            return nil
+        }
+        let source = directory.appendingPathComponent(tombstone)
+        return (try? exclusive(source, to: entry, operations: operations)) == nil ? nil : entry
     }
 
     /// The entry a tombstone belongs to, or `nil` when `name` is not a tombstone.

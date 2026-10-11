@@ -134,6 +134,33 @@ final class PortableRenameSwapTests: XCTestCase {
         XCTAssertEqual(try marker(in: bundle.appendingPathComponent("alignments")), "old")
     }
 
+    /// An exit between an ExFAT rotation's reservation of a name and the
+    /// rename onto it leaves an empty file under the name. Opening the
+    /// project gives that name the newest tombstone that holds bytes.
+    func testProjectScanGivesAnEmptyEntryTheNewerOfTwoTombstones() throws {
+        let entry = root.appendingPathComponent("record.json")
+        XCTAssertTrue(FileManager.default.createFile(atPath: entry.path, contents: Data()))
+        let older = try makeOlderAndNewerTombstones(for: "record.json")
+
+        let restored = PortableRename.recoverInterruptedSwaps(underProject: root)
+
+        XCTAssertEqual(restored.map(\.lastPathComponent), ["record.json"])
+        XCTAssertEqual(try String(contentsOf: entry, encoding: .utf8), "newer")
+        XCTAssertEqual(try visibleAndHiddenNames(), [older.lastPathComponent, "record.json"])
+    }
+
+    /// Two generations can wait under tombstones of one missing entry, and
+    /// name order would pick the older. The newest that holds bytes wins.
+    func testProjectScanGivesAMissingEntryTheNewerOfTwoTombstones() throws {
+        let older = try makeOlderAndNewerTombstones(for: "record.json")
+
+        let restored = PortableRename.recoverInterruptedSwaps(underProject: root)
+
+        XCTAssertEqual(restored.map(\.lastPathComponent), ["record.json"])
+        XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("record.json"), encoding: .utf8), "newer")
+        XCTAssertEqual(try visibleAndHiddenNames(), [older.lastPathComponent, "record.json"])
+    }
+
     func testSwapRecoversAnInterruptedSwapOfTheSameEntryFirst() throws {
         let staging = root.appendingPathComponent(".staging", isDirectory: true)
         try makeDirectory(staging, marker: "new")
@@ -244,6 +271,18 @@ final class PortableRenameSwapTests: XCTestCase {
             errno = ENOTSUP
             return -1
         })
+    }
+
+    /// Two tombstones of `name` whose names sort older first, so name order
+    /// alone would restore the older. Returns the older one.
+    private func makeOlderAndNewerTombstones(for name: String) throws -> URL {
+        let older = root.appendingPathComponent(".\(name).lungfish-swap-00000000-0000-0000-0000-000000000001")
+        let newer = root.appendingPathComponent(".\(name).lungfish-swap-FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF")
+        try Data("older".utf8).write(to: older)
+        try Data("newer".utf8).write(to: newer)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000)], ofItemAtPath: older.path)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 2_000)], ofItemAtPath: newer.path)
+        return older
     }
 
     private func makeDirectoryPair() throws -> (staging: URL, final: URL) {

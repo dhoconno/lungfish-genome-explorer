@@ -624,7 +624,14 @@ final class ProvenanceWriterDurabilityTests: XCTestCase {
             XCTAssertTrue(["old", "new"].contains(try? workflowName(at: run.record)),
                           "\(context): on APFS the name holds a record before any recovery")
         }
-        try DurableReplace.recover(named: name, in: run.folder, asideInfixes: [ProvenanceWriter.releasedDisplacedInfix])
+        if run.scenario == .outsideProject {
+            // Outside a project only the next write of the record recovers it.
+            try DurableReplace.recover(named: name, in: run.folder, asideInfixes: [ProvenanceWriter.releasedDisplacedInfix])
+        } else {
+            // Inside one, opening the project recovers it before any read.
+            let project = run.folder.deletingLastPathComponent().deletingLastPathComponent()
+            PortableRename.recoverInterruptedSwaps(underProject: project)
+        }
         let found = try XCTUnwrap(ProvenanceRecorder.findProvenanceEnvelope(for: run.folder), context)
         XCTAssertEqual(found.sidecarURL.lastPathComponent, name, "\(context): never the sibling's record")
         XCTAssertTrue(["old", "new"].contains(found.envelope.workflowName), "\(context): \(found.envelope.workflowName)")
