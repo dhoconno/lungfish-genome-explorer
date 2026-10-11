@@ -98,12 +98,23 @@ final class ToolProcessExecution: Sendable {
     /// stdout. It stays at end of file when the last stage does not stream.
     /// The run only attaches and wakes it. The caller's reader owns it.
     let stdoutChannel = ToolProcessStreamChannel()
+    /// The provenance observer bound where the run was built. It is read
+    /// once, in `init`, because the run's queue threads carry no task-local
+    /// values (`docs/contracts/RECORDING-PROVENANCE.md`).
+    let observer: ToolProcessObserver?
+    /// Where the observation's clocks start, set only when ``observer`` is.
+    let observationAnchor: ObservationAnchor?
 
     init(specs: [ToolProcessSpec], limits: Limits, observers: Observers) {
         self.specs = specs
         self.limits = limits
         self.observers = observers
+        // The task context is read here and nowhere else, its priority for
+        // the queue and its provenance observer.
         self.queue = DispatchQueue(label: "org.lungfish.tool-process", qos: Self.qualityOfService(Task.currentPriority))
+        let observer = ToolProcessObservation.observer
+        self.observer = observer
+        self.observationAnchor = observer == nil ? nil : Self.makeObservationAnchor()
         self.state = Mutex(RunState(stages: Array(repeating: StageRecord(), count: specs.count)))
         self.lastActivity = Mutex(SuspendingClock().now)
     }

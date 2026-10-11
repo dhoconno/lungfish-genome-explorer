@@ -93,6 +93,13 @@ public struct ToolProcessSpec: Sendable {
     public var maxLineBytes: Int
     /// A short name for logs and errors.
     public var label: String
+    /// What the adapter changed in the child's environment, for the
+    /// provenance observer, or nil when the adapter does not say. It never
+    /// changes what the child gets, which is ``environment`` alone.
+    public var environmentChange: ToolProcessEnvironmentChange?
+    /// The adapter's name for what runs, such as a conda environment or a
+    /// `NativeTool` name, for the provenance observer, or nil.
+    public var identityHint: String?
 
     /// The default ``drainGracePeriod``. Five seconds gives a helper that a
     /// launcher script forked, such as a JVM or a Python worker of medaka or
@@ -119,7 +126,9 @@ public struct ToolProcessSpec: Sendable {
         terminationGracePeriod: Duration = .milliseconds(500),
         drainGracePeriod: Duration = ToolProcessSpec.defaultDrainGracePeriod,
         maxLineBytes: Int = ProcessOutputLineFramer.defaultMaxLineBytes,
-        label: String? = nil
+        label: String? = nil,
+        environmentChange: ToolProcessEnvironmentChange? = nil,
+        identityHint: String? = nil
     ) {
         self.executableURL = executableURL
         self.arguments = arguments
@@ -134,6 +143,8 @@ public struct ToolProcessSpec: Sendable {
         self.drainGracePeriod = drainGracePeriod
         self.maxLineBytes = maxLineBytes
         self.label = label ?? executableURL.lastPathComponent
+        self.environmentChange = environmentChange
+        self.identityHint = identityHint
     }
 
     /// The exact argv of the launch, with the executable path as argv[0].

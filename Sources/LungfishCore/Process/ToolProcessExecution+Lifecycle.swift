@@ -179,8 +179,11 @@ extension ToolProcessExecution {
             // left in the pipe, even if a process outside the run holds it.
             stdoutChannel.runEnded()
             // Finish behind every event already queued, so a run whose streams
-            // are not captured still delivers its started events first.
-            queue.async {
+            // are not captured still delivers its started events first. The
+            // provenance observation goes first, outside the lock, so it lands
+            // before anything waiting on the run wakes.
+            queue.async { [self] in
+                deliverObservation()
                 onComplete?()
             }
         }
@@ -373,29 +376,43 @@ extension ToolProcessExecution {
 
     // MARK: - Outcome
 
-    func outcome() throws(ToolProcessError) -> ToolPipelineResult {
-        let run = state.withLock { $0 }
-        var results: [ToolProcessResult] = []
+    /// The result of every launched stage with its stage index, from one
+    /// snapshot of the run. ``outcome()`` and the provenance observation both
+    /// read the stages through it, so a record never disagrees with the
+    /// result or error.
+    func launchedStageResults(_ run: RunState) -> [(stage: Int, result: ToolProcessResult)] {
+        var results: [(stage: Int, result: ToolProcessResult)] = []
         for (index, stage) in run.stages.enumerated() {
             guard stage.launched, let exit = stage.exit, let launchedAt = stage.launchedAt else { continue }
             let stdout = stage.drains.first { $0.stream == .stdout }?.captured()
             let stderr = stage.drains.first { $0.stream == .stderr }?.captured()
-            results.append(
-                ToolProcessResult(
-                    label: specs[index].label,
-                    pid: stage.pid,
-                    termination: exit.termination,
-                    stop: stage.stop,
-                    stdout: stdout?.data ?? Data(),
-                    stderr: stderr?.data ?? Data(),
-                    stdoutTruncated: stdout?.truncated ?? false,
-                    stderrTruncated: stderr?.truncated ?? false,
-                    outputDrainTimedOut: (stdout?.abandoned ?? false) || (stderr?.abandoned ?? false) || stage.groupAbandoned,
-                    outputReadFailed: (stdout?.readFailed ?? false) || (stderr?.readFailed ?? false),
-                    wallTime: launchedAt.duration(to: exit.at)
-                )
+            let result = ToolProcessResult(
+                label: specs[index].label,
+                pid: stage.pid,
+                termination: exit.termination,
+                stop: stage.stop,
+                stdout: stdout?.data ?? Data(),
+                stderr: stderr?.data ?? Data(),
+                stdoutTruncated: stdout?.truncated ?? false,
+                stderrTruncated: stderr?.truncated ?? false,
+                outputDrainTimedOut: (stdout?.abandoned ?? false) || (stderr?.abandoned ?? false) || stage.groupAbandoned,
+                outputReadFailed: (stdout?.readFailed ?? false) || (stderr?.readFailed ?? false),
+                wallTime: launchedAt.duration(to: exit.at)
             )
+            results.append((index, result))
         }
+        return results
+    }
+
+    /// Time from the first launch until the run was over, or zero before then.
+    static func runWallTime(_ run: RunState) -> Duration {
+        guard let startedAt = run.startedAt, let finishedAt = run.finishedAt else { return .zero }
+        return startedAt.duration(to: finishedAt)
+    }
+
+    func outcome() throws(ToolProcessError) -> ToolPipelineResult {
+        let run = state.withLock { $0 }
+        let results = launchedStageResults(run).map { $0.result }
         switch run.runStop {
         case .cancelled:
             throw .cancelled(results: results)
@@ -407,13 +424,7 @@ extension ToolProcessExecution {
         if let failure = run.launchFailure {
             throw .launchFailed(label: failure.label, reason: failure.reason, results: results)
         }
-        let wallTime: Duration
-        if let startedAt = run.startedAt, let finishedAt = run.finishedAt {
-            wallTime = startedAt.duration(to: finishedAt)
-        } else {
-            wallTime = .zero
-        }
-        return ToolPipelineResult(stages: results, wallTime: wallTime)
+        return ToolPipelineResult(stages: results, wallTime: Self.runWallTime(run))
     }
 
     // MARK: - Duration conversion
