@@ -517,11 +517,8 @@ public class MainWindowController: NSWindowController, NSMenuItemValidation {
             guard let viewerView = self?.mainSplitViewController.activeFullSequenceViewerController?.viewerView else { return }
             viewerView.translationColorScheme = config.colorScheme
             viewerView.translationShowStopCodons = config.showStopCodons
-            if config.frames.isEmpty {
-                viewerView.hideTranslation()
-            } else {
-                viewerView.applyFrameTranslation(frames: config.frames, table: config.codonTable)
-            }
+            if config.frames.isEmpty { viewerView.hideTranslation() } else { viewerView.applyFrameTranslation(frames: config.frames, table: config.codonTable) }
+            viewerView.viewController?.scheduleViewStateSave()
         }
         toolView.onCancel = { [weak sheetWindow] in
             guard let sheetWindow else { return }

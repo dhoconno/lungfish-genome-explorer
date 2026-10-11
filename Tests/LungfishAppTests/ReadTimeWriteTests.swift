@@ -174,6 +174,65 @@ final class ReadTimeWriteTests: XCTestCase {
         withExtendedLifetime(delegate) {}
     }
 
+    /// A payload that is a link to reads kept elsewhere changes when its target does, and the link
+    /// itself keeps its size and date. The statistics held in memory belong to the target, so the
+    /// next view computes them again.
+    func testViewingAgainComputesStatisticsAgainWhenTheTargetOfALinkedPayloadChanged() async throws {
+        try await requireSeqkit()
+        let fixture = try makeFixtureProject()
+        let target = scratch.appendingPathComponent("linked-reads.fastq")
+        try FileManager.default.moveItem(at: fixture.fastqPayload, to: target)
+        try FileManager.default.createSymbolicLink(at: fixture.fastqPayload, withDestinationURL: target)
+        let (windowController, delegate) = try makeMainWindowAndDelegate()
+        let split = windowController.mainSplitViewController!
+        try await open(fixture.project, in: windowController)
+        try await view(fixture.fastqBundle, in: windowController)
+
+        let handle = try FileHandle(forWritingTo: target)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("@read5\nACGTACGT\n+\nIIIIIIII\n".utf8))
+        try handle.close()
+        let item = try XCTUnwrap(Self.find(fixture.fastqBundle, in: split.sidebarController.rootItems))
+        split.displayContent(for: item)
+
+        XCTAssertNotNil(split.fastqLoadTask, "The target of the link gained a read, so the statistics are computed again.")
+        let finished = await waitUntil(timeout: .seconds(60)) { split.fastqLoadTask == nil }
+        XCTAssertTrue(finished, "The second computation did not finish.")
+        withExtendedLifetime(delegate) {}
+    }
+
+    /// A payload replaced by a copy of the same size that kept the old date is a different file. Its
+    /// inode and change date differ, so the statistics held in memory no longer apply.
+    func testViewingAgainComputesStatisticsAgainWhenASameSizeCopyKeptTheDate() async throws {
+        try await requireSeqkit()
+        let fixture = try makeFixtureProject()
+        let (windowController, delegate) = try makeMainWindowAndDelegate()
+        let split = windowController.mainSplitViewController!
+        try await open(fixture.project, in: windowController)
+        try await view(fixture.fastqBundle, in: windowController)
+
+        var originalInfo = stat()
+        XCTAssertEqual(stat(fixture.fastqPayload.path, &originalInfo), 0)
+        let copy = scratch.appendingPathComponent("same-size-reads.fastq")
+        let original = try String(contentsOf: fixture.fastqPayload, encoding: .utf8)
+        let changed = original.replacingOccurrences(of: "ACGTACGTAC\n", with: "TGCATGCATG\n")
+        XCTAssertEqual(changed.utf8.count, original.utf8.count)
+        XCTAssertNotEqual(changed, original)
+        try changed.write(to: copy, atomically: true, encoding: .utf8)
+        // `cp -p` and `touch -r` keep the date to the nanosecond, which `setAttributes` does not.
+        var keptTimes = [originalInfo.st_atimespec, originalInfo.st_mtimespec]
+        XCTAssertEqual(utimensat(AT_FDCWD, copy.path, &keptTimes, 0), 0)
+        try FileManager.default.removeItem(at: fixture.fastqPayload)
+        try FileManager.default.moveItem(at: copy, to: fixture.fastqPayload)
+        let item = try XCTUnwrap(Self.find(fixture.fastqBundle, in: split.sidebarController.rootItems))
+        split.displayContent(for: item)
+
+        XCTAssertNotNil(split.fastqLoadTask, "The payload is a different file of the same size and date, so the statistics are computed again.")
+        let finished = await waitUntil(timeout: .seconds(60)) { split.fastqLoadTask == nil }
+        XCTAssertTrue(finished, "The second computation did not finish.")
+        withExtendedLifetime(delegate) {}
+    }
+
     /// The search index is a derived cache (plan row S12). Opening a project builds it and
     /// leaves no provenance record beside it.
     func testOpeningAProjectBuildsTheSearchIndexAndWritesNoRecordForIt() async throws {
@@ -294,6 +353,26 @@ final class ReadTimeWriteTests: XCTestCase {
         try viewer.displayBundle(at: second.url, mode: .sequence(name: second.firstSequence, restoreViewState: false))
         let flushed = BundleViewState.load(from: first.url)
         XCTAssertGreaterThan(try XCTUnwrap(flushed.lastScale), try XCTUnwrap(saved.lastScale), "Leaving flushed the zoom out.")
+    }
+
+    /// Adding or removing an annotation track shows the same bundle again. A change that a person made
+    /// just before is still pending then, and the settle that follows the new display must not drop it.
+    func testAUserChangeBeforeTheAnnotationTrackReloadIsSaved() async throws {
+        let (first, _) = try makeTwoReferences()
+        let viewer = makeViewer()
+        try viewer.displayBundle(at: first.url, mode: .sequence(name: first.firstSequence, restoreViewState: false))
+        try await Task.sleep(for: .milliseconds(400))
+        let restoredScale = try XCTUnwrap(viewer.referenceFrame?.scale)
+
+        viewer.zoomIn() // marks the state changed, and the debounce has not run
+        try viewer.reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: first.url)
+        try await Task.sleep(for: Self.settleTime)
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: first.url.appendingPathComponent(BundleViewState.filename).path),
+            "The reload dropped the zoom that was pending when it began."
+        )
+        XCTAssertLessThan(try XCTUnwrap(BundleViewState.load(from: first.url).lastScale), restoredScale, "The saved scale is the zoomed one.")
     }
 
     // MARK: - Window and project

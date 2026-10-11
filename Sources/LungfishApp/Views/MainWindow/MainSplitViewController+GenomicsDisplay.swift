@@ -461,7 +461,7 @@ extension MainSplitViewController {
 
     /// Statistics computed when a dataset was viewed, for up to 32 datasets. They stay in memory for the session,
     /// because every recorded directory digest covers `<reads>.lungfish-meta.json` and a view must not rewrite it
-    /// (Phase 2.6, lane B3). An entry holds while the payload keeps its size and date.
+    /// (Phase 2.6, lane B3). An entry holds while the payload file, or the target of its link, is unchanged.
     private static var sessionFASTQStatistics: [String: (stamp: String, statistics: FASTQDatasetStatistics)] = [:]
 
     /// Shows the FASTQ dashboard for `sourceURL` from cached statistics, or computes them in one pass and keeps them in memory.
@@ -547,8 +547,8 @@ extension MainSplitViewController {
             ?? bundleDisplayMeta
             ?? demuxSummaryMeta
         let payloadStamp = resolvedFASTQURLs.map { url -> String in
-            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-            return "\(url.path)|\(values?.fileSize ?? -1)|\(values?.contentModificationDate?.timeIntervalSince1970 ?? 0)"
+            var info = stat() // follows links, and inode and ctime catch a same-size copy
+            return stat(url.path, &info) == 0 ? "\(url.path)|\(info.st_dev)|\(info.st_ino)|\(info.st_size)|\(info.st_mtimespec.tv_sec).\(info.st_mtimespec.tv_nsec)|\(info.st_ctimespec.tv_sec).\(info.st_ctimespec.tv_nsec)" : url.path
         }.joined(separator: "\n")
         let sessionStatistics = statisticsCacheURL.flatMap { Self.sessionFASTQStatistics[$0.path] }
             .flatMap { $0.stamp == payloadStamp ? $0.statistics : nil }

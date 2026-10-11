@@ -66,6 +66,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
     }
 
     public func reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: URL) throws {
+        saveCurrentViewState()
         let previousFrame = referenceFrame
         let context = try loadBundleDisplayContext(at: bundleURL)
         try displayBundleSequence(
