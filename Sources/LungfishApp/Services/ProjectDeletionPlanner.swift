@@ -79,24 +79,17 @@ final class ProjectDeletionPlanner {
     /// Directory extensions for every opaque project-object bundle. A directory
     /// with one of these extensions is treated as a single object: the planner
     /// recognizes it as a project object and never enumerates into its internal
-    /// files. Keep this as the single source of truth so the two consumers
-    /// (`isProjectObjectDirectory` and `isInsideProjectObjectContainer`) stay in
-    /// sync as new bundle types ship. Use the typed `directoryExtension`
-    /// constants where they exist; the remaining entries have no typed constant
-    /// and are used as string literals across the codebase.
-    static let projectObjectDirectoryExtensions: Set<String> = [
-        FASTQBundle.directoryExtension,
-        MultipleSequenceAlignmentBundle.directoryExtension,
-        ONTGenotypeResultBundle.directoryExtension,
-        MHCAmpliconReferenceBundle.directoryExtension,
-        TwelveSReferenceBundle.directoryExtension,
-        TwelveSAmpliconResultBundle.directoryExtension,
-        "lungfishref",
-        "lungfishtree",
-        "lungfishprimers",
-        "lungfishprimeranalysis",
-        "lungfishtax",
-    ]
+    /// files. The set is read from `BundleKindRegistry`, the kinds whose deletion
+    /// fact is an opaque project object, so a new bundle kind joins it by being
+    /// registered. Both consumers (`isProjectObjectDirectory` and
+    /// `isInsideProjectObjectContainer`) lowercase the extension before they look
+    /// it up, as the planner always has, and the registry spells its extensions
+    /// in lowercase.
+    static let projectObjectDirectoryExtensions: Set<String> = Set(
+        BundleKindRegistry.all
+            .filter { $0.deletion.isOpaqueProjectObject }
+            .flatMap(\.folderExtensions)
+    )
 
     init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
