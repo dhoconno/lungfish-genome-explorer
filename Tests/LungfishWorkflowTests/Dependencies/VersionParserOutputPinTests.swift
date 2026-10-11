@@ -27,7 +27,7 @@ import XCTest
 /// tool, so the other rows come from the owner's managed install under `~/.lungfish/conda` on the
 /// same Mac, and the golden and owner captures agree wherever both exist. The wrong values sit
 /// in `knownDefects`. They are pinned so a parser change shows as a deliberate diff. Phase 2.6
-/// fixes them under the provenance schema bump and Phase 2.7 merges the parsers, and both must
+/// fixed the rows its plan names, and Phase 2.7 merges the parsers and fixes the rest. Each must
 /// update this table in the same commit.
 final class VersionParserOutputPinTests: XCTestCase {
     private struct Capture {
@@ -339,10 +339,12 @@ final class VersionParserOutputPinTests: XCTestCase {
                 native: nil, detect: nil, correct: nil),
     ]
 
-    // MARK: - Known defects, fixed in 2.6 and 2.7
+    // MARK: - Known defects, left for 2.7
 
     /// Each row pins a wrong value as it is today. `correct` is what the tool reports. A row stays
     /// here until the parser change that fixes it lands, and that commit moves the row to `clean`.
+    /// Phase 2.6 moved its rows out. These four wait for the parser merge of 2.7, which stops the
+    /// first-line fallback and the echoed option tokens in the detect parser.
     private static let knownDefects: [Capture] = [
         // The detect parser reads minratio=0.40 from the echoed command line (2.7). The native parser
         // skips that line, as it skips every echoed java command, so it reads the banner. This is the
