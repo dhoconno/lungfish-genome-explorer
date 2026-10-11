@@ -97,8 +97,3 @@ public struct FASTQImportEventStream: Sendable {
         (Double(sampleIndex) + stepShare) / Double(sampleCount)
     }
 }
-
-extension CLIEventArtifact.Role {
-    /// A bundle that an import made, such as a `.lungfishfastq` bundle of `import fastq`.
-    public static let bundle = "bundle"
-}

@@ -66,6 +66,8 @@ extension CLIEventArtifact {
         public static let variantsIndex = "variants-index"
         /// The SQLite database of the track, which the viewer queries.
         public static let variantsDatabase = "variants-database"
+        /// A bundle that an import made, such as a `.lungfishfastq` bundle of `import fastq`.
+        public static let bundle = "bundle"
     }
 
     /// The bundle kind that ``kind`` names, looked up in `BundleKindRegistry`.
