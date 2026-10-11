@@ -615,11 +615,9 @@ public extension ONTGenotypeResultBundleData {
         return GenotypeAnnotationSidecar.empty(generatedAt: "")
     }
 
+    /// Falls back to the newest recovery copy an interrupted ExFAT swap left, in memory (P9).
     private static func readAnnotationSidecarDataIfPresent(forBundleAt bundleURL: URL) throws -> Data? {
-        try GenotypeAnnotationPublicationFileAccess.readFileIfPresent(
-            named: GenotypeAnnotationSidecar.filename,
-            inBundleAt: bundleURL
-        )
+        try GenotypeAnnotationRecoveryCopy.readSidecarData(forBundleAt: bundleURL)
     }
 
     static func writeAnnotationSidecar(
