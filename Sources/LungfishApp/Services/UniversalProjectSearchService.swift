@@ -5,7 +5,6 @@
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 import os.log
 
 private let universalSearchLogger = Logger(
@@ -18,6 +17,12 @@ private let universalSearchLogger = Logger(
 /// This actor serializes access to each per-project SQLite index, supports
 /// debounced rebuild scheduling on filesystem changes, and exposes query APIs
 /// used by the sidebar and debugging flows.
+///
+/// The index is a derived cache that opening a project builds again, so it
+/// writes no provenance record (plan row S12). A record on every rebuild and every
+/// incremental update rewrote a file beside the project each time the project opened or
+/// a file changed. `lungfish-cli universal-search --reindex` is a command the user
+/// runs, and it keeps its record.
 public actor UniversalProjectSearchService {
 
     public static let shared = UniversalProjectSearchService()
@@ -28,7 +33,16 @@ public actor UniversalProjectSearchService {
     private var pendingUpdatePaths: [URL: Set<URL>] = [:]
     private var hasIndexedOnce: Set<URL> = []
 
+    /// Called after each incremental update with the project and the paths it covered, so a test
+    /// can see the batches the debounce makes. The update leaves nothing else behind to read.
+    private var onUpdate: (@Sendable (URL, [URL]) -> Void)?
+
     public init() {}
+
+    /// Sets the observer of incremental updates.
+    func setOnUpdate(_ observer: (@Sendable (URL, [URL]) -> Void)?) {
+        onUpdate = observer
+    }
 
     /// Schedules a debounced index rebuild for a project.
     ///
@@ -60,15 +74,7 @@ public actor UniversalProjectSearchService {
     public func rebuild(projectURL: URL) async throws -> ProjectUniversalSearchBuildStats {
         let canonical = projectURL.standardizedFileURL
         let index = try index(for: canonical)
-        let runClock = ProvenanceRunClock()
         let stats = try index.rebuild()
-        try writeIndexProvenance(
-            projectURL: canonical,
-            index: index,
-            operation: "rebuild",
-            stats: stats,
-            runClock: runClock
-        )
         hasIndexedOnce.insert(canonical)
         return stats
     }
@@ -88,19 +94,7 @@ public actor UniversalProjectSearchService {
         if ensureIndexed {
             let stats = try index.indexStats()
             if stats.entityCount == 0 && !hasIndexedOnce.contains(canonical) {
-                let runClock = ProvenanceRunClock()
-                let buildStats = try index.rebuild()
-                try writeIndexProvenance(
-                    projectURL: canonical,
-                    index: index,
-                    operation: "build-on-demand",
-                    stats: buildStats,
-                    runClock: runClock,
-                    explicitOptions: [
-                        "query": .string(query),
-                        "limit": .integer(max(1, limit)),
-                    ]
-                )
+                _ = try index.rebuild()
                 hasIndexedOnce.insert(canonical)
             }
         }
@@ -121,19 +115,8 @@ public actor UniversalProjectSearchService {
 
         do {
             let idx = try index(for: canonical)
-            let runClock = ProvenanceRunClock()
             try idx.update(changedPaths: changedPaths)
-            try writeIndexProvenance(
-                projectURL: canonical,
-                index: idx,
-                operation: "update",
-                stats: nil,
-                runClock: runClock,
-                explicitOptions: [
-                    "changedPathCount": .integer(changedPaths.count),
-                    "changedPaths": .array(changedPaths.map { .string($0.standardizedFileURL.path) }),
-                ]
-            )
+            onUpdate?(canonical, changedPaths)
         } catch {
             universalSearchLogger.error(
                 "update(changedPaths:) failed for \(canonical.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
@@ -200,33 +183,5 @@ public actor UniversalProjectSearchService {
         let created = try ProjectUniversalSearchIndex(projectURL: projectURL)
         indexes[projectURL] = created
         return created
-    }
-
-    private func writeIndexProvenance(
-        projectURL: URL,
-        index: ProjectUniversalSearchIndex,
-        operation: String,
-        stats: ProjectUniversalSearchBuildStats?,
-        runClock: ProvenanceRunClock,
-        explicitOptions: [String: ParameterValue] = [:]
-    ) throws {
-        try UniversalSearchIndexProvenanceWriter.write(
-            UniversalSearchIndexProvenanceRequest(
-                workflowName: "lungfish app universal-search",
-                toolName: "Lungfish.app universal-search",
-                toolKind: "gui",
-                projectURL: projectURL,
-                databaseURL: index.databaseURL,
-                operation: operation,
-                argv: ["Lungfish.app", "universal-search", operation, projectURL.path],
-                explicitOptions: explicitOptions,
-                defaults: [:],
-                resolvedDefaults: ["operation": .string(operation)],
-                buildStats: stats,
-                captureProjectInputSnapshot: false,
-                startedAt: runClock.startedAt,
-                completedAt: runClock.now
-            )
-        )
     }
 }

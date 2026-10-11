@@ -3,10 +3,19 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import os
 import XCTest
 import LungfishWorkflow
 import LungfishTestSupport
 @testable import LungfishApp
+
+/// The batches an observer saw, safe to read from the test while the service writes it.
+private final class BatchLog: Sendable {
+    private let batches = OSAllocatedUnfairLock<[[URL]]>(initialState: [])
+    func append(_ paths: [URL]) { batches.withLock { $0.append(paths) } }
+    var snapshot: [[URL]] { batches.withLock { $0 } }
+    var count: Int { snapshot.count }
+}
 
 final class UniversalProjectSearchServiceTests: XCTestCase {
 
@@ -77,7 +86,10 @@ final class UniversalProjectSearchServiceTests: XCTestCase {
         XCTAssertEqual(results.first?.kind, "fastq_dataset")
     }
 
-    func testRebuildWritesIndexProvenanceSidecar() async throws {
+    /// The index is a derived cache that opening a project builds again (plan row S12), so a
+    /// rebuild leaves the database and no provenance record beside it. `lungfish-cli
+    /// universal-search --reindex` keeps its record, and `UniversalSearchCommandTests` pins that.
+    func testRebuildBuildsTheIndexAndWritesNoProvenanceRecord() async throws {
         let projectURL = try makeProject(named: "project-provenance.lungfish")
         try writeManifest(
             [
@@ -88,22 +100,26 @@ final class UniversalProjectSearchServiceTests: XCTestCase {
         )
 
         let service = UniversalProjectSearchService()
-        _ = try await service.rebuild(projectURL: projectURL)
+        let stats = try await service.rebuild(projectURL: projectURL)
 
         let databaseURL = projectURL.appendingPathComponent(".universal-search.db")
-        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: databaseURL)
-        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
-        XCTAssertEqual(envelope.workflowName, "lungfish app universal-search")
-        XCTAssertEqual(envelope.toolName, "Lungfish.app universal-search")
-        XCTAssertEqual(envelope.output?.path, databaseURL.path)
-        XCTAssertEqual(envelope.output?.format, .sqlite)
-        XCTAssertNotNil(envelope.output?.checksumSHA256)
-        XCTAssertFalse(
-            envelope.files.contains { $0.path == projectURL.path },
-            "Search-cache provenance must not recursively hash the entire project"
+        XCTAssertGreaterThan(stats.indexedEntities, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: databaseURL.path))
+        assertNoProvenanceRecord(for: databaseURL, in: projectURL)
+    }
+
+    func testSearchBuildsTheIndexOnDemandAndWritesNoProvenanceRecord() async throws {
+        let projectURL = try makeProject(named: "project-on-demand.lungfish")
+        try writeManifest(
+            ["sample_name": "Air Sample 02", "collection_date": "2026-03-02"],
+            to: projectURL.appendingPathComponent("manifest.json")
         )
-        XCTAssertEqual(envelope.options.resolvedDefaults["projectPath"]?.stringValue, projectURL.path)
-        XCTAssertEqual(envelope.options.explicit["operation"]?.stringValue, "rebuild")
+
+        let service = UniversalProjectSearchService()
+        let results = try await service.search(projectURL: projectURL, query: "sample:air", ensureIndexed: true)
+
+        XCTAssertFalse(results.isEmpty)
+        assertNoProvenanceRecord(for: projectURL.appendingPathComponent(".universal-search.db"), in: projectURL)
     }
 
     func testScheduledUpdatesCoalesceChangedPathsIntoOneBoundedBatch() async throws {
@@ -122,6 +138,8 @@ final class UniversalProjectSearchServiceTests: XCTestCase {
         // The debounce window is wide enough that the second call lands inside
         // it even under the parallel unit tier's load.
         let service = UniversalProjectSearchService()
+        let batches = BatchLog()
+        await service.setOnUpdate { _, paths in batches.append(paths) }
         await service.scheduleUpdate(
             projectURL: projectURL,
             changedPaths: [firstBundle],
@@ -133,18 +151,18 @@ final class UniversalProjectSearchServiceTests: XCTestCase {
             delaySeconds: 1
         )
 
-        let sidecarURL = ProvenanceRecorder.fileSidecarURL(
-            for: projectURL.appendingPathComponent(".universal-search.db")
-        )
-        try await waitForFile(at: sidecarURL)
+        let flushed = await waitUntil(timeout: .seconds(30)) { batches.count >= 1 }
+        XCTAssertTrue(flushed, "The debounced update never ran.")
+        // Wait out another debounce window, so a second batch would have shown by now.
+        try await Task.sleep(for: .milliseconds(1_500))
 
-        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
-        XCTAssertEqual(envelope.options.explicit["operation"]?.stringValue, "update")
-        XCTAssertEqual(envelope.options.explicit["changedPathCount"]?.integerValue, 2)
+        XCTAssertEqual(batches.snapshot.count, 1, "The two calls make one batch.")
         XCTAssertEqual(
-            Set(envelope.options.explicit["changedPaths"]?.arrayValue?.compactMap(\.stringValue) ?? []),
-            Set([firstBundle.standardizedFileURL.path, secondBundle.standardizedFileURL.path])
+            batches.snapshot.first.map { Set($0.map(\.standardizedFileURL.path)) },
+            Set([firstBundle.standardizedFileURL.path, secondBundle.standardizedFileURL.path]),
+            "The batch holds each changed path once."
         )
+        assertNoProvenanceRecord(for: projectURL.appendingPathComponent(".universal-search.db"), in: projectURL)
 
         let firstResults = try await service.search(
             projectURL: projectURL,
@@ -196,13 +214,24 @@ final class UniversalProjectSearchServiceTests: XCTestCase {
         try data.write(to: url)
     }
 
-    /// Waits until the sidecar parses, not merely exists, so a reader never
-    /// races the writer.
-    private func waitForFile(at url: URL, timeout: Duration = .seconds(30)) async throws {
-        let parsed = await waitUntil(timeout: timeout) {
-            (try? ProvenanceEnvelopeReader.load(fromSidecar: url)) != nil
-        }
-        XCTAssertTrue(parsed, "Timed out waiting for \(url.path)")
+    /// The index is a derived cache. Nothing beside the project holds a record of it, whatever the
+    /// record's name, so the check lists the project folder as well as the one sidecar name.
+    private func assertNoProvenanceRecord(
+        for databaseURL: URL,
+        in projectURL: URL,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: databaseURL)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: sidecar.path),
+            "The search index is a derived cache, but \(sidecar.lastPathComponent) records it.",
+            file: file, line: line
+        )
+        let cacheFiles = ["", "-wal", "-shm"].map { databaseURL.lastPathComponent + $0 }
+        let leftovers = ((try? FileManager.default.contentsOfDirectory(atPath: projectURL.path)) ?? [])
+            .filter { $0.hasPrefix(databaseURL.lastPathComponent) && !cacheFiles.contains($0) }
+        XCTAssertEqual(leftovers, [], "Only the database and its write-ahead log belong beside the project.", file: file, line: line)
     }
 
     @discardableResult

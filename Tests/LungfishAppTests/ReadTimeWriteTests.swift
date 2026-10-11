@@ -125,6 +125,31 @@ final class ReadTimeWriteTests: XCTestCase {
         withExtendedLifetime(delegate) {}
     }
 
+    /// The search index is a derived cache (plan row S12). Opening a project builds it and
+    /// leaves no provenance record beside it.
+    func testOpeningAProjectBuildsTheSearchIndexAndWritesNoRecordForIt() async throws {
+        let fixture = try makeFixtureProject()
+        let (windowController, delegate) = try makeMainWindowAndDelegate()
+        let before = try ProjectDigest(of: fixture.project)
+
+        try await open(fixture.project, in: windowController)
+        try await Task.sleep(for: Self.settleTime)
+
+        let after = try ProjectDigest(of: fixture.project)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: fixture.project.appendingPathComponent(".universal-search.db").path),
+            "Opening a project builds the search index."
+        )
+        let record = ".universal-search.db.lungfish-provenance.json"
+        XCTAssertNil(after.entries[record], "Opening a project wrote the search index record \(record).")
+        XCTAssertEqual(
+            after.differences(from: before).filter { !DeclaredAppState.derivedCaches.contains($0.path) }.map(\.summary),
+            [],
+            "Opening changed paths outside the derived caches."
+        )
+        withExtendedLifetime(delegate) {}
+    }
+
     // MARK: - Window and project
 
     private func makeMainWindowAndDelegate() throws -> (MainWindowController, AppDelegate) {
