@@ -13,8 +13,8 @@ import LungfishWorkflow
 /// Plan decision P14, lane U3a. The coverage audit counts missing facts only, so a failed or cancelled
 /// run whose record holds every fact read Complete and said nothing else about the run. The Run Summary
 /// now has a Run Status row that reads the record's own `status`, and reads Not recorded when the record
-/// states none and the reader derived one. The Runtime rows have no Process ID row for a record at version
-/// 2 or later, which never holds one.
+/// states none and the reader derived one. The Runtime rows have no Process ID row for a record whose format
+/// never holds one, which is an envelope at version 2 or later and a typed record.
 ///
 /// The cases load the committed `fastq trim` records of `Tests/Fixtures/provenance-display/Analyses`,
 /// and edit their bytes where a case needs another record. Every case reads a copy in a temporary
@@ -123,9 +123,10 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
         XCTAssertEqual(processID(of: withOne), "4242")
     }
 
-    /// The rule reads the shape the reader decoded and the version the record states. It keeps a process ID
-    /// a record holds, and it keeps the row of a bare run, whose envelope the reader builds at the current
-    /// version although the bytes state none.
+    /// The rule decides by the record's format, not by a version the reader may have filled in. It keeps a
+    /// process ID a record holds. It keeps the row of a bare run, whose envelope the reader builds at the
+    /// current version although the bytes state none, and the row of a primitive record, whatever version its
+    /// own JSON states. The `typed-mapping-schema3` expected file pins the typed record, which loses the row.
     func testTheProcessIDRowGoesOnlyWhereTheRecordCannotHoldOne() throws {
         let rows = [
             ProvenanceRuntimeRow(label: "Executable", value: "lungfish-cli"),
@@ -157,6 +158,24 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
             bareReading.envelope.schemaVersion, 2, "The reader builds a bare run's envelope at the current version."
         )
         XCTAssertEqual(try remaining(bareRun), kept, "The bytes of a bare run state no version, so its row stays.")
+
+        // The primitive adapter reads the version from the record's own JSON, so a primitive record can state
+        // 2. Its format is the Older record format, which shows every fact it lacks as Not recorded. The MSA
+        // record holds process ID 42 and would keep its row anyway, so this copy holds none.
+        let primitiveAtVersion2 = try edited(ProvenanceLegacyRecords.msa) { object in
+            object["schemaVersion"] = 2
+            var runtime = object["runtimeIdentity"] as? [String: Any] ?? [:]
+            runtime.removeValue(forKey: "processIdentifier")
+            object["runtimeIdentity"] = runtime
+        }
+        let primitiveReading = try ProvenanceEnvelopeReader.read(primitiveAtVersion2)
+        XCTAssertEqual(primitiveReading.shape, .primitive)
+        XCTAssertEqual(primitiveReading.envelope.schemaVersion, 2, "The adapter reads the version the record states.")
+        XCTAssertNil(primitiveReading.envelope.runtimeIdentity.processIdentifier)
+        XCTAssertEqual(
+            try remaining(primitiveAtVersion2), kept,
+            "A primitive record keeps its row whatever version its own JSON states."
+        )
     }
 
     // MARK: - The words of the row
@@ -227,7 +246,11 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
     ) throws -> Data {
         let url = ProvenanceDisplayFixtures.directory
             .appendingPathComponent("Analyses/\(folder)/.lungfish-provenance.json")
-        let original = try Data(contentsOf: url)
+        return try edited(try Data(contentsOf: url), edit)
+    }
+
+    /// `original` after `edit` changed its decoded JSON.
+    private func edited(_ original: Data, _ edit: (inout [String: Any]) -> Void) throws -> Data {
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: original) as? [String: Any])
         edit(&object)
         return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])

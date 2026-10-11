@@ -72,22 +72,32 @@ extension ProvenanceInspectorViewModel {
         summary.runStatus = ProvenanceRunStatusDisplay(envelope.status, wasRecorded: reading?.statusWasRecorded ?? true)
     }
 
-    /// `rows` without the Process ID row, when the record cannot hold a process ID.
+    /// `rows` without the Process ID row, when the record's format never holds a process ID.
     ///
-    /// A record at version 2 or later never holds one, because the encoder drops it (plan decision V5 of
-    /// Phase 2.6), so the row could only read Not recorded. A record that does hold one keeps its row,
-    /// because the tab shows every fact a record holds. A bare run has no version of its own and the reader
-    /// builds its envelope at the current one, so for that shape the version says nothing about the bytes
-    /// and the row stays, as it does in the other older formats.
+    /// The format decides, not a version the reader may have filled in. A record in a current format that
+    /// never holds a process ID shows no row, because the row could only read Not recorded. That means an
+    /// envelope at version 2 or later, whose encoder drops the ID (plan decision V5 of Phase 2.6), and a
+    /// typed record such as `mapping-provenance.json`, which never held one. A record that holds a process
+    /// ID keeps its row, because the tab shows every fact a record holds. A version 1 envelope keeps its
+    /// row, because that format could hold an ID. A bare run and a primitive record keep theirs, because
+    /// the Older record format shows every fact it lacks as Not recorded. Their version decides nothing,
+    /// since the reader builds the envelope of a bare run at the current version and a primitive record
+    /// can state version 2 itself.
     static func withoutUnrecordedProcessID(
         _ rows: [ProvenanceRuntimeRow],
         in envelope: ProvenanceEnvelope,
         reading: ProvenanceEnvelopeReader.Reading?
     ) -> [ProvenanceRuntimeRow] {
-        let statesItsVersion = reading?.shape != .workflowRun
-        guard statesItsVersion, envelope.schemaVersion >= 2, envelope.runtimeIdentity.processIdentifier == nil else {
-            return rows
+        let formatNeverHoldsOne: Bool
+        switch reading?.shape {
+        case .typedRecord?:
+            formatNeverHoldsOne = true // a typed record never holds a process ID
+        case .workflowRun?, .primitive?:
+            formatNeverHoldsOne = false // the Older record format shows every fact it lacks as Not recorded
+        case .envelope?, nil:
+            formatNeverHoldsOne = envelope.schemaVersion >= 2 // the version 2 encoder drops it (2.6 V5)
         }
+        guard formatNeverHoldsOne, envelope.runtimeIdentity.processIdentifier == nil else { return rows }
         return rows.filter { $0.label != "Process ID" }
     }
 }
