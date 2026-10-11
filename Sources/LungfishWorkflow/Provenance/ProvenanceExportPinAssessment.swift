@@ -4,19 +4,21 @@
 //
 // An executable export (shell, Python, Nextflow, Snakemake) promises that
 // someone else can rebuild the environments a run used. `ProvenanceExportPlan`
-// writes each environment as a package spec: the recorded `package` field when
-// the version text holds one, otherwise `bioconda::<package>=<version>` built
-// from the environment name or the lock, or the bare package when the version
-// is not a number. Nothing checks that spec against the managed tool lock.
+// writes each environment as a package spec, the lock's spec with its build at
+// the recorded version and the recorded version alone otherwise.
 //
-// This assessment reads the steps a record holds and says, for each step that
-// names a managed environment, whether the spec `ProvenanceExportPlan.pinned`
+// `assess(_:lock:)` reads the steps one record holds and says, for each step
+// that names a managed environment, whether the spec `ProvenanceExportPlan.pinned`
 // writes for it is the lock's pin, and if not why not. It does not expand a
 // provenance chain, synthesize the one step `legacyWorkflowRun` builds for a
-// record with no steps, or merge steps per environment as the plan does, so it
-// characterizes records and does not reproduce `exportBundle`. The refusal in
-// 2.6 checks the export plan itself. The assessment is pure and changes no
-// exporter, writer or record.
+// record with no steps, or give each package of an environment its own
+// variant as the plan does, so it characterizes records and does not
+// reproduce `exportBundle`.
+//
+// `ProvenanceExportPinGate` is the refusal of plan decision S7. It assesses the
+// plan `exportBundle` renders, through `assess(plan:lock:)`, so it sees what a
+// script would run. Both computations are pure and change no exporter, writer
+// or record.
 
 import Foundation
 import LungfishIO
@@ -143,13 +145,44 @@ public struct ProvenanceExportPinAssessment: Sendable, Hashable {
         })
     }
 
+    /// Assesses the steps a script export runs, from the plan it renders.
+    ///
+    /// Every replayable step of the plan is one assessment, numbered as the script numbers it, so
+    /// the chain expansion and the step synthesized for a stepless record are already in it. A tool
+    /// step is assessed with the spec its environment variant writes, and any other step reads as
+    /// `noEnvironmentRecorded`, because the script declares no environment for it.
+    static func assess(plan: ProvenanceExportPlan, lock: ManagedToolLock = .bundled) -> ProvenanceExportPinAssessment {
+        ProvenanceExportPinAssessment(steps: plan.replayableSteps.map { step in
+            let managed = step.kind == .tool ? step.identity.environment : nil
+            return assess(
+                number: step.number, toolName: step.toolName,
+                recordedVersion: step.sourceSteps.first?.toolVersion ?? step.identity.version, identity: step.identity,
+                managed: managed, exported: managed == nil ? nil : step.environment?.packageSpec, lock: lock
+            )
+        })
+    }
+
     // MARK: - One step
 
     private static func assess(_ step: ProvenanceStep, number: Int, lock: ManagedToolLock) -> StepAssessment {
         let identity = ProvenanceToolIdentityText.parse(toolName: step.toolName, toolVersion: step.toolVersion)
-        var evidence = ToolVersionEvidence.classify(recorded: step.toolVersion)
-        let candidate = managedEnvironment(of: step, identity: identity)
-        if candidate != nil, !evidence.isUnknown, isAppVersionLabel(step.toolVersion, identity: identity) {
+        let managed = managedEnvironment(of: step, identity: identity)
+        // The spec the export writes today, through the export plan's own function.
+        let exported = managed.flatMap { ProvenanceExportPlan.pinned($0, version: identity.version).packageSpec }
+        return assess(
+            number: number, toolName: step.toolName, recordedVersion: step.toolVersion, identity: identity,
+            managed: managed, exported: exported, lock: lock
+        )
+    }
+
+    /// The status of one step that recorded `candidate` as its managed environment, when the export
+    /// writes `exported` as that environment's package spec.
+    private static func assess(
+        number: Int, toolName: String, recordedVersion: String, identity: ProvenanceToolIdentityText,
+        managed candidate: ProvenanceManagedEnvironment?, exported: String?, lock: ManagedToolLock
+    ) -> StepAssessment {
+        var evidence = ToolVersionEvidence.classify(recorded: recordedVersion)
+        if candidate != nil, !evidence.isUnknown, isAppVersionLabel(recordedVersion, identity: identity) {
             evidence = .unknown(.recordedAppVersion(evidence.recordedString))
         }
         func result(
@@ -157,15 +190,13 @@ public struct ProvenanceExportPinAssessment: Sendable, Hashable {
             exported: String? = nil, locked: String? = nil, hazards: [Hazard] = []
         ) -> StepAssessment {
             StepAssessment(
-                number: number, toolName: step.toolName, recordedVersion: step.toolVersion, evidence: evidence,
+                number: number, toolName: toolName, recordedVersion: recordedVersion, evidence: evidence,
                 environment: environment, lockEntryID: entry?.id, exportedSpec: exported, lockSpec: locked,
                 status: status, hazards: hazards
             )
         }
 
         guard let managed = candidate else { return result(.noEnvironmentRecorded) }
-        // The spec the export writes today, through the export plan's own function.
-        let exported = ProvenanceExportPlan.pinned(managed, version: identity.version).packageSpec
         guard let entry = lock.entry(environment: managed.name) else {
             let hazards = hazards(exported: exported, locked: nil, recorded: managed.packageSpec, environment: managed.name)
             return result(.environmentNotInLock(managed.name), environment: managed.name, exported: exported, hazards: hazards)
@@ -236,5 +267,206 @@ public struct ProvenanceExportPinAssessment: Sendable, Hashable {
 
     private static func order(_ found: [Hazard]) -> [Hazard] {
         Hazard.allCases.filter(found.contains)
+    }
+}
+
+// MARK: - The script export gate
+
+/// What a script export checks before it writes anything (plan decisions S7, S20 and V6).
+///
+/// `ProvenanceExporter.pinGate(for:shape:format:sourceSidecarURL:sourceRootURL:)` builds it from the
+/// plan `exportBundle` renders. Only shell, Python, Nextflow and Snakemake exports are gated. A record
+/// that decoded as the Older record format is never exported as a script. A script with a step whose
+/// recorded version has no lock entry of that version, records no version, or needs a source build or
+/// a Python runtime is written only with `--allow-unpinned` in the CLI or Export Anyway… in the app.
+/// The lock entry is the one of the recorded version, never the current pin of another version
+/// (bioinformatics correction 4).
+public struct ProvenanceExportPinGate: Sendable, Hashable {
+    /// Why the export cannot pin one step's environment.
+    public enum Reason: Sendable, Hashable {
+        /// The record holds no version for the step, or holds `unknown`, an error line or LGE's own version.
+        case versionNotRecorded(ToolVersionEvidence.Reason)
+        /// The lock holds no entry of the recorded version. `locked` is the version it pins, if any.
+        case versionNotInLock(recorded: String, locked: String?)
+        /// The lock holds no entry for the step's environment.
+        case environmentNotInLock(String)
+        /// The lock builds the tool from source, as it does Bracken (S20), or in a Python runtime.
+        case unpinnableRuntime(ProvenanceExportPinAssessment.RuntimeKind)
+        /// The spec the export writes does not pin the recorded version.
+        case specDoesNotPinVersion(spec: String?, version: String)
+
+        /// A short stable name for tables and tests.
+        public var code: String {
+            switch self {
+            case .versionNotRecorded: return "versionNotRecorded"
+            case .versionNotInLock: return "versionNotInLock"
+            case .environmentNotInLock: return "environmentNotInLock"
+            case .unpinnableRuntime(let kind): return "unpinnableRuntime.\(kind.rawValue)"
+            case .specDoesNotPinVersion: return "specDoesNotPinVersion"
+            }
+        }
+
+        /// The reason in plain words, one sentence about the step's tool.
+        ///
+        /// Every spelling that means no version reads as not recorded, because the reader turns an
+        /// empty or missing version into `unknown`, so the record cannot tell them apart.
+        public var sentence: String {
+            switch self {
+            case .versionNotRecorded(.recordedProbeError):
+                return "Its recorded version is an error message from the version check."
+            case .versionNotRecorded(.recordedAppVersion(let label)):
+                return "The record holds LGE's own version (\(label)) instead of the tool's."
+            case .versionNotRecorded:
+                return "Its version was not recorded, so no version can be pinned."
+            case .versionNotInLock(let recorded, let locked?):
+                return "Version \(recorded) ran, but LGE pins version \(locked)."
+            case .versionNotInLock(let recorded, nil):
+                return "Version \(recorded) ran, but LGE pins no version of this tool."
+            case .environmentNotInLock(let name):
+                return "LGE does not manage its conda environment \(name)."
+            case .unpinnableRuntime(.sourceBuild):
+                return "LGE builds this tool from source, which a conda package spec cannot pin."
+            case .unpinnableRuntime(.pythonRuntime):
+                return "LGE installs this tool in its own Python runtime, which a conda package spec cannot pin."
+            case .specDoesNotPinVersion(let spec, let version):
+                return "The export would install \(spec ?? "no package"), which does not pin version \(version)."
+            }
+        }
+    }
+
+    /// One step of the script whose environment the export cannot pin.
+    public struct UnpinnedStep: Sendable, Hashable {
+        /// The step numbers the script prints, more than one for steps joined by a pipe.
+        public let numbers: [Int]
+        public let toolName: String
+        /// The step's `toolVersion` as recorded.
+        public let recordedVersion: String
+        /// The environment the step runs in, as the export names it (`lge-samtools_2`).
+        public let environmentName: String
+        public let reason: Reason
+
+        /// `Step 3`, or `Steps 3 and 4` for steps joined by a pipe.
+        public var stepLabel: String {
+            numbers.count == 1 ? "Step \(numbers[0])" : "Steps " + numbers.map(String.init).joined(separator: " and ")
+        }
+
+        /// The step, its tool, its environment and the reason, as the CLI, the script header and the
+        /// export record name it.
+        public var summary: String {
+            "\(stepLabel), \(toolName) in \(environmentName). \(reason.sentence)"
+        }
+    }
+
+    public let format: ProvenanceExportFormat
+    /// The shape the reader decoded the record in.
+    public let shape: ProvenanceEnvelopeReader.RecordShape
+    /// The script's steps, each with its pin status. Empty for a format the gate does not check.
+    public let assessment: ProvenanceExportPinAssessment
+    /// The steps whose environments the export cannot pin, in script order.
+    public let unpinnedSteps: [UnpinnedStep]
+
+    /// True for the four formats that run tools.
+    public var isGated: Bool { format.isPinGated }
+
+    /// True when the record decoded as the Older record format and the format runs tools. No
+    /// override lets this export through (V6).
+    public var refusesOlderRecordFormat: Bool {
+        isGated && Self.isOlderRecordFormat(shape)
+    }
+
+    /// True when the script would run a step the lock does not pin, which needs the override (S7).
+    public var requiresOverride: Bool {
+        isGated && !refusesOlderRecordFormat && !unpinnedSteps.isEmpty
+    }
+
+    /// Whether the export may be written, given whether the person chose to override the pins.
+    public func permitsExport(allowUnpinned: Bool) -> Bool {
+        !refusesOlderRecordFormat && (!requiresOverride || allowUnpinned)
+    }
+
+    /// The lines of a refusal, the reason first, then each unpinned step and the way past it. Empty
+    /// when nothing is refused.
+    public var refusalLines: [String] {
+        if refusesOlderRecordFormat {
+            return [
+                "This record decoded as the Older record format, which LGE never exports as a \(format.sentenceName), "
+                    + "with or without \(ProvenanceExporter.allowUnpinnedFlag).",
+                "Export it with --format methods or --format json instead.",
+            ]
+        }
+        guard requiresOverride else { return [] }
+        let count = unpinnedSteps.count == 1 ? "1 step" : "\(unpinnedSteps.count) steps"
+        return ["LGE did not write the \(format.sentenceName), because it cannot pin the tool version of \(count)."]
+            + unpinnedSteps.map(\.summary)
+            + [
+                "Pass \(ProvenanceExporter.allowUnpinnedFlag) to write it anyway. "
+                    + "The \(format.sentenceName) and its export record then name each of these steps.",
+            ]
+    }
+
+    // MARK: - Building the gate
+
+    /// Only the bare run and the primitive shapes are the Older record format, never an envelope and
+    /// never a typed record such as `mapping-provenance.json`.
+    static func isOlderRecordFormat(_ shape: ProvenanceEnvelopeReader.RecordShape) -> Bool {
+        switch shape {
+        case .workflowRun, .primitive: return true
+        case .envelope, .typedRecord: return false
+        }
+    }
+
+    /// The gate for a format the pin check does not cover, which never refuses.
+    static func ungated(_ format: ProvenanceExportFormat, shape: ProvenanceEnvelopeReader.RecordShape) -> ProvenanceExportPinGate {
+        ProvenanceExportPinGate(format: format, shape: shape, assessment: ProvenanceExportPinAssessment(steps: []), unpinnedSteps: [])
+    }
+
+    /// The assessment of every replayable step of `plan`, and the steps among them the export cannot pin.
+    static func unpinnedSteps(
+        in plan: ProvenanceExportPlan, lock: ManagedToolLock = .bundled
+    ) -> (assessment: ProvenanceExportPinAssessment, unpinned: [UnpinnedStep]) {
+        let assessment = ProvenanceExportPinAssessment.assess(plan: plan, lock: lock)
+        let unpinned = zip(plan.replayableSteps, assessment.steps).compactMap { step, assessed -> UnpinnedStep? in
+            guard let environment = step.environment, let reason = reason(for: assessed, step: step, lock: lock) else {
+                return nil
+            }
+            return UnpinnedStep(
+                numbers: step.numbers, toolName: step.toolName, recordedVersion: assessed.recordedVersion,
+                environmentName: "lge-\(environment.exportName)", reason: reason
+            )
+        }
+        return (assessment, unpinned)
+    }
+
+    /// Why the export cannot pin `step`, or nil when it can or the script declares no environment.
+    ///
+    /// A spec that differs from the lock's only in its channel or build is pinned when the recorded
+    /// version is the lock entry's version, because that spec is what ran. The written spec must
+    /// still pin the recorded version, so no environment installs another one.
+    private static func reason(
+        for assessed: ProvenanceExportPinAssessment.StepAssessment,
+        step: ProvenanceExportPlan.Step,
+        lock: ManagedToolLock
+    ) -> Reason? {
+        switch assessed.status {
+        case .noEnvironmentRecorded:
+            return nil
+        case .versionUnknown(let reason):
+            return .versionNotRecorded(reason)
+        case .versionDiffersFromLock(let recorded, let locked):
+            return .versionNotInLock(recorded: recorded, locked: locked)
+        case .environmentNotInLock(let name):
+            return .environmentNotInLock(name)
+        case .unpinnableRuntime(let kind):
+            return .unpinnableRuntime(kind)
+        case .pinnedToLock, .packageSpecUnavailable, .recordedSpecDiffersFromLock:
+            let version = step.identity.version
+            let entry = assessed.environment.flatMap { lock.entry(environment: $0) }
+            let locked = entry?.version ?? assessed.lockSpec.flatMap { CondaSpec(spec: $0)?.version }
+            guard locked == version else { return .versionNotInLock(recorded: version, locked: locked) }
+            guard let spec = assessed.exportedSpec, CondaSpec(spec: spec)?.version == version else {
+                return .specDoesNotPinVersion(spec: assessed.exportedSpec, version: version)
+            }
+            return nil
+        }
     }
 }

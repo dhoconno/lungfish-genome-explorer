@@ -118,13 +118,8 @@ public struct ProvenanceExporter: Sendable {
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
-        let chainExpansion = expandProvenanceChain(
-            startingWith: envelope,
-            sourceSidecarURL: sourceSidecarURL,
-            sourceRootURL: sourceRootURL
-        )
+        let (chainExpansion, run) = scriptSource(envelope, sourceSidecarURL: sourceSidecarURL, sourceRootURL: sourceRootURL)
         let expandedEnvelope = chainExpansion.envelope
-        let run = expandedEnvelope.legacyWorkflowRun(preferCanonicalSteps: true)
         let plan = exportPlan(run)
         let primaryArtifactURL: URL
         var generatedArtifactURLs: [URL] = []
@@ -220,14 +215,14 @@ public struct ProvenanceExporter: Sendable {
         return urls
     }
 
-    private struct ProvenanceChainExpansion {
+    struct ProvenanceChainExpansion {
         let envelope: ProvenanceEnvelope
         let sourceArtifactURLs: [URL]
     }
 
     /// The record with every record that fed it merged in, upstream first,
     /// and the sidecars and manifests that back the merged record.
-    private func expandProvenanceChain(
+    func expandProvenanceChain(
         startingWith envelope: ProvenanceEnvelope,
         sourceSidecarURL: URL?,
         sourceRootURL: URL?

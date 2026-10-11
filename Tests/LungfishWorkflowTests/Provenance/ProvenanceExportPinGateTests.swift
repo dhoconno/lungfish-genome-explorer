@@ -1,0 +1,460 @@
+// ProvenanceExportPinGateTests.swift - The pin gate a script export asks before it writes anything
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+//
+// Phase 2.6 lane P5b, plan decisions S7, S20 and V6. The first group pins each
+// reason the gate gives, from runs built in the test. The second shows that the
+// gate sees what the script runs, the chain of upstream records and the step
+// synthesized for a stepless record, which the per-record assessment does not.
+// The third freezes the gate's verdict for every golden record, so the CLI and
+// the app tests can show that both refuse the same ones.
+
+import XCTest
+import LungfishIO
+import LungfishTestSupport
+@testable import LungfishWorkflow
+
+final class ProvenanceExportPinGateTests: XCTestCase {
+
+    // MARK: - Fixtures
+
+    /// One managed tool step as the pipelines record it, with the runtime identity after the version.
+    private func managedStep(
+        _ tool: String, version: String, environment: String, executable: String? = nil, package: String? = nil
+    ) -> StepExecution {
+        let executable = executable ?? tool
+        var note = "managed conda environment \(environment); executable \(executable)"
+        if let package { note += "; package \(package)" }
+        return StepExecution(
+            toolName: tool, toolVersion: "\(version) (\(note))", command: [executable, "--run"],
+            inputs: [], outputs: [], exitCode: 0, wallTime: 1
+        )
+    }
+
+    private func envelope(_ steps: [StepExecution]) -> ProvenanceEnvelope {
+        var run = WorkflowRun(name: "pin gate test", appVersion: "lungfish-cli 2026.10.10", hostOS: "macOS 26.6.2 (arm64)")
+        run.steps = steps
+        return ProvenanceEnvelope(
+            workflowName: "pin gate test", toolName: "lungfish-cli",
+            steps: steps.map { ProvenanceStep(stepExecution: $0) }, legacyWorkflowRun: run
+        )
+    }
+
+    private func gate(
+        _ steps: StepExecution..., format: ProvenanceExportFormat = .shell,
+        shape: ProvenanceEnvelopeReader.RecordShape = .envelope
+    ) -> ProvenanceExportPinGate {
+        ProvenanceExporter(signingProvider: nil).pinGate(
+            for: envelope(steps), shape: shape, format: format, sourceSidecarURL: nil
+        )
+    }
+
+    private func reasons(_ gate: ProvenanceExportPinGate) -> [ProvenanceExportPinGate.Reason] {
+        gate.unpinnedSteps.map(\.reason)
+    }
+
+    // MARK: - Reasons
+
+    func testAStepAtTheLocksVersionIsPinned() {
+        let result = gate(managedStep("samtools", version: "1.24", environment: "samtools"))
+        XCTAssertEqual(result.unpinnedSteps, [])
+        XCTAssertFalse(result.requiresOverride)
+        XCTAssertTrue(result.permitsExport(allowUnpinned: false))
+        XCTAssertEqual(result.refusalLines, [])
+        XCTAssertEqual(result.assessment.steps.map(\.status), [.pinnedToLock])
+    }
+
+    func testAVersionTheLockDoesNotHoldIsUnpinnedAndTheExportWritesTheRecordedVersion() {
+        let result = gate(managedStep("samtools", version: "1.19", environment: "samtools"))
+        XCTAssertEqual(reasons(result), [.versionNotInLock(recorded: "1.19", locked: "1.24")])
+        // Never the current pin of another version (bioinformatics correction 4).
+        XCTAssertEqual(result.assessment.steps.first?.exportedSpec, "bioconda::samtools=1.19")
+        XCTAssertTrue(result.requiresOverride)
+        XCTAssertFalse(result.permitsExport(allowUnpinned: false))
+        XCTAssertTrue(result.permitsExport(allowUnpinned: true))
+    }
+
+    func testUnknownErrorAndEmptyVersionsAreUnpinned() {
+        let libmamba = "critical libmamba The given prefix does not exist: \"/x/envs/minimap2\""
+        let result = gate(
+            managedStep("minimap2", version: "unknown", environment: "minimap2"),
+            managedStep("minimap2", version: libmamba, environment: "minimap2"),
+            StepExecution(
+                toolName: "samtools", toolVersion: "", command: ["/opt/conda/envs/samtools/bin/samtools", "sort"],
+                inputs: [], outputs: [], exitCode: 0, wallTime: 1
+            )
+        )
+        // The reader turns an empty version into `unknown`, so the third step reads like the first.
+        XCTAssertEqual(reasons(result), [
+            .versionNotRecorded(.legacySpelling("unknown")),
+            .versionNotRecorded(.recordedProbeError(libmamba)),
+            .versionNotRecorded(.legacySpelling("unknown")),
+        ])
+        XCTAssertEqual(result.unpinnedSteps.map(\.environmentName), ["lge-minimap2", "lge-minimap2", "lge-samtools"])
+    }
+
+    func testEverySpellingOfNoVersionReadsAsNotRecorded() {
+        // A fact recorded as "" prints as not recorded, and so does every other spelling of no version.
+        for spelling in ["", "unknown", "unresolved", "unavailable", "n/a", "system"] {
+            XCTAssertEqual(
+                ProvenanceExportPinGate.Reason.versionNotRecorded(.legacySpelling(spelling)).sentence,
+                "Its version was not recorded, so no version can be pinned.",
+                spelling
+            )
+        }
+        XCTAssertEqual(
+            ProvenanceExportPinGate.Reason.versionNotRecorded(.noProbe).sentence,
+            "Its version was not recorded, so no version can be pinned."
+        )
+    }
+
+    func testBrackenIsUnpinnableBecauseTheLockBuildsItFromSource() {
+        // S20. Bracken records 3.1 and the lock's source build stays at 1.0.0.
+        let result = gate(managedStep("bracken", version: "3.1", environment: "bracken"))
+        XCTAssertEqual(reasons(result), [.unpinnableRuntime(.sourceBuild)])
+    }
+
+    func testAPythonRuntimeToolIsUnpinnable() {
+        let result = gate(managedStep("primalscheme3", version: "3.3.0+lge.5", environment: "primalscheme3"))
+        XCTAssertEqual(reasons(result), [.unpinnableRuntime(.pythonRuntime)])
+    }
+
+    func testAnEnvironmentTheLockDoesNotHoldIsUnpinned() {
+        let result = gate(managedStep("gatk", version: "4.6.2.0", environment: "gatk4"))
+        XCTAssertEqual(reasons(result), [.environmentNotInLock("gatk4")])
+    }
+
+    func testAStepWithNoManagedEnvironmentIsNeverGated() {
+        let bare = StepExecution(
+            toolName: "fastp", toolVersion: "0.24.1", command: ["fastp", "-i", "r.fq"], inputs: [], outputs: [],
+            exitCode: 0, wallTime: 1
+        )
+        let result = gate(bare)
+        XCTAssertEqual(result.assessment.steps.map(\.status), [.noEnvironmentRecorded])
+        XCTAssertEqual(result.unpinnedSteps, [])
+    }
+
+    func testEachVariantOfAnEnvironmentIsAssessedWithItsOwnSpecAndName() {
+        // Two samtools steps that disagree each run in their own variant (lane P5a).
+        let result = gate(
+            managedStep("samtools", version: "1.23", environment: "samtools", package: "bioconda::samtools=1.23=aaaaaaa_0"),
+            managedStep("samtools", version: "1.24", environment: "samtools", package: "bioconda::samtools=1.24=h36b3a25_1")
+        )
+        XCTAssertEqual(result.unpinnedSteps.map(\.numbers), [[1]])
+        XCTAssertEqual(result.unpinnedSteps.map(\.environmentName), ["lge-samtools"])
+        XCTAssertEqual(reasons(result), [.versionNotInLock(recorded: "1.23", locked: "1.24")])
+        XCTAssertEqual(result.assessment.steps.map(\.exportedSpec), [
+            "bioconda::samtools=1.23=aaaaaaa_0", "bioconda::samtools=1.24=h36b3a25_1",
+        ])
+    }
+
+    func testARecordedSpecAtTheLocksVersionWithAnotherBuildIsPinned() {
+        // The spec is what ran, and the lock holds an entry of that version.
+        let result = gate(managedStep("samtools", version: "1.24", environment: "samtools", package: "bioconda::samtools=1.24=hother_9"))
+        XCTAssertEqual(result.assessment.steps.map(\.status), [.recordedSpecDiffersFromLock])
+        XCTAssertEqual(result.unpinnedSteps, [])
+    }
+
+    // MARK: - Formats and shapes
+
+    func testOnlyTheFourScriptFormatsAreGated() {
+        let unknown = managedStep("minimap2", version: "unknown", environment: "minimap2")
+        for format in ProvenanceExportFormat.allCases {
+            let result = gate(unknown, format: format)
+            let scripts: Set<ProvenanceExportFormat> = [.shell, .python, .nextflow, .snakemake]
+            XCTAssertEqual(result.isGated, scripts.contains(format), format.cliToken)
+            XCTAssertEqual(result.requiresOverride, scripts.contains(format), format.cliToken)
+            XCTAssertEqual(result.permitsExport(allowUnpinned: false), !scripts.contains(format), format.cliToken)
+        }
+    }
+
+    func testTheOlderRecordFormatIsNeverAScriptWithOrWithoutTheOverride() {
+        let pinned = managedStep("samtools", version: "1.24", environment: "samtools")
+        for shape in [ProvenanceEnvelopeReader.RecordShape.workflowRun, .primitive] {
+            let result = gate(pinned, shape: shape)
+            XCTAssertTrue(result.refusesOlderRecordFormat, shape.rawValue)
+            XCTAssertFalse(result.requiresOverride, shape.rawValue)
+            XCTAssertFalse(result.permitsExport(allowUnpinned: true), shape.rawValue)
+            XCTAssertTrue(result.refusalLines.joined(separator: "\n").contains("Older record format"), shape.rawValue)
+            XCTAssertTrue(gate(pinned, format: .methods, shape: shape).permitsExport(allowUnpinned: false))
+            XCTAssertTrue(gate(pinned, format: .json, shape: shape).permitsExport(allowUnpinned: false))
+        }
+        for shape in [ProvenanceEnvelopeReader.RecordShape.envelope, .typedRecord] {
+            XCTAssertTrue(gate(pinned, shape: shape).permitsExport(allowUnpinned: false), shape.rawValue)
+        }
+    }
+
+    func testTheRefusalNamesEachStepItsReasonAndTheFlag() {
+        let result = gate(
+            managedStep("minimap2", version: "unknown", environment: "minimap2"),
+            managedStep("samtools", version: "1.24", environment: "samtools"),
+            managedStep("bracken", version: "3.1", environment: "bracken"),
+            format: .python
+        )
+        XCTAssertEqual(result.refusalLines, [
+            "LGE did not write the Python script, because it cannot pin the tool version of 2 steps.",
+            "Step 1, minimap2 in lge-minimap2. Its version was not recorded, so no version can be pinned.",
+            "Step 3, bracken in lge-bracken. LGE builds this tool from source, which a conda package spec cannot pin.",
+            "Pass --allow-unpinned to write it anyway. The Python script and its export record then name each of these steps.",
+        ])
+    }
+
+    // MARK: - What the script runs
+
+    func testTheGateSeesTheStepSynthesizedForAStepLessRecord() {
+        let stepless = ProvenanceEnvelope(
+            workflowName: "map", toolName: "minimap2",
+            toolVersion: "unknown (managed conda environment minimap2; executable minimap2)",
+            argv: ["minimap2", "-a", "ref.fa", "reads.fq"], exitStatus: 0
+        )
+        XCTAssertEqual(ProvenanceExportPinAssessment.assess(stepless).steps, [], "the record itself holds no step")
+        let result = ProvenanceExporter(signingProvider: nil).pinGate(
+            for: stepless, shape: .envelope, format: .shell, sourceSidecarURL: nil
+        )
+        XCTAssertEqual(result.unpinnedSteps.map(\.toolName), ["minimap2"])
+        XCTAssertEqual(reasons(result), [.versionNotRecorded(.legacySpelling("unknown"))])
+    }
+
+    func testTheGateSeesAnUnpinnedStepOfAnUpstreamRecord() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pin-gate-chain-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let reads = directory.appendingPathComponent("aligned.bam")
+        try Data("aligned reads".utf8).write(to: reads)
+        let upstream = ProvenanceEnvelope(
+            workflowName: "map", toolName: "minimap2",
+            toolVersion: "unknown (managed conda environment minimap2; executable minimap2)",
+            argv: ["minimap2", "-a", "ref.fa", "reads.fq"],
+            output: try .file(url: reads, format: .bam, role: .output), exitStatus: 0
+        )
+        try ProvenanceJSON.encoder.encode(upstream).write(to: ProvenanceRecorder.fileSidecarURL(for: reads))
+        let input = try ProvenanceFileDescriptor.file(url: reads, format: .bam, role: .input)
+        let downstream = ProvenanceEnvelope(
+            workflowName: "sort", toolName: "samtools", files: [input],
+            steps: [ProvenanceStep(
+                toolName: "samtools",
+                toolVersion: "1.24 (managed conda environment samtools; executable samtools)",
+                argv: ["samtools", "sort", reads.path], inputs: [input], exitStatus: 0
+            )],
+            exitStatus: 0
+        )
+        XCTAssertEqual(ProvenanceExportPinAssessment.assess(downstream).unpinnedSteps, [], "the record's own step is pinned")
+
+        let result = ProvenanceExporter(signingProvider: nil).pinGate(
+            for: downstream, shape: .envelope, format: .snakemake, sourceSidecarURL: nil
+        )
+        XCTAssertEqual(result.unpinnedSteps.map(\.toolName), ["minimap2"])
+        XCTAssertEqual(result.unpinnedSteps.map(\.numbers), [[1]])
+        XCTAssertEqual(result.assessment.steps.map(\.toolName), ["minimap2", "samtools"])
+    }
+
+    // MARK: - Golden records
+
+    /// The script export verdict of each restored golden record the gate refuses, read as the CLI
+    /// reads a file it is given. A row reads `<path> | <shape> | <verdict> | <steps> <tool> <reason>...`.
+    /// Every other restored golden record exports without the override.
+    static let goldenRefusals: [String] = [
+        "genotype/bundle/SIMULATED-MHC-haplotypes.retained_demux_provenance.json | primitive | olderRecordFormat",
+        "genotype/bundle/SIMULATED-MHC-haplotypes.xlsx.export/request.json | primitive | olderRecordFormat",
+        "genotype/bundle/SIMULATED-MHC-haplotypes.xlsx.provenance.json | primitive | olderRecordFormat",
+        "genotype/bundle/lungfish-provenance.json | envelope | needsOverride | 1 minimap2 versionNotRecorded.legacySpelling | 2 samtools sort versionNotRecorded.legacySpelling | 3 minimap2 versionNotRecorded.legacySpelling | 4 samtools sort versionNotRecorded.legacySpelling | 5 samtools merge versionNotRecorded.legacySpelling | 6 samtools index versionNotRecorded.legacySpelling | 7 pysam retained-read demux filter versionNotRecorded.legacySpelling",
+        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.md.sorted.bam.bai.lungfish-provenance.json | envelope | needsOverride | 1 samtools index versionNotRecorded.legacySpelling",
+        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.md.sorted.bam.lungfish-provenance.json | envelope | needsOverride | 1 samtools merge versionNotRecorded.legacySpelling",
+        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv.lungfish-provenance.json | envelope | needsOverride | 1 pysam retained-read demux filter versionNotRecorded.legacySpelling",
+        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained-demux-samples.csv.lungfish-provenance.json | envelope | needsOverride | 1 pysam retained-read demux filter versionNotRecorded.legacySpelling",
+        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained-demux-stats.json.lungfish-provenance.json | envelope | needsOverride | 1 pysam retained-read demux filter versionNotRecorded.legacySpelling",
+        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai.lungfish-provenance.json | envelope | needsOverride | 1 pysam retained-read demux filter versionNotRecorded.legacySpelling",
+        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained.demuxed.bam.lungfish-provenance.json | envelope | needsOverride | 1 pysam retained-read demux filter versionNotRecorded.legacySpelling",
+        "genotype/bundle/provenance/amplicon-genotyping/mapping/001-SIMULATED-MHC-A-pairs.sorted.bam.lungfish-provenance.json | envelope | needsOverride | 1 minimap2 versionNotRecorded.legacySpelling | 2 samtools sort versionNotRecorded.legacySpelling",
+        "genotype/bundle/provenance/amplicon-genotyping/mapping/002-SIMULATED-MHC-B-pairs.sorted.bam.lungfish-provenance.json | envelope | needsOverride | 1 minimap2 versionNotRecorded.legacySpelling | 2 samtools sort versionNotRecorded.legacySpelling",
+        "genotype/bundle/provenance/bundle.lungfish-provenance.json | envelope | needsOverride | 1 minimap2 versionNotRecorded.legacySpelling | 2 samtools sort versionNotRecorded.legacySpelling | 3 minimap2 versionNotRecorded.legacySpelling | 4 samtools sort versionNotRecorded.legacySpelling | 5 samtools merge versionNotRecorded.legacySpelling | 6 samtools index versionNotRecorded.legacySpelling | 7 pysam retained-read demux filter versionNotRecorded.legacySpelling",
+        "genotype/bundle/provenance/retained-demux-genotyping-provenance.json.lungfish-provenance.json | envelope | needsOverride | 1 pysam retained-read demux filter versionNotRecorded.legacySpelling",
+        "genotype/bundle/retained-demux-genotyping-provenance.json | primitive | olderRecordFormat | 1 minimap2 versionNotRecorded.recordedAppVersion | 2 samtools sort versionNotRecorded.recordedAppVersion | 3 minimap2 versionNotRecorded.recordedAppVersion | 4 samtools sort versionNotRecorded.recordedAppVersion | 5 samtools merge versionNotRecorded.recordedAppVersion | 6 samtools index versionNotRecorded.recordedAppVersion | 7 pysam retained-read demux filter versionNotRecorded.recordedAppVersion | 10 openpyxl ONT genotype workbook report versionNotRecorded.recordedAppVersion",
+        "genotype/exports/pivot.xlsx.export/request.json | primitive | olderRecordFormat",
+        "genotype/exports/pivot.xlsx.provenance.json | primitive | olderRecordFormat",
+        "genotype/exports/workbook.xlsx.export/request.json | primitive | olderRecordFormat",
+        "genotype/exports/workbook.xlsx.provenance.json | primitive | olderRecordFormat",
+    ]
+
+    func testEveryCommittedGoldenRecordReadsAsTheOlderRecordFormat() throws {
+        // The golden normalizer writes "<TIMESTAMP>", "<DURATION>" and "<PID>" where a record holds a
+        // date or a number, so no committed golden decodes as an envelope, and the gate refuses each
+        // one as a script whatever its pins (V6). The restored copies below read as written.
+        let urls = try GoldenProvenanceRecords.urls()
+        XCTAssertEqual(urls.count, 44)
+        for (path, url) in urls {
+            let reading = try XCTUnwrap(GoldenProvenanceRecords.cliReading(of: url), path)
+            XCTAssertEqual(reading.reading.shape, .primitive, path)
+            let result = ProvenanceExporter(signingProvider: nil).pinGate(
+                for: reading.reading.envelope, shape: reading.reading.shape, format: .shell,
+                sourceSidecarURL: reading.sidecarURL, sourceRootURL: url
+            )
+            XCTAssertTrue(result.refusesOlderRecordFormat, path)
+        }
+    }
+
+    func testRestoredGoldenRecordVerdicts() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pin-gate-golden-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let restored = try GoldenProvenanceRecords.restoredCopies(in: directory)
+        XCTAssertEqual(restored.count, 44)
+
+        var rows: [String] = []
+        var steps = 0
+        var unpinned = 0
+        for (path, url) in restored.sorted(by: { $0.key < $1.key }) {
+            let reading = try XCTUnwrap(GoldenProvenanceRecords.cliReading(of: url), path)
+            let result = ProvenanceExporter(signingProvider: nil).pinGate(
+                for: reading.reading.envelope, shape: reading.reading.shape, format: .shell,
+                sourceSidecarURL: reading.sidecarURL, sourceRootURL: url
+            )
+            steps += result.assessment.steps.count
+            unpinned += result.unpinnedSteps.count
+            rows.append(GoldenProvenanceRecords.row(path, result))
+        }
+        for row in rows { print("[pin-gate] \(row)") }
+        XCTAssertEqual(rows.filter { !$0.contains(" | exportable") }, Self.goldenRefusals)
+        print("[pin-gate] \(rows.count) records, \(steps) script steps, \(unpinned) unpinned")
+    }
+}
+
+/// The golden provenance records, the 44 records with 100 steps that
+/// `ProvenanceExportPinAssessmentRecordTests` assesses, and copies of them restored to the shape they
+/// were written in.
+enum GoldenProvenanceRecords {
+    static var root: URL {
+        ProvenanceCompatCorpus.repositoryRoot.appendingPathComponent("Tests/Fixtures/golden", isDirectory: true)
+    }
+
+    /// The golden record files with steps, by path under `Tests/Fixtures/golden`.
+    static func urls() throws -> [String: URL] {
+        let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil))
+        var result: [String: URL] = [:]
+        for case let url as URL in enumerator where url.pathExtension == "json" {
+            let relative = url.path.replacingOccurrences(of: root.path + "/", with: "")
+            guard !relative.hasPrefix("cli-help/"), !relative.hasPrefix("tools/"),
+                  let envelope = try? ProvenanceEnvelopeReader.decode(Data(contentsOf: url)),
+                  !envelope.steps.isEmpty else { continue }
+            result[relative] = url
+        }
+        return result
+    }
+
+    /// The placeholders the golden normalizer writes where a record holds a date, a number or an id,
+    /// as regular expressions, with the value a restored copy puts back.
+    static let restorations: [(pattern: String, template: String)] = [
+        (#""<(TIMESTAMP|GENERATED_AT)>""#, #""2026-10-10T12:00:00Z""#),
+        (#""<(DURATION|PID|EPOCH)>""#, "1"),
+        (#""<SIZE-[A-Z0-9]+>""#, "1"),
+        (#""<UUID-([0-9])>""#, #""00000000-0000-0000-0000-00000000000$1""#),
+        (#""<UUID-([0-9]{2})>""#, #""00000000-0000-0000-0000-0000000000$1""#),
+    ]
+
+    /// Each golden record copied under `directory` at its own path, with its placeholders restored.
+    static func restoredCopies(in directory: URL) throws -> [String: URL] {
+        var result: [String: URL] = [:]
+        for (path, url) in try urls() {
+            var text = try String(contentsOf: url, encoding: .utf8)
+            for restoration in restorations {
+                text = text.replacingOccurrences(of: restoration.pattern, with: restoration.template, options: .regularExpression)
+            }
+            let copy = directory.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: copy)
+            result[path] = copy
+        }
+        return result
+    }
+
+    /// The record the CLI reads for a file it is given, the file itself, except a typed mapping
+    /// record, which only the finder converts.
+    static func cliReading(of url: URL) -> (sidecarURL: URL, reading: ProvenanceEnvelopeReader.Reading)? {
+        if url.lastPathComponent == MappingProvenance.filename, let found = ProvenanceRecorder.findProvenanceReading(for: url) {
+            return found
+        }
+        return ((try? ProvenanceEnvelopeReader.read(fromSidecar: url)) ?? nil).map { (url, $0) }
+    }
+
+    /// A gate verdict as one row.
+    static func row(_ path: String, _ gate: ProvenanceExportPinGate) -> String {
+        let verdict = gate.refusesOlderRecordFormat ? "olderRecordFormat" : (gate.requiresOverride ? "needsOverride" : "exportable")
+        let steps = gate.unpinnedSteps.map { step in
+            var code = step.reason.code
+            if case .versionNotRecorded(let reason) = step.reason {
+                switch reason {
+                case .noProbe: code += ".noProbe"
+                case .probeFailed: code += ".probeFailed"
+                case .outputUnparseable: code += ".outputUnparseable"
+                case .legacySpelling: code += ".legacySpelling"
+                case .recordedProbeError: code += ".recordedProbeError"
+                case .recordedAppVersion: code += ".recordedAppVersion"
+                }
+            }
+            return "\(step.numbers.map(String.init).joined(separator: "+")) \(step.toolName) \(code)"
+        }
+        return ([path, gate.shape.rawValue, verdict] + steps).joined(separator: " | ")
+    }
+}
+
+/// The pin gate over the records of each released demo archive in the folder LUNGFISH_DEMO_ARCHIVE_DIR
+/// names, the archives `DemoProjectProvenanceSweepTests` reads. It prints which archives hold records
+/// whose shell export needs the override or is the Older record format, and checks that asking the
+/// gate changes no byte of the project. It skips when the folder is not named, as the unit tier does.
+final class ProvenanceExportPinGateDemoSweepTests: XCTestCase {
+    /// Each gate walks the record's lineage, so a large project gets an evenly spaced sample this large.
+    static let sampleLimit = 400
+
+    func testWhichDemoArchiveScriptExportsNeedTheOverride() async throws {
+        let key = DemoProjectProvenanceSweepTests.folderKey
+        guard let folderPath = ProcessInfo.processInfo.environment[key], !folderPath.isEmpty else {
+            throw XCTSkip("Set \(key) to a folder of released demo archives to run this sweep.")
+        }
+        let folder = URL(fileURLWithPath: folderPath, isDirectory: true)
+        var swept = 0
+        for project in try DemoProjectManifest.loadBundled().projects {
+            let archive = folder.appendingPathComponent(project.archive.url.lastPathComponent)
+            guard FileManager.default.fileExists(atPath: archive.path) else { continue }
+            try DemoProjectInstaller.verifyArchive(
+                at: archive, expectedBytes: project.archive.bytes, expectedSHA256: project.archive.sha256
+            )
+            let workRoot = try DemoProjectFixtures.makeTempDirectory("pin-gate-sweep")
+            defer { try? FileManager.default.removeItem(at: workRoot) }
+            let installed = try await DemoProjectInstallHarness.install(project, archive: archive, under: workRoot)
+            let before = try DemoProjectTreeSnapshot.capture(of: installed)
+            let sidecars = try DemoProvenanceReads.sidecarURLs(in: installed)
+            let sample = sidecars.count > Self.sampleLimit
+                ? (0..<Self.sampleLimit).map { sidecars[$0 * sidecars.count / Self.sampleLimit] }
+                : sidecars
+
+            var verdicts: [String: Int] = [:]
+            var reasons: [String: Int] = [:]
+            for sidecar in sample {
+                guard let reading = GoldenProvenanceRecords.cliReading(of: sidecar) else {
+                    verdicts["unreadable", default: 0] += 1
+                    continue
+                }
+                let gate = ProvenanceExporter(signingProvider: nil).pinGate(
+                    for: reading.reading.envelope, shape: reading.reading.shape, format: .shell,
+                    sourceSidecarURL: reading.sidecarURL, sourceRootURL: sidecar
+                )
+                let verdict = gate.refusesOlderRecordFormat ? "olderRecordFormat" : (gate.requiresOverride ? "needsOverride" : "exportable")
+                verdicts[verdict, default: 0] += 1
+                for step in gate.unpinnedSteps {
+                    reasons["\(step.toolName) \(step.reason.code)", default: 0] += 1
+                }
+            }
+            let after = try DemoProjectTreeSnapshot.capture(of: installed)
+            XCTAssertEqual(after.differences(from: before), [], "\(project.id) changed while the gate read it")
+
+            let counts = verdicts.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", ")
+            print("[pin-gate-demo] \(project.id) \(project.version), \(sample.count) of \(sidecars.count) records, \(counts)")
+            for (reason, count) in reasons.sorted(by: { $0.key < $1.key }) {
+                print("[pin-gate-demo]   \(reason), \(count) steps")
+            }
+            swept += 1
+        }
+        XCTAssertGreaterThan(swept, 0, "\(key) holds no catalogued archive")
+    }
+}
