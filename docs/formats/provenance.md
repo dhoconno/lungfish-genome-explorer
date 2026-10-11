@@ -39,9 +39,9 @@ A step holds `id`, `toolName`, `toolVersion`, `argv`, `reproducibleCommand`, `re
 | --- | --- |
 | `parentStepID` | The `id` of the step this step ran under, such as the import step that ran a compression tool |
 | `managedToolID` | The managed tool the step ran, by its id in the tool lock. The run's `tool` object may hold one too |
-| `toolVersionEvidence` | Where `toolVersion` comes from, as an object with a `source` of `observed`, `lockPin` or `unknown` |
+| `toolVersionEvidence` | Where `toolVersion` comes from, as an object with a `source` of `observed`, `lockPin`, `sourceBuild` or `unknown` |
 
-An observed or pinned version holds `version`, an observed one may hold the probe's `reportedLine`, and a pin holds the lock entry's `managedToolID`. An unknown version holds a `reason`, and the reasons read from a stored value hold it as `recorded`. A reader that meets evidence in a shape it does not know reads the rest of the step and shows the evidence as Not recorded. A descriptor holds `path`, `checksumSHA256`, `fileSize`, `format`, `role`, `originPath` and `sourceProvenancePath`. A typed value is an object with a `type` and a `value`. A `file` value keeps the path the record holds, so `<workspace>/reads.fastq` reads back as written and never gains the reading folder in front.
+An observed, pinned or source-built version holds `version`, an observed one may hold the probe's `reportedLine`, and a pin or a source build holds the lock entry's `managedToolID`. A source build is the version a lock entry builds from a source archive it pins by SHA-256, such as Bracken 3.1 beside the locked package 1.0.0. An unknown version holds a `reason`, and the reasons read from a stored value hold it as `recorded`. A reader that meets evidence in a shape it does not know reads the rest of the step and shows the evidence as Not recorded. A descriptor holds `path`, `checksumSHA256`, `fileSize`, `format`, `role`, `originPath` and `sourceProvenancePath`. A typed value is an object with a `type` and a `value`. A `file` value keeps the path the record holds, so `<workspace>/reads.fastq` reads back as written and never gains the reading folder in front.
 
 ## The shapes a reader accepts
 

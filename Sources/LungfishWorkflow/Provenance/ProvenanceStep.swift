@@ -34,8 +34,9 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
     public var parentStepID: UUID?
     /// The managed tool the step ran, by its lock id, when the writer knew it.
     public var managedToolID: ManagedToolID?
-    /// What `toolVersion` is known from: a probe's output, a lock pin or a gap. A record holding
-    /// evidence this build cannot read keeps the rest of the step and reads it as not recorded.
+    /// What `toolVersion` is known from: a probe's output, a lock pin, a source build or a gap. A
+    /// record holding evidence this build cannot read keeps the rest of the step and reads it as
+    /// not recorded.
     public var toolVersionEvidence: ToolVersionEvidence?
 
     private enum CodingKeys: String, CodingKey {

@@ -488,10 +488,12 @@ final class ProvenanceSchemaVersion2EncoderTests: XCTestCase {
     /// Every kind of evidence encodes to its wire shape and decodes to itself.
     func testEveryKindOfVersionEvidenceRoundTrips() throws {
         let samtools = ManagedToolID(rawValue: "samtools")
+        let bracken = ManagedToolID(rawValue: "bracken")
         let cases: [(ToolVersionEvidence, [String: String])] = [
             (.observed(version: "2.31", reportedLine: "2.31-r1302"), ["source": "observed", "version": "2.31", "reportedLine": "2.31-r1302"]),
             (.observed(version: "2.31", reportedLine: nil), ["source": "observed", "version": "2.31"]),
             (.lockPin(version: "1.24", id: samtools), ["source": "lockPin", "version": "1.24", "managedToolID": "samtools"]),
+            (.sourceBuild(version: "3.1", id: bracken), ["source": "sourceBuild", "version": "3.1", "managedToolID": "bracken"]),
             (.unknown(.noProbe), ["source": "unknown", "reason": "noProbe"]),
             (.unknown(.probeFailed), ["source": "unknown", "reason": "probeFailed"]),
             (.unknown(.outputUnparseable), ["source": "unknown", "reason": "outputUnparseable"]),
@@ -504,6 +506,9 @@ final class ProvenanceSchemaVersion2EncoderTests: XCTestCase {
             XCTAssertEqual(try JSONSerialization.jsonObject(with: data) as? [String: String], wire, "\(evidence)")
             XCTAssertEqual(try ProvenanceJSON.decoder.decode(ToolVersionEvidence.self, from: data), evidence)
         }
+        // A source build records the version the lock builds, as a pin records the pinned one.
+        XCTAssertEqual(ToolVersionEvidence.sourceBuild(version: "3.1", id: bracken).version, "3.1")
+        XCTAssertEqual(ToolVersionEvidence.sourceBuild(version: "3.1", id: bracken).recordedString, "3.1")
     }
 
     /// Evidence a later build records in a shape this one does not know leaves the step and the
@@ -513,7 +518,7 @@ final class ProvenanceSchemaVersion2EncoderTests: XCTestCase {
         defer { first.cleanup() }
         var object = try first.json()
         var steps = try XCTUnwrap(object["steps"] as? [[String: Any]])
-        steps[0]["toolVersionEvidence"] = ["source": "sourceBuild", "version": "3.1"]
+        steps[0]["toolVersionEvidence"] = ["source": "futureSource", "version": "3.1"]
         object["steps"] = steps
         object["schemaVersion"] = 3
         let read = try ProvenanceEnvelopeReader.read(try JSONSerialization.data(withJSONObject: object))

@@ -3,12 +3,13 @@
 // SPDX-License-Identifier: MIT
 //
 // A record's `toolVersion` is a free string. It can hold a version a probe
-// printed, a pin copied from the lock without running the tool, the literal
-// `unknown` (or `unresolved`, `unavailable`, an empty string), or the text of a
-// failed probe. This type names those cases so a reader can tell a measured
-// version from a pin from a gap. A step records it under `toolVersionEvidence`
-// beside `toolVersion`, in the wire shape at the end of this file, and the
-// producers that fill it come later.
+// printed, a pin copied from the lock without running the tool, the version
+// the lock builds from source, the literal `unknown` (or `unresolved`,
+// `unavailable`, an empty string), or the text of a failed probe. This type
+// names those cases so a reader can tell a measured version from a pin from a
+// gap. A step records it under `toolVersionEvidence` beside `toolVersion`, in
+// the wire shape at the end of this file, and the producers that fill it come
+// later.
 
 import Foundation
 import LungfishIO
@@ -21,6 +22,10 @@ public enum ToolVersionEvidence: Sendable, Hashable {
     /// A version copied from the lock without running the tool. It says what
     /// the lock pins, not what is installed.
     case lockPin(version: String, id: ManagedToolID)
+    /// The version a lock entry's source build installs from the source archive
+    /// the lock pins by SHA-256, such as Bracken 3.1 beside the locked package
+    /// 1.0.0. It says what the lock builds, and a conda spec cannot install it.
+    case sourceBuild(version: String, id: ManagedToolID)
     /// No version is known, and why.
     case unknown(Reason)
 
@@ -68,10 +73,10 @@ public enum ToolVersionEvidence: Sendable, Hashable {
         return false
     }
 
-    /// The version, for an observed or pinned version.
+    /// The version, for an observed, pinned or source-built version.
     public var version: String? {
         switch self {
-        case .observed(let version, _), .lockPin(let version, _): return version
+        case .observed(let version, _), .lockPin(let version, _), .sourceBuild(let version, _): return version
         case .unknown: return nil
         }
     }
@@ -87,7 +92,7 @@ public enum ToolVersionEvidence: Sendable, Hashable {
     /// of the evidence.
     public var recordedString: String {
         switch self {
-        case .observed(let version, _), .lockPin(let version, _):
+        case .observed(let version, _), .lockPin(let version, _), .sourceBuild(let version, _):
             return version
         case .unknown(let reason):
             switch reason {
@@ -134,10 +139,11 @@ public enum ToolVersionEvidence: Sendable, Hashable {
 
 // MARK: - Wire shape
 
-/// A step's `toolVersionEvidence` object. `source` is `observed`, `lockPin` or `unknown`. An observed
-/// or pinned version carries `version`, an observed one the probe's `reportedLine` when the caller
-/// kept it, and a pin its lock entry's `managedToolID`. An unknown version carries a `reason` and,
-/// for the reasons read from a stored value, that value as `recorded`.
+/// A step's `toolVersionEvidence` object. `source` is `observed`, `lockPin`, `sourceBuild` or
+/// `unknown`. An observed, pinned or source-built version carries `version`, an observed one the
+/// probe's `reportedLine` when the caller kept it, and a pin or a source build its lock entry's
+/// `managedToolID`. An unknown version carries a `reason` and, for the reasons read from a stored
+/// value, that value as `recorded`.
 extension ToolVersionEvidence: Codable {
     private enum CodingKeys: String, CodingKey {
         case source
@@ -151,6 +157,7 @@ extension ToolVersionEvidence: Codable {
     private enum Source: String, Codable {
         case observed
         case lockPin
+        case sourceBuild
         case unknown
     }
 
@@ -176,6 +183,11 @@ extension ToolVersionEvidence: Codable {
                 version: try container.decode(String.self, forKey: .version),
                 id: try container.decode(ManagedToolID.self, forKey: .managedToolID)
             )
+        case .sourceBuild:
+            self = .sourceBuild(
+                version: try container.decode(String.self, forKey: .version),
+                id: try container.decode(ManagedToolID.self, forKey: .managedToolID)
+            )
         case .unknown:
             let recorded = try container.decodeIfPresent(String.self, forKey: .recorded) ?? ""
             switch try container.decode(ReasonName.self, forKey: .reason) {
@@ -198,6 +210,10 @@ extension ToolVersionEvidence: Codable {
             try container.encodeIfPresent(reportedLine, forKey: .reportedLine)
         case .lockPin(let version, let id):
             try container.encode(Source.lockPin, forKey: .source)
+            try container.encode(version, forKey: .version)
+            try container.encode(id, forKey: .managedToolID)
+        case .sourceBuild(let version, let id):
+            try container.encode(Source.sourceBuild, forKey: .source)
             try container.encode(version, forKey: .version)
             try container.encode(id, forKey: .managedToolID)
         case .unknown(let reason):
