@@ -48,7 +48,7 @@ public struct AnalysisRunServices: Sendable {
 /// | P2 units | the tool, one unit at a time | unit folders and outputs, unit records |
 /// | P3 finalize | the tool, for a completed run | summary, manifest, viewer index |
 /// | P4 root record | executor, last, through `ProvenanceRunBuilder` and `ProvenanceWriter` | the root record |
-/// | P5 source records | executor, for a completed run | source bundle records |
+/// | P5 source records | executor, for a completed run | source bundle records, or an info line for one it cannot write |
 /// | P6 settle | executor | completes the run record, or records the outcome and keeps the folder hidden (E5) |
 /// | P7 report | executor | the `complete` or `failed` event and the exit code |
 ///
@@ -250,7 +250,9 @@ public struct AnalysisRunExecutor: Sendable {
             do {
                 try record.write(context)
             } catch {
-                journal.warn("The run could not be added to a source bundle's analysis history: \(Self.reason(for: error))")
+                // An info line, as the app logs it today, so the row reads Completed and the root
+                // record's stderr, written in P4, still holds every warning of the run.
+                journal.log(.info, "The run could not be added to a source bundle's analysis history: \(Self.reason(for: error))")
             }
         }
     }

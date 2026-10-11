@@ -44,6 +44,15 @@ struct FakeToolError: Error, LocalizedError {
     var errorDescription: String? { message }
 }
 
+/// A source record whose bundle does not take it.
+struct FailingSourceRecord: AnalysisSourceRecord {
+    let message: String
+
+    func write(_ context: AnalysisSourceRecordContext) throws {
+        throw FakeToolError(message: message)
+    }
+}
+
 /// A refusal that carries the exit code of its command, as `conda classify`'s input errors do.
 struct FakeCodedError: AnalysisRunExitCoding, LocalizedError {
     let message: String
@@ -154,6 +163,8 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
     var planErrorExitCode: Int32?
     var readSetPlan: ParameterValue?
     var sourceBundle: URL?
+    /// Adds a source record that throws this message when the executor writes it.
+    var sourceRecordError: String?
     var finalizeError: String?
     var finalizeWarnings: [String] = []
     var finalizeOutputs = true
@@ -333,12 +344,17 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
 
         let summary = context.rootDirectory.appendingPathComponent("summary.tsv")
         try Data("sample\tstatus\n".utf8).write(to: summary)
+        var sourceRecords: [any AnalysisSourceRecord] = []
+        if let sourceBundle {
+            sourceRecords.append(AnalysisManifestSourceRecord(bundleURL: sourceBundle, displayName: "Fake Batch", summary: "\(units.count) units"))
+        }
+        if let sourceRecordError {
+            sourceRecords.append(FailingSourceRecord(message: sourceRecordError))
+        }
         return AnalysisRunFinalization(
             outputs: finalizeOutputs ? [AnalysisRunOutput(url: summary, format: .text)] : [],
             steps: [ProvenanceStep(toolName: "fake-index", toolVersion: "1.0", argv: ["fake-index", summary.path])],
-            sourceRecords: sourceBundle.map {
-                [AnalysisManifestSourceRecord(bundleURL: $0, displayName: "Fake Batch", summary: "\(units.count) units")]
-            } ?? [],
+            sourceRecords: sourceRecords,
             artifacts: [CLIEventArtifact(kind: "tsv", path: summary.path, role: "summary")],
             completionDetail: "\(units.filter { $0.outcome.completed }.count) of \(units.count) samples classified",
             warnings: finalizeWarnings,

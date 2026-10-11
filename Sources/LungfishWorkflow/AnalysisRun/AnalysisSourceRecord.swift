@@ -7,7 +7,8 @@ import LungfishIO
 
 /// A record of the run that the executor writes into a source bundle in phase P5, after the root
 /// record and only for a completed run, such as an `analyses-manifest.json` entry. Both the
-/// command line and the app's route write the same text through it.
+/// command line and the app's route write the same text through it. A record that cannot be
+/// written becomes an info line, and the run still completes without a warning.
 public protocol AnalysisSourceRecord: Sendable {
     func write(_ context: AnalysisSourceRecordContext) throws
 }

@@ -557,6 +557,29 @@ struct AnalysisRunExecutorTests {
         #expect(try fixture.record(at: report.recordURL).status == .failed)
     }
 
+    @Test("A source record that cannot be written is an info line, and the run completes without warnings")
+    func failedSourceRecordIsAnInfoLine() async throws {
+        let fixture = try AnalysisRunTestProject()
+        defer { fixture.cleanup() }
+        let recorder = AnalysisRunEventRecorder()
+        var tool = FakeAnalysisRunTool(probe: FakeToolProbe())
+        tool.sourceRecordError = "The bundle is read-only."
+
+        let report = await AnalysisRunExecutor.unsigned.execute(tool, fixture.request(), events: recorder.events)
+
+        #expect(report.status == .completed)
+        #expect(report.exitCode == 0)
+        #expect(report.warnings.isEmpty)
+        let infoLines = recorder.snapshot.compactMap { line -> String? in
+            if case .log(.info, let message)? = line.event { return message }
+            return nil
+        }
+        #expect(infoLines.contains { $0.hasPrefix("The run could not be added to a source bundle") && $0.hasSuffix("The bundle is read-only.") })
+        #expect(recorder.names.last == "complete")
+        #expect(try fixture.record(at: report.recordURL).stderr == nil)
+        #expect(AnalysesFolder.isAnalysisIncomplete(try #require(report.analysisDirectory)) == false)
+    }
+
     @Test("Finalize warnings complete the run with warnings")
     func finalizeWarningsCompleteWithWarnings() async throws {
         let fixture = try AnalysisRunTestProject()
