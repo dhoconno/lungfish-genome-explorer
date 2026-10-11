@@ -102,7 +102,8 @@ enum ClassifierParityKnownDifferences {
         pair([.e3], "command: B has no command to run",
              "cli-parity-gap esviritu-batch. The EsViritu batch row records no command, so nothing replays the batch (E8). Side C' replays the new route's batch command"),
         pair([.k5], "analysis: only B keeps its analysis folder",
-             "D2. The GUI deletes a failed run's folder, and the CLI keeps it with its failed record and its run record (E5)"),
+             "D2. The GUI deletes a failed run's folder, and the CLI keeps it with its failed record and its run record (E5). Both K5 runs fail on the known defect of F2 bio ruling 1",
+             closedBy: "BR's kreport parser fix, after which side A completes and keeps its folder. A8 deletes this entry when it pins K5 (A8 M0)"),
     ]
 
     // MARK: Records
@@ -164,14 +165,14 @@ enum ClassifierParityKnownDifferences {
         ClassifierParityKnownDifference(
             cases: [.k5], scope: .side(.a),
             id: "fact: the run completes",
-            reason: "Kraken2 classifies none of the 40 reads, KreportParser finds no classified row and throws Empty Kraken2 report, and the run fails before Bracken runs, so it never degrades to Completed with Warnings as memo BIO O7 expected",
-            closedBy: "a panel ruling, no 2.7 lane changes it (reported by F2)"
+            reason: "A known defect (F2 bio ruling 1). Kraken2 classifies none of the 40 reads and reports them in one unclassified line. KreportParser rejects that report as Empty Kraken2 report, so the run fails before the Bracken preflight, which would degrade the profile with rankAbsentFromReport and complete with warnings (E4)",
+            closedBy: "BR's kreport parser fix. BR leaves this test to A8, which deletes this entry and pins the new row, Completed with Warnings and one warning line (A8 M0, E4)"
         ),
         ClassifierParityKnownDifference(
             cases: [.k5], scope: .side(.b),
             id: "fact: the run completes",
-            reason: "As on side A, the replay throws Empty Kraken2 report",
-            closedBy: "a panel ruling, no 2.7 lane changes it (reported by F2)"
+            reason: "As on side A, the replay throws Empty Kraken2 report. After BR's parser fix the replay still exits 64 with a failed record (F2 bio ruling 1)",
+            closedBy: "A8, whose classify exits 0 with status completed on a degraded profile (A8 M0, E4)"
         ),
     ]
 
