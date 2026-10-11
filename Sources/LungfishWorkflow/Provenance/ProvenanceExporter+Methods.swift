@@ -4,7 +4,8 @@
 //
 // The methods export writes one sentence for each tool. The first table here gives the sentence its
 // subject, what the tool did, and the second lists the parameters worth reporting after "with", each as
-// a noun phrase that reads after that word.
+// a noun phrase that reads after that word. Both match on the program token, the first word of the
+// recorded tool name without its folder, so a step named `samtools sort` reaches the samtools arm.
 
 import Foundation
 
@@ -12,7 +13,7 @@ extension ProvenanceExporter {
     /// The subject of a tool's methods sentence.
     func methodsOperation(tool: String, subcommands: [String]) -> String {
         let verbs = Set(subcommands.map { $0.split(separator: " ").last.map(String.init) ?? "" })
-        switch tool.lowercased() {
+        switch Self.methodsProgram(of: tool) {
         case "bcftools":
             if verbs.contains("mpileup") || verbs.contains("call") {
                 return verbs.contains("view") || verbs.contains("filter")
@@ -51,7 +52,7 @@ extension ProvenanceExporter {
     func extractKeyParameters(tool: String, argv: [String]) -> [String] {
         var params: [String] = []
         var index = 1
-        let toolName = tool.lowercased()
+        let toolName = Self.methodsProgram(of: tool)
         while index < argv.count {
             let arg = argv[index]
             let next: String? = index + 1 < argv.count ? argv[index + 1] : nil
@@ -102,5 +103,30 @@ extension ProvenanceExporter {
             }
         }
         return params.isEmpty ? ["the filter expression \(expression)"] : params
+    }
+
+    // MARK: - Program token
+
+    /// The program a recorded tool name stands for: its first word without a folder, in lowercase
+    /// (`samtools` for `samtools sort`, `esviritu` for `EsViritu`).
+    static func methodsProgram(of toolName: String) -> String {
+        guard let first = toolName.split(whereSeparator: \.isWhitespace).first else { return "" }
+        return methodsExecutableName(String(first))
+    }
+
+    /// The tool a command stands for in the methods text. A recorded name that is a program and the
+    /// subcommand its command ran, such as `samtools sort`, stands for the program, so the steps of one
+    /// program share one sentence and one row of the version table. Any other name stays as recorded,
+    /// because a description such as `pysam retained-read demux filter` is not a program and subcommand.
+    static func methodsToolName(_ recorded: String, ranAs argv: [String]) -> String {
+        let words = recorded.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard words.count == 2, argv.count >= 2, words[1] == argv[1],
+              methodsProgram(of: words[0]) == methodsExecutableName(argv[0]) else { return recorded }
+        return words[0].split(separator: "/").last.map(String.init) ?? recorded
+    }
+
+    /// The file name of an executable's path, in lowercase.
+    private static func methodsExecutableName(_ path: String) -> String {
+        path.split(separator: "/").last.map { $0.lowercased() } ?? ""
     }
 }

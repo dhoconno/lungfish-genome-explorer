@@ -1353,13 +1353,19 @@ public struct ProvenanceExporter: Sendable {
         return order.map { MethodsToolGroup(toolName: names[$0] ?? $0, steps: groups[$0] ?? []) }
     }
 
-    /// The recorded tool name of each command in a step: the step's own name
-    /// for one command, the names on either side of the pipe otherwise.
+    /// The tool of each command in a step: the step's own name for one
+    /// command, the names on either side of the pipe otherwise. A name that
+    /// is a program and the subcommand it ran (`samtools sort`) is the
+    /// program, so the steps of one program share one sentence.
     private static func toolNames(of step: ProvenanceExportPlan.Step) -> [String] {
-        guard step.commands.count > 1 else { return [step.toolName] }
+        guard step.commands.count > 1 else {
+            return [methodsToolName(step.toolName, ranAs: step.commands.first?.argv ?? [])]
+        }
         let parts = step.toolName.components(separatedBy: " | ")
-        if parts.count == step.commands.count { return parts }
-        return step.commands.map { URL(fileURLWithPath: $0.argv.first ?? step.toolName).lastPathComponent }
+        let recorded = parts.count == step.commands.count
+            ? parts
+            : step.commands.map { URL(fileURLWithPath: $0.argv.first ?? step.toolName).lastPathComponent }
+        return zip(recorded, step.commands).map { methodsToolName($0, ranAs: $1.argv) }
     }
 
     /// One sentence per tool: what it did, which subcommands ran, the

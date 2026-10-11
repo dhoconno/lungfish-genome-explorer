@@ -72,22 +72,53 @@ struct ProvenanceMethodsSentenceTests {
         ])
     }
 
-    @Test("Steps named samtools sort, merge and index get a sentence each and repeat the subcommand")
-    func genotypeMethodsToday() {
+    @Test("Steps named samtools sort, merge and index share the samtools sentence and its version row")
+    func samtoolsSubcommandNamesShareOneSentence() {
         let run = Self.genotypeMappingRun()
         #expect(Self.analysis(run) == """
-            Processing was performed with samtools sort v1.24 (bioconda::samtools=1.24=h36b3a25_1; conda environment samtools), \
-            using samtools sort sort. \
-            Processing was performed with samtools merge v1.24 (bioconda::samtools=1.24=h36b3a25_1; conda environment samtools), \
-            using samtools merge merge. \
-            Processing was performed with samtools index v1.24 (bioconda::samtools=1.24=h36b3a25_1; conda environment samtools), \
-            using samtools index index.
+            Alignments were filtered, sorted and indexed with samtools v1.24 (bioconda::samtools=1.24=h36b3a25_1; conda environment samtools), \
+            using samtools sort, samtools merge and samtools index.
             """)
         #expect(Self.toolRows(run) == [
-            "| samtools sort | 1.24 | bioconda::samtools=1.24=h36b3a25_1 | conda environment samtools |",
-            "| samtools merge | 1.24 | bioconda::samtools=1.24=h36b3a25_1 | conda environment samtools |",
-            "| samtools index | 1.24 | bioconda::samtools=1.24=h36b3a25_1 | conda environment samtools |",
+            "| samtools | 1.24 | bioconda::samtools=1.24=h36b3a25_1 | conda environment samtools |",
         ])
+    }
+
+    @Test("A pipe of samtools view and samtools sort names samtools once")
+    func pipedSubcommandNamesFold() {
+        let run = Self.run("Filtering", [
+            Self.step(
+                "samtools view", version: Self.samtoolsVersion,
+                ["samtools", "view", "-b", "-F", "256", "/data/raw.sam"],
+                inputs: ["/data/raw.sam"], outputs: ["pipe:stdout:view-sort"]
+            ),
+            Self.step(
+                "samtools sort", version: Self.samtoolsVersion,
+                ["samtools", "sort", "-o", "/data/sorted.bam", "-"],
+                inputs: ["pipe:stdout:view-sort"], outputs: ["/data/sorted.bam"]
+            ),
+        ])
+        #expect(Self.analysis(run) == """
+            Alignments were filtered, sorted and indexed with samtools v1.24 (bioconda::samtools=1.24=h36b3a25_1; conda environment samtools), \
+            using samtools view and samtools sort, with secondary alignments (flag 256) excluded.
+            """)
+        #expect(Self.toolRows(run).count == 1)
+    }
+
+    @Test("A descriptive tool name keeps its own sentence and version row")
+    func descriptiveNamesStay() {
+        let run = Self.run("Genotyping", [
+            Self.step(
+                "pysam retained-read demux filter", version: "unknown",
+                ["/envs/pysam/bin/python", "/work/filter-demux-retained-bam.py", "--input-bam", "/work/sorted.bam"]
+            ),
+            Self.step("openpyxl ONT genotype workbook report", version: "3.1.5", ["/envs/openpyxl/bin/python", "/work/renderer.py"]),
+        ])
+        #expect(Self.analysis(run) == """
+            Processing was performed with pysam retained-read demux filter unknown (conda environment pysam). \
+            Processing was performed with openpyxl ONT genotype workbook report v3.1.5 (conda environment openpyxl).
+            """)
+        #expect(Self.toolRows(run).count == 2)
     }
 
     @Test("LoFreq and iVar read as Processing was performed")
@@ -130,12 +161,15 @@ struct ProvenanceMethodsSentenceTests {
         )
     }
 
-    @Test("The genotype golden repeats the subcommand of its samtools steps")
-    func genotypeGoldenMethodsToday() throws {
+    @Test("The genotype golden names samtools once and keeps its descriptive tool names")
+    func genotypeGoldenMethods() throws {
         let text = try Self.goldenMethods("genotype/bundle/lungfish-provenance.json")
-        #expect(text.contains("with samtools sort unknown (conda environment samtools), using samtools sort sort. "), Comment(rawValue: text))
-        #expect(text.contains("with samtools merge unknown (conda environment samtools), using samtools merge merge. "), Comment(rawValue: text))
-        #expect(text.contains("with samtools index unknown (conda environment samtools), using samtools index index. "), Comment(rawValue: text))
+        #expect(
+            text.contains("Alignments were filtered, sorted and indexed with samtools unknown (conda environment samtools), using samtools sort, samtools merge and samtools index. "),
+            Comment(rawValue: text)
+        )
+        #expect(text.contains("Processing was performed with pysam retained-read demux filter unknown (conda environment pysam). "), Comment(rawValue: text))
+        #expect(!text.contains("sort sort"), Comment(rawValue: text))
         #expect(text.contains("Reads were mapped to the reference with minimap2 unknown (conda environment minimap2), with the sr preset. "), Comment(rawValue: text))
     }
 
@@ -149,6 +183,34 @@ struct ProvenanceMethodsSentenceTests {
             Comment(rawValue: text)
         )
         #expect(text.components(separatedBy: "with samtools ").count == 2, Comment(rawValue: text))
+    }
+
+    // MARK: - Program token
+
+    @Test("The program token is the first word of the tool name without its folder")
+    func programToken() {
+        #expect(ProvenanceExporter.methodsProgram(of: "samtools sort") == "samtools")
+        #expect(ProvenanceExporter.methodsProgram(of: "/opt/conda/bin/Samtools") == "samtools")
+        #expect(ProvenanceExporter.methodsProgram(of: "EsViritu") == "esviritu")
+        #expect(ProvenanceExporter.methodsProgram(of: "iqtree3") == "iqtree3")
+        #expect(ProvenanceExporter.methodsProgram(of: "") == "")
+        #expect(ProvenanceExporter.methodsProgram(of: "   ") == "")
+    }
+
+    @Test("A name that is a program and the subcommand it ran stands for the program")
+    func subcommandNamesFold() {
+        let sort = ["/envs/samtools/bin/samtools", "sort", "-o", "out.bam", "in.bam"]
+        #expect(ProvenanceExporter.methodsToolName("samtools sort", ranAs: sort) == "samtools")
+        #expect(ProvenanceExporter.methodsToolName("Samtools sort", ranAs: ["samtools", "sort"]) == "Samtools")
+        // The name must be the program and the subcommand the command ran. Any other name stays as recorded.
+        #expect(ProvenanceExporter.methodsToolName("samtools merge", ranAs: sort) == "samtools merge")
+        #expect(ProvenanceExporter.methodsToolName("samtools sort", ranAs: ["bcftools", "sort"]) == "samtools sort")
+        #expect(ProvenanceExporter.methodsToolName("samtools sort", ranAs: ["samtools"]) == "samtools sort")
+        #expect(ProvenanceExporter.methodsToolName("samtools sort", ranAs: []) == "samtools sort")
+        #expect(ProvenanceExporter.methodsToolName("samtools", ranAs: sort) == "samtools")
+        let python = ["/envs/pysam/bin/python", "filter.py"]
+        #expect(ProvenanceExporter.methodsToolName("pysam retained-read demux filter", ranAs: python) == "pysam retained-read demux filter")
+        #expect(ProvenanceExporter.methodsToolName("lungfish fastq quality-trim join", ranAs: ["/bin/cat", "a.fq"]) == "lungfish fastq quality-trim join")
     }
 
     // MARK: - Fixtures
