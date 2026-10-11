@@ -8,8 +8,8 @@ import XCTest
 /// Small synthetic cases for `ProbeVersionText`. The real probe output of every tool is pinned by
 /// `VersionParserOutputPinTests`, and these cases name each rule on its own.
 final class ProbeVersionTextTests: XCTestCase {
-    private func version(_ lines: [String], echo: Bool = false) -> String? {
-        ProbeVersionText.version(in: lines, skippingCommandEcho: echo)
+    private func version(_ lines: [String]) -> String? {
+        ProbeVersionText.version(in: lines)
     }
 
     /// A token that holds a slash is a path, a URL or a DOI, and never counts (2.6).
@@ -25,13 +25,14 @@ final class ProbeVersionTextTests: XCTestCase {
         XCTAssertNil(version(["/Volumes/LGE 2.0/conda/envs/tool/bin/tool"]))
     }
 
-    /// The echoed JVM command of a BBTools wrapper is skipped only when the caller asks, because the
-    /// detect parser still reads it (2.7). A line that merely starts with java stays.
-    func testAnEchoedJavaCommandIsSkippedOnlyWhenAsked() {
+    /// The echoed JVM command of a BBTools wrapper is skipped by every parser (2.7), because it carries
+    /// the install path and options such as minratio=0.40. A line that merely starts with java stays.
+    func testAnEchoedJavaCommandIsSkipped() {
         let echo = "java -ea   -Xmx300m -Xms300m -cp /x/bbmap-40.02-0/ align2.BBMapPacBio minratio=0.40 --version"
-        XCTAssertEqual(version([echo, "BBTools version 40.02"], echo: true), "40.02")
-        XCTAssertEqual(version([echo, "BBTools version 40.02"], echo: false), "0.40")
-        XCTAssertEqual(version(["java version 21.0.2"], echo: true), "21.0.2")
+        XCTAssertEqual(version([echo, "BBTools version 40.02"]), "40.02")
+        XCTAssertEqual(parseToolVersion(from: echo + "\nBBTools version 40.02\n"), "40.02")
+        XCTAssertEqual(NativeToolRunner.parseVersionProbe(exitCode: 0, stdout: "", stderr: echo + "\nBBTools version 40.02\n"), "40.02")
+        XCTAssertEqual(version(["java version 21.0.2"]), "21.0.2")
     }
 
     /// A token written v1.2.3 is the tool naming its own version. It outranks a bare number that comes

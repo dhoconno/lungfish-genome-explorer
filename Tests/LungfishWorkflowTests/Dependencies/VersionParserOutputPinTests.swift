@@ -263,6 +263,17 @@ final class VersionParserOutputPinTests: XCTestCase {
                 "BBTools version 40.02",
                 "For help, please run the shellscript with no parameters, or look in /docs/."),
             native: "40.02", detect: "40.02", correct: "40.02"),
+        // mapPacBio.sh echoes its java command, and the command holds minratio=0.40. Every parser skips
+        // an echoed java command, so each reads the banner (2.7). The detect parser used to read 0.40.
+        // This is the real golden output.
+        Capture(name: "mapPacBio.sh minratio", exitCode: 0, stdout: "",
+                stderr: lines(
+                    "Detected 67108864KB total memory on macOS, estimating 43620761KB available",
+                    "Detected 28822704KB free memory on macOS (vm_stat)",
+                    "java -ea   -Xmx23233m -Xms23233m -cp \(root)/envs/bbtools/opt/bbmap-40.02-0/current/ align2.BBMapPacBio build=1 overwrite=true minratio=0.40 fastareadlen=6000 ambiguous=best minscaf=100 startpad=10000 stoppad=10000 midpad=6000 --version",
+                    "BBTools version 40.02",
+                    "For help, please run the shellscript with no parameters, or look in /docs/."),
+                native: "40.02", detect: "40.02", correct: "40.02"),
         // EsViritu prints its site-packages path first, and the path holds Python's 3.14. A token that
         // holds a slash is a path, so the native parser skips it as the detect parser does (2.6). This
         // is the real golden output.
@@ -366,20 +377,9 @@ final class VersionParserOutputPinTests: XCTestCase {
 
     /// Each row pins a wrong value as it is today. `correct` is what the tool reports. A row stays
     /// here until the parser change that fixes it lands, and that commit moves the row to `clean`.
-    /// Phase 2.6 moved its rows out. minratio and three-word roots wait for the rest of 2.7. The
-    /// bwa-mem2 and Bracken banners name a version the package does not run.
+    /// Phase 2.6 moved its rows out. Three-word roots wait for the rest of 2.7. The bwa-mem2 and
+    /// Bracken banners name a version the package does not run.
     private static let knownDefects: [Capture] = [
-        // The detect parser reads minratio=0.40 from the echoed command line (2.7). The native parser
-        // skips that line, as it skips every echoed java command, so it reads the banner. This is the
-        // real golden output.
-        Capture(name: "mapPacBio.sh minratio", exitCode: 0, stdout: "",
-                stderr: lines(
-                    "Detected 67108864KB total memory on macOS, estimating 43620761KB available",
-                    "Detected 28822704KB free memory on macOS (vm_stat)",
-                    "java -ea   -Xmx23233m -Xms23233m -cp \(root)/envs/bbtools/opt/bbmap-40.02-0/current/ align2.BBMapPacBio build=1 overwrite=true minratio=0.40 fastareadlen=6000 ambiguous=best minscaf=100 startpad=10000 stoppad=10000 midpad=6000 --version",
-                    "BBTools version 40.02",
-                    "For help, please run the shellscript with no parameters, or look in /docs/."),
-                native: "40.02", detect: "0.40", correct: "40.02"),
         // The installed 2.3 build prints a stale 2.2.1 from the version subcommand, so both parsers
         // read a version the package does not have. Only conda-meta says 2.3 (the lock pin). The
         // mapping pipeline reads conda-meta for bwa-mem2 since 2.6 (`MappingToolVersionProbe`), so

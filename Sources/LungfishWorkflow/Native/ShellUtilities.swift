@@ -201,7 +201,7 @@ func parseToolVersion(from output: String, exitCode: Int32 = 0) -> String? {
     guard !trimmed.isEmpty else { return nil }
     let lines = trimmed.components(separatedBy: .newlines)
     let readable = ProbeVersionText.linesBeforeUsage(lines)
-    if let version = ProbeVersionText.version(in: readable, skippingCommandEcho: false) { return version }
+    if let version = ProbeVersionText.version(in: readable) { return version }
     guard exitCode == 0 else { return nil }
     let firstLine = lines.first ?? trimmed
     return ProbeVersionText.looksLikeProbeError(firstLine) ? nil : firstLine
@@ -258,15 +258,14 @@ enum ProbeVersionText {
     /// space, so each half still holds a slash. A name of three words leaves a bare middle word,
     /// which 2.7 fixes by removing the storage root first.
     ///
-    /// `skippingCommandEcho` also skips a line that echoes a JVM command (`java -ea ...`). Every
-    /// BBTools wrapper prints one before its banner, and it carries the install path and options
-    /// such as `minratio=0.40`.
-    static func version(in lines: [String], skippingCommandEcho: Bool) -> String? {
+    /// A line that echoes a JVM command (`java -ea ...`) is skipped. Every BBTools wrapper prints
+    /// one before its banner, and it carries the install path and options such as `minratio=0.40`.
+    static func version(in lines: [String]) -> String? {
         let number = /\d+\.\d+(?:\.\d+){0,2}(?:\+[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?/
         var bare: String?
         for line in lines {
             let tokens = line.split(whereSeparator: \.isWhitespace)
-            if skippingCommandEcho, tokens.count >= 2, tokens[0] == "java", tokens[1].hasPrefix("-") { continue }
+            if tokens.count >= 2, tokens[0] == "java", tokens[1].hasPrefix("-") { continue }
             for token in tokens where !token.contains("/") {
                 guard let match = token.firstMatch(of: number) else { continue }
                 let before = token[..<match.range.lowerBound]

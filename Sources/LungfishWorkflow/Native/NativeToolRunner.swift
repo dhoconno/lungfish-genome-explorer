@@ -557,7 +557,7 @@ public actor NativeToolRunner {
             ProbeVersionText.linesBeforeUsage(output.split(separator: "\n").prefix(8).map(String.init))
                 .filter { !ProbeVersionText.looksLikeProbeError($0) }
         }
-        if let version = ProbeVersionText.version(in: scanned, skippingCommandEcho: true) { return version }
+        if let version = ProbeVersionText.version(in: scanned) { return version }
         guard exitCode == 0,
               let firstLine = stdout.split(separator: "\n").first?.trimmingCharacters(in: .whitespaces),
               !firstLine.isEmpty, !ProbeVersionText.looksLikeProbeError(firstLine)
