@@ -54,7 +54,7 @@ private enum BuildDbUniqueReadsError: LocalizedError {
     }
 }
 
-private struct BuildDbDatabaseSnapshot {
+struct BuildDbDatabaseSnapshot {
     private let dbURL: URL
     private let sidecarURL: URL
     private let snapshotDirectory: URL
@@ -121,7 +121,7 @@ private struct BuildDbDatabaseSnapshot {
 ///   - resultURL: Base URL for resolving relative BAM paths.
 ///   - bamPathResolver: Closure that resolves (resultURL, sample, bamRelPath) to an absolute path.
 ///   - events: Where the lines that report the pass go.
-private func updateUniqueReadsInDB(
+func updateUniqueReadsInDB(
     dbPath: String,
     table: String,
     sampleCol: String,
