@@ -25,36 +25,36 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
     /// envelope copies the version it read and the bytes it writes are always this encoder's.
     public let schemaVersion: Int
     public let id: UUID
-    public let createdAt: Date
-    public let workflowName: String
+    public var createdAt: Date
+    public var workflowName: String
     /// The version of the workflow that ran, or nil when the record holds none. A reader never
     /// fills it with the version of the app that reads the record (plan decision S4).
-    public let workflowVersion: String?
+    public var workflowVersion: String?
     public let toolName: String
     public let toolVersion: String
-    public let githubReleaseVersion: String?
+    public var githubReleaseVersion: String?
     public let tool: ProvenanceToolIdentity
-    public let argv: [String]
-    public let durableReplayArgv: [String]?
-    public let reproducibleCommand: String
-    public let options: ProvenanceOptions
-    public let runtimeIdentity: ProvenanceRuntimeIdentity
-    public let files: [ProvenanceFileDescriptor]
-    public let output: ProvenanceFileDescriptor?
-    public let outputs: [ProvenanceFileDescriptor]
-    public let steps: [ProvenanceStep]
-    public let wallTimeSeconds: TimeInterval?
-    public let exitStatus: Int?
-    public let stderr: String?
-    public let signatures: [ProvenanceSignatureReference]
+    public var argv: [String]
+    public var durableReplayArgv: [String]?
+    public var reproducibleCommand: String
+    public var options: ProvenanceOptions
+    public var runtimeIdentity: ProvenanceRuntimeIdentity
+    public var files: [ProvenanceFileDescriptor]
+    public var output: ProvenanceFileDescriptor?
+    public var outputs: [ProvenanceFileDescriptor]
+    public var steps: [ProvenanceStep]
+    public var wallTimeSeconds: TimeInterval?
+    public var exitStatus: Int?
+    public var stderr: String?
+    public var signatures: [ProvenanceSignatureReference]
     /// How the run ended. The exit status cannot say it, because a cancelled run
     /// can end on a step that exited 0 and only the status says the result is
     /// partial. It is written under the `status` key.
-    public let status: RunStatus
+    public var status: RunStatus
     /// The run an older writer nested under `legacyWorkflowRun`. It is read from old files and
     /// kept in memory, and the encoder no longer writes it. A reader asks `legacyWorkflowRun()`
     /// for a run, which rebuilds one from the envelope when this is nil.
-    public let legacyRun: WorkflowRun?
+    public var legacyRun: WorkflowRun?
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
