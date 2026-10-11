@@ -131,7 +131,7 @@ The three `build-db` leaves wrote objects with `progress` and `message` and no `
 
 `build-db kraken2`, `build-db esviritu` and `build-db taxtriage` build the SQLite database that a classifier viewer reads, in the result folder they are given. With `--format json` a run is one `start` line, a `progress` line for each step that the database writer reports, with the fraction and the message the writer gives, and one `complete` line. Its `outputs` names the database file, such as `kraken2.sqlite` in the result folder, and its message is the last sentence the run prints about the database. A run that finds the database there and has no `--force` keeps it and completes with the same file. A run that fails ends with one `failed` line.
 
-The rows parsed, the database path and the cleanup summary go to standard error while the switch is on. Without the switch, which is how the app runs these leaves, the text stays on standard output and no event is printed. Warnings go to standard error in both modes, and `--quiet` drops the text and the warnings.
+The rows parsed, the database path and the cleanup summary go to standard error while the switch is on. Without the switch, which is how the app runs these leaves, the text stays on standard output and no event is printed. The warnings of the read count pass, such as a failed `samtools markdup`, travel with the human text. The other warnings go to standard error in both modes, and `--quiet` drops the text and every warning.
 
 ## The contract table
 

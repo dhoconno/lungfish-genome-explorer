@@ -36,7 +36,8 @@ extension BuildDbCommand {
     }
 
     /// Records one build-db run in the result folder when no other workflow's record is there, and beside
-    /// each output. Returns the run's record.
+    /// each output. Returns the run's record. A record problem that leaves the run standing goes to
+    /// `events.warning`.
     @discardableResult
     static func recordBuildDbProvenance(
         tool: BuildDbProvenanceTool,
@@ -51,7 +52,8 @@ extension BuildDbCommand {
         stderr: String? = nil,
         sampleDirectories: [URL] = [],
         additionalSteps: [ProvenanceStep] = [],
-        includeOutputRecords: Bool = true
+        includeOutputRecords: Bool = true,
+        events: BuildDbEventSink
     ) async throws -> ProvenanceEnvelope {
         let startedAt = runClock.startedAt
         let completedAt = runClock.now
@@ -130,7 +132,7 @@ extension BuildDbCommand {
         )
 
         let writer = ProvenanceWriter()
-        try writeFolderProvenance(envelope, tool: tool, resultURL: resultURL, writer: writer)
+        try writeFolderProvenance(envelope, tool: tool, resultURL: resultURL, writer: writer, events: events)
         for output in envelope.outputs {
             let outputURL = URL(fileURLWithPath: output.path)
             let focused = envelope.focusedOnOutput(output)
@@ -176,7 +178,8 @@ extension BuildDbCommand {
         _ envelope: ProvenanceEnvelope,
         tool: BuildDbProvenanceTool,
         resultURL: URL,
-        writer: ProvenanceWriter
+        writer: ProvenanceWriter,
+        events: BuildDbEventSink
     ) throws {
         let existing = ProvenanceRecorder.loadEnvelope(from: resultURL)
         guard mayReplaceProvenance(existing, tool: tool) else { return }
@@ -189,7 +192,7 @@ extension BuildDbCommand {
                 try writer.write(restored, to: resultURL)
                 return
             } catch {
-                fputs("Warning: could not rebuild the Kraken 2 run provenance from classification-result.json: \(error)\n", stderr)
+                events.warning("Warning: could not rebuild the Kraken 2 run provenance from classification-result.json: \(error)")
             }
         }
         try writer.write(envelope, to: resultURL)
@@ -207,7 +210,8 @@ extension BuildDbCommand {
         error: Error,
         sampleDirectories: [URL] = [],
         additionalSteps: [ProvenanceStep] = [],
-        includeOutputRecords: Bool = true
+        includeOutputRecords: Bool = true,
+        events: BuildDbEventSink
     ) async {
         do {
             try await recordBuildDbProvenance(
@@ -223,12 +227,11 @@ extension BuildDbCommand {
                 stderr: error.localizedDescription,
                 sampleDirectories: sampleDirectories,
                 additionalSteps: additionalSteps,
-                includeOutputRecords: includeOutputRecords
+                includeOutputRecords: includeOutputRecords,
+                events: events
             )
         } catch {
-            if !globalOptions.quiet {
-                fputs("Warning: could not write failed build-db provenance: \(error.localizedDescription)\n", stderr)
-            }
+            events.warning("Warning: could not write failed build-db provenance: \(error.localizedDescription)")
         }
     }
 

@@ -120,7 +120,7 @@ struct BuildDbDatabaseSnapshot {
 ///   - bamPathCol: Column name for the relative BAM path.
 ///   - resultURL: Base URL for resolving relative BAM paths.
 ///   - bamPathResolver: Closure that resolves (resultURL, sample, bamRelPath) to an absolute path.
-///   - events: Where the lines that report the pass go.
+///   - events: Where the lines that report the pass go, with its warnings on `textWarning`.
 func updateUniqueReadsInDB(
     dbPath: String,
     table: String,
@@ -136,7 +136,7 @@ func updateUniqueReadsInDB(
 ) async throws {
     var db: OpaquePointer?
     guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
-        events.text("Warning: could not open database for unique reads update")
+        events.textWarning("Warning: could not open database for unique reads update")
         return
     }
     defer { sqlite3_close(db) }
@@ -145,7 +145,7 @@ func updateUniqueReadsInDB(
     let selectSQL = "SELECT rowid, \(sampleCol), \(accessionCol), \(bamPathCol) FROM \(table) WHERE \(bamPathCol) IS NOT NULL AND \(accessionCol) IS NOT NULL AND \(accessionCol) != ''"
     var selectStmt: OpaquePointer?
     guard sqlite3_prepare_v2(db, selectSQL, -1, &selectStmt, nil) == SQLITE_OK else {
-        events.text("Warning: failed to prepare SELECT for unique reads")
+        events.textWarning("Warning: failed to prepare SELECT for unique reads")
         return
     }
     defer { sqlite3_finalize(selectStmt) }
@@ -196,7 +196,7 @@ func updateUniqueReadsInDB(
         } catch let provenanceError as BuildDbSamtoolsProvenanceError {
             throw provenanceError
         } catch {
-            events.text("  Warning: markdup failed on \(bamURL.lastPathComponent): \(error.localizedDescription)")
+            events.textWarning("  Warning: markdup failed on \(bamURL.lastPathComponent): \(error.localizedDescription)")
         }
     }
     if marked > 0 { events.text("  Marked duplicates in \(marked) BAM file(s)") }
@@ -252,7 +252,7 @@ func updateUniqueReadsInDB(
     let updateSQL = "UPDATE \(table) SET \(totalReadsCol) = ?, unique_reads = ? WHERE rowid = ?"
     var updateStmt: OpaquePointer?
     guard sqlite3_prepare_v2(db, updateSQL, -1, &updateStmt, nil) == SQLITE_OK else {
-        events.text("Warning: failed to prepare UPDATE for read counts")
+        events.textWarning("Warning: failed to prepare UPDATE for read counts")
         return
     }
     defer { sqlite3_finalize(updateStmt) }
@@ -440,7 +440,7 @@ extension BuildDbCommand {
                     globalOptions: globalOptions,
                     runClock: runClock,
                     inputRecords: provenanceInputs,
-                    additionalSteps: samtoolsProvenance.steps
+                    additionalSteps: samtoolsProvenance.steps, events: events
                 )
                 try databaseSnapshot.discard()
                 return BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: record)
@@ -461,7 +461,7 @@ extension BuildDbCommand {
                     inputRecords: provenanceInputs,
                     error: error,
                     additionalSteps: samtoolsProvenance.steps,
-                    includeOutputRecords: false
+                    includeOutputRecords: false, events: events
                 )
                 throw error
             }

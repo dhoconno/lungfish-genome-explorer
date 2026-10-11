@@ -166,7 +166,8 @@ extension BuildDbCommand {
                     globalOptions: options.globalOptions,
                     runClock: runClock,
                     inputRecords: provenanceInputs,
-                    additionalSteps: relocationSteps + samtoolsProvenance.steps
+                    additionalSteps: relocationSteps + samtoolsProvenance.steps,
+                    events: events
                 )
                 try databaseSnapshot.discard()
                 return BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: record)
@@ -187,7 +188,8 @@ extension BuildDbCommand {
                     inputRecords: provenanceInputs,
                     error: error,
                     additionalSteps: relocationSteps + samtoolsProvenance.steps,
-                    includeOutputRecords: false
+                    includeOutputRecords: false,
+                    events: events
                 )
                 throw error
             }
