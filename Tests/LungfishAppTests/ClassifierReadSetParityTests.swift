@@ -15,9 +15,10 @@
 //   parses it with the shipped parser and runs the read-set code of
 //   `conda classify` and `esviritu detect`.
 // - `executor` runs that recorded command whole through `esviritu detect`,
-//   which lane A9 put on the analysis run executor, with a stand-in EsViritu
+//   which lane A9 put on the analysis run executor, or through `kraken2
+//   classify`, which lane A8 put there (lane F3,
+//   ClassifierReadSetParityTests+Kraken2Executor.swift), with a stand-in tool
 //   that keeps the argv it got, and reads the plan from the root record.
-//   Lane A8 adds its Kraken2 half.
 //
 // Every route must give the row's frozen value, the executor in the terms of
 // a command run (`ClassifierReadSetParityTable.executorValue(of:)`), so any
@@ -106,7 +107,7 @@ final class ClassifierReadSetParityTests: XCTestCase {
 
     // MARK: - Rows
 
-    private struct Row {
+    struct Row {
         let name: String
         let bundle: URL
         /// True for a ReadSetFixtures virtual subset, whose reads only the
@@ -151,19 +152,19 @@ final class ClassifierReadSetParityTests: XCTestCase {
         case esviritu
     }
 
-    /// The columns. The executor runs EsViritu since lane A9, and lane A8 adds its Kraken2 half.
+    /// The columns. The executor runs EsViritu since lane A9 and Kraken2 since lane A8.
     enum Route: String, CaseIterable {
         case gui
         case cli
         case executor
 
-        /// The routes that hand `tool` its reads today.
+        /// The routes that hand `tool` its reads today, every one for both tools.
         static func routes(for tool: Tool) -> [Route] {
-            tool == .esviritu ? allCases : [.gui, .cli]
+            allCases
         }
     }
 
-    private var databaseURL: URL { root.appendingPathComponent("db", isDirectory: true) }
+    var databaseURL: URL { root.appendingPathComponent("db", isDirectory: true) }
 
     /// What `route` hands `tool` for the sample of `row`, rendered with paths masked.
     private func handoff(of row: Row, to tool: Tool, through route: Route) async -> String {
@@ -189,20 +190,20 @@ final class ClassifierReadSetParityTests: XCTestCase {
             case (.esviritu, .executor):
                 return try await executorEsViritu(sample, row: row, run: run, mask: mask)
             case (.kraken2, .executor):
-                return "no executor route for Kraken2 before lane A8"
+                return try await executorKraken2(sample, row: row, run: run, mask: mask)
             }
         } catch {
             return "refused: \(String(describing: type(of: error))) \(mask(error.localizedDescription))"
         }
     }
 
-    private func materializer(for row: Row) -> any CLISequenceInputMaterializing & Sendable {
+    func materializer(for row: Row) -> any CLISequenceInputMaterializing & Sendable {
         row.usesStubMaterializer ? fixtures.materializer : FASTQCLIMaterializer(runner: .shared)
     }
 
     // MARK: Kraken2
 
-    private func kraken2WizardConfig(_ sample: MetagenomicsSampleInput, run: URL) async -> ClassificationConfig {
+    func kraken2WizardConfig(_ sample: MetagenomicsSampleInput, run: URL) async -> ClassificationConfig {
         let database = MetagenomicsDatabaseInfo(
             name: "Viral", tool: "kraken2", version: "1", sizeBytes: 1, catalogID: "kraken2-viral",
             installationRecipe: nil, payloadDigest: nil, description: "", path: databaseURL,
@@ -385,7 +386,7 @@ final class ClassifierReadSetParityTests: XCTestCase {
     // MARK: - Rendering
 
     /// kraken2's argv, then the reads of each input after `--report-minimizer-data`, then the plan.
-    private func render(kraken2 config: ClassificationConfig, mask: PathMask) throws -> String {
+    func render(kraken2 config: ClassificationConfig, mask: PathMask) throws -> String {
         let argv = config.kraken2Arguments()
         let start = (argv.firstIndex(of: "--report-minimizer-data") ?? argv.endIndex - 1) + 1
         return try render(argv: argv, inputs: Array(argv[start...]), plan: config.readSetPlan, mask: mask)
@@ -409,7 +410,7 @@ final class ClassifierReadSetParityTests: XCTestCase {
         return try render(argv: argv, inputs: inputs, planText: planText, mask: mask)
     }
 
-    private func render(argv: [String], inputs: [String], planText: String, mask: PathMask) throws -> String {
+    func render(argv: [String], inputs: [String], planText: String, mask: PathMask) throws -> String {
         let reads = try inputs.map { path -> String in
             guard FileManager.default.fileExists(atPath: path) else { return "absent" }
             return try Self.recordNames(in: URL(fileURLWithPath: path)).joined(separator: " ")
@@ -417,7 +418,7 @@ final class ClassifierReadSetParityTests: XCTestCase {
         return "argv: \(argv.map { mask($0) }.joined(separator: " ")) | reads: \(reads.joined(separator: " / ")) | plan: \(planText)"
     }
 
-    private static func render(_ value: ParameterValue, mask: PathMask) -> String {
+    static func render(_ value: ParameterValue, mask: PathMask) -> String {
         switch value {
         case .string(let text): return mask(text)
         case .integer(let number): return String(number)
@@ -497,7 +498,7 @@ private struct ArgvKeepingEsViritu {
 }
 
 /// The reason on a run's `failed` event.
-private final class FailureReason: @unchecked Sendable {
+final class FailureReason: @unchecked Sendable {
     private let lock = NSLock()
     private var reason: String?
 
@@ -513,7 +514,7 @@ private final class FailureReason: @unchecked Sendable {
 /// Replaces the paths of one route's run with tokens: its scratch folders
 /// with `<scratch>`, its output folder with `<out>`, the database with `<db>`,
 /// the fixture projects with `<project>`, and any UUID with `<uuid>`.
-private struct PathMask {
+struct PathMask {
     private let anchors: [(path: String, token: String)]
 
     init(run: URL, database: URL, projects: [URL]) {
@@ -601,6 +602,14 @@ enum ClassifierReadSetParityTable {
             tool: .esviritu, row: "L6e demultiplex group", route: "gui",
             value: "refused: FASTQCLIMaterializerError Root FASTQ file referenced in manifest does not exist",
             lane: "A10, A12"
+        ),
+        // Lane F3 found it when it added the Kraken2 executor column. `esviritu detect` refuses the
+        // group in its plan with exit 3 before any folder exists, as the frozen CLI value does, and
+        // `kraken2 classify` checks it after its plan, so the run fails with exit 64.
+        KnownDifference(
+            tool: .kraken2, row: "L6e demultiplex group", route: "executor",
+            value: "exit 64: Demultiplexed group bundles are container-only; select an individual demultiplexed FASTQ bundle for classification.",
+            lane: "a later lane the manager names, which moves the check into the Kraken2 plan as A9 did for EsViritu"
         ),
     ]
 
