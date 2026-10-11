@@ -62,7 +62,7 @@ Apps built before version 2 also ignore unknown keys. They log a warning for a l
 
 ## Standard output and standard error
 
-Events go to standard output, one line at a time. The app reads standard output through a pipe, where unflushed text waits until the command exits, so a command writes each line with `printEventLine`, which flushes it. Five `msa` commands and two `tree` commands still use plain `print`, so their progress arrives only when they exit.
+Events go to standard output, one line at a time. The app reads standard output through a pipe, where unflushed text waits until the command exits, so a command writes each line with `printEventLine`, which flushes it.
 
 While events are on, standard output holds event lines and nothing else. Human text goes to standard error, written with `printHumanLine`. A reader skips any line that does not start with `{`, so a fragment of text in front of an event hides that event.
 
