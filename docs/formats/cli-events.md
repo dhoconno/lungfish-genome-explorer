@@ -1,6 +1,6 @@
 # CLI events, version 2
 
-A `lungfish-cli` command can report its progress as a stream of JSON lines. The app reads that stream when it runs a command as a subprocess, and a script can read it too. This page gives the wire format, the rule for changing it, the split between standard output and standard error, and the rule for warnings. The shared types are `CLIEvent`, `CLIEventLine`, `CLIEventEmitter` and `CLIEventLineDecoder` in the Workflow module.
+A `lungfish-cli` command can report its progress as a stream of JSON lines. The app reads that stream when it runs a command as a subprocess, and a script can read it too. This page gives the wire format, the rule for changing it, the split between standard output and standard error, the rule for warnings, and the table that says what each command writes. The shared types are `CLIEvent`, `CLIEventLine`, `CLIEventEmitter` and `CLIEventLineDecoder` in the Workflow module.
 
 ## Switching events on
 
@@ -92,18 +92,35 @@ A few older commands write events to standard error instead. `assemble` and the 
 
 ## Warnings
 
-The rule of this format is that only a `log` event with level `warning` makes a run Completed with Warnings. Text on standard error never does, whatever it says. A command that finishes with warnings may also put `warningCount` on its `complete` line, but the count only reports a number. It never makes a run Completed with Warnings on its own, so a command emits each warning it counts as an event. `msa annotate add`, `edit` and `project` still count annotation warnings that they never emit, and they emit them before the panel adopts this rule.
+The rule of this format is that only a `log` event with level `warning` makes a run Completed with Warnings. Text on standard error never does, whatever it says. A command that finishes with warnings may also put `warningCount` on its `complete` line, but the count only reports a number. It never makes a run Completed with Warnings on its own, so a command emits each warning it counts as an event. `msa annotate add`, `edit` and `project` count the warnings of their annotation, and each of them logs every one in front of `complete`.
 
 The Operations panel adopts this rule in 2.8 (decision S16). Until then each family of runners keeps the rule it has today.
 
 ## Old private shapes
 
-Some commands print events in shapes of their own. The MSA and tree imports, the application export import and the two ONT FASTQ commands do. A dated legacy table that maps their old names onto the events above is planned for the version 2 decoder (decision V13). It is not part of this format yet, and the app still reads those streams with their own parsers.
+Some commands print events in shapes of their own. The MSA and tree imports, the application export import and the two ONT FASTQ commands do. A dated legacy table that maps their old names onto the events above is planned for the version 2 decoder (decision V13). It is not part of this format yet, and the app still reads those streams with their own parsers. The contract table below lists each of these commands as a `.legacy` row.
+
+## The contract table
+
+`CLIEventContractTable` in `Sources/LungfishCLI/Support/CLIEventContract.swift` holds one row for each of the 236 leaf commands of `lungfish-cli`. A leaf is a command with no subcommands. A row is keyed by the leaf's path without the program name, such as `msa annotate add`, and it says in one of four cases what the leaf writes for a machine reader.
+
+| Case | What the leaf does |
+| --- | --- |
+| `.events` | Prints the event lines of this page when its switch is on, and names the switch and the stream. Twenty leaves use `--format json` on standard output, and `assemble` uses `--json-events` on standard error |
+| `.result` | Prints one JSON document to standard output, under its JSON switch or on every run. The row names the schema of that document |
+| `.legacy` | Prints a private stream shape that a later sub-phase retires. The row names the shape and the sub-phase |
+| `.text` | Prints human text only, or prints text for a switch it lists. The row gives the reason |
+
+A leaf that lists `--format json` and prints text anyway is a `.text` row, and sub-phases 2.10 to 2.12 settle each of them. Some `.result` leaves print status lines or sequences before their document unless `--quiet` and an output file are given, so a script that needs the document alone passes both.
+
+`CLIEventContractCoverageTests` walks the command tree the way `--experimental-dump-help` does and fails when a leaf has no row or a row names no leaf. A change that adds, renames or removes a command edits its row in the same commit. The same suite fails when the checked-in help of an `.events` leaf does not list its switch, and it decodes the document of each `.result` schema that a Swift type in the CLI, Workflow or IO module reads, with one extra key added. It also counts the `.legacy` rows. Fourteen private shapes are left in Phase 2.6, and a sub-phase that retires one deletes its rows and its entry in the test together, so no separate ratchet counts them.
 
 ## Tests
 
 `Tests/Fixtures/cli-events/v1` holds transcripts captured from real runs of version 1. `CLIEventCompatibilityTests` decodes every one with a frozen copy of the version 1 reader and with the current decoder. It also reads version 2 lines back with the frozen reader and decodes a line from a later version that carries unknown keys, names and kinds.
 
 `Tests/Fixtures/cli-events/v2/bam-primer-trim.ndjson` is a version 2 run of `bam primer-trim`. It was captured in process on the sarscov2 fixture, with standard output redirected for the length of the run and the scratch folder rewritten to `/work`. `CLIPrimerTrimRunnerTests` reads it with the runner and with the frozen version 1 reader, which gets the same outcome and `outputs`.
+
+`Tests/Fixtures/cli-events/commands` holds one folder for each of the 21 leaves that emit events, 25 transcripts in all. Twenty were captured in process, and five came from real runs of the built `lungfish-cli` for the leaves that run an external tool. `CLIEventTranscriptCoverageTests` decodes every line under version 2 with no ignored event and expects one terminal event last. It reads each run with the frozen version 1 reader to the same outcome and `outputs`, and it pins the order of `outputs` for `variants call` and `bam primer-trim`. It also runs the 16 leaves that need no tool again and fails when a line differs from its transcript. `Tests/Fixtures/cli-events/results` holds the documents of 13 result schemas, each from a real run.
 
 `CLISubprocessTransportTests` plays every version 1 transcript, and the same run written as version 2 lines, through the transport and gets the same outcome both ways. `OperationCenterCLIBridgeTests` plays four of them through a runner and the bridge, one for each label a run can end on.
