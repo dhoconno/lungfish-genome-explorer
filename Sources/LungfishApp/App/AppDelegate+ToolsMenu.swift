@@ -229,12 +229,12 @@ extension AppDelegate {
                 }
 
                 if !state.pendingClassificationConfigs.isEmpty {
-                    self.runClassification(configs: state.pendingClassificationConfigs, viewerController: viewerController, routeContext: routeContext)
+                    self.launchClassification(configs: state.pendingClassificationConfigs, viewerController: viewerController, routeContext: routeContext)
                     return
                 }
 
                 if !state.pendingEsVirituConfigs.isEmpty {
-                    self.runEsViritu(configs: state.pendingEsVirituConfigs, viewerController: viewerController, routeContext: routeContext)
+                    self.launchEsViritu(configs: state.pendingEsVirituConfigs, viewerController: viewerController, routeContext: routeContext)
                     return
                 }
 

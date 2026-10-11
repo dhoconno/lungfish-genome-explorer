@@ -909,6 +909,8 @@ features:
       - Sources/LungfishApp/Views/Metagenomics/ClassificationWizardSheet.swift
       - Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift
       - Sources/LungfishApp/App/AppDelegate+ClassificationOperationBegin.swift
+      - Sources/LungfishApp/App/AppDelegate+ClassificationCLIRoute.swift
+      - Sources/LungfishApp/Services/CLIClassifierRunner.swift
       - Sources/LungfishCLI/Commands/ClassifyCommand.swift
       - Sources/LungfishWorkflow/Metagenomics/KrakenReadSetPlanner.swift
       - Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline+InputCopies.swift
@@ -922,6 +924,7 @@ features:
       - Tests/LungfishWorkflowTests/Metagenomics/ClassificationPipelineTests.swift
       - Tests/LungfishCLITests/ClassificationCLIInvocationRoundTripTests.swift
       - Tests/LungfishWorkflowTests/Metagenomics/KrakenWrapperEdgeTests.swift
+      - Tests/LungfishAppTests/ClassifierCLIRouteRowTests.swift
     notes: >-
       Runs Kraken2 taxonomic classification with Bracken abundance estimation on
       FASTQ or FASTA inputs and opens the results in the taxonomy browser. A
@@ -931,7 +934,10 @@ features:
       gzip and plain files, and a file in the other compression than the first
       is read from a staged copy recorded as Lungfish Classification Input
       Compression Staging. Recorded commands keep `conda classify` until 2.7
-      (S19).
+      (S19). The Tools menu launch runs in process unless the hidden key
+      ClassifierLaunchRoute.kraken2.single or ClassifierLaunchRoute.kraken2.batch
+      names cli. That route runs `lungfish-cli kraken2 classify` with --project,
+      and --batch for several samples, and shows it in the same row.
   classify.esviritu:
     title: EsViritu viral detection
     entry_points:
@@ -943,6 +949,8 @@ features:
     sources:
       - Sources/LungfishApp/Views/Metagenomics/EsVirituWizardSheet.swift
       - Sources/LungfishApp/App/AppDelegate+ClassificationOperationBegin.swift
+      - Sources/LungfishApp/App/AppDelegate+ClassificationCLIRoute.swift
+      - Sources/LungfishApp/Services/CLIClassifierRunner.swift
       - Sources/LungfishEsVirituUI/EsVirituResultViewController.swift
       - Sources/LungfishCLI/Commands/EsVirituCommand.swift
       - Sources/LungfishWorkflow/Metagenomics/SamplesheetReadSetPlanner.swift
@@ -955,9 +963,14 @@ features:
       - Tests/LungfishWorkflowTests/Metagenomics/EsVirituPipelineTests.swift
       - Tests/LungfishCLITests/EsVirituReadFormatCLITests.swift
       - Tests/LungfishEsVirituUITests/EsVirituResultViewControllerSmokeTests.swift
+      - Tests/LungfishAppTests/ClassifierCLIRouteRowTests.swift
     notes: >-
       Runs EsViritu viral metagenomics detection and presents per-sample viral
-      assemblies with coverage sparklines and segment completeness.
+      assemblies with coverage sparklines and segment completeness. The Tools
+      menu launch runs in process unless the hidden key
+      ClassifierLaunchRoute.esviritu.single or ClassifierLaunchRoute.esviritu.batch
+      names cli. That route runs `lungfish-cli esviritu detect` with --project,
+      and --batch for several samples, and shows it in the same row.
   classify.taxtriage:
     title: TaxTriage taxonomic triage
     entry_points:
