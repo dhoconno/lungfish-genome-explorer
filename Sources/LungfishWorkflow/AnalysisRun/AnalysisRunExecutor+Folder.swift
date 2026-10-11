@@ -24,11 +24,12 @@ struct AnalysisRunFolder: Sendable {
     ///   and metadata already inside.
     /// - A named folder is claimed with `AnalysesFolder.beginRunInOutputDirectory`, which writes
     ///   the run record only for a folder inside a project that is empty, missing or already a run
-    ///   folder. A missing folder is created. The metadata is written only into a folder that sits
-    ///   directly in a project's `Analyses/` folder, whoever holds its run record, and an existing
-    ///   file that already names this tool and layout is kept. Anywhere else the folder gets no
-    ///   metadata, because the sidebar hides every folder with metadata outside `Analyses/`
-    ///   (decision E1b, risk R11).
+    ///   folder. A missing folder is created. The metadata is written only into a folder this run
+    ///   claimed or another live producer holds, and only when it sits directly in a project's
+    ///   `Analyses/` folder. An existing file that already names this tool and layout is kept.
+    ///   Anywhere else the folder gets no metadata, because the sidebar hides every folder with
+    ///   metadata outside `Analyses/` (decision E1b, risk R11), and a folder with other content that
+    ///   the run did not claim, such as an earlier result, keeps the metadata it has.
     static func prepare(
         destination: AnalysisRunDestination,
         toolID: AnalysisToolID,
@@ -72,7 +73,7 @@ struct AnalysisRunFolder: Sendable {
                 )
             )
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            if let projectURL, Self.sitsDirectlyInAnalyses(directory, projectURL: projectURL) {
+            if claim != nil, let projectURL, Self.sitsDirectlyInAnalyses(directory, projectURL: projectURL) {
                 let existing = AnalysesFolder.readAnalysisMetadata(from: directory)
                 if existing?.tool != toolID.rawValue || existing?.isBatch != isBatch {
                     try AnalysesFolder.writeAnalysisMetadata(

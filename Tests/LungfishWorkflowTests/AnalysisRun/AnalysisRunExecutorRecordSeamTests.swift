@@ -51,6 +51,33 @@ struct AnalysisRunExecutorRecordSeamTests {
         #expect(AnalysesFolder.readAnalysisMetadata(from: target)?.tool == "kraken2")
     }
 
+    @Test("A folder in Analyses that holds an earlier result is not claimed and keeps its metadata")
+    func unclaimedFolderInAnalysesKeepsItsMetadata() async throws {
+        let fixture = try AnalysisRunTestProject()
+        defer { fixture.cleanup() }
+        let target = fixture.project.appendingPathComponent("Analyses/esviritu-old", isDirectory: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        try "earlier result\n".write(
+            to: target.appendingPathComponent("sample.detected_virus.info.tsv"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try AnalysesFolder.writeAnalysisMetadata(
+            AnalysesFolder.AnalysisMetadata(tool: "esviritu", isBatch: false),
+            to: target
+        )
+
+        let report = await AnalysisRunExecutor.unsigned.execute(
+            SeamProbeTool(sawRunRecord: SeenFlag()),
+            fixture.request(.directory(target)),
+            events: .discarding
+        )
+
+        #expect(report.status == .completed)
+        #expect(AnalysesFolder.readAnalysisMetadata(from: target)?.tool == "esviritu")
+        #expect(AnalysesFolder.readAnalysisMetadata(from: target)?.isBatch == false)
+    }
+
     @Test("A unit's replay argv replaces the request's, also in a failed run")
     func unitReplayArgvReplacesTheRequests() async throws {
         let fixture = try AnalysisRunTestProject()
