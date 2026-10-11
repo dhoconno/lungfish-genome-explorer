@@ -496,12 +496,26 @@ extension InspectorViewController {
             return
         }
 
-        let savePanel = FeatureFilePanelFactory.inspectorProvenanceExportPanel(
-            defaultDirectoryName: "\(sourceURL.deletingPathExtension().lastPathComponent)-provenance-\(format.cliToken)",
-            sourceURL: sourceURL
-        )
-
         guard let window = view.window ?? NSApp.keyWindow else { return }
+        let sidecarURL = viewModel.provenanceSectionViewModel.resolvedSidecarURL
+        let request = ProvenanceExportRequest(
+            envelope: envelope,
+            sourceSidecarURL: sidecarURL,
+            selectedURL: sourceURL,
+            shape: ProvenanceExportRequest.recordShape(selectedURL: sourceURL, sidecarURL: sidecarURL),
+            format: format
+        )
+        // Plan decision S7. The pin gate's sheet comes before the save panel.
+        ProvenanceExportPinGatePresenter.present(request, window: window) { [weak self] allowUnpinned in
+            self?.presentProvenanceSavePanel(request, allowUnpinned: allowUnpinned, window: window)
+        }
+    }
+
+    private func presentProvenanceSavePanel(_ request: ProvenanceExportRequest, allowUnpinned: Bool, window: NSWindow) {
+        let savePanel = FeatureFilePanelFactory.inspectorProvenanceExportPanel(
+            defaultDirectoryName: "\(request.selectedURL.deletingPathExtension().lastPathComponent)-provenance-\(request.format.cliToken)",
+            sourceURL: request.selectedURL
+        )
         savePanel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let outputDirectory = savePanel.url else { return }
             do {
@@ -511,19 +525,8 @@ extension InspectorViewController {
                         "The selected path exists and is not a folder: \(outputDirectory.path)"
                     )
                 }
-                let bundle = try ProvenanceExporter().exportBundle(
-                    envelope,
-                    format: format,
-                    to: outputDirectory,
-                    sourceSidecarURL: self?.viewModel.provenanceSectionViewModel.resolvedSidecarURL,
-                    sourceRootURL: sourceURL,
-                    exportArgv: AppProvenanceExportCommandBuilder.argv(
-                        format: format,
-                        sourceURL: sourceURL,
-                        outputDirectory: outputDirectory
-                    )
-                )
-                self?.presentProvenanceExportComplete(bundle: bundle, format: format, window: window)
+                let bundle = try request.write(to: outputDirectory, allowUnpinned: allowUnpinned, exporter: ProvenanceExporter())
+                self?.presentProvenanceExportComplete(bundle: bundle, format: request.format, window: window)
             } catch {
                 self?.presentSimpleAlert(title: "Export Failed", message: error.localizedDescription)
             }

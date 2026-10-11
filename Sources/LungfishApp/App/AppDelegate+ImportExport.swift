@@ -39,9 +39,10 @@ extension AppDelegate {
     }
 
     private func exportProvenance(format: ProvenanceExportFormat) {
-        switch currentProvenanceExportResolution() {
+        let current = currentProvenanceExportReading()
+        switch current.resolution {
         case .resolved(let source):
-            presentProvenanceExportSheet(source: source, format: format)
+            presentProvenanceExportSheet(source: source, shape: current.shape ?? .envelope, format: format)
             return
         case .unresolvedSelection:
             showNoProvenanceAlert()
@@ -68,6 +69,7 @@ extension AppDelegate {
                         sourceSidecarURL: sidecarURL,
                         envelope: envelope
                     ),
+                    shape: .envelope,
                     format: format
                 )
             } catch {
@@ -83,6 +85,15 @@ extension AppDelegate {
     /// which `AppProvenanceExportSourceResolver` explains. Internal so a test can ask without
     /// opening the save panel.
     func currentProvenanceExportResolution() -> AppProvenanceExportResolution {
+        currentProvenanceExportReading().resolution
+    }
+
+    /// The export source with the shape the reader gave its record, from the finder's one walk
+    /// (`ProvenanceRecorder.findProvenanceReading(for:)`), so the pin gate can refuse the Older
+    /// record format (plan decision V6). The shape is nil when no record was found.
+    func currentProvenanceExportReading() -> (
+        resolution: AppProvenanceExportResolution, shape: ProvenanceEnvelopeReader.RecordShape?
+    ) {
         let splitViewController = mainWindowController?.mainSplitViewController
         let viewerController = splitViewController?.viewerController
         let viewerCandidates: [URL?] = [
@@ -96,23 +107,45 @@ extension AppDelegate {
             viewerController?.mappingResultController?.currentInput?.renderedBundleURL,
             viewerController?.currentDocument?.url,
         ]
-        return AppProvenanceExportSourceResolver.resolve(
+        var shape: ProvenanceEnvelopeReader.RecordShape?
+        let resolution = AppProvenanceExportSourceResolver.resolve(
             viewerCandidates: viewerCandidates,
             sidebarSelection: splitViewController?.sidebarController?.selectedFileURL,
-            findRecord: ProvenanceRecorder.findProvenanceEnvelope(for:)
+            findRecord: { url in
+                guard let found = ProvenanceRecorder.findProvenanceReading(for: url) else { return nil }
+                shape = found.reading.shape
+                return (sidecarURL: found.sidecarURL, envelope: found.reading.envelope)
+            }
         )
+        return (resolution, shape)
     }
 
-    private func presentProvenanceExportSheet(source: AppProvenanceExportSource, format: ProvenanceExportFormat) {
-        let savePanel = AppFilePanelFactory.provenanceExportPanel(
-            defaultDirectoryName: defaultProvenanceExportDirectoryName(for: format, sourceURL: source.selectedURL),
-            sourceURL: source.selectedURL
-        )
-
+    private func presentProvenanceExportSheet(
+        source: AppProvenanceExportSource,
+        shape: ProvenanceEnvelopeReader.RecordShape,
+        format: ProvenanceExportFormat
+    ) {
         guard let window = activeMainWindowController()?.window ?? mainWindowController?.window ?? NSApp.keyWindow else {
             return
         }
+        let request = ProvenanceExportRequest(
+            envelope: source.envelope,
+            sourceSidecarURL: source.sourceSidecarURL,
+            selectedURL: source.selectedURL,
+            shape: shape,
+            format: format
+        )
+        // Plan decision S7. The pin gate's sheet comes before the save panel.
+        ProvenanceExportPinGatePresenter.present(request, window: window) { allowUnpinned in
+            self.presentProvenanceSavePanel(request, allowUnpinned: allowUnpinned, window: window)
+        }
+    }
 
+    private func presentProvenanceSavePanel(_ request: ProvenanceExportRequest, allowUnpinned: Bool, window: NSWindow) {
+        let savePanel = AppFilePanelFactory.provenanceExportPanel(
+            defaultDirectoryName: defaultProvenanceExportDirectoryName(for: request.format, sourceURL: request.selectedURL),
+            sourceURL: request.selectedURL
+        )
         savePanel.beginSheetModal(for: window) { response in
             guard response == .OK, let outputDirectory = savePanel.url else { return }
             do {
@@ -122,16 +155,9 @@ extension AppDelegate {
                         "The selected path exists and is not a folder: \(outputDirectory.path)"
                     )
                 }
-                let bundle = try ProvenanceExporter().exportBundle(
-                    source.envelope,
-                    format: format,
-                    to: outputDirectory,
-                    sourceSidecarURL: source.sourceSidecarURL,
-                    sourceRootURL: source.selectedURL,
-                    exportArgv: self.guiExportArgv(format: format, sourceURL: source.selectedURL, outputDirectory: outputDirectory)
-                )
+                let bundle = try request.write(to: outputDirectory, allowUnpinned: allowUnpinned, exporter: ProvenanceExporter())
                 debugLog("Provenance exported to \(bundle.primaryArtifactURL.path)")
-                self.showProvenanceExportCompleteAlert(bundle: bundle, format: format, window: window)
+                self.showProvenanceExportCompleteAlert(bundle: bundle, format: request.format, window: window)
             } catch {
                 debugLog("Provenance export write failed: \(error)")
                 let alert = NSAlert()
@@ -155,18 +181,6 @@ extension AppDelegate {
             return nil
         }
         return isDirectory.boolValue
-    }
-
-    private func guiExportArgv(
-        format: ProvenanceExportFormat,
-        sourceURL: URL,
-        outputDirectory: URL
-    ) -> [String] {
-        AppProvenanceExportCommandBuilder.argv(
-            format: format,
-            sourceURL: sourceURL,
-            outputDirectory: outputDirectory
-        )
     }
 
     private func showProvenanceExportCompleteAlert(
