@@ -258,8 +258,11 @@ final class ProvenanceStepParentTests: XCTestCase {
 
     // MARK: - An independent step is never skipped
 
-    func testToolStepsAroundAVariantCallAreIndependentAndStayInTheScript() {
-        // `variants call` records its tools beside its own step, in no staging folder.
+    /// A step with no recorded parent and no staging folder is read as independent and stays in the
+    /// script. `variants call` records its tools this way until 2.7, although they ran inside it, so
+    /// both demo variant records and the kraken2 golden export them beside the CLI step that reruns them.
+    /// This test pins that reading, not a judgement that the tools are independent.
+    func testToolStepsWithNoParentAndNoStagingFolderStayInTheScript() {
         let call = ["lungfish-cli", "variants", "call", "--project", project]
         let steps = [
             step("samtools", "1.24", argv: ["samtools", "view", "/data/in.bam"], inputs: ["/data/in.bam"], outputs: ["\(project)/Analyses/a/reads.bam"]),
