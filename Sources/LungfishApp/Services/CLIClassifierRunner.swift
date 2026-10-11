@@ -125,8 +125,10 @@ struct CLIClassifierRunner {
     // MARK: - Failure
 
     /// Today's failure of `request` for a transport error. The alert shows the command's
-    /// `failed` message, never its detail. A single EsViritu run puts the log tail in the error
-    /// detail, and a batch whose every sample failed reads today's first sample error.
+    /// `failed` message, never its detail. A single EsViritu run puts the line's detail, the last
+    /// lines of EsViritu's log, in the error detail under today's heading (A8d review, UX D11). A
+    /// Kraken2 run and every batch keep no error detail, as today, even when a detail arrives, and
+    /// a batch whose every sample failed reads today's first sample error.
     static func failure(
         for error: Error,
         request: CLIClassifierRunRequest,
@@ -142,7 +144,11 @@ struct CLIClassifierRunner {
         case (.kraken2, false):
             return CLIClassifierFailure(message: message, errorMessage: nil, errorDetail: nil)
         case (.esViritu, false):
-            return CLIClassifierFailure(message: message, errorMessage: message, errorDetail: detail ?? events.esVirituLogTail)
+            return CLIClassifierFailure(
+                message: message,
+                errorMessage: message,
+                errorDetail: detail.map { CLIClassifierRowEvents.esVirituLogTailHeading + $0 }
+            )
         case (_, true):
             let batchMessage = events.everyUnitFailed
                 ? ClassificationCompletionDetail.allSamplesFailed(firstError: events.failedUnitReasons.first)

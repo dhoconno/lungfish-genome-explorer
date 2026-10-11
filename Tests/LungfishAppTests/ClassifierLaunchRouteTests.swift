@@ -161,16 +161,22 @@ final class ClassifierLaunchRouteTests: XCTestCase {
         XCTAssertEqual(launch.cliCommand.components(separatedBy: "\n").count, 1, "one command, not one per sample (E8)")
     }
 
+    /// E9. The route keeps the `--db-digest` that `ClassificationCLIInvocationBuilder` writes since
+    /// lane A8, the lower-case SHA-256 of a registry digest, and adds none of its own.
     func testOnlyARegistryDigestOfSHA256IsChecked() throws {
-        XCTAssertEqual(ClassifierCLIRouteLaunch.normalizedSHA256("sha256:" + digest.uppercased()), digest)
-        XCTAssertEqual(ClassifierCLIRouteLaunch.normalizedSHA256(digest), digest)
-        XCTAssertNil(ClassifierCLIRouteLaunch.normalizedSHA256("md5:abc"))
-        XCTAssertNil(ClassifierCLIRouteLaunch.normalizedSHA256(String(repeating: "z", count: 64)))
-        XCTAssertNil(ClassifierCLIRouteLaunch.normalizedSHA256(nil))
-
-        let config = kraken2Config(inputs: [importURL("reads.fastq")], output: "classification-x", databaseDigest: nil)
-        let launch = try XCTUnwrap(ClassifierCLIRouteLaunch.kraken2(configs: [config], projectURL: projectURL))
-        XCTAssertFalse(launch.arguments.contains("--db-digest"), "a database with no digest checks no receipt")
+        let cases: [(digest: String?, expected: String?)] = [
+            ("sha256:" + digest.uppercased(), digest),
+            (digest, digest),
+            ("md5:abc", nil),
+            (String(repeating: "z", count: 64), nil),
+            (nil, nil),
+        ]
+        for testCase in cases {
+            let config = kraken2Config(inputs: [importURL("reads.fastq")], output: "classification-x", databaseDigest: testCase.digest)
+            let launch = try XCTUnwrap(ClassifierCLIRouteLaunch.kraken2(configs: [config], projectURL: projectURL))
+            XCTAssertEqual(value(after: "--db-digest", in: launch.arguments), testCase.expected, "\(testCase.digest ?? "nil")")
+            XCTAssertLessThanOrEqual(launch.arguments.filter { $0 == "--db-digest" }.count, 1, "one digest check")
+        }
     }
 
     func testTheKraken2ExtractGoalKeepsItsTitleAndOpensTheExtractionSheet() throws {
@@ -284,14 +290,30 @@ final class ClassifierLaunchRouteTests: XCTestCase {
 
     // MARK: - The CLI parses what the row records (E1)
 
-    /// Each EsViritu command the CLI route's row records runs through the real `esviritu detect`
-    /// parser with the launch's values, so Copy CLI Command replays the run into a new folder of
-    /// the project (E1, UX checklist 4). A batch is one command with `--batch` over every
-    /// sample's inputs in plan order, and names no sample or read format, which `--batch`
-    /// refuses. The Kraken2 half joins when lane A8's `kraken2 classify` takes `--project`,
-    /// `--batch` and `--db-digest`.
-    func testEachEsVirituCLIRouteCommandParsesThroughTheCLI() throws {
+    /// Each command the CLI route's row records runs through the real `kraken2 classify` or
+    /// `esviritu detect` parser with the launch's values, so Copy CLI Command replays the run into
+    /// a new folder of the project (E1, UX checklist 4). A batch is one command with `--batch`
+    /// over every sample's inputs in plan order. A Kraken2 command checks the database's digest
+    /// (E9), and an EsViritu batch names no sample or read format, which `--batch` refuses.
+    func testEachCLIRouteCommandParsesThroughTheCLI() throws {
         let routeContext = OperationRouteContext(projectURL: projectURL, windowStateScopeID: nil)
+        let single = kraken2Config(inputs: [importURL("A.fastq")], output: "a")
+        for configs in [[single], [single, kraken2Config(inputs: [importURL("B.fastq")], output: "b")]] {
+            let launch = try XCTUnwrap(ClassifierCLIRouteLaunch.kraken2(configs: configs, projectURL: projectURL))
+            let reporter = RecordingOperationReporter()
+            AppDelegate.beginClassifierCLIRouteOperation(launch, routeContext: routeContext, reporter: reporter) { _ in }
+            let recorded = try XCTUnwrap(reporter.items.first?.cliCommand)
+
+            let command = try RecordedCLICommand.parse(recorded, as: ClassifyCommand.self)
+            XCTAssertEqual(command.project, projectURL.path, recorded)
+            XCTAssertNil(command.outputDir, "the command makes Analyses/kraken2[-batch]-<timestamp> itself (E1)")
+            XCTAssertEqual(command.batch, configs.count > 1, recorded)
+            XCTAssertEqual(command.databaseName, "Viral")
+            XCTAssertEqual(command.databaseDigest, digest, "E9")
+            XCTAssertEqual(command.fastqFiles, configs.flatMap { $0.inputFiles.map(\.path) }, "every sample's inputs in plan order")
+            XCTAssertEqual(command.globalOptions.outputFormat, .json)
+        }
+
         let samples = [
             esVirituConfig(sample: "A", inputs: [importURL("A_R1.fastq.gz"), importURL("A_R2.fastq.gz")], plansReadSet: false),
             esVirituConfig(sample: "B", inputs: [importURL("B.lungfishfastq")], plansReadSet: true),

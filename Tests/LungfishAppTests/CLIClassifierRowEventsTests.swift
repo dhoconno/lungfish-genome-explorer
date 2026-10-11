@@ -32,11 +32,16 @@ final class CLIClassifierRowEventsTests: XCTestCase {
             "info: Classification complete",
         ])
         XCTAssertEqual(progressLines(effects), [
+            "0.0 Materializing reads into the result folder",
             "0.0 Validating configuration...",
             "0.5 Running Kraken2...",
             "1.0 Classification complete",
         ])
-        XCTAssertEqual(effects.compactMap(\.overlay), ["Validating configuration...", "Running Kraken2...", "Classification complete"])
+        XCTAssertEqual(
+            effects.compactMap(\.overlay),
+            ["Materializing reads into the result folder", "Validating configuration...", "Running Kraken2...", "Classification complete"],
+            "A10 review fix 5, the materialization line reaches the detail and the overlay"
+        )
         let folder = try XCTUnwrap(run.report.analysisDirectory)
         XCTAssertEqual(effects.compactMap(\.trackedFolder).map(\.standardizedFileURL), [folder.standardizedFileURL])
         XCTAssertEqual(rows.analysisFolder?.standardizedFileURL, folder.standardizedFileURL)
@@ -74,7 +79,6 @@ final class CLIClassifierRowEventsTests: XCTestCase {
             XCTAssertEqual(fractions.last, 1, run)
             XCTAssertFalse(effects.compactMap(\.overlay).contains("Building EsViritu database\u{2026}"), run)
             XCTAssertEqual(effects.compactMap(\.trackedFolder), [try XCTUnwrap(transcript.folder)], run)
-            XCTAssertNil(rows.esVirituLogTail, run)
             XCTAssertEqual(rows.failedUnitReasons, [], run)
         }
 
@@ -84,9 +88,11 @@ final class CLIClassifierRowEventsTests: XCTestCase {
         XCTAssertNil(rows.analysisFolder)
     }
 
-    /// D11. The EsViritu log tail of a failed single run goes to the error detail, not the log,
-    /// and the alert shows the command's `failed` message, the pipeline's own error.
-    func testTheEsVirituLogTailOfAFailedSingleRunGoesToTheErrorDetail() async throws {
+    /// D11, A8d review section 4. A failed single EsViritu run ends in `failed` with the log tail
+    /// as the line's detail and logs no tail. The alert shows the `failed` message, and the error
+    /// detail is today's heading and the detail. A Kraken2 run and every batch keep no error
+    /// detail and an alert equal to the message, even when a detail arrives.
+    func testTheFailedLinesDetailGoesOnlyToASingleEsVirituRowsErrorDetail() async throws {
         let reason = "EsViritu exited with status 1"
         let run = try await executorRun(StandInClassifierTool(
             tool: .esViritu,
@@ -96,18 +102,69 @@ final class CLIClassifierRowEventsTests: XCTestCase {
         let (rows, effects) = play(run.events, tool: .esViritu, sampleIDs: ["air-A"])
 
         XCTAssertEqual(run.report.message, reason, "a single sample's failure is the run's message")
-        XCTAssertFalse(logLines(effects).contains { $0.contains("EsViritu log") }, "the tail is no log line, as today")
-        XCTAssertEqual(rows.esVirituLogTail, "EsViritu log (last lines):\nline 1\nline 2")
-        let failure = CLIClassifierRunner.failure(
-            for: CLISubprocessTransport.RunError.failedEvent(message: run.report.message, detail: nil),
-            request: CLIClassifierRunRequest(tool: .esViritu, arguments: [], sampleIDs: ["air-A"]),
-            events: rows
+        XCTAssertEqual(run.events.last, .failed(message: reason, detail: "line 1\nline 2"), "the command sends the tail alone")
+        XCTAssertFalse(logLines(effects).contains { $0.contains("line 1") }, "the tail is no log line, as today")
+        let failedLine = CLISubprocessTransport.RunError.failedEvent(message: reason, detail: "line 1\nline 2")
+        XCTAssertEqual(
+            CLIClassifierRunner.failure(
+                for: failedLine,
+                request: CLIClassifierRunRequest(tool: .esViritu, arguments: [], sampleIDs: ["air-A"]),
+                events: rows
+            ),
+            CLIClassifierFailure(message: reason, errorMessage: reason, errorDetail: "EsViritu log (last lines):\nline 1\nline 2")
         )
-        XCTAssertEqual(failure, CLIClassifierFailure(
-            message: reason,
-            errorMessage: reason,
-            errorDetail: "EsViritu log (last lines):\nline 1\nline 2"
-        ))
+        for (tool, sampleIDs) in [(CLIClassifierTool.kraken2, ["A"]), (.kraken2, ["A", "B"]), (.esViritu, ["A", "B"])] {
+            let failure = CLIClassifierRunner.failure(
+                for: failedLine,
+                request: CLIClassifierRunRequest(tool: tool, arguments: [], sampleIDs: sampleIDs),
+                events: CLIClassifierRowEvents(tool: tool, sampleIDs: sampleIDs)
+            )
+            XCTAssertEqual(failure.message, reason, "\(tool) \(sampleIDs): the alert is the message")
+            XCTAssertNil(failure.errorDetail, "\(tool) \(sampleIDs): no error detail, as today")
+        }
+    }
+
+    /// D5 to D7, D14, D17. Lane A8's captured `kraken2 classify` runs of one sample, plain, into a
+    /// project, with a profile and with a degraded profile, read as today's single row. The
+    /// executor's unit line is hidden, every pipeline line is logged at info with no sample, the
+    /// degraded profile's warning reads as info since the row's label comes from the result read
+    /// back, the bar never moves back, and the early output line names the folder the row tracks.
+    /// The captured cancel shows its lines up to the cancel, and the captured refusal shows
+    /// nothing, since the runner reads the end of a run from the transport.
+    func testCapturedKraken2RunsReadAsTodaysSingleRow() throws {
+        let root = URL(fileURLWithPath: "/tmp/lane x1", isDirectory: true)
+        let decoder = CLIEventLineDecoder()
+        for run in ["complete", "complete-project", "complete-profile", "complete-with-warning", "failed-cancelled"] {
+            let transcript = try CapturedClassifierTranscript.load(command: "kraken2-classify", run: run, root: root)
+            let events = try transcript.lines.compactMap { try decoder.decode(line: $0) }
+            let (rows, effects) = play(events, tool: .kraken2, sampleIDs: ["reads"])
+
+            let logged = logLines(effects)
+            let unitLine = try XCTUnwrap(events.lazy.compactMap { event -> String? in
+                guard case let .progress(_, message) = event else { return nil }
+                return message
+            }.first, run)
+            XCTAssertTrue(unitLine.hasPrefix("Running "), "\(run): \(unitLine)")
+            XCTAssertFalse(logged.contains("info: \(unitLine)"), "\(run): the executor's unit line is not shown")
+            XCTAssertEqual(logged.first, "info: Validating configuration...", run)
+            XCTAssertEqual(logged.filter { !$0.hasPrefix("info:") }, [], "\(run): no warning or error line")
+            XCTAssertFalse(logged.contains { $0.contains("Sample 1/1") }, "\(run): a single row's lines carry no sample")
+            let fractions = effects.flatMap(\.bridged).compactMap { event -> Double? in
+                guard case let .progress(fraction, _) = event else { return nil }
+                return fraction
+            }
+            XCTAssertEqual(fractions, fractions.sorted(), "\(run): the bar never moves back")
+            XCTAssertEqual(effects.compactMap(\.trackedFolder), [try XCTUnwrap(transcript.folder)], run)
+            XCTAssertEqual(rows.failedUnitReasons, [], run)
+            if run == "complete-with-warning" {
+                XCTAssertTrue(logged.contains { $0.hasPrefix("info: Kraken classification completed, but Bracken profiling did not complete") })
+            }
+        }
+
+        let refusal = try CapturedClassifierTranscript.load(command: "kraken2-classify", run: "failed", root: root)
+        let (rows, effects) = play(try refusal.lines.compactMap { try decoder.decode(line: $0) }, tool: .kraken2, sampleIDs: ["reads"])
+        XCTAssertEqual(effects, [CLIClassifierRowEvents.Effects(), CLIClassifierRowEvents.Effects()])
+        XCTAssertNil(rows.analysisFolder)
     }
 
     // MARK: - Batches
@@ -138,9 +195,11 @@ final class CLIClassifierRowEventsTests: XCTestCase {
             "info: Built database with 2 rows",
         ])
         XCTAssertEqual(progressLines(effects), [
+            "0.0 Sample 1/2 (A): Materializing A into the result folder",
             "0.0 Sample 1/2 (A): Validating configuration...",
             "0.25 Sample 1/2 (A): Running EsViritu...",
             "0.5 Sample 1/2 (A): Detection complete",
+            "0.5 Sample 2/2 (B): Materializing B into the result folder",
             "0.5 Sample 2/2 (B): Validating configuration...",
             "0.75 Sample 2/2 (B): Running EsViritu...",
             "1.0 Sample 2/2 (B): Detection complete",
@@ -150,8 +209,10 @@ final class CLIClassifierRowEventsTests: XCTestCase {
         XCTAssertFalse(effects.compactMap(\.overlay).contains("Building EsViritu database\u{2026}"), "today's database line has no overlay")
     }
 
-    /// D8, D11. A failed sample of an EsViritu batch reads as today's error lines, its log tail
-    /// and its reason, and never as a warning, so the batch reads Completed as today.
+    /// D8, D11. A failed sample of an EsViritu batch reads as today's error line with its reason,
+    /// and never as a warning, so the batch reads Completed as today. Since the A8d review the
+    /// command sends a sample's log tail only as the detail of a run's one failure, so the row
+    /// no longer logs the batch sample's tail that today's batch logs.
     func testAFailedBatchSampleReadsAsTodaysErrorLinesAndNoWarning() async throws {
         let reason = "EsViritu exited with status 1"
         let run = try await executorRun(StandInClassifierTool(
@@ -163,10 +224,7 @@ final class CLIClassifierRowEventsTests: XCTestCase {
 
         XCTAssertEqual(run.report.warnings, ["A failed: \(reason)"], "the command's own warning")
         XCTAssertEqual(logLines(effects).filter { $0.hasPrefix("warning:") }, [])
-        XCTAssertEqual(logLines(effects).filter { $0.hasPrefix("error:") }, [
-            "error: Sample 1/2 (A): EsViritu log (last lines):\ntail",
-            "error: Sample 1/2 (A): \(reason)",
-        ])
+        XCTAssertEqual(logLines(effects).filter { $0.hasPrefix("error:") }, ["error: Sample 1/2 (A): \(reason)"])
         XCTAssertTrue(logLines(effects).contains("info: Building esviritu.sqlite from 1 sample(s)"))
         XCTAssertEqual(rows.failedUnitReasons, [reason])
         XCTAssertFalse(rows.everyUnitFailed)
@@ -232,10 +290,7 @@ final class CLIClassifierRowEventsTests: XCTestCase {
             "info: Sample 2/2 (A): Validating configuration...",
             "info: Sample 2/2 (A): Running EsViritu...",
         ])
-        XCTAssertEqual(logLines(effects).filter { $0.hasPrefix("error:") }, [
-            "error: Sample 2/2 (A): EsViritu log (last lines):\ntail",
-            "error: Sample 2/2 (A): \(reason)",
-        ])
+        XCTAssertEqual(logLines(effects).filter { $0.hasPrefix("error:") }, ["error: Sample 2/2 (A): \(reason)"])
         XCTAssertEqual(rows.failedUnitReasons, [reason])
     }
 

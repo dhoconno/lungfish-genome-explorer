@@ -8,9 +8,11 @@
 // writes the result each unit leaves, from the kraken2-mini and esviritu-mini fixtures, and the
 // finalize writes the batch manifest and the database line the commands write. A shell script
 // plays the transcript in place of `lungfish-cli`, as the commands of lanes A8 and A9 print it.
-// Lane A10c plays lane A9's captured `esviritu detect` runs where one exists. The Kraken2 tests
-// and the shapes no captured run has (failed and degraded samples, a database failure, a cancel)
-// keep the executor's transcripts until lane A8's captured `kraken2 classify` runs land.
+// Lane A10c plays lane A9's captured `esviritu detect` runs, and lane X1 lane A8's captured
+// single `kraken2 classify` runs. The shapes no captured run has (failed and degraded samples of
+// a batch, a database failure, a cancel, a batch of several samples) keep the executor's
+// transcripts. Like the real units, a stand-in unit reports its materialization line as progress
+// at its start and hands its EsViritu log tail over as the failure's detail.
 
 import Foundation
 import LungfishCore
@@ -27,7 +29,8 @@ enum StandInClassifierUnit: Sendable, Equatable {
     /// Writes the fixture result with a degraded Bracken profile and completes with a warning, as
     /// a Kraken2 sample whose profile degraded does (E4).
     case degrade(String)
-    /// Fails for the reason given, after logging the EsViritu log tail when one is given.
+    /// Fails for the reason given, after handing the executor the EsViritu log tail as the
+    /// failure's detail when one is given, as the EsViritu unit does.
     case fail(String, logTail: String?)
 }
 
@@ -68,7 +71,7 @@ struct StandInClassifierTool: AnalysisRunTool {
             try? FileManager.default.removeItem(at: runRecordCopy)
             try FileManager.default.copyItem(at: AnalysisRunRecord.url(in: context.rootDirectory), to: runRecordCopy)
         }
-        context.log(.info, "Materializing \(unit.label) into the result folder")
+        context.progress(0, "Materializing \(unit.label) into the result folder")
         context.progress(0, "Validating configuration...")
         context.progress(0.5, tool == .kraken2 ? "Running Kraken2..." : "Running EsViritu...")
         switch unit.value {
@@ -84,7 +87,7 @@ struct StandInClassifierTool: AnalysisRunTool {
             return .completedWithWarning(unit.directory, reason: reason)
         case .fail(let reason, let logTail):
             if let logTail {
-                context.log(.error, CLIClassifierRowEvents.esVirituLogTailHeading + logTail)
+                context.recordFailureDetail(logTail)
             }
             return .failed(reason: reason)
         }
@@ -429,6 +432,14 @@ extension ClassifierRouteFixtures {
             to: folder
         )
         try AnalysisRunRecord.begin(AnalysisRunRecord(analysisName: "esviritu", command: "lungfish-cli esviritu detect"), in: folder)
+    }
+
+    /// What a single Kraken2 run leaves in its result `folder` while it runs, for a captured
+    /// transcript: the kraken2-mini sample's result, which the read-back opens, and the running
+    /// run record a stand-in settles at its end.
+    static func placeKraken2Run(in folder: URL) throws {
+        try writeResult(of: .kraken2, sample: kraken2Sample, into: folder)
+        try AnalysisRunRecord.begin(AnalysisRunRecord(analysisName: "kraken2", command: "lungfish-cli kraken2 classify"), in: folder)
     }
 }
 

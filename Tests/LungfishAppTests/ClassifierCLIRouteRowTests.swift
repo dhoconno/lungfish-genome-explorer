@@ -155,10 +155,9 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
         XCTAssertEqual(run.item.displayStateLabel, "Completed")
         XCTAssertEqual(run.item.detail, "1 completed, 1 failed")
         XCTAssertEqual(loggedLines(of: run.item).filter { $0.hasPrefix("warning:") }, [])
-        XCTAssertEqual(loggedLines(of: run.item).filter { $0.hasPrefix("error:") }, [
-            "error: Sample 1/2 (A): EsViritu log (last lines):\ntail",
-            "error: Sample 1/2 (A): \(reason)",
-        ])
+        // The command sends a sample's log tail only as the detail of a run's one failure (A8d
+        // review), so the row no longer logs the tail line today's batch logs for the sample.
+        XCTAssertEqual(loggedLines(of: run.item).filter { $0.hasPrefix("error:") }, ["error: Sample 1/2 (A): \(reason)"])
         XCTAssertTrue(loggedLines(of: run.item).contains("info: Building esviritu.sqlite from 1 sample(s)"))
         XCTAssertNil(run.viewer.taxonomyViewController, "nothing opens after an EsViritu run")
     }
@@ -190,6 +189,34 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
         XCTAssertEqual(run.overlayHiddenAtTheEnd, true)
         XCTAssertNil(run.viewer.taxonomyViewController, "nothing opens after an EsViritu run")
         XCTAssertEqual(run.item.bundleURLs.map(\.standardizedFileURL), [folder.standardizedFileURL])
+    }
+
+    /// D1 to D9, D14 to D17. Lane A8's captured `kraken2 classify --project` run of one sample
+    /// reads today's row. The executor's unit line is hidden, every pipeline line and the
+    /// index's lines are logged at info, the detail is today's, read back from the folder's
+    /// result and not the command's message, and today's taxonomy browser opens.
+    func testACapturedSingleKraken2RunReadsTodaysRowAndDetail() async throws {
+        let made = try ClassifierRouteFixtures.makeProject(in: root)
+        let transcript = try CapturedClassifierTranscript.load(command: "kraken2-classify", run: "complete-project", root: root)
+        let folder = try XCTUnwrap(transcript.folder)
+        try ClassifierRouteFixtures.placeKraken2Run(in: folder)
+        let configs = Configs.kraken2([kraken2Config(inputs: made.inputs, sampleFolder: "classification-0000A10A")])
+        let run = try await play(transcript.lines, exitStatus: 0, folder: folder, completed: true, configs: configs, project: made.project)
+
+        XCTAssertEqual(run.item.title, "Profiling reads.fastq")
+        XCTAssertEqual(run.firstDetail, "Starting Kraken2 with Viral...")
+        XCTAssertEqual(run.item.displayStateLabel, "Completed")
+        XCTAssertEqual(run.item.detail, try ClassifierRouteFixtures.expectedKraken2Detail(in: folder).completionDetail)
+        XCTAssertNotEqual(run.item.detail, "98 of 100 reads classified", "D9 reads the result back from disk")
+        let logged = loggedLines(of: run.item)
+        XCTAssertEqual(logged.filter { !$0.hasPrefix("info:") }, [], "no warning or error line")
+        XCTAssertEqual(logged.first, "info: Validating configuration...")
+        XCTAssertFalse(logged.contains("info: Running test_1.fastq."), "the executor's unit line is not shown")
+        XCTAssertTrue(logged.contains("info: Parsed 14 classification rows from Kraken2 results"))
+        XCTAssertEqual(run.overlayWhileRunning, "Classification complete", "D14")
+        XCTAssertEqual(run.overlayHiddenAtTheEnd, true)
+        XCTAssertNotNil(run.viewer.taxonomyViewController, "D15 opens today's taxonomy browser")
+        XCTAssertEqual(run.item.bundleURLs.map(\.standardizedFileURL), [folder.standardizedFileURL], "D17")
     }
 
     /// Review fix 4, a deliberate difference from today. A completed run whose result the app

@@ -14,8 +14,9 @@ import LungfishWorkflow
 /// `ClassificationCLIInvocationBuilder` and `EsVirituCLIInvocationBuilder`. The route names the
 /// project with `--project` in place of the output folder, so the command makes
 /// `Analyses/<tool>[-batch]-<timestamp>/` as today's route does (E1), adds `--batch` for several
-/// samples (E8), `--db-digest` for a Kraken2 database whose registry entry holds a digest (E9) and
-/// `--format json`. The row records this argv, the one the transport runs.
+/// samples (E8) and `--format json`, and keeps the builder's `--db-digest` for a Kraken2 database
+/// whose registry entry holds a SHA-256 (E9). The row records this argv, the one the transport
+/// runs.
 struct ClassifierCLIRouteLaunch: Sendable, Equatable {
     let tool: CLIClassifierTool
     /// The argv after `lungfish-cli`.
@@ -78,10 +79,6 @@ struct ClassifierCLIRouteLaunch: Sendable, Equatable {
             options = removing("--paired", valueCount: 0, from: options)
             options = removing("--read-format", valueCount: 1, from: options)
             options = removing("--unpaired", valueCount: 1, from: options)
-        }
-        if !options.contains("--db-digest"), let digest = normalizedSHA256(first.databaseDigest),
-           let database = options.firstIndex(of: "--db"), database + 1 < options.count {
-            options.insert(contentsOf: ["--db-digest", digest], at: database + 2)
         }
         var inputs = inputsAtEnd ? firstInputs : []
         if isBatch {
@@ -186,17 +183,6 @@ struct ClassifierCLIRouteLaunch: Sendable, Equatable {
         var edited = arguments
         edited.removeSubrange(start..<end)
         return edited
-    }
-
-    /// The SHA-256 a registry digest holds, 64 lowercase hexadecimal digits with any `sha256:`
-    /// prefix dropped, or nil for another value.
-    static func normalizedSHA256(_ value: String?) -> String? {
-        guard var digest = value?.lowercased() else { return nil }
-        if digest.hasPrefix("sha256:") {
-            digest.removeFirst("sha256:".count)
-        }
-        guard digest.count == 64, digest.allSatisfy({ $0.isHexDigit }) else { return nil }
-        return digest
     }
 }
 

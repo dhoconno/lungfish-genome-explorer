@@ -46,7 +46,8 @@ enum CLIClassifierTool: String, Sendable, Equatable, CaseIterable {
 /// - A row reads Completed with Warnings in today's cases only (2.6 S16). The one warning line of
 ///   the command that today's row also logs is the database build failure. Every other warning
 ///   reads as info, and a failed batch unit reads as today's error line `Sample i/N (id): <reason>`.
-/// - The EsViritu log tail of a single run goes to the row's error detail and not to the log.
+/// - The `failed` line ends the run, so the runner reads its message and detail from the
+///   transport. An `error` line is always logged as one.
 /// - The early `output` line names the result folder, which the row tracks for Results and
 ///   Reveal Output Files.
 struct CLIClassifierRowEvents: Sendable {
@@ -60,7 +61,9 @@ struct CLIClassifierRowEvents: Sendable {
         var trackedFolder: URL?
     }
 
-    /// The heading of the EsViritu log tail, as today's row writes it in the error detail.
+    /// The heading today's row writes before the EsViritu log tail in its error detail. The runner
+    /// puts it before the `failed` line's detail of a single EsViritu run, since the words belong
+    /// to the app and the command sends the tail alone.
     static let esVirituLogTailHeading = "EsViritu log (last lines):\n"
 
     let tool: CLIClassifierTool
@@ -73,8 +76,6 @@ struct CLIClassifierRowEvents: Sendable {
     private(set) var failedUnitReasons: [String] = []
     /// The build error of today's database warning line, when the command wrote one.
     private(set) var databaseError: String?
-    /// The EsViritu log tail of a single run, with its heading, for the row's error detail.
-    private(set) var esVirituLogTail: String?
 
     private var bar = 0.0
     private var sawProgress = false
@@ -178,10 +179,6 @@ struct CLIClassifierRowEvents: Sendable {
             }
             return Self.logging(.info, prefixed(message))
         case .error:
-            if !isBatch, message.hasPrefix(Self.esVirituLogTailHeading) {
-                esVirituLogTail = message
-                return Effects()
-            }
             return Self.logging(.error, prefixed(message))
         case .info, .debug:
             return Self.logging(level, prefixed(message))
