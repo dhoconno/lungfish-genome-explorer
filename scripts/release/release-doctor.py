@@ -7,6 +7,7 @@ import argparse
 import base64
 import hashlib
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -41,6 +42,7 @@ from release_target_security import TargetSecurityError, validate_release_target
 from release_xcode import XcodeSelectionError, resolve_developer_dir
 from bounded_process import run_bounded
 from credential_readiness import ReadinessError, setup_binding, require_setup_receipt, write_setup_receipt, begin_setup
+from developer_id import SigningIdentityError, assess, select_from_keychain
 from release_profiles import ProfileError
 from release_identity import prepare_identity_plist
 
@@ -55,6 +57,10 @@ COMMAND_TIMEOUT_SECONDS = 30
 
 class CheckFailure(Exception):
     """An actionable, already-redacted preflight failure."""
+
+
+class CheckWarning(Exception):
+    """A check that passed with a finding the operator must act on soon."""
 
 
 @dataclass(frozen=True)
@@ -76,6 +82,8 @@ class Doctor:
         self.sparkle_tools: dict[str, Path] = {}
         self.repository_identity: RepositoryIdentity | None = None
         self.cache: CachePaths | None = None
+        self.selection = None
+        self.now = lambda: datetime.now(timezone.utc)
 
     def check(self, name: str, operation: Callable[[], str]) -> bool:
         try:
@@ -83,6 +91,9 @@ class Doctor:
         except CheckFailure as error:
             self.results.append(CheckResult(name, "FAIL", str(error)))
             return False
+        except CheckWarning as warning:
+            self.results.append(CheckResult(name, "WARN", str(warning)))
+            return True
         except Exception:
             self.results.append(
                 CheckResult(name, "FAIL", "unexpected validation error")
@@ -736,21 +747,30 @@ class Doctor:
         return "required credential names were provided"
 
     def _signing_identity(self) -> str:
+        # Read-only keychain listing, so it runs in unattended mode too. Two identities with one name
+        # (an old and a G2 certificate) fail here unless a SHA-1 picks one.
         if not self.signing_identity.startswith("Developer ID Application:"):
             raise CheckFailure(
                 "signing identity is not a Developer ID Application identity"
             )
-        command = ["security", "find-identity", "-v", "-p", "codesigning"]
-        if self.args.signing_keychain:
-            command.append(str(self.args.signing_keychain))
-        result = self.run_command(command)
-        if result.returncode != 0 or f'"{self.signing_identity}"' not in result.stdout:
-            raise CheckFailure("requested Developer ID signing identity is unavailable")
-        if self.args.certificate_sha1:
-            pattern = re.compile(r"\b" + re.escape(self.args.certificate_sha1) + r'\s+"' + re.escape(self.signing_identity) + r'"', re.IGNORECASE)
-            if not pattern.search(result.stdout):
-                raise CheckFailure("selected certificate fingerprint does not match the Developer ID identity")
-        return "requested Developer ID signing identity is present; private-key use is checked separately"
+        try:
+            self.selection = select_from_keychain(
+                self.run_command, name=self.signing_identity, certificate_sha1=self.args.certificate_sha1,
+                keychain=str(self.args.signing_keychain) if self.args.signing_keychain else None)
+        except SigningIdentityError as error:
+            raise CheckFailure(str(error)) from error
+        return (f"{self.selection.identity.sha1} selected ({self.selection.reason}); "
+                "private-key use is checked separately")
+
+    def _signing_certificate(self) -> str:
+        if self.selection is None:
+            raise CheckFailure("no signing identity was selected")
+        assessment = assess(self.selection.certificate, self.now())
+        if assessment.status == "FAIL":
+            raise CheckFailure(assessment.detail)
+        if assessment.status == "WARN":
+            raise CheckWarning(assessment.detail)
+        return assessment.detail
 
     def _team_id(self) -> str:
         match = re.search(r"\(([A-Z0-9]+)\)\s*$", self.signing_identity)
@@ -963,6 +983,8 @@ class Doctor:
 
         if self.args.mode == "credentials":
             for name, operation in (("credential inputs", self._credential_inputs),
+                                    ("signing identity", self._signing_identity),
+                                    ("signing certificate", self._signing_certificate),
                                     ("credential setup", self._credential_setup_guard)):
                 if not self.check(name, operation):
                     return False
@@ -971,7 +993,6 @@ class Doctor:
                     "completed explicit setup verified; no disposable credential probes repeated; production commands remain bounded and OS access can change"))
                 return True
             credential_checks = (
-                ("signing identity", self._signing_identity),
                 ("Team ID", self._team_id),
                 ("private signing key", self._signing_probe),
                 ("notary profile", self._notary),

@@ -21,6 +21,13 @@ from scripts.release.release_repository import (
     RepositoryIdentityError,
     resolve_repository_identity,
 )
+from scripts.tests.developer_id_fixtures import (
+    G1,
+    certificate_der,
+    find_identity_output,
+    pem,
+    sha1,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,6 +48,16 @@ def write_tool_trio(directory: Path, body: str = "exit 0") -> None:
 
 def resolved_lock_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def fake_identity(name: str, team: str, *, issuer=None, days_left: int = 300, serial: int = 1):
+    """A synthetic Developer ID certificate valid until days_left from now, and its keychain listing."""
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    der = certificate_der(name, team, not_before=now - timedelta(days=30),
+                          not_after=now + timedelta(days=days_left), serial=serial,
+                          **({"issuer": issuer} if issuer else {}))
+    return sha1(der), pem(der)
 
 
 class ReleaseDoctorFixture:
@@ -69,6 +86,9 @@ class ReleaseDoctorFixture:
         self._write_executable(self.bin / "sysctl", "printf 'fake-boot-identity\\n'")
         self._write_executable(self.bin / "codesign", 'if [ "${1:-}" = --display ]; then printf "TeamIdentifier=TEAM123456\\n"; fi')
         self._install_sparkle_tools()
+        self.identity_sha1, certificate = fake_identity(
+            "Developer ID Application: Example Corp (TEAM123456)", "TEAM123456"
+        )
         self.env = {
             **os.environ,
             "PATH": f"{self.bin}:/usr/bin:/bin",
@@ -84,10 +104,10 @@ class ReleaseDoctorFixture:
             "STUB_ARCH": "arm64",
             "STUB_DEPLOYMENT_TARGET": "26.0",
             "STUB_DISK_AVAILABLE_KB": str(30 * 1024 * 1024),
-            "STUB_SECURITY_IDENTITIES": (
-                '  1) ABCDEF "Developer ID Application: Example Corp (TEAM123456)"\n'
-                "     1 valid identities found\n"
+            "STUB_SECURITY_IDENTITIES": find_identity_output(
+                [(self.identity_sha1, "Developer ID Application: Example Corp (TEAM123456)", None)]
             ),
+            "STUB_SECURITY_CERTIFICATES": certificate,
             "STUB_NOTARY_OK": "1",
             "STUB_GH_AUTH_OK": "1",
             "STUB_GH_API_OK": "1",
@@ -200,7 +220,15 @@ class ReleaseDoctorFixture:
         )
         self._write_executable(
             self.bin / "security",
-            '[ "${1:-}" = find-identity ] || exit 65\nprintf \'%s\' "$STUB_SECURITY_IDENTITIES"',
+            textwrap.dedent(
+                """
+                case "${1:-}" in
+                  find-identity) printf '%s' "$STUB_SECURITY_IDENTITIES" ;;
+                  find-certificate) printf '%s' "${STUB_SECURITY_CERTIFICATES:-}" ;;
+                  *) exit 65 ;;
+                esac
+                """
+            ),
         )
         self._write_executable(
             self.bin / "gh",
@@ -784,11 +812,12 @@ class ReleaseDoctorTests(unittest.TestCase):
         self.assert_failure("signing identity", mode="credentials", env=env)
 
     def test_rejects_signing_identity_team_mismatch(self):
+        name = "Developer ID Application: Example Corp (OTHERTEAM1)"
+        digest, certificate = fake_identity(name, "OTHERTEAM1")
         env = {
             **self.fx.env,
-            "STUB_SECURITY_IDENTITIES": (
-                '1) ABC "Developer ID Application: Example Corp (OTHERTEAM1)"\n'
-            ),
+            "STUB_SECURITY_IDENTITIES": find_identity_output([(digest, name, None)]),
+            "STUB_SECURITY_CERTIFICATES": certificate,
         }
         self.assert_failure(
             "Team ID",
@@ -799,6 +828,66 @@ class ReleaseDoctorTests(unittest.TestCase):
                 "Developer ID Application: Example Corp (OTHERTEAM1)",
             ),
         )
+
+    def test_credentials_report_the_selected_certificate_issuer_and_expiry(self):
+        result = self.fx.run_doctor(mode="credentials")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(
+            f"PASS signing identity: {self.fx.identity_sha1} selected (the only valid identity with this name)",
+            result.stdout,
+        )
+        certificate_line = next(
+            line for line in result.stdout.splitlines() if line.startswith("PASS signing certificate:")
+        )
+        self.assertIn("issued by Developer ID Certification Authority (G2)", certificate_line)
+        self.assertIn("days left", certificate_line)
+
+    def test_unattended_readiness_reports_the_certificate_before_the_setup_proof(self):
+        command_env = {**self.fx.env}
+        result = self.fx.run_doctor(
+            mode="credentials", env=command_env, extra=("--credential-probe-mode", "unattended")
+        )
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = [line.split(":", 1)[0] for line in result.stdout.splitlines()]
+        self.assertLess(lines.index("PASS signing certificate"), lines.index("FAIL credential setup"))
+
+    def test_two_identities_with_one_name_fail_naming_both_until_a_sha1_picks_one(self):
+        name = "Developer ID Application: Example Corp (TEAM123456)"
+        old, old_certificate = fake_identity(name, "TEAM123456", issuer=G1, days_left=90, serial=7)
+        env = {
+            **self.fx.env,
+            "STUB_SECURITY_IDENTITIES": find_identity_output(
+                [(old, name, None), (self.fx.identity_sha1, name, None)]
+            ),
+            "STUB_SECURITY_CERTIFICATES": old_certificate + self.fx.env["STUB_SECURITY_CERTIFICATES"],
+        }
+        result = self.fx.run_doctor(mode="credentials", env=env)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        failure = next(line for line in result.stdout.splitlines() if line.startswith("FAIL signing identity:"))
+        for expected in (old, self.fx.identity_sha1, "original Sub-CA", "(G2)", "ambiguous"):
+            self.assertIn(expected, failure)
+        chosen = self.fx.run_doctor(
+            mode="credentials", env=env, extra=("--certificate-sha1", self.fx.identity_sha1.lower())
+        )
+        self.assertEqual(chosen.returncode, 0, chosen.stdout + chosen.stderr)
+        self.assertIn(
+            f"PASS signing identity: {self.fx.identity_sha1} selected (certificate SHA-1 set in the release profile)",
+            chosen.stdout,
+        )
+
+    def test_a_certificate_inside_sixty_days_warns_and_an_expired_one_fails(self):
+        name = "Developer ID Application: Example Corp (TEAM123456)"
+        for days_left, status, returncode in ((30, "WARN", 0), (-1, "FAIL", 1)):
+            with self.subTest(days_left=days_left):
+                digest, certificate = fake_identity(name, "TEAM123456", days_left=days_left, serial=8)
+                env = {
+                    **self.fx.env,
+                    "STUB_SECURITY_IDENTITIES": find_identity_output([(digest, name, None)]),
+                    "STUB_SECURITY_CERTIFICATES": certificate,
+                }
+                result = self.fx.run_doctor(mode="credentials", env=env)
+                self.assertEqual(result.returncode, returncode, result.stdout + result.stderr)
+                self.assertIn(f"{status} signing certificate: {digest}", result.stdout)
 
     def test_rejects_locked_or_missing_notary_profile(self):
         env = {**self.fx.env, "STUB_NOTARY_OK": "0"}

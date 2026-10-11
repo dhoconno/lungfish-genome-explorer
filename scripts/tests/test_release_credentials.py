@@ -9,6 +9,13 @@ import sys
 import tempfile
 import time
 import unittest
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
+
+from scripts.tests.developer_id_fixtures import G1, NAME, TEAM, certificate_der, find_identity_output, pem, sha1
+
+TODAY = datetime(2026, 10, 11, 12, 0, 0, tzinfo=timezone.utc)
+G1_CUTOFF = datetime(2027, 2, 1, 22, 12, 15, tzinfo=timezone.utc)
 
 
 class ProfileTests(unittest.TestCase):
@@ -39,6 +46,27 @@ class ProfileTests(unittest.TestCase):
         with self.assertRaises(self.module.ProfileError): self.module.load_release_profile(path, expected_repository='other/product')
         path.chmod(0o644)
         with self.assertRaises(self.module.ProfileError): self.module.load_release_profile(path)
+
+    def test_certificate_policy_roundtrips_is_exclusive_and_absent_when_unset(self):
+        p = self.module.ReleaseProfile('example/product', NAME, TEAM, 'example-notary', schema_version=2, certificate_policy='newest-g2')
+        path = self.root / 'nested' / 'policy.json'
+        self.module.write_release_profile(path, p)
+        self.assertEqual(self.module.load_release_profile(path), p)
+        self.assertEqual(json.loads(path.read_text())['signing']['certificatePolicy'], 'newest-g2')
+        pinned = replace(p, certificate_policy=None, certificate_sha1='B' * 40)
+        self.assertEqual(set(self.module.profile_payload(pinned)['signing']), {'identity', 'teamId', 'keychainPath', 'certificateSha1'})
+        with self.assertRaises(self.module.ProfileError): self.module.write_release_profile(path, pinned)
+        self.module.write_release_profile(path, pinned, replace=True)
+        self.assertEqual(self.module.load_release_profile(path).certificate_sha1, 'B' * 40)
+        both = self.module.profile_payload(pinned)
+        both['signing']['certificatePolicy'] = 'newest-g2'
+        unknown = self.module.profile_payload(p)
+        unknown['signing']['certificatePolicy'] = 'newest'
+        for payload in (both, unknown):
+            with self.subTest(payload=payload), self.assertRaises(self.module.ProfileError):
+                self.module.parse_profile(payload)
+        with self.assertRaises(self.module.ProfileError):
+            self.module.profile_payload(replace(p, schema_version=1))
 
     def test_rejects_unknown_secret_fields_and_symlink_parents(self):
         p = dict(schemaVersion=2, repository='example/product', signing=dict(identity='Developer ID Application: Example (TEAM123456)', teamId='TEAM123456', keychainPath=None, certificateSha1=None), notary=dict(profile='notary', keychainPath=None), sparkle=dict(account='example.product'))
@@ -224,6 +252,46 @@ class DoctorCredentialTests(unittest.TestCase):
             return subprocess.CompletedProcess(argv, 0, '', '')
         doctor.run_command = run
         with self.assertRaises(self.m.CheckFailure): doctor._signing_probe()
+
+    def keychain_doctor(self, rows, ders, certificate_sha1=None):
+        doctor = self.doctor()
+        doctor.signing_identity, doctor.team_id = NAME, TEAM
+        doctor.args.certificate_sha1 = certificate_sha1
+        doctor.now = lambda: TODAY
+        def run(argv, **kwargs):
+            if argv[:2] == ['security', 'find-identity']:
+                return subprocess.CompletedProcess(argv, 0, find_identity_output(rows), '')
+            if argv[:2] == ['security', 'find-certificate']:
+                return subprocess.CompletedProcess(argv, 0, ''.join(pem(der) for der in ders), '')
+            self.fail('identity and certificate checks only read the keychain: ' + ' '.join(argv))
+        doctor.run_command = run
+        return doctor
+
+    def test_identity_check_names_both_candidates_until_a_sha1_picks_one(self):
+        old_der = certificate_der(issuer=G1, not_before=datetime(2026, 2, 4, tzinfo=timezone.utc), not_after=G1_CUTOFF)
+        new_der = certificate_der(not_before=TODAY - timedelta(days=1), not_after=TODAY + timedelta(days=364), serial=2)
+        rows = [(sha1(old_der), NAME, None), (sha1(new_der), NAME, None)]
+        doctor = self.keychain_doctor(rows, [old_der, new_der])
+        self.assertFalse(doctor.check('signing identity', doctor._signing_identity))
+        for expected in (sha1(old_der), sha1(new_der), 'ambiguous'):
+            self.assertIn(expected, doctor.results[-1].detail)
+        doctor = self.keychain_doctor(rows, [old_der, new_der], certificate_sha1=sha1(new_der))
+        self.assertTrue(doctor.check('signing identity', doctor._signing_identity))
+        self.assertTrue(doctor.check('signing certificate', doctor._signing_certificate))
+        self.assertEqual(doctor.results[-1].status, 'PASS')
+        self.assertIn('(G2)', doctor.results[-1].detail)
+
+    def test_certificate_check_warns_for_the_original_sub_ca_and_fails_from_its_cutoff(self):
+        old_der = certificate_der(issuer=G1, not_before=datetime(2026, 2, 4, tzinfo=timezone.utc), not_after=G1_CUTOFF)
+        doctor = self.keychain_doctor([(sha1(old_der), NAME, None)], [old_der])
+        self.assertTrue(doctor.check('signing identity', doctor._signing_identity))
+        self.assertTrue(doctor.check('signing certificate', doctor._signing_certificate))
+        self.assertEqual(doctor.results[-1].status, 'WARN')
+        self.assertIn('original Sub-CA', doctor.results[-1].detail)
+        self.assertIn('2027-02-01 22:12:15 UTC', doctor.results[-1].detail)
+        doctor.now = lambda: G1_CUTOFF
+        self.assertFalse(doctor.check('signing certificate', doctor._signing_certificate))
+        self.assertEqual(doctor.results[-1].status, 'FAIL')
 
     def test_locked_private_signing_key_fails_disposable_probe(self):
         doctor = self.doctor()

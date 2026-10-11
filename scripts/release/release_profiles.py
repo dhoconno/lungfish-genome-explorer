@@ -1,6 +1,7 @@
 """Private machine selectors. No secret import, export, unlock, or rotation."""
 from __future__ import annotations
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,10 @@ import stat
 import tempfile
 
 MAX_METADATA_BYTES = 128 * 1024
+# The one certificate policy a v2 profile may name instead of a SHA-1: sign with the
+# newest valid identity of the profile's name that the G2 Developer ID Sub-CA issued.
+NEWEST_G2_POLICY = 'newest-g2'
+CERTIFICATE_POLICIES = (NEWEST_G2_POLICY,)
 
 
 class ProfileError(ValueError):
@@ -26,6 +31,17 @@ class ReleaseProfile:
     notary_keychain: str | None = None
     sparkle_account: str = 'ed25519'
     schema_version: int = 1
+    certificate_policy: str | None = None
+
+
+def default_profile_path(repository: str | None = None) -> Path:
+    """The profile release.py reads: the per-repository file when it exists, else the legacy one."""
+    base = Path.home() / '.config' / 'lungfish'
+    if repository:
+        named = base / 'releases' / f'{hashlib.sha256(repository.lower().encode()).hexdigest()[:24]}.json'
+        if named.exists():
+            return named
+    return base / 'release.json'
 
 
 def validate_private_parent(path: Path) -> None:
@@ -136,8 +152,8 @@ def write_private_json(path: Path, payload: dict, *, replace: bool = False) -> N
         if temporary is not None: temporary.unlink(missing_ok=True)
 
 
-def _keys(value, required, label):
-    if not isinstance(value, dict) or set(value) != set(required):
+def _keys(value, required, label, optional=()):
+    if not isinstance(value, dict) or not set(required) <= set(value) <= set(required) | set(optional):
         raise ProfileError(f'release profile {label} has unknown or missing keys')
 
 
@@ -157,10 +173,14 @@ def _keychain(value):
 
 def profile_payload(profile: ReleaseProfile) -> dict:
     if profile.schema_version == 1:
-        if profile.signing_keychain or profile.certificate_sha1 or profile.notary_keychain or profile.sparkle_account != 'ed25519':
+        if profile.signing_keychain or profile.certificate_sha1 or profile.certificate_policy or profile.notary_keychain or profile.sparkle_account != 'ed25519':
             raise ProfileError('legacy profile cannot discard v2 selectors')
         return dict(schemaVersion=1, repository=profile.repository, signingIdentity=profile.signing_identity, teamId=profile.team_id, notaryProfile=profile.notary_profile)
-    return dict(schemaVersion=profile.schema_version, repository=profile.repository, signing=dict(identity=profile.signing_identity, teamId=profile.team_id, keychainPath=profile.signing_keychain, certificateSha1=profile.certificate_sha1), notary=dict(profile=profile.notary_profile, keychainPath=profile.notary_keychain), sparkle=dict(account=profile.sparkle_account))
+    signing = dict(identity=profile.signing_identity, teamId=profile.team_id, keychainPath=profile.signing_keychain, certificateSha1=profile.certificate_sha1)
+    # Written only when set, so every profile without a policy keeps its exact bytes and signing context.
+    if profile.certificate_policy is not None:
+        signing['certificatePolicy'] = profile.certificate_policy
+    return dict(schemaVersion=profile.schema_version, repository=profile.repository, signing=signing, notary=dict(profile=profile.notary_profile, keychainPath=profile.notary_keychain), sparkle=dict(account=profile.sparkle_account))
 
 
 def parse_profile(payload: dict, *, expected_repository: str | None = None) -> ReleaseProfile:
@@ -169,11 +189,11 @@ def parse_profile(payload: dict, *, expected_repository: str | None = None) -> R
     if version == 1:
         _keys(payload, ('schemaVersion', 'repository', 'signingIdentity', 'teamId', 'notaryProfile'), 'v1')
         signing, team, notary = payload['signingIdentity'], payload['teamId'], payload['notaryProfile']
-        signing_keychain = certificate = notary_keychain = None
+        signing_keychain = certificate = notary_keychain = policy = None
         account = 'ed25519'
     else:
         _keys(payload, ('schemaVersion', 'repository', 'signing', 'notary', 'sparkle'), 'v2')
-        _keys(payload['signing'], ('identity', 'teamId', 'keychainPath', 'certificateSha1'), 'signing')
+        _keys(payload['signing'], ('identity', 'teamId', 'keychainPath', 'certificateSha1'), 'signing', ('certificatePolicy',))
         _keys(payload['notary'], ('profile', 'keychainPath'), 'notary')
         _keys(payload['sparkle'], ('account',), 'sparkle')
         signing, team = payload['signing']['identity'], payload['signing']['teamId']
@@ -183,6 +203,10 @@ def parse_profile(payload: dict, *, expected_repository: str | None = None) -> R
         if certificate is not None:
             if not isinstance(certificate, str) or re.fullmatch('[a-fA-F0-9]{40}', certificate) is None: raise ProfileError('release profile certificateSha1 must be 40 hexadecimal characters')
             certificate = certificate.upper()
+        policy = payload['signing'].get('certificatePolicy')
+        if policy is not None:
+            if policy not in CERTIFICATE_POLICIES: raise ProfileError('release profile certificatePolicy must be ' + ' or '.join(CERTIFICATE_POLICIES))
+            if certificate is not None: raise ProfileError('release profile sets certificateSha1 or certificatePolicy, never both')
     repository = _text(payload['repository'], 'repository')
     if re.fullmatch('[A-Za-z0-9-]+/[A-Za-z0-9._-]+', repository) is None: raise ProfileError('release profile repository must be OWNER/REPOSITORY')
     repository = repository.lower()
@@ -190,14 +214,14 @@ def parse_profile(payload: dict, *, expected_repository: str | None = None) -> R
     signing, team, notary, account = (_text(v, k) for v, k in ((signing,'signingIdentity'),(team,'teamId'),(notary,'notaryProfile'),(account,'sparkle account')))
     if re.fullmatch('[A-Z0-9]{10}', team) is None: raise ProfileError('release profile teamId must be a 10-character Team ID')
     if not signing.startswith('Developer ID Application:') or not signing.endswith('(' + team + ')'): raise ProfileError('release profile signing identity must be Developer ID Application for selected Team ID')
-    return ReleaseProfile(repository, signing, team, notary, signing_keychain, certificate, notary_keychain, account, version)
+    return ReleaseProfile(repository, signing, team, notary, signing_keychain, certificate, notary_keychain, account, version, policy)
 
 
 def load_release_profile(path: Path, *, expected_repository: str | None = None) -> ReleaseProfile:
     return parse_profile(read_private_json(path), expected_repository=expected_repository)
 
 
-def write_release_profile(path: Path, profile: ReleaseProfile) -> None:
+def write_release_profile(path: Path, profile: ReleaseProfile, *, replace: bool = False) -> None:
     payload = profile_payload(profile)
     parse_profile(payload)
-    write_private_json(path, payload)
+    write_private_json(path, payload, replace=replace)
