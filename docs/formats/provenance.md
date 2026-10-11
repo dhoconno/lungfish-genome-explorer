@@ -43,7 +43,7 @@ A step holds `id`, `toolName`, `toolVersion`, `argv`, `reproducibleCommand`, `re
 
 An observed, pinned or source-built version holds `version`, an observed one may hold the probe's `reportedLine`, and a pin or a source build holds the lock entry's `managedToolID`. A source build is the version a lock entry builds from a source archive it pins by SHA-256, such as Bracken 3.1 beside the locked package 1.0.0. An unknown version holds a `reason`, and the reasons read from a stored value hold it as `recorded`. A reader that meets evidence in a shape it does not know reads the rest of the step and shows the evidence as Not recorded. A descriptor holds `path`, `checksumSHA256`, `fileSize`, `format`, `role`, `originPath` and `sourceProvenancePath`. A typed value is an object with a `type` and a `value`. A `file` value keeps the path the record holds, so `<workspace>/reads.fastq` reads back as written and never gains the reading folder in front.
 
-A run that plans how the pairs and single reads of a sample reach a tool records the plan under `readSetPlan` in `options.resolvedDefaults`, its one home, and `ProvenanceEnvelope.readSetPlan` also reads it from `options.explicit`, from the `resolvedOptions` of a step and from the parameters of the run nested in an older record, in that order.
+The one home of a run's read set plan is `readSetPlan` in `options.resolvedDefaults`. Released builds also wrote it to `options.explicit`, to the `resolvedOptions` of a step and to the parameters of the run nested in an older record, and `ProvenanceEnvelope.readSetPlan` reads the home first and then those places, in that order.
 
 ## The shapes a reader accepts
 
