@@ -106,7 +106,7 @@ public struct AIHaplotypingRevisionPublisher {
             try writeJSON(calls, to: paths.callsURL)
             try writeJSON(request.runnerOutput.validatedDefinitions, to: paths.definitionsURL)
 
-            let updatedSidecar = try writeSidecarReviewIfNeeded(
+            let updatedSidecar = try reviewedSidecarIfNeeded(
                 request: request,
                 revisionID: revisionID,
                 createdAt: analysis.generatedAt ?? isoString(dateProvider()),
@@ -428,7 +428,7 @@ public struct AIHaplotypingRevisionPublisher {
         }
     }
 
-    private func writeSidecarReviewIfNeeded(
+    private func reviewedSidecarIfNeeded(
         request: AIHaplotypingRevisionPublishRequest,
         revisionID: String,
         createdAt: String,
