@@ -30,6 +30,16 @@ private let logger = Logger(subsystem: LogSubsystem.workflow, category: "Provena
 /// record through `ProvenanceRunBuilder.completeRecordedRun`, which keeps the
 /// rules the recorder's records have always followed.
 ///
+/// ## Retention
+///
+/// A run leaves the unsaved runs when it is saved. The recorder keeps the last
+/// 16 saved runs (`savedRunRetention`), so a caller can read the record it just
+/// saved through `canonicalEnvelope(for:)`, save it again, or still record a step
+/// or a completion on it. Past 64 unsaved runs (`unsavedRunCap`), beginning a run
+/// evicts the unsaved runs that `completeRun` ended, the one completed longest
+/// ago first, and logs each one. A run still recording is never evicted. A test
+/// of retention uses its own recorder, because tests share `shared`.
+///
 /// ## Usage
 ///
 /// ```swift
@@ -62,8 +72,20 @@ public actor ProvenanceRecorder {
 
     // MARK: - Properties
 
-    /// The runs this recorder began, keyed by run ID.
-    private var runs: [UUID: RecordedRun] = [:]
+    /// How many saved runs the recorder keeps after their save.
+    static let savedRunRetention = 16
+
+    /// How many unsaved runs the recorder holds before beginning a run evicts completed ones.
+    static let unsavedRunCap = 64
+
+    /// The runs not saved yet, keyed by run ID: runs still recording and completed runs never saved.
+    private var unsavedRuns: [UUID: RecordedRun] = [:]
+
+    /// The runs saved most recently, oldest first, at most `savedRunRetention` of them.
+    private var savedRuns: [RecordedRun] = []
+
+    /// How many times `completeRun` found its run, which orders completed runs for eviction.
+    private var completionCount: UInt64 = 0
 
     /// Optional signer used after JSON sidecars are written.
     private var signingProvider: (any ProvenanceSigningProvider)?
@@ -90,7 +112,8 @@ public actor ProvenanceRecorder {
         parameters: [String: ParameterValue] = [:]
     ) -> UUID {
         let run = RecordedRun(name: name, parameters: parameters, clock: ProvenanceRunClock())
-        runs[run.id] = run
+        unsavedRuns[run.id] = run
+        evictCompletedRunsPastTheCap()
         logger.info("Provenance: began run '\(name)' [\(run.id)]")
         return run.id
     }
@@ -191,24 +214,42 @@ public actor ProvenanceRecorder {
 
     /// Marks a run as completed, failed, or cancelled.
     public func completeRun(_ runID: UUID, status: RunStatus) {
+        let order = completionCount + 1
         let found = modifyRun(runID) { run in
             run.status = status
             run.endedAt = run.clock.now
+            run.completion = order
         }
         guard found != nil else { return }
+        completionCount = order
         logger.info("Provenance: run \(runID) → \(status.rawValue)")
     }
 
     // MARK: - Queries
 
-    /// Returns the workflow run with the given ID.
+    /// Returns the workflow run with the given ID, a view of its recorded steps.
     public func getRun(_ runID: UUID) -> WorkflowRun? {
-        runs[runID]?.workflowRun
+        findRun(runID)?.workflowRun
     }
 
     /// Returns all runs, most recent first.
     public func allRuns() -> [WorkflowRun] {
-        runs.values.map(\.workflowRun).sorted { $0.startTime > $1.startTime }
+        heldRuns.map(\.workflowRun).sorted { $0.startTime > $1.startTime }
+    }
+
+    /// The record `save` writes for the run before the caller's options, or nil when the recorder no
+    /// longer holds the run. A saved run stays readable while it is among the last
+    /// `savedRunRetention` saved, so a pipeline can write per-output sidecars from the record it saved.
+    public func canonicalEnvelope(for runID: UUID) -> ProvenanceEnvelope? {
+        findRun(runID)?.canonicalEnvelope()
+    }
+
+    /// The record of every run the recorder holds, as `canonicalEnvelope(for:)` makes it, most recent
+    /// first. The app's export falls back to the latest completed one.
+    public func canonicalEnvelopes() -> [ProvenanceEnvelope] {
+        heldRuns
+            .sorted { $0.clock.startedAt > $1.clock.startedAt }
+            .map { $0.canonicalEnvelope() }
     }
 
     // MARK: - Persistence
@@ -240,7 +281,7 @@ public actor ProvenanceRecorder {
         options: ProvenanceOptions? = nil,
         dropMissingRunLevelFiles: Bool = false
     ) throws {
-        guard let run = runs[runID] else {
+        guard let run = findRun(runID) else {
             throw ProvenanceError.runNotFound(runID)
         }
         let canonical = run.canonicalEnvelope()
@@ -265,16 +306,68 @@ public actor ProvenanceRecorder {
         } else {
             url = try writer.write(envelope, to: directory)
         }
+        keepSaved(runID)
         logger.info("Provenance: saved canonical run \(runID) to \(url.path)")
     }
 
     // MARK: - Run State
 
-    /// Applies `change` to the run `runID` in place and returns what it returns, or returns nil when
-    /// the recorder holds no such run.
+    /// Every run the recorder holds, unsaved and saved.
+    private var heldRuns: [RecordedRun] {
+        Array(unsavedRuns.values) + savedRuns
+    }
+
+    /// The run `runID`, unsaved or among the saved runs kept, or nil.
+    func findRun(_ runID: UUID) -> RecordedRun? {
+        unsavedRuns[runID] ?? savedRuns.first { $0.id == runID }
+    }
+
+    /// Applies `change` to the run `runID` in place, wherever the recorder keeps it, and returns what
+    /// it returns, or returns nil when the recorder holds no such run.
     func modifyRun<Result>(_ runID: UUID, _ change: (inout RecordedRun) -> Result) -> Result? {
-        guard runs[runID] != nil else { return nil }
-        return change(&runs[runID]!)
+        if unsavedRuns[runID] != nil {
+            return change(&unsavedRuns[runID]!)
+        }
+        if let index = savedRuns.firstIndex(where: { $0.id == runID }) {
+            return change(&savedRuns[index])
+        }
+        return nil
+    }
+
+    /// Moves the run just saved out of the unsaved runs, or a run saved again, to the newest end of the
+    /// saved runs, and lets the oldest saved run go past `savedRunRetention`. Its record is on disk.
+    private func keepSaved(_ runID: UUID) {
+        let run: RecordedRun
+        if let unsaved = unsavedRuns.removeValue(forKey: runID) {
+            run = unsaved
+        } else if let index = savedRuns.firstIndex(where: { $0.id == runID }) {
+            run = savedRuns.remove(at: index)
+        } else {
+            return
+        }
+        savedRuns.append(run)
+        if savedRuns.count > Self.savedRunRetention {
+            let released = savedRuns.removeFirst()
+            logger.debug("Provenance: released saved run \(released.id) from memory, its record is saved")
+        }
+    }
+
+    /// Past `unsavedRunCap` unsaved runs, evicts unsaved runs that `completeRun` ended, the one completed
+    /// longest ago first, until the cap holds or none is left. A run still recording is never evicted,
+    /// and a run just completed goes last, because its caller may be about to save it. Each eviction
+    /// is logged, because the evicted run was never saved.
+    private func evictCompletedRunsPastTheCap() {
+        let excess = unsavedRuns.count - Self.unsavedRunCap
+        guard excess > 0 else { return }
+        let completed = unsavedRuns.values
+            .compactMap { run in run.completion.map { (order: $0, run: run) } }
+            .sorted { $0.order < $1.order }
+        for entry in completed.prefix(excess) {
+            unsavedRuns[entry.run.id] = nil
+            logger.notice(
+                "Provenance: evicted run \(entry.run.id) '\(entry.run.builder.workflowName)', which ended \(entry.run.status.rawValue) and was never saved, past \(Self.unsavedRunCap) unsaved runs"
+            )
+        }
     }
 }
 
@@ -300,6 +393,8 @@ extension ProvenanceRecorder {
         var steps: [ProvenanceStep] = []
         var status: RunStatus = .running
         var endedAt: Date?
+        /// Where the run's latest `completeRun` falls among all of them, or nil while it records.
+        var completion: UInt64?
 
         init(name: String, parameters: [String: ParameterValue], clock: ProvenanceRunClock) {
             id = UUID()

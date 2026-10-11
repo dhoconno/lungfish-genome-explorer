@@ -52,14 +52,14 @@ extension AppDelegate {
         }
 
         Task {
-            let runs = await ProvenanceRecorder.shared.allRuns()
-            guard let completedRun = runs.first(where: { $0.status == .completed }) else {
+            // The latest completed run the recorder still holds, as the record its save writes.
+            let envelopes = await ProvenanceRecorder.shared.canonicalEnvelopes()
+            guard let envelope = envelopes.first(where: { $0.status == .completed }) else {
                 self.showNoProvenanceAlert()
                 return
             }
-            let envelope = completedRun.canonicalEnvelope()
             let sidecarURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("lungfish-provenance-export-\(completedRun.id.uuidString)")
+                .appendingPathComponent("lungfish-provenance-export-\(envelope.id.uuidString)")
                 .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
             do {
                 try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: sidecarURL)

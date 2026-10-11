@@ -639,11 +639,10 @@ public actor TaxonomyExtractionPipeline {
         runID: UUID,
         outputs: [FileRecord]
     ) async throws {
-        guard let run = await recorder.getRun(runID) else {
+        // The record the save above wrote, which the recorder keeps among its recently saved runs.
+        guard let envelope = await recorder.canonicalEnvelope(for: runID) else {
             throw ProvenanceError.runNotFound(runID)
         }
-
-        let envelope = run.canonicalEnvelope()
         let writer = ProvenanceWriter()
         for output in outputs {
             let outputURL = URL(fileURLWithPath: output.path)
