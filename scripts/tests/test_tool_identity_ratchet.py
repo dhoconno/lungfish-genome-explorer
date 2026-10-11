@@ -16,7 +16,7 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 SCRIPT = SCRIPTS / "ratchets" / "tool-identity.sh"
 REPO = SCRIPTS.parent
 
-NAMES = ("analysis_id_decisions", "tool_named_lookups", "unknown_version_fallbacks")
+NAMES = ("analysis_id_decisions", "tool_named_lookups", "unknown_version_fallbacks", "unknown_version_literals")
 REGISTRY_FILE = "Sources/LungfishIO/Analysis/AnalysisToolRegistry.swift"
 
 
@@ -60,6 +60,7 @@ SITES = {
     "analysis_id_decisions": 'if tool == "kraken2" { return }',
     "tool_named_lookups": "let t = try? ManagedToolLock.loadFromBundle().tool(named: id)",
     "unknown_version_fallbacks": 'let v = await runner.getToolVersion(tool) ?? "unknown"',
+    "unknown_version_literals": 'ProvenanceStep(toolName: "samtools", toolVersion: "unknown", argv: [])',
 }
 
 
@@ -206,6 +207,36 @@ def test_tool_named_counts_the_call_and_not_the_definition(tmp_path, line, count
 )
 def test_unknown_fallback_needs_a_tool_version_lookup(tmp_path, line, counted):
     assert counts_of(tmp_path, line)["unknown_version_fallbacks"] == counted
+
+
+@pytest.mark.parametrize(
+    ("line", "counted"),
+    [
+        ('ProvenanceStep(toolName: "samtools", toolVersion: "unknown", argv: [])', 1),
+        ('                toolVersion: "unknown",', 1),
+        ('toolVersion: "unresolved",', 1),
+        ('toolVersion: "unavailable")', 1),
+        ('toolVersion:"unknown",', 1),
+        ('toolVersion:   "unknown",', 1),
+        ('steps = [Step(toolVersion: "unknown"), Step(toolVersion: "unknown")]', 2),
+        ('toolVersion: "unknown", version: "unknown",', 1),
+        ('toolVersion: "2.31",', 0),
+        ('toolVersion: version,', 0),
+        ('toolVersion: "unknown-build",', 0),
+        ('version: "unknown",', 0),
+    ],
+)
+def test_unknown_literal_counts_only_a_tool_version_argument(tmp_path, line, counted):
+    assert counts_of(tmp_path, line)["unknown_version_literals"] == counted
+
+
+def test_the_two_unknown_version_counts_do_not_share_a_site(tmp_path):
+    fallback = counts_of(tmp_path, SITES["unknown_version_fallbacks"])
+    assert fallback["unknown_version_fallbacks"] == 1
+    assert fallback["unknown_version_literals"] == 0
+    literal = counts_of(tmp_path, SITES["unknown_version_literals"])
+    assert literal["unknown_version_literals"] == 1
+    assert literal["unknown_version_fallbacks"] == 0
 
 
 def test_a_slash_pair_inside_a_string_does_not_start_a_comment(tmp_path):

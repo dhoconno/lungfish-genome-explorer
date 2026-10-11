@@ -25,19 +25,26 @@ Counts, over Sources/**/*.swift, outside each count's exempt files:
                               pack tools. Use ManagedToolLock.entry(id:) or entry(environment:).
     unknown_version_fallbacks getToolVersion(...) ?? "unknown" on one line, which records the text
                               unknown as if it were a tool version. Use the version evidence type.
+    unknown_version_literals  a toolVersion argument that is the literal "unknown", "unresolved" or
+                              "unavailable", on one line. It records the text as if it were a tool
+                              version, the same defect as the fallback above written as a plain argument.
+                              Read the version from the environment that ran the tool, or keep it missing
+                              and say why with the version evidence type.
 Each count may only fall, and each counts occurrences, not files. Text after // on a line is ignored
 (comment lines and trailing comments).
 
 Exempt files, by path from the repository root. A glob may end the file name.
     analysis_id_decisions     everything under Sources/LungfishIO/Analysis/, where the registry
                               defines the ids
-The other two counts have no exempt file.
+The other three counts have no exempt file.
 
 Blind spots. The scan reads one line at a time and does not parse Swift, so review catches the rest.
     - A case arm that spans two lines counts only the literals on the line that ends in a colon.
     - An id held in a constant or a variable and compared by name escapes analysis_id_decisions.
     - A fallback written as a ternary or with a different default text escapes
       unknown_version_fallbacks.
+    - A version held in a constant or a variable, a literal on the line after the toolVersion label, and
+      any other spelling of unknown escape unknown_version_literals.
 The ids are the 23 in AnalysisToolRegistry. Add an id here in the same commit that adds a descriptor.
 
 Baseline file: one "<name> <count>" line per count. Lower it with --update after a count falls.
@@ -128,6 +135,14 @@ COUNTS = (
         (),
         "Falling back to the text unknown records a made-up version. Keep the missing version as "
         "missing and say why with ToolVersionEvidence. " + SEE,
+    ),
+    Count(
+        "unknown_version_literals",
+        pattern_counter(r'toolVersion:\s*"(unknown|unresolved|unavailable)"'),
+        (),
+        "A toolVersion that is the literal unknown, unresolved or unavailable records a made-up "
+        "version. Read the version from the environment that ran the tool with "
+        "ToolVersionEvidence.condaMeta, or keep it missing and say why with ToolVersionEvidence. " + SEE,
     ),
 )
 
