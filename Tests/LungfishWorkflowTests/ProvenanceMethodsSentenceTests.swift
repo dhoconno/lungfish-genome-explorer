@@ -31,15 +31,16 @@ struct ProvenanceMethodsSentenceTests {
         return Array(table.components(separatedBy: "\n").dropFirst(2))
     }
 
-    // MARK: - Methods text today
+    // MARK: - Sentences
 
-    @Test("A Kraken2 run with a Bracken profile reads as Processing was performed")
-    func krakenBrackenMethodsToday() {
+    @Test("Kraken2 and Bracken each get their sentence and the parameters they ran with")
+    func krakenBrackenMethods() {
         let run = Self.krakenBrackenRun()
         #expect(Self.analysis(run) == """
-            Processing was performed with kraken2 v2.17.1 (bioconda::kraken2=2.17.1=pl5321h158e17b_0; conda environment kraken2). \
-            Processing was performed with bracken v1.0.0 (bioconda::bracken=1.0.0=1; conda environment bracken), \
-            with a minimum length of S bp.
+            Reads were classified taxonomically with kraken2 v2.17.1 (bioconda::kraken2=2.17.1=pl5321h158e17b_0; conda environment kraken2), \
+            with a confidence threshold of 0.2, a minimum of 2 hit groups and paired-end mode. \
+            Taxon abundances were re-estimated with bracken v1.0.0 (bioconda::bracken=1.0.0=1; conda environment bracken), \
+            with a read length of 150, the S (species) level and a minimum of 10 reads.
             """)
         #expect(Self.toolRows(run) == [
             "| kraken2 | 2.17.1 | bioconda::kraken2=2.17.1=pl5321h158e17b_0 | conda environment kraken2 |",
@@ -47,29 +48,40 @@ struct ProvenanceMethodsSentenceTests {
         ])
     }
 
-    @Test("An EsViritu run reads as Processing was performed")
-    func esVirituMethodsToday() {
+    @Test("EsViritu gets its sentence, its quality filtering and its read layout")
+    func esVirituMethods() {
         let run = Self.esVirituRun()
         #expect(Self.analysis(run) == """
-            Processing was performed with EsViritu v1.3.3 (bioconda::esviritu=1.3.3=pyhdfd78af_0; conda environment esviritu), \
-            with a minimum quality score of True.
+            Viral sequences were detected with EsViritu v1.3.3 (bioconda::esviritu=1.3.3=pyhdfd78af_0; conda environment esviritu), \
+            with quality filtering and the paired read layout.
             """)
         #expect(Self.toolRows(run) == [
             "| EsViritu | 1.3.3 | bioconda::esviritu=1.3.3=pyhdfd78af_0 | conda environment esviritu |",
         ])
     }
 
-    @Test("MAFFT and IQ-TREE read as Processing was performed")
-    func alignmentAndTreeMethodsToday() {
+    @Test("MAFFT and IQ-TREE get their sentences")
+    func alignmentAndTreeMethods() {
         let run = Self.alignmentAndTreeRun()
         #expect(Self.analysis(run) == """
-            Processing was performed with mafft v7.526 (conda-forge::mafft=7.526=h99b78c6_0; conda environment mafft). \
-            Processing was performed with iqtree3 v3.1.3 (bioconda::iqtree=3.1.3=h6cc7423_0; conda environment iqtree).
+            Sequences were aligned with mafft v7.526 (conda-forge::mafft=7.526=h99b78c6_0; conda environment mafft). \
+            A phylogeny was inferred with iqtree3 v3.1.3 (bioconda::iqtree=3.1.3=h6cc7423_0; conda environment iqtree).
             """)
         #expect(Self.toolRows(run) == [
             "| mafft | 7.526 | conda-forge::mafft=7.526=h99b78c6_0 | conda environment mafft |",
             "| iqtree3 | 3.1.3 | bioconda::iqtree=3.1.3=h6cc7423_0 | conda environment iqtree |",
         ])
+    }
+
+    @Test("LoFreq and iVar say that variants were called")
+    func variantCallerMethods() {
+        let run = Self.variantCallerRun()
+        #expect(Self.analysis(run) == """
+            Variants were called with lofreq v2.1.5 (bioconda::lofreq=2.1.5=py310h9cf5bfa_16; conda environment lofreq), \
+            using lofreq indelqual and lofreq call. \
+            Variants were called with ivar v1.4.4 (bioconda::ivar=1.4.4=hda5e58c_0; conda environment ivar), \
+            using ivar variants, with a minimum quality score of 20.
+            """)
     }
 
     @Test("Steps named samtools sort, merge and index share the samtools sentence and its version row")
@@ -121,68 +133,58 @@ struct ProvenanceMethodsSentenceTests {
         #expect(Self.toolRows(run).count == 2)
     }
 
-    @Test("LoFreq and iVar read as Processing was performed")
-    func variantCallersMethodsToday() {
-        let run = Self.variantCallerRun()
-        #expect(Self.analysis(run) == """
-            Processing was performed with lofreq v2.1.5 (bioconda::lofreq=2.1.5=py310h9cf5bfa_16; conda environment lofreq), \
-            using lofreq indelqual and lofreq call. \
-            Processing was performed with ivar v1.4.4 (bioconda::ivar=1.4.4=hda5e58c_0; conda environment ivar), \
-            using ivar variants, with a minimum quality score of 20.
-            """)
+    // MARK: - Parameters
+
+    /// The sentence of a run of one step of `tool`, at version 1.0, that ran `argv`.
+    private static func sentence(_ tool: String, _ argv: [String]) -> String {
+        analysis(run("One step", [step(tool, version: "1.0", argv)]))
     }
 
-    // MARK: - Committed golden records today
-
-    /// The methods text of a committed golden record, read as the CLI reads it after the placeholders are restored.
-    private static func goldenMethods(_ path: String) throws -> String {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("methods-golden-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let restored = try GoldenProvenanceRecords.restoredCopies(in: directory)
-        let url = try #require(restored[path])
-        let reading = try #require(GoldenProvenanceRecords.cliReading(of: url))
-        return analysis(reading.reading.envelope.legacyWorkflowRun(preferCanonicalSteps: true))
+    @Test("Kraken2 reports its confidence, hit groups and paired-end mode, and nothing it did not set")
+    func krakenParameters() {
+        #expect(Self.sentence("kraken2", ["kraken2", "--db", "/db", "--confidence", "0.5", "--minimum-hit-groups", "3"])
+            == "Reads were classified taxonomically with kraken2 v1.0, with a confidence threshold of 0.5 and a minimum of 3 hit groups.")
+        #expect(Self.sentence("kraken2", ["kraken2", "--confidence=0.05", "--minimum-hit-groups=1", "--paired", "a.fq", "b.fq"])
+            == "Reads were classified taxonomically with kraken2 v1.0, with a confidence threshold of 0.05, a minimum of 1 hit group and paired-end mode.")
+        #expect(Self.sentence("kraken2", ["kraken2", "--db", "/db", "--threads", "4", "--quick", "reads.fq"])
+            == "Reads were classified taxonomically with kraken2 v1.0.")
+        // A value that is no number, and a flag in place of a value, are not parameters.
+        #expect(Self.sentence("kraken2", ["kraken2", "--confidence", "high", "--minimum-hit-groups", "--paired"])
+            == "Reads were classified taxonomically with kraken2 v1.0, with paired-end mode.")
     }
 
-    @Test("The Kraken2 golden reads as Processing was performed")
-    func krakenGoldenMethodsToday() throws {
-        let text = try Self.goldenMethods("classifiers/kraken2/lungfish-provenance.json")
-        #expect(text.hasPrefix("Processing was performed with kraken2 v2.17.1 (conda environment kraken2). "), Comment(rawValue: text))
-        #expect(!text.contains("confidence"), Comment(rawValue: text))
+    @Test("Bracken reports its read length, level and minimum reads, and its flags are no other tool's")
+    func brackenParameters() {
+        #expect(Self.sentence("bracken", ["bracken", "-d", "/db", "-i", "in.kreport", "-o", "out", "-r", "100", "-l", "G", "-t", "1"])
+            == "Taxon abundances were re-estimated with bracken v1.0, with a read length of 100, the G (genus) level and a minimum of 1 read.")
+        // The inner script has no -r, and the name of its distribution file holds the read length.
+        #expect(Self.sentence("bracken", ["bracken", "-i", "in.kreport", "-k", "/db/database75mers.kmer_distrib", "-l", "S", "-t", "10"])
+            == "Taxon abundances were re-estimated with bracken v1.0, with a read length of 75, the S (species) level and a minimum of 10 reads.")
+        // A level code outside the table is reported as given, and -l is a level, never a length.
+        #expect(Self.sentence("bracken", ["bracken", "-l", "S1"]) == "Taxon abundances were re-estimated with bracken v1.0, with the S1 level.")
+        #expect(Self.sentence("bracken", ["bracken", "-l", "S", "-q", "20"]) == "Taxon abundances were re-estimated with bracken v1.0, with the S (species) level.")
     }
 
-    @Test("The EsViritu golden reads as Processing was performed and calls -q True a quality score")
-    func esVirituGoldenMethodsToday() throws {
-        let text = try Self.goldenMethods("classifiers/esviritu/lungfish-provenance.json")
-        #expect(
-            text.hasPrefix("Processing was performed with EsViritu v1.3.3, with a minimum quality score of True. "),
-            Comment(rawValue: text)
-        )
+    @Test("EsViritu reports its quality filtering and read layout, and -q is a switch, never a score")
+    func esVirituParameters() {
+        #expect(Self.sentence("EsViritu", ["EsViritu", "-r", "r.fq", "-s", "s", "-o", "/out", "-p", "interleaved", "-t", "4", "-q", "False"])
+            == "Viral sequences were detected with EsViritu v1.0, with no quality filtering and the interleaved read layout.")
+        #expect(Self.sentence("EsViritu", ["EsViritu", "-r", "r.fq", "-p", "unpaired", "-q", "true"])
+            == "Viral sequences were detected with EsViritu v1.0, with quality filtering and the unpaired read layout.")
+        // A value outside the ones EsViritu takes is not reported.
+        #expect(Self.sentence("EsViritu", ["EsViritu", "-p", "mixed", "-q", "20"]) == "Viral sequences were detected with EsViritu v1.0.")
     }
 
-    @Test("The genotype golden names samtools once and keeps its descriptive tool names")
-    func genotypeGoldenMethods() throws {
-        let text = try Self.goldenMethods("genotype/bundle/lungfish-provenance.json")
-        #expect(
-            text.contains("Alignments were filtered, sorted and indexed with samtools unknown (conda environment samtools), using samtools sort, samtools merge and samtools index. "),
-            Comment(rawValue: text)
-        )
-        #expect(text.contains("Processing was performed with pysam retained-read demux filter unknown (conda environment pysam). "), Comment(rawValue: text))
-        #expect(!text.contains("sort sort"), Comment(rawValue: text))
-        #expect(text.contains("Reads were mapped to the reference with minimap2 unknown (conda environment minimap2), with the sr preset. "), Comment(rawValue: text))
-    }
-
-    @Test("The mapping golden names samtools once, with its subcommands")
-    func mappingGoldenMethodsToday() throws {
-        let text = try Self.goldenMethods("mapping/lungfish-provenance.json")
-        #expect(text.hasPrefix("Reads were mapped to the reference with minimap2 v2.31 ("), Comment(rawValue: text))
-        #expect(text.contains("Alignments were filtered, sorted and indexed with samtools v1.24 ("), Comment(rawValue: text))
-        #expect(
-            text.hasSuffix("using samtools view, samtools sort, samtools index and samtools flagstat, with secondary alignments (flag 256) excluded."),
-            Comment(rawValue: text)
-        )
-        #expect(text.components(separatedBy: "with samtools ").count == 2, Comment(rawValue: text))
+    @Test("A LoFreq or iVar step that calls no variants does not say it did")
+    func variantSentenceFollowsTheSubcommand() {
+        #expect(Self.sentence("lofreq", ["lofreq", "call-parallel", "--pp-threads", "4", "-f", "ref.fa", "in.bam"])
+            .hasPrefix("Variants were called with lofreq v1.0"))
+        #expect(Self.sentence("lofreq", ["lofreq", "indelqual", "--dindel", "-f", "ref.fa", "in.bam"])
+            .hasPrefix("Processing was performed with lofreq v1.0"))
+        #expect(Self.sentence("ivar", ["ivar", "variants", "-p", "out", "-t", "0.05"]).hasPrefix("Variants were called with ivar v1.0"))
+        #expect(Self.sentence("ivar", ["ivar", "trim", "-b", "primers.bed", "-i", "in.bam", "-p", "out"])
+            .hasPrefix("Processing was performed with ivar v1.0"))
+        #expect(Self.sentence("ivar", ["ivar", "consensus", "-p", "out"]).hasPrefix("Processing was performed with ivar v1.0"))
     }
 
     // MARK: - Program token
@@ -211,6 +213,61 @@ struct ProvenanceMethodsSentenceTests {
         let python = ["/envs/pysam/bin/python", "filter.py"]
         #expect(ProvenanceExporter.methodsToolName("pysam retained-read demux filter", ranAs: python) == "pysam retained-read demux filter")
         #expect(ProvenanceExporter.methodsToolName("lungfish fastq quality-trim join", ranAs: ["/bin/cat", "a.fq"]) == "lungfish fastq quality-trim join")
+    }
+
+    // MARK: - Committed golden records
+
+    /// The methods text of a committed golden record, read as the CLI reads it after the placeholders are restored.
+    private static func goldenMethods(_ path: String) throws -> String {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("methods-golden-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let restored = try GoldenProvenanceRecords.restoredCopies(in: directory)
+        let url = try #require(restored[path])
+        let reading = try #require(GoldenProvenanceRecords.cliReading(of: url))
+        return analysis(reading.reading.envelope.legacyWorkflowRun(preferCanonicalSteps: true))
+    }
+
+    @Test("The Kraken2 golden reports the confidence and hit groups it ran with")
+    func krakenGoldenMethods() throws {
+        let text = try Self.goldenMethods("classifiers/kraken2/lungfish-provenance.json")
+        #expect(
+            text.hasPrefix("Reads were classified taxonomically with kraken2 v2.17.1 (conda environment kraken2), with a confidence threshold of 0.2 and a minimum of 2 hit groups. "),
+            Comment(rawValue: text)
+        )
+    }
+
+    @Test("The EsViritu golden reports its quality filtering and read layout")
+    func esVirituGoldenMethods() throws {
+        let text = try Self.goldenMethods("classifiers/esviritu/lungfish-provenance.json")
+        #expect(
+            text.hasPrefix("Viral sequences were detected with EsViritu v1.3.3, with quality filtering and the unpaired read layout. "),
+            Comment(rawValue: text)
+        )
+    }
+
+    @Test("The genotype golden names samtools once and keeps its descriptive tool names")
+    func genotypeGoldenMethods() throws {
+        let text = try Self.goldenMethods("genotype/bundle/lungfish-provenance.json")
+        #expect(
+            text.contains("Alignments were filtered, sorted and indexed with samtools unknown (conda environment samtools), using samtools sort, samtools merge and samtools index. "),
+            Comment(rawValue: text)
+        )
+        #expect(text.contains("Processing was performed with pysam retained-read demux filter unknown (conda environment pysam). "), Comment(rawValue: text))
+        #expect(!text.contains("sort sort"), Comment(rawValue: text))
+        #expect(text.contains("Reads were mapped to the reference with minimap2 unknown (conda environment minimap2), with the sr preset. "), Comment(rawValue: text))
+    }
+
+    @Test("The mapping golden, whose steps are named by program alone, reads as it did")
+    func mappingGoldenMethods() throws {
+        let text = try Self.goldenMethods("mapping/lungfish-provenance.json")
+        #expect(text.hasPrefix("Reads were mapped to the reference with minimap2 v2.31 ("), Comment(rawValue: text))
+        #expect(text.contains("Alignments were filtered, sorted and indexed with samtools v1.24 ("), Comment(rawValue: text))
+        #expect(
+            text.hasSuffix("using samtools view, samtools sort, samtools index and samtools flagstat, with secondary alignments (flag 256) excluded."),
+            Comment(rawValue: text)
+        )
+        #expect(text.components(separatedBy: "with samtools ").count == 2, Comment(rawValue: text))
     }
 
     // MARK: - Fixtures

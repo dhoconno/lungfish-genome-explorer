@@ -42,6 +42,18 @@ extension ProvenanceExporter {
         case "bbmerge.sh", "bbmerge": return "Paired reads were merged"
         case "clumpify.sh", "clumpify": return "Reads were clumped and deduplicated"
         case "pigz", "gzip": return "Files were compressed"
+        case "kraken2": return "Reads were classified taxonomically"
+        case "bracken": return "Taxon abundances were re-estimated"
+        case "esviritu": return "Viral sequences were detected"
+        case "mafft": return "Sequences were aligned"
+        case "iqtree", "iqtree2", "iqtree3": return "A phylogeny was inferred"
+        case "lofreq":
+            // `indelqual` and `index` only prepare the alignment for `call`.
+            let calls = verbs.isEmpty || verbs.contains("call") || verbs.contains("call-parallel")
+            return calls ? "Variants were called" : "Processing was performed"
+        case "ivar":
+            // `trim` and `consensus` call no variants.
+            return verbs.isEmpty || verbs.contains("variants") ? "Variants were called" : "Processing was performed"
         default: return "Processing was performed"
         }
     }
@@ -50,9 +62,17 @@ extension ProvenanceExporter {
     /// noun phrase that reads after "with" (`a minimum mapping quality of
     /// 20`, `secondary alignments (flag 256) excluded`).
     func extractKeyParameters(tool: String, argv: [String]) -> [String] {
+        let toolName = Self.methodsProgram(of: tool)
+        // These tools take flags the general arms below read as another tool's (`-q`, `-l`), so each has
+        // its own list.
+        switch toolName {
+        case "kraken2": return Self.kraken2Parameters(argv)
+        case "bracken": return Self.brackenParameters(argv)
+        case "esviritu": return Self.esVirituParameters(argv)
+        default: break
+        }
         var params: [String] = []
         var index = 1
-        let toolName = Self.methodsProgram(of: tool)
         while index < argv.count {
             let arg = argv[index]
             let next: String? = index + 1 < argv.count ? argv[index + 1] : nil
@@ -128,5 +148,83 @@ extension ProvenanceExporter {
     /// The file name of an executable's path, in lowercase.
     private static func methodsExecutableName(_ path: String) -> String {
         path.split(separator: "/").last.map { $0.lowercased() } ?? ""
+    }
+
+    // MARK: - Classifier parameters
+
+    /// The value of the first of `flags` that `argv` gives one, as `--flag value` or `--flag=value`. The
+    /// program at index 0 is not read, and a word that starts with a dash is another flag, not a value.
+    private static func methodsFlagValue(_ flags: [String], in argv: [String]) -> String? {
+        var index = 1
+        while index < argv.count {
+            for flag in flags {
+                if argv[index] == flag, index + 1 < argv.count, !argv[index + 1].hasPrefix("-") {
+                    return argv[index + 1]
+                }
+                if flag.hasPrefix("--"), argv[index].hasPrefix(flag + "=") {
+                    let value = String(argv[index].dropFirst(flag.count + 1))
+                    if !value.isEmpty { return value }
+                }
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    /// Kraken2's confidence threshold, minimum hit groups and paired-end mode.
+    private static func kraken2Parameters(_ argv: [String]) -> [String] {
+        var params: [String] = []
+        if let confidence = methodsFlagValue(["--confidence"], in: argv), Double(confidence)?.isFinite == true {
+            params.append("a confidence threshold of \(confidence)")
+        }
+        if let groups = methodsFlagValue(["--minimum-hit-groups"], in: argv), let count = Int(groups) {
+            params.append("a minimum of \(groups) hit group\(count == 1 ? "" : "s")")
+        }
+        if argv.dropFirst().contains("--paired") {
+            params.append("paired-end mode")
+        }
+        return params
+    }
+
+    /// The taxonomic level each Bracken `-l` code names.
+    private static let brackenLevels: [String: String] = [
+        "D": "domain", "K": "kingdom", "P": "phylum", "C": "class", "O": "order",
+        "F": "family", "G": "genus", "S": "species",
+    ]
+
+    /// Bracken's read length, taxonomic level and minimum read count.
+    private static func brackenParameters(_ argv: [String]) -> [String] {
+        var params: [String] = []
+        // The driver takes the read length as `-r`. The inner script takes the distribution file that the
+        // read length chose as `-k`, and the name of that file holds it.
+        let readLength = methodsFlagValue(["-r"], in: argv).flatMap { Int($0) }
+            ?? methodsFlagValue(["-k"], in: argv).flatMap {
+                BrackenInvocation.readLength(fromDistributionFilename: URL(fileURLWithPath: $0).lastPathComponent)
+            }
+        if let readLength {
+            params.append("a read length of \(readLength)")
+        }
+        if let code = methodsFlagValue(["-l"], in: argv)?.uppercased() {
+            params.append(brackenLevels[code].map { "the \(code) (\($0)) level" } ?? "the \(code) level")
+        }
+        if let threshold = methodsFlagValue(["-t"], in: argv), let count = Int(threshold) {
+            params.append("a minimum of \(threshold) read\(count == 1 ? "" : "s")")
+        }
+        return params
+    }
+
+    /// EsViritu's quality filtering (`-q True`) and read layout (`-p paired`).
+    private static func esVirituParameters(_ argv: [String]) -> [String] {
+        var params: [String] = []
+        switch methodsFlagValue(["-q"], in: argv)?.lowercased() {
+        case "true": params.append("quality filtering")
+        case "false": params.append("no quality filtering")
+        default: break
+        }
+        if let layout = methodsFlagValue(["-p"], in: argv)?.lowercased(),
+           ["paired", "unpaired", "interleaved"].contains(layout) {
+            params.append("the \(layout) read layout")
+        }
+        return params
     }
 }
