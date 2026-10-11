@@ -1,0 +1,124 @@
+{
+  "auditIsBlocking" : false,
+  "auditStatus" : "present",
+  "files" : [
+    {
+      "checksumSHA256" : "77b2c08a74e4bd9a22d68363ffc9497d9844dda883866251af8b1a5e32a75781",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Inputs/reads.fastq",
+      "fileSize" : 4096,
+      "format" : "FASTQ",
+      "role" : "Input",
+      "sizeLabel" : "4 KB"
+    },
+    {
+      "checksumSHA256" : "53dcf2edda437da9c0dcc8c2b07e10b8745f4731e811039244fac10a35c9573b",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Analyses/fastq-trim-cancelled/trimmed.fastq",
+      "fileSize" : 3072,
+      "format" : "FASTQ",
+      "role" : "Output",
+      "sizeLabel" : "3 KB"
+    }
+  ],
+  "lineage" : [
+    {
+      "steps" : [
+        {
+          "displayCommand" : "lungfish-cli fastq trim Legacy Records.lungfish/Inputs/reads.fastq --output Legacy Records.lungfish/Analyses/fastq-trim-cancelled/trimmed.fastq",
+          "exitStatus" : 0,
+          "inputs" : [
+            "Inputs/reads.fastq (intermediate file, not kept)"
+          ],
+          "ordinal" : 1,
+          "outputs" : [
+            "Analyses/fastq-trim-cancelled/trimmed.fastq (intermediate file, not kept)"
+          ],
+          "stderr" : "cancelled by user",
+          "toolName" : "fastp",
+          "toolVersion" : "v0.24.0",
+          "wallTimeSeconds" : 12.4
+        }
+      ],
+      "subtitle" : "fastp v0.24.0",
+      "title" : "lungfish fastq trim"
+    }
+  ],
+  "options" : [
+    {
+      "displayValue" : "10",
+      "kind" : "Explicit",
+      "name" : "limit"
+    },
+    {
+      "displayValue" : "20",
+      "kind" : "Explicit",
+      "name" : "minQuality"
+    },
+    {
+      "displayValue" : "4",
+      "kind" : "Default",
+      "name" : "threads"
+    },
+    {
+      "displayValue" : "10",
+      "kind" : "Resolved Default",
+      "name" : "limit"
+    },
+    {
+      "displayValue" : "20",
+      "kind" : "Resolved Default",
+      "name" : "minQuality"
+    },
+    {
+      "displayValue" : "4",
+      "kind" : "Resolved Default",
+      "name" : "threads"
+    }
+  ],
+  "runtime" : [
+    {
+      "label" : "App Version",
+      "value" : "Lungfish 2026.10.14 (4701)"
+    },
+    {
+      "label" : "Executable",
+      "value" : "<external>/lungfish-cli"
+    },
+    {
+      "label" : "Process ID",
+      "value" : "Not recorded"
+    },
+    {
+      "label" : "OS",
+      "value" : "macOS 26.7.1 (arm64)"
+    },
+    {
+      "label" : "Architecture",
+      "value" : "arm64"
+    },
+    {
+      "label" : "Dependency Set",
+      "value" : "2026.2"
+    }
+  ],
+  "summary" : {
+    "createdAtMilliseconds" : 1791609019000,
+    "createdAtUTC" : "2026-10-10T05:10:19.000Z",
+    "exitStatus" : 0,
+    "inputCount" : 1,
+    "outputCount" : 1,
+    "sidecarDisplayPath" : "Analyses/fastq-trim-cancelled/.lungfish-provenance.json",
+    "signatureCount" : 0,
+    "statusLabel" : "Complete",
+    "stepCount" : 1,
+    "toolName" : "fastp",
+    "toolVersion" : "v0.24.0",
+    "wallTimeSeconds" : 12.4,
+    "workflowName" : "lungfish fastq trim",
+    "workflowVersion" : "Lungfish 2026.10.14 (4701)"
+  },
+  "warnings" : [
+
+  ]
+}

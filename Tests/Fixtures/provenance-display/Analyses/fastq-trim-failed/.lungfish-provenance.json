@@ -1,0 +1,155 @@
+{
+  "argv" : [
+    "lungfish-cli",
+    "fastq",
+    "trim",
+    "@/Inputs/reads.fastq",
+    "--output",
+    "@/Analyses/fastq-trim-failed/trimmed.fastq"
+  ],
+  "createdAt" : "2026-10-10T05:22:41Z",
+  "durableReplayArgv" : [
+    "lungfish-cli",
+    "fastq",
+    "trim",
+    "@/Inputs/reads.fastq",
+    "--output",
+    "@/Analyses/fastq-trim-failed/trimmed.fastq"
+  ],
+  "exitStatus" : 1,
+  "files" : [
+    {
+      "checksumSHA256" : "77b2c08a74e4bd9a22d68363ffc9497d9844dda883866251af8b1a5e32a75781",
+      "fileSize" : 4096,
+      "format" : "fastq",
+      "path" : "@/Inputs/reads.fastq",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "401466cbc3e346138ac0525b23b4eccd9b28d2f33ac1dbbc7395f22e3799904c",
+      "fileSize" : 2048,
+      "format" : "fastq",
+      "path" : "@/Analyses/fastq-trim-failed/trimmed.fastq",
+      "role" : "output"
+    }
+  ],
+  "id" : "0F8E7D6C-5B4A-4392-8170-6F5E4D3C2B1A",
+  "options" : {
+    "defaults" : {
+      "threads" : {
+        "type" : "integer",
+        "value" : 4
+      }
+    },
+    "explicit" : {
+      "limit" : {
+        "type" : "integer",
+        "value" : 10
+      },
+      "minQuality" : {
+        "type" : "integer",
+        "value" : 20
+      }
+    },
+    "resolvedDefaults" : {
+      "limit" : {
+        "type" : "integer",
+        "value" : 10
+      },
+      "minQuality" : {
+        "type" : "integer",
+        "value" : 20
+      },
+      "threads" : {
+        "type" : "integer",
+        "value" : 4
+      }
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "401466cbc3e346138ac0525b23b4eccd9b28d2f33ac1dbbc7395f22e3799904c",
+    "fileSize" : 2048,
+    "format" : "fastq",
+    "path" : "@/Analyses/fastq-trim-failed/trimmed.fastq",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "401466cbc3e346138ac0525b23b4eccd9b28d2f33ac1dbbc7395f22e3799904c",
+      "fileSize" : 2048,
+      "format" : "fastq",
+      "path" : "@/Analyses/fastq-trim-failed/trimmed.fastq",
+      "role" : "output"
+    }
+  ],
+  "reproducibleCommand" : "lungfish-cli fastq trim @/Inputs/reads.fastq --output @/Analyses/fastq-trim-failed/trimmed.fastq",
+  "runtimeIdentity" : {
+    "appVersion" : "Lungfish 2026.10.14 (4701)",
+    "architecture" : "arm64",
+    "dependencySet" : "2026.2",
+    "executablePath" : "<external>/lungfish-cli",
+    "managedToolLockSHA256" : "8b13cc295989263905cf09083675a1e3007aa2db8948d877f067e3b7a4e008b4",
+    "operatingSystemVersion" : "macOS 26.7.1 (arm64)"
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "failed",
+  "stderr" : "fastp: failed to write trimmed.fastq: No space left on device",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "fastq",
+        "trim",
+        "@/Inputs/reads.fastq",
+        "--output",
+        "@/Analyses/fastq-trim-failed/trimmed.fastq"
+      ],
+      "completedAt" : "2026-10-10T05:22:44Z",
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 1,
+      "id" : "3B2A1908-7F6E-4D5C-A4B3-C2D1E0F9A8B7",
+      "inputs" : [
+        {
+          "checksumSHA256" : "77b2c08a74e4bd9a22d68363ffc9497d9844dda883866251af8b1a5e32a75781",
+          "fileSize" : 4096,
+          "format" : "fastq",
+          "path" : "@/Inputs/reads.fastq",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "401466cbc3e346138ac0525b23b4eccd9b28d2f33ac1dbbc7395f22e3799904c",
+          "fileSize" : 2048,
+          "format" : "fastq",
+          "path" : "@/Analyses/fastq-trim-failed/trimmed.fastq",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "lungfish-cli fastq trim @/Inputs/reads.fastq --output @/Analyses/fastq-trim-failed/trimmed.fastq",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "2026-10-10T05:22:41Z",
+      "stderr" : "fastp: failed to write trimmed.fastq: No space left on device",
+      "toolName" : "fastp",
+      "toolVersion" : "0.24.0",
+      "wallTimeSeconds" : 3.1
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "fastp",
+    "version" : "0.24.0"
+  },
+  "toolName" : "fastp",
+  "toolVersion" : "0.24.0",
+  "wallTimeSeconds" : 3.1,
+  "workflowName" : "lungfish fastq trim",
+  "workflowVersion" : "Lungfish 2026.10.14 (4701)"
+}

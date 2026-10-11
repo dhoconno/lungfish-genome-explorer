@@ -187,7 +187,64 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
         )
     }
 
+    // MARK: - Runs that did not complete
+
+    /// A `lungfish fastq trim` run the user cancelled, written by the version 2 encoder. The record states
+    /// `status` cancelled, and its last step exited 0, so nothing else in it says the output is partial.
+    ///
+    /// The record holds every fact, so the tab reads Complete and shows the exit status 0. It does not
+    /// say that the run was cancelled.
+    func testCancelledRunEnvelopeKeepsItsRecordedDisplay() async throws {
+        let model = try await assertRunEnvelopeDisplay(folder: "fastq-trim-cancelled", matching: "cancelled-run-envelope")
+
+        XCTAssertEqual(model.resolvedEnvelope?.status, .cancelled, "The record states that the run was cancelled.")
+        XCTAssertEqual(model.resolvedEnvelope?.exitStatus, 0)
+        XCTAssertEqual(model.audit.status, .present)
+        XCTAssertEqual(model.summary.statusLabel, "Complete")
+    }
+
+    /// The same run ended by a failing tool, written by the version 2 encoder. The record states `status`
+    /// failed, holds the tool's stderr, and the step warning already names the non-zero exit.
+    ///
+    /// The record holds every fact, so the tab reads Complete. It does not say that the run failed.
+    func testFailedRunEnvelopeKeepsItsRecordedDisplay() async throws {
+        let model = try await assertRunEnvelopeDisplay(folder: "fastq-trim-failed", matching: "failed-run-envelope")
+
+        XCTAssertEqual(model.resolvedEnvelope?.status, .failed, "The record states that the run failed.")
+        XCTAssertEqual(model.resolvedEnvelope?.exitStatus, 1)
+        XCTAssertEqual(model.audit.status, .present)
+        XCTAssertEqual(model.summary.statusLabel, "Complete")
+    }
+
     // MARK: - Harness
+
+    /// Copies the committed record of `folder` into a temporary project, where its `@/` paths resolve,
+    /// and compares what the tab shows for that analysis folder with the expected file `matching`.
+    @discardableResult
+    private func assertRunEnvelopeDisplay(
+        folder: String,
+        matching name: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws -> ProvenanceInspectorViewModel {
+        let project = try makeProject()
+        let analysis = project.appendingPathComponent("Analyses/\(folder)", isDirectory: true)
+        try copyFixture(
+            ProvenanceDisplayFixtures.directory
+                .appendingPathComponent("Analyses/\(folder)/.lungfish-provenance.json"),
+            to: analysis.appendingPathComponent(".lungfish-provenance.json")
+        )
+        return try await assertDisplay(
+            of: ProvenanceInspectableItem(
+                url: analysis, sidebarType: .analysisResult, contentMode: .genomics, displayName: folder
+            ),
+            in: project,
+            matching: ProvenanceDisplayCase(name: name),
+            sidecarName: ".lungfish-provenance.json",
+            file: file,
+            line: line
+        )
+    }
 
     /// Loads `item`, waits for the lookup, and compares what the tab shows with the
     /// expected file of `displayCase`. Returns the loaded model for a further check.
