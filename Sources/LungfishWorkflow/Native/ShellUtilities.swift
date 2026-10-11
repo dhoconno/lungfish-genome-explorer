@@ -192,11 +192,34 @@ func detectToolVersion(
 func parseToolVersion(from output: String) -> String? {
     let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
-    let tokens = trimmed.components(separatedBy: .whitespacesAndNewlines)
-    for token in tokens where !token.contains("/") {
-        if let range = token.range(of: #"\d+\.\d+(\.\d+)?"#, options: .regularExpression) {
-            return String(token[range])
+    let lines = trimmed.components(separatedBy: .newlines)
+    return ProbeVersionText.version(in: lines, skippingCommandEcho: false) ?? lines.first ?? trimmed
+}
+
+/// The rule the Workflow's two version parsers share for finding a version token.
+///
+/// `parseToolVersion(from:)` and `NativeToolRunner.parseVersionProbe` both call it. The CLI keeps
+/// its own copy in `CLIProvenanceSupport.parseCondaToolVersion`, and sub-phase 2.7 merges the
+/// three. A table of real probe output, `VersionParserOutputPinTests`, pins every tool's result.
+enum ProbeVersionText {
+    /// The first dotted number in the lines, left to right, outside any path.
+    ///
+    /// A token that holds a slash is a path, a URL or a DOI, and never counts. Several tools print
+    /// their location before the version, and a volume name such as `LGE 2.0` splits a path on its
+    /// space, so each half still holds a slash.
+    ///
+    /// `skippingCommandEcho` also skips a line that echoes a JVM command (`java -ea ...`). Every
+    /// BBTools wrapper prints one before its banner, and it carries the install path and options
+    /// such as `minratio=0.40`.
+    static func version(in lines: [String], skippingCommandEcho: Bool) -> String? {
+        let number = /\d+\.\d+(?:\.\d+)?/
+        for line in lines {
+            let tokens = line.split(whereSeparator: \.isWhitespace)
+            if skippingCommandEcho, tokens.count >= 2, tokens[0] == "java", tokens[1].hasPrefix("-") { continue }
+            for token in tokens where !token.contains("/") {
+                if let match = token.firstMatch(of: number) { return String(match.output) }
+            }
         }
+        return nil
     }
-    return trimmed.components(separatedBy: .newlines).first ?? trimmed
 }

@@ -549,18 +549,15 @@ public actor NativeToolRunner {
     /// The first lines of stdout and then stderr are scanned for a dotted
     /// number, so `samtools 1.24`, `version: 2.1.5` (lofreq), `BBMap version
     /// 40.02` on stderr and bwa's `Version: 0.7.17-r1188` after a usage exit
-    /// all resolve. A line that reads as an error never contributes. Without
-    /// a number, a successful probe's plain first line is kept as recorded.
+    /// all resolve. A line that reads as an error never contributes, nor does
+    /// a path token or an echoed `java` command (see `ProbeVersionText`).
+    /// Without a number, a successful probe's plain first line is kept as recorded.
     public static func parseVersionProbe(exitCode: Int32, stdout: String, stderr: String) -> String? {
-        let versionPattern = /v?(\d+\.\d+(?:\.\d+)?)/
-        for output in [stdout, stderr] {
-            let lines = output.split(separator: "\n", omittingEmptySubsequences: true).prefix(8)
-            for line in lines where !looksLikeProbeError(String(line)) {
-                if let match = String(line).firstMatch(of: versionPattern) {
-                    return String(match.1)
-                }
-            }
+        let scanned = [stdout, stderr].flatMap { output in
+            output.split(separator: "\n", omittingEmptySubsequences: true).prefix(8)
+                .map(String.init).filter { !looksLikeProbeError($0) }
         }
+        if let version = ProbeVersionText.version(in: scanned, skippingCommandEcho: true) { return version }
         guard exitCode == 0,
               let firstLine = stdout.split(separator: "\n").first?.trimmingCharacters(in: .whitespaces),
               !firstLine.isEmpty, !looksLikeProbeError(firstLine)

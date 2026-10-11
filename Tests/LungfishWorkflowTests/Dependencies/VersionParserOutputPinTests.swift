@@ -264,6 +264,21 @@ final class VersionParserOutputPinTests: XCTestCase {
                 "BBTools version 40.02",
                 "For help, please run the shellscript with no parameters, or look in /docs/."),
             native: "40.02", detect: "40.02", correct: "40.02"),
+        // EsViritu prints its site-packages path first, and the path holds Python's 3.14. A token that
+        // holds a slash is a path, so the native parser skips it as the detect parser does (2.6). This
+        // is the real golden output.
+        Capture(name: "EsViritu python3.14 path", exitCode: 0,
+                stdout: "\(root)/envs/esviritu/lib/python3.14/site-packages/EsViritu\n1.3.3\n", stderr: "",
+                native: "1.3.3", detect: "1.3.3", correct: "1.3.3"),
+        // The same two outputs on a root whose volume is named "LGE 2.0", the real output with the root
+        // written as that volume. The native parser used to read the volume's 2.0 (2.6).
+        Capture(name: "BBTools wrapper under a root named LGE 2.0", exitCode: 0, stdout: "",
+                stderr: "java -ea   -Xmx300m -Xms300m -cp /Volumes/LGE 2.0/conda/envs/bbtools/opt/bbmap-40.02-0/current/ jgi.ReformatReads --version\n"
+                    + "BBTools version 40.02\nFor help, please run the shellscript with no parameters, or look in /docs/.\n",
+                native: "40.02", detect: "40.02", correct: "40.02"),
+        Capture(name: "EsViritu under a root named LGE 2.0", exitCode: 0,
+                stdout: "/Volumes/LGE 2.0/conda/envs/esviritu/lib/python3.14/site-packages/EsViritu\n1.3.3\n", stderr: "",
+                native: "1.3.3", detect: "1.3.3", correct: "1.3.3"),
     ]
 
     // MARK: - Known defects, fixed in 2.6 and 2.7
@@ -280,24 +295,16 @@ final class VersionParserOutputPinTests: XCTestCase {
         Capture(name: "primalscheme3 +lge.5", exitCode: 0,
                 stdout: "PrimalScheme3-LGE version: 3.3.0+lge.5\n", stderr: "",
                 native: "3.3.0", detect: "3.3.0", correct: "3.3.0+lge.5"),
-        // The native parser reads Python's 3.14 out of the site-packages path (2.7 merges the parsers).
-        Capture(name: "EsViritu python3.14 path", exitCode: 0,
-                stdout: "\(root)/envs/esviritu/lib/python3.14/site-packages/EsViritu\n1.3.3\n", stderr: "",
-                native: "3.14", detect: "1.3.3", correct: "1.3.3"),
-        // The native parser reads the volume name "LGE 2.0" out of the echoed java line (2.7).
-        Capture(name: "BBTools wrapper under a root named LGE 2.0", exitCode: 0, stdout: "",
-                stderr: "java -ea   -Xmx300m -Xms300m -cp /Volumes/LGE 2.0/conda/envs/bbtools/opt/bbmap-40.02-0/current/ jgi.ReformatReads --version\n"
-                    + "BBTools version 40.02\nFor help, please run the shellscript with no parameters, or look in /docs/.\n",
-                native: "2.0", detect: "40.02", correct: "40.02"),
-        Capture(name: "EsViritu under a root named LGE 2.0", exitCode: 0,
-                stdout: "/Volumes/LGE 2.0/conda/envs/esviritu/lib/python3.14/site-packages/EsViritu\n1.3.3\n", stderr: "",
-                native: "2.0", detect: "1.3.3", correct: "1.3.3"),
-        // The detect parser reads minratio=0.40 from the echoed command line (2.7).
+        // The detect parser reads minratio=0.40 from the echoed command line (2.7). The native parser
+        // skips that line, as it skips every echoed java command, so it reads the banner. This is the
+        // real golden output.
         Capture(name: "mapPacBio.sh minratio", exitCode: 0, stdout: "",
-                stderr: bbtoolsBanner(
-                    javaLine: "java -ea   -Xmx29890m -Xms29890m -cp \(root)/envs/bbtools/opt/bbmap-40.02-0/current/ "
-                        + "align2.BBMapPacBio build=1 overwrite=true minratio=0.40 fastareadlen=6000 --version",
-                    tail: "BBMap version 40.02\n"),
+                stderr: lines(
+                    "Detected 67108864KB total memory on macOS, estimating 43620761KB available",
+                    "Detected 28822704KB free memory on macOS (vm_stat)",
+                    "java -ea   -Xmx23233m -Xms23233m -cp \(root)/envs/bbtools/opt/bbmap-40.02-0/current/ align2.BBMapPacBio build=1 overwrite=true minratio=0.40 fastareadlen=6000 ambiguous=best minscaf=100 startpad=10000 stoppad=10000 midpad=6000 --version",
+                    "BBTools version 40.02",
+                    "For help, please run the shellscript with no parameters, or look in /docs/."),
                 native: "40.02", detect: "0.40", correct: "40.02"),
         // A missing conda environment prints micromamba's error and the detect parser returns that
         // first line as the version. The native parser returns nil (2.5 fixes the bbmap environment,
@@ -316,14 +323,14 @@ final class VersionParserOutputPinTests: XCTestCase {
         // nothing parses this output in production, and the row stays to show why.
         Capture(name: "bwa-mem2 version subcommand", exitCode: 0, stdout: "2.2.1\n", stderr: "",
                 native: "2.2.1", detect: "2.2.1", correct: "2.3"),
-        // vsearch prints its citation first. The native parser records the DOI prefix 10.7717 and the
-        // detect parser records zlib's 1.2.12 (2.6).
+        // vsearch prints its citation first. Both parsers skip the DOI, which is a path token, and
+        // record zlib's 1.2.12 from the library line before the banner that holds 2.31.0 (2.6).
         Capture(name: "vsearch citation", exitCode: 0,
                 stdout: "Rognes T, Flouri T, Nichols B, Quince C, Mahe F (2016)\nVSEARCH: a versatile open source tool for metagenomics\n"
                     + "PeerJ 4:e2584 doi: 10.7717/peerj.2584 https://doi.org/10.7717/peerj.2584\n\n"
                     + "Compiled with support for gzip-compressed files, and the library is loaded.\nzlib version 1.2.12, compile flags 2a9\n",
                 stderr: "vsearch v2.31.0_macos_aarch64, 64.0GB RAM, 20 cores\nhttps://github.com/torognes/vsearch\n\n",
-                native: "10.7717", detect: "1.2.12", correct: "2.31.0"),
+                native: "1.2.12", detect: "1.2.12", correct: "2.31.0"),
         // Tools that reject the probe: the detect parser records the error line (2.6).
         Capture(name: "bedGraphToBigWig --version", exitCode: 255, stdout: "",
                 stderr: "--version is not a valid option\n",
