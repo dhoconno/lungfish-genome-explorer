@@ -6,7 +6,9 @@
 // a record that today's GUI or CLI path writes, driven with fake tools through
 // `ClassifierLegacyRuns`, and names the lane whose change flips it. That lane
 // changes the pin in the commit that fixes the defect, so the change shows
-// against this base (docs/plans/2026-10-11-phase-2-7.md).
+// against this base (docs/plans/2026-10-11-phase-2-7.md). A pin of the legacy
+// GUI route that lane F3 flipped keeps the legacy half until that route goes
+// in 2.9 (E14), and adds what the app's route, the CLI route, records.
 
 import Foundation
 import XCTest
@@ -22,14 +24,17 @@ final class ClassifierLegacyRecordPinTests: XCTestCase {
 
     // MARK: - Batch argv
 
-    /// Lane A12 flips this (E8), when the app's batch runs `kraken2 classify
-    /// --batch`. The legacy GUI batch writer's record argv is a `/bin/sh -c`
-    /// script, `set -e` then one line per sample of six `/bin/test` guards on
-    /// the database receipt, three through `plutil` and one through `conda db
-    /// info`, before that sample's classify command. Lane A8 gave the command
-    /// line `kraken2 classify --batch`, whose root record names the command
-    /// that ran (`Kraken2AnalysisRunToolTests`), and left this writer to A12.
-    func testKraken2BatchRecordArgvIsAShellScriptOfGuardsAndOneClassifyPerSample() async throws {
+    /// Lane F3 flipped this (E8, E10). The app's Kraken2 batch takes the CLI
+    /// route, whose row records one `kraken2 classify --batch` command over
+    /// every sample's files, and that command's root record names the command
+    /// that ran (lane A8, `Kraken2AnalysisRunToolTests`). Side C of
+    /// `ClassifierCLIGUIParityReplayTests` shows it with real tools in K3,
+    /// where the row's command replayed gives the same result. The legacy GUI
+    /// batch writer stays with the legacy route until 2.9 (E14). Its record
+    /// argv is a `/bin/sh -c` script, `set -e` then one line per sample of six
+    /// `/bin/test` guards on the database receipt, three through `plutil` and
+    /// one through `conda db info`, before that sample's classify command.
+    func testKraken2BatchRowRecordsOneBatchCommandWhereTheLegacyRecordHoldsAShellScript() async throws {
         let fixture = try FakeClassificationCondaFixture()
         defer { fixture.cleanup() }
         let batch = try await ClassifierLegacyRuns.kraken2Batch(fixture: fixture)
@@ -54,17 +59,36 @@ final class ClassifierLegacyRecordPinTests: XCTestCase {
             )
         }
         XCTAssertEqual(record.exitStatus, 0)
+
+        // The CLI route's row, the app's route since lane F3.
+        let project = fixture.root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let launch = try XCTUnwrap(ClassifierCLIRouteLaunch.kraken2(configs: batch.configs, projectURL: project))
+        let reporter = RecordingOperationReporter()
+        AppDelegate.beginClassifierCLIRouteOperation(launch, routeContext: nil, reporter: reporter) { _ in }
+        let command = try XCTUnwrap(reporter.items.first?.cliCommand)
+        XCTAssertFalse(command.contains("\n"), "one command line")
+        let routed = try XCTUnwrap(
+            try LungfishCLI.parseAsRoot(LungfishCLI.normalizedArgumentsForParsing(RecordedCLICommand.arguments(of: command)))
+                as? ClassifyCommand
+        )
+        XCTAssertTrue(routed.batch)
+        XCTAssertEqual(routed.project, project.path)
+        XCTAssertEqual(Set(routed.fastqFiles), Set(batch.configs.flatMap { ($0.originalInputFiles ?? $0.inputFiles).map(\.path) }))
     }
 
-    /// The legacy GUI route keeps this until the GUI's default moves to the
-    /// CLI route (F3, E10) and the route retires (2.9). Its EsViritu batch
+    /// Lane F3 flipped this (E8, E10). The app's EsViritu batch takes the CLI
+    /// route, whose row records one `esviritu detect --batch` command over
+    /// every sample's files with the database and the project, and
+    /// `esviritu detect --batch` records that command as its batch root
+    /// record's argv (lane A9, the last half below). Side C of
+    /// `ClassifierCLIGUIParityReplayTests` shows it with real tools in E3,
+    /// where the row's command replayed gives the same result. The legacy GUI
+    /// route keeps its batch writer until 2.9 (E14). Its EsViritu batch
     /// record's argv folds every sample's inputs into one `esviritu detect
     /// --input` named after the first sample, with no database, output folder
-    /// or threads, a command that reproduces nothing. The batch row records no
-    /// command at all (`cli-parity-gap` `esviritu-batch`). The CLI half pins
-    /// lane A9's flipped behaviour (E8). `esviritu detect --batch` runs the
-    /// same samples, and its batch root record's argv is that command.
-    func testEsVirituBatchRecordArgvFoldsEveryInputIntoOneDetect() async throws {
+    /// or threads, a command that reproduces nothing, and its batch row
+    /// records no command at all (`cli-parity-gap` `esviritu-batch`).
+    func testEsVirituBatchRowRecordsOneBatchCommandWhereTheLegacyRecordFoldsTheInputs() async throws {
         let root = try TestTempDirectory.make(prefix: "esviritu-batch-argv-pin")
         defer { TestTempDirectory.cleanup(root) }
         let esviritu = try ClassifierLegacyRuns.StandInEsVirituConda(root: root)
@@ -87,6 +111,22 @@ final class ClassifierLegacyRecordPinTests: XCTestCase {
         XCTAssertEqual(reporter.items.count, 1)
         XCTAssertNil(reporter.items.first?.cliCommand)
 
+        // The CLI route's row, the app's route since lane F3.
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let launch = try XCTUnwrap(ClassifierCLIRouteLaunch.esViritu(configs: batch.configs, projectURL: project))
+        let routeReporter = RecordingOperationReporter()
+        AppDelegate.beginClassifierCLIRouteOperation(launch, routeContext: nil, reporter: routeReporter) { _ in }
+        let routed = try XCTUnwrap(
+            try LungfishCLI.parseAsRoot(LungfishCLI.normalizedArgumentsForParsing(
+                RecordedCLICommand.arguments(of: XCTUnwrap(routeReporter.items.first?.cliCommand))
+            )) as? EsVirituCommand.DetectSubcommand
+        )
+        XCTAssertTrue(routed.batch)
+        XCTAssertEqual(Set(routed.inputFiles), Set(batch.configs.flatMap { $0.inputFiles.map(\.path) }))
+        XCTAssertEqual(routed.databasePath, esviritu.databaseURL.path)
+        XCTAssertEqual(routed.project, project.path)
+        XCTAssertNil(routed.sampleName, "the batch names each sample by its files")
+
         let cliOutput = root.appendingPathComponent("cli-batch", isDirectory: true)
         let inputPaths = batch.configs.flatMap { $0.inputFiles.map(\.path) }
         let command = try EsVirituCommand.DetectSubcommand.parse(
@@ -108,16 +148,17 @@ final class ClassifierLegacyRecordPinTests: XCTestCase {
 
     // MARK: - EsViritu lineage
 
-    /// The legacy GUI route keeps this until the GUI's default moves to the
-    /// CLI route (F3, E10) and the route retires (2.9). Its EsViritu launch
-    /// resolves an unplanned virtual bundle without recording where its file
-    /// came from. The record names only the materialized scratch file, which
-    /// the launch deletes after the run, and no `originalInputs`. The CLI
-    /// resolution of the same sample records the bundle. The CLI half pins
-    /// lane A9's flipped behaviour (D5). `esviritu detect` on the same bundle
+    /// Lane F3 flipped this (D5, E10). The app's EsViritu launch takes the CLI
+    /// route, which hands `esviritu detect` the bundle itself, and the command
     /// records the bundle, the command that materialized it, and the bundle's
-    /// manifest and payload with their checksums.
-    func testGUIEsVirituRecordOfAnUnplannedVirtualBundleHasNoLineage() async throws {
+    /// manifest and payload with their checksums (lane A9, the last half
+    /// below). Side C of `ClassifierCLIGUIParityReplayTests` shows it with
+    /// real tools in E1. The legacy GUI route keeps its own resolution until
+    /// 2.9 (E14), which resolves an unplanned virtual bundle without recording
+    /// where its file came from. Its record names only the materialized
+    /// scratch file, which the launch deletes after the run, and no
+    /// `originalInputs`.
+    func testGUIEsVirituRouteHandsTheCommandTheBundleWhereTheLegacyRecordHasNoLineage() async throws {
         let root = try TestTempDirectory.make(prefix: "esviritu-lineage-pin")
         defer { TestTempDirectory.cleanup(root) }
         let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("fixtures", isDirectory: true))
@@ -150,6 +191,15 @@ final class ClassifierLegacyRecordPinTests: XCTestCase {
         func resolved(_ path: String) -> String { URL(fileURLWithPath: path).resolvingSymlinksInPath().path }
         XCTAssertTrue(step.inputs.contains { resolved($0.path).hasPrefix(scratchPath) }, "the step reads the scratch file")
         XCTAssertFalse(step.inputs.contains { $0.path.contains(bundle.lastPathComponent) }, "the step names no bundle")
+
+        // The CLI route, the app's route since lane F3, names the bundle in the command it runs.
+        let launch = try XCTUnwrap(ClassifierCLIRouteLaunch.esViritu(
+            configs: [config], projectURL: root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        ))
+        let routed = try XCTUnwrap(
+            try LungfishCLI.parseAsRoot(LungfishCLI.normalizedArgumentsForParsing(launch.arguments)) as? EsVirituCommand.DetectSubcommand
+        )
+        XCTAssertEqual(routed.inputFiles, [bundle.path], "the route hands the command the bundle, not a scratch file")
 
         let cliResolved = try await EsVirituCommand.DetectSubcommand.resolveExecutionInputs(
             for: [bundle],
