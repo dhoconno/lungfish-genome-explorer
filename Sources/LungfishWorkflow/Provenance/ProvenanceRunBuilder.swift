@@ -16,6 +16,7 @@ public enum ProvenanceBuilderError: Error, LocalizedError, Sendable, Equatable {
     case invalidConsumedInputSnapshotDescriptor(String)
     case invalidRelocatedFileDescriptor(String)
     case statusContradictsExitStatus(String)
+    case statusIsRunning(String)
 
     public var errorDescription: String? {
         switch self {
@@ -39,6 +40,8 @@ public enum ProvenanceBuilderError: Error, LocalizedError, Sendable, Equatable {
             return "Relocated provenance output does not match its staged origin file: \(path)"
         case .statusContradictsExitStatus(let workflowName):
             return "Workflow '\(workflowName)' is recorded as completed with a non-zero exit status."
+        case .statusIsRunning(let workflowName):
+            return "Workflow '\(workflowName)' is recorded as still running, and a record is written once its run has ended."
         }
     }
 }
@@ -193,9 +196,10 @@ public struct ProvenanceRunBuilder: Sendable {
     /// before, from a nested legacy run or else from `exitStatus` (0 is completed, anything else
     /// failed), and a record with exit status 0 must hold an argv, an output with checksum and size,
     /// and a runtime identity. A given status replaces the derived one. `completed` needs exit
-    /// status 0 and the same checks. `failed`, `cancelled` and `running` claim no result, so they
-    /// skip those checks, which lets a failed or cancelled run be recorded with what it has, even
-    /// when its last step exited 0. The time range is checked for every status.
+    /// status 0 and the same checks. `failed` and `cancelled` claim no result, so they skip those
+    /// checks, which lets a failed or cancelled run be recorded with what it has, even when its
+    /// last step exited 0. `running` is refused, because a record is written once its run has
+    /// ended. The time range is checked for every status.
     public func complete(
         exitStatus: Int,
         status: RunStatus? = nil,
@@ -226,6 +230,9 @@ public struct ProvenanceRunBuilder: Sendable {
         }
         if status == .completed, exitStatus != 0 {
             throw ProvenanceBuilderError.statusContradictsExitStatus(workflowName)
+        }
+        if status == .running {
+            throw ProvenanceBuilderError.statusIsRunning(workflowName)
         }
         let combinedOutputs = deduplicatedOutputs()
         let claimsResult = status.map { $0 == .completed } ?? (exitStatus == 0)

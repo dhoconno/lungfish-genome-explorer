@@ -136,6 +136,24 @@ struct ProvenanceRunBuilderStatusTests {
         )
     }
 
+    @Test("A running status is refused, because a record is written once its run has ended")
+    func runningStatusIsRefused() {
+        for exitStatus in [0, 1] {
+            #expect(throws: ProvenanceBuilderError.statusIsRunning(Self.workflowName)) {
+                try Self.bareBuilder().complete(
+                    exitStatus: exitStatus,
+                    status: .running,
+                    startedAt: Self.startedAt,
+                    endedAt: Self.endedAt
+                )
+            }
+        }
+        #expect(
+            ProvenanceBuilderError.statusIsRunning(Self.workflowName)
+                .errorDescription?.contains(Self.workflowName) == true
+        )
+    }
+
     @Test("No status keeps the status derived from the exit status or the nested run")
     func noStatusKeepsTheDerivedStatus() throws {
         let failed = try Self.bareBuilder().complete(
