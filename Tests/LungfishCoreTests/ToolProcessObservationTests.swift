@@ -393,18 +393,28 @@ final class ToolProcessObservationTests: XCTestCase {
     }
 
     /// Delivery holds no lock of the run. The run's lock is not recursive, so
-    /// an observer reading the handle's pid would hang or trap under it.
+    /// an observer reading the handle's pid would hang or trap under it. The
+    /// child waits for a marker that the test creates once the handle is
+    /// stored, so the observer cannot run before that, however long the test
+    /// thread is descheduled.
     func testAnObserverMayReadTheRunHandleBecauseDeliveryHoldsNoLock() async throws {
+        let directory = try makeToolProcessTempDirectory()
+        let marker = directory.appendingPathComponent("handle-stored")
         let handle = ToolProcessTestBox<ToolProcessRun?>(nil)
+        // The observer holds the box, the box the run, the run its engine and
+        // the engine the observer, so the box is emptied however the test ends.
+        defer { handle.withLock { $0 = nil } }
         let seenPID = ToolProcessTestBox<Int32?>(nil)
         let observer = ToolProcessObserver { _ in
             let pid = handle.withLock { $0 }?.pid
             seenPID.withLock { $0 = pid }
         }
+        let waiting = "while [ ! -e \(Fixtures.shellQuote(marker.path)) ]; do sleep 0.02; done"
         let run = try await ToolProcessObservation.$observer.withValue(observer) {
-            try ToolProcess.start(Fixtures.shell("sleep 0.3"))
+            try ToolProcess.start(Fixtures.shell(waiting, timeout: .seconds(30)))
         }
         handle.withLock { $0 = run }
+        try Data().write(to: marker)
         let result = try await run.result()
         XCTAssertEqual(seenPID.withLock { $0 }, result.pid)
     }
