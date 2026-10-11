@@ -237,6 +237,11 @@ final class MapReadSetStandInTests: XCTestCase {
     /// (READ-PAIRING.md, Provenance). BBMap maps such a sample in two runs and
     /// still holds one plan, and no mapper step holds a copy. A sample of only
     /// single reads records nothing new.
+    ///
+    /// The typed `mapping-provenance.json` record holds the plan once too, at
+    /// its own level. Every reader that rebuilds a record from it has no other
+    /// copy, and `bam adopt-mapping` and viewer publication save it again, so
+    /// an adopted bundle holds nothing else of the run.
     func testRunRecordsTheReadSetPlanOnceInItsOneHome() async throws {
         let streamDirectory = root.appendingPathComponent("plan-stream", isDirectory: true)
         try await map(fixtures.mergeDerivative, tool: .minimap2, outputDirectory: streamDirectory)
@@ -255,6 +260,7 @@ final class MapReadSetStandInTests: XCTestCase {
         XCTAssertEqual(streamPlan.fields["mergedReads"], .integer(3))
         XCTAssertEqual(streamPlan.fields["runs"], .integer(1))
         Self.assertNoSecondCopy(of: stream, in: streamDirectory)
+        try Self.assertTypedRecordHoldsThePlan(streamPlan, in: streamDirectory)
 
         let bbmap = try Self.recordedEnvelope(in: bbmapDirectory)
         XCTAssertEqual(bbmap.steps.filter { $0.toolName == "bbmap.sh" }.count, 2, "\(bbmap.steps.map(\.toolName))")
@@ -265,11 +271,25 @@ final class MapReadSetStandInTests: XCTestCase {
         XCTAssertEqual(bbmapPlan.fields["mergedReads"], .integer(3))
         XCTAssertEqual(bbmapPlan.fields["runs"], .integer(2))
         Self.assertNoSecondCopy(of: bbmap, in: bbmapDirectory)
+        try Self.assertTypedRecordHoldsThePlan(bbmapPlan, in: bbmapDirectory)
+        try assertThePlanSurvivesAdoption(of: bbmapPlan, from: bbmapDirectory)
 
         let single = try Self.recordedEnvelope(in: singleDirectory)
         XCTAssertNil(single.readSetPlan, "a sample of only single reads records nothing new")
         XCTAssertEqual(single.options.resolvedDefaults, [:], "a run without a plan adds nothing to the resolved defaults")
         Self.assertNoSecondCopy(of: single, in: singleDirectory)
+
+        // The typed record encodes the plan only when there is one, so a run
+        // without a plan writes the sidecar it always wrote.
+        let singleSidecar = try Self.rawSidecar(in: singleDirectory)
+        XCTAssertNotNil(singleSidecar["sampleName"], "the sidecar was read")
+        XCTAssertNil(singleSidecar[RecordedReadSetPlan.key], "a run without a plan writes no readSetPlan key")
+        XCTAssertNil(MappingProvenance.load(from: singleDirectory)?.readSetPlan, "the typed record holds no plan")
+        let singleReading = ProvenanceRecorder.findProvenanceReading(
+            for: singleDirectory.appendingPathComponent(MappingProvenance.filename)
+        )
+        XCTAssertNotNil(singleReading, "the finder reads the sidecar")
+        XCTAssertNil(singleReading?.reading.envelope.readSetPlan, "the sidecar reads with no plan")
     }
 
     private static func recordedEnvelope(in directory: URL) throws -> ProvenanceEnvelope {
@@ -277,7 +297,8 @@ final class MapReadSetStandInTests: XCTestCase {
     }
 
     /// The plan sits in the resolved defaults and nowhere else: not in the
-    /// explicit options, not in a step of the record, and not in a step of the
+    /// explicit options, not in the parameters of the run nested in the record,
+    /// not in a step of the record, and not in a step of the
     /// `mapping-provenance.json` sidecar.
     private static func assertNoSecondCopy(
         of envelope: ProvenanceEnvelope,
@@ -287,6 +308,7 @@ final class MapReadSetStandInTests: XCTestCase {
     ) {
         let key = RecordedReadSetPlan.key
         XCTAssertNil(envelope.options.explicit[key], "no copy in the explicit options", file: file, line: line)
+        XCTAssertNil(envelope.legacyRun?.parameters[key], "no copy in the parameters of the nested run", file: file, line: line)
         XCTAssertEqual(
             envelope.steps.filter { $0.resolvedOptions[key] != nil }.map(\.toolName), [],
             "no step of the record holds a copy", file: file, line: line
@@ -297,6 +319,78 @@ final class MapReadSetStandInTests: XCTestCase {
             (sidecar?.steps ?? []).filter { $0.resolvedOptions?[key] != nil }.map(\.toolName), [],
             "no step of the sidecar holds a copy", file: file, line: line
         )
+    }
+
+    /// The typed record holds the plan at its own level. A script reads one
+    /// `readSetPlan` key in the file, and the Inspector, `lungfish provenance`
+    /// and a lineage export, which rebuild a record from the file, find the
+    /// plan in the one home.
+    private static func assertTypedRecordHoldsThePlan(
+        _ plan: RecordedReadSetPlan,
+        in directory: URL,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        XCTAssertEqual(
+            MappingProvenance.load(from: directory)?.readSetPlan, .dictionary(plan.fields),
+            "the typed record holds the plan", file: file, line: line
+        )
+        assertSidecarReading(in: directory, holds: plan, file: file, line: line)
+        let sidecar = try rawSidecar(in: directory, file: file, line: line)
+        XCTAssertNotNil(sidecar[RecordedReadSetPlan.key], "the sidecar file holds the plan", file: file, line: line)
+        XCTAssertEqual(sidecar["schemaVersion"] as? Int, 3, "the plan does not change the sidecar's schema version", file: file, line: line)
+    }
+
+    /// What the finder makes of `mapping-provenance.json` itself, the typed
+    /// record rebuilt as an envelope, holds the plan in the one home.
+    private static func assertSidecarReading(
+        in directory: URL,
+        holds plan: RecordedReadSetPlan,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let reading = ProvenanceRecorder.findProvenanceReading(
+            for: directory.appendingPathComponent(MappingProvenance.filename)
+        )
+        let read = reading?.reading.envelope.readSetPlan
+        XCTAssertEqual(read?.place, .resolvedDefaults, "the sidecar reads with the plan in the one home", file: file, line: line)
+        XCTAssertEqual(read?.fields, plan.fields, "the sidecar reads with the same plan", file: file, line: line)
+    }
+
+    /// The sidecar as a script reads it, a JSON object.
+    private static func rawSidecar(
+        in directory: URL,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> [String: Any] {
+        let data = try Data(contentsOf: directory.appendingPathComponent(MappingProvenance.filename))
+        return try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any],
+            "the sidecar is a JSON object", file: file, line: line
+        )
+    }
+
+    /// `bam adopt-mapping` loads the sidecar, points it at the bundle and saves
+    /// it again, and viewer publication does the same with the source reference
+    /// bundle too. The saved sidecar is all an adopted bundle holds of the run,
+    /// so it keeps the plan.
+    private func assertThePlanSurvivesAdoption(
+        of plan: RecordedReadSetPlan,
+        from directory: URL,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let loaded = try XCTUnwrap(MappingProvenance.load(from: directory), "the sidecar loads", file: file, line: line)
+        let adoptedDirectory = root.appendingPathComponent("plan-adopted", isDirectory: true)
+        try loaded
+            .withViewerBundleURL(root.appendingPathComponent("viewer.lungfishref", isDirectory: true))
+            .withSourceReferenceBundleURL(root.appendingPathComponent("source.lungfishref", isDirectory: true))
+            .save(to: adoptedDirectory)
+        XCTAssertEqual(
+            MappingProvenance.load(from: adoptedDirectory)?.readSetPlan, .dictionary(plan.fields),
+            "the saved sidecar loads with the plan", file: file, line: line
+        )
+        Self.assertSidecarReading(in: adoptedDirectory, holds: plan, file: file, line: line)
     }
 
     // MARK: - Helpers
