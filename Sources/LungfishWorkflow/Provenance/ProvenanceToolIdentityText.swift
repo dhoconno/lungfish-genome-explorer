@@ -24,32 +24,50 @@ public struct ProvenanceManagedEnvironment: Sendable, Equatable, Hashable {
     public let executable: String?
     /// The exact package pin (`bioconda::bcftools=1.24=h6bd33b9_2`), when recorded.
     public let packageSpec: String?
+    /// 1 for the first package an export installs in an environment of this name. A run whose steps used
+    /// two packages in one environment keeps both, and the later one is variant 2 and up, exported as its
+    /// own conda environment so that neither spec is dropped.
+    public let variant: Int
 
-    public init(name: String, executable: String? = nil, packageSpec: String? = nil) {
+    public init(name: String, executable: String? = nil, packageSpec: String? = nil, variant: Int = 1) {
         self.name = name
         self.executable = executable
         self.packageSpec = packageSpec
+        self.variant = variant
+    }
+
+    /// What an export calls this environment, the sanitized name and then `_2` and up for a later variant.
+    public var exportName: String {
+        let stem = WorkflowExportGraph.sanitize(name)
+        return variant > 1 ? "\(stem)_\(variant)" : stem
     }
 
     /// The path of the environment file an export writes for this
     /// environment, relative to the export folder.
     public var environmentFileName: String {
-        "envs/\(WorkflowExportGraph.sanitize(name)).yaml"
+        "envs/\(exportName).yaml"
     }
 
-    /// The conda environment file: exact pin when recorded, the environment
-    /// name as a package otherwise.
+    /// What an export installs: the recorded pin, else the package the managed
+    /// lock installs in this environment (`whatshap` for `phasing`), and the
+    /// environment name only for an environment the lock does not hold.
+    private var installedPackage: String {
+        packageSpec ?? ProvenanceExportPlan.lockPackageName(forEnvironment: name) ?? name
+    }
+
+    /// The conda environment file: the pin when there is one, the package
+    /// the lock installs otherwise.
     public var environmentFileContents: String {
         var s = "# Written by Lungfish from the recorded package pin.\n"
-        s += "name: lge-\(WorkflowExportGraph.sanitize(name))\n"
+        s += "name: lge-\(exportName)\n"
         s += "channels:\n  - conda-forge\n  - bioconda\ndependencies:\n"
-        s += "  - \(packageSpec ?? name)\n"
+        s += "  - \(installedPackage)\n"
         return s
     }
 
     /// The `micromamba create` line that recreates this environment.
     public var micromambaCreateCommand: String {
-        "micromamba create -y -n lge-\(WorkflowExportGraph.sanitize(name)) -c conda-forge -c bioconda \(packageSpec ?? name)"
+        "micromamba create -y -n lge-\(exportName) -c conda-forge -c bioconda \(installedPackage)"
     }
 }
 

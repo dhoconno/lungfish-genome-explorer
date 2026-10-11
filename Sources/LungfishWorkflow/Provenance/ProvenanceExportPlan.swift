@@ -70,6 +70,10 @@ struct ProvenanceExportPlan {
         let numbers: [Int]
         let toolName: String
         let identity: ProvenanceToolIdentityText
+        /// The managed environment the step ran in, pinned to a package. It is the entry of
+        /// `ProvenanceExportPlan.environments` that holds this step's own spec, so two steps of
+        /// one environment that disagree each name their own.
+        let environment: ProvenanceManagedEnvironment?
         let kind: Kind
         /// One command, or several joined by pipes.
         let commands: [Command]
@@ -85,9 +89,6 @@ struct ProvenanceExportPlan {
 
         var number: Int { numbers[0] }
         var isReplayable: Bool { kind != .inApp }
-        var environment: ProvenanceManagedEnvironment? {
-            identity.environment.map { ProvenanceExportPlan.pinned($0, version: identity.version) }
-        }
 
         /// `mpileup`, `call`: the verb after each executable, when it is one.
         var subcommands: [String] {
@@ -114,14 +115,18 @@ struct ProvenanceExportPlan {
     let steps: [Step]
     /// Staging steps folded away, with their recorded numbers.
     let collapsed: [(number: Int, step: StepExecution)]
+    /// One entry for each package the run's tool steps installed, in first-use order. Two steps of
+    /// one environment that disagree on the package keep both specs, and the later one is a variant
+    /// of the environment with its own file name, so no spec is dropped.
     let environments: [ProvenanceManagedEnvironment]
     /// Every recorded `.lungfish` project root seen, as recorded.
     let projectRoots: [String]
     private let mapper: PathMapper
 
     /// The plan of `run`. `replayArguments` selects each step's replay argv
-    /// and returns nil for a step that has none (a GUI action).
-    init(run: WorkflowRun, replayArguments: (StepExecution) -> [String]?) {
+    /// and returns nil for a step that has none (a GUI action). `lock` is the
+    /// managed tool lock that names the package of each environment.
+    init(run: WorkflowRun, replayArguments: (StepExecution) -> [String]?, lock: ManagedToolLock = .bundled) {
         let numbered = run.steps.enumerated().map { (number: $0.offset + 1, step: $0.element) }
 
         // 1. Alias staging copies to their sources.
@@ -262,11 +267,31 @@ struct ProvenanceExportPlan {
             allPaths: merged.flatMap { $0.inputs.map(\.path) + $0.outputs.map(\.path) + $0.commands.flatMap(\.argv) }
         )
 
+        // 5. Pin each step's environment to a package. The plan keeps one entry for each package a
+        //    tool step installed. A later package of an environment that already has one is a
+        //    variant of it, so two steps that disagree keep both specs.
+        func pinnedEnvironment(of draft: Draft) -> ProvenanceManagedEnvironment? {
+            draft.identity.environment.map { Self.pinned($0, version: draft.identity.version, lock: lock) }
+        }
+        var environments: [ProvenanceManagedEnvironment] = []
+        for draft in merged where draft.kind == .tool {
+            guard let pinned = pinnedEnvironment(of: draft) else { continue }
+            guard !environments.contains(where: { $0.name == pinned.name && $0.packageSpec == pinned.packageSpec }) else { continue }
+            let variant = (environments.filter { $0.name == pinned.name }.map(\.variant).max() ?? 0) + 1
+            environments.append(ProvenanceManagedEnvironment(
+                name: pinned.name, executable: pinned.executable, packageSpec: pinned.packageSpec, variant: variant
+            ))
+        }
+
         self.steps = merged.map { draft in
-            Step(
+            let pinned = pinnedEnvironment(of: draft)
+            return Step(
                 numbers: draft.numbers,
                 toolName: draft.toolName,
                 identity: draft.identity,
+                environment: pinned.map { pinned in
+                    environments.first { $0.name == pinned.name && $0.packageSpec == pinned.packageSpec } ?? pinned
+                },
                 kind: draft.kind,
                 commands: draft.commands,
                 inputs: draft.inputs,
@@ -280,17 +305,6 @@ struct ProvenanceExportPlan {
             )
         }
         self.collapsed = collapsed
-        var environments: [ProvenanceManagedEnvironment] = []
-        for step in steps where step.kind == .tool {
-            guard let environment = step.environment.map({ Self.pinned($0, version: step.identity.version) }) else { continue }
-            if let index = environments.firstIndex(where: { $0.name == environment.name }) {
-                if environments[index].packageSpec == nil, environment.packageSpec != nil {
-                    environments[index] = environment
-                }
-            } else {
-                environments.append(environment)
-            }
-        }
         self.environments = environments
         self.projectRoots = mapper.projectRoots
         self.mapper = mapper
@@ -379,33 +393,57 @@ struct ProvenanceExportPlan {
 
     // MARK: - Environments
 
-    /// An environment with a package pin: the recorded pin, or the package
-    /// the managed lock installs for that environment at the recorded
-    /// version (`bioconda::bbmap=40.02` for `bbtools` v40.02). An
-    /// environment name is not a package name, so an unpinned environment
-    /// is never emitted as one.
-    static func pinned(_ environment: ProvenanceManagedEnvironment, version: String) -> ProvenanceManagedEnvironment {
-        guard environment.packageSpec == nil else { return environment }
-        let package = lockPackageName(forEnvironment: environment.name) ?? environment.name
-        let spec = version.first?.isNumber == true ? "bioconda::\(package)=\(version)" : package
-        return ProvenanceManagedEnvironment(name: environment.name, executable: environment.executable, packageSpec: spec)
+    /// An environment with a package pin. A version other than the recorded one is never written.
+    ///
+    /// A recorded conda spec is what ran, so it stays as recorded. Otherwise the lock entry installed in
+    /// the environment names the channel and the package, found through either lock list so a pack
+    /// tool resolves. When the recorded version is the lock entry's version the plan writes the lock's
+    /// spec with its build (`bioconda::whatshap=2.3=py311h1457a19_3` for `phasing` at 2.3). When the
+    /// recorded version differs it writes the channel, the package and the recorded version with no
+    /// build (`bioconda::kraken2=2.1.3`), because the lock cannot say which build of another version
+    /// ran. A version that is no number, such as `unknown` or a probe error, writes the bare package,
+    /// which pins nothing.
+    ///
+    /// A recorded package that is no conda spec, such as the `ivar` older records kept, pins nothing
+    /// and gives way to the lock. An environment name is not a package name, so it stands in for the
+    /// package only when the lock does not hold the environment. A Python runtime or a source build
+    /// has no conda spec of its own, so the plan writes the tool's id at the recorded version and
+    /// leaves the refusal to the pin gate.
+    static func pinned(
+        _ environment: ProvenanceManagedEnvironment,
+        version: String,
+        lock: ManagedToolLock = .bundled
+    ) -> ProvenanceManagedEnvironment {
+        func with(_ spec: String) -> ProvenanceManagedEnvironment {
+            ProvenanceManagedEnvironment(
+                name: environment.name, executable: environment.executable, packageSpec: spec, variant: environment.variant
+            )
+        }
+        if let recorded = environment.packageSpec, CondaSpec(spec: recorded) != nil { return environment }
+        let numeric = version.first?.isNumber == true
+        guard let entry = lock.entry(environment: environment.name) else {
+            if environment.packageSpec != nil { return environment }
+            return with(numeric ? "bioconda::\(environment.name)=\(version)" : environment.name)
+        }
+        guard let lockSpec = lock.packageSpec(of: entry), let locked = CondaSpec(spec: lockSpec) else {
+            let package = entry.id.rawValue
+            return with(numeric ? "bioconda::\(package)=\(version)" : package)
+        }
+        guard numeric else { return with(locked.name) }
+        let channel = locked.channel.map { "\($0)::" } ?? ""
+        if version == locked.version, let build = locked.build {
+            return with("\(channel)\(locked.name)=\(version)=\(build)")
+        }
+        return with("\(channel)\(locked.name)=\(version)")
     }
 
-    /// `bbmap` for the `bbtools` environment and `whatshap` for `phasing`, from the
-    /// bundled managed-tool lock (`bioconda::bbmap=39.33=h92535d8_0`). The entry
-    /// is found by its environment through either lock list, so a pack tool resolves.
-    private static func lockPackageName(forEnvironment name: String) -> String? {
-        let lock = ManagedToolLock.bundled
+    /// `bbmap` for the `bbtools` environment and `whatshap` for `phasing`, from the managed-tool lock
+    /// (`bioconda::bbmap=40.02=he046917_0`). The entry is found by its environment through either
+    /// lock list, and a tool a Python runtime or a source build installs is named by its id.
+    static func lockPackageName(forEnvironment name: String, lock: ManagedToolLock = .bundled) -> String? {
         guard let entry = lock.entry(environment: name) else { return nil }
-        // A Python runtime or a source build installs the tool by its own means, and the lock's spec
-        // names the interpreter or the conda fallback, so the tool's id is its package.
-        if entry.pythonRuntime != nil || entry.sourceBuild != nil { return entry.id.rawValue }
-        guard let spec = lock.packageSpec(of: entry) else { return nil }
-        var package = spec
-        if let channel = package.range(of: "::") { package = String(package[channel.upperBound...]) }
-        if let version = package.firstIndex(of: "=") { package = String(package[..<version]) }
-        let trimmed = package.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty ? nil : trimmed
+        guard let spec = lock.packageSpec(of: entry), let parsed = CondaSpec(spec: spec) else { return entry.id.rawValue }
+        return parsed.name
     }
 
     // MARK: - Step shapes

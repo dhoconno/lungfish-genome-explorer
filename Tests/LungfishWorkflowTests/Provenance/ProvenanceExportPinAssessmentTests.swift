@@ -46,57 +46,67 @@ final class ProvenanceExportPinAssessmentTests: XCTestCase {
         XCTAssertEqual(result.hazards, [])
     }
 
-    func testBBMapEnvironmentExportsWithoutABuild() {
+    // Phase 2.6 lane P5a. The export plan writes the lock entry's channel, package, version and build when
+    // the recorded version is the lock's. The tests below that showed an export short of the lock, with no
+    // build, the wrong channel or an environment name for a package, now show it equal to the lock. The
+    // plan finds the entry by environment through both lock lists.
+
+    func testBBMapEnvironmentExportsItsLockSpecWithTheBuild() {
         let result = assess(step("bbmap", composite("40.02", environment: "bbtools", executable: "bbmap.sh"), environment: "bbtools"))[0]
-        XCTAssertEqual(result.status, .packageSpecUnavailable)
-        XCTAssertEqual(result.exportedSpec, "bioconda::bbmap=40.02")
+        XCTAssertEqual(result.status, .pinnedToLock)
+        XCTAssertEqual(result.exportedSpec, "bioconda::bbmap=40.02=he046917_0")
         XCTAssertEqual(result.lockSpec, "bioconda::bbmap=40.02=he046917_0")
-        XCTAssertEqual(result.hazards, [.missingBuild])
+        XCTAssertEqual(result.hazards, [])
     }
 
-    func testPackToolThatRecordedItsSourcePackageIsNotPinned() {
-        for (tool, version, environment) in [("lofreq", "2.1.5", "lofreq"), ("ivar", "1.4.4", "ivar"), ("medaka", "2.2.2", "medaka")] {
+    func testPackToolThatRecordedItsSourcePackageExportsTheLocksPin() {
+        // A source package pins nothing, so the plan writes the lock's spec for the recorded version. The hazard
+        // still names what the record held.
+        for (tool, version, environment, spec) in [
+            ("lofreq", "2.1.5", "lofreq", "bioconda::lofreq=2.1.5=py310h9cf5bfa_16"),
+            ("ivar", "1.4.4", "ivar", "bioconda::ivar=1.4.4=hda5e58c_0"),
+            ("medaka", "2.2.2", "medaka", "bioconda::medaka=2.2.2=py312h3bb865a_0"),
+        ] {
             let text = composite(version, environment: environment, executable: tool, package: tool)
             let result = assess(step(tool, text, environment: environment))[0]
-            XCTAssertEqual(result.status, .packageSpecUnavailable, tool)
-            XCTAssertEqual(result.exportedSpec, tool, tool)
-            XCTAssertEqual(result.hazards, [.bareName, .recordedPackageNotCondaSpec], tool)
+            XCTAssertEqual(result.status, .pinnedToLock, tool)
+            XCTAssertEqual(result.exportedSpec, spec, tool)
+            XCTAssertEqual(result.hazards, [.recordedPackageNotCondaSpec], tool)
         }
     }
 
-    func testBlastRecordedSourcePackageNameIsNotACondaPackage() {
+    func testBlastRecordedSourcePackageNameGivesWayToTheLocksPackage() {
         let text = composite("2.16.0", environment: "blast", executable: "blastn", package: "ncbi-blast")
         let result = assess(step("blastn", text, environment: "blast"))[0]
-        XCTAssertEqual(result.status, .packageSpecUnavailable)
-        XCTAssertEqual(result.exportedSpec, "ncbi-blast")
-        XCTAssertEqual(result.hazards, [.bareName, .recordedPackageNotCondaSpec])
+        XCTAssertEqual(result.status, .pinnedToLock)
+        XCTAssertEqual(result.exportedSpec, "bioconda::blast=2.16.0=hb260f6e_5")
+        XCTAssertEqual(result.hazards, [.recordedPackageNotCondaSpec])
     }
 
-    func testCondaForgeToolsAreExportedWithTheBiocondaChannel() {
+    func testCondaForgeToolsAreExportedWithTheirOwnChannelAndBuild() {
         for (tool, version, spec) in [
             ("pigz", "2.8", "conda-forge::pigz=2.8=hfab5511_2"),
             ("mafft", "7.526", "conda-forge::mafft=7.526=h99b78c6_0"),
         ] {
             let result = assess(step(tool, composite(version, environment: tool, executable: tool), environment: tool))[0]
-            XCTAssertEqual(result.status, .packageSpecUnavailable, tool)
-            XCTAssertEqual(result.exportedSpec, "bioconda::\(tool)=\(version)", tool)
+            XCTAssertEqual(result.status, .pinnedToLock, tool)
+            XCTAssertEqual(result.exportedSpec, spec, tool)
             XCTAssertEqual(result.lockSpec, spec, tool)
-            XCTAssertEqual(result.hazards, [.wrongChannel, .missingBuild], tool)
+            XCTAssertEqual(result.hazards, [], tool)
         }
     }
 
-    func testPackToolIsExportedByItsPackageAndNotItsEnvironmentName() {
-        // Phase 2.6 lane P5a. The plan finds the lock entry by environment through both lock lists, so the
-        // `phasing` environment exports `whatshap` and `gatk-core` exports `gatk4`.
+    func testPackToolIsExportedByItsPackageAndBuildAndNotItsEnvironmentName() {
+        // The `phasing` environment exports `whatshap` and `gatk-core` exports `gatk4`.
         let phasing = assess(step("whatshap", composite("2.3", environment: "phasing", executable: "whatshap"), environment: "phasing"))[0]
-        XCTAssertEqual(phasing.status, .packageSpecUnavailable)
-        XCTAssertEqual(phasing.exportedSpec, "bioconda::whatshap=2.3")
-        XCTAssertEqual(phasing.hazards, [.missingBuild])
+        XCTAssertEqual(phasing.status, .pinnedToLock)
+        XCTAssertEqual(phasing.exportedSpec, "bioconda::whatshap=2.3=py311h1457a19_3")
+        XCTAssertEqual(phasing.hazards, [])
 
         let gatk = assess(step("gatk", composite("4.6.2.0", environment: "gatk-core", executable: "gatk"), environment: "gatk-core"))[0]
-        XCTAssertEqual(gatk.status, .packageSpecUnavailable)
-        XCTAssertEqual(gatk.exportedSpec, "bioconda::gatk4=4.6.2.0")
-        XCTAssertEqual(gatk.hazards, [.missingBuild])
+        XCTAssertEqual(gatk.status, .pinnedToLock)
+        XCTAssertEqual(gatk.exportedSpec, "bioconda::gatk4=4.6.2.0=py310hdfd78af_1")
+        XCTAssertEqual(gatk.hazards, [])
     }
 
     func testPythonRuntimeAndSourceBuildCannotBeExpressedAsACondaSpec() {
@@ -154,8 +164,9 @@ final class ProvenanceExportPinAssessmentTests: XCTestCase {
         )
         let result = Assessment.assess(steps: [micromamba]).steps[0]
         XCTAssertEqual(result.environment, "minimap2")
-        XCTAssertEqual(result.status, .packageSpecUnavailable)
-        XCTAssertEqual(result.hazards, [.missingBuild])
+        XCTAssertEqual(result.status, .pinnedToLock)
+        XCTAssertEqual(result.exportedSpec, "bioconda::minimap2=2.31=h6bd33b9_0")
+        XCTAssertEqual(result.hazards, [])
     }
 
     func testStepsWithoutAManagedEnvironmentAreNotAssessed() {
@@ -220,7 +231,7 @@ final class ProvenanceExportPinAssessmentRecordTests: XCTestCase {
             "7 pysam retained-read demux filter [pysam] versionUnknown.legacySpelling bareName",
             "8 Lungfish Provisional exon 2 artifact publisher [-] noEnvironmentRecorded -",
             "9 deterministic genotype haplotype assignment [-] noEnvironmentRecorded -",
-            "10 openpyxl ONT genotype workbook report [openpyxl] packageSpecUnavailable wrongChannel,missingBuild",
+            "10 openpyxl ONT genotype workbook report [openpyxl] pinnedToLock -",
         ],
         "genotype/bundle/provenance/bundle.lungfish-provenance.json": [
             "1 minimap2 [minimap2] versionUnknown.legacySpelling bareName",
@@ -232,7 +243,7 @@ final class ProvenanceExportPinAssessmentRecordTests: XCTestCase {
             "7 pysam retained-read demux filter [pysam] versionUnknown.legacySpelling bareName",
             "8 Lungfish Provisional exon 2 artifact publisher [-] noEnvironmentRecorded -",
             "9 deterministic genotype haplotype assignment [-] noEnvironmentRecorded -",
-            "10 openpyxl ONT genotype workbook report [openpyxl] packageSpecUnavailable wrongChannel,missingBuild",
+            "10 openpyxl ONT genotype workbook report [openpyxl] pinnedToLock -",
         ],
         "genotype/bundle/retained-demux-genotyping-provenance.json": [
             "1 minimap2 [minimap2] versionUnknown.recordedAppVersion bareName",
@@ -247,14 +258,14 @@ final class ProvenanceExportPinAssessmentRecordTests: XCTestCase {
             "10 openpyxl ONT genotype workbook report [openpyxl] versionUnknown.recordedAppVersion bareName",
         ],
         "mapping/lungfish-provenance.json": [
-            "1 minimap2 [minimap2] packageSpecUnavailable missingBuild",
+            "1 minimap2 [minimap2] pinnedToLock -",
             "2 samtools [samtools] pinnedToLock -",
             "3 samtools [samtools] pinnedToLock -",
             "4 samtools [samtools] pinnedToLock -",
             "5 samtools [samtools] pinnedToLock -",
         ],
         "mapping/mapping-provenance.json": [
-            "1 minimap2 [minimap2] packageSpecUnavailable missingBuild",
+            "1 minimap2 [minimap2] pinnedToLock -",
             "2 samtools [samtools] pinnedToLock -",
             "3 samtools [samtools] pinnedToLock -",
             "4 samtools [samtools] pinnedToLock -",
@@ -322,16 +333,16 @@ final class ProvenanceExportPinAssessmentRecordTests: XCTestCase {
             let row = Self.row(step).split(separator: " ")
             counts[String(row[row.count - 2]), default: 0] += 1
         }
+        // Phase 2.6 lane P5a. The six steps whose export lacked the build or the channel are pinned to the lock.
         XCTAssertEqual(counts, [
             "noEnvironmentRecorded": 52,
-            "packageSpecUnavailable": 6,
-            "pinnedToLock": 8,
+            "pinnedToLock": 14,
             "versionUnknown.legacySpelling": 26,
             "versionUnknown.recordedAppVersion": 8
         ])
     }
 
-    func testTheGenotypeRecordHasSevenUnknownVersionStepsAndAnUnpinnedWorkbookStep() throws {
+    func testTheGenotypeRecordHasSevenUnknownVersionStepsAndAPinnedWorkbookStep() throws {
         let steps = try XCTUnwrap(Self.goldenAssessments()["genotype/bundle/lungfish-provenance.json"])
         XCTAssertEqual(steps.count, 10)
         let unknown = steps.filter { $0.status.code == "versionUnknown" }
@@ -341,13 +352,15 @@ final class ProvenanceExportPinAssessmentRecordTests: XCTestCase {
             ["minimap2", "samtools sort", "minimap2", "samtools sort", "samtools merge", "samtools index", "pysam retained-read demux filter"]
         )
         XCTAssertTrue(unknown.allSatisfy { $0.evidence == .unknown(.legacySpelling("unknown")) })
-        XCTAssertEqual(steps.filter(\.status.isUnpinned).count, 8)
+        XCTAssertEqual(steps.filter(\.status.isUnpinned).count, 7)
+        XCTAssertEqual(steps.last?.status, .pinnedToLock)
+        XCTAssertEqual(steps.last?.exportedSpec, "conda-forge::openpyxl=3.1.5=py312h2a925e6_3")
     }
 
-    func testTheMappingRecordPinsSamtoolsAndNotMinimap2() throws {
+    func testTheMappingRecordPinsSamtoolsAndMinimap2() throws {
         let steps = try XCTUnwrap(Self.goldenAssessments()["mapping/lungfish-provenance.json"])
-        XCTAssertEqual(steps.first?.exportedSpec, "bioconda::minimap2=2.31")
+        XCTAssertEqual(steps.first?.exportedSpec, "bioconda::minimap2=2.31=h6bd33b9_0")
         XCTAssertEqual(steps.first?.lockSpec, "bioconda::minimap2=2.31=h6bd33b9_0")
-        XCTAssertEqual(steps.dropFirst().map(\.status), Array(repeating: .pinnedToLock, count: 4))
+        XCTAssertEqual(steps.map(\.status), Array(repeating: .pinnedToLock, count: 5))
     }
 }
