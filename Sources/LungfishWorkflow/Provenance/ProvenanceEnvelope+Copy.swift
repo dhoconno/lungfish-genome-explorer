@@ -54,7 +54,9 @@ extension ProvenanceOptions {
     /// `ProvenanceRecorder.save` passes `.explicit`. It keeps the explicit options for the pipelines that
     /// save through it, whose legacy GUI route stays until 2.9 (E14), while the new routes write the E13
     /// home themselves. The explicit home also keeps a run value that a caller's resolved default
-    /// contradicts, where the resolved defaults home drops it.
+    /// contradicts, where the resolved defaults home drops it. The reader in
+    /// `ProvenanceEnvelope+ReadSetPlan.swift` looks in the resolved defaults first and in the nested run
+    /// last, so a copy merged into the resolved defaults reads the same plan as its source.
     ///
     /// A parameter is added only when the options hold nothing for it. The explicit options win a clash,
     /// because explicit options are what was asked for, so a key they hold is never copied. A parameter that
