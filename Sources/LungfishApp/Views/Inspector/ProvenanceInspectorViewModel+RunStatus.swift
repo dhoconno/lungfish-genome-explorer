@@ -77,12 +77,16 @@ extension ProvenanceInspectorViewModel {
     /// The format decides, not a version the reader may have filled in. A record in a current format that
     /// never holds a process ID shows no row, because the row could only read Not recorded. That means an
     /// envelope at version 2 or later, whose encoder drops the ID (plan decision V5 of Phase 2.6), and a
-    /// typed record such as `mapping-provenance.json`, which never held one. A record that holds a process
-    /// ID keeps its row, because the tab shows every fact a record holds. A version 1 envelope keeps its
-    /// row, because that format could hold an ID. A bare run and a primitive record keep theirs, because
-    /// the Older record format shows every fact it lacks as Not recorded. Their version decides nothing,
-    /// since the reader builds the envelope of a bare run at the current version and a primitive record
-    /// can state version 2 itself.
+    /// typed record such as `mapping-provenance.json`, which never held one. It also means a version 1
+    /// envelope that states its own status and holds no ID, which is how the native alignment, tree and
+    /// receipt writers of Phase 2.7 record a run (plan decision P13). A record that holds a process ID keeps
+    /// its row, because the tab shows every fact a record holds. Any other version 1 envelope keeps its row,
+    /// because that format could hold an ID and no earlier writer left it out of an envelope that states a
+    /// status. An envelope that embeds a legacy run keeps its row too, since the run states the status and
+    /// that writer recorded the process. A bare run and a primitive record keep theirs, because the Older
+    /// record format shows every fact it lacks as Not recorded. Their version decides nothing, since the
+    /// reader builds the envelope of a bare run at the current version and a primitive record can state
+    /// version 2 itself.
     static func withoutUnrecordedProcessID(
         _ rows: [ProvenanceRuntimeRow],
         in envelope: ProvenanceEnvelope,
@@ -94,8 +98,13 @@ extension ProvenanceInspectorViewModel {
             formatNeverHoldsOne = true // a typed record never holds a process ID
         case .workflowRun?, .primitive?:
             formatNeverHoldsOne = false // the Older record format shows every fact it lacks as Not recorded
-        case .envelope?, nil:
-            formatNeverHoldsOne = envelope.schemaVersion >= 2 // the version 2 encoder drops it (2.6 V5)
+        case .envelope?:
+            // The version 2 encoder drops the ID (2.6 V5). A version 1 envelope that states its own status is a
+            // 2.7 native record (P13), and one that embeds a legacy run states it through the run instead.
+            let statesItsOwnStatus = reading?.statusWasRecorded == true && envelope.legacyRun == nil
+            formatNeverHoldsOne = envelope.schemaVersion >= 2 || statesItsOwnStatus
+        case nil:
+            formatNeverHoldsOne = envelope.schemaVersion >= 2 // a record a loader verified has no reading
         }
         guard formatNeverHoldsOne, envelope.runtimeIdentity.processIdentifier == nil else { return rows }
         return rows.filter { $0.label != "Process ID" }

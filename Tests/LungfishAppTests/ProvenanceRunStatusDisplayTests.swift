@@ -14,7 +14,9 @@ import LungfishWorkflow
 /// run whose record holds every fact read Complete record and said nothing else about the run. The Run Summary
 /// now has a Run Status row that reads the record's own `status`, and reads Not recorded when the record
 /// states none and the reader derived one. The Runtime rows have no Process ID row for a record whose format
-/// never holds one, which is an envelope at version 2 or later and a typed record.
+/// never holds one. That is an envelope at version 2 or later, a typed record, and a version 1 envelope that
+/// states its own status and holds no process ID, which is how the native alignment, tree and receipt writers
+/// of Phase 2.7 record a run.
 ///
 /// The cases load the committed `fastq trim` records of `Tests/Fixtures/provenance-display/Analyses`,
 /// and edit their bytes where a case needs another record. Every case reads a copy in a temporary
@@ -109,24 +111,52 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
         XCTAssertEqual(processID(of: model), "4242")
     }
 
-    /// Version 1 records recorded the process, and a version 1 record without one still says so.
-    func testAVersion1RecordKeepsTheRowWhetherOrNotItHoldsAProcessID() async throws {
-        let withoutOne = try await loadedModel(try recordBytes("fastq-trim-cancelled") { $0["schemaVersion"] = 1 })
-        XCTAssertEqual(processID(of: withoutOne), "Not recorded")
+    /// A version 1 envelope that states its own status and holds no process ID shows no row. The native
+    /// alignment, tree and receipt writers of Phase 2.7 write that shape and record no process ID (plan decision
+    /// P13), so the row could only read Not recorded beside a record that reads Complete record.
+    func testAVersion1RecordThatStatesItsStatusAndHoldsNoProcessIDShowsNoRow() async throws {
+        let model = try await loadedModel(try recordBytes("fastq-trim-cancelled") { $0["schemaVersion"] = 1 })
 
-        let withOne = try await loadedModel(try recordBytes("fastq-trim-cancelled") { object in
-            var runtime = object["runtimeIdentity"] as? [String: Any] ?? [:]
-            runtime["processIdentifier"] = 4242
-            object["runtimeIdentity"] = runtime
+        XCTAssertEqual(model.resolvedEnvelope?.schemaVersion, 1)
+        XCTAssertEqual(model.summary.runStatus, .stated(.cancelled))
+        XCTAssertNil(processID(of: model), "\(model.runtimeRows)")
+        XCTAssertFalse(model.copyableText.contains("Process ID"), model.copyableText)
+    }
+
+    /// A version 1 envelope that states no status was written before Phase 2.7, when the writers recorded the
+    /// process, so a process ID it lacks is a gap and still reads Not recorded.
+    func testAVersion1RecordThatStatesNoStatusKeepsTheRowAsNotRecorded() async throws {
+        let model = try await loadedModel(try recordBytes("fastq-trim-cancelled") { object in
             object["schemaVersion"] = 1
+            object.removeValue(forKey: "status")
         })
-        XCTAssertEqual(processID(of: withOne), "4242")
+
+        XCTAssertEqual(model.summary.runStatus, .notRecorded)
+        XCTAssertEqual(processID(of: model), "Not recorded")
+    }
+
+    /// A record shows every fact it holds, so a version 1 record that names a process shows it, whether or not it
+    /// states a status.
+    func testAVersion1RecordThatHoldsAProcessIDKeepsTheRow() async throws {
+        for statesItsStatus in [true, false] {
+            let model = try await loadedModel(try recordBytes("fastq-trim-cancelled") { object in
+                var runtime = object["runtimeIdentity"] as? [String: Any] ?? [:]
+                runtime["processIdentifier"] = 4242
+                object["runtimeIdentity"] = runtime
+                object["schemaVersion"] = 1
+                if !statesItsStatus { object.removeValue(forKey: "status") }
+            })
+
+            XCTAssertEqual(processID(of: model), "4242", "status stated: \(statesItsStatus)")
+        }
     }
 
     /// The rule decides by the record's format, not by a version the reader may have filled in. It keeps a
     /// process ID a record holds. It keeps the row of a bare run, whose envelope the reader builds at the
     /// current version although the bytes state none, and the row of a primitive record, whatever version its
-    /// own JSON states. The `typed-mapping-schema3` expected file pins the typed record, which loses the row.
+    /// own JSON states. A version 1 envelope loses the row only when it states its own status, as the 2.7 native
+    /// writers do, and an envelope that embeds a legacy run keeps it. The `typed-mapping-schema3` expected file
+    /// pins the typed record, which loses the row.
     func testTheProcessIDRowGoesOnlyWhereTheRecordCannotHoldOne() throws {
         let rows = [
             ProvenanceRuntimeRow(label: "Executable", value: "lungfish-cli"),
@@ -143,7 +173,19 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
         let version2 = try recordBytes("fastq-trim-cancelled")
         XCTAssertEqual(try remaining(version2), ["Executable"], "A version 2 envelope holds no process ID.")
         XCTAssertEqual(try remaining(version2, passingTheReading: false), ["Executable"], "A record a loader verified has no reading.")
-        XCTAssertEqual(try remaining(try recordBytes("fastq-trim-cancelled") { $0["schemaVersion"] = 1 }), kept)
+        let version1WithItsStatus = try recordBytes("fastq-trim-cancelled") { $0["schemaVersion"] = 1 }
+        XCTAssertEqual(
+            try remaining(version1WithItsStatus), ["Executable"],
+            "A version 1 envelope that states its status and holds no process ID has no row to show."
+        )
+        XCTAssertEqual(
+            try remaining(version1WithItsStatus, passingTheReading: false), kept,
+            "A record a loader verified has no reading, so its version decides alone."
+        )
+        XCTAssertEqual(try remaining(try recordBytes("fastq-trim-cancelled") { object in
+            object["schemaVersion"] = 1
+            object.removeValue(forKey: "status")
+        }), kept, "A version 1 envelope that states no status was written when the writers recorded the process.")
         XCTAssertEqual(try remaining(try recordBytes("fastq-trim-cancelled") { object in
             var runtime = object["runtimeIdentity"] as? [String: Any] ?? [:]
             runtime["processIdentifier"] = 4242
@@ -158,6 +200,24 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
             bareReading.envelope.schemaVersion, 2, "The reader builds a bare run's envelope at the current version."
         )
         XCTAssertEqual(try remaining(bareRun), kept, "The bytes of a bare run state no version, so its row stays.")
+
+        // A released envelope that embeds a legacy run states its status through the run, and its writers
+        // recorded the process. This copy of the MHC record lost its process ID, which is a gap, so it keeps
+        // its row although it is a version 1 envelope that states a status.
+        let embeddedRun = try edited(try Data(contentsOf: ProvenanceDisplayFixtures.directory.appendingPathComponent(
+            "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/.lungfish-provenance.json"
+        ))) { object in
+            var runtime = object["runtimeIdentity"] as? [String: Any] ?? [:]
+            runtime.removeValue(forKey: "processIdentifier")
+            object["runtimeIdentity"] = runtime
+        }
+        let embeddedReading = try ProvenanceEnvelopeReader.read(embeddedRun)
+        XCTAssertEqual(embeddedReading.shape, .envelope)
+        XCTAssertEqual(embeddedReading.envelope.schemaVersion, 1)
+        XCTAssertTrue(embeddedReading.statusWasRecorded)
+        XCTAssertNotNil(embeddedReading.envelope.legacyRun)
+        XCTAssertNil(embeddedReading.envelope.runtimeIdentity.processIdentifier)
+        XCTAssertEqual(try remaining(embeddedRun), kept, "An envelope that embeds a legacy run keeps its row.")
 
         // The primitive adapter reads the version from the record's own JSON, so a primitive record can state
         // 2. Its format is the Older record format, which shows every fact it lacks as Not recorded. The MSA
