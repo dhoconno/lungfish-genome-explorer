@@ -19,13 +19,15 @@ import Synchronization
 /// 4. Exactly one last line. `complete` names the result folder in `outputs`, carries the
 ///    finalization's artifacts and the root record with the role `provenance`, and has the
 ///    completion detail as its message. `failed` has the report's message. A cancelled run ends
-///    with `failed` and exit 125.
+///    with `failed` and exit 125. Nothing follows the last line, so a line a tool writes after its
+///    run ended, from a `ToolProcess` queue or a context it kept, is dropped.
 ///
 /// Tools emit from `ToolProcess` queues while the executor emits from its own task, so every
 /// delivery runs under one lock. A line is handed on whole and in the order the lock was taken,
 /// and the next line waits until the delivery returns, so a delivery that writes and flushes
-/// never interleaves with another. The lock is not recursive, so a delivery must never emit on the
-/// sink that called it.
+/// never interleaves with another. The lock is not recursive, and the executor delivers each line
+/// while it holds the lock of the run's state, so a delivery must never emit on the sink that
+/// called it or call a context of the run it delivers for.
 public struct AnalysisRunEvents: Sendable {
     private let channel: Channel
 

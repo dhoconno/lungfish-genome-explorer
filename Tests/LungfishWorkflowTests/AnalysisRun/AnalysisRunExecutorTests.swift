@@ -117,6 +117,31 @@ struct AnalysisRunExecutorTests {
         }
     }
 
+    @Test("A line a tool writes after the run ended is dropped")
+    func linesAfterTheLastLineAreDropped() async throws {
+        let fixture = try AnalysisRunTestProject()
+        defer { fixture.cleanup() }
+        let scripts: [(script: FakeUnitScript, last: String)] = [(.complete, "complete"), (.fail("boom"), "failed")]
+        for (script, last) in scripts {
+            let probe = FakeToolProbe()
+            let recorder = AnalysisRunEventRecorder()
+            var tool = FakeAnalysisRunTool(probe: probe)
+            tool.units = [AnalysisRunPlannedUnit(label: "s1", value: script)]
+
+            let report = await AnalysisRunExecutor.unsigned.execute(tool, fixture.request(), events: recorder.events)
+            let delivered = recorder.snapshot.count
+            // A context the tool kept outlives the run, as a handler on a ToolProcess queue does.
+            let context = try #require(probe.keptContext)
+            context.log(.warning, "late")
+            context.progress(0.5, "late")
+            context.log(.info, "late")
+
+            #expect(recorder.snapshot.count == delivered, "\(last)")
+            #expect(recorder.names.last == last)
+            #expect(!report.warnings.contains("late"))
+        }
+    }
+
     @Test("A named folder inside a project is claimed, given metadata and completed")
     func namedFolderInsideAProjectIsClaimed() async throws {
         let fixture = try AnalysisRunTestProject()

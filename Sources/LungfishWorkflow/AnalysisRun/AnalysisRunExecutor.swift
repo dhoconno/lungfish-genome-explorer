@@ -265,7 +265,10 @@ public struct AnalysisRunExecutor: Sendable {
         finalization: AnalysisRunFinalization?,
         journal: AnalysisRunJournal
     ) -> AnalysisRunReport {
+        // The last line seals the stream, and the report takes the warnings as they stand then,
+        // so a tool callback that fires later neither follows the last line nor joins them.
         let message: String
+        let warnings: [String]
         switch ending {
         case .completed:
             message = finalization?.completionDetail ?? "\(identity.displayName) finished."
@@ -275,15 +278,18 @@ public struct AnalysisRunExecutor: Sendable {
                     CLIEventArtifact(kind: "provenance", path: recordURL.path, role: CLIEventArtifact.Role.provenance)
                 )
             }
-            journal.emit(.complete(outputs: folder.map { [$0.root.path] } ?? [], message: message), artifacts: artifacts)
+            warnings = journal.finish(
+                .complete(outputs: folder.map { [$0.root.path] } ?? [], message: message),
+                artifacts: artifacts
+            )
         case .failed, .cancelled:
             message = ending.message(displayName: identity.displayName) ?? ""
-            journal.emit(.failed(message: message, detail: nil))
+            warnings = journal.finish(.failed(message: message, detail: nil))
         }
         return AnalysisRunReport(
             analysisDirectory: folder?.root,
             status: ending.status,
-            warnings: journal.warnings,
+            warnings: warnings,
             exitCode: ending.exitCode,
             recordURL: recordURL,
             message: message

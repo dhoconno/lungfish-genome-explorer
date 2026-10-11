@@ -9,8 +9,11 @@ import Synchronization
 /// The state of one `AnalysisRunExecutor.execute` call. Each call makes its own and drops it when
 /// the call returns, so the executor itself holds no run state (SWIFT X3).
 ///
-/// Tools call in from `ToolProcess` queues, so the state sits behind a lock and every line goes
-/// out through the run's event sink, which delivers one line at a time.
+/// Tools call in from `ToolProcess` queues, so the state sits behind a lock. Every line goes out
+/// under that lock and then the lock of the run's event sink, which delivers one line at a time,
+/// and no path takes the two the other way. The run's last line seals the stream, so a tool
+/// callback that fires after the run ended, such as a handler on a `ToolProcess` queue or a
+/// context a tool kept, writes no line and adds no warning.
 final class AnalysisRunJournal: Sendable {
     private struct State {
         var warnings: [String] = []
@@ -18,6 +21,8 @@ final class AnalysisRunJournal: Sendable {
         var steps: [ProvenanceStep] = []
         /// The root record's options, the plan's with every later contribution merged in.
         var options = AnalysisRunRecordOptions()
+        /// Set once the last line went out. Every later line is dropped.
+        var sealed = false
     }
 
     private let events: AnalysisRunEvents
@@ -28,19 +33,33 @@ final class AnalysisRunJournal: Sendable {
     }
 
     func emit(_ event: CLIEvent, artifacts: [CLIEventArtifact] = []) {
-        events.emit(event, artifacts: artifacts)
+        state.withLock { state in
+            guard !state.sealed else { return }
+            events.emit(event, artifacts: artifacts)
+        }
     }
 
     /// Writes a log line. A warning line also joins the run's warnings, under the same lock as its
     /// delivery, so the report lists the warnings in the order their lines went out.
     func log(_ level: CLIEventLogLevel, _ message: String) {
-        guard level == .warning else {
-            events.emit(.log(level: level, message: message))
-            return
-        }
         state.withLock { state in
-            state.warnings.append(message)
-            events.emit(.log(level: .warning, message: message))
+            guard !state.sealed else { return }
+            if level == .warning {
+                state.warnings.append(message)
+            }
+            events.emit(.log(level: level, message: message))
+        }
+    }
+
+    /// Writes the run's last line and seals the stream, under the lock every line takes, and
+    /// returns the run's warnings as they stand then. No line goes out after it.
+    func finish(_ event: CLIEvent, artifacts: [CLIEventArtifact] = []) -> [String] {
+        state.withLock { state in
+            if !state.sealed {
+                events.emit(event, artifacts: artifacts)
+                state.sealed = true
+            }
+            return state.warnings
         }
     }
 

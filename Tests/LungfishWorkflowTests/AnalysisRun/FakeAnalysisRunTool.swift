@@ -60,6 +60,7 @@ final class FakeToolProbe: Sendable {
         var sampleNames: [String] = []
         var launchedProcess: Int32?
         var cancelRequested = false
+        var keptContext: AnalysisRunUnitContext?
     }
 
     private let state = Mutex(State())
@@ -71,6 +72,13 @@ final class FakeToolProbe: Sendable {
     }
 
     var cancelRequested: Bool { state.withLock { $0.cancelRequested } }
+
+    /// Keeps a unit's context past its run, as a handler on a `ToolProcess` queue would.
+    func keep(_ context: AnalysisRunUnitContext) {
+        state.withLock { $0.keptContext = context }
+    }
+
+    var keptContext: AnalysisRunUnitContext? { state.withLock { $0.keptContext } }
 
     /// Says a unit is running and waiting for the cancel.
     func signalStarted() {
@@ -214,6 +222,7 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
     func run(_ unit: AnalysisRunUnit<FakeUnitScript>, context: AnalysisRunUnitContext) async throws -> AnalysisUnitOutcome<URL> {
         probe.note("run \(unit.label)")
         probe.noteSampleName(unit.sampleName)
+        probe.keep(context)
         let root = context.rootDirectory
         probe.observe("folderExistsAtRun", FileManager.default.fileExists(atPath: root.path))
         probe.observe("metadataAtRun", AnalysesFolder.readAnalysisMetadata(from: root) != nil)
