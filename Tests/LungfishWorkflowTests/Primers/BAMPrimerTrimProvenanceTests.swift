@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import LungfishWorkflow
 
@@ -113,5 +114,55 @@ final class BAMPrimerTrimProvenanceTests: XCTestCase {
         XCTAssertEqual(relocated.outputFiles[1].path, "/bundle/alignments/final.bam.bai")
         XCTAssertEqual(relocated.outputFiles[1].sha256, "bai-sha")
         XCTAssertEqual(relocated.outputFiles[1].sizeBytes, 20)
+    }
+}
+
+/// The iVar VCF the chapter shows, `Tests/Fixtures/sarscov2-srr36291587/ivar.expected.vcf`. Phase 2.6
+/// lane P5a changes its `##source=` line, which is line 3, and nothing else. The other 109 lines are
+/// pinned by hash, as the header lines and the body, so a change anywhere else fails here.
+final class IVarExpectedVCFFixtureTests: XCTestCase {
+    private func fixtureLines() throws -> [String] {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()  // Primers/
+            .deletingLastPathComponent()  // LungfishWorkflowTests/
+            .deletingLastPathComponent()  // Tests/
+            .appendingPathComponent("Fixtures/sarscov2-srr36291587/ivar.expected.vcf")
+        let text = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(text.hasSuffix("\n"))
+        return text.split(separator: "\n", omittingEmptySubsequences: false).dropLast().map(String.init)
+    }
+
+    private func sha256(_ lines: [String]) -> String {
+        let data = Data((lines.joined(separator: "\n") + "\n").utf8)
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    func testEveryLineButTheSourceLineIsUnchanged() throws {
+        let lines = try fixtureLines()
+        XCTAssertEqual(lines.count, 110)
+        let others = Array(lines[..<2]) + Array(lines[3...])
+        XCTAssertEqual(sha256(others), "13e89dc7d3ad7af5cf2669d70f47d9e274683c1a2dca35f7f4aee3653a49ef4d")
+        let headerButSource = lines.enumerated().filter { $0.element.hasPrefix("#") && $0.offset != 2 }.map(\.element)
+        XCTAssertEqual(headerButSource.count, 18)
+        XCTAssertEqual(sha256(headerButSource), "6d546e9187f167c96a0c7f39f00a51377373beedad453f460011f1175ebb0020")
+        let body = lines.filter { !$0.hasPrefix("#") }
+        XCTAssertEqual(body.count, 91)
+        XCTAssertEqual(sha256(body), "ef4c6746e446154aca28df0c242c9e9cecb30e43fc66c43f59cdd4b437e2c20a")
+        XCTAssertEqual(lines[0], "##fileformat=VCFv4.2")
+        XCTAssertTrue(lines[3].hasPrefix("##contig=<ID=MN908947.3,length=29903>"))
+    }
+
+    func testTheSourceLineNamesIVarFirst() throws {
+        // `VCFHeaderPathSanitizer` keys on the first token after `##source=`.
+        XCTAssertTrue(try fixtureLines()[2].hasPrefix("##source=iVar "))
+    }
+
+    /// At the base of the lane the line carries the package the native tool sites recorded, `ivar`,
+    /// and the product name twice, as the pipeline wrote it before `6bb94c84f`.
+    func testTheSourceLineAtTheLaneBase() throws {
+        XCTAssertEqual(
+            try fixtureLines()[2],
+            "##source=iVar 1.4.4 (managed conda environment ivar; executable ivar; package ivar) (TSV-to-VCF: Lungfish Lungfish dev (0))"
+        )
     }
 }
