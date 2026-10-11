@@ -66,7 +66,8 @@ enum ClassifierParityCase: String, CaseIterable, Sendable {
     /// classification alone, the `.classify` goal `runClassification` also runs.
     var profiles: Bool { tool == .kraken2 && self != .k1 }
 
-    /// How long side A may take. The wait ends as soon as the row finishes.
+    /// How long side A's row and side B's replay may each take. Each wait ends as soon as its
+    /// run finishes.
     var timeout: Duration { isBatch ? .seconds(2_400) : .seconds(1_200) }
 
     /// The wizard's run token, eight characters of a UUID, fixed here. The launch replaces the
@@ -177,7 +178,7 @@ enum ClassifierParitySide: String, CaseIterable, Sendable, CustomStringConvertib
 }
 
 /// How a side's run ended.
-enum ClassifierParityTerminal: Equatable, CustomStringConvertible {
+enum ClassifierParityTerminal: Equatable, Sendable, CustomStringConvertible {
     /// The final state label of an Operations panel row, such as "Completed with Warnings".
     case row(String)
     /// The exit status of a replayed command, 0 when it returned.
@@ -340,7 +341,8 @@ extension ClassifierCLIGUIParityReplayTests {
 
     /// Side B. The command side A's row recorded, rebased onto `root` and run in this process
     /// with `RecordedCLICommand`, the way docs/contracts/CLI-EQUIVALENCE.md replays a command.
-    func runSideB(replaying runA: ClassifierParitySideRun, root: URL) async -> ClassifierParitySideRun {
+    /// The replay may take `timeout`, so a hung replay ends the case and not the tier.
+    func runSideB(replaying runA: ClassifierParitySideRun, root: URL, timeout: Duration) async -> ClassifierParitySideRun {
         guard let command = runA.recordedCommand else {
             return ClassifierParitySideRun(
                 side: .b, root: root, analysisPath: nil, recordedCommand: nil, replayedCommands: [],
@@ -358,10 +360,7 @@ extension ClassifierCLIGUIParityReplayTests {
                     argv: [cliBinary.path] + arguments
                 ))
             }
-            try await RecordedCLICommand.runInProcess(replay)
-            terminal = .exit(0)
-        } catch let exit as ExitCode {
-            terminal = .exit(exit.rawValue)
+            terminal = await Self.replayTerminal(of: replay, timeout: timeout)
         } catch {
             terminal = .error(String(describing: error))
         }
@@ -381,6 +380,31 @@ extension ClassifierCLIGUIParityReplayTests {
             terminal: terminal,
             row: nil
         )
+    }
+
+    /// How `script` ends when it runs in this process, raced against `timeout` in a task group.
+    /// The first to finish wins and the other is cancelled. Cancelling the replay stops the tool
+    /// it runs through ToolProcess, so a replay that hangs ends as `.error("timed out ...")`.
+    nonisolated static func replayTerminal(of script: String, timeout: Duration) async -> ClassifierParityTerminal {
+        await withTaskGroup(of: ClassifierParityTerminal.self) { group in
+            group.addTask {
+                do {
+                    try await RecordedCLICommand.runInProcess(script)
+                    return .exit(0)
+                } catch let exit as ExitCode {
+                    return .exit(exit.rawValue)
+                } catch {
+                    return .error(String(describing: error))
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return .error("timed out after \(timeout)")
+            }
+            let first = await group.next() ?? .error("the replay returned nothing")
+            group.cancelAll()
+            return first
+        }
     }
 
     /// The text fields of a sheet, top to bottom, one per line.

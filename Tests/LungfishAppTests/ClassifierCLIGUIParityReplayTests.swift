@@ -118,6 +118,18 @@ final class ClassifierCLIGUIParityReplayTests: XCTestCase {
     func assertParity(_ parityCase: ClassifierParityCase) async throws {
         let esVirituDatabase = try await requireToolsAndDatabases(for: parityCase)
         let databaseListing = try esVirituDatabase.map { try ClassifierParityFixtures.folderListing($0.folder) }
+        if let folder = esVirituDatabase?.folder, let databaseListing {
+            // Registered before anything below can throw, so a write followed by a throw
+            // still fails the case.
+            let name = parityCase.rawValue
+            addTeardownBlock {
+                XCTAssertEqual(
+                    try ClassifierParityFixtures.folderListing(folder),
+                    databaseListing,
+                    "\(name) wrote into the EsViritu database folder \(folder.path)"
+                )
+            }
+        }
 
         let caseRoot = Self.dumpFolder?.appendingPathComponent(parityCase.rawValue, isDirectory: true)
             ?? scratch.appendingPathComponent(parityCase.rawValue, isDirectory: true)
@@ -136,7 +148,7 @@ final class ClassifierCLIGUIParityReplayTests: XCTestCase {
                 "\(parityCase.rawValue): side A's EsViritu tree has no esviritu.sqlite, so its build-db step failed"
             )
         }
-        let runB = await runSideB(replaying: runA, root: rootB)
+        let runB = await runSideB(replaying: runA, root: rootB, timeout: parityCase.timeout)
 
         var found: [ClassifierParityScope: [ClassifierParityDifference]] = [:]
         found[.side(.a)] = try fixedFactViolations(parityCase, run: runA) + rowOutcomeViolations(parityCase, run: runA)
@@ -153,14 +165,6 @@ final class ClassifierCLIGUIParityReplayTests: XCTestCase {
             if !failures.isEmpty {
                 XCTFail("\(parityCase.rawValue), \(scope):\n" + failures.joined(separator: "\n"))
             }
-        }
-
-        if let esVirituDatabase, let databaseListing {
-            XCTAssertEqual(
-                try ClassifierParityFixtures.folderListing(esVirituDatabase.folder),
-                databaseListing,
-                "\(parityCase.rawValue) wrote into the EsViritu database folder \(esVirituDatabase.folder.path)"
-            )
         }
     }
 
