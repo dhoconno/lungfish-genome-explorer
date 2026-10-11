@@ -356,15 +356,18 @@ extension InspectorViewController {
         return output
     }
 
-    /// The `onEvent` closure the launcher gives the runner. It is a static function
-    /// so a test can feed it the events of a run and read the row.
+    /// The `onEvent` closure the launcher gives the runner, a static function so a test can feed it
+    /// the events of a run and read the row. The shared bridge maps every event onto the row
+    /// (ADDING-AN-OPERATION rule 8), and two rules of this row stay on top of it. The caller workflow
+    /// and the SQLite import each report 0 to 1, so the bar keeps to 0.10...0.88 between the first and
+    /// the last narrated step, and each progress message also goes into the log, where the history
+    /// of this row has always held it.
     static func variantCallingEventHandler(operationID: UUID) -> @Sendable (CLIEvent) -> Void {
-        { event in
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    InspectorViewController.applyVariantCallingEvent(event, operationID: operationID)
-                }
-            }
+        let bridge = OperationCenterCLIBridge.onEvent(operationID: operationID)
+        return { event in
+            guard case let .progress(fraction, message) = event else { return bridge(event) }
+            bridge(.progress(fraction: max(0.10, min(0.88, fraction)), message: message))
+            if !message.isEmpty { bridge(.log(level: .info, message: message)) }
         }
     }
 
@@ -373,41 +376,4 @@ extension InspectorViewController {
         result.trackName.map { "Created variant track \($0)" } ?? "Variant calling complete"
     }
 
-    @MainActor
-    private static func applyVariantCallingEvent(_ event: CLIEvent, operationID: UUID) {
-        let (progress, detail, level): (Double?, String, OperationLogLevel) = {
-            switch event {
-            case let .start(message):
-                return (0.01, message, .info)
-            case let .progress(fraction, message):
-                return (max(0.10, min(0.88, fraction)), message, .info)
-            case let .log(cliLevel, message):
-                return (nil, message, cliLevel.operationLogLevel)
-            case .output:
-                return (nil, "", .info)
-            case .complete:
-                return (0.99, "Reloading bundle...", .info)
-            case let .failed(message, _):
-                return (0.99, message, .error)
-            }
-        }()
-
-        if let progress {
-            _ = OperationCenter.shared.update(id: operationID, progress: progress, detail: detail)
-        }
-        guard !detail.isEmpty else { return }
-        OperationCenter.shared.log(id: operationID, level: level, message: detail)
-    }
-
-}
-
-private extension CLIEventLogLevel {
-    var operationLogLevel: OperationLogLevel {
-        switch self {
-        case .debug: return .debug
-        case .info: return .info
-        case .warning: return .warning
-        case .error: return .error
-        }
-    }
 }

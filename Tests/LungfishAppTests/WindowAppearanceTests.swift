@@ -314,7 +314,7 @@ final class WindowAppearanceTests: XCTestCase {
         let variantCallingLaunch = try sourceSlice(
             controllerSource,
             from: "private func launchVariantCallingOperation",
-            to: "@MainActor\n    private static func applyVariantCallingEvent"
+            to: "private func launchGATKVariantCallingOperation"
         )
 
         // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3

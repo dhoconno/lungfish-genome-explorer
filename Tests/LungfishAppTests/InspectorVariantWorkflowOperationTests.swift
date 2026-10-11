@@ -190,7 +190,8 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
         handle(.start(message: "Starting LoFreq variant calling"))
         await waitForLog(of: id, count: 1)
         XCTAssertEqual(row(id)?.detail, "Starting LoFreq variant calling")
-        XCTAssertEqual(row(id)?.progress, 0.01)
+        // The hand mapper showed the start at 1 percent. The bridge shows it at 0, the value the CLI wrote.
+        XCTAssertEqual(row(id)?.progress, 0)
 
         // The caller workflow and the SQLite import each report 0 to 1, and the bar keeps to 0.10...0.88.
         handle(.progress(fraction: 0.0, message: "Staging reference and alignment inputs"))
@@ -215,10 +216,16 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
         handle(.log(level: .debug, message: "After the output event"))
         await waitForLog(of: id, count: 6)
 
+        // A failed event changes nothing on the row. The transport throws it, and the launcher ends the
+        // row with `fail`, which logs the failure once. The hand mapper also set the bar to 99 percent
+        // and logged the message a second time in front of it.
         handle(.failed(message: "LoFreq stopped", detail: nil))
+        handle(.log(level: .debug, message: "After the failed event"))
         await waitForLog(of: id, count: 7)
-        XCTAssertEqual(row(id)?.progress, 0.99)
-        XCTAssertEqual(row(id)?.detail, "LoFreq stopped")
+        XCTAssertEqual(row(id)?.progress, 0.88)
+        XCTAssertEqual(row(id)?.detail, "Done (2 variants, 0 samples)")
+        XCTAssertTrue(OperationCenter.shared.fail(id: id, detail: "LoFreq stopped", errorMessage: "LoFreq stopped"))
+        XCTAssertEqual(row(id)?.displayStateLabel, "Failed")
 
         XCTAssertEqual(loggedLines(of: id), [
             "info: Starting LoFreq variant calling",
@@ -227,7 +234,8 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
             "info: Done (2 variants, 0 samples)",
             "warning: Reference contig names were matched by alias.",
             "debug: After the output event",
-            "error: LoFreq stopped",
+            "debug: After the failed event",
+            "error: Failed: LoFreq stopped",
         ])
     }
 
