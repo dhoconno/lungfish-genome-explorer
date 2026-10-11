@@ -1422,42 +1422,6 @@ public struct ProvenanceExporter: Sendable {
         return values.filter { seen.insert($0).inserted }
     }
 
-    /// The subject of a tool's methods sentence.
-    private func methodsOperation(tool: String, subcommands: [String]) -> String {
-        let verbs = Set(subcommands.map { $0.split(separator: " ").last.map(String.init) ?? "" })
-        switch tool.lowercased() {
-        case "bcftools":
-            if verbs.contains("mpileup") || verbs.contains("call") {
-                return verbs.contains("view") || verbs.contains("filter")
-                    ? "Variants were called and filtered"
-                    : "Variants were called"
-            }
-            return "Variant files were processed"
-        case "samtools":
-            if verbs.contains("sort") || verbs.contains("index") { return "Alignments were filtered, sorted and indexed" }
-            if verbs.contains("faidx") { return "The reference was indexed" }
-            return "Alignments were processed"
-        case "bgzip": return "Files were block-compressed"
-        case "tabix": return "Compressed files were indexed"
-        case "bedtobigbed": return "BED files were converted to BigBed"
-        case "bedgraphtobigwig": return "Signal tracks were converted to BigWig"
-        case "fastp": return "Reads were quality-filtered and trimmed"
-        case "fastqc": return "Read quality was assessed"
-        case "multiqc": return "Quality reports were aggregated"
-        case "bwa", "bwa-mem2": return "Reads were aligned"
-        case "minimap2": return "Reads were mapped to the reference"
-        case "spades", "spades.py": return "Reads were assembled de novo"
-        case "seqkit": return "Sequences were summarized"
-        case "vsearch": return "Sequences were clustered"
-        case "cutadapt": return "Adapters were trimmed"
-        case "bbduk.sh", "bbduk": return "Reads were quality-filtered and adapters removed"
-        case "bbmerge.sh", "bbmerge": return "Paired reads were merged"
-        case "clumpify.sh", "clumpify": return "Reads were clumped and deduplicated"
-        case "pigz", "gzip": return "Files were compressed"
-        default: return "Processing was performed"
-        }
-    }
-
     // MARK: - JSON Export
 
     /// Exports the full provenance record as formatted JSON.
@@ -1627,11 +1591,49 @@ public struct ProvenanceExporter: Sendable {
     private func portableCommand(_ step: StepExecution) -> String {
         (replayArguments(step) ?? []).map(shellEscape).joined(separator: " ")
     }
+}
+
+extension ProvenanceExporter {
+    /// The subject of a tool's methods sentence.
+    func methodsOperation(tool: String, subcommands: [String]) -> String {
+        let verbs = Set(subcommands.map { $0.split(separator: " ").last.map(String.init) ?? "" })
+        switch tool.lowercased() {
+        case "bcftools":
+            if verbs.contains("mpileup") || verbs.contains("call") {
+                return verbs.contains("view") || verbs.contains("filter")
+                    ? "Variants were called and filtered"
+                    : "Variants were called"
+            }
+            return "Variant files were processed"
+        case "samtools":
+            if verbs.contains("sort") || verbs.contains("index") { return "Alignments were filtered, sorted and indexed" }
+            if verbs.contains("faidx") { return "The reference was indexed" }
+            return "Alignments were processed"
+        case "bgzip": return "Files were block-compressed"
+        case "tabix": return "Compressed files were indexed"
+        case "bedtobigbed": return "BED files were converted to BigBed"
+        case "bedgraphtobigwig": return "Signal tracks were converted to BigWig"
+        case "fastp": return "Reads were quality-filtered and trimmed"
+        case "fastqc": return "Read quality was assessed"
+        case "multiqc": return "Quality reports were aggregated"
+        case "bwa", "bwa-mem2": return "Reads were aligned"
+        case "minimap2": return "Reads were mapped to the reference"
+        case "spades", "spades.py": return "Reads were assembled de novo"
+        case "seqkit": return "Sequences were summarized"
+        case "vsearch": return "Sequences were clustered"
+        case "cutadapt": return "Adapters were trimmed"
+        case "bbduk.sh", "bbduk": return "Reads were quality-filtered and adapters removed"
+        case "bbmerge.sh", "bbmerge": return "Paired reads were merged"
+        case "clumpify.sh", "clumpify": return "Reads were clumped and deduplicated"
+        case "pigz", "gzip": return "Files were compressed"
+        default: return "Processing was performed"
+        }
+    }
 
     /// The parameters worth a methods sentence, from one command, each as a
     /// noun phrase that reads after "with" (`a minimum mapping quality of
     /// 20`, `secondary alignments (flag 256) excluded`).
-    private func extractKeyParameters(tool: String, argv: [String]) -> [String] {
+    func extractKeyParameters(tool: String, argv: [String]) -> [String] {
         var params: [String] = []
         var index = 1
         let toolName = tool.lowercased()
@@ -1671,7 +1673,7 @@ public struct ProvenanceExporter: Sendable {
 
     /// `(FORMAT/AD[0:1])/(FORMAT/AD[0:0]+FORMAT/AD[0:1])>=0.05 && FORMAT/DP>=10`
     /// as the thresholds a reader wants.
-    private func bcftoolsFilterParameters(_ expression: String) -> [String] {
+    func bcftoolsFilterParameters(_ expression: String) -> [String] {
         var params: [String] = []
         let clauses = expression.components(separatedBy: "&&").map { $0.trimmingCharacters(in: .whitespaces) }
         for clause in clauses {
