@@ -11,9 +11,11 @@ import LungfishTestSupport
 import LungfishWorkflow
 
 /// The Provenance tab never shows an empty or unlabelled view of an existing record (UX
-/// non-negotiable 2). The pane cuts a long record at 80 lines, says so, and says Copy takes the
-/// whole record. These cases drive the real `ProvenanceSection` through ViewInspector, so they
-/// need no window and run with the screen locked.
+/// non-negotiable 2). The pane cuts a long record at 80 lines and says so, and says Copy takes the
+/// whole record. A record past the display caps says it is too large and offers Reveal in Finder,
+/// and text that is not the file's own says it shows the decoded record. These cases drive the
+/// real `ProvenanceSection` through ViewInspector, so they need no window and run with the
+/// screen locked.
 @MainActor
 final class ProvenanceRawJSONDisplayTests: XCTestCase {
     // MARK: - The 80-line cut
