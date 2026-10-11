@@ -1,0 +1,20 @@
+# Every classifier result layout LGE writes today and the layouts the 2.7 executor writes.
+# Columns are type, title, badge, subtitle, path and routing keys.
+folder | Analyses | symbol flask | - | Analyses | accessibilityIdentifier=sidebar-group-analyses
+  batchGroup | esviritu-batch-2026-02-09T12-00-00 | text ES | 1 samples · 2026-02-09T12-00-00 | Analyses/esviritu-batch-2026-02-09T12-00-00 | -
+  batchGroup | esviritu-batch-2026-02-09T12-10-00 | text ES | 1 samples · 2026-02-09T12-10-00 | Analyses/esviritu-batch-2026-02-09T12-10-00 | -
+  batchGroup | esviritu-batch-2026-02-11T11-00-00 | text ES | 1 samples · 2026-02-11T11-00-00 | Analyses/esviritu-batch-2026-02-11T11-00-00 | -
+  esvirituResult | esviritu-golden | text ES | Viral Detection (1 viruses) | Analyses/esviritu-golden | analysisTool=esviritu
+  esvirituResult | esviritu-HG002_import | text ES | Viral Detection (3 viruses) | Analyses/esviritu-HG002_import | analysisTool=esviritu
+  esvirituResult | HG002 viral detection | text ES | Viral Detection (1 viruses) | Analyses/HG002 viral detection | analysisTool=esviritu
+  classificationResult | kraken2-2026-02-09T09-00-00 | text K2 | Classification (Viral) | Analyses/kraken2-2026-02-09T09-00-00 | analysisTool=kraken2
+  classificationResult | kraken2-2026-02-11T09-00-00 | text K2 | Classification (Viral) | Analyses/kraken2-2026-02-11T09-00-00 | analysisTool=kraken2
+  batchGroup | kraken2-batch-2026-02-09T10-00-00 | text K2 | 2 samples · Viral · 2026-02-09T10-00-00 | Analyses/kraken2-batch-2026-02-09T10-00-00 | -
+  batchGroup | kraken2-batch-2026-02-09T11-00-00 | text K2 | 2 samples · Viral · 2026-02-09T11-00-00 | Analyses/kraken2-batch-2026-02-09T11-00-00 | -
+  batchGroup | kraken2-batch-2026-02-11T10-00-00 | text K2 | 2 samples · Viral · 2026-02-11T10-00-00 | Analyses/kraken2-batch-2026-02-11T10-00-00 | -
+  classificationResult | kraken2-golden | text K2 | Classification (Viral) | Analyses/kraken2-golden | analysisTool=kraken2
+  classificationResult | Sample A kraken2 | text K2 | Classification (Viral) | Analyses/Sample A kraken2 | analysisTool=kraken2
+  classificationResult | Sample run 12 | text K2 | Classification (Viral) | Analyses/Sample run 12 | analysisTool=kraken2
+folder | Imports | symbol folder | - | Imports | -
+  folder | Kraken2 CLI output | symbol folder | - | Imports/Kraken2 CLI output | -
+    unknown | classification.kreport | symbol doc.questionmark | - | Imports/Kraken2 CLI output/classification.kreport | -

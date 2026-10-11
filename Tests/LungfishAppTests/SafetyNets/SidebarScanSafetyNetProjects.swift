@@ -154,6 +154,23 @@ enum SidebarScanSafetyNetProjects {
         return project
     }
 
+    // MARK: - Classifier result layouts
+
+    /// Every classifier result layout LGE writes today and the layouts the 2.7
+    /// analysis run executor will write, built by ClassifierLayoutFixtures.
+    ///
+    /// This project is deliberately not in `all`. `all` is the list that
+    /// SidebarScanSafetyNetTests names one test method per project for.
+    /// ClassifierLayoutReaderPinTests compares this project with its own
+    /// snapshot (Tests/Fixtures/sidebar-scan/classifier-layouts.txt) and checks
+    /// the routes of the same folders beside it, so one suite owns both halves.
+    static let classifierLayoutProject = SidebarScanFixtureProject(
+        name: "classifier-layouts",
+        summary: "Every classifier result layout LGE writes today and the layouts the 2.7 executor writes."
+    ) { root in
+        try ClassifierLayoutFixtures.writeProject(in: root)
+    }
+
     // MARK: - Analysis naming patterns
 
     /// Every analysis folder name the scanner recognises, and the folders it
