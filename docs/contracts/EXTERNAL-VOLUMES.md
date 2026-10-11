@@ -41,7 +41,7 @@ A record that a later run rewrites, such as a provenance record, goes through `D
 
 `DurableReplace.transaction` groups many publications under one flush, so a bundle that writes 101 records flushes the drive once. `ProvenanceWriter` writes rewrites, signed writes and observed writes this way. A first write that replaces nothing keeps `DurableAtomicFileStore.create`, which never replaces a file, and joins the same flush.
 
-Five other record writers publish through `DurableReplace` too. Each file goes out in one call that names the file and its folder, so its name holds a complete old or new file at every step and no stage file stays behind.
+Five other record writers publish through `DurableReplace` too. Each file goes out in one call that names the file and its folder, so its name holds a complete old or new file at every step and a failed call removes its stage file.
 
 - `BundleManifest.save(to:)` in `Sources/LungfishCore/Bundles/BundleManifest.swift` publishes `manifest.json`.
 - `AnalysesFolder.writeAnalysisMetadata(_:to:)` in `Sources/LungfishIO/Bundles/AnalysesFolder.swift` publishes `analysis-metadata.json`.
@@ -51,7 +51,7 @@ Five other record writers publish through `DurableReplace` too. Each file goes o
 
 The genotype coordinator also restores a name that an interrupted ExFAT swap emptied before it reads its snapshot, so an edit is never built from nothing. `DurableReplace` never replaces a link, so the coordinator first turns a link that the earlier generation-based annotation store left under either name into a file that holds the same bytes.
 
-Before it stages, a publication restores a name that holds nothing from its newest leftover that holds bytes. A leftover is a `.lungfish-swap-` tombstone or an aside the caller names, such as the `.<name>.provenance-displaced-<UUID>` copy that earlier releases left when a rewrite stopped halfway. An empty file under the name beside such a leftover is the reservation of a rename that never ran, and it gives way to the leftover. A caller whose observer saw the name empty passes `Recovery.none`, so the observer's receipt still holds. `DurableReplace.recover` runs the same restore on its own. Inside a project, opening the project restores an entry an empty reservation holds before anything reads it. Outside a project the next write of the record restores it, because a read runs no recovery.
+Before it stages, a publication restores a name that holds nothing from its newest leftover that holds bytes. A leftover is a `.lungfish-swap-` tombstone or an aside the caller names, such as the `.<name>.provenance-displaced-<UUID>` copy that earlier releases left when a rewrite stopped halfway. An empty file under the name beside such a leftover is the reservation of a rename that never ran, and it gives way to the leftover. A caller whose observer saw the name empty passes `Recovery.none`, so the observer's receipt still holds. `DurableReplace.recover` runs the same restore on its own. Inside a project, opening the project restores an entry an empty reservation holds before anything reads it. Outside a project the next write of the record restores it, because a read runs no recovery. A writer that reads its file before it rewrites it, such as the dependency receipt and the genotype pair, restores the name first.
 
 ## Opening a folder without following links
 
