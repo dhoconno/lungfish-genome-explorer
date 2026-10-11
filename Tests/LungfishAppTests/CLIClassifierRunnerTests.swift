@@ -135,7 +135,9 @@ final class CLIClassifierRunnerTests: XCTestCase {
     // MARK: - Cancel
 
     /// A cancel stops the command and every process it started, also one that ignores SIGTERM,
-    /// which SIGKILL stops after the grace.
+    /// which SIGKILL stops after the grace. The run ends under 9 seconds after the cancel, inside
+    /// the 10 seconds `OperationCenter` waits for a cancelling row before it logs that the worker
+    /// did not respond (review fix 7).
     func testACancelStopsTheCommandsProcessTree() async throws {
         let root = try TestTempDirectory.make(prefix: "cli-classifier-runner-cancel")
         defer { TestTempDirectory.cleanup(root) }
@@ -162,12 +164,16 @@ final class CLIClassifierRunnerTests: XCTestCase {
         let childPID = try await waitForPID(in: childPIDURL)
         defer { ProcessTreeTerminator.terminate(rootPID: childPID, gracePeriod: 0) }
 
+        let clock = ContinuousClock()
+        let cancelledAt = clock.now
         runner.cancel()
         let outcome = await run.result
+        let cancelTook = clock.now - cancelledAt
 
         guard case .failure(let error) = outcome, error is CancellationError else {
             return XCTFail("a cancelled run must end in CancellationError, got \(outcome)")
         }
+        XCTAssertLessThan(cancelTook, .seconds(9), "the cancel took \(cancelTook), past the row's cancel window")
         let stopped = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(25)) {
             !ProcessTreeTerminator.processExists(pid: childPID)
         }
