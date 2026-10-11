@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -227,7 +228,14 @@ def test_lock_database_records_the_installed_files(tmp_path):
 
 def test_the_golden_home_is_group_writable_and_passes_its_group_on(tmp_path):
     home = tmp_path / "lungfish-golden"
-    environment.prepare_golden_home(home)
+    # prepare_golden_home sets the process umask for the golden run that
+    # follows it, so restore it here or every later test file in this
+    # pytest process makes group-writable folders.
+    previous = os.umask(0o022)
+    try:
+        environment.prepare_golden_home(home)
+    finally:
+        os.umask(previous)
     assert home.stat().st_mode & 0o7777 == 0o2775
 
 
