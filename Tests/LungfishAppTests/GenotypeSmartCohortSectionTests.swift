@@ -9,6 +9,7 @@ import SwiftUI
 @testable import LungfishGenotypeUI
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 
 @MainActor
 final class GenotypeSmartCohortSectionTests: XCTestCase {
@@ -142,6 +143,57 @@ final class GenotypeSmartCohortSectionTests: XCTestCase {
         hosting.layoutSubtreeIfNeeded()
 
         XCTAssertGreaterThan(hosting.fittingSize.height, 0)
+    }
+
+    // MARK: - Restore Built-In Cohorts (plan decision S13)
+
+    func testRestoreIsOfferedOnlyWhenABuiltInCohortIsMissing() {
+        let all = GenotypeAnnotationStore.builtInSmartCohorts.map { GenotypeSmartCohortSection.DisplayedCohort(filter: $0, count: 0) }
+        let lacking = all.filter { $0.filter.name != "Homozygous" }
+        var restores = 0
+
+        XCTAssertEqual(
+            GenotypeSmartCohortSection(cohorts: all, onSelect: { _ in }, onDelete: { _ in }, onAdd: { }).restorableBuiltInNames,
+            []
+        )
+        let section = GenotypeSmartCohortSection(
+            cohorts: lacking, onSelect: { _ in }, onDelete: { _ in }, onAdd: { },
+            onRestoreBuiltIns: { restores += 1 }
+        )
+        XCTAssertEqual(section.restorableBuiltInNames, ["Homozygous"])
+        section.onRestoreBuiltIns?()
+        XCTAssertEqual(restores, 1)
+    }
+
+    func testTheRestoreButtonAppearsWithAMissingBuiltInAndAnAction() throws {
+        let lacking = GenotypeAnnotationStore.builtInSmartCohorts
+            .filter { $0.name != "Recombinants" }
+            .map { GenotypeSmartCohortSection.DisplayedCohort(filter: $0, count: 0) }
+        let offered = AccessibilityTreeProbe.host(
+            GenotypeSmartCohortSection(cohorts: lacking, onSelect: { _ in }, onDelete: { _ in }, onAdd: { }, onRestoreBuiltIns: { }),
+            size: CGSize(width: 320, height: 320)
+        )
+        let withoutAction = AccessibilityTreeProbe.host(
+            GenotypeSmartCohortSection(cohorts: lacking, onSelect: { _ in }, onDelete: { _ in }, onAdd: { }),
+            size: CGSize(width: 320, height: 320)
+        )
+        defer {
+            offered.orderOut(nil)
+            withoutAction.orderOut(nil)
+        }
+        let offeredRoot = try XCTUnwrap(offered.contentView)
+        var button: NSObject?
+        AccessibilityTreeProbe.waitUntil {
+            button = AccessibilityTreeProbe.element(in: offeredRoot, identifier: "genotypeSmartCohortRestoreButton")
+            return button != nil
+        }
+
+        XCTAssertNotNil(button, AccessibilityTreeProbe.dump(offeredRoot))
+        let otherRoot = try XCTUnwrap(withoutAction.contentView)
+        AccessibilityTreeProbe.waitUntil {
+            AccessibilityTreeProbe.element(in: otherRoot, identifier: "genotypeSmartCohortAddButton") != nil
+        }
+        XCTAssertNil(AccessibilityTreeProbe.element(in: otherRoot, identifier: "genotypeSmartCohortRestoreButton"))
     }
 
     // MARK: - Helpers

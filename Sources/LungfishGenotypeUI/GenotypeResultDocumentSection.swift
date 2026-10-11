@@ -353,7 +353,23 @@ public struct GenotypeResultDocumentSection: View {
             onAdd: {
                 guard state.hasHaplotypingResult else { return }
                 onSmartCohortAddRequested?()
-            }
+            },
+            onRestoreBuiltIns: restoreBuiltInSmartCohortsAction
+        )
+    }
+
+    private var restoreBuiltInSmartCohortsAction: (() -> Void)? {
+        guard state.hasHaplotypingResult else { return nil }
+        return { requestBuiltInSmartCohortRestore() }
+    }
+
+    /// Asks the viewer of this window to bring back the built-in Smart Cohorts
+    /// the bundle lacks, as the Open Definitions button asks it to open them.
+    private func requestBuiltInSmartCohortRestore() {
+        NotificationCenter.default.post(
+            name: .genotypeResultSmartCohortsRestoreRequested,
+            object: nil,
+            userInfo: windowScopedUserInfo()
         )
     }
 

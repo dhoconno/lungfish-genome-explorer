@@ -316,7 +316,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         guard case .ineligible(let reason) = manualHaplotypeEligibility else { return nil }
         return reason
     }
-    private var hasHaplotypingResult = false
+    private(set) var hasHaplotypingResult = false
     private var sampleMetadataStore: SampleMetadataStore?
     private(set) var annotationStore: GenotypeAnnotationStore?
     private var manualHaplotypeEditorModel:
@@ -627,6 +627,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             name: .genotypeResultSmartCohortDeleteRequested,
             object: nil
         )
+        observeSmartCohortRestoreRequests()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleSampleDetailSheetRequest(_:)),
@@ -823,7 +824,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
 
     /// The scope this controller filters window events by. It is the scope
     /// the App hands it, or else the scope of the project window that shows it.
-    private var windowEventScope: WindowStateScope? {
+    var windowEventScope: WindowStateScope? {
         windowStateScope ?? ScopedEventFilter.hostingWindowScope(of: viewIfLoaded)
     }
 
@@ -888,7 +889,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         }
     }
 
-    private func refreshVisibleFilterDependentViews(rebuildCohortSummary shouldRebuildCohortSummary: Bool = false) {
+    func refreshVisibleFilterDependentViews(rebuildCohortSummary shouldRebuildCohortSummary: Bool = false) {
         if selectedLens == .summary {
             if !comparisonMatrix.isHidden {
                 applyComparisonMatrixCohortFilter()

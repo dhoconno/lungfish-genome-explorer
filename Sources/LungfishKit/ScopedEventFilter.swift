@@ -141,6 +141,7 @@ public enum ScopedEventFilter {
         Notification.Name("com.lungfish.genotypeResultSmartCohortApplied"): .window,
         Notification.Name("com.lungfish.genotypeResultSmartCohortSaveRequested"): .window,
         Notification.Name("com.lungfish.genotypeResultSmartCohortDeleteRequested"): .window,
+        Notification.Name("com.lungfish.genotypeResultSmartCohortsRestoreRequested"): .window,
         Notification.Name("com.lungfish.genotypeResultExcelExportRequested"): .window,
         Notification.Name("com.lungfish.genotypeResultRequestSampleDetailSheet"): .window,
         Notification.Name("com.lungfish.genotypeResultShowsAncillaryLociChanged"): .window,

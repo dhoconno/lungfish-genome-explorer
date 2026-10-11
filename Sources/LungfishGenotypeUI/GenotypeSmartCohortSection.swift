@@ -12,6 +12,8 @@ import LungfishIO
 /// Each row shows the cohort name, a star icon for user-scope cohorts, the matching subject count,
 /// and a contextual delete button. Tapping a row selects the cohort; the "+ Add" affordance at the
 /// bottom invokes `onAdd` so the caller can present a "Save current filter" sheet.
+///
+/// Restore Built-In Cohorts appears when a built-in cohort is missing (plan decision S13).
 public struct GenotypeSmartCohortSection: View {
     private let typographyModel = ContentTypographyModel.shared
     private var contentBodyFont: Font { typographyModel.font(for: .body) }
@@ -32,6 +34,7 @@ public struct GenotypeSmartCohortSection: View {
     var onSelect: (GenotypeCohortSmartFilter) -> Void
     var onDelete: (GenotypeCohortSmartFilter) -> Void
     var onAdd: () -> Void
+    var onRestoreBuiltIns: (() -> Void)?
 
     @State private var isExpanded = true
 
@@ -39,12 +42,20 @@ public struct GenotypeSmartCohortSection: View {
         cohorts: [DisplayedCohort],
         onSelect: @escaping (GenotypeCohortSmartFilter) -> Void,
         onDelete: @escaping (GenotypeCohortSmartFilter) -> Void,
-        onAdd: @escaping () -> Void
+        onAdd: @escaping () -> Void,
+        onRestoreBuiltIns: (() -> Void)? = nil
     ) {
         self.cohorts = cohorts
         self.onSelect = onSelect
         self.onDelete = onDelete
         self.onAdd = onAdd
+        self.onRestoreBuiltIns = onRestoreBuiltIns
+    }
+
+    /// The built-in cohorts the list lacks, which Restore Built-In Cohorts brings back.
+    public var restorableBuiltInNames: [String] {
+        let shown = Set(cohorts.map(\.filter.name))
+        return GenotypeAnnotationStore.builtInSmartCohorts.map(\.name).filter { !shown.contains($0) }
     }
 
     public var body: some View {
@@ -69,6 +80,17 @@ public struct GenotypeSmartCohortSection: View {
                 .controlSize(.regular)
                 .padding(.top, 4)
                 .accessibilityIdentifier("genotypeSmartCohortAddButton")
+
+                if let onRestoreBuiltIns, !restorableBuiltInNames.isEmpty {
+                    Button(action: onRestoreBuiltIns) {
+                        Label("Restore Built-In Cohorts", systemImage: "arrow.uturn.backward.circle")
+                            .font(contentBodyFont)
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.regular)
+                    .help("Bring back " + restorableBuiltInNames.joined(separator: ", "))
+                    .accessibilityIdentifier("genotypeSmartCohortRestoreButton")
+                }
             }
             .padding(.top, 4)
         }

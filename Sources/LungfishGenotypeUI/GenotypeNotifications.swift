@@ -27,6 +27,11 @@ public extension Notification.Name {
     /// `userInfo["cohort"]` is the `GenotypeCohortSmartFilter` JSON.
     static let genotypeResultSmartCohortDeleteRequested = Notification.Name("com.lungfish.genotypeResultSmartCohortDeleteRequested")
 
+    /// Posted when the analyst chooses Restore Built-In Cohorts in the Inspector
+    /// Document section, which brings back the built-in Smart Cohorts the
+    /// bundle lacks and empties their dismissals (plan decision S13).
+    static let genotypeResultSmartCohortsRestoreRequested = Notification.Name("com.lungfish.genotypeResultSmartCohortsRestoreRequested")
+
     /// Posted when the analyst requests a frozen, one-way Excel report containing
     /// all evidence and the current filtered view.
     static let genotypeResultExcelExportRequested = Notification.Name("com.lungfish.genotypeResultExcelExportRequested")
