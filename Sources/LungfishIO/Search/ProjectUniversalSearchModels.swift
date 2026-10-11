@@ -273,6 +273,19 @@ enum ProjectUniversalSearchResultKind: String, CaseIterable, Sendable {
         guard let tool = AnalysesFolder.analysisInfo(for: directory)?.tool else { return nil }
         return present.first { $0.analysisID.rawValue == tool }
     }
+
+    /// The `manifest.json` of a folder that only this table claims, or nil.
+    ///
+    /// The prefix ladders this table replaced skipped a folder they named and walked every other folder,
+    /// where its manifest.json became a manifest document. A folder no old prefix names is claimed now, so
+    /// it keeps that document beside its result row. NAO-MGS can fail to decode the manifest and NVD reads
+    /// only its database, so the document can be all a folder leaves.
+    func keptManifestDocument(in directory: URL) -> URL? {
+        let manifest = directory.appendingPathComponent("manifest.json")
+        guard !directory.lastPathComponent.hasPrefix(folderPrefixes[0]),
+              FileManager.default.fileExists(atPath: manifest.path) else { return nil }
+        return manifest
+    }
 }
 
 // MARK: - ProjectUniversalSearchQueryParser

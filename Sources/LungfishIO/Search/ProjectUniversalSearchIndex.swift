@@ -401,6 +401,7 @@ public final class ProjectUniversalSearchIndex {
 
                 if let resultKind = ProjectUniversalSearchResultKind.recognize(directory: url) {
                     resultDirs[resultKind, default: []].append(url)
+                    if let manifest = resultKind.keptManifestDocument(in: url) { manifestFiles.append(manifest) }
                     enumerator.skipDescendants()
                 }
                 continue
@@ -516,6 +517,9 @@ public final class ProjectUniversalSearchIndex {
                     try indexReferenceBundle(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
                 } else if let resultKind = ProjectUniversalSearchResultKind.recognize(directory: url) {
                     try indexResult(of: resultKind, at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
+                    if let manifest = resultKind.keptManifestDocument(in: url) {
+                        try indexManifestDocument(at: manifest, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
+                    }
                 }
             }
 

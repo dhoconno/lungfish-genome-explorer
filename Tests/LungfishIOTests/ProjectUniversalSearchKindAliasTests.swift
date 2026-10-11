@@ -229,6 +229,25 @@ final class ProjectUniversalSearchKindAliasTests: XCTestCase {
         XCTAssertEqual(try index.search(rawQuery: "type:kraken2", limit: 20).map(\.kind), ["classification_result"])
     }
 
+    func testRenamedBundlesKeepTheirManifestAsADocument() throws {
+        // Neither renamed folder is named by an old prefix, so each manifest.json was a manifest document
+        // before the table claimed the folder. NAO-MGS cannot decode this manifest and NVD reads only its
+        // database, so the document may be all a folder leaves. A folder an old prefix names stays whole.
+        _ = try makeBundleFolder("Analyses/Wastewater week 12", manifest: #"{"taxonCount":3}"#)
+        _ = try makeBundleFolder("Analyses/Novel virus screen", manifest: #"{"experiment":"100"}"#)
+        try makeNvdFolder("Analyses/nvd-demo")
+        try #"{"experiment":"100"}"#.write(
+            to: projectURL.appendingPathComponent("Analyses/nvd-demo/manifest.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let index = try ProjectUniversalSearchIndex(projectURL: projectURL)
+        let stats = try index.rebuild()
+
+        XCTAssertEqual(stats.perKindCounts["manifest_document"], 2)
+    }
+
     // MARK: - The table
 
     func testTheTableHoldsTheFiveKindsTheIndexersStore() {
