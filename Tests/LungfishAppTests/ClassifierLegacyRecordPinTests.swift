@@ -54,11 +54,14 @@ final class ClassifierLegacyRecordPinTests: XCTestCase {
         XCTAssertEqual(record.exitStatus, 0)
     }
 
-    /// Lane A9 flips this (E8). The EsViritu batch record's argv folds every
-    /// sample's inputs into one `esviritu detect --input` named after the
-    /// first sample, with no database, output folder or threads, a command
-    /// that reproduces nothing. The batch row records no command at all
-    /// (`cli-parity-gap` `esviritu-batch`).
+    /// The legacy GUI route keeps this until the GUI's default moves to the
+    /// CLI route (F3, E10) and the route retires (2.9). Its EsViritu batch
+    /// record's argv folds every sample's inputs into one `esviritu detect
+    /// --input` named after the first sample, with no database, output folder
+    /// or threads, a command that reproduces nothing. The batch row records no
+    /// command at all (`cli-parity-gap` `esviritu-batch`). The CLI half pins
+    /// lane A9's flipped behaviour (E8). `esviritu detect --batch` runs the
+    /// same samples, and its batch root record's argv is that command.
     func testEsVirituBatchRecordArgvFoldsEveryInputIntoOneDetect() async throws {
         let root = try TestTempDirectory.make(prefix: "esviritu-batch-argv-pin")
         defer { TestTempDirectory.cleanup(root) }
@@ -81,15 +84,37 @@ final class ClassifierLegacyRecordPinTests: XCTestCase {
         AppDelegate.beginEsVirituBatchOperation(configs: batch.configs, routeContext: nil, reporter: reporter) { _ in }
         XCTAssertEqual(reporter.items.count, 1)
         XCTAssertNil(reporter.items.first?.cliCommand)
+
+        let cliOutput = root.appendingPathComponent("cli-batch", isDirectory: true)
+        let inputPaths = batch.configs.flatMap { $0.inputFiles.map(\.path) }
+        let command = try EsVirituCommand.DetectSubcommand.parse(
+            ["detect", "--input"] + inputPaths
+                + ["--batch", "--db", esviritu.databaseURL.path, "--output", cliOutput.path, "--threads", "2", "--quiet"]
+        )
+        try await command.execute(
+            pipeline: EsVirituPipeline(condaManager: esviritu.condaManager),
+            materializer: FASTQCLIMaterializer(runner: .shared),
+            installedDatabase: { nil }
+        )
+        let cliRecord = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: cliOutput))
+        XCTAssertEqual(Array(cliRecord.argv.prefix(3)), ["lungfish-cli", "esviritu", "detect"])
+        for argument in ["--batch", "--db", "--output", "--threads"] + inputPaths {
+            XCTAssertTrue(cliRecord.argv.contains(argument), "\(argument) is recorded in \(cliRecord.argv)")
+        }
+        XCTAssertEqual(cliRecord.status, .completed)
     }
 
     // MARK: - EsViritu lineage
 
-    /// Lane A9 flips this (D5). The legacy GUI EsViritu launch resolves an
-    /// unplanned virtual bundle without recording where its file came from.
-    /// The record names only the materialized scratch file, which the launch
-    /// deletes after the run, and no `originalInputs`. The CLI resolution of
-    /// the same sample records the bundle.
+    /// The legacy GUI route keeps this until the GUI's default moves to the
+    /// CLI route (F3, E10) and the route retires (2.9). Its EsViritu launch
+    /// resolves an unplanned virtual bundle without recording where its file
+    /// came from. The record names only the materialized scratch file, which
+    /// the launch deletes after the run, and no `originalInputs`. The CLI
+    /// resolution of the same sample records the bundle. The CLI half pins
+    /// lane A9's flipped behaviour (D5). `esviritu detect` on the same bundle
+    /// records the bundle, the command that materialized it, and the bundle's
+    /// manifest and payload with their checksums.
     func testGUIEsVirituRecordOfAnUnplannedVirtualBundleHasNoLineage() async throws {
         let root = try TestTempDirectory.make(prefix: "esviritu-lineage-pin")
         defer { TestTempDirectory.cleanup(root) }
@@ -134,6 +159,36 @@ final class ClassifierLegacyRecordPinTests: XCTestCase {
         cli.recordInputLineage(cliResolved)
         XCTAssertEqual(cli.originalInputFiles, [bundle.standardizedFileURL])
         XCTAssertEqual(EsVirituPipeline.inputLineageParameters(for: cli)["originalInputs"], .array([.file(bundle.standardizedFileURL)]))
+
+        let cliOutput = root.appendingPathComponent("cli-run", isDirectory: true)
+        let command = try EsVirituCommand.DetectSubcommand.parse([
+            "detect", "--input", bundle.path, "--sample", "sample", "--read-format", plan.format.rawValue,
+            "--db", esviritu.databaseURL.path, "--output", cliOutput.path, "--threads", "4", "--quiet",
+        ])
+        try await command.execute(
+            pipeline: EsVirituPipeline(condaManager: esviritu.condaManager),
+            materializer: fixtures.materializer,
+            installedDatabase: { nil }
+        )
+        let cliRecord = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: cliOutput))
+        XCTAssertEqual(cliRecord.options.explicit["originalInputs"], .array([.file(bundle.standardizedFileURL)]))
+        guard case .array(let commands)? = cliRecord.options.explicit["inputMaterializationCommands"] else {
+            return XCTFail("the record holds the commands that materialized its inputs")
+        }
+        XCTAssertTrue(
+            commands.contains {
+                guard case .string(let text) = $0 else { return false }
+                return text.hasPrefix("\(CLICommandIdentity.executableName) fastq materialize ")
+                    && text.contains(bundle.standardizedFileURL.path)
+            },
+            "the fastq materialize command of the bundle: \(commands)"
+        )
+        for name in ["derived.manifest.json", "read-ids.txt"] {
+            let path = resolved(bundle.appendingPathComponent(name).path)
+            let file = cliRecord.files.first { resolved($0.path) == path }
+            XCTAssertNotNil(file, "files names the bundle's \(name): \(cliRecord.files.map(\.path))")
+            XCTAssertNotNil(file?.checksumSHA256, "\(name) has a SHA-256")
+        }
     }
 
     // MARK: - conda classify wrapper
