@@ -27,7 +27,8 @@ enum ClassifierLaunchPath: String, Sendable, Equatable, CaseIterable {
 
     /// The hidden `UserDefaults` key of the path, such as `ClassifierLaunchRoute.kraken2.batch`.
     /// It holds `cli` or `legacy`, or a Boolean that is true for the CLI route, for example
-    /// `defaults write <app id> ClassifierLaunchRoute.kraken2.batch cli`.
+    /// `defaults write <app id> ClassifierLaunchRoute.kraken2.batch legacy`. A string other than
+    /// `cli` or `legacy`, such as `NO` written without `-bool`, reads as the CLI route.
     var defaultsKey: String {
         "ClassifierLaunchRoute.\(rawValue)"
     }

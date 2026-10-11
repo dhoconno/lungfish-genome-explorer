@@ -13,7 +13,7 @@ import LungfishWorkflow
 /// The argv starts from the Workflow builders the recorded commands use,
 /// `ClassificationCLIInvocationBuilder` and `EsVirituCLIInvocationBuilder`. The route names the
 /// project with `--project` in place of the output folder, so the command makes
-/// `Analyses/<tool>[-batch]-<timestamp>/` as today's route does (E1), adds `--batch` for several
+/// `Analyses/<tool>[-batch]-<timestamp>/` as the in-process route does (E1), adds `--batch` for several
 /// samples (E8) and `--format json`, and keeps the builder's `--db-digest` for a Kraken2 database
 /// whose registry entry holds a SHA-256 (E9). The row records this argv, the one the transport
 /// runs.
@@ -190,7 +190,7 @@ extension AppDelegate {
     // MARK: - Launch
 
     /// Runs the Kraken2 `configs` through `lungfish-cli kraken2 classify` with today's row,
-    /// progress, labels and end of run (E15). A launch with no project open takes today's route.
+    /// progress, labels and end of run (E15). A launch with no project open takes the in-process route.
     func runClassificationThroughCLI(
         configs: [ClassificationConfig],
         viewerController: ViewerViewController,
@@ -207,7 +207,7 @@ extension AppDelegate {
     }
 
     /// Runs the EsViritu `configs` through `lungfish-cli esviritu detect` with today's row,
-    /// progress, labels and end of run (E15). A launch with no project open takes today's route.
+    /// progress, labels and end of run (E15). A launch with no project open takes the in-process route.
     func runEsVirituThroughCLI(
         configs: [EsVirituConfig],
         viewerController: ViewerViewController,
@@ -295,7 +295,7 @@ extension AppDelegate {
 
     // MARK: - End of run
 
-    /// Completes the row with today's label and detail and ends the run as today's route does
+    /// Completes the row with today's label and detail and ends the run as the in-process route does
     /// for the tool (UX D15). The command wrote the result, its records and the source bundle
     /// entries, so nothing is written here. The row finishes whether or not the app delegate
     /// that launched the run is still there.

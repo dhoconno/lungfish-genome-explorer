@@ -1,4 +1,4 @@
-// AppDelegate+ClassifierLaunchRouting.swift - Picks today's route or the CLI route for a classifier launch
+// AppDelegate+ClassifierLaunchRouting.swift - Picks the CLI route or the in-process route for a classifier launch
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -8,7 +8,7 @@ import LungfishWorkflow
 
 /// The Tools menu's Kraken2 and EsViritu launches go through here (AppDelegate+ToolsMenu.swift),
 /// which picks the route of each launch from its hidden key (ClassifierLaunchRoute.swift, panel
-/// decision E10). Today's route stays in AppDelegate+Classification.swift, unchanged, until it
+/// decision E10). The in-process route stays in AppDelegate+Classification.swift, unchanged, until it
 /// goes in 2.9 (E14).
 extension AppDelegate {
     /// Runs the Kraken2 configs the dialog hands over, on the route their path's key names.
@@ -46,7 +46,7 @@ extension AppDelegate {
     }
 
     /// The route a launch of `path` takes. The CLI route writes its result into the open project
-    /// with `--project` (E1), so a launch with no project open takes today's route, whatever the
+    /// with `--project` (E1), so a launch with no project open takes the in-process route, whatever the
     /// key says.
     func classifierLaunchRoute(
         for path: ClassifierLaunchPath,
