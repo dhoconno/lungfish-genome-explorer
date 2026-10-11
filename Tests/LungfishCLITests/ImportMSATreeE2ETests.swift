@@ -5,6 +5,7 @@
 import ArgumentParser
 import Foundation
 import LungfishTestSupport
+import LungfishWorkflow
 import XCTest
 @testable import LungfishCLI
 
@@ -39,12 +40,20 @@ final class ImportMSATreeE2ETests: XCTestCase {
         ])
 
         XCTAssertEqual(result.exitCode, 0, "stderr: \(result.stderr)")
-        XCTAssertTrue(result.stdout.contains("\"nativeBundleImportStart\""))
-        XCTAssertTrue(result.stdout.contains("\"nativeBundleImportComplete\""))
 
         let bundleURL = projectURL
             .appendingPathComponent("Multiple Sequence Alignments", isDirectory: true)
             .appendingPathComponent("mhc.lungfishmsa", isDirectory: true)
+        try ImportStreamCapture.assertVersion2Stream(
+            result.stdout,
+            importedPath: bundleURL.path,
+            artifactKind: "multiple-sequence-alignment",
+            artifactRole: "bundle"
+        )
+        XCTAssertTrue(
+            result.stderr.contains("Imported \(bundleURL.path)"),
+            "The summary is human text, so it goes to standard error while events are on: \(result.stderr)"
+        )
         XCTAssertTrue(fileManager.fileExists(atPath: bundleURL.appendingPathComponent("manifest.json").path))
         XCTAssertTrue(fileManager.fileExists(atPath: bundleURL.appendingPathComponent(".lungfish-provenance.json").path))
         let provenance = try String(
@@ -71,12 +80,20 @@ final class ImportMSATreeE2ETests: XCTestCase {
         ])
 
         XCTAssertEqual(result.exitCode, 0, "stderr: \(result.stderr)")
-        XCTAssertTrue(result.stdout.contains("\"nativeBundleImportStart\""))
-        XCTAssertTrue(result.stdout.contains("\"nativeBundleImportComplete\""))
 
         let bundleURL = projectURL
             .appendingPathComponent("Phylogenetic Trees", isDirectory: true)
             .appendingPathComponent("mhc.lungfishtree", isDirectory: true)
+        try ImportStreamCapture.assertVersion2Stream(
+            result.stdout,
+            importedPath: bundleURL.path,
+            artifactKind: "phylogenetic-tree",
+            artifactRole: "bundle"
+        )
+        XCTAssertTrue(
+            result.stderr.contains("Imported \(bundleURL.path)"),
+            "The summary is human text, so it goes to standard error while events are on: \(result.stderr)"
+        )
         XCTAssertTrue(fileManager.fileExists(atPath: bundleURL.appendingPathComponent("manifest.json").path))
         XCTAssertTrue(fileManager.fileExists(atPath: bundleURL.appendingPathComponent(".lungfish-provenance.json").path))
         let provenance = try String(
@@ -89,13 +106,61 @@ final class ImportMSATreeE2ETests: XCTestCase {
         XCTAssertFalse(normalizedProvenance.contains("\"/tmp/"), "Tree provenance should point at final project paths, not /tmp")
     }
 
-    /// Phase 2.6 lane C5, step 1. The stream of `import msa` and `import tree` as `lungfish-cli` printed
-    /// it before version 2 events, captured in process on small fixtures and checked in under
-    /// `Tests/Fixtures/cli-events/legacy`. Step 3 of the lane moves both commands to version 2 events
-    /// and turns this check into the same one on the new transcripts. The old files stay, because
-    /// the legacy name table reads them.
-    func testTheMSAAndTreeImportStreamsArePinnedInTheirOldShape() async throws {
-        try await ImportStreamCapture.assertOldShape(ofLeaves: ["import msa", "import tree"])
+    /// Phase 2.6 lane C5. `import msa` and `import tree` print version 2 events, and each run reads like
+    /// the old stream that the same run printed before, which is checked in under
+    /// `Tests/Fixtures/cli-events/legacy`. The old stream is read through the legacy name table.
+    func testTheMSAAndTreeImportsPrintVersion2EventsThatReadLikeTheOldStreams() async throws {
+        try await ImportStreamCapture.assertVersion2Streams(ofLeaves: ["import msa", "import tree"])
+    }
+
+    /// The summary of an import is human text. While `--format json` is on it goes to standard error,
+    /// where a reader that looks for events never meets it, and `--quiet` silences it. With events
+    /// off the same text stays on standard output and no event line is printed.
+    func testTheSummaryOfAnImportGoesToStandardErrorWhileEventsAreOn() async throws {
+        let summary = [
+            "Imported /work/Project.lungfish/Multiple Sequence Alignments/mhc.lungfishmsa",
+            "Rows: 2",
+            "Columns: 6",
+        ]
+
+        func run(_ arguments: [String]) async throws -> ImportStreamCapture.Output {
+            let scratch = try ImportStreamCapture.Scratch()
+            defer { scratch.remove() }
+            let source = try scratch.write("inputs/mhc.aln", ImportStreamCapture.clustal)
+            let command = try ImportCommand.MSASubcommand.parse(
+                [source.path, "--project", scratch.project.path] + arguments
+            )
+            let output = try await ImportStreamCapture.capture(in: scratch) { try await command.run() }
+            XCTAssertNil(output.thrown)
+            return output
+        }
+
+        let events = try await run(["--format", "json"])
+        XCTAssertEqual(events.standardError, summary)
+        XCTAssertTrue(events.standardOutput.allSatisfy { $0.hasPrefix("{") }, "\(events.standardOutput)")
+        XCTAssertEqual(events.standardOutput.count, 5, "start, three progress lines and complete")
+
+        let quiet = try await run(["--format", "json", "--quiet"])
+        XCTAssertEqual(quiet.standardError, [])
+        XCTAssertEqual(quiet.standardOutput, events.standardOutput)
+
+        let text = try await run([])
+        XCTAssertEqual(text.standardOutput, summary)
+        XCTAssertEqual(text.standardError, [])
+    }
+
+    /// `printHumanLine` is the helper of C-L1 that these commands are the first to call.
+    func testPrintHumanLineWritesToStandardErrorOnlyWhileEventsAreOn() async throws {
+        let scratch = try ImportStreamCapture.Scratch()
+        defer { scratch.remove() }
+
+        let output = try await ImportStreamCapture.capture(in: scratch) {
+            printHumanLine("while events are on", eventsOn: true)
+            printHumanLine("with events off", eventsOn: false)
+        }
+
+        XCTAssertEqual(output.standardError, ["while events are on"])
+        XCTAssertEqual(output.standardOutput, ["with events off"])
     }
 
     private func runCLI(_ arguments: [String]) throws -> (exitCode: Int32, stdout: String, stderr: String) {
@@ -199,6 +264,11 @@ enum ImportStreamCapture {
                 .replacingOccurrences(of: escaped, with: "\\/work")
                 .replacingOccurrences(of: root.path, with: "/work")
         }
+
+        /// The file that a normalized `/work` path names, for a check that it exists.
+        func resolved(_ normalizedPath: String) -> URL {
+            URL(fileURLWithPath: root.path + normalizedPath.dropFirst("/work".count))
+        }
     }
 
     // MARK: Checked-in transcripts
@@ -219,16 +289,27 @@ enum ImportStreamCapture {
         return legacyFolder.appendingPathComponent("\(stem)\(suffix).ndjson")
     }
 
-    /// Runs every case of `leaves` and expects the stream each prints today to be the checked-in
-    /// old-shape transcript. Set `LUNGFISH_RECAPTURE_CLI_EVENTS=1` to write the files instead.
-    static func assertOldShape(
+    /// What each leaf describes its output with, as the kind and the role of its one artifact.
+    private static let artifactShapes: [String: (kind: String, role: String)] = [
+        "import msa": ("multiple-sequence-alignment", "bundle"),
+        "import tree": ("phylogenetic-tree", "bundle"),
+        "import geneious": ("import-collection", "collection"),
+        "import application-export": ("import-collection", "collection"),
+    ]
+
+    /// Runs every case of `leaves` and checks the stream it prints. Standard output holds nothing but
+    /// version 2 event lines. The run reads like the old stream that the same run printed before version 2,
+    /// as the legacy name table maps it, so the progress, the warnings, the failure text and the outputs
+    /// are the ones an older CLI gave. A completion holds one artifact for its output, with the record
+    /// that the import wrote beside it.
+    static func assertVersion2Streams(
         ofLeaves leaves: Set<String>,
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
-        let recapture = ProcessInfo.processInfo.environment["LUNGFISH_RECAPTURE_CLI_EVENTS"] == "1"
         let selected = cases().filter { leaves.contains($0.leaf) }
         XCTAssertEqual(Set(selected.map(\.leaf)), leaves, "Each leaf has cases", file: file, line: line)
+        let decoder = CLIEventLineDecoder()
         for testCase in selected {
             let scratch = try Scratch()
             defer { scratch.remove() }
@@ -239,26 +320,113 @@ enum ImportStreamCapture {
             } else {
                 XCTAssertNil(output.thrown, "\(label) threw \(String(describing: output.thrown))", file: file, line: line)
             }
-            XCTAssertTrue(output.standardError.isEmpty, "\(label) wrote to standard error: \(output.standardError)", file: file, line: line)
 
-            let url = legacyTranscriptURL(leaf: testCase.leaf, name: testCase.name)
-            if recapture {
-                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try (output.standardOutput.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
-                continue
+            let current = try output.standardOutput.map { text -> CLIEventLine in
+                XCTAssertTrue(text.hasPrefix("{"), "\(label) prints text that a reader skips: \(text)", file: file, line: line)
+                let envelope = try XCTUnwrap(try decoder.decodeLine(text), "\(label): \(text)", file: file, line: line)
+                XCTAssertNotNil(envelope.event, "\(label) prints an event that a reader ignores: \(text)", file: file, line: line)
+                XCTAssertEqual(envelope.schemaVersion, CLIEventLine.currentSchemaVersion, "\(label): \(text)", file: file, line: line)
+                return envelope
             }
-            guard let checkedIn = try? String(contentsOf: url, encoding: .utf8) else {
-                XCTFail("No transcript for \(label). Run with LUNGFISH_RECAPTURE_CLI_EVENTS=1 and review the new file", file: file, line: line)
-                continue
-            }
+
+            let legacyURL = legacyTranscriptURL(leaf: testCase.leaf, name: testCase.name)
+            let old = try String(contentsOf: legacyURL, encoding: .utf8)
+                .split(separator: "\n", omittingEmptySubsequences: true)
+                .map { text in
+                    try XCTUnwrap(try decoder.decodeLine(String(text)), "\(legacyURL.lastPathComponent): \(text)", file: file, line: line)
+                }
             XCTAssertEqual(
-                output.standardOutput,
-                checkedIn.split(separator: "\n", omittingEmptySubsequences: true).map(String.init),
-                "\(label) no longer prints the stream pinned in \(url.lastPathComponent)",
+                current.compactMap(\.event),
+                old.compactMap(\.event),
+                "\(label) no longer reads like \(legacyURL.lastPathComponent)",
+                file: file,
+                line: line
+            )
+
+            guard let last = current.last, case let .complete(outputs, _)? = last.event else { continue }
+            let shape = try XCTUnwrap(artifactShapes[testCase.leaf], file: file, line: line)
+            XCTAssertEqual(outputs.count, 1, "\(label) names \(outputs)", file: file, line: line)
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: scratch.resolved(outputs[0]).path),
+                "\(label) names an output that does not exist: \(outputs[0])",
+                file: file,
+                line: line
+            )
+            XCTAssertEqual(last.artifacts.count, 1, "\(label) describes its output once", file: file, line: line)
+            let artifact = try XCTUnwrap(last.artifacts.first, file: file, line: line)
+            XCTAssertEqual(artifact.path, outputs[0], "The artifact describes the output, which stays the import's input", file: file, line: line)
+            XCTAssertEqual(artifact.kind, shape.kind, label, file: file, line: line)
+            XCTAssertEqual(artifact.role, shape.role, label, file: file, line: line)
+            XCTAssertEqual(
+                old.last?.artifacts.map { [$0.kind, $0.path, $0.role ?? ""] },
+                last.artifacts.map { [$0.kind, $0.path, $0.role ?? ""] },
+                "An older CLI's completion reads to the same artifact apart from the record: \(label)",
+                file: file,
+                line: line
+            )
+            let record = try XCTUnwrap(artifact.provenancePath, "\(label) names no provenance record", file: file, line: line)
+            XCTAssertTrue(record.hasSuffix("/.lungfish-provenance.json"), record, file: file, line: line)
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: scratch.resolved(record).path),
+                "\(label) names a record that does not exist: \(record)",
                 file: file,
                 line: line
             )
         }
+    }
+
+    private struct NoCompletion: Error {}
+
+    /// What a real run of the built `lungfish-cli` printed on standard output with `--format json`.
+    /// Returns the completion line after checking that the stream holds nothing but version 2 event
+    /// lines, that it starts, that it ends with the completion and that the completion names
+    /// `importedPath`, when given, in `outputs` and in its one typed artifact.
+    @discardableResult
+    static func assertVersion2Stream(
+        _ standardOutput: String,
+        importedPath: String?,
+        artifactKind: String,
+        artifactRole: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> CLIEventLine {
+        let decoder = CLIEventLineDecoder()
+        let envelopes = try standardOutput
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { text -> CLIEventLine in
+                XCTAssertTrue(text.hasPrefix("{"), "Standard output holds text that a reader skips: \(text)", file: file, line: line)
+                return try XCTUnwrap(try decoder.decodeLine(String(text)), String(text), file: file, line: line)
+            }
+        XCTAssertFalse(standardOutput.contains("nativeBundleImport"), "No private event name is left", file: file, line: line)
+        XCTAssertFalse(standardOutput.contains("applicationExport"), "No private event name is left", file: file, line: line)
+        XCTAssertTrue(envelopes.allSatisfy { $0.event != nil }, "A line is an event this reader ignores", file: file, line: line)
+        XCTAssertTrue(
+            envelopes.allSatisfy { $0.schemaVersion == CLIEventLine.currentSchemaVersion },
+            "A line carries no schemaVersion",
+            file: file,
+            line: line
+        )
+        guard case .start? = envelopes.first?.event else {
+            XCTFail("The stream does not start with a start event", file: file, line: line)
+            throw NoCompletion()
+        }
+        let last = try XCTUnwrap(envelopes.last, file: file, line: line)
+        guard case let .complete(outputs, _)? = last.event else {
+            XCTFail("The stream does not end with a complete event", file: file, line: line)
+            throw NoCompletion()
+        }
+        XCTAssertEqual(outputs.count, 1, "\(outputs)", file: file, line: line)
+        if let importedPath {
+            XCTAssertEqual(outputs, [importedPath], file: file, line: line)
+        }
+        let artifact = try XCTUnwrap(last.artifacts.first, "The completion describes its output", file: file, line: line)
+        XCTAssertEqual(last.artifacts.count, 1, file: file, line: line)
+        XCTAssertEqual(artifact.path, outputs.first, file: file, line: line)
+        XCTAssertEqual(artifact.kind, artifactKind, file: file, line: line)
+        XCTAssertEqual(artifact.role, artifactRole, file: file, line: line)
+        let record = try XCTUnwrap(artifact.provenancePath, "The artifact names its record", file: file, line: line)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: record), "The record does not exist: \(record)", file: file, line: line)
+        return last
     }
 
     // MARK: Running a command
@@ -311,7 +479,7 @@ enum ImportStreamCapture {
         msaCases() + treeCases() + geneiousCases() + applicationExportCases()
     }
 
-    private static let clustal = """
+    static let clustal = """
     CLUSTAL W
 
     seq1 ACGT-A

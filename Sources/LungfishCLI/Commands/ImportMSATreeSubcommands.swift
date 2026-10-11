@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 extension ImportCommand {
     struct MSASubcommand: AsyncParsableCommand {
@@ -30,8 +31,9 @@ extension ImportCommand {
         func run() async throws {
             let sourceURL = URL(fileURLWithPath: inputFile).standardizedFileURL
             let projectURL = URL(fileURLWithPath: projectPath).standardizedFileURL
-            let emitter = NativeBundleImportCLIEventEmitter(enabled: globalOptions.outputFormat == .json)
-            emitter.emitStart(kind: "multiple-sequence-alignment", source: sourceURL.path)
+            let eventsOn = globalOptions.outputFormat == .json
+            let emitter = ImportCLIEventEmitter(enabled: eventsOn)
+            emitter.emitStart(kind: BundleKindID.multipleSequenceAlignment.rawValue)
 
             guard FileManager.default.fileExists(atPath: sourceURL.path) else {
                 emitter.emitFailed("Input file not found: \(sourceURL.path)")
@@ -86,12 +88,12 @@ extension ImportCommand {
                     emitter.emitWarning(warning)
                 }
                 emitter.emitProgress(0.92, message: "Writing MSA provenance...")
-                emitter.emitComplete(bundle: bundleURL.path, warningCount: bundle.manifest.warnings.count)
+                emitter.emitComplete(bundle: bundleURL, kind: .multipleSequenceAlignment)
 
-                if globalOptions.outputFormat != .json && !globalOptions.quiet {
-                    print("Imported \(bundleURL.path)")
-                    print("Rows: \(bundle.manifest.rowCount)")
-                    print("Columns: \(bundle.manifest.alignedLength)")
+                if !globalOptions.quiet {
+                    printHumanLine("Imported \(bundleURL.path)", eventsOn: eventsOn)
+                    printHumanLine("Rows: \(bundle.manifest.rowCount)", eventsOn: eventsOn)
+                    printHumanLine("Columns: \(bundle.manifest.alignedLength)", eventsOn: eventsOn)
                 }
             } catch let exitCode as ExitCode {
                 throw exitCode
@@ -128,8 +130,9 @@ extension ImportCommand {
         func run() async throws {
             let sourceURL = URL(fileURLWithPath: inputFile).standardizedFileURL
             let projectURL = URL(fileURLWithPath: projectPath).standardizedFileURL
-            let emitter = NativeBundleImportCLIEventEmitter(enabled: globalOptions.outputFormat == .json)
-            emitter.emitStart(kind: "phylogenetic-tree", source: sourceURL.path)
+            let eventsOn = globalOptions.outputFormat == .json
+            let emitter = ImportCLIEventEmitter(enabled: eventsOn)
+            emitter.emitStart(kind: BundleKindID.phylogeneticTree.rawValue)
 
             guard FileManager.default.fileExists(atPath: sourceURL.path) else {
                 emitter.emitFailed("Input file not found: \(sourceURL.path)")
@@ -173,12 +176,12 @@ extension ImportCommand {
                     emitter.emitWarning(warning)
                 }
                 emitter.emitProgress(0.92, message: "Writing tree provenance...")
-                emitter.emitComplete(bundle: bundleURL.path, warningCount: bundle.manifest.warnings.count)
+                emitter.emitComplete(bundle: bundleURL, kind: .phylogeneticTree)
 
-                if globalOptions.outputFormat != .json && !globalOptions.quiet {
-                    print("Imported \(bundleURL.path)")
-                    print("Tips: \(bundle.manifest.tipCount)")
-                    print("Internal nodes: \(bundle.manifest.internalNodeCount)")
+                if !globalOptions.quiet {
+                    printHumanLine("Imported \(bundleURL.path)", eventsOn: eventsOn)
+                    printHumanLine("Tips: \(bundle.manifest.tipCount)", eventsOn: eventsOn)
+                    printHumanLine("Internal nodes: \(bundle.manifest.internalNodeCount)", eventsOn: eventsOn)
                 }
             } catch let exitCode as ExitCode {
                 throw exitCode
@@ -190,57 +193,65 @@ extension ImportCommand {
     }
 }
 
-private final class NativeBundleImportCLIEventEmitter: @unchecked Sendable {
-    private struct Event: Encodable {
-        let event: String
-        let kind: String?
-        let source: String?
-        let progress: Double?
-        let message: String?
-        let bundle: String?
-        let warningCount: Int?
-        let error: String?
-    }
-
-    private let enabled: Bool
-    private let lock = NSLock()
+/// The version 2 events of the four import commands, `import msa`, `import tree`, `import geneious`
+/// and `import application-export`, written through the shared `CLIEventEmitter` and `printEventLine`.
+///
+/// Before version 2 each pair of commands had a private emitter and event names of its own, which
+/// `CLIEventLegacyNames` still reads for an older CLI (decision V13). A warning is a `log` event at
+/// level `warning`, so a reader counts them from the events. The completion names the bundle or
+/// collection in `outputs`, the one list an app imports from, and holds one typed artifact that
+/// describes it. A command with `--format json` prints its summary through `printHumanLine`, which
+/// puts the text on standard error while events are on.
+struct ImportCLIEventEmitter: Sendable {
+    private let events: CLIEventEmitter
 
     init(enabled: Bool) {
-        self.enabled = enabled
+        events = CLIEventEmitter(enabled: enabled) { printEventLine($0) }
     }
 
-    func emitStart(kind: String, source: String) {
-        emit(Event(event: "nativeBundleImportStart", kind: kind, source: source, progress: nil, message: nil, bundle: nil, warningCount: nil, error: nil))
+    /// The start line names the kind of what the command imports, such as `phylogenetic-tree`.
+    func emitStart(kind: String) {
+        events.emitStart("Started \(kind) import via lungfish-cli")
     }
 
-    func emitProgress(_ progress: Double, message: String) {
-        emit(Event(event: "nativeBundleImportProgress", kind: nil, source: nil, progress: max(0, min(1, progress)), message: message, bundle: nil, warningCount: nil, error: nil))
+    func emitProgress(_ fraction: Double, message: String) {
+        events.emitProgress(fraction, message: message)
     }
 
     func emitWarning(_ message: String) {
-        emit(Event(event: "nativeBundleImportWarning", kind: nil, source: nil, progress: nil, message: message, bundle: nil, warningCount: nil, error: nil))
+        events.emitLog(.warning, message)
     }
 
-    func emitComplete(bundle: String, warningCount: Int) {
-        emit(Event(event: "nativeBundleImportComplete", kind: nil, source: nil, progress: 1, message: nil, bundle: bundle, warningCount: warningCount, error: nil))
+    /// The completion of an import that made a bundle. The artifact is typed by the bundle kind and
+    /// names the bundle's own provenance record when the importer wrote one.
+    func emitComplete(bundle bundleURL: URL, kind: BundleKindID) {
+        let record = bundleURL.appendingPathComponent(BundleKindDescriptor.SidecarNaming.rootRecordFileName)
+        events.emitComplete(
+            outputs: [bundleURL.path],
+            artifacts: [CLIEventArtifact(
+                kind: kind.rawValue,
+                path: bundleURL.path,
+                role: "bundle",
+                provenancePath: FileManager.default.fileExists(atPath: record.path) ? record.path : nil
+            )]
+        )
     }
 
-    func emitFailed(_ error: String) {
-        emit(Event(event: "nativeBundleImportFailed", kind: nil, source: nil, progress: nil, message: nil, bundle: nil, warningCount: nil, error: error))
+    /// The completion of an import that made a collection folder, with the record it wrote.
+    func emitComplete(collection collectionURL: URL, provenanceURL: URL) {
+        events.emitComplete(
+            outputs: [collectionURL.path],
+            artifacts: [CLIEventArtifact(
+                kind: "import-collection",
+                path: collectionURL.path,
+                role: "collection",
+                provenancePath: provenanceURL.path
+            )]
+        )
     }
 
-    private func emit(_ event: Event) {
-        guard enabled else { return }
-        lock.lock()
-        defer { lock.unlock() }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(event),
-              let line = String(data: data, encoding: .utf8) else {
-            return
-        }
-        print(line)
-        fflush(stdout)
+    func emitFailed(_ message: String) {
+        events.emitFailed(message)
     }
 }
 

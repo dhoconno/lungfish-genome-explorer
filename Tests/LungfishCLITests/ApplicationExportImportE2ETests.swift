@@ -1,5 +1,6 @@
 import Foundation
 import LungfishTestSupport
+import LungfishWorkflow
 import XCTest
 import LungfishCore
 
@@ -17,13 +18,11 @@ final class ApplicationExportImportE2ETests: XCTestCase {
         try super.tearDownWithError()
     }
 
-    /// Phase 2.6 lane C5, step 1. The stream of `import geneious` and `import application-export` as
-    /// `lungfish-cli` printed it before version 2 events, captured in process on small fixtures and
-    /// checked in under `Tests/Fixtures/cli-events/legacy`. Step 3 of the lane moves both commands to
-    /// version 2 events and turns this check into the same one on the new transcripts. The old files
-    /// stay, because the legacy name table reads them.
-    func testTheGeneiousAndApplicationExportImportStreamsArePinnedInTheirOldShape() async throws {
-        try await ImportStreamCapture.assertOldShape(ofLeaves: ["import geneious", "import application-export"])
+    /// Phase 2.6 lane C5. `import geneious` and `import application-export` print version 2 events, and
+    /// each run reads like the old stream that the same run printed before, which is checked in under
+    /// `Tests/Fixtures/cli-events/legacy`. The old stream is read through the legacy name table.
+    func testTheGeneiousAndApplicationExportImportsPrintVersion2EventsThatReadLikeTheOldStreams() async throws {
+        try await ImportStreamCapture.assertVersion2Streams(ofLeaves: ["import geneious", "import application-export"])
     }
 
     func testGeneiousImportRunsThroughCLIWithRepresentativeArchive() throws {
@@ -116,15 +115,21 @@ final class ApplicationExportImportE2ETests: XCTestCase {
         line: UInt = #line
     ) throws -> URL {
         let events = try parseJSONLineEvents(stdout)
-        XCTAssertTrue(events.contains { $0["event"] as? String == "applicationExportImportStart" }, file: file, line: line)
-        XCTAssertTrue(events.contains { $0["event"] as? String == "applicationExportProgress" }, file: file, line: line)
+        XCTAssertTrue(events.contains { $0["event"] as? String == "progress" }, file: file, line: line)
 
-        let complete = try XCTUnwrap(
-            events.first { $0["event"] as? String == "applicationExportImportComplete" },
+        // Version 2 events, with the collection in outputs and described by one artifact.
+        let complete = try ImportStreamCapture.assertVersion2Stream(
+            stdout,
+            importedPath: nil,
+            artifactKind: "import-collection",
+            artifactRole: "collection",
             file: file,
             line: line
         )
-        let collectionPath = try XCTUnwrap(complete["collection"] as? String, file: file, line: line)
+        guard case let .complete(outputs, _)? = complete.event, let collectionPath = outputs.first else {
+            XCTFail("The stream does not end with a complete event", file: file, line: line)
+            throw CocoaError(.fileReadUnknown)
+        }
         let collectionURL = URL(fileURLWithPath: collectionPath, isDirectory: true)
         XCTAssertTrue(fileManager.fileExists(atPath: collectionURL.path), file: file, line: line)
 

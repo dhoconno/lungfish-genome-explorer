@@ -38,8 +38,9 @@ extension ImportCommand {
         func run() async throws {
             let sourceURL = URL(fileURLWithPath: sourcePath)
             let projectURL = URL(fileURLWithPath: projectPath)
-            let emitter = ApplicationExportCLIEventEmitter(enabled: globalOptions.outputFormat == .json)
-            emitter.emitStart(kind: "geneious-export", source: sourceURL.path)
+            let eventsOn = globalOptions.outputFormat == .json
+            let emitter = ImportCLIEventEmitter(enabled: eventsOn)
+            emitter.emitStart(kind: "geneious-export")
 
             guard FileManager.default.fileExists(atPath: sourceURL.path) else {
                 emitter.emitFailed("Input file not found: \(sourceURL.path)")
@@ -68,9 +69,9 @@ extension ImportCommand {
                 for warning in result.warnings {
                     emitter.emitWarning(warning)
                 }
-                emitter.emitComplete(collection: result.collectionURL.path, warningCount: result.warningCount)
-                if globalOptions.outputFormat != .json && !globalOptions.quiet {
-                    print("Imported \(result.collectionURL.path)")
+                emitter.emitComplete(collection: result.collectionURL, provenanceURL: result.provenanceURL)
+                if !globalOptions.quiet {
+                    printHumanLine("Imported \(result.collectionURL.path)", eventsOn: eventsOn)
                 }
             } catch {
                 emitter.emitFailed(error.localizedDescription)
@@ -128,8 +129,9 @@ extension ImportCommand {
 
             let sourceURL = URL(fileURLWithPath: sourcePath)
             let projectURL = URL(fileURLWithPath: projectPath)
-            let emitter = ApplicationExportCLIEventEmitter(enabled: globalOptions.outputFormat == .json)
-            emitter.emitStart(kind: applicationKind.cliArgument, source: sourceURL.path)
+            let eventsOn = globalOptions.outputFormat == .json
+            let emitter = ImportCLIEventEmitter(enabled: eventsOn)
+            emitter.emitStart(kind: applicationKind.cliArgument)
 
             guard FileManager.default.fileExists(atPath: sourceURL.path) else {
                 emitter.emitFailed("Input file not found: \(sourceURL.path)")
@@ -159,9 +161,9 @@ extension ImportCommand {
                 for warning in result.warnings {
                     emitter.emitWarning(warning)
                 }
-                emitter.emitComplete(collection: result.collectionURL.path, warningCount: result.warningCount)
-                if globalOptions.outputFormat != .json && !globalOptions.quiet {
-                    print("Imported \(result.collectionURL.path)")
+                emitter.emitComplete(collection: result.collectionURL, provenanceURL: result.provenanceURL)
+                if !globalOptions.quiet {
+                    printHumanLine("Imported \(result.collectionURL.path)", eventsOn: eventsOn)
                 }
             } catch {
                 emitter.emitFailed(error.localizedDescription)
@@ -190,101 +192,5 @@ private extension ApplicationExportKind {
         } else {
             return nil
         }
-    }
-}
-
-private final class ApplicationExportCLIEventEmitter: @unchecked Sendable {
-    private struct Event: Encodable {
-        let event: String
-        let kind: String?
-        let source: String?
-        let progress: Double?
-        let message: String?
-        let collection: String?
-        let warningCount: Int?
-        let error: String?
-    }
-
-    private let enabled: Bool
-    private let lock = NSLock()
-
-    init(enabled: Bool) {
-        self.enabled = enabled
-    }
-
-    func emitStart(kind: String, source: String) {
-        emit(Event(
-            event: "applicationExportImportStart",
-            kind: kind,
-            source: source,
-            progress: nil,
-            message: nil,
-            collection: nil,
-            warningCount: nil,
-            error: nil
-        ))
-    }
-
-    func emitProgress(_ progress: Double, message: String) {
-        emit(Event(
-            event: "applicationExportProgress",
-            kind: nil,
-            source: nil,
-            progress: max(0, min(1, progress)),
-            message: message,
-            collection: nil,
-            warningCount: nil,
-            error: nil
-        ))
-    }
-
-    func emitWarning(_ message: String) {
-        emit(Event(
-            event: "applicationExportWarning",
-            kind: nil,
-            source: nil,
-            progress: nil,
-            message: message,
-            collection: nil,
-            warningCount: nil,
-            error: nil
-        ))
-    }
-
-    func emitComplete(collection: String, warningCount: Int) {
-        emit(Event(
-            event: "applicationExportImportComplete",
-            kind: nil,
-            source: nil,
-            progress: nil,
-            message: nil,
-            collection: collection,
-            warningCount: warningCount,
-            error: nil
-        ))
-    }
-
-    func emitFailed(_ error: String) {
-        emit(Event(
-            event: "applicationExportImportFailed",
-            kind: nil,
-            source: nil,
-            progress: nil,
-            message: nil,
-            collection: nil,
-            warningCount: nil,
-            error: error
-        ))
-    }
-
-    private func emit(_ event: Event) {
-        guard enabled else { return }
-        lock.lock()
-        defer { lock.unlock() }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(event) else { return }
-        FileHandle.standardOutput.write(data)
-        FileHandle.standardOutput.write(Data([0x0A]))
     }
 }
