@@ -11,10 +11,11 @@ enum CLIClassifierTool: String, Sendable, Equatable, CaseIterable {
     case esViritu
 
     /// The detail today's row shows while the viewer database is built. The command's finalize
-    /// writes the same words as a progress line when it starts the build.
+    /// writes the same words as a progress line when it starts the build. Kraken2's come from the
+    /// command, so the command and this reader share one constant.
     var databaseBuildDetail: String {
         switch self {
-        case .kraken2: return "Building Kraken2 database\u{2026}"
+        case .kraken2: return Kraken2AnalysisRunTool.batchIndexMessage
         case .esViritu: return "Building EsViritu database\u{2026}"
         }
     }

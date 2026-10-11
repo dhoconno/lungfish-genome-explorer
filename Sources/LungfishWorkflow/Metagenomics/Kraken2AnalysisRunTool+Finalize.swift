@@ -33,11 +33,10 @@ extension Kraken2AnalysisRunTool {
         "Database build failed: \(detail) \u{2014} batch will rebuild lazily on open"
     }
 
-    /// The progress line before a batch builds its viewer index, the app's log line
-    /// (`AppDelegate.runClassificationBatch`), so the batch row keeps it on the new route.
-    public static func batchIndexMessage(sampleCount: Int) -> String {
-        "Building kraken2.sqlite from \(sampleCount) sample(s)"
-    }
+    /// The batch row's detail while the viewer index builds, as EsViritu's finalize reports
+    /// `Building EsViritu database…`. The app's row logs today's `Building kraken2.sqlite from N
+    /// sample(s)` line itself.
+    public static let batchIndexMessage = "Building Kraken2 database\u{2026}"
 
     /// Phase P3. A plain one-folder result keeps today's command-line set. A `--project` result
     /// also gets the viewer index and the source bundle record (UX D19). A batch root always gets
@@ -140,7 +139,7 @@ extension Kraken2AnalysisRunTool {
             ]
         )
         var indexError: String?
-        context.progress(Self.batchIndexMessage(sampleCount: completed.count))
+        context.progress(Self.batchIndexMessage)
         do {
             try await add(context.buildIndex(), to: &finalization)
         } catch {

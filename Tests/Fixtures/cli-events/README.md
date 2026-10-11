@@ -136,14 +136,14 @@ Lane A8 of Phase 2.7 ran `kraken2-classify` and `conda-classify` the same way wi
 | --- | --- |
 | `complete` | `kraken2 classify /work/inputs/test_1.fastq.gz --output-dir /work/out/kraken2-test --db Viral --threads 2 --format json`, a plain folder outside a project |
 | `complete-project` | `kraken2 classify /work/inputs/test_1.fastq.gz --project /work/Project.lungfish --db Viral --threads 2 --format json`, which also builds `kraken2.sqlite` in the new folder |
-| `complete-batch` | `kraken2 classify /work/inputs/test_1.fastq.gz /work/inputs/test_2.fastq.gz --batch --project /work/Project.lungfish --db Viral --threads 2 --format json`, which groups the two files into the one paired sample `test` |
+| `complete-batch` | `kraken2 classify /work/inputs/test_1.fastq.gz /work/inputs/negative-control.fastq --batch --project /work/Project.lungfish --db Viral --threads 2 --format json`, two single-read samples given out of sorted order. The command names them `test` and `negative-control` and runs `negative-control` first. Lane X1 ran it again with the CLI built from its branch, after the batch finalize began to report `Building Kraken2 database…` |
 | `complete-profile` | `kraken2 classify /work/inputs/test_1.fastq.gz --profile --project /work/Project.lungfish --db Viral --threads 2 --format json`, whose artifacts include the Bracken profile |
 | `complete-with-warning` | `kraken2 classify /work/inputs/negative-control.fastq --profile --project /work/Project.lungfish --db Viral --threads 2 --format json`. The Bracken preflight finds no species row, so the profile degrades and the run logs one warning before `complete` (decision E4) |
 | `failed` | `kraken2 classify /work/inputs/test_1.fastq.gz --project /work/Project.lungfish --db Missing --threads 2 --format json`, which the plan refuses before any folder exists |
 | `failed-cancelled` | `kraken2 classify /work/inputs/large.fastq --project /work/Project.lungfish --db Viral --threads 2 --format json`. Half a second after the `Running kraken2...` line the CLI and its descendants got SIGTERM, as the app's transport sends it. The CLI exited 125 within a second, and no kraken2 process outlived it |
 | `conda-classify/complete` | `conda classify /work/inputs/test_1.fastq.gz --output-dir /work/out/conda-classify-test --db Viral --threads 2 --format json`, the same command under its older spelling |
 
-The inputs are `test_1.fastq.gz` and `test_2.fastq.gz` of `Tests/Fixtures/sarscov2`, `Tests/Fixtures/classifier-parity/negative-control.fastq`, and `large.fastq`, which holds the reads of `test_1.fastq.gz` 10,000 times over, one million reads in all.
+The inputs are `test_1.fastq.gz` of `Tests/Fixtures/sarscov2`, `Tests/Fixtures/classifier-parity/negative-control.fastq`, and `large.fastq`, which holds the reads of `test_1.fastq.gz` 10,000 times over, one million reads in all.
 
 ## results
 

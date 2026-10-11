@@ -209,6 +209,62 @@ final class CLIClassifierRowEventsTests: XCTestCase {
         XCTAssertFalse(effects.compactMap(\.overlay).contains("Building EsViritu database\u{2026}"), "today's database line has no overlay")
     }
 
+    /// D5, D14, D17, A10 review fix 1 and X1 review fix 1. Lane A8's captured `kraken2 classify
+    /// --batch` run of two samples given out of sorted order, `test_1.fastq.gz` and then
+    /// `negative-control.fastq`, read as today's batch row. The dialog lists the samples as the
+    /// inputs were given and the command runs them in its own order, so each unit's lines name the
+    /// sample of the unit's own label. The finalize's line sets today's detail `Building Kraken2
+    /// database…` with no overlay, the log holds today's `Building kraken2.sqlite from N
+    /// sample(s)` with N the completed count of the `complete` line, and the bar never moves back.
+    func testACapturedKraken2BatchReadsTodaysPrefixesAndDatabaseLine() throws {
+        let root = URL(fileURLWithPath: "/tmp/lane x1", isDirectory: true)
+        let transcript = try CapturedClassifierTranscript.load(command: "kraken2-classify", run: "complete-batch", root: root)
+        let decoder = CLIEventLineDecoder()
+        let events = try transcript.lines.compactMap { try decoder.decode(line: $0) }
+
+        // The lines of each unit as the capture printed them, up to the finalize's `Building` line.
+        var labels: [String] = []
+        var unitLines: [String] = []
+        var current: (index: Int, label: String)?
+        var building = false
+        for event in events {
+            guard case let .progress(_, message) = event, !building else { continue }
+            if let start = CLIClassifierRowEvents.unitStart(message) {
+                labels.append(start.label)
+                current = (start.index, start.label)
+            } else if let current {
+                if message.hasPrefix("Building ") {
+                    building = true
+                } else {
+                    unitLines.append("Sample \(current.index + 1)/2 (\(current.label)): \(message)")
+                }
+            }
+        }
+        XCTAssertEqual(labels, ["negative-control", "test"], "the command runs the samples in its own order, not the inputs'")
+
+        let (rows, effects) = play(events, tool: .kraken2, sampleIDs: ["test", "negative-control"])
+        let logged = logLines(effects)
+        XCTAssertEqual(logged.filter { $0.hasPrefix("info: Sample ") }, unitLines.map { "info: \($0)" })
+        XCTAssertFalse(logged.contains { $0.contains(" of 2).") }, "the executor's unit lines are not shown")
+        XCTAssertEqual(effects.compactMap(\.overlay), unitLines, "the overlay shows the unit lines and nothing of the finalize")
+
+        let progress = progressLines(effects)
+        XCTAssertEqual(progress.last, "1.0 Building Kraken2 database\u{2026}", "today's detail while the index builds")
+        XCTAssertFalse(progress.contains { $0.contains("kraken2.sqlite") }, "the sqlite line is a log line, never the detail")
+        guard case let .complete(_, summary)? = events.last, let summary else { return XCTFail("the capture ends in complete") }
+        let completed = try XCTUnwrap(Int(summary.prefix { $0.isNumber }), summary)
+        XCTAssertEqual(logged.filter { $0.hasPrefix("info: Building ") }, ["info: Building kraken2.sqlite from \(completed) sample(s)"])
+
+        let fractions = effects.flatMap(\.bridged).compactMap { event -> Double? in
+            guard case let .progress(fraction, _) = event else { return nil }
+            return fraction
+        }
+        XCTAssertEqual(fractions, fractions.sorted(), "the bar never moves back")
+        XCTAssertEqual(fractions.last, 1)
+        XCTAssertEqual(effects.compactMap(\.trackedFolder), [try XCTUnwrap(transcript.folder)])
+        XCTAssertEqual(rows.failedUnitReasons, [])
+    }
+
     /// D8, D11. A failed sample of an EsViritu batch reads as today's error line with its reason,
     /// and never as a warning, so the batch reads Completed as today. Since the A8d review the
     /// command sends a sample's log tail only as the detail of a run's one failure, so the row

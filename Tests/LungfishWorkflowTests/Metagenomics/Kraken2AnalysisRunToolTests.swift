@@ -240,13 +240,15 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
         XCTAssertEqual(summary.split(separator: "\n").count, 4)
         XCTAssertEqual(indexer.requests, [batchRoot.standardizedFileURL.path])
         XCTAssertEqual(run.report.message, "3 of 3 samples returned valid Kraken2 classifications")
-        // The app's batch log line before the index (lane A10's request).
+        // The batch row's detail while the index builds is today's (UX D5, X1 review fix 1), and
+        // the app's row logs the `Building kraken2.sqlite from N sample(s)` line itself.
+        XCTAssertEqual(Kraken2AnalysisRunTool.batchIndexMessage, "Building Kraken2 database\u{2026}")
         let building = run.events.firstIndex { line in
-            if case .progress(_, let message)? = line.event { return message == "Building kraken2.sqlite from 3 sample(s)" }
+            if case .progress(_, let message)? = line.event { return message == Kraken2AnalysisRunTool.batchIndexMessage }
             return false
         }
         let completed = run.events.firstIndex { kind(of: $0.event) == "complete" }
-        XCTAssertNotNil(building, "the batch says it builds kraken2.sqlite")
+        XCTAssertNotNil(building, "the batch says it builds the viewer index")
         XCTAssertLessThan(building ?? .max, completed ?? .min)
         let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: XCTUnwrap(run.report.recordURL)))
         XCTAssertEqual(record.argv, argv, "the batch records the command that ran, not a shell script (E8)")
