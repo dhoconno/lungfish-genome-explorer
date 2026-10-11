@@ -11,7 +11,9 @@
 //   `source_dir` by the root mask). A provenance record is compared by its facts instead.
 // - The source bundle's analyses-manifest.json, under the same masks.
 // - The input bundles. Both sides start from one copy, so every other byte of `Imports/` must
-//   stay the same on both.
+//   stay the same on both, the analyses-manifest.json of any bundle outside the case included.
+// - The rest of the project outside `Imports/` and the analysis folders, so a stray write, such
+//   as a scratch file left in `.tmp/` or a second analysis folder, shows.
 // - Every provenance record found on both sides, projected with `ProvenanceCompatFacts`. Each
 //   fact of the reference side must appear with an equal value on the other side, and facts
 //   the other side adds pass. Values compare equal when they differ only in UUIDs or in the
@@ -107,6 +109,8 @@ enum ClassifierParityComparison {
         }
 
         // Both sides start from one copy, so the inputs compare byte for byte, UUIDs included.
+        // Only the source manifests of the case's own bundles are left out, compared above, so a
+        // write to another bundle's manifest shows.
         var inputPolicy = policy
         for unmasked in ["uuids", "runIDs"] {
             inputPolicy.records.removeAll { $0.name == unmasked }
@@ -115,11 +119,33 @@ enum ClassifierParityComparison {
         }
         let importsA = reference.project.appendingPathComponent("Imports", isDirectory: true)
         let importsB = candidate.project.appendingPathComponent("Imports", isDirectory: true)
+        let sourceManifests = Set(bundlePaths.map { "\($0.dropFirst("Imports/".count))/\(AnalysisManifest.filename)" })
         let inputLines = try OutputEquivalence.differences(importsA, importsB, kind: .bundle, masks: inputPolicy)
         found += inputLines
-            .filter { !($0.components(separatedBy: "\n")[0].hasSuffix("/\(AnalysisManifest.filename)")) }
+            .filter { !sourceManifests.contains(comparedPath(of: $0)) }
             .compactMap { parse($0, as: "inputs", reference: reference.side, candidate: candidate.side) }
+
+        // The rest of the project. Side A leaves an empty .tmp/ today, which holds no file.
+        let analysisFolders = [reference, candidate].compactMap(\.analysisPath).map {
+            String($0.dropFirst(ClassifierParityFixtures.projectName.count + 1)) + "/"
+        }
+        let projectLines = try OutputEquivalence.differences(reference.project, candidate.project, kind: .bundle, masks: policy)
+        found += projectLines
+            .filter { line in
+                let path = comparedPath(of: line)
+                return !path.hasPrefix("Imports/") && !analysisFolders.contains { path.hasPrefix($0) }
+            }
+            .compactMap { parse($0, as: "project", reference: reference.side, candidate: candidate.side) }
         return found
+    }
+
+    /// The relative path an `OutputEquivalence` line names, after its kind.
+    static func comparedPath(of line: String) -> String {
+        let head = line.components(separatedBy: "\n")[0]
+        for prefix in ["only in A: ", "only in B: ", "differs: ", "collides in A: ", "collides in B: "] where head.hasPrefix(prefix) {
+            return String(head.dropFirst(prefix.count))
+        }
+        return head
     }
 
     /// One `OutputEquivalence` line as a difference of class `kind`, or nil for a provenance
