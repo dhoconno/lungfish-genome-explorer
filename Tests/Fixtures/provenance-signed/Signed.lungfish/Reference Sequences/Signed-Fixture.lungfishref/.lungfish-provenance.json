@@ -1,0 +1,198 @@
+{
+  "appVersion" : "Lungfish 2026.10.10 (signed-fixture)",
+  "argv" : [
+    "lungfish-cli",
+    "import",
+    "fasta",
+    "@\/Downloads\/signed-fixture.fa",
+    "--output",
+    "@\/Reference Sequences\/Signed-Fixture.lungfishref"
+  ],
+  "createdAt" : "2026-10-03T04:00:00Z",
+  "endTime" : "2026-10-03T04:00:02Z",
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "0f06038ca624691893aaf7b4d55b54ef2b3847591e309ce5605d8aae7edd3f16",
+      "fileSize" : 29,
+      "format" : "fasta",
+      "path" : "@\/Downloads\/signed-fixture.fa",
+      "role" : "input",
+      "sha256" : "0f06038ca624691893aaf7b4d55b54ef2b3847591e309ce5605d8aae7edd3f16",
+      "sizeBytes" : 29
+    },
+    {
+      "checksumSHA256" : "0f06038ca624691893aaf7b4d55b54ef2b3847591e309ce5605d8aae7edd3f16",
+      "fileSize" : 29,
+      "format" : "fasta",
+      "path" : "@\/Reference Sequences\/Signed-Fixture.lungfishref\/genome\/sequence.fa",
+      "role" : "output",
+      "sha256" : "0f06038ca624691893aaf7b4d55b54ef2b3847591e309ce5605d8aae7edd3f16",
+      "sizeBytes" : 29
+    },
+    {
+      "checksumSHA256" : "c0d8f3ff942c1fd0eea44dab130a380c388a5c15fb300fb2221a7c73c494133e",
+      "fileSize" : 27,
+      "format" : "fai",
+      "path" : "@\/Reference Sequences\/Signed-Fixture.lungfishref\/genome\/sequence.fa.fai",
+      "role" : "output",
+      "sha256" : "c0d8f3ff942c1fd0eea44dab130a380c388a5c15fb300fb2221a7c73c494133e",
+      "sizeBytes" : 27
+    }
+  ],
+  "hostOS" : "macOS 26.0.0 (arm64)",
+  "id" : "3E9B5C1D-7A2F-4B6E-8C0D-1F2A3B4C5D6E",
+  "name" : "reference-import",
+  "options" : {
+    "defaults" : {
+
+    },
+    "explicit" : {
+      "format" : {
+        "type" : "string",
+        "value" : "fasta"
+      }
+    },
+    "resolvedDefaults" : {
+
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "0f06038ca624691893aaf7b4d55b54ef2b3847591e309ce5605d8aae7edd3f16",
+    "fileSize" : 29,
+    "format" : "fasta",
+    "path" : "@\/Reference Sequences\/Signed-Fixture.lungfishref\/genome\/sequence.fa",
+    "role" : "output",
+    "sha256" : "0f06038ca624691893aaf7b4d55b54ef2b3847591e309ce5605d8aae7edd3f16",
+    "sizeBytes" : 29
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "0f06038ca624691893aaf7b4d55b54ef2b3847591e309ce5605d8aae7edd3f16",
+      "fileSize" : 29,
+      "format" : "fasta",
+      "path" : "@\/Reference Sequences\/Signed-Fixture.lungfishref\/genome\/sequence.fa",
+      "role" : "output",
+      "sha256" : "0f06038ca624691893aaf7b4d55b54ef2b3847591e309ce5605d8aae7edd3f16",
+      "sizeBytes" : 29
+    },
+    {
+      "checksumSHA256" : "c0d8f3ff942c1fd0eea44dab130a380c388a5c15fb300fb2221a7c73c494133e",
+      "fileSize" : 27,
+      "format" : "fai",
+      "path" : "@\/Reference Sequences\/Signed-Fixture.lungfishref\/genome\/sequence.fa.fai",
+      "role" : "output",
+      "sha256" : "c0d8f3ff942c1fd0eea44dab130a380c388a5c15fb300fb2221a7c73c494133e",
+      "sizeBytes" : 27
+    }
+  ],
+  "parameters" : {
+    "format" : {
+      "type" : "string",
+      "value" : "fasta"
+    }
+  },
+  "reproducibleCommand" : "lungfish-cli import fasta @\/Downloads\/signed-fixture.fa --output '@\/Reference Sequences\/Signed-Fixture.lungfishref'",
+  "runtime" : {
+    "appVersion" : "Lungfish 2026.10.10 (signed-fixture)",
+    "hostOS" : "macOS 26.0.0 (arm64)"
+  },
+  "runtimeIdentity" : {
+    "appVersion" : "Lungfish 2026.10.10 (signed-fixture)",
+    "architecture" : "arm64",
+    "dependencySet" : "2026.2",
+    "executablePath" : "\/usr\/local\/bin\/lungfish-cli",
+    "operatingSystemVersion" : "macOS 26.0.0 (arm64)",
+    "processIdentifier" : 4242
+  },
+  "schemaVersion" : 1,
+  "signatures" : [
+    {
+      "provenanceSHA256" : "3f3fe849bb7cb60235ef0adaa80a856d99bb396c791ad1c1662d44be55a766f5",
+      "provider" : "lungfish-local-deterministic-v1",
+      "publicKeyPath" : ".lungfish-provenance.json.pub",
+      "signaturePath" : ".lungfish-provenance.json.signature.json"
+    }
+  ],
+  "startTime" : "2026-10-03T04:00:00Z",
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "import",
+        "fasta",
+        "@\/Downloads\/signed-fixture.fa",
+        "--output",
+        "@\/Reference Sequences\/Signed-Fixture.lungfishref"
+      ],
+      "command" : [
+        "lungfish-cli",
+        "import",
+        "fasta",
+        "@\/Downloads\/signed-fixture.fa",
+        "--output",
+        "@\/Reference Sequences\/Signed-Fixture.lungfishref"
+      ],
+      "completedAt" : "2026-10-03T04:00:02Z",
+      "dependsOn" : [
+
+      ],
+      "endTime" : "2026-10-03T04:00:02Z",
+      "exitCode" : 0,
+      "exitStatus" : 0,
+      "id" : "5A1C0B7E-2D3F-4E58-9A6B-7C8D9E0F1A2B",
+      "inputs" : [
+        {
+          "checksumSHA256" : "0f06038ca624691893aaf7b4d55b54ef2b3847591e309ce5605d8aae7edd3f16",
+          "fileSize" : 29,
+          "format" : "fasta",
+          "path" : "@\/Downloads\/signed-fixture.fa",
+          "role" : "input",
+          "sha256" : "0f06038ca624691893aaf7b4d55b54ef2b3847591e309ce5605d8aae7edd3f16",
+          "sizeBytes" : 29
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "0f06038ca624691893aaf7b4d55b54ef2b3847591e309ce5605d8aae7edd3f16",
+          "fileSize" : 29,
+          "format" : "fasta",
+          "path" : "@\/Reference Sequences\/Signed-Fixture.lungfishref\/genome\/sequence.fa",
+          "role" : "output",
+          "sha256" : "0f06038ca624691893aaf7b4d55b54ef2b3847591e309ce5605d8aae7edd3f16",
+          "sizeBytes" : 29
+        },
+        {
+          "checksumSHA256" : "c0d8f3ff942c1fd0eea44dab130a380c388a5c15fb300fb2221a7c73c494133e",
+          "fileSize" : 27,
+          "format" : "fai",
+          "path" : "@\/Reference Sequences\/Signed-Fixture.lungfishref\/genome\/sequence.fa.fai",
+          "role" : "output",
+          "sha256" : "c0d8f3ff942c1fd0eea44dab130a380c388a5c15fb300fb2221a7c73c494133e",
+          "sizeBytes" : 27
+        }
+      ],
+      "reproducibleCommand" : "lungfish-cli import fasta @\/Downloads\/signed-fixture.fa --output '@\/Reference Sequences\/Signed-Fixture.lungfishref'",
+      "resolvedOptions" : {
+
+      },
+      "startTime" : "2026-10-03T04:00:00Z",
+      "startedAt" : "2026-10-03T04:00:00Z",
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "2026.10.10",
+      "wallTime" : 2,
+      "wallTimeSeconds" : 2
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "lungfish-cli",
+    "version" : "2026.10.10"
+  },
+  "toolName" : "lungfish-cli",
+  "toolVersion" : "2026.10.10",
+  "wallTimeSeconds" : 2,
+  "workflowName" : "reference-import",
+  "workflowVersion" : "Lungfish 2026.10.10 (signed-fixture)"
+}

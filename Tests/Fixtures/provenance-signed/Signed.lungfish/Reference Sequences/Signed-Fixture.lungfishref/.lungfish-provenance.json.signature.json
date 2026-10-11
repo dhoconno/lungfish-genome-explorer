@@ -1,0 +1,9 @@
+{
+  "provenancePath" : ".lungfish-provenance.json",
+  "provenanceSHA256" : "3f3fe849bb7cb60235ef0adaa80a856d99bb396c791ad1c1662d44be55a766f5",
+  "provider" : "lungfish-local-deterministic-v1",
+  "publicKeySHA256" : "5cadf6aa65623f0de0a389bc3ecead9452b0a159d1a85d8ac14028ff5e2a1e23",
+  "schemaVersion" : 1,
+  "signature" : "x4BmwuVUGrYNYhUkAySOdfmMc+\/sS+nkAx1b94Lh6NNhj6iR5MTm29i0hY8pRpVSSHNSiicsDSNWb+UmXZ\/yCA==",
+  "signedAt" : "2026-10-11T03:19:38Z"
+}
