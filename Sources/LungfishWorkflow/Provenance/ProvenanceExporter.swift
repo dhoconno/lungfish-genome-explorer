@@ -1397,8 +1397,12 @@ public struct ProvenanceExporter: Sendable {
         if verbs.count > 1 || (verbs.count == 1 && !sentence.contains(verbs[0])) {
             sentence += ", using \(listed(verbs))"
         }
+        // Each command gives its parameters to its own tool. In a pipe of two tools a flag such as -q is
+        // one tool's mapping quality and the other's base quality, so neither reads the other's command.
         let parameters = uniqueValues(group.steps.flatMap { step in
-            step.commands.flatMap { extractKeyParameters(tool: tool, argv: $0.argv) }
+            zip(step.commands, Self.toolNames(of: step))
+                .filter { $0.1.lowercased() == tool.lowercased() }
+                .flatMap { extractKeyParameters(tool: tool, argv: $0.0.argv) }
         })
         if !parameters.isEmpty {
             sentence += ", with \(listed(parameters))"

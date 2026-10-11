@@ -74,15 +74,31 @@ struct ProvenanceMethodsSentenceTests {
         ])
     }
 
-    @Test("LoFreq and iVar say that variants were called")
+    @Test("LoFreq and iVar say that variants were called, and each tool of the iVar pipe reports only its own parameters")
     func variantCallerMethods() {
         let run = Self.variantCallerRun()
-        #expect(Self.analysis(run) == """
-            Variants were called with lofreq v2.1.5 (bioconda::lofreq=2.1.5=py310h9cf5bfa_16; conda environment lofreq), \
-            using lofreq indelqual and lofreq call. \
-            Variants were called with ivar v1.4.4 (bioconda::ivar=1.4.4=hda5e58c_0; conda environment ivar), \
-            using ivar variants, with a minimum quality score of 20.
-            """)
+        let text = Self.analysis(run)
+        let lofreq = "Variants were called with lofreq v2.1.5 (bioconda::lofreq=2.1.5=py310h9cf5bfa_16; conda environment lofreq), using lofreq indelqual and lofreq call."
+        // The writer records samtools mpileup and ivar variants as two steps joined by a pipe. mpileup's -q 0 is a
+        // mapping quality and ivar's -q 20 a base quality, and neither sentence reads the other's flag.
+        let samtools = "Alignments were processed with samtools v1.24 (bioconda::samtools=1.24=h36b3a25_1; conda environment samtools), using samtools mpileup, with a minimum mapping quality of 0."
+        #expect(text.hasPrefix(lofreq + " " + samtools + " Variants were called with ivar "), Comment(rawValue: text))
+        #expect(text.hasSuffix(", using ivar variants, with a minimum quality score of 20."), Comment(rawValue: text))
+        let rows = Self.toolRows(run)
+        #expect(rows.count == 3, Comment(rawValue: rows.joined(separator: "\n")))
+        #expect(rows.first == "| lofreq | 2.1.5 | bioconda::lofreq=2.1.5=py310h9cf5bfa_16 | conda environment lofreq |")
+        #expect(rows.dropFirst().first == "| samtools | 1.24 | bioconda::samtools=1.24=h36b3a25_1 | conda environment samtools |")
+        // The joined step keeps its first stage's identity, so iVar is stated with samtools's version, package and
+        // environment (B8 review fix 5). Each pin is its own known issue, so each fails when its own repair lands.
+        withKnownIssue("A pipe's second stage takes the first stage's identity, B8 review fix 5") {
+            #expect(
+                text.hasSuffix("Variants were called with ivar v1.4.4 (bioconda::ivar=1.4.4=hda5e58c_0; conda environment ivar), using ivar variants, with a minimum quality score of 20."),
+                Comment(rawValue: text)
+            )
+        }
+        withKnownIssue("A pipe's second stage takes the first stage's identity, B8 review fix 5") {
+            #expect(rows.last == "| ivar | 1.4.4 | bioconda::ivar=1.4.4=hda5e58c_0 | conda environment ivar |", Comment(rawValue: rows.joined(separator: "\n")))
+        }
     }
 
     @Test("Steps named samtools sort, merge and index share the samtools sentence and its version row")
@@ -479,7 +495,9 @@ struct ProvenanceMethodsSentenceTests {
         ])
     }
 
-    /// LoFreq with its preparation steps, then iVar after samtools.
+    /// LoFreq with its preparation steps, then iVar after samtools, as `ViralVariantCallingPipeline` records the
+    /// iVar path: a `samtools` step running `mpileup` that writes `pipe:stdout:samtools-mpileup`, and an `ivar`
+    /// step running `variants` that reads it. The plan joins the two into one step named `samtools | ivar`.
     static func variantCallerRun() -> WorkflowRun {
         let conda = "/Users/someone/.lungfish/conda/envs"
         let work = "/data/project.lungfish/Analyses/variants-1"
@@ -495,12 +513,20 @@ struct ProvenanceMethodsSentenceTests {
                 inputs: ["\(work)/indelqual.bam"], outputs: ["\(work)/raw.vcf"]
             ),
             step(
+                "samtools", version: samtoolsVersion,
+                [
+                    "\(conda)/samtools/bin/samtools", "mpileup", "-aa", "-A", "-d", "600000", "-B", "-Q", "20", "-q", "0",
+                    "-f", "/data/ref.fa", "/data/aln.bam",
+                ],
+                inputs: ["/data/ref.fa", "/data/aln.bam"], outputs: ["pipe:stdout:samtools-mpileup"]
+            ),
+            step(
                 "ivar", version: ivarVersion,
                 [
                     "\(conda)/ivar/bin/ivar", "variants", "-p", "\(work)/ivar.tsv-prefix", "-q", "20", "-t", "0.05",
                     "-m", "10", "-r", "/data/ref.fa",
                 ],
-                inputs: ["/data/ref.fa"], outputs: ["\(work)/ivar.tsv-prefix.tsv"]
+                inputs: ["pipe:stdout:samtools-mpileup", "/data/ref.fa"], outputs: ["\(work)/ivar.tsv-prefix.tsv"]
             ),
         ])
     }
