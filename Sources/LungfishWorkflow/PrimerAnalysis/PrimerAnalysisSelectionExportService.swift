@@ -414,13 +414,14 @@ public struct PrimerAnalysisSelectionExportService: Sendable {
           }
           return mapped
         }
-        builder = builder.step(.init(id: step.id, toolName: step.toolName, toolVersion: step.toolVersion,
-          githubReleaseVersion: step.githubReleaseVersion, argv: step.argv, durableReplayArgv: replay,
-          reproducibleCommand: replay.map(shellEscape).joined(separator: " "),
-          resolvedOptions: step.resolvedOptions, runtimeIdentity: step.runtimeIdentity ?? runtime,
-          inputs: stepInputs, outputs: stepOutputs, exitStatus: step.exitStatus,
-          wallTimeSeconds: step.wallTimeSeconds, stderr: step.stderr, dependsOn: step.dependsOn,
-          startedAt: step.startedAt, completedAt: step.completedAt))
+        builder = builder.step(step.with { copy in
+          copy.durableReplayArgv = replay
+          copy.reproducibleCommand = replay.map(shellEscape).joined(separator: " ")
+          copy.runtimeIdentity = step.runtimeIdentity ?? runtime
+          copy.inputs = stepInputs
+          copy.outputs = stepOutputs
+          copy.peakMemoryBytes = nil  // never kept by this copy, and keeping it comes with 2.7
+        })
       }
     }
     let envelope = try builder.complete(exitStatus: 0, startedAt: startedAt, endedAt: completedAt)

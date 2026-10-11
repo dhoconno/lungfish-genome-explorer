@@ -1486,26 +1486,7 @@ struct ClassifyCommand: AsyncParsableCommand {
         in step: ProvenanceStep,
         with dependsOn: [UUID]
     ) -> ProvenanceStep {
-        ProvenanceStep(
-            id: step.id,
-            toolName: step.toolName,
-            toolVersion: step.toolVersion,
-            githubReleaseVersion: step.githubReleaseVersion,
-            argv: step.argv,
-            durableReplayArgv: step.durableReplayArgv,
-            reproducibleCommand: step.reproducibleCommand,
-            resolvedOptions: step.resolvedOptions,
-            runtimeIdentity: step.runtimeIdentity,
-            inputs: step.inputs,
-            outputs: step.outputs,
-            exitStatus: step.exitStatus,
-            wallTimeSeconds: step.wallTimeSeconds,
-            peakMemoryBytes: step.peakMemoryBytes,
-            stderr: step.stderr,
-            dependsOn: dependsOn,
-            startedAt: step.startedAt,
-            completedAt: step.completedAt
-        )
+        step.with { $0.dependsOn = dependsOn }
     }
 
     private static func classificationOutputDescriptors(

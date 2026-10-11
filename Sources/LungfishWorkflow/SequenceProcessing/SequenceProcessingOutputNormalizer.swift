@@ -212,13 +212,12 @@ public enum SequenceProcessingOutputNormalizer {
         func replay(_ argv: [String]) -> [String] { argv.map { paths[$0] ?? $0 } }
         let steps = envelope.steps.map { step in
             let durable = replay(step.durableReplayArgv ?? step.argv)
-            return ProvenanceStep(id: step.id, toolName: step.toolName, toolVersion: step.toolVersion,
-                githubReleaseVersion: step.githubReleaseVersion, argv: step.argv, durableReplayArgv: durable,
-                reproducibleCommand: durable.map(shellEscape).joined(separator: " "),
-                resolvedOptions: step.resolvedOptions, runtimeIdentity: step.runtimeIdentity,
-                inputs: step.inputs.map(mapped), outputs: step.outputs.map(mapped), exitStatus: step.exitStatus,
-                wallTimeSeconds: step.wallTimeSeconds, peakMemoryBytes: step.peakMemoryBytes, stderr: step.stderr,
-                dependsOn: step.dependsOn, startedAt: step.startedAt, completedAt: step.completedAt)
+            return step.with { copy in
+                copy.durableReplayArgv = durable
+                copy.reproducibleCommand = durable.map(shellEscape).joined(separator: " ")
+                copy.inputs = step.inputs.map(mapped)
+                copy.outputs = step.outputs.map(mapped)
+            }
         }
         let durable = replay(envelope.durableReplayArgv ?? envelope.argv)
         return ProvenanceEnvelope(schemaVersion: envelope.schemaVersion, id: envelope.id, createdAt: envelope.createdAt,

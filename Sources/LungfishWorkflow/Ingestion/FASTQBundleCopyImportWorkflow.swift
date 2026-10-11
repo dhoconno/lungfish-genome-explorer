@@ -505,23 +505,14 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
     }
 
     private func rewriteStep(_ step: ProvenanceStep, pathMap: [String: String]) -> ProvenanceStep {
-        ProvenanceStep(
-            id: step.id,
-            toolName: step.toolName,
-            toolVersion: step.toolVersion,
-            githubReleaseVersion: step.githubReleaseVersion,
-            argv: step.argv,
-            durableReplayArgv: step.durableReplayArgv,
-            reproducibleCommand: step.reproducibleCommand,
-            inputs: step.inputs.map { rewriteDescriptor($0, pathMap: pathMap) },
-            outputs: step.outputs.map { rewriteDescriptor($0, pathMap: pathMap) },
-            exitStatus: step.exitStatus,
-            wallTimeSeconds: step.wallTimeSeconds,
-            stderr: step.stderr,
-            dependsOn: step.dependsOn,
-            startedAt: step.startedAt,
-            completedAt: step.completedAt
-        )
+        step.with { copy in
+            copy.inputs = step.inputs.map { rewriteDescriptor($0, pathMap: pathMap) }
+            copy.outputs = step.outputs.map { rewriteDescriptor($0, pathMap: pathMap) }
+            // This copy never kept these facts, and keeping them comes with 2.7.
+            copy.resolvedOptions = [:]
+            copy.runtimeIdentity = nil
+            copy.peakMemoryBytes = nil
+        }
     }
 
     private func rewriteDescriptor(

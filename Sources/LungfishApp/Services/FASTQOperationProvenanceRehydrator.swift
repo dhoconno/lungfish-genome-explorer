@@ -84,20 +84,16 @@ struct FASTQOperationProvenanceRehydrator: Sendable {
             outputs: normalizedStoredSourceURL == nil || rehydrated.outputs.contains(where: { $0.path == finalPayloadURL.path })
                 ? rehydrated.outputs : rehydrated.outputs + [finalDescriptor],
             steps: rehydrated.steps + (try wrappingEnvelope.steps.map { step in
-                ProvenanceStep(id: step.id, toolName: step.toolName, toolVersion: step.toolVersion,
-                    githubReleaseVersion: step.githubReleaseVersion, argv: step.argv,
-                    durableReplayArgv: normalizedStoredSourceURL.map { stored in
+                try step.with { copy in
+                    copy.durableReplayArgv = normalizedStoredSourceURL.map { stored in
                         (step.durableReplayArgv ?? step.argv).map { $0 == sourceURL.path ? stored.path : $0 }
-                    } ?? step.durableReplayArgv,
-                    reproducibleCommand: normalizedStoredSourceURL.map { stored in
+                    } ?? step.durableReplayArgv
+                    copy.reproducibleCommand = normalizedStoredSourceURL.map { stored in
                         (step.durableReplayArgv ?? step.argv).map { $0 == sourceURL.path ? stored.path : $0 }
                             .map(shellEscape).joined(separator: " ")
-                    } ?? step.reproducibleCommand,
-                    resolvedOptions: step.resolvedOptions, runtimeIdentity: step.runtimeIdentity,
-                    inputs: try step.inputs.map { try retainedWrappingDescriptor($0, sourceURL: sourceURL, storedSourceURL: normalizedStoredSourceURL) },
-                    outputs: step.outputs, exitStatus: step.exitStatus, wallTimeSeconds: step.wallTimeSeconds,
-                    peakMemoryBytes: step.peakMemoryBytes, stderr: step.stderr, dependsOn: step.dependsOn,
-                    startedAt: step.startedAt, completedAt: step.completedAt)
+                    } ?? step.reproducibleCommand
+                    copy.inputs = try step.inputs.map { try retainedWrappingDescriptor($0, sourceURL: sourceURL, storedSourceURL: normalizedStoredSourceURL) }
+                }
             }),
             wallTimeSeconds: rehydrated.wallTimeSeconds,
             exitStatus: rehydrated.exitStatus,

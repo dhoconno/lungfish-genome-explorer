@@ -916,22 +916,17 @@ enum ReferenceBundleMergeService {
                 bundleURL: bundleURL,
                 resolvedBundleName: resolvedBundleName
             )
-            return ProvenanceStep(
-                id: step.id,
-                toolName: step.toolName,
-                toolVersion: step.toolVersion,
-                argv: step.argv,
-                durableReplayArgv: argv,
-                reproducibleCommand: BundleMergeProvenance.commandLine(from: argv),
-                inputs: inputs,
-                outputs: outputs,
-                exitStatus: step.exitStatus,
-                wallTimeSeconds: step.wallTimeSeconds,
-                stderr: step.stderr,
-                dependsOn: step.dependsOn,
-                startedAt: step.startedAt,
-                completedAt: step.completedAt
-            )
+            return step.with { copy in
+                copy.durableReplayArgv = argv
+                copy.reproducibleCommand = BundleMergeProvenance.commandLine(from: argv)
+                copy.inputs = inputs
+                copy.outputs = outputs
+                // This copy never kept these facts, and keeping them comes with 2.7.
+                copy.githubReleaseVersion = nil
+                copy.resolvedOptions = [:]
+                copy.runtimeIdentity = nil
+                copy.peakMemoryBytes = nil
+            }
         }
     }
 

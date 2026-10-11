@@ -90,6 +90,17 @@ enum ReferenceBundleImportProvenanceRehydrator {
             parameters: parameters
         )
         let canonical = updated.canonicalEnvelope()
+        // A run's steps hold no step field schema version 2 added, so those come back from the
+        // record's own steps by id.
+        let sourceSteps = Dictionary(envelope.steps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let steps = canonical.steps.map { step in
+            step.with { copy in
+                guard let source = sourceSteps[step.id] else { return }
+                copy.parentStepID = source.parentStepID
+                copy.managedToolID = source.managedToolID
+                copy.toolVersionEvidence = source.toolVersionEvidence
+            }
+        }
         let updatedEnvelope = ProvenanceEnvelope(
             schemaVersion: canonical.schemaVersion,
             id: canonical.id,
@@ -107,7 +118,7 @@ enum ReferenceBundleImportProvenanceRehydrator {
             files: canonical.files,
             output: canonical.output,
             outputs: canonical.outputs,
-            steps: canonical.steps,
+            steps: steps,
             wallTimeSeconds: canonical.wallTimeSeconds,
             exitStatus: canonical.exitStatus,
             stderr: canonical.stderr,

@@ -534,25 +534,19 @@ public struct ONTImportWorkflow: Sendable {
         from stagedBundleURL: URL,
         to finalBundleURL: URL
     ) -> ProvenanceStep {
-        ProvenanceStep(
-            id: step.id,
-            toolName: step.toolName,
-            toolVersion: step.toolVersion,
-            githubReleaseVersion: step.githubReleaseVersion,
-            argv: step.argv.map { remapPathString($0, from: stagedBundleURL, to: finalBundleURL) },
-            durableReplayArgv: step.durableReplayArgv?.map {
+        step.with { copy in
+            copy.argv = step.argv.map { remapPathString($0, from: stagedBundleURL, to: finalBundleURL) }
+            copy.durableReplayArgv = step.durableReplayArgv?.map {
                 remapPathString($0, from: stagedBundleURL, to: finalBundleURL)
-            },
-            reproducibleCommand: remapPathString(step.reproducibleCommand, from: stagedBundleURL, to: finalBundleURL),
-            inputs: step.inputs.map { remapDescriptor($0, from: stagedBundleURL, to: finalBundleURL) },
-            outputs: step.outputs.map { remapDescriptor($0, from: stagedBundleURL, to: finalBundleURL) },
-            exitStatus: step.exitStatus,
-            wallTimeSeconds: step.wallTimeSeconds,
-            stderr: step.stderr,
-            dependsOn: step.dependsOn,
-            startedAt: step.startedAt,
-            completedAt: step.completedAt
-        )
+            }
+            copy.reproducibleCommand = remapPathString(step.reproducibleCommand, from: stagedBundleURL, to: finalBundleURL)
+            copy.inputs = step.inputs.map { remapDescriptor($0, from: stagedBundleURL, to: finalBundleURL) }
+            copy.outputs = step.outputs.map { remapDescriptor($0, from: stagedBundleURL, to: finalBundleURL) }
+            // This copy never kept these facts, and keeping them comes with 2.7.
+            copy.resolvedOptions = [:]
+            copy.runtimeIdentity = nil
+            copy.peakMemoryBytes = nil
+        }
     }
 
     private func remapDescriptor(

@@ -7,33 +7,36 @@ import LungfishIO
 
 // MARK: - ProvenanceStep
 
+/// One tool invocation. A site that rebuilds a step from another copies it with ``with(_:)`` and sets
+/// only what differs, so every field a later schema adds survives the copy. The id, tool name and tool
+/// version are fixed once the step is made.
 public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
     public let id: UUID
     public let toolName: String
     public let toolVersion: String
-    public let githubReleaseVersion: String?
-    public let argv: [String]
-    public let durableReplayArgv: [String]?
-    public let reproducibleCommand: String
-    public let resolvedOptions: [String: ParameterValue]
-    public let runtimeIdentity: ProvenanceRuntimeIdentity?
-    public let inputs: [ProvenanceFileDescriptor]
-    public let outputs: [ProvenanceFileDescriptor]
-    public let exitStatus: Int?
-    public let wallTimeSeconds: TimeInterval?
-    public let peakMemoryBytes: UInt64?
-    public let stderr: String?
-    public let dependsOn: [UUID]
-    public let startedAt: Date?
-    public let completedAt: Date?
+    public var githubReleaseVersion: String?
+    public var argv: [String]
+    public var durableReplayArgv: [String]?
+    public var reproducibleCommand: String
+    public var resolvedOptions: [String: ParameterValue]
+    public var runtimeIdentity: ProvenanceRuntimeIdentity?
+    public var inputs: [ProvenanceFileDescriptor]
+    public var outputs: [ProvenanceFileDescriptor]
+    public var exitStatus: Int?
+    public var wallTimeSeconds: TimeInterval?
+    public var peakMemoryBytes: UInt64?
+    public var stderr: String?
+    public var dependsOn: [UUID]
+    public var startedAt: Date?
+    public var completedAt: Date?
     /// The id of the step this step ran under, such as the `lungfish-cli` step whose import ran it.
     /// Nil for a step that ran on its own, and in every record written before schema version 2.
-    public let parentStepID: UUID?
+    public var parentStepID: UUID?
     /// The managed tool the step ran, by its lock id, when the writer knew it.
-    public let managedToolID: ManagedToolID?
+    public var managedToolID: ManagedToolID?
     /// What `toolVersion` is known from: a probe's output, a lock pin or a gap. A record holding
     /// evidence this build cannot read keeps the rest of the step and reads it as not recorded.
-    public let toolVersionEvidence: ToolVersionEvidence?
+    public var toolVersionEvidence: ToolVersionEvidence?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -170,32 +173,17 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         try container.encodeIfPresent(toolVersionEvidence, forKey: .toolVersionEvidence)
     }
 
-    /// This step with `outputs` in place of its own and every other field kept, the fields schema
-    /// version 2 added among them. A site that narrows a step to some of its outputs calls this
-    /// instead of rebuilding the step field by field, which drops every field it does not name.
+    /// A copy of this step with `change` applied, keeping every field `change` leaves alone, the fields
+    /// schema version 2 added among them. A site that rebuilds a step calls this and sets only what it
+    /// changes, never the initializer field by field, which drops every field it does not name.
+    public func with(_ change: (inout ProvenanceStep) throws -> Void) rethrows -> ProvenanceStep {
+        var copy = self
+        try change(&copy)
+        return copy
+    }
+
+    /// This step with `outputs` in place of its own and every other field kept.
     public func withOutputs(_ outputs: [ProvenanceFileDescriptor]) -> ProvenanceStep {
-        ProvenanceStep(
-            id: id,
-            toolName: toolName,
-            toolVersion: toolVersion,
-            githubReleaseVersion: githubReleaseVersion,
-            argv: argv,
-            durableReplayArgv: durableReplayArgv,
-            reproducibleCommand: reproducibleCommand,
-            resolvedOptions: resolvedOptions,
-            runtimeIdentity: runtimeIdentity,
-            inputs: inputs,
-            outputs: outputs,
-            exitStatus: exitStatus,
-            wallTimeSeconds: wallTimeSeconds,
-            peakMemoryBytes: peakMemoryBytes,
-            stderr: stderr,
-            dependsOn: dependsOn,
-            startedAt: startedAt,
-            completedAt: completedAt,
-            parentStepID: parentStepID,
-            managedToolID: managedToolID,
-            toolVersionEvidence: toolVersionEvidence
-        )
+        with { $0.outputs = outputs }
     }
 }

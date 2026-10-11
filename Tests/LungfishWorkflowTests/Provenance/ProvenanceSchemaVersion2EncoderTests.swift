@@ -558,6 +558,112 @@ final class ProvenanceSchemaVersion2EncoderTests: XCTestCase {
         XCTAssertEqual(read.tool.managedToolID, ManagedToolID(rawValue: "samtools"))
     }
 
+    // MARK: Step copies
+
+    static let samtools = ManagedToolID(rawValue: "samtools")
+    static let samtoolsEvidence = ToolVersionEvidence.lockPin(version: "1.24", id: samtools)
+
+    /// The three step fields of version 2 on `step`'s copy, checked for each `label`.
+    static func assertHoldsTheVersion2StepFields(
+        _ step: ProvenanceStep?,
+        parent: UUID,
+        _ label: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(step?.parentStepID, parent, "parentStepID in \(label)", file: file, line: line)
+        XCTAssertEqual(step?.managedToolID, samtools, "managedToolID in \(label)", file: file, line: line)
+        XCTAssertEqual(step?.toolVersionEvidence, samtoolsEvidence, "toolVersionEvidence in \(label)", file: file, line: line)
+    }
+
+    /// A bundle layout write copies each step into the roll-up and into every per-file sidecar, and
+    /// both copies keep the step's parent, typed tool id and version evidence.
+    func testABundleLayoutWriteKeepsTheStepFieldsInTheRollUpAndEachPerFileSidecar() throws {
+        let root = try TestTempDirectory.make(prefix: "provenance-v2-step-copies")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundle = root.appendingPathComponent("Sample.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        var outputs: [ProvenanceFileDescriptor] = []
+        for name in ["sample.bam", "sample.bam.bai"] {
+            let url = bundle.appendingPathComponent(name)
+            try Data(name.utf8).write(to: url)
+            outputs.append(try ProvenanceFileDescriptor.file(url: url, role: .output))
+        }
+        let parent = ProvenanceStep(toolName: "lungfish-cli", toolVersion: "2026.10.10", exitStatus: 0)
+        let child = ProvenanceStep(
+            toolName: "samtools",
+            toolVersion: "1.24",
+            outputs: outputs,
+            exitStatus: 0,
+            parentStepID: parent.id,
+            managedToolID: Self.samtools,
+            toolVersionEvidence: Self.samtoolsEvidence
+        )
+        let envelope = ProvenanceEnvelope(
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            workflowName: "step.copies",
+            toolName: "lungfish-cli",
+            outputs: outputs,
+            steps: [parent, child],
+            exitStatus: 0
+        )
+        let written = try ProvenanceWriter(signingProvider: nil).writeBundleProvenanceLayout(envelope, toBundleRoot: bundle)
+        XCTAssertEqual(written.count, 3, "the roll-up and one sidecar for each output")
+        for url in written {
+            let record = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: url))
+            let copy = record.steps.first { $0.toolName == "samtools" }
+            Self.assertHoldsTheVersion2StepFields(copy, parent: parent.id, url.lastPathComponent)
+        }
+    }
+
+    /// Rehydrating a copied output rebuilds the source record's steps, and the copy keeps the step's
+    /// parent, typed tool id and version evidence.
+    func testAGUIRehydrationKeepsTheStepFields() throws {
+        let root = try TestTempDirectory.make(prefix: "provenance-v2-gui-rehydration")
+        defer { TestTempDirectory.cleanup(root) }
+        let staging = root.appendingPathComponent("staging", isDirectory: true)
+        let bundle = root.appendingPathComponent("Project/Sample.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let staged = staging.appendingPathComponent("reads.fastq")
+        let final = bundle.appendingPathComponent("reads.fastq")
+        let contents = Data("@r\nACGT\n+\n!!!!\n".utf8)
+        try contents.write(to: staged)
+        try contents.write(to: final)
+
+        let parent = ProvenanceStep(toolName: "lungfish-cli", toolVersion: "2026.10.10", exitStatus: 0)
+        let child = ProvenanceStep(
+            toolName: "samtools",
+            toolVersion: "1.24",
+            argv: ["samtools", "view", staged.path],
+            outputs: [try ProvenanceFileDescriptor.file(url: staged, format: .fastq, role: .output)],
+            exitStatus: 0,
+            parentStepID: parent.id,
+            managedToolID: Self.samtools,
+            toolVersionEvidence: Self.samtoolsEvidence
+        )
+        let source = try ProvenanceRunBuilder(
+            workflowName: "CLI FASTQ Download",
+            workflowVersion: "2026.10.10",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.10.10"
+        )
+        .argv(["lungfish-cli", "fetch", "ncbi", "SRR123", "--output", staged.path])
+        .output(staged, format: .fastq, role: .output)
+        .step(parent)
+        .step(child)
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(exitStatus: 0, startedAt: Date(timeIntervalSince1970: 10), endedAt: Date(timeIntervalSince1970: 11))
+        try ProvenanceWriter(signingProvider: nil).write(source, toSidecar: ProvenanceRecorder.fileSidecarURL(for: staged))
+
+        let rehydrated = try GUIImportedProvenanceRehydrator.rehydrateImportedCopy(from: staged, to: final)
+        Self.assertHoldsTheVersion2StepFields(
+            rehydrated.steps.first { $0.toolName == "samtools" }, parent: parent.id, "the rehydrated envelope")
+        let stored = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundle))
+        Self.assertHoldsTheVersion2StepFields(
+            stored.steps.first { $0.toolName == "samtools" }, parent: parent.id, "the stored record")
+    }
+
     // MARK: The workflow version
 
     /// A record that holds no workflow version, written fresh or read and rewritten, is written

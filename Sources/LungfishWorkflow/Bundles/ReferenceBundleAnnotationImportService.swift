@@ -709,21 +709,15 @@ private extension ProvenanceEnvelope {
             output: output.map(replaced),
             outputs: outputs.map(replaced),
             steps: steps.map { step in
-                ProvenanceStep(
-                    id: step.id,
-                    toolName: step.toolName,
-                    toolVersion: step.toolVersion,
-                    argv: step.argv,
-                    reproducibleCommand: step.reproducibleCommand,
-                    inputs: step.inputs,
-                    outputs: step.outputs.map(replaced),
-                    exitStatus: step.exitStatus,
-                    wallTimeSeconds: step.wallTimeSeconds,
-                    stderr: step.stderr,
-                    dependsOn: step.dependsOn,
-                    startedAt: step.startedAt,
-                    completedAt: step.completedAt
-                )
+                step.with { copy in
+                    copy.outputs = step.outputs.map(replaced)
+                    // This copy never kept these facts, and keeping them comes with 2.7.
+                    copy.githubReleaseVersion = nil
+                    copy.durableReplayArgv = nil
+                    copy.resolvedOptions = [:]
+                    copy.runtimeIdentity = nil
+                    copy.peakMemoryBytes = nil
+                }
             },
             wallTimeSeconds: wallTimeSeconds,
             exitStatus: exitStatus,

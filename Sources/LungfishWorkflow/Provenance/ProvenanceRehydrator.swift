@@ -410,31 +410,25 @@ public enum ProvenanceRehydrator {
         preserveOriginMetadata: Bool
     ) throws -> ProvenanceStep {
         let replayArgv = rewriteArguments(step.durableReplayArgv ?? step.argv, pathMap: replayPathMap)
-        return ProvenanceStep(
-            id: step.id,
-            toolName: step.toolName,
-            toolVersion: step.toolVersion,
-            githubReleaseVersion: step.githubReleaseVersion,
-            argv: step.argv,
-            durableReplayArgv: replayArgv,
-            reproducibleCommand: commandLine(
+        return try step.with { copy in
+            copy.durableReplayArgv = replayArgv
+            copy.reproducibleCommand = commandLine(
                 from: replayArgv,
                 fallback: step.reproducibleCommand,
                 pathMap: replayPathMap
-            ),
-            resolvedOptions: step.resolvedOptions.mapValues {
+            )
+            copy.resolvedOptions = step.resolvedOptions.mapValues {
                 rewriteParameterValue($0, pathMap: replayPathMap)
-            },
-            runtimeIdentity: step.runtimeIdentity,
-            inputs: try step.inputs.map {
+            }
+            copy.inputs = try step.inputs.map {
                 try rewriteInputDescriptor(
                     $0,
                     pathMap: pathMap,
                     sourceProvenancePath: sourceProvenancePath,
                     preserveOriginMetadata: preserveOriginMetadata
                 )
-            },
-            outputs: try step.outputs.compactMap {
+            }
+            copy.outputs = try step.outputs.compactMap {
                 try rewriteOutputDescriptor(
                     $0,
                     pathMap: pathMap,
@@ -443,15 +437,8 @@ public enum ProvenanceRehydrator {
                     preserveConsumedIntermediates: true,
                     preserveOriginMetadata: preserveOriginMetadata
                 )
-            },
-            exitStatus: step.exitStatus,
-            wallTimeSeconds: step.wallTimeSeconds,
-            peakMemoryBytes: step.peakMemoryBytes,
-            stderr: step.stderr,
-            dependsOn: step.dependsOn,
-            startedAt: step.startedAt,
-            completedAt: step.completedAt
-        )
+            }
+        }
     }
 
     private static func rewriteInputDescriptor(

@@ -229,32 +229,26 @@ public enum GUIImportedProvenanceRehydrator {
         )
         let steps = try envelope.steps.map { step in
             let stepReplayArgv = rewriteArguments(step.durableReplayArgv ?? step.argv, pathMap: standardizedPathMap)
-            return ProvenanceStep(
-                id: step.id,
-                toolName: step.toolName,
-                toolVersion: step.toolVersion,
-                argv: step.argv,
-                durableReplayArgv: stepReplayArgv,
-                reproducibleCommand: commandLine(
+            return try step.with { copy in
+                copy.durableReplayArgv = stepReplayArgv
+                copy.reproducibleCommand = commandLine(
                     from: stepReplayArgv,
                     fallback: step.reproducibleCommand,
                     pathMap: standardizedPathMap
-                ),
-                inputs: step.inputs,
-                outputs: try step.outputs.map {
+                )
+                copy.outputs = try step.outputs.map {
                     try rewriteOutputDescriptor(
                         $0,
                         pathMap: standardizedPathMap,
                         sourceProvenancePath: sourceProvenancePath
                     )
-                },
-                exitStatus: step.exitStatus,
-                wallTimeSeconds: step.wallTimeSeconds,
-                stderr: step.stderr,
-                dependsOn: step.dependsOn,
-                startedAt: step.startedAt,
-                completedAt: step.completedAt
-            )
+                }
+                // This copy never kept these facts, and keeping them comes with 2.7.
+                copy.githubReleaseVersion = nil
+                copy.resolvedOptions = [:]
+                copy.runtimeIdentity = nil
+                copy.peakMemoryBytes = nil
+            }
         }
 
         return ProvenanceEnvelope(
@@ -327,32 +321,26 @@ public enum GUIImportedProvenanceRehydrator {
         )
         let steps = try envelope.steps.map { step in
             let stepReplayArgv = rewriteArguments(step.durableReplayArgv ?? step.argv, pathMap: standardizedPathMap)
-            return ProvenanceStep(
-                id: step.id,
-                toolName: step.toolName,
-                toolVersion: step.toolVersion,
-                argv: step.argv,
-                durableReplayArgv: stepReplayArgv,
-                reproducibleCommand: commandLine(
+            return try step.with { copy in
+                copy.durableReplayArgv = stepReplayArgv
+                copy.reproducibleCommand = commandLine(
                     from: stepReplayArgv,
                     fallback: step.reproducibleCommand,
                     pathMap: standardizedPathMap
-                ),
-                inputs: step.inputs,
-                outputs: try step.outputs.compactMap {
+                )
+                copy.outputs = try step.outputs.compactMap {
                     try rewriteOutputDescriptorIfMapped(
                         $0,
                         pathMap: standardizedPathMap,
                         sourceProvenancePath: sourceProvenancePath
                     )
-                },
-                exitStatus: step.exitStatus,
-                wallTimeSeconds: step.wallTimeSeconds,
-                stderr: step.stderr,
-                dependsOn: step.dependsOn,
-                startedAt: step.startedAt,
-                completedAt: step.completedAt
-            )
+                }
+                // This copy never kept these facts, and keeping them comes with 2.7.
+                copy.githubReleaseVersion = nil
+                copy.resolvedOptions = [:]
+                copy.runtimeIdentity = nil
+                copy.peakMemoryBytes = nil
+            }
         }
 
         return ProvenanceEnvelope(
@@ -928,26 +916,19 @@ public enum GUIImportedProvenanceRehydrator {
         )
         let steps = envelope.steps.map { step in
             let stepReplayArgv = rewriteArguments(step.durableReplayArgv ?? step.argv, pathMap: standardizedPathMap)
-            return ProvenanceStep(
-                id: step.id,
-                toolName: step.toolName,
-                toolVersion: step.toolVersion,
-                argv: step.argv,
-                durableReplayArgv: stepReplayArgv,
-                reproducibleCommand: commandLine(
+            return step.with { copy in
+                copy.durableReplayArgv = stepReplayArgv
+                copy.reproducibleCommand = commandLine(
                     from: stepReplayArgv,
                     fallback: step.reproducibleCommand,
                     pathMap: standardizedPathMap
-                ),
-                inputs: step.inputs,
-                outputs: step.outputs,
-                exitStatus: step.exitStatus,
-                wallTimeSeconds: step.wallTimeSeconds,
-                stderr: step.stderr,
-                dependsOn: step.dependsOn,
-                startedAt: step.startedAt,
-                completedAt: step.completedAt
-            )
+                )
+                // This copy never kept these facts, and keeping them comes with 2.7.
+                copy.githubReleaseVersion = nil
+                copy.resolvedOptions = [:]
+                copy.runtimeIdentity = nil
+                copy.peakMemoryBytes = nil
+            }
         }
         return ProvenanceEnvelope(
             schemaVersion: envelope.schemaVersion,

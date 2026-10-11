@@ -505,22 +505,16 @@ enum FASTQBundleMergeService {
                 return step
             }
 
-            return ProvenanceStep(
-                id: step.id,
-                toolName: step.toolName,
-                toolVersion: step.toolVersion,
-                argv: step.argv,
-                durableReplayArgv: nil,
-                reproducibleCommand: BundleMergeProvenance.commandLine(from: step.argv),
-                inputs: step.inputs,
-                outputs: [],
-                exitStatus: step.exitStatus,
-                wallTimeSeconds: step.wallTimeSeconds,
-                stderr: step.stderr,
-                dependsOn: step.dependsOn,
-                startedAt: step.startedAt,
-                completedAt: step.completedAt
-            )
+            return step.with { copy in
+                copy.durableReplayArgv = nil
+                copy.reproducibleCommand = BundleMergeProvenance.commandLine(from: step.argv)
+                copy.outputs = []
+                // This copy never kept these facts, and keeping them comes with 2.7.
+                copy.githubReleaseVersion = nil
+                copy.resolvedOptions = [:]
+                copy.runtimeIdentity = nil
+                copy.peakMemoryBytes = nil
+            }
         }
     }
 

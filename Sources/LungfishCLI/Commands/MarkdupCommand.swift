@@ -758,21 +758,15 @@ struct MarkdupCommand: AsyncParsableCommand {
             return descriptor
         }
         let steps = envelope.steps.map { step in
-            ProvenanceStep(
-                id: step.id,
-                toolName: step.toolName,
-                toolVersion: step.toolVersion,
-                argv: step.argv,
-                reproducibleCommand: step.reproducibleCommand,
-                inputs: step.inputs,
-                outputs: step.outputs.compactMap { selectedByPath[$0.path] },
-                exitStatus: step.exitStatus,
-                wallTimeSeconds: step.wallTimeSeconds,
-                stderr: step.stderr,
-                dependsOn: step.dependsOn,
-                startedAt: step.startedAt,
-                completedAt: step.completedAt
-            )
+            step.with { copy in
+                copy.outputs = step.outputs.compactMap { selectedByPath[$0.path] }
+                // This copy never kept these facts, and keeping them comes with 2.7.
+                copy.githubReleaseVersion = nil
+                copy.durableReplayArgv = nil
+                copy.resolvedOptions = [:]
+                copy.runtimeIdentity = nil
+                copy.peakMemoryBytes = nil
+            }
         }
         return ProvenanceEnvelope(
             schemaVersion: envelope.schemaVersion,

@@ -552,26 +552,10 @@ public enum MetagenomicsBatchProvenanceWriter {
             guard index == terminalIndex else { return step }
             var resolvedOptions = effectiveOptions
             resolvedOptions.merge(step.resolvedOptions) { _, stepValue in stepValue }
-            return ProvenanceStep(
-                id: step.id,
-                toolName: step.toolName,
-                toolVersion: step.toolVersion,
-                githubReleaseVersion: step.githubReleaseVersion,
-                argv: step.argv,
-                durableReplayArgv: step.durableReplayArgv,
-                reproducibleCommand: step.reproducibleCommand,
-                resolvedOptions: resolvedOptions,
-                runtimeIdentity: step.runtimeIdentity ?? envelope.runtimeIdentity,
-                inputs: step.inputs,
-                outputs: step.outputs,
-                exitStatus: step.exitStatus,
-                wallTimeSeconds: step.wallTimeSeconds,
-                peakMemoryBytes: step.peakMemoryBytes,
-                stderr: step.stderr,
-                dependsOn: step.dependsOn,
-                startedAt: step.startedAt,
-                completedAt: step.completedAt
-            )
+            return step.with { copy in
+                copy.resolvedOptions = resolvedOptions
+                copy.runtimeIdentity = step.runtimeIdentity ?? envelope.runtimeIdentity
+            }
         }
     }
 

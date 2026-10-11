@@ -1490,7 +1490,7 @@ extension ProvenanceEnvelope {
             guard !focusedOutputs.isEmpty || step.outputs.isEmpty else {
                 return nil
             }
-            return step.replacingOutputs(focusedOutputs)
+            return step.withOutputs(focusedOutputs)
         }
         let retainedInputPaths = Set(focusedSteps.flatMap { $0.inputs.map(\.path) })
         return ProvenanceEnvelope(
@@ -1539,26 +1539,7 @@ extension ProvenanceEnvelope {
             descriptor.role == .output ? retainedOutputByPath[descriptor.path] ?? descriptor : descriptor
         }
         let projectedSteps = steps.map { step in
-            ProvenanceStep(
-                id: step.id,
-                toolName: step.toolName,
-                toolVersion: step.toolVersion,
-                githubReleaseVersion: step.githubReleaseVersion,
-                argv: step.argv,
-                durableReplayArgv: step.durableReplayArgv,
-                reproducibleCommand: step.reproducibleCommand,
-                resolvedOptions: step.resolvedOptions,
-                runtimeIdentity: step.runtimeIdentity,
-                inputs: step.inputs,
-                outputs: step.outputs.compactMap { retainedOutputByPath[$0.path] },
-                exitStatus: step.exitStatus,
-                wallTimeSeconds: step.wallTimeSeconds,
-                peakMemoryBytes: step.peakMemoryBytes,
-                stderr: step.stderr,
-                dependsOn: step.dependsOn,
-                startedAt: step.startedAt,
-                completedAt: step.completedAt
-            )
+            step.withOutputs(step.outputs.compactMap { retainedOutputByPath[$0.path] })
         }
         let primaryOutput = output.flatMap { retainedOutputByPath[$0.path] }
             ?? retainedOutputs.first
@@ -1617,31 +1598,6 @@ extension ProvenanceEnvelope {
             stderr: stderr,
             signatures: signatures,
             status: status, legacyWorkflowRun: legacyRun
-        )
-    }
-}
-
-private extension ProvenanceStep {
-    func replacingOutputs(_ outputs: [ProvenanceFileDescriptor]) -> ProvenanceStep {
-        ProvenanceStep(
-            id: id,
-            toolName: toolName,
-            toolVersion: toolVersion,
-            githubReleaseVersion: githubReleaseVersion,
-            argv: argv,
-            durableReplayArgv: durableReplayArgv,
-            reproducibleCommand: reproducibleCommand,
-            resolvedOptions: resolvedOptions,
-            runtimeIdentity: runtimeIdentity,
-            inputs: inputs,
-            outputs: outputs,
-            exitStatus: exitStatus,
-            wallTimeSeconds: wallTimeSeconds,
-            peakMemoryBytes: peakMemoryBytes,
-            stderr: stderr,
-            dependsOn: dependsOn,
-            startedAt: startedAt,
-            completedAt: completedAt
         )
     }
 }

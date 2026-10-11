@@ -842,18 +842,8 @@ public enum MappingViewerBundlePublicationService {
             )
         }
         let refreshedSteps = try envelope.steps.map { step in
-            ProvenanceStep(
-                id: step.id,
-                toolName: step.toolName,
-                toolVersion: step.toolVersion,
-                githubReleaseVersion: step.githubReleaseVersion,
-                argv: step.argv,
-                durableReplayArgv: step.durableReplayArgv,
-                reproducibleCommand: step.reproducibleCommand,
-                resolvedOptions: step.resolvedOptions,
-                runtimeIdentity: step.runtimeIdentity,
-                inputs: step.inputs,
-                outputs: try step.outputs
+            try step.with { copy in
+                copy.outputs = try step.outputs
                     .filter { $0.path != canonicalURL.path }
                     .map {
                         try refreshedPublicationSidecarDescriptor(
@@ -861,15 +851,8 @@ public enum MappingViewerBundlePublicationService {
                             mappingResultURL: mappingResultURL,
                             mappingProvenanceURL: mappingProvenanceURL
                         )
-                },
-                exitStatus: step.exitStatus,
-                wallTimeSeconds: step.wallTimeSeconds,
-                peakMemoryBytes: step.peakMemoryBytes,
-                stderr: step.stderr,
-                dependsOn: step.dependsOn,
-                startedAt: step.startedAt,
-                completedAt: step.completedAt
-            )
+                    }
+            }
         }
 
         let argv = [
@@ -1398,26 +1381,14 @@ public enum MappingViewerBundlePublicationService {
         let argv = envelope.argv.map(remapString)
         let steps = try envelope.steps.map { step in
             let stepArgv = step.argv.map(remapString)
-            return ProvenanceStep(
-                id: step.id,
-                toolName: step.toolName,
-                toolVersion: step.toolVersion,
-                githubReleaseVersion: step.githubReleaseVersion,
-                argv: stepArgv,
-                durableReplayArgv: step.durableReplayArgv?.map(remapString),
-                reproducibleCommand: stepArgv.map(shellQuote).joined(separator: " "),
-                resolvedOptions: remapOptions(step.resolvedOptions),
-                runtimeIdentity: step.runtimeIdentity,
-                inputs: try step.inputs.map(remapDescriptor),
-                outputs: try step.outputs.map(remapDescriptor),
-                exitStatus: step.exitStatus,
-                wallTimeSeconds: step.wallTimeSeconds,
-                peakMemoryBytes: step.peakMemoryBytes,
-                stderr: step.stderr,
-                dependsOn: step.dependsOn,
-                startedAt: step.startedAt,
-                completedAt: step.completedAt
-            )
+            return try step.with { copy in
+                copy.argv = stepArgv
+                copy.durableReplayArgv = step.durableReplayArgv?.map(remapString)
+                copy.reproducibleCommand = stepArgv.map(shellQuote).joined(separator: " ")
+                copy.resolvedOptions = remapOptions(step.resolvedOptions)
+                copy.inputs = try step.inputs.map(remapDescriptor)
+                copy.outputs = try step.outputs.map(remapDescriptor)
+            }
         }
         return ProvenanceEnvelope(
             schemaVersion: envelope.schemaVersion,
