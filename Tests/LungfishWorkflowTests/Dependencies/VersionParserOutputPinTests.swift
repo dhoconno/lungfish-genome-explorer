@@ -6,14 +6,15 @@ import XCTest
 import LungfishIO
 @testable import LungfishWorkflow
 
-/// Pins the value each production version parser returns today on captured real probe output.
+/// Pins the value the one version parser returns on captured real probe output.
 ///
-/// Two parsers are reachable. `NativeToolRunner.parseVersionProbe` reads stdout and then stderr
-/// of a native tool probe. `parseToolVersion(from:)` reads stdout and stderr joined, and serves
-/// `detectToolVersion`, which both `ManagedMappingPipeline` and `ManagedAssemblyPipeline` call.
-/// The third parser, the inline one in `CLIProvenanceSupport.detectCondaToolVersion`, lives in
-/// the CLI target inside a function that runs a process, so `CLIProvenanceSupportVersionTests`
-/// pins its two production tools (deacon and ribodetector_cpu) from the CLI test target.
+/// `ProbeVersionText.reading(exitCode:stdout:stderr:)` is the only parser, and three entry points
+/// call it. `NativeToolRunner.parseVersionProbe` serves `getToolVersion`. `parseToolVersion(from:)`
+/// serves `detectToolVersion`, which `ManagedMappingPipeline` and `ManagedAssemblyPipeline` call.
+/// `CLIProvenanceSupport.parseCondaToolVersion` serves `detectCondaToolVersion`, which lives in the
+/// CLI target inside a function that runs a process, so `CLIProvenanceSupportVersionTests` pins its
+/// two production tools (deacon and ribodetector_cpu) from the CLI test target. The table keeps a
+/// column for each of the first two entry points, so a change to either shows as a diff.
 ///
 /// The table holds one capture for every tool a parser probes in production. That is each case of
 /// `NativeTool` (any of them can reach `getToolVersion`), each tool `detectToolVersion` is called
@@ -476,6 +477,27 @@ final class VersionParserOutputPinTests: XCTestCase {
         XCTAssertEqual(ManagedAssemblyPipeline.versionFlags(for: .hifiasm), declared)
     }
 
+    /// The reading names the output line each version came from (2.7). Nothing records it yet.
+    func testTheReadingKeepsTheLineItCameFrom() throws {
+        let lines = [
+            "samtools": "samtools 1.24",
+            "minimap2": "2.31-r1302",
+            "mafft": "v7.526 (2024/Apr/26)",
+            "reformat.sh": "BBTools version 40.02",
+            "mapPacBio.sh minratio": "BBTools version 40.02",
+            "vsearch citation": "vsearch v2.31.0_macos_aarch64, 64.0GB RAM, 20 cores",
+            "EsViritu python3.14 path": "1.3.3",
+            "gatk 4.6.2.0": "The Genome Analysis Toolkit (GATK) v4.6.2.0",
+        ]
+        for (name, line) in lines {
+            let capture = try XCTUnwrap((Self.clean + Self.knownDefects).first { $0.name == name }, name)
+            let reading = ProbeVersionText.reading(
+                exitCode: capture.exitCode, stdout: capture.stdout, stderr: capture.stderr)
+            XCTAssertEqual(reading?.version, capture.correct, name)
+            XCTAssertEqual(reading?.reportedLine, line, name)
+        }
+    }
+
     func testDetectParserOnEmptyOutputReturnsNil() {
         XCTAssertNil(parseToolVersion(from: ""))
         XCTAssertNil(NativeToolRunner.parseVersionProbe(exitCode: 0, stdout: "", stderr: ""))
@@ -487,7 +509,7 @@ final class VersionParserOutputPinTests: XCTestCase {
             capture.native, "native parser on \(capture.name)", file: file, line: line
         )
         XCTAssertEqual(
-            parseToolVersion(from: capture.stdout + capture.stderr, exitCode: capture.exitCode),
+            parseToolVersion(from: capture.stdout, stderr: capture.stderr, exitCode: capture.exitCode),
             capture.detect, "detect parser on \(capture.name)", file: file, line: line
         )
     }

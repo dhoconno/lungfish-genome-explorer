@@ -5,17 +5,17 @@
 import XCTest
 @testable import LungfishCLI
 
-/// Pins `CLIProvenanceSupport.parseCondaToolVersion`, the third of the three version parsers.
+/// Pins `CLIProvenanceSupport.parseCondaToolVersion`, the CLI call site of the one version parser.
 ///
-/// The other two are pinned from `VersionParserOutputPinTests` in the Workflow tests. This one
-/// lives in the CLI target, and production runs it for two tools only, deacon
-/// (`FastqDeaconRiboSubcommand`) and ribodetector_cpu (`FastqRiboDetectorSubcommand`). Their
+/// The other two call sites are pinned from `VersionParserOutputPinTests` in the Workflow tests,
+/// with the real probe output of every tool they run. The CLI runs this one for two tools only,
+/// deacon (`FastqDeaconRiboSubcommand`) and ribodetector_cpu (`FastqRiboDetectorSubcommand`). Their
 /// outputs are real, captured by running each probe through `micromamba run` from the managed
 /// install under `~/.lungfish/conda` on 2026-10-11, with the root written as `/Users/test/.lungfish/conda`.
 /// The golden environment holds neither tool.
 ///
-/// It shares four numeric parts, the build suffix and the error markers with the Workflow parsers,
-/// still reads a number inside a path and ignores a `v` prefix, and Phase 2.7 merges the three.
+/// All three call sites read through `ProbeVersionText.reading(exitCode:stdout:stderr:)` since Phase
+/// 2.7, so the rules below are the Workflow's. This file keeps them from drifting at the CLI.
 final class CLIProvenanceSupportVersionTests: XCTestCase {
     private static let root = "/Users/test/.lungfish/conda"
 
@@ -123,22 +123,32 @@ final class CLIProvenanceSupportVersionTests: XCTestCase {
         XCTAssertEqual(CLIProvenanceSupport.parseCondaToolVersion("blastn: 2.16.0+\n"), "2.16.0")
     }
 
-    // MARK: - What this parser still reads wrongly
+    // MARK: - The rules shared with the Workflow call sites (2.7)
 
-    /// The regex reads the first dotted number in the text, so a number inside a path wins. The two
-    /// Workflow parsers skip any token that holds a slash. This parser does not, and the value is
-    /// wrong. No tool the CLI probes prints a path first, so production never meets it, and the 2.7
-    /// merge moves this to 1.3.3.
-    func testANumberInsideAPathIsStillRead() {
+    /// A token that holds a slash is a path and never counts. The CLI parser used to read the first
+    /// dotted number anywhere in the text, so Python's 3.14 in EsViritu's path won. No tool the CLI
+    /// probes prints a path first, so production never met it.
+    func testANumberInsideAPathIsSkipped() {
         // EsViritu --version, the real output. The path holds python3.14, and the version is the next line.
         let esviritu = "\(Self.root)/envs/esviritu/lib/python3.14/site-packages/EsViritu\n1.3.3\n"
-        XCTAssertEqual(CLIProvenanceSupport.parseCondaToolVersion(esviritu), "3.14")
+        XCTAssertEqual(CLIProvenanceSupport.parseCondaToolVersion(esviritu), "1.3.3")
     }
 
-    /// The regex ignores a `v` prefix too, so a DOI on stdout wins over the banner on stderr. The
-    /// Workflow parsers prefer the token written `v2.31.0`. `detectCondaToolVersion` gives this
-    /// parser stdout then stderr, and the correct value is 2.31.0, which the 2.7 merge restores.
-    func testAVPrefixIsStillIgnored() {
+    /// An echoed java command is skipped, so the `minratio=0.40` that mapPacBio.sh echoes is not the
+    /// BBTools version. The install directory here holds no number, so only the skip is under test.
+    func testAnEchoedJavaCommandIsSkipped() {
+        let mapPacBio = Self.lines(
+            "Detected 67108864KB total memory on macOS, estimating 43620761KB available",
+            "java -ea   -Xmx23233m -Xms23233m -cp \(Self.root)/envs/bbtools/opt/bbmap-current/ align2.BBMapPacBio "
+                + "build=1 overwrite=true minratio=0.40 fastareadlen=6000 --version",
+            "BBTools version 40.02")
+        XCTAssertEqual(CLIProvenanceSupport.parseCondaToolVersion(mapPacBio), "40.02")
+    }
+
+    /// A token written `v2.31.0` outranks a bare number that comes earlier. The CLI parser used to ignore
+    /// the prefix, so a DOI on stdout won over the banner on stderr. `detectCondaToolVersion` gives it
+    /// stdout then stderr.
+    func testAVPrefixOutranksABareNumber() {
         // vsearch --version, the real output from the owner's install.
         let stdout = Self.lines(
             "Rognes T, Flouri T, Nichols B, Quince C, Mahe F (2016)",
@@ -152,6 +162,6 @@ final class CLIProvenanceSupportVersionTests: XCTestCase {
             "vsearch v2.31.0_macos_aarch64, 64.0GB RAM, 20 cores",
             "https://github.com/torognes/vsearch",
             "")
-        XCTAssertEqual(CLIProvenanceSupport.parseCondaToolVersion(stdout + stderr), "10.7717")
+        XCTAssertEqual(CLIProvenanceSupport.parseCondaToolVersion(stdout, stderr: stderr), "2.31.0")
     }
 }

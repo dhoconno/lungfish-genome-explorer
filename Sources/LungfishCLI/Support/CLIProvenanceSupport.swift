@@ -37,7 +37,7 @@ enum CLIProvenanceSupport {
                     environment: environment,
                     timeout: 30
                 )
-                if let version = parseCondaToolVersion(result.stdout + result.stderr, exitCode: result.exitCode) {
+                if let version = parseCondaToolVersion(result.stdout, stderr: result.stderr, exitCode: result.exitCode) {
                     return version
                 }
             } catch {
@@ -47,32 +47,14 @@ enum CLIProvenanceSupport {
         return fallback
     }
 
-    /// The version in a probe's combined stdout and stderr, or nil when the output is empty.
+    /// The version in a probe's output, or nil when it printed none. `output` is stdout.
     ///
-    /// The first dotted number anywhere in the text, up to four numeric parts and a local build
-    /// suffix such as `+lge.5`, else the first line when the probe exited 0 and the line does not
-    /// read as an error. This is the CLI's own parser. `NativeToolRunner.parseVersionProbe` and
-    /// `parseToolVersion(from:)` are the other two, and sub-phase 2.7 merges the three.
-    static func parseCondaToolVersion(_ output: String, exitCode: Int32 = 0) -> String? {
-        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let range = trimmed.range(
-            of: #"\d+\.\d+(\.\d+){0,2}(\+[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?"#,
-            options: .regularExpression
-        ) {
-            return String(trimmed[range])
-        }
-        guard exitCode == 0, let firstLine = trimmed.split(whereSeparator: \.isNewline).first.map(String.init) else { return nil }
-        let lowered = firstLine.lowercased()
-        return probeErrorMarkers.contains { lowered.contains($0) } ? nil : firstLine
+    /// This is the CLI call site of `ProbeVersionText.reading(exitCode:stdout:stderr:)`, the one
+    /// parser that `detectToolVersion` and `NativeToolRunner.parseVersionProbe` call too, so all
+    /// three read a path, a `v` token, an echoed java command and an error line the same way.
+    static func parseCondaToolVersion(_ output: String, stderr: String = "", exitCode: Int32 = 0) -> String? {
+        ProbeVersionText.reading(exitCode: exitCode, stdout: output, stderr: stderr)?.version
     }
-
-    /// The words that mark a probe's first line as a complaint and never a version. The Workflow
-    /// parsers keep the same list in `ProbeVersionText`, and sub-phase 2.7 merges the three.
-    private static let probeErrorMarkers = [
-        "fatal", "error", "unrecognized", "unrecognised", "unknown command", "unknown option",
-        "usage", "invalid", "no such", "not found", "illegal", "not a valid",
-        "critical", "libmamba",
-    ]
 
     static func bundlePayloadURLs(in bundleURL: URL) -> [URL] {
         let fileManager = FileManager.default

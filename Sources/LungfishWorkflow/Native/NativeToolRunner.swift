@@ -550,19 +550,10 @@ public actor NativeToolRunner {
     /// number, so `samtools 1.24`, `version: 2.1.5` (lofreq), `BBMap version
     /// 40.02` on stderr and bwa's `Version: 0.7.17-r1188` after a usage exit
     /// all resolve. An error line never contributes, nor does a path token, an echoed
-    /// `java` command or anything from a usage line on (see `ProbeVersionText`).
-    /// Without a number, a successful probe's plain first line is kept as recorded.
+    /// `java` command or anything from a usage line on. The native call site of
+    /// `ProbeVersionText.reading(exitCode:stdout:stderr:)`, which holds every rule.
     public static func parseVersionProbe(exitCode: Int32, stdout: String, stderr: String) -> String? {
-        let scanned = [stdout, stderr].flatMap { output in
-            ProbeVersionText.linesBeforeUsage(output.split(separator: "\n").prefix(8).map(String.init))
-                .filter { !ProbeVersionText.looksLikeProbeError($0) }
-        }
-        if let version = ProbeVersionText.version(in: scanned) { return version }
-        guard exitCode == 0,
-              let firstLine = stdout.split(separator: "\n").first?.trimmingCharacters(in: .whitespaces),
-              !firstLine.isEmpty, !ProbeVersionText.looksLikeProbeError(firstLine)
-        else { return nil }
-        return firstLine
+        ProbeVersionText.reading(exitCode: exitCode, stdout: stdout, stderr: stderr)?.version
     }
     
     // MARK: - Tool Execution

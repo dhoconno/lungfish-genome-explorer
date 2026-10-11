@@ -167,7 +167,7 @@ func detectToolVersion(
                 environment: environment,
                 timeout: timeout
             )
-            if let version = parseToolVersion(from: result.stdout + result.stderr, exitCode: result.exitCode) {
+            if let version = parseToolVersion(from: result.stdout, stderr: result.stderr, exitCode: result.exitCode) {
                 return version
             }
         } catch is CancellationError {
@@ -183,36 +183,42 @@ func detectToolVersion(
 
 /// Extracts a version from a tool's `--version` style output.
 ///
-/// Returns the first semver-like pattern (e.g. `2.1.3`) outside any file
-/// path, with a token written `v2.31.0` preferred (see `ProbeVersionText`),
-/// else the first output line when the probe exited 0 and the line does not
-/// read as an error, else `nil`. A probe that exited nonzero gets no
-/// first-line fallback, so micromamba's complaint about a missing environment
-/// (`critical libmamba ...`, exit 1) is not recorded as a version. bwa-mem2's
-/// `ERROR: unknown command '--version'` is an error line and gives no version.
-/// Usage text holds no version either, so no line from the one that opens it
-/// on is read (hifiasm's `-h` lists the `-D` default `[5.0]`).
-/// Paths are skipped because several tools print their own location before the
-/// version. EsViritu prints `.../lib/python3.14/site-packages/EsViritu` then
-/// `1.3.3`, and a match inside that path recorded Python's `3.14` as
-/// EsViritu's version. Bowtie2 and SKESA print their executable path too.
-func parseToolVersion(from output: String, exitCode: Int32 = 0) -> String? {
-    let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return nil }
-    let lines = trimmed.components(separatedBy: .newlines)
-    let readable = ProbeVersionText.linesBeforeUsage(lines)
-    if let version = ProbeVersionText.version(in: readable) { return version }
-    guard exitCode == 0 else { return nil }
-    let firstLine = lines.first ?? trimmed
-    return ProbeVersionText.looksLikeProbeError(firstLine) ? nil : firstLine
+/// This is the detect call site of `ProbeVersionText.reading(exitCode:stdout:stderr:)`, which holds
+/// every rule. `output` is the probe's stdout. The result is the first semver-like pattern
+/// (e.g. `2.1.3`) outside any file path, with a token written `v2.31.0` preferred, else the first
+/// stdout line when the probe exited 0 and the line does not read as an error, else `nil`.
+/// bwa-mem2's `ERROR: unknown command '--version'` and micromamba's `critical libmamba ...` are
+/// error lines and give no version. EsViritu prints `.../lib/python3.14/site-packages/EsViritu`
+/// then `1.3.3`, and the path is skipped so Python's `3.14` is not read as EsViritu's version.
+func parseToolVersion(from output: String, stderr: String = "", exitCode: Int32 = 0) -> String? {
+    ProbeVersionText.reading(exitCode: exitCode, stdout: output, stderr: stderr)?.version
 }
 
-/// The rule the Workflow's two version parsers share for finding a version token.
+/// A version a probe printed and the output line it came from.
+public struct ProbeVersionReading: Sendable, Hashable {
+    /// The version as a record keeps it, such as `2.31` for the line `2.31-r1302`.
+    public let version: String
+    /// The output line the version came from, as the tool printed it with the space around it
+    /// removed. It can hold the tool's install path, so whatever records it decides how.
+    public let reportedLine: String
+
+    public init(version: String, reportedLine: String) {
+        self.version = version
+        self.reportedLine = reportedLine
+    }
+}
+
+/// The one rule that reads a tool version out of a version probe's output.
 ///
-/// `parseToolVersion(from:)` and `NativeToolRunner.parseVersionProbe` both call it. The CLI keeps
-/// its own copy in `CLIProvenanceSupport.parseCondaToolVersion`, and sub-phase 2.7 merges the
-/// three. A table of real probe output, `VersionParserOutputPinTests`, pins every tool's result.
-enum ProbeVersionText {
+/// Every call site reads a probe through `reading(exitCode:stdout:stderr:)`. They are
+/// `detectToolVersion` (by way of `parseToolVersion(from:)`), `NativeToolRunner.parseVersionProbe`
+/// and the CLI's `CLIProvenanceSupport.detectCondaToolVersion`. A table of real probe output,
+/// `VersionParserOutputPinTests`, pins the result for every tool they probe.
+public enum ProbeVersionText {
+    /// How many lines of each stream are read. A version sits at the top of a probe's output, and
+    /// what lies deeper is build flags and licence text.
+    private static let linesPerStream = 8
+
     /// Words that mark a line as a complaint about the probe and never a version. `critical` and
     /// `libmamba` are micromamba's log level and library name, so every line it writes is its own
     /// complaint, such as `critical libmamba The given prefix does not exist`.
@@ -242,6 +248,35 @@ enum ProbeVersionText {
         Array(lines.prefix { !opensUsageText($0) })
     }
 
+    /// The version a probe printed and the line it came from, or nil when it printed none.
+    ///
+    /// The first 8 lines of stdout and then of stderr are read, leaving blank lines out. In each
+    /// stream the lines from the first one that opens usage text on are dropped, and so is every
+    /// line that reads as an error, micromamba's own complaints included. The rest go to
+    /// `reading(in:)`.
+    ///
+    /// A probe that printed no version number keeps the first line of stdout as its version when it
+    /// exited 0 and the line does not read as an error, as a plain `nightly-build` does. A probe
+    /// that exited nonzero keeps nothing, because its first line is the tool's complaint.
+    public static func reading(exitCode: Int32, stdout: String, stderr: String) -> ProbeVersionReading? {
+        let scanned = [stdout, stderr].flatMap { output in
+            linesBeforeUsage(Array(significantLines(of: output).prefix(linesPerStream)))
+                .filter { !looksLikeProbeError($0) }
+        }
+        if let found = reading(in: scanned) { return found }
+        guard exitCode == 0, let firstLine = significantLines(of: stdout).first,
+              !looksLikeProbeError(firstLine)
+        else { return nil }
+        return ProbeVersionReading(version: firstLine, reportedLine: firstLine)
+    }
+
+    /// The lines of an output that hold something, each without the space around it.
+    private static func significantLines(of output: String) -> [String] {
+        output.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
     /// The version in the lines, outside any path. A token written `v2.31.0` is the tool naming
     /// its own version, so the first such token wins. Without one, the first dotted number wins.
     /// A version keeps up to four numeric parts, as GATK writes `4.6.2.0`, and a local build
@@ -260,19 +295,21 @@ enum ProbeVersionText {
     ///
     /// A line that echoes a JVM command (`java -ea ...`) is skipped. Every BBTools wrapper prints
     /// one before its banner, and it carries the install path and options such as `minratio=0.40`.
-    static func version(in lines: [String]) -> String? {
+    static func reading(in lines: [String]) -> ProbeVersionReading? {
         let number = /\d+\.\d+(?:\.\d+){0,2}(?:\+[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?/
-        var bare: String?
+        var bare: ProbeVersionReading?
         for line in lines {
             let tokens = line.split(whereSeparator: \.isWhitespace)
             if tokens.count >= 2, tokens[0] == "java", tokens[1].hasPrefix("-") { continue }
             for token in tokens where !token.contains("/") {
                 guard let match = token.firstMatch(of: number) else { continue }
+                let found = ProbeVersionReading(
+                    version: String(match.output), reportedLine: line.trimmingCharacters(in: .whitespaces))
                 let before = token[..<match.range.lowerBound]
                 if before.last == "v", before.dropLast().allSatisfy({ !$0.isLetter && !$0.isNumber }) {
-                    return String(match.output)
+                    return found
                 }
-                if bare == nil { bare = String(match.output) }
+                if bare == nil { bare = found }
             }
         }
         return bare
