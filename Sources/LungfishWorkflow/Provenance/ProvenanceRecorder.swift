@@ -116,7 +116,7 @@ public actor ProvenanceRecorder {
     ///   - exitCode: Process exit code
     ///   - wallTime: Execution time in seconds
     ///   - peakMemoryBytes: Peak resident memory in bytes, when available
-    ///   - stderr: Standard error output (the first 2,048 and last 8,192 characters when longer than 10,240)
+    ///   - stderr: Standard error output (the whole lines within the first 2,048 and last 8,192 characters when longer than 10,240)
     ///   - dependsOn: IDs of upstream steps
     ///   - parentStepID: The step this one ran under, such as the CLI step whose import ran it
     ///   - managedToolID: The managed tool the step ran, by its lock id, when the caller knows it

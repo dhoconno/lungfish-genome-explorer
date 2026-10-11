@@ -999,9 +999,9 @@ public enum MetagenomicsBatchProvenanceWriter {
 }
 
 private extension String {
-    /// The first 2,048 and the last 8,192 characters when longer than 10,240
-    /// (``ProvenanceStderr``), so a failed log keeps the error at its end and a
-    /// reader sees where the middle was cut.
+    /// The whole lines within the first 2,048 and the last 8,192 characters
+    /// when longer than 10,240 (``ProvenanceStderr``), so a failed log keeps
+    /// the error at its end and a reader sees where the middle was cut.
     var limitedForProvenance: String {
         ProvenanceStderr.truncated(self) ?? self
     }

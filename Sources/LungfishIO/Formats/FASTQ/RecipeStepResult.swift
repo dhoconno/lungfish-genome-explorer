@@ -35,10 +35,10 @@ public struct RecipeStepResult: Codable, Sendable {
     /// Actual process exit status, when the process ran and reported one.
     public let exitStatus: Int?
     /// Stderr captured from the actual process, kept whole up to 10,240
-    /// characters and otherwise cut to its first 2,048 and last 8,192 characters
-    /// by ``ProvenanceStderr`` when the step is made. A step read from disk keeps
-    /// the stderr it holds, because cutting it again would drop more of a record
-    /// that an earlier version already cut.
+    /// characters and otherwise cut by ``ProvenanceStderr`` to the whole lines
+    /// within its first 2,048 and last 8,192 characters when the step is made. A
+    /// step read from disk keeps the stderr it holds, because cutting it again
+    /// would drop more of a record that an earlier version already cut.
     public let stderr: String?
     /// Actual process start timestamp, when captured.
     public let startedAt: Date?
