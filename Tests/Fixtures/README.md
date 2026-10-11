@@ -79,7 +79,7 @@ Four-read FASTQ files, two gzip copies and four unaligned BAM files, one per rea
 
 ## sidebar-scan/
 
-One text snapshot per project that the sidebar-scan safety nets scan, with one sidebar row on each line. The projects are built in a scratch folder on every run, so these files hold expectations only. `classifier-layouts.txt` covers every classifier result layout that LGE writes today and the layouts the analysis run executor writes, built by `ClassifierLayoutFixtures`. Rewrite the snapshots with `LUNGFISH_UPDATE_SIDEBAR_SNAPSHOTS=1` and review the diff before committing.
+One text snapshot per project that the sidebar-scan safety nets scan, with one sidebar row on each line. The projects are built in a scratch folder on every run, so these files hold expectations only. `ClassifierLayoutFixtures` builds the project of `classifier-layouts.txt`. With `analysis-naming.txt` and `analyses-seeds.txt`, that snapshot covers every classifier result layout that LGE writes today and the layouts the analysis run executor writes. Rewrite the snapshots with `LUNGFISH_UPDATE_SIDEBAR_SNAPSHOTS=1` and review the diff before committing.
 
 ## Usage in Tests
 
