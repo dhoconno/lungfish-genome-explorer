@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 /// Reads and writes `<storageRoot>/dependency-receipt.json`, and reconstructs a receipt
 /// from what is on disk when none exists.
@@ -27,7 +28,10 @@ public struct DependencyReceiptStore: Sendable {
         return receipt
     }
 
-    /// Writes the receipt atomically, stamping `updatedAt`.
+    /// Writes the receipt through ``DurableReplace``, stamping `updatedAt`. The name holds a complete
+    /// old or new receipt at every step, and the bytes and the folder are synced (plan decisions
+    /// S1, V1 and V2). A storage root that is itself a link, such as one moved to an external drive
+    /// and linked back, still opens, because the folder is outside every project (V3).
     ///
     /// Returns the receipt as written: `updatedAt` carries the save timestamp, and every
     /// date is truncated to whole seconds to match the ISO8601 on-disk resolution, so the
@@ -42,13 +46,7 @@ public struct DependencyReceiptStore: Sendable {
         copy.updatedAt = Date()
         copy.truncateDatesToWholeSeconds()
         let data = try encoder.encode(copy)
-        let tmp = receiptURL.appendingPathExtension("tmp-\(UUID().uuidString)")
-        try data.write(to: tmp, options: .atomic)
-        if FileManager.default.fileExists(atPath: receiptURL.path) {
-            _ = try FileManager.default.replaceItemAt(receiptURL, withItemAt: tmp)
-        } else {
-            try FileManager.default.moveItem(at: tmp, to: receiptURL)
-        }
+        try DurableReplace.replace(data, named: receiptURL.lastPathComponent, in: storageRoot)
         return copy
     }
 
