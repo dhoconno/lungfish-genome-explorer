@@ -198,6 +198,40 @@ struct MetagenomicsImportServiceTests {
         }
     }
 
+    /// Lane A2 of Phase 2.7 found that a whole EsViritu output folder failed to import with
+    /// `parseFailed`, because the detection table was taken as the first `*virus*.tsv` in name order,
+    /// which is `<sample>.detected_virus.assembly_summary.tsv`. Plan decision E7 keeps that table in
+    /// every EsViritu result, so the import picks `<sample>.detected_virus.info.tsv` by its full
+    /// suffix (2.7 A9, M1b). The folder copies the three tables of one `esviritu-mini` sample, whose
+    /// detection table holds two detections.
+    @Test
+    func esVirituImportPicksTheDetectionTableBesideTheAssemblySummary() throws {
+        let workspace = makeTemporaryDirectory(prefix: "metagenomics-import-esviritu-full-")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let sourceDirectory = workspace.appendingPathComponent("esv-source", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/esviritu-mini/SRR35517705", isDirectory: true)
+        for suffix in ["detected_virus.assembly_summary.tsv", "detected_virus.info.tsv", "virus_coverage_windows.tsv"] {
+            try FileManager.default.copyItem(
+                at: fixture.appendingPathComponent("SRR35517705.\(suffix)"),
+                to: sourceDirectory.appendingPathComponent("SRR35517705.\(suffix)")
+            )
+        }
+
+        let result = try MetagenomicsImportService.importEsViritu(
+            inputURL: sourceDirectory,
+            outputDirectory: workspace.appendingPathComponent("imports", isDirectory: true)
+        )
+
+        #expect(result.virusCount == 2)
+        let saved = try LungfishWorkflow.EsVirituResult.load(from: result.resultDirectory)
+        #expect(saved.detectionURL.lastPathComponent == "SRR35517705.detected_virus.info.tsv")
+        #expect(saved.assemblyURL?.lastPathComponent == "SRR35517705.detected_virus.assembly_summary.tsv")
+    }
+
     /// A partial export with no recognisable header keeps the raw row-count
     /// fallback, so importing a fragment still succeeds.
     @Test

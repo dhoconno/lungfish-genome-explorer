@@ -298,4 +298,31 @@ final class ClassifierDatabaseRoutingTests: XCTestCase {
         let route = ClassifierDatabaseRouter.route(for: resultDir)
         XCTAssertNil(route)
     }
+
+    // MARK: - Known defect for 2.9
+
+    /// Lane A2 of Phase 2.7 found that `routeDirect` takes any folder whose name starts with a tool
+    /// prefix as a result root. A batch sample named like `esviritu_ctrl`, which the one sanitizer
+    /// keeps as it is (2.7 A9), therefore routes as a result of its own, with no database and no
+    /// sample, instead of as sample `esviritu_ctrl` of its batch. Routing moves in Phase 2.9, so this
+    /// pin holds today's route. The right route is the batch root with `sampleId` `esviritu_ctrl` and
+    /// the batch's `esviritu.sqlite`.
+    func testKnownDefect29BatchSampleNamedLikeAToolRoutesAsAResultRoot() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let batchDir = dir.appendingPathComponent("esviritu-batch-2026-10-11T10-00-00")
+        let sampleDir = batchDir.appendingPathComponent("esviritu_ctrl")
+        try FileManager.default.createDirectory(at: sampleDir, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: batchDir.appendingPathComponent("esviritu.sqlite").path, contents: Data())
+
+        let route = try XCTUnwrap(ClassifierDatabaseRouter.route(for: sampleDir))
+        XCTAssertEqual(route.tool, "esviritu")
+        XCTAssertEqual(route.resultURL.lastPathComponent, "esviritu_ctrl", "Known defect: the sample folder routes as a root")
+        XCTAssertNil(route.sampleId, "Known defect: the right sample id is esviritu_ctrl")
+        XCTAssertNil(route.databaseURL, "Known defect: the batch's esviritu.sqlite is not found")
+
+        let control = try XCTUnwrap(ClassifierDatabaseRouter.route(for: batchDir.appendingPathComponent("ctrl")))
+        XCTAssertEqual(control.sampleId, "ctrl", "A sample whose name has no tool prefix routes to its batch")
+        XCTAssertNotNil(control.databaseURL)
+    }
 }

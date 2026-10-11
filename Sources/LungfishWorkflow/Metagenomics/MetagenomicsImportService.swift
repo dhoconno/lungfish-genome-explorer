@@ -2436,11 +2436,10 @@ private func scanRegularFilesRecursively(in directory: URL) -> [URL] {
 }
 
 private func detectEsVirituFiles(in files: [URL]) -> EsVirituDetectedFiles {
-    let detectionURL = files.first { url in
+    // The detection table by its full suffix first, because `<sample>.detected_virus.assembly_summary.tsv` sorts before it (2.7 A9).
+    let detectionURL = files.first { $0.lastPathComponent.lowercased().hasSuffix(".detected_virus.info.tsv") } ?? files.first { url in
         let lower = url.lastPathComponent.lowercased()
-        return lower.contains("detected_virus.info")
-            || lower.contains("detection")
-            || (lower.contains("virus") && lower.hasSuffix(".tsv"))
+        return lower.contains("detected_virus.info") || lower.contains("detection") || (lower.contains("virus") && lower.hasSuffix(".tsv"))
     }
 
     let assemblyURL = files.first { url in
