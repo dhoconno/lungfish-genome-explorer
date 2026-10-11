@@ -438,6 +438,55 @@ final class ProvenanceStepParentTests: XCTestCase {
         XCTAssertEqual(problems, [])
     }
 
+    // MARK: - The assembly bundle builder records no step under a CLI step
+
+    /// `AssemblyBundleBuilder` stages the bundle in a `.building-` folder but writes its record
+    /// after it publishes the bundle. The record holds the assembler's own steps, none of them a
+    /// CLI step and none of them in a staging folder, so the builder sets no parent and the export
+    /// keeps every step it records.
+    func testAssemblyBundleRecordHoldsNoStagingPathAndNoSubStep() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("step-parent-assembly-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: tempDir) }
+        let outputDir = tempDir.appendingPathComponent("megahit-output", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        try ">megahit_ctg_1\nACGTACGTACGTACGT\n>megahit_ctg_2\nTTTTCCCCAAAAGGGG\n"
+            .write(to: outputDir.appendingPathComponent("final.contigs.fa"), atomically: true, encoding: .utf8)
+        let request = AssemblyRunRequest(
+            tool: .megahit,
+            readType: .illuminaShortReads,
+            inputURLs: [URL(fileURLWithPath: "/tmp/R1.fastq.gz"), URL(fileURLWithPath: "/tmp/R2.fastq.gz")],
+            projectName: "megahit-demo",
+            outputDirectory: outputDir,
+            pairedEnd: true,
+            threads: 8
+        )
+        let result = try AssemblyOutputNormalizer.normalize(
+            request: request,
+            primaryOutputDirectory: outputDir,
+            commandLine: "megahit -1 R1.fastq.gz -2 R2.fastq.gz -o megahit-output",
+            wallTimeSeconds: 18,
+            assemblerVersion: "1.2.9"
+        )
+        let bundleURL = try await AssemblyBundleBuilder().build(
+            result: result,
+            request: request,
+            provenance: ProvenanceBuilder.build(request: request, result: result, inputRecords: []),
+            outputDirectory: tempDir,
+            bundleName: "Managed Bundle"
+        ) { _, _ in }
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
+        let run = envelope.legacyWorkflowRun(preferCanonicalSteps: true)
+        XCTAssertFalse(run.steps.isEmpty)
+        XCTAssertFalse(
+            run.steps.contains(where: ProvenanceExportPlan.isInsideStagingFolder),
+            "the record is written after the bundle is published, so no step names the staging folder"
+        )
+        XCTAssertTrue(plan(run.steps).subSteps.isEmpty, "no step of an assembly bundle record ran inside another")
+    }
+
     // MARK: - A chain of records
 
     func testAChainOfTwoImportsReplaysEachImportOnceAndNothingElseOfTheirs() {
