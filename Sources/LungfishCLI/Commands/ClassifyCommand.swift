@@ -158,13 +158,22 @@ struct ClassifyCommand: AsyncParsableCommand {
         let quiet = globalOptions.quiet
         let destination: AnalysisRunDestination = project.map { .project(URL(fileURLWithPath: $0).standardizedFileURL) }
             ?? .directory(outputDirectoryURL)
+        // SIGTERM (the app's Cancel) cancels the run, so the executor records it as cancelled with
+        // exit 125, from the cancel request and never from how a child ended (SWIFT X2). The
+        // handler counts the signal at once, before the cancel reaches the task, and a kraken2
+        // child in the same process group can end first, so both sources say a cancel was asked.
+        let pendingCancel = PendingTaskCancel<AnalysisRunReport>()
+        let cancelRequested: @Sendable () -> Bool = {
+            SIGTERMCancellation.signalCaught || pendingCancel.cancelRequested
+        }
         let tool = Kraken2AnalysisRunTool(
             request: runRequest,
             services: Kraken2RunServices(
                 expandInputs: { arguments, recursive in
                     try CLIClassificationFolderResolver.expandInputArguments(arguments, recursive: recursive)
                 },
-                presentation: eventsOn ? .none : textPresentation(useColors: useColors, quiet: quiet)
+                presentation: eventsOn ? .none : textPresentation(useColors: useColors, quiet: quiet),
+                cancelRequested: cancelRequested
             )
         )
         let request = AnalysisRunRequest(
@@ -177,13 +186,10 @@ struct ClassifyCommand: AsyncParsableCommand {
             ? AnalysisRunEvents.jsonLines { printEventLine($0) }
             : Self.textEvents(useColors: useColors, quiet: quiet)
 
-        // SIGTERM (the app's Cancel) cancels the run, so the executor records it as cancelled with
-        // exit 125, from the cancel request and never from how a child ended (SWIFT X2).
-        let pendingCancel = PendingTaskCancel<AnalysisRunReport>()
         let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
         let executor = AnalysisRunExecutor(services: AnalysisRunServices(
             indexing: Kraken2ResultIndexer(),
-            cancelRequested: { pendingCancel.cancelRequested }
+            cancelRequested: cancelRequested
         ))
         let task = Task { await executor.execute(tool, request, events: events) }
         pendingCancel.attach(task)

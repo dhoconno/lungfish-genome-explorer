@@ -195,6 +195,10 @@ public struct Kraken2RunServices: Sendable {
         _ progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> ClassificationResult
     public var presentation: Kraken2RunPresentation
+    /// Whether a cancel was asked for, the same source the executor's `cancelRequested` reads. A
+    /// unit whose pipeline fails after a cancel records `profileState` cancelled, also when a tool
+    /// child that got the signal ended first.
+    public var cancelRequested: @Sendable () -> Bool
 
     public init(
         expandInputs: @escaping @Sendable ([String], Bool) throws -> [URL] = Kraken2RunServices.literalInputs,
@@ -206,7 +210,8 @@ public struct Kraken2RunServices: Sendable {
         },
         materializer: any CLISequenceInputMaterializing & Sendable = FASTQCLIMaterializer(runner: NativeToolRunner.shared),
         runPipeline: @escaping @Sendable (ClassificationConfig, @escaping @Sendable (Double, String) -> Void) async throws -> ClassificationResult = Kraken2RunServices.sharedPipeline,
-        presentation: Kraken2RunPresentation = .none
+        presentation: Kraken2RunPresentation = .none,
+        cancelRequested: @escaping @Sendable () -> Bool = { false }
     ) {
         self.expandInputs = expandInputs
         self.database = database
@@ -214,6 +219,7 @@ public struct Kraken2RunServices: Sendable {
         self.materializer = materializer
         self.runPipeline = runPipeline
         self.presentation = presentation
+        self.cancelRequested = cancelRequested
     }
 
     /// Each argument as one input, without expanding folders.

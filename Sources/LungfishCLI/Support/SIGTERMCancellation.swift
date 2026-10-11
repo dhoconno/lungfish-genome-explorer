@@ -143,6 +143,11 @@ final class SIGTERMCancellation {
         self.init(secondSignalEndsProcess: secondSignalEndsProcess) { target.cancel() }
     }
 
+    /// Whether a SIGTERM was caught since the current instance started. The handler counts it
+    /// before anything else runs, so this is true before the cancel reaches the task, also when a
+    /// tool child that got the same signal ended first.
+    static var signalCaught: Bool { caughtSIGTERMs.load(ordering: .sequentiallyConsistent) > 0 }
+
     /// Gives SIGTERM back the handler it had before, or its default action.
     func end() {
         guard !ended else { return }

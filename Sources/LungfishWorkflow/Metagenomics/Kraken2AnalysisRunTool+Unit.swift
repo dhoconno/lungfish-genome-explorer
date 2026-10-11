@@ -119,6 +119,8 @@ extension Kraken2AnalysisRunTool {
                     originalInputURLs: originalInputs,
                     executionInputURLs: executionInputs
                 ))
+            } else {
+                try Self.convergeSampleRecord(in: unit.directory)
             }
             let unitResult = Kraken2UnitResult(
                 result: result,
@@ -142,13 +144,28 @@ extension Kraken2AnalysisRunTool {
                         endedAt: clock.now
                     ).forEach(context.recordStep)
                 }
+                // A cancel kills the tool child too, which can end the pipeline with a plain error
+                // before the task sees the cancel, so the cancel request decides (E5, SWIFT X2).
+                let cancelled = error is CancellationError || Task.isCancelled || services.cancelRequested()
                 context.recordOptions(AnalysisRootRecordOptions(resolved: [
-                    "profileState": .string(error is CancellationError ? "cancelled" : "failed"),
+                    "profileState": .string(cancelled ? "cancelled" : "failed"),
                     "failureStage": .string(stage),
                 ]))
             }
             throw error
         }
+    }
+
+    /// A batch sample keeps the pipeline's record in its folder. Its options converge on the rules
+    /// of the root record (``Kraken2RunRecordOptions/convergedSampleOptions(_:)``), so one result
+    /// holds one defaults table and one home of the read-set plan (E12, E13, D8).
+    static func convergeSampleRecord(in directory: URL) throws {
+        guard let envelope = ProvenanceRecorder.loadEnvelope(from: directory),
+              Kraken2RunRecordOptions.pipelineWorkflowNames.contains(envelope.workflowName) else {
+            return
+        }
+        let converged = envelope.with { $0.options = Kraken2RunRecordOptions.convergedSampleOptions($0.options) }
+        _ = try ProvenanceWriter().write(converged, to: directory)
     }
 
     /// The warning a usable result ends with, a Bracken profile that degraded (E4).

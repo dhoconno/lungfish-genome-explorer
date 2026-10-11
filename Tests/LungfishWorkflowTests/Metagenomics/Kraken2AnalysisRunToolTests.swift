@@ -13,9 +13,9 @@ import LungfishTestSupport
 /// root record and the events the command line and the app's route both get.
 final class Kraken2AnalysisRunToolTests: XCTestCase {
 
-    private var root: URL!
-    private var fixtures: ReadSetFixtures!
-    private var kraken2: StandInKraken2!
+    var root: URL!
+    var fixtures: ReadSetFixtures!
+    var kraken2: StandInKraken2!
 
     override func setUpWithError() throws {
         root = try TestTempDirectory.make(prefix: "kraken2-tool").resolvingSymlinksInPath()
@@ -100,6 +100,13 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
         let replay = try XCTUnwrap(record.durableReplayArgv)
         XCTAssertTrue(replay.contains(inputs.appendingPathComponent(kept[0]).path), "\(replay)")
         XCTAssertTrue(record.steps.contains { $0.toolName == CLISequenceInputMaterialization.materializationToolName })
+        // Review A8 fix 5e, from the deleted wrapper tests.
+        let keptFile = inputs.appendingPathComponent(kept[0]).standardizedFileURL
+        XCTAssertEqual(record.options.resolvedDefaults["originalInputs"], .array([.file(subset)]))
+        XCTAssertEqual(record.options.resolvedDefaults["executionInputs"], .array([.file(keptFile)]))
+        let kraken2Step = try XCTUnwrap(record.steps.first { $0.toolName == "kraken2" })
+        let traced = (kraken2Step.inputs + record.files).contains { $0.path == keptFile.path && $0.originPath == subset.path }
+        XCTAssertTrue(traced, "the kept file kraken2 read traces to the bundle: \(kraken2Step.inputs.map(\.path))")
     }
 
     func testADegradedProfileCompletesWithAWarningAndRecordsItsReason() async throws {
@@ -145,7 +152,7 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
     // MARK: - Batch
 
     func testABatchGroupsSamplesIntoFoldersWithSummaryManifestIndexAndSourceRecords() async throws {
-        let inputs = [fixtures.singleRoot.path, fixtures.interleavedRoot.path]
+        let inputs = [fixtures.singleRoot.path, fixtures.interleavedRoot.path, fixtures.mixedRoot.path]
         let argv = command(inputs + ["--batch", "--project", fixtures.projectURL.path])
         let indexer = StubKraken2Indexer()
 
@@ -156,24 +163,82 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
         XCTAssertTrue(batchRoot.lastPathComponent.hasPrefix("kraken2-batch-"))
         XCTAssertEqual(AnalysesFolder.readAnalysisMetadata(from: batchRoot)?.isBatch, true)
         let manifest = try XCTUnwrap(MetagenomicsBatchResultStore.loadClassification(from: batchRoot))
-        XCTAssertEqual(manifest.samples.count, 2)
+        XCTAssertEqual(manifest.samples.count, 3)
         for sample in manifest.samples {
             let folder = batchRoot.appendingPathComponent(sample.resultDirectory)
             XCTAssertTrue(ClassificationResult.exists(in: folder), sample.sampleId)
-            XCTAssertNotNil(ProvenanceRecorder.loadEnvelope(from: folder), "the sample keeps the pipeline's record")
+            let sampleRecord = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: folder), "the sample keeps the pipeline's record")
+            // Review A8 fix 4. One defaults table, the command's, and no preset nobody gave (E12, D8).
+            let defaults = sampleRecord.options.defaults
+            XCTAssertNil(defaults["preset"], sample.sampleId)
+            XCTAssertEqual(defaults["confidence"], .number(ClassificationConfig.Preset.balanced.parameters.confidence), sample.sampleId)
+            XCTAssertEqual(defaults["readFormat"], .string(Kraken2ReadFormatChoice.auto.rawValue), sample.sampleId)
+            for (key, value) in Kraken2RunRecordOptions.commandDefaults where defaults[key] != nil {
+                XCTAssertEqual(defaults[key], value, "\(sample.sampleId) \(key)")
+            }
+            XCTAssertNil(sampleRecord.options.explicit[AnalysisRootRecordOptions.readSetPlanKey], sample.sampleId)
+            if sample.inputFiles == [fixtures.mixedRoot.standardizedFileURL.path] {
+                XCTAssertEqual(sampleRecord.readSetPlan?.place, .resolvedDefaults, "the plan's one home (E13)")
+            }
         }
+        XCTAssertTrue(manifest.samples.contains { $0.inputFiles == [fixtures.mixedRoot.standardizedFileURL.path] })
         let summary = try String(contentsOf: batchRoot.appendingPathComponent("classification-batch-summary.tsv"), encoding: .utf8)
-        XCTAssertEqual(summary.split(separator: "\n").count, 3)
+        XCTAssertEqual(summary.split(separator: "\n").count, 4)
         XCTAssertEqual(indexer.requests, [batchRoot.standardizedFileURL.path])
-        XCTAssertEqual(run.report.message, "2 of 2 samples returned valid Kraken2 classifications")
+        XCTAssertEqual(run.report.message, "3 of 3 samples returned valid Kraken2 classifications")
+        // The app's batch log line before the index (lane A10's request).
+        let building = run.events.firstIndex { line in
+            if case .progress(_, let message)? = line.event { return message == "Building kraken2.sqlite from 3 sample(s)" }
+            return false
+        }
+        let completed = run.events.firstIndex { kind(of: $0.event) == "complete" }
+        XCTAssertNotNil(building, "the batch says it builds kraken2.sqlite")
+        XCTAssertLessThan(building ?? .max, completed ?? .min)
         let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: XCTUnwrap(run.report.recordURL)))
         XCTAssertEqual(record.argv, argv, "the batch records the command that ran, not a shell script (E8)")
         XCTAssertTrue(record.steps.contains { $0.toolName == StubKraken2Indexer.stepName })
         XCTAssertEqual(record.options.explicit["batch"], .boolean(true))
-        for bundle in [fixtures.singleRoot, fixtures.interleavedRoot] {
+        for bundle in [fixtures.singleRoot, fixtures.interleavedRoot, fixtures.mixedRoot] {
             let entries = AnalysisManifestStore.load(bundleURL: bundle, projectURL: fixtures.projectURL).analyses
             XCTAssertEqual(entries.map(\.displayName), ["Kraken2 Batch"], bundle.lastPathComponent)
         }
+    }
+
+    /// Review A8 fix 7. A batch outside a project writes no entry into its inputs' analysis
+    /// history, as a one-folder result outside a project does not.
+    func testABatchOutsideAProjectRecordsNothingInItsSourceBundles() async throws {
+        let inputs = [fixtures.singleRoot.path, fixtures.interleavedRoot.path]
+        let output = root.appendingPathComponent("batch-elsewhere", isDirectory: true)
+        let argv = command(inputs + ["--batch", "--output-dir", output.path])
+
+        let run = await execute(request(inputs), .directory(output), batch: true, argv: argv, indexing: StubKraken2Indexer())
+
+        XCTAssertEqual(run.report.status, .completed, run.report.message)
+        XCTAssertNotNil(MetagenomicsBatchResultStore.loadClassification(from: output))
+        for bundle in [fixtures.singleRoot, fixtures.interleavedRoot] {
+            let entries = AnalysisManifestStore.load(bundleURL: bundle, projectURL: fixtures.projectURL).analyses
+            XCTAssertEqual(entries.map(\.displayName), [], bundle.lastPathComponent)
+        }
+    }
+
+    /// Review A8 fix 6. The executor gives each sample of a batch a new folder, so a sample whose
+    /// name an earlier batch in the same root already used goes beside it, and an input inside the
+    /// earlier sample's outputs is read, never removed.
+    func testABatchLeavesAnInputInsideAnEarlierBatchsSampleFolderAlone() async throws {
+        let batchRoot = root.appendingPathComponent("earlier-batch", isDirectory: true)
+        let copies = batchRoot.appendingPathComponent("reads/.lungfish-provenance/intermediates/classification-inputs", isDirectory: true)
+        try FileManager.default.createDirectory(at: copies, withIntermediateDirectories: true)
+        let input = copies.appendingPathComponent("reads.fastq")
+        let reads = ReadSetFixtures.fastq(["r1", "r2"])
+        try reads.write(to: input, atomically: true, encoding: .utf8)
+        let argv = command([input.path, "--batch", "--output-dir", batchRoot.path])
+
+        let run = await execute(request([input.path]), .directory(batchRoot), batch: true, argv: argv, indexing: StubKraken2Indexer())
+
+        XCTAssertEqual(run.report.status, .completed, run.report.message)
+        XCTAssertEqual(try String(contentsOf: input, encoding: .utf8), reads, "the earlier sample keeps its file")
+        let manifest = try XCTUnwrap(MetagenomicsBatchResultStore.loadClassification(from: batchRoot))
+        XCTAssertEqual(manifest.samples.map(\.resultDirectory), ["reads-2"])
     }
 
     // MARK: - Refusals
@@ -224,7 +289,7 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func kind(of event: CLIEvent?) -> String {
+    func kind(of event: CLIEvent?) -> String {
         guard let event else { return "none" }
         switch event {
         case .start: return "start"
@@ -236,41 +301,70 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
         }
     }
 
-    private func command(_ arguments: [String]) -> [String] {
+    func command(_ arguments: [String]) -> [String] {
         ["lungfish-cli", "kraken2", "classify", "--db", "Viral"] + arguments
     }
 
-    private func request(_ inputs: [String]) -> Kraken2RunRequest {
+    func request(_ inputs: [String]) -> Kraken2RunRequest {
         Kraken2RunRequest(inputArguments: inputs, databaseName: "Viral", threads: 1)
     }
 
-    private func execute(
+    typealias PipelineRun = @Sendable (ClassificationConfig, @escaping @Sendable (Double, String) -> Void) async throws -> ClassificationResult
+
+    func execute(
         _ request: Kraken2RunRequest,
         _ destination: AnalysisRunDestination,
         batch: Bool = false,
         argv: [String],
         materializer: any CLISequenceInputMaterializing & Sendable = ReadSetFixtures.StubMaterializer(readsByBundlePath: [:]),
         indexing: (any AnalysisResultIndexing)? = nil,
-        runPipeline: (@Sendable (ClassificationConfig, @escaping @Sendable (Double, String) -> Void) async throws -> ClassificationResult)? = nil
+        runPipeline: PipelineRun? = nil,
+        cancelRequested: (@Sendable () -> Bool)? = nil
     ) async -> (report: AnalysisRunReport, events: [CLIEventLine]) {
-        let databaseURL = kraken2.databaseURL
+        await Self.run(
+            request, destination, batch: batch, argv: argv,
+            databaseURL: kraken2.databaseURL, condaManager: kraken2.condaManager,
+            materializer: materializer, indexing: indexing, runPipeline: runPipeline, cancelRequested: cancelRequested
+        )
+    }
+
+    /// Runs the tool through the executor with the stand-in kraken2 at `databaseURL` and
+    /// `condaManager`, or `runPipeline`. A cancel request reaches the tool and the executor alike.
+    static func run(
+        _ request: Kraken2RunRequest,
+        _ destination: AnalysisRunDestination,
+        batch: Bool = false,
+        argv: [String],
+        databaseURL: URL,
+        condaManager: CondaManager,
+        materializer: any CLISequenceInputMaterializing & Sendable = ReadSetFixtures.StubMaterializer(readsByBundlePath: [:]),
+        indexing: (any AnalysisResultIndexing)? = nil,
+        runPipeline: PipelineRun? = nil,
+        cancelRequested: (@Sendable () -> Bool)? = nil
+    ) async -> (report: AnalysisRunReport, events: [CLIEventLine]) {
+        let cancelRequested = cancelRequested ?? { false }
         let database = MetagenomicsDatabaseInfo(
             name: "Viral", tool: "kraken2", version: "2026.1", sizeBytes: 1, sizeOnDisk: 1, downloadURL: nil,
             description: "stand-in", collection: nil, path: databaseURL, isExternal: false, bookmarkData: nil,
             lastUpdated: Date(), status: .ready, recommendedRAM: 1
         )
-        let pipeline = ClassificationPipeline(condaManager: kraken2.condaManager)
+        let pipeline = ClassificationPipeline(condaManager: condaManager)
         let services = Kraken2RunServices(
             database: { $0 == "Viral" ? database : nil },
             availableDatabases: { [database] },
             materializer: materializer,
             runPipeline: runPipeline ?? { config, progress in
                 try await pipeline.classify(config: config, progress: progress)
-            }
+            },
+            cancelRequested: cancelRequested
         )
         let lines = Kraken2EventCollector()
         let report = await AnalysisRunExecutor(
-            services: AnalysisRunServices(writer: ProvenanceWriter(signingProvider: nil), indexing: indexing)
+            services: AnalysisRunServices(
+                writer: ProvenanceWriter(signingProvider: nil),
+                indexing: indexing,
+                cancelRequested: cancelRequested
+            )
         ).execute(
             Kraken2AnalysisRunTool(request: request, services: services),
             AnalysisRunRequest(inputs: [], destination: destination, groupsSamples: batch, commandLine: argv),
@@ -281,7 +375,7 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
 }
 
 /// Collects the event lines of a run.
-private final class Kraken2EventCollector: @unchecked Sendable {
+final class Kraken2EventCollector: @unchecked Sendable {
     private let lock = NSLock()
     private var stored: [CLIEventLine] = []
 
@@ -293,7 +387,7 @@ private final class Kraken2EventCollector: @unchecked Sendable {
 }
 
 /// Stands in for the command line's index builder over the `build-db kraken2` core.
-private final class StubKraken2Indexer: AnalysisResultIndexing, @unchecked Sendable {
+final class StubKraken2Indexer: AnalysisResultIndexing, @unchecked Sendable {
     static let stepName = "stub kraken2 index"
     private let lock = NSLock()
     private var seen: [String] = []

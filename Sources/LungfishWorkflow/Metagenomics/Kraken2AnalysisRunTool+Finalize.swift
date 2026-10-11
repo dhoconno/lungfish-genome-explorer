@@ -33,10 +33,16 @@ extension Kraken2AnalysisRunTool {
         "Database build failed: \(detail) \u{2014} batch will rebuild lazily on open"
     }
 
+    /// The progress line before a batch builds its viewer index, the app's log line
+    /// (`AppDelegate.runClassificationBatch`), so the batch row keeps it on the new route.
+    public static func batchIndexMessage(sampleCount: Int) -> String {
+        "Building kraken2.sqlite from \(sampleCount) sample(s)"
+    }
+
     /// Phase P3. A plain one-folder result keeps today's command-line set. A `--project` result
     /// also gets the viewer index and the source bundle record (UX D19). A batch root always gets
-    /// the summary table, the manifest and the viewer index over its completed samples, and each
-    /// completed sample's bundle records the batch, with the app's words.
+    /// the summary table, the manifest and the viewer index over its completed samples. Under
+    /// `--project` each completed sample's bundle records the batch, with the app's words.
     public func finalize(
         _ units: [AnalysisUnitReport<Kraken2UnitResult>],
         context: AnalysisRunFinalizeContext
@@ -134,6 +140,7 @@ extension Kraken2AnalysisRunTool {
             ]
         )
         var indexError: String?
+        context.progress(Self.batchIndexMessage(sampleCount: completed.count))
         do {
             try await add(context.buildIndex(), to: &finalization)
         } catch {
@@ -145,6 +152,8 @@ extension Kraken2AnalysisRunTool {
             sampleCount: units.count,
             evaluation: ClassificationBatchOutcomePolicy.evaluate(rows: rows, sqliteWarning: indexError)
         )
+        // Only a result in a project goes into its inputs' analysis history, as for one folder.
+        guard completed.contains(where: { $0.value.destinationIsProject }) else { return finalization }
         finalization.sourceRecords = completed.compactMap { item in
             item.value.sourceBundle.map { bundle in
                 let metadata = ClassificationBatchOutcomePolicy.singleResultMetadata(for: item.value.result)
