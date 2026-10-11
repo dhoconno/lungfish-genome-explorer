@@ -99,11 +99,13 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         XCTAssertTrue(command.profile)
         XCTAssertEqual(command.brackenReadLength, BrackenProfileRequest.automaticDefault.readLength)
         XCTAssertEqual(command.brackenThreshold, BrackenProfileRequest.automaticDefault.threshold)
-        // Only the executable name changed. The arguments are the builder's, the
-        // same mapping the batch replay command uses.
+        // The arguments are the builder's, the same mapping the batch replay
+        // command uses. The builder spells kraken2 classify since 2.7 (E11), and
+        // the row keeps the conda classify spelling the app writes until lane A10
+        // moves the launch, a spelling of the same command.
         XCTAssertEqual(
-            try RecordedCLICommand.arguments(of: recorded),
-            ClassificationCLIInvocationBuilder.build(for: config).arguments
+            Array(try RecordedCLICommand.arguments(of: recorded).dropFirst(2)),
+            Array(ClassificationCLIInvocationBuilder.build(for: config).arguments.dropFirst(2))
         )
     }
 
@@ -203,13 +205,15 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
             XCTAssertEqual(command.minHitGroups, 2)
             XCTAssertEqual(command.globalOptions.threads, 4)
             XCTAssertEqual(
-                try RecordedCLICommand.arguments(of: line),
-                ClassificationCLIInvocationBuilder.build(for: config).arguments,
+                Array(try RecordedCLICommand.arguments(of: line).dropFirst(2)),
+                Array(ClassificationCLIInvocationBuilder.build(for: config).arguments.dropFirst(2)),
                 "the line is the builder's argv for the sample"
             )
-            XCTAssertTrue(script.contains(line), "the replay command runs the same conda classify for the sample")
+            // The replay command spells the builder's kraken2 classify (E11), the row conda classify.
+            let respelled = line.replacingOccurrences(of: " conda classify ", with: " kraken2 classify ")
+            XCTAssertTrue(script.contains(respelled), "the replay command runs the same classify for the sample")
         }
-        XCTAssertEqual(script.components(separatedBy: "conda classify").count - 1, 2, "one conda classify per sample")
+        XCTAssertEqual(script.components(separatedBy: "kraken2 classify").count - 1, 2, "one classify per sample")
     }
 
     func testEmptyKraken2BatchRecordsNoCommand() {
