@@ -102,6 +102,43 @@ final class ProvenanceWriterExFATTests: XCTestCase {
         XCTAssertEqual(try names(in: folder.run), [record.lastPathComponent])
     }
 
+    /// The signature file and the key file were plain atomic writes, which ExFAT cannot make atomic
+    /// over an existing name. They now rotate in through `DurableReplace`, as the record does.
+    func testSigningRotatesTheSignatureAndTheKeyOnExFAT() throws {
+        let folder = try makeRunFolderOnExFAT()
+        defer { try? FileManager.default.removeItem(at: folder.root) }
+        let record = folder.run.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        try Data(#"{"name":"signed"}"#.utf8).write(to: record)
+        let signer = LocalProvenanceSigningProvider(privateKey: "exfat-signing-key")
+
+        let artifact = try signer.sign(provenanceURL: record)
+        XCTAssertTrue(try ProvenanceSignatureVerifier.verify(provenanceURL: record).isValid)
+
+        // Signing again swaps both files over their names and leaves no tombstone or stage file.
+        try Data(#"{"name":"changed"}"#.utf8).write(to: record)
+        _ = try signer.sign(provenanceURL: record)
+        XCTAssertTrue(try ProvenanceSignatureVerifier.verify(provenanceURL: record).isValid)
+        XCTAssertEqual(try names(in: folder.run), [
+            record.lastPathComponent,
+            artifact.publicKeyURL.lastPathComponent,
+            artifact.signatureURL.lastPathComponent,
+        ])
+
+        // The writer's signed write signs the record three times, through the same rotation.
+        let writer = ProvenanceWriter(signingProvider: signer)
+        let signed = folder.run.appendingPathComponent("signed", isDirectory: true)
+            .appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        try writer.write(ProvenanceEnvelope.fixture(workflowName: "first"), toSidecar: signed)
+        try writer.write(ProvenanceEnvelope.fixture(workflowName: "second"), toSidecar: signed)
+        XCTAssertTrue(try ProvenanceSignatureVerifier.verify(provenanceURL: signed).isValid)
+        XCTAssertEqual(try workflowName(at: signed), "second")
+        XCTAssertEqual(try names(in: signed.deletingLastPathComponent()), [
+            signed.lastPathComponent,
+            ProvenanceSigningConfiguration.publicKeyURL(for: signed).lastPathComponent,
+            ProvenanceSigningConfiguration.signatureURL(for: signed).lastPathComponent,
+        ])
+    }
+
     // MARK: - Helpers
 
     private struct RejectedReceipt: Error {}
