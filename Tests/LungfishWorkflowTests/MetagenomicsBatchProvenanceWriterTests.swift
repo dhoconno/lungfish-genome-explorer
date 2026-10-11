@@ -913,60 +913,6 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
         }
     }
 
-    func testEsVirituBackfillReconstructsRootProvenanceWithoutManifest() throws {
-        let batchRoot = try makeTemporaryDirectory(prefix: "esviritu-batch-backfill-")
-        let sampleDirectory = batchRoot.appendingPathComponent("SampleB", isDirectory: true)
-        try FileManager.default.createDirectory(at: sampleDirectory, withIntermediateDirectories: true)
-
-        let inputURL = sampleDirectory.appendingPathComponent("SampleB.fastq")
-        let detectionURL = sampleDirectory.appendingPathComponent("SampleB.detected_virus.info.tsv")
-        let sqliteURL = batchRoot.appendingPathComponent("esviritu.sqlite")
-        try "@r1\nTGCA\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
-        try "virus\treads\nExample virus\t8\n".write(to: detectionURL, atomically: true, encoding: .utf8)
-        try Data("sqlite fixture".utf8).write(to: sqliteURL)
-
-        let input = try ProvenanceFileDescriptor.file(url: inputURL, format: .fastq, role: .input)
-        let output = try ProvenanceFileDescriptor.file(url: detectionURL, format: .text, role: .output)
-        let childStep = ProvenanceStep(
-            toolName: "EsViritu",
-            toolVersion: "2.0.0",
-            argv: ["EsViritu", "--input", inputURL.path],
-            inputs: [input],
-            outputs: [output],
-            exitStatus: 0,
-            wallTimeSeconds: 2.0
-        )
-        let childEnvelope = ProvenanceEnvelope(
-            workflowName: "Viral Metagenomics Detection",
-            workflowVersion: "Lungfish test",
-            toolName: "EsViritu",
-            toolVersion: "2.0.0",
-            tool: ProvenanceToolIdentity(name: "EsViritu", version: "2.0.0", kind: "cli"),
-            argv: childStep.argv,
-            files: [input, output],
-            output: output,
-            outputs: [output],
-            steps: [childStep],
-            wallTimeSeconds: 2.0,
-            exitStatus: 0
-        )
-        try ProvenanceWriter(signingProvider: nil).write(childEnvelope, to: sampleDirectory)
-
-        XCTAssertNil(ProvenanceRecorder.findProvenanceEnvelope(for: batchRoot))
-
-        let backfilledURL = try XCTUnwrap(
-            try MetagenomicsBatchProvenanceWriter.ensureEsVirituBatchProvenanceIfPossible(batchRoot: batchRoot)
-        )
-
-        XCTAssertEqual(backfilledURL.lastPathComponent, ProvenanceRecorder.provenanceFilename)
-        XCTAssertNotNil(MetagenomicsBatchResultStore.loadEsViritu(from: batchRoot))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: batchRoot.appendingPathComponent("esviritu-batch-summary.tsv").path))
-        let rootEnvelope = try XCTUnwrap(ProvenanceRecorder.findProvenanceEnvelope(for: batchRoot)?.envelope)
-        XCTAssertEqual(rootEnvelope.workflowName, "EsViritu Batch")
-        XCTAssertTrue(rootEnvelope.steps.contains { $0.toolName == "EsViritu" })
-        XCTAssertTrue(rootEnvelope.outputs.contains { $0.path == sqliteURL.path })
-    }
-
     func testTaxTriageBackfillWritesRootProvenanceFromResultSidecar() throws {
         let resultDirectory = try makeTemporaryDirectory(prefix: "taxtriage-batch-backfill-")
 

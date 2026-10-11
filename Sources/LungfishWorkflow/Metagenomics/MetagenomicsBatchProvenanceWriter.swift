@@ -41,41 +41,6 @@ public struct ClassificationBatchProvenanceContext: Sendable, Equatable {
 
 public enum MetagenomicsBatchProvenanceWriter {
     @discardableResult
-    public static func ensureEsVirituBatchProvenanceIfPossible(batchRoot: URL) throws -> URL? {
-        let root = batchRoot.standardizedFileURL
-        guard isDirectory(root),
-              root.lastPathComponent.hasPrefix("esviritu") else {
-            return nil
-        }
-
-        let sidecarURL = root.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        if FileManager.default.fileExists(atPath: sidecarURL.path) {
-            return sidecarURL
-        }
-
-        let summaryURL = root.appendingPathComponent("esviritu-batch-summary.tsv")
-        let manifest: EsVirituBatchResultManifest
-        if let existingManifest = MetagenomicsBatchResultStore.loadEsViritu(from: root) {
-            manifest = existingManifest
-            try? writeSummaryIfMissing(summaryURL: summaryURL, samples: existingManifest.samples)
-        } else {
-            guard let inferred = inferEsVirituManifest(from: root, summaryURL: summaryURL) else {
-                return nil
-            }
-            manifest = inferred
-            try MetagenomicsBatchResultStore.saveEsViritu(inferred, to: root)
-        }
-
-        return try writeEsVirituBatchProvenance(
-            batchRoot: root,
-            manifest: manifest,
-            summaryURL: summaryURL,
-            sqliteURL: root.appendingPathComponent("esviritu.sqlite"),
-            command: [CLICommandIdentity.executableName, "esviritu", "detect"]
-        )
-    }
-
-    @discardableResult
     public static func ensureTaxTriageProvenanceIfPossible(resultDirectory: URL) throws -> URL? {
         let root = resultDirectory.standardizedFileURL
         guard isDirectory(root),
@@ -419,73 +384,6 @@ public enum MetagenomicsBatchProvenanceWriter {
         )
 
         return try ProvenanceWriter().write(envelope, to: result.outputDirectory)
-    }
-
-    private static func inferEsVirituManifest(
-        from batchRoot: URL,
-        summaryURL: URL
-    ) -> EsVirituBatchResultManifest? {
-        guard let sampleDirectories = try? FileManager.default.contentsOfDirectory(
-            at: batchRoot,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return nil
-        }
-
-        var records: [MetagenomicsBatchSampleRecord] = []
-        var createdAt: Date?
-        for directory in sampleDirectories.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-            guard isDirectory(directory),
-                  let envelope = ProvenanceRecorder.loadEnvelope(from: directory) else {
-                continue
-            }
-            let inputFiles = uniqueStrings(
-                (envelope.files + envelope.steps.flatMap(\.inputs))
-                    .filter { $0.role == .input }
-                    .map(\.path)
-            )
-            records.append(
-                MetagenomicsBatchSampleRecord(
-                    sampleId: directory.lastPathComponent,
-                    resultDirectory: appRelativePath(from: batchRoot, to: directory),
-                    inputFiles: inputFiles,
-                    isPairedEnd: inputFiles.count == 2
-                )
-            )
-            createdAt = minDate(createdAt, envelope.createdAt)
-        }
-
-        guard !records.isEmpty else { return nil }
-        try? writeSummaryIfMissing(summaryURL: summaryURL, samples: records)
-        return EsVirituBatchResultManifest(
-            header: MetagenomicsBatchManifestHeader(
-                schemaVersion: 1,
-                createdAt: createdAt ?? Date(),
-                sampleCount: records.count
-            ),
-            summaryTSV: summaryURL.lastPathComponent,
-            samples: records
-        )
-    }
-
-    private static func writeSummaryIfMissing(
-        summaryURL: URL,
-        samples: [MetagenomicsBatchSampleRecord]
-    ) throws {
-        guard !FileManager.default.fileExists(atPath: summaryURL.path) else { return }
-        var lines = ["sample_id\tstatus\tvirus_count\tfamilies\tspecies\terror"]
-        lines += samples.map { sample in
-            [
-                tsvField(sample.sampleId),
-                "ok",
-                "",
-                "",
-                "",
-                "",
-            ].joined(separator: "\t")
-        }
-        try lines.joined(separator: "\n").write(to: summaryURL, atomically: true, encoding: .utf8)
     }
 
     private static func inputDescriptors(
@@ -1091,28 +989,6 @@ public enum MetagenomicsBatchProvenanceWriter {
             }
         }
         return result
-    }
-
-    private static func minDate(_ lhs: Date?, _ rhs: Date) -> Date {
-        guard let lhs else { return rhs }
-        return min(lhs, rhs)
-    }
-
-    private static func appRelativePath(from base: URL, to target: URL) -> String {
-        let basePath = base.standardizedFileURL.path
-        let targetPath = target.standardizedFileURL.path
-        let normalizedBase = basePath.hasSuffix("/") ? basePath : basePath + "/"
-        if targetPath.hasPrefix(normalizedBase) {
-            return String(targetPath.dropFirst(normalizedBase.count))
-        }
-        return target.lastPathComponent
-    }
-
-    private static func tsvField(_ value: String) -> String {
-        if value.contains("\t") || value.contains("\n") || value.contains("\"") {
-            return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
-        }
-        return value
     }
 
     private static func isDirectory(_ url: URL) -> Bool {
