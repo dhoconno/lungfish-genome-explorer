@@ -1,0 +1,24 @@
+FASTQ Import
+
+ℹ Detected 1 sample(s):
+    1. Solo  [single-end]
+        R1: Solo.fastq
+
+ℹ Using installed Human Read Removal Data.
+ℹ Starting import with 20 thread(s)…
+
+{"event":"importStart","recipeName":"VSP2 Target Enrichment","sampleCount":1,"timestamp":"2026-10-11T19:52:01Z"}
+{"confidence":"high","event":"platformResolved","evidence":["Illumina read names in 20 of 20 sampled reads.","Sampled reads are 150 bases long."],"message":"Platform: Illumina, Illumina short reads (given with --platform).","platform":"illumina","readClass":"illuminaShortReads","sample":"Solo","source":"given","timestamp":"2026-10-11T19:52:01Z"}
+{"event":"sampleStart","index":0,"r1":"Solo.fastq","sample":"Solo","timestamp":"2026-10-11T19:52:01Z","total":1}
+{"error":"Recipe 'VSP2 Target Enrichment' cannot be applied to sample 'Solo': requires paired-end reads (R1 and R2), but only R1 was detected.","event":"sampleFailed","sample":"Solo","timestamp":"2026-10-11T19:52:02Z"}
+{"completed":0,"event":"importComplete","failed":1,"skipped":0,"timestamp":"2026-10-11T19:52:02Z","totalDurationSeconds":0.021724939346313477}
+
+Import Summary
+
+Completed: 0
+Skipped  : 0
+Failed   : 1
+Duration : 0.0s
+
+⚠ Failed samples:
+✗   Solo: Recipe 'VSP2 Target Enrichment' cannot be applied to sample 'Solo': requires paired-end reads (R1 and R2), but only R1 was detected.

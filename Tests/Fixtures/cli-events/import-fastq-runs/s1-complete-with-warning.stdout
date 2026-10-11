@@ -1,0 +1,36 @@
+FASTQ Import
+
+ℹ Detected 1 sample(s):
+    1. Sample1  [paired]
+        R1: Sample1_R1.fastq
+        R2: Sample1_R2.fastq
+
+ℹ Using installed Human Read Removal Data.
+ℹ Starting import with 20 thread(s)…
+
+{"event":"importStart","recipeName":"VSP2 Target Enrichment","sampleCount":1,"timestamp":"2026-10-11T19:51:53Z"}
+{"confidence":"high","event":"platformResolved","evidence":["Illumina read names in 32 of 32 sampled reads.","Sampled reads are 150 bases long."],"message":"Platform: Element Biosciences, Illumina short reads (given with --platform).","platform":"element","readClass":"illuminaShortReads","sample":"Sample1","source":"given","timestamp":"2026-10-11T19:51:53Z"}
+{"event":"notice","message":"--platform element was given, but the reads look like Illumina. Illumina read names in 32 of 32 sampled reads. The given platform is used.","sample":"Sample1","timestamp":"2026-10-11T19:51:53Z"}
+{"event":"sampleStart","index":0,"r1":"Sample1_R1.fastq","r2":"Sample1_R2.fastq","sample":"Sample1","timestamp":"2026-10-11T19:51:53Z","total":1}
+{"event":"stepStart","sample":"Sample1","step":"Remove PCR duplicates + Adapter + quality trim","stepIndex":1,"timestamp":"2026-10-11T19:51:53Z","totalSteps":6}
+{"durationSeconds":0.41782593727111816,"event":"stepComplete","sample":"Sample1","step":"Remove PCR duplicates + Adapter + quality trim","timestamp":"2026-10-11T19:51:54Z"}
+{"event":"stepStart","sample":"Sample1","step":"Remove human reads","stepIndex":2,"timestamp":"2026-10-11T19:51:54Z","totalSteps":6}
+{"durationSeconds":5.7926070690155029,"event":"stepComplete","sample":"Sample1","step":"Remove human reads","timestamp":"2026-10-11T19:51:59Z"}
+{"event":"stepStart","sample":"Sample1","step":"Merge overlapping pairs","stepIndex":3,"timestamp":"2026-10-11T19:51:59Z","totalSteps":6}
+{"durationSeconds":0.16379797458648682,"event":"stepComplete","sample":"Sample1","step":"Merge overlapping pairs","timestamp":"2026-10-11T19:51:59Z"}
+{"event":"stepStart","sample":"Sample1","step":"Remove short reads","stepIndex":4,"timestamp":"2026-10-11T19:51:59Z","totalSteps":6}
+{"durationSeconds":0.31285595893859863,"event":"stepComplete","sample":"Sample1","step":"Remove short reads","timestamp":"2026-10-11T19:52:00Z"}
+{"event":"stepStart","sample":"Sample1","step":"Optimize storage + Compress","stepIndex":5,"timestamp":"2026-10-11T19:52:00Z","totalSteps":6}
+{"durationSeconds":0.76446902751922607,"event":"stepComplete","sample":"Sample1","step":"Optimize storage + Compress","timestamp":"2026-10-11T19:52:01Z"}
+{"event":"recipeReadDelta","inputReads":40,"label":"Human scrub","outputReads":40,"percentRemoved":0,"readsRemoved":0,"sample":"Sample1","timestamp":"2026-10-11T19:52:01Z"}
+{"event":"stepStart","sample":"Sample1","step":"Compute statistics","stepIndex":6,"timestamp":"2026-10-11T19:52:01Z","totalSteps":6}
+{"durationSeconds":0.062144994735717773,"event":"stepComplete","sample":"Sample1","step":"Compute statistics","timestamp":"2026-10-11T19:52:01Z"}
+{"bundle":"Sample1.lungfishfastq","durationSeconds":7.6641411660000003,"event":"sampleComplete","finalBytes":264460,"originalBytes":36100,"sample":"Sample1","timestamp":"2026-10-11T19:52:01Z"}
+{"completed":1,"event":"importComplete","failed":0,"skipped":0,"timestamp":"2026-10-11T19:52:01Z","totalDurationSeconds":7.6713740825653076}
+
+Import Summary
+
+Completed: 1
+Skipped  : 0
+Failed   : 0
+Duration : 7.7s

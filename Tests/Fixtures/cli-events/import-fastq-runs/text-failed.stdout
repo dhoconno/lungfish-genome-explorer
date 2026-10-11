@@ -1,0 +1,13 @@
+FASTQ Import
+ℹ Detected 1 sample(s):
+    1. Solo  [single-end]
+        R1: Solo.fastq
+ℹ Starting import with 2 thread(s)…
+ℹ Solo: Platform: Illumina, Illumina short reads (given with --platform).
+Import Summary
+Completed: 0
+Skipped  : 0
+Failed   : 1
+Duration : <t>s
+⚠ Failed samples:
+✗   Solo: Recipe 'Illumina WGS Standard' cannot be applied to sample 'Solo': requires paired-end reads (R1 and R2), but only R1 was detected.

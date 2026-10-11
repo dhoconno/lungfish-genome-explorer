@@ -1,0 +1,15 @@
+FASTQ Import
+ℹ Detected 2 sample(s):
+    1. SRR125  [paired]
+        R1: SRR125_1.fastq
+        R2: SRR125_2.fastq
+    2. SRR125  [single-end]
+        R1: SRR125.fastq
+⚠ SRR125: SRR125.fastq was not joined to SRR125_1.fastq and SRR125_2.fastq as reads whose mate is missing, because the names of their first reads, SRR125.1.1 and SRR125.1.2, do not mark the two as mates. The pair imports without it, and SRR125.fastq is a separate sample named SRR125, which the import skips.
+ℹ Starting import with 2 thread(s)…
+ℹ SRR125: Platform: Illumina, Illumina short reads (given with --platform).
+Import Summary
+Completed: 1
+Skipped  : 1
+Failed   : 0
+Duration : <t>s

@@ -1,0 +1,86 @@
+{
+  "cancelled" : {
+    "bundles" : [
+
+    ],
+    "errors" : [
+      "CLI exited with status 125"
+    ],
+    "label" : "Cancelled",
+    "log" : [
+      "warning: Sample1 — --platform element was given, but the reads look like Illumina. Illumina read names in 32 of 32 sampled reads. The given platform is used.",
+      "info: Sample1 — step 1/6: Remove PCR duplicates + Adapter + quality trim",
+      "info: Import complete — 0 done, 0 skipped, 0 failed (<t>s)"
+    ],
+    "progress" : [
+      "0.000 Starting",
+      "0.010 Launching import pipeline…",
+      "0.000 Importing Sample1 (1/1)",
+      "0.133 Sample1: Remove PCR duplicates + Adapter + quality trim",
+      "0.133 Cancelled by user"
+    ]
+  },
+  "complete-with-warning" : {
+    "bundles" : [
+      "Imports/Sample1.lungfishfastq"
+    ],
+    "errors" : [
+
+    ],
+    "label" : "Completed with Warnings",
+    "log" : [
+      "warning: Sample1 — --platform element was given, but the reads look like Illumina. Illumina read names in 32 of 32 sampled reads. The given platform is used.",
+      "info: Sample1 — step 1/6: Remove PCR duplicates + Adapter + quality trim",
+      "info: Sample1 — Remove PCR duplicates + Adapter + quality trim completed (<t>s)",
+      "info: Sample1 — step 2/6: Remove human reads",
+      "info: Sample1 — Remove human reads completed (<t>s)",
+      "info: Sample1 — step 3/6: Merge overlapping pairs",
+      "info: Sample1 — Merge overlapping pairs completed (<t>s)",
+      "info: Sample1 — step 4/6: Remove short reads",
+      "info: Sample1 — Remove short reads completed (<t>s)",
+      "info: Sample1 — step 5/6: Optimize storage + Compress",
+      "info: Sample1 — Optimize storage + Compress completed (<t>s)",
+      "info: Sample1 — Human scrub removed 0.0% of reads (40 -> 40)",
+      "info: Sample1 — step 6/6: Compute statistics",
+      "info: Sample1 — Compute statistics completed (<t>s)",
+      "info: Sample1 — bundle created",
+      "info: Import complete — 1 done, 0 skipped, 0 failed (<t>s)"
+    ],
+    "progress" : [
+      "0.000 Starting",
+      "0.010 Launching import pipeline…",
+      "0.000 Importing Sample1 (1/1)",
+      "0.133 Sample1: Remove PCR duplicates + Adapter + quality trim",
+      "0.267 Sample1: Remove human reads",
+      "0.400 Sample1: Merge overlapping pairs",
+      "0.533 Sample1: Remove short reads",
+      "0.667 Sample1: Optimize storage + Compress",
+      "0.800 Sample1: Compute statistics",
+      "1.000 Imported Sample1.lungfishfastq"
+    ]
+  },
+  "failed" : {
+    "bundles" : [
+
+    ],
+    "errorDetail" : "CLI exited with status 64",
+    "errorMessage" : "Solo: Recipe 'VSP2 Target Enrichment' cannot be applied to sample 'Solo': requires paired-end reads (R1 and R2), but only R1 was detected.",
+    "errors" : [
+      "Solo: Recipe 'VSP2 Target Enrichment' cannot be applied to sample 'Solo': requires paired-end reads (R1 and R2), but only R1 was detected.",
+      "Solo: Recipe 'VSP2 Target Enrichment' cannot be applied to sample 'Solo': requires paired-end reads (R1 and R2), but only R1 was detected."
+    ],
+    "label" : "Failed",
+    "log" : [
+      "error: Solo failed: Recipe 'VSP2 Target Enrichment' cannot be applied to sample 'Solo': requires paired-end reads (R1 and R2), but only R1 was detected.",
+      "info: Import complete — 0 done, 0 skipped, 1 failed (<t>s)",
+      "error: Failed: Solo: Recipe 'VSP2 Target Enrichment' cannot be applied to sample 'Solo': requires paired-end reads (R1 and R2), but only R1 was detected.",
+      "error: CLI exited with status 64"
+    ],
+    "progress" : [
+      "0.000 Starting",
+      "0.010 Launching import pipeline…",
+      "0.000 Importing Solo (1/1)",
+      "0.000 Solo: Recipe 'VSP2 Target Enrichment' cannot be applied to sample 'Solo': requires paired-end reads (R1 and R2), but only R1 was detected."
+    ]
+  }
+}
