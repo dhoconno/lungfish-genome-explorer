@@ -145,8 +145,8 @@ struct ProvenanceSection: View {
             if viewModel.isLoading {
                 HStack(spacing: 6) {
                     ProgressView()
-                        .scaleEffect(0.7)
-                    Text("Loading provenance...")
+                        .controlSize(.small)
+                    Text("Loading provenance\u{2026}")
                         .font(LungfishInspectorStyle.controlFont)
                         .foregroundStyle(.secondary)
                 }

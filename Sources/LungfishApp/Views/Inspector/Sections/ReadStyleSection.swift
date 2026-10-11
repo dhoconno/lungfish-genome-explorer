@@ -2260,7 +2260,7 @@ public struct AnalysisSection: View {
             if viewModel.isDuplicateWorkflowRunning {
                 HStack(spacing: 6) {
                     ProgressView()
-                        .scaleEffect(0.7)
+                        .controlSize(.small)
                     Text("Running duplicate workflow...")
                         .font(LungfishInspectorStyle.controlFont)
                         .foregroundStyle(.secondary)
@@ -2409,7 +2409,7 @@ public struct AnalysisSection: View {
             if viewModel.isAlignmentFilterWorkflowRunning {
                 HStack(spacing: 6) {
                     ProgressView()
-                        .scaleEffect(0.7)
+                        .controlSize(.small)
                     Text("Running BAM filter workflow...")
                         .font(LungfishInspectorStyle.controlFont)
                         .foregroundStyle(.secondary)
@@ -2549,7 +2549,7 @@ public struct AnalysisSection: View {
             if viewModel.isMappedReadsAnnotationWorkflowRunning {
                 HStack(spacing: 6) {
                     ProgressView()
-                        .scaleEffect(0.7)
+                        .controlSize(.small)
                     Text("Converting mapped reads...")
                         .font(LungfishInspectorStyle.controlFont)
                         .foregroundStyle(.secondary)

@@ -280,7 +280,7 @@ final class ProvenanceSectionSourceTests: XCTestCase {
     /// `isLoading` and renders a lightweight loading affordance from it, using the same
     /// ProgressView idiom as the surrounding Inspector (ReadStyleSection.swift /
     /// InspectorView.swift's `isDuplicateWorkflowRunning`/`isAlignmentFilterWorkflowRunning`
-    /// rows: `ProgressView().scaleEffect(0.7)` + secondary-styled caption `Text`).
+    /// rows: `ProgressView().controlSize(.small)` + secondary-styled caption `Text`).
     func testProvenanceSectionRendersLoadingIndicatorFromViewModel() throws {
         let viewModel = makeViewModel()
         viewModel.isLoading = false
