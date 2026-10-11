@@ -129,8 +129,9 @@ final class CLIImportRunnerTranscriptTests: XCTestCase {
             XCTAssertEqual(observed.label, "Failed", run.name)
             XCTAssertEqual(observed.bundles, [], run.name)
             let message = try XCTUnwrap(observed.errorMessage, run.name)
-            XCTAssertTrue(message.hasPrefix("The lungfish-cli at "), message)
-            XCTAssertTrue(message.contains("did not report the import in the version 2 events this app reads"), message)
+            XCTAssertTrue(message.hasPrefix("This copy of lungfish-cli at /"), message)
+            XCTAssertTrue(message.contains("/lungfish-cli is older than the app and cannot report import progress."), message)
+            XCTAssertTrue(message.hasSuffix(" Reinstall Lungfish Genome Explorer."), message)
             XCTAssertEqual(observed.errors, [message], run.name)
         }
     }

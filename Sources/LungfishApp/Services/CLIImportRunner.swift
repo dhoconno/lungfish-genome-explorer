@@ -358,11 +358,12 @@ public actor CLIImportRunner {
     }
 
     /// The failure of a CLI that printed no version 2 event, such as an older
-    /// `lungfish-cli` that prints the private stream S1.
+    /// `lungfish-cli` that prints the private stream S1. The message names the
+    /// copy, says what is wrong with it and what to do, in plain words.
     static func mismatch(_ binaryURL: URL, detail: String?) -> Failure {
         Failure(
-            message: "The lungfish-cli at \(binaryURL.path) did not report the import in the version 2 events this app "
-                + "reads, so it is likely older than the app. Run the import with the lungfish-cli that came with this app.",
+            message: "This copy of lungfish-cli at \(binaryURL.path) is older than the app and cannot report import "
+                + "progress. Reinstall Lungfish Genome Explorer.",
             detail: detail
         )
     }
