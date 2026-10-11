@@ -26,23 +26,30 @@ public enum DocumentType: String, CaseIterable, Sendable {
     case lungfishPrimerAnalysisBundle // .lungfishprimeranalysis saved results
     case lungfishMHCReferenceBundle // .lungfishmhcref MHC amplicon reference bundle
 
-    /// File extensions for this document type.
+    /// File extensions for this document type. The folder extensions of the native bundle types come from
+    /// `BundleKindRegistry`, which spells them in lowercase, and ``detect(from:)`` lowercases the extension
+    /// it looks for.
     public var extensions: [String] {
         switch self {
         case .fasta: return ["fa", "fasta", "fna", "fas"]
-        case .fastq: return ["fq", "fastq", FASTQBundle.directoryExtension]
+        case .fastq: return ["fq", "fastq"] + Self.folderExtensions(of: .fastq)
         case .genbank: return ["gb", "gbk", "genbank"]
         case .gff3: return ["gff", "gff3"]
         case .bed: return ["bed"]
         case .vcf: return ["vcf"]
         case .bam: return ["bam", "cram", "sam"]
-        case .lungfishProject: return ["lungfish"]
-        case .lungfishReferenceBundle: return ["lungfishref"]
-        case .lungfishMultipleSequenceAlignmentBundle: return [MultipleSequenceAlignmentBundle.directoryExtension]
-        case .lungfishPhylogeneticTreeBundle: return ["lungfishtree"]
-        case .lungfishPrimerAnalysisBundle: return ["lungfishprimeranalysis"]
-        case .lungfishMHCReferenceBundle: return [MHCAmpliconReferenceBundle.directoryExtension]
+        case .lungfishProject: return Self.folderExtensions(of: .project)
+        case .lungfishReferenceBundle: return Self.folderExtensions(of: .reference)
+        case .lungfishMultipleSequenceAlignmentBundle: return Self.folderExtensions(of: .multipleSequenceAlignment)
+        case .lungfishPhylogeneticTreeBundle: return Self.folderExtensions(of: .phylogeneticTree)
+        case .lungfishPrimerAnalysisBundle: return Self.folderExtensions(of: .primerAnalysis)
+        case .lungfishMHCReferenceBundle: return Self.folderExtensions(of: .mhcReference)
         }
+    }
+
+    /// The folder extensions the registry declares for a bundle kind.
+    private static func folderExtensions(of kind: BundleKindID) -> [String] {
+        BundleKindRegistry.descriptor(for: kind)?.folderExtensions ?? []
     }
 
     /// Whether this is a directory-based format
