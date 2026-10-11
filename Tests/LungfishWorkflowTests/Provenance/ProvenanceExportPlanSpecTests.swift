@@ -71,10 +71,11 @@ final class ProvenanceExportPlanSpecTests: XCTestCase {
         XCTAssertEqual(try exportedSpec("mafft", version: "7.526", environment: "mafft"), "bioconda::mafft=7.526")
     }
 
-    func testPlanWritesThePackToolEnvironmentNameAsThePackage() throws {
-        // The lock installs `whatshap` in the `phasing` environment and `gatk4` in `gatk-core`.
+    func testPlanNamesThePackageOfAPackToolAndNotItsEnvironment() throws {
+        // The lock installs `whatshap` in the `phasing` environment and `gatk4` in `gatk-core`. The
+        // build and the channel are still missing here, and the spec tests below fix them.
         let phasing = plan(managedStep("whatshap", version: "2.3", environment: "phasing"))
-        XCTAssertEqual(try environment("phasing", in: phasing).packageSpec, "bioconda::phasing=2.3")
+        XCTAssertEqual(try environment("phasing", in: phasing).packageSpec, "bioconda::whatshap=2.3")
         XCTAssertEqual(
             try environment("phasing", in: phasing).environmentFileContents,
             """
@@ -84,17 +85,22 @@ final class ProvenanceExportPlanSpecTests: XCTestCase {
               - conda-forge
               - bioconda
             dependencies:
-              - bioconda::phasing=2.3
+              - bioconda::whatshap=2.3
 
             """
         )
         XCTAssertEqual(
             try environment("phasing", in: phasing).micromambaCreateCommand,
-            "micromamba create -y -n lge-phasing -c conda-forge -c bioconda bioconda::phasing=2.3"
+            "micromamba create -y -n lge-phasing -c conda-forge -c bioconda bioconda::whatshap=2.3"
         )
         XCTAssertEqual(
             try exportedSpec("gatk", version: "4.6.2.0", environment: "gatk-core"),
-            "bioconda::gatk-core=4.6.2.0"
+            "bioconda::gatk4=4.6.2.0"
+        )
+        XCTAssertEqual(
+            try exportedSpec("whatshap", version: "unknown", environment: "phasing"),
+            "whatshap",
+            "an unknown version writes the bare package, never the environment name"
         )
     }
 
@@ -157,30 +163,122 @@ final class ProvenanceExportPlanSpecTests: XCTestCase {
         XCTAssertEqual(try descriptor("bbtools")["environment"] as? String, "bbtools")
     }
 
-    // MARK: - What the native tool sites record for the package today
+    // MARK: - What the native tool sites record
+
+    /// The lock's package spec for every lock id, read from the bundled lock file as plain JSON and not
+    /// through the lock types under test.
+    private static func lockSpecsByID() throws -> [String: String] {
+        let url = try ManagedToolLock.resourceURL()
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var specs: [String: String] = [:]
+        for list in ["tools", "packTools"] {
+            for entry in root[list] as? [[String: Any]] ?? [] {
+                if let id = entry["id"] as? String, let spec = entry["packageSpec"] as? String { specs[id] = spec }
+            }
+        }
+        return specs
+    }
 
     /// BAMPrimerTrimPipeline, ViralVariantCallingPipeline, ManagedMappingPipeline and Minimap2Pipeline
-    /// each record `package <spec>` after a native tool's version. The spec is the lock `tools` entry
-    /// whose id is the tool's environment name, else the tool's source package. Pack tools are not in
-    /// `tools`, so the nine native tools below record their source package, which is no conda spec.
-    func testNativePackToolsRecordTheirSourcePackageToday() throws {
-        let lock = try ManagedToolLock.loadFromBundle()
-        func recordedToday(_ tool: NativeTool) -> String? {
-            guard case .managed(let environment, _) = tool.location else { return nil }
-            return lock.tool(named: environment)?.packageSpec ?? tool.sourcePackage
+    /// record `package <spec>` after a native tool's version. The spec is the lock entry found by the
+    /// tool's `ManagedToolID`, so a pack tool such as iVar resolves. Looking the lock up through the tools
+    /// list alone, as the sites did, left nine native pack tools recording their source package, which
+    /// is no conda spec.
+    func testEveryManagedNativeToolRecordsTheLocksSpecForItsManagedToolID() throws {
+        let specs = try Self.lockSpecsByID()
+        var checked = 0
+        for tool in NativeTool.allCases {
+            guard case .managed(let environment, let executable) = tool.location else { continue }
+            let id = tool.managedToolID.rawValue
+            let spec = try XCTUnwrap(specs[id], "the lock has no entry \(id) for \(tool)")
+            XCTAssertEqual(
+                ProvenanceManagedEnvironment.recordedRuntime(for: tool),
+                "managed conda environment \(environment); executable \(executable); package \(spec)",
+                "\(tool)"
+            )
+            checked += 1
         }
+        XCTAssertEqual(checked, NativeTool.allCases.count)
+    }
+
+    func testPackToolsRecordTheirBuildPinnedSpec() {
         let expected: [(NativeTool, String)] = [
-            (.blastn, "ncbi-blast"), (.ribodetector, "ribodetector"), (.lofreq, "lofreq"), (.ivar, "ivar"),
-            (.medaka, "medaka"), (.medakaVariant, "medaka"), (.clair3, "clair3"), (.whatshap, "whatshap"),
-            (.freyja, "freyja"),
+            (.ivar, "bioconda::ivar=1.4.4=hda5e58c_0"),
+            (.lofreq, "bioconda::lofreq=2.1.5=py310h9cf5bfa_16"),
+            (.medaka, "bioconda::medaka=2.2.2=py312h3bb865a_0"),
+            (.medakaVariant, "bioconda::medaka=2.2.2=py312h3bb865a_0"),
+            (.clair3, "bioconda::clair3=2.0.2=py311h9aa1f4a_0"),
+            (.whatshap, "bioconda::whatshap=2.3=py311h1457a19_3"),
+            (.freyja, "bioconda::freyja=2.0.3=pyhdfd78af_0"),
+            (.ribodetector, "bioconda::ribodetector=0.3.3=pyhdfd78af_0"),
+            (.blastn, "bioconda::blast=2.16.0=hb260f6e_5"),
         ]
-        for (tool, package) in expected {
-            XCTAssertEqual(recordedToday(tool), package, "\(tool)")
+        for (tool, spec) in expected {
+            guard case .managed(let environment, let executable) = tool.location else { return XCTFail("\(tool) is not managed") }
+            XCTAssertEqual(
+                ProvenanceManagedEnvironment.recordedRuntime(for: tool),
+                "managed conda environment \(environment); executable \(executable); package \(spec)",
+                "\(tool)"
+            )
         }
-        XCTAssertEqual(recordedToday(.samtools), "bioconda::samtools=1.24=h36b3a25_1")
-        XCTAssertEqual(recordedToday(.bgzip), "bioconda::htslib=1.24=hd3c6ec9_0")
-        XCTAssertEqual(recordedToday(.bbmap), "bioconda::bbmap=40.02=he046917_0")
-        let bare = NativeTool.allCases.filter { recordedToday($0)?.contains("::") == false }
-        XCTAssertEqual(Set(bare), Set(expected.map(\.0)))
+    }
+
+    func testToolsOfTheRequiredPackStillRecordTheirSpec() {
+        XCTAssertEqual(
+            ProvenanceManagedEnvironment.recordedRuntime(for: .samtools),
+            "managed conda environment samtools; executable samtools; package bioconda::samtools=1.24=h36b3a25_1"
+        )
+        XCTAssertEqual(
+            ProvenanceManagedEnvironment.recordedRuntime(for: .tabix),
+            "managed conda environment htslib; executable tabix; package bioconda::htslib=1.24=hd3c6ec9_0"
+        )
+        XCTAssertEqual(
+            ProvenanceManagedEnvironment.recordedRuntime(for: .bbmap),
+            "managed conda environment bbtools; executable bbmap.sh; package bioconda::bbmap=40.02=he046917_0"
+        )
+    }
+
+    func testAPythonRuntimeOrSourceBuildToolRecordsNoLockPackage() {
+        // The lock's spec for primalscheme3 is the Python it runs on, and for Bracken the conda fallback of a
+        // source build, so neither names the tool.
+        XCTAssertEqual(
+            ProvenanceManagedEnvironment.recordedRuntime(environment: "primalscheme3", executableName: "primalscheme3"),
+            "managed conda environment primalscheme3; executable primalscheme3"
+        )
+        XCTAssertEqual(
+            ProvenanceManagedEnvironment.recordedRuntime(environment: "bracken", executableName: "bracken"),
+            "managed conda environment bracken; executable bracken"
+        )
+    }
+
+    func testAToolTheLockDoesNotKnowRecordsItsSourcePackage() {
+        let empty = ManagedToolLock(packID: "x", displayName: "x", version: "x", tools: [], managedData: [])
+        XCTAssertEqual(
+            ProvenanceManagedEnvironment.recordedRuntime(for: .ivar, lock: empty),
+            "managed conda environment ivar; executable ivar; package ivar"
+        )
+    }
+
+    /// ManagedMappingPipeline and Minimap2Pipeline run minimap2, BWA-MEM2 and Bowtie2 through
+    /// `micromamba run`, so they know an environment name and an executable and no `NativeTool`. The
+    /// record carried no package for them, which dropped the build of minimap2.
+    func testCondaRunMappersRecordTheLocksSpecForTheirEnvironment() {
+        XCTAssertEqual(
+            ProvenanceManagedEnvironment.recordedRuntime(environment: "minimap2", executableName: "minimap2"),
+            "managed conda environment minimap2; executable minimap2; package bioconda::minimap2=2.31=h6bd33b9_0"
+        )
+        XCTAssertEqual(
+            ProvenanceManagedEnvironment.recordedRuntime(environment: "bwa-mem2", executableName: "bwa-mem2"),
+            "managed conda environment bwa-mem2; executable bwa-mem2; package bioconda::bwa-mem2=2.3=hda5e58c_0"
+        )
+        XCTAssertEqual(
+            ProvenanceManagedEnvironment.recordedRuntime(environment: "bowtie2", executableName: "bowtie2-build"),
+            "managed conda environment bowtie2; executable bowtie2-build; package bioconda::bowtie2=2.5.5=h9e91881_0"
+        )
+        XCTAssertEqual(
+            ProvenanceManagedEnvironment.recordedRuntime(environment: "no-such-environment", executableName: "tool"),
+            "managed conda environment no-such-environment; executable tool",
+            "an environment the lock does not hold records no package"
+        )
     }
 }

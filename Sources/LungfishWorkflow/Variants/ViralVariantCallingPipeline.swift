@@ -1704,13 +1704,6 @@ public struct ViralVariantCallingPipeline: Sendable {
     }
 
     private func runtimeIdentity(for tool: NativeTool) -> String {
-        switch tool.location {
-        case .managed(let environment, let executableName):
-            let packageSpec = (try? ManagedToolLock.loadFromBundle().tool(named: environment)?.packageSpec)
-                ?? tool.sourcePackage
-            return "managed conda environment \(environment); executable \(executableName); package \(packageSpec)"
-        case .bundled(let relativePath):
-            return "bundled executable \(relativePath)"
-        }
+        ProvenanceManagedEnvironment.recordedRuntime(for: tool)
     }
 }

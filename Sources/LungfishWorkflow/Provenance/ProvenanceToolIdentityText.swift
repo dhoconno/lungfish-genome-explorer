@@ -14,6 +14,7 @@
 // export can declare.
 
 import Foundation
+import LungfishIO
 
 /// The managed conda environment a step ran in, as recorded in its version.
 public struct ProvenanceManagedEnvironment: Sendable, Equatable, Hashable {
@@ -49,6 +50,58 @@ public struct ProvenanceManagedEnvironment: Sendable, Equatable, Hashable {
     /// The `micromamba create` line that recreates this environment.
     public var micromambaCreateCommand: String {
         "micromamba create -y -n lge-\(WorkflowExportGraph.sanitize(name)) -c conda-forge -c bioconda \(packageSpec ?? name)"
+    }
+}
+
+// MARK: - The runtime text a managed tool's record carries
+
+extension ManagedToolLock {
+    /// The conda package spec this lock installs for `entry`, such as `bioconda::ivar=1.4.4=hda5e58c_0`.
+    ///
+    /// `ManagedToolLockEntry` is a read-only view that carries no spec, so the spec is read from the lock
+    /// list the entry came from. A pack tool resolves here as well as a tool of the required pack. A tool
+    /// that a Python runtime or a source build installs has no spec of its own, because the lock's spec
+    /// names the interpreter or the conda fallback, so this returns nil for it.
+    func packageSpec(of entry: ManagedToolLockEntry) -> String? {
+        guard entry.pythonRuntime == nil, entry.sourceBuild == nil else { return nil }
+        switch entry.source {
+        case .tool:
+            return tools.first { $0.id == entry.id.rawValue }?.packageSpec
+        case .packTool(let packID):
+            return packTools.first { $0.packID == packID && $0.toolID == entry.id.rawValue }?.packageSpec
+        }
+    }
+}
+
+extension ProvenanceManagedEnvironment {
+    /// The text a record keeps in parentheses after a managed tool's version, as the pipelines write it:
+    /// `managed conda environment samtools; executable samtools; package bioconda::samtools=1.24=h36b3a25_1`.
+    /// The package part is left out when there is none.
+    static func recordedRuntime(environment: String, executableName: String, packageSpec: String?) -> String {
+        var text = "managed conda environment \(environment); executable \(executableName)"
+        if let packageSpec { text += "; package \(packageSpec)" }
+        return text
+    }
+
+    /// The runtime text of a native tool. The package is the lock's spec for the tool's `ManagedToolID`,
+    /// found with `entry(id:)` so a pack tool such as iVar, whatshap or minimap2 resolves, and the tool's
+    /// source package when the lock has no such entry.
+    static func recordedRuntime(for tool: NativeTool, lock: ManagedToolLock = .bundled) -> String {
+        switch tool.location {
+        case .managed(let environment, let executableName):
+            let spec = lock.entry(id: tool.managedToolID).flatMap { lock.packageSpec(of: $0) }
+            return recordedRuntime(environment: environment, executableName: executableName, packageSpec: spec ?? tool.sourcePackage)
+        case .bundled(let relativePath):
+            return "bundled executable \(relativePath)"
+        }
+    }
+
+    /// The runtime text of a tool run through `micromamba run -n <environment>`, which names an environment
+    /// and an executable and no `NativeTool`. The package is the spec of the lock entry installed in that
+    /// environment, found with `entry(environment:)`, and is left out for an environment the lock does not hold.
+    static func recordedRuntime(environment: String, executableName: String, lock: ManagedToolLock = .bundled) -> String {
+        let spec = lock.entry(environment: environment).flatMap { lock.packageSpec(of: $0) }
+        return recordedRuntime(environment: environment, executableName: executableName, packageSpec: spec)
     }
 }
 

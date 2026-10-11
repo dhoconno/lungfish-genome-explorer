@@ -1157,18 +1157,11 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
     }
 
     private func condaRuntimeIdentity(environment: String, executableName: String) -> String {
-        "managed conda environment \(environment); executable \(executableName)"
+        ProvenanceManagedEnvironment.recordedRuntime(environment: environment, executableName: executableName)
     }
 
     private func runtimeIdentity(for tool: NativeTool) -> String {
-        switch tool.location {
-        case .managed(let environment, let executableName):
-            let packageSpec = (try? ManagedToolLock.loadFromBundle().tool(named: environment)?.packageSpec)
-                ?? tool.sourcePackage
-            return "managed conda environment \(environment); executable \(executableName); package \(packageSpec)"
-        case .bundled(let relativePath):
-            return "bundled executable \(relativePath)"
-        }
+        ProvenanceManagedEnvironment.recordedRuntime(for: tool)
     }
 
     private func nonEmpty(_ value: String) -> String? {

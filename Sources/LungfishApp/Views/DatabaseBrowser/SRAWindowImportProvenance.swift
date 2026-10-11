@@ -53,7 +53,7 @@ func writeGUISRAFASTQImportProvenance(
     let toolkitAttemptFailed = source.map { !$0.usesSRAToolkit } ?? false
     let failedAttempt = SRAService.FASTQDownloadStepTrace.failedAttemptOption
     // Toolkit steps record the sra-tools version the lock pins, as `fetch sra download` records it.
-    let sraToolsVersion = try? ManagedToolLock.loadFromBundle().tool(named: "sra-tools")?.version
+    let sraToolsVersion = try? ManagedToolLock.loadFromBundle().entry(id: ManagedToolID(rawValue: "sra-tools"))?.version
     var steps = enaDownloadSteps
 
     steps.append(contentsOf: toolkitDownloadTraces.map { trace in

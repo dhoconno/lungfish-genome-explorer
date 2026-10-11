@@ -391,10 +391,16 @@ struct ProvenanceExportPlan {
         return ProvenanceManagedEnvironment(name: environment.name, executable: environment.executable, packageSpec: spec)
     }
 
-    /// `bbmap` for the `bbtools` environment, from the bundled managed-tool
-    /// lock (`bioconda::bbmap=39.33=h92535d8_0`).
+    /// `bbmap` for the `bbtools` environment and `whatshap` for `phasing`, from the
+    /// bundled managed-tool lock (`bioconda::bbmap=39.33=h92535d8_0`). The entry
+    /// is found by its environment through either lock list, so a pack tool resolves.
     private static func lockPackageName(forEnvironment name: String) -> String? {
-        guard let spec = try? ManagedToolLock.loadFromBundle().tool(named: name)?.packageSpec else { return nil }
+        let lock = ManagedToolLock.bundled
+        guard let entry = lock.entry(environment: name) else { return nil }
+        // A Python runtime or a source build installs the tool by its own means, and the lock's spec
+        // names the interpreter or the conda fallback, so the tool's id is its package.
+        if entry.pythonRuntime != nil || entry.sourceBuild != nil { return entry.id.rawValue }
+        guard let spec = lock.packageSpec(of: entry) else { return nil }
         var package = spec
         if let channel = package.range(of: "::") { package = String(package[channel.upperBound...]) }
         if let version = package.firstIndex(of: "=") { package = String(package[..<version]) }

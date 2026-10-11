@@ -54,21 +54,31 @@ final class MapRecordedMapperIdentityTests: XCTestCase {
         }
     }
 
-    /// The other mappers record what they recorded before the fix, the
-    /// version their probe in their own environment printed and that
-    /// environment.
-    func testOtherMappersRecordTheirOwnEnvironmentAndProbedVersion() async throws {
+    /// The other mappers record the version their probe in their own
+    /// environment printed, that environment and the package the lock installs
+    /// there. Before Phase 2.6 lane P5a only BBMap's record named a package,
+    /// because the conda-run mappers never looked the lock up, so a minimap2
+    /// record held no build. The stand-in probe prints 2.2.1, which is why the
+    /// version and the lock's package differ here.
+    func testOtherMappersRecordTheirOwnEnvironmentProbedVersionAndLockPackage() async throws {
+        let packages: [MappingTool: String] = [
+            .minimap2: "bioconda::minimap2=2.31=h6bd33b9_0",
+            .bwaMem2: "bioconda::bwa-mem2=2.3=hda5e58c_0",
+            .bowtie2: "bioconda::bowtie2=2.5.5=h9e91881_0",
+        ]
         for tool in [MappingTool.minimap2, .bwaMem2, .bowtie2] {
             let recorded = try await mapAndRead(tool: tool, mode: .defaultShortRead, executable: tool.executableName)
             XCTAssertEqual(recorded.mapperVersion, "2.2.1", tool.rawValue)
             XCTAssertEqual(recorded.envelopeVersion, "2.2.1", tool.rawValue)
             XCTAssertEqual(recorded.toolIdentityVersion, "2.2.1", tool.rawValue)
             XCTAssertEqual(recorded.condaEnvironment, tool.rawValue, tool.rawValue)
+            let package = try XCTUnwrap(packages[tool])
             XCTAssertEqual(
                 recorded.stepVersion,
-                "2.2.1 (managed conda environment \(tool.rawValue); executable \(tool.executableName))",
+                "2.2.1 (managed conda environment \(tool.rawValue); executable \(tool.executableName); package \(package))",
                 tool.rawValue
             )
+            XCTAssertEqual(recorded.mapperRuntime, "managed conda environment \(tool.rawValue); executable \(tool.executableName); package \(package)", tool.rawValue)
         }
     }
 
@@ -80,6 +90,7 @@ final class MapRecordedMapperIdentityTests: XCTestCase {
         let toolIdentityVersion: String
         let condaEnvironment: String?
         let stepVersion: String
+        let mapperRuntime: String
         var stepVersionPrefix: String {
             guard let open = stepVersion.range(of: "; package ") else { return stepVersion }
             return String(stepVersion[..<open.upperBound])
@@ -116,7 +127,8 @@ final class MapRecordedMapperIdentityTests: XCTestCase {
             envelopeVersion: envelope.toolVersion,
             toolIdentityVersion: envelope.tool.version,
             condaEnvironment: envelope.runtimeIdentity.condaEnvironment,
-            stepVersion: step.toolVersion
+            stepVersion: step.toolVersion,
+            mapperRuntime: provenance.runtimeIdentity["mapper"] ?? ""
         )
     }
 }

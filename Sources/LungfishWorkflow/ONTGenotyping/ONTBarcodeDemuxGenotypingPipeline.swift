@@ -4963,12 +4963,12 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
     /// Builds provenance descriptors for the tools this pipeline invokes.
     ///
-    /// Managed (required-pack) tools resolve through `manifest.tools`; optional pack
-    /// tools such as minimap2 resolve through `manifest.packTools` by tool id, so the
-    /// recorded `packageSpec` is always the manifest's build-pinned spec.
+    /// Each id is looked up with `entry(id:)`, so a required-pack tool and an optional pack tool
+    /// such as minimap2 both resolve, and `packageSpec` is always the manifest's build-pinned spec.
     static func managedToolDescriptors(ids: [String], manifest: ManagedToolLock) -> [[String: Any]] {
         ids.compactMap { id in
-            if let tool = manifest.tool(named: id) {
+            let source = manifest.entry(id: ManagedToolID(rawValue: id))?.source
+            if case .tool? = source, let tool = manifest.tools.first(where: { $0.id == id }) {
                 return [
                     "id": tool.id,
                     "environment": tool.environment,
@@ -4979,7 +4979,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     "sourceUrl": tool.sourceUrl as Any? ?? NSNull(),
                 ]
             }
-            if let packTool = manifest.packTools.first(where: { $0.toolID == id }) {
+            if case .packTool(let packID)? = source, let packTool = manifest.packTools.first(where: { $0.packID == packID && $0.toolID == id }) {
                 return [
                     "id": packTool.toolID,
                     "packID": packTool.packID,

@@ -85,16 +85,18 @@ final class ProvenanceExportPinAssessmentTests: XCTestCase {
         }
     }
 
-    func testPackToolEnvironmentNameIsExportedAsThePackage() {
+    func testPackToolIsExportedByItsPackageAndNotItsEnvironmentName() {
+        // Phase 2.6 lane P5a. The plan finds the lock entry by environment through both lock lists, so the
+        // `phasing` environment exports `whatshap` and `gatk-core` exports `gatk4`.
         let phasing = assess(step("whatshap", composite("2.3", environment: "phasing", executable: "whatshap"), environment: "phasing"))[0]
         XCTAssertEqual(phasing.status, .packageSpecUnavailable)
-        XCTAssertEqual(phasing.exportedSpec, "bioconda::phasing=2.3")
-        XCTAssertEqual(phasing.hazards, [.environmentNameAsPackage, .missingBuild])
+        XCTAssertEqual(phasing.exportedSpec, "bioconda::whatshap=2.3")
+        XCTAssertEqual(phasing.hazards, [.missingBuild])
 
         let gatk = assess(step("gatk", composite("4.6.2.0", environment: "gatk-core", executable: "gatk"), environment: "gatk-core"))[0]
         XCTAssertEqual(gatk.status, .packageSpecUnavailable)
-        XCTAssertEqual(gatk.exportedSpec, "bioconda::gatk-core=4.6.2.0")
-        XCTAssertEqual(gatk.hazards, [.environmentNameAsPackage, .missingBuild])
+        XCTAssertEqual(gatk.exportedSpec, "bioconda::gatk4=4.6.2.0")
+        XCTAssertEqual(gatk.hazards, [.missingBuild])
     }
 
     func testPythonRuntimeAndSourceBuildCannotBeExpressedAsACondaSpec() {

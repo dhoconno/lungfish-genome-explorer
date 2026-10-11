@@ -222,7 +222,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
         startedAt: Date,
         completedAt: Date
     ) throws {
-        let sraToolsVersion = try? ManagedToolLock.loadFromBundle().tool(named: "sra-tools")?.version
+        let sraToolsVersion = try? ManagedToolLock.loadFromBundle().entry(id: ManagedToolID(rawValue: "sra-tools"))?.version
         let failedStepCount = trace.failedAttemptStepCount
         let failedAttempt = SRAService.FASTQDownloadStepTrace.failedAttemptOption
         var steps = trace.steps.enumerated().map { index, step in
