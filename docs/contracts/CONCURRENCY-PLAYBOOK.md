@@ -65,7 +65,7 @@ Four constructs bypass the compiler's isolation checks. Their counts may only fa
 | `MainActor.assumeIsolated` | 407 | Only inside `DispatchQueue.main.async` (pattern 1) or behind a main-thread check, as in `enqueueMainRunLoop` in `Sources/LungfishApp/Views/Viewer/SequenceViewerView+Rendering.swift` |
 | `@unchecked Sendable` | 223 | Only for a small type whose every stored property is guarded by a lock, like `LockedBool` in `Sources/LungfishApp/Services/CLIVariantCallingRunner.swift`. Prefer an actor or `OSAllocatedUnfairLock`. |
 | `nonisolated(unsafe)` | 58 | Not in new code |
-| `nonisolated(unsafe) static var` | 23 | Not in new code. These are mostly test probes and fault gates (finding R10). Inject a probe through the initializer, or use a `@TaskLocal` value as `NativeToolRunner.onEvent` in `Sources/LungfishWorkflow/Native/NativeToolRunner.swift` does. |
+| `nonisolated(unsafe) static var` | 23 | Not in new code. These are mostly test probes and fault gates (finding R10). Inject a probe through the initializer, or use a `@TaskLocal` value as `NativeProcessObservation.onEvent` in `Sources/LungfishWorkflow/Native/NativeToolRunner.swift` and `ToolProcessObservation.observer` in `Sources/LungfishCore/Process/ToolProcessObservation.swift` do. |
 
 A change that needs a new hatch explains why in its commit message, and the reviewer decides whether the baseline moves.
 
