@@ -789,7 +789,7 @@ public enum NaoMgsBamMaterializer {
     }
 }
 
-private func naoMgsShellEscape(_ value: String) -> String {
+func naoMgsShellEscape(_ value: String) -> String {
     if value.isEmpty { return "''" }
     let safeCharacters = CharacterSet.alphanumerics
         .union(CharacterSet(charactersIn: "-_./:=@+,"))
