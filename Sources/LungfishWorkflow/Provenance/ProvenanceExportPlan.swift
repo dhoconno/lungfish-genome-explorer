@@ -208,6 +208,18 @@ struct ProvenanceExportPlan {
                 isPlumbing = true
             } else if let argv = replayArguments(step), !argv.isEmpty {
                 let normalized = Self.normalizeExecutable(argv, identity: &identity, toolName: toolName)
+                // A classifier keeps its managed environment only in the step's runtime identity, which counts
+                // when its executable is that environment's copy of this step's own program (lane P5b).
+                if identity.environment == nil, let runtime = step.runtimeIdentity, let name = runtime.condaEnvironment,
+                   let program = normalized.first.map({ URL(fileURLWithPath: $0).lastPathComponent }),
+                   runtime.executablePath?.hasSuffix("/envs/\(name)/bin/\(program)") == true {
+                    identity = ProvenanceToolIdentityText(
+                        toolName: identity.toolName,
+                        version: identity.version,
+                        environment: ProvenanceManagedEnvironment(name: name, executable: program, packageSpec: nil),
+                        runtimeNote: identity.runtimeNote
+                    )
+                }
                 command = Command(argv: normalized, stdoutPath: nil)
                 kind = Self.isInternal(step) ? .inApp : (Self.isCLI(normalized) ? .wrapper : .tool)
             } else {

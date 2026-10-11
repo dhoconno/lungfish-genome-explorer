@@ -249,6 +249,68 @@ final class ProvenanceExportPinGateTests: XCTestCase {
         XCTAssertEqual(result.assessment.steps.map(\.toolName), ["minimap2", "samtools"])
     }
 
+    // MARK: - A classifier's environment in its runtime identity
+
+    /// The restored kraken2 golden with `edit` applied to its steps as JSON objects.
+    private func classifierRecord(_ edit: (inout [[String: Any]]) -> Void = { _ in }) throws -> ProvenanceEnvelope {
+        let directory = try temporaryDirectory("pin-gate-classifier")
+        let restored = try XCTUnwrap(
+            GoldenProvenanceRecords.restoredCopies(in: directory)["classifiers/kraken2/lungfish-provenance.json"]
+        )
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: restored)) as? [String: Any])
+        var steps = try XCTUnwrap(object["steps"] as? [[String: Any]])
+        edit(&steps)
+        object["steps"] = steps
+        let edited = directory.appendingPathComponent("edited-provenance.json")
+        try JSONSerialization.data(withJSONObject: object).write(to: edited)
+        let reading = try XCTUnwrap(try ProvenanceEnvelopeReader.read(fromSidecar: edited))
+        XCTAssertEqual(reading.shape, .envelope)
+        return reading.envelope
+    }
+
+    func testAClassifierStepIsAssessedInTheEnvironmentItsRuntimeRecords() throws {
+        // Bio review fix 1. ClassificationPipeline records kraken2 and Bracken with a bare argv and keeps
+        // the managed environment only in the step's runtime identity.
+        let exporter = ProvenanceExporter(signingProvider: nil)
+        func gate(_ record: ProvenanceEnvelope) -> ProvenanceExportPinGate {
+            exporter.pinGate(for: record, shape: .envelope, format: .shell, sourceSidecarURL: nil)
+        }
+        func kraken2Index(_ steps: [[String: Any]]) -> Int {
+            steps.firstIndex { $0["toolName"] as? String == "kraken2" } ?? 0
+        }
+
+        let atLock = gate(try classifierRecord())
+        let kraken2 = try XCTUnwrap(atLock.assessment.steps.first { $0.toolName == "kraken2" })
+        XCTAssertEqual(kraken2.environment, "kraken2")
+        XCTAssertEqual(kraken2.exportedSpec, "bioconda::kraken2=2.17.1=pl5321h158e17b_0")
+        XCTAssertEqual(atLock.unpinnedSteps, [])
+        // gzip inherits the record's runtime identity, whose executable is not gzip, so it gains no environment.
+        XCTAssertEqual(atLock.assessment.steps.first { $0.toolName == "gzip" }?.status, .noEnvironmentRecorded)
+
+        let older = gate(try classifierRecord { steps in steps[kraken2Index(steps)]["toolVersion"] = "2.1.3" })
+        XCTAssertEqual(older.unpinnedSteps.map(\.reason), [.versionNotInLock(recorded: "2.1.3", locked: "2.17.1")])
+
+        let withBracken = gate(try classifierRecord { steps in
+            let index = kraken2Index(steps)
+            var bracken = steps[index]
+            bracken["id"] = UUID().uuidString
+            bracken["toolName"] = "bracken"
+            bracken["toolVersion"] = "3.1"
+            bracken["argv"] = ["bracken", "-d", "db", "-i", "report.txt", "-o", "bracken.txt"]
+            bracken["command"] = bracken["argv"]
+            bracken["durableReplayArgv"] = bracken["argv"]
+            bracken["inputs"] = [Any]()
+            bracken["outputs"] = [Any]()
+            var runtime = bracken["runtimeIdentity"] as? [String: Any] ?? [:]
+            runtime["executablePath"] = "<tool-root>/envs/bracken/bin/bracken"
+            runtime["condaEnvironment"] = "bracken"
+            bracken["runtimeIdentity"] = runtime
+            steps.insert(bracken, at: index + 1)
+        })
+        XCTAssertEqual(withBracken.unpinnedSteps.map(\.toolName), ["bracken"])
+        XCTAssertEqual(withBracken.unpinnedSteps.map(\.reason), [.unpinnableRuntime(.sourceBuild)])
+    }
+
     // MARK: - The recorded override
 
     /// Unpinned minimap2, pinned samtools and unpinned bracken.
