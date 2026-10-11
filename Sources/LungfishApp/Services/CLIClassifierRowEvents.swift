@@ -37,9 +37,10 @@ enum CLIClassifierTool: String, Sendable, Equatable, CaseIterable {
 ///
 /// - Every progress line moves the bar, which never moves back, sets the detail, is logged at
 ///   info and shows in the viewer's overlay. In a batch the line reads `Sample i/N (id): <line>`
-///   with today's sample ids. The lines after the last unit's line at the end of the range, or
-///   after its failure, are the finalize's and carry no sample. The executor's own unit lines
-///   are not shown, as today's row has none.
+///   with the command's place of the unit and today's id of the sample its label names. The
+///   lines after the last unit's line at the end of the range, or after its failure, are the
+///   finalize's and carry no sample. The executor's own unit lines are not shown, as today's
+///   row has none.
 /// - The finalize's database line `Building <tool> database…` sets today's detail and logs today's
 ///   `Building <tool>.sqlite from …` line.
 /// - A row reads Completed with Warnings in today's cases only (2.6 S16). The one warning line of
@@ -211,10 +212,21 @@ struct CLIClassifierRowEvents: Sendable {
         return "\(prefix(unitIndex)): \(message)"
     }
 
-    /// Today's prefix of a batch line, `Sample 2/5 (air-B)`, with today's sample id when the
-    /// command's unit has one and the command's label otherwise.
+    /// Today's prefix of a batch line, `Sample 2/5 (air-B)`, with the command's place and count
+    /// of the unit. The command groups and orders the samples itself, so the sample is the one
+    /// its unit's label names: today's id equal to the label or to the label sanitized as the
+    /// grouper names a sample, else the label itself. A unit the command printed no label for
+    /// takes today's id at its place, and `sample_<i>` last.
     private func prefix(_ index: Int) -> String {
-        let sampleID = sampleIDs.indices.contains(index) ? sampleIDs[index] : (unitLabels[index] ?? "sample_\(index + 1)")
+        let sampleID: String
+        if let label = unitLabels[index] {
+            let sanitized = MetagenomicsSampleGrouper.sanitizeSampleId(label)
+            sampleID = sampleIDs.first { $0 == label } ?? sampleIDs.first { $0 == sanitized } ?? label
+        } else if sampleIDs.indices.contains(index) {
+            sampleID = sampleIDs[index]
+        } else {
+            sampleID = "sample_\(index + 1)"
+        }
         return AppDelegate.classificationBatchSamplePrefix(index: index, sampleCount: unitCount, sampleID: sampleID)
     }
 

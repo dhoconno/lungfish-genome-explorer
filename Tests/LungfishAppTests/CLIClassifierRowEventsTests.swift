@@ -169,6 +169,51 @@ final class CLIClassifierRowEventsTests: XCTestCase {
         XCTAssertEqual(failure, CLIClassifierFailure(message: "Empty Kraken2 report", errorMessage: nil, errorDetail: nil))
     }
 
+    /// Review fix 1. A batch line names the sample of the command's unit by the label the
+    /// executor printed for it, not the dialog's id at the same place, since the command groups
+    /// and orders the samples itself. `Sample i/N` keeps the command's place and count.
+    func testABatchLineNamesTheSampleOfTheCommandsUnitByItsLabel() async throws {
+        let reason = "EsViritu exited with status 1"
+        let run = try await executorRun(StandInClassifierTool(
+            tool: .esViritu,
+            units: [("B", .complete), ("A", .fail(reason, logTail: "tail"))],
+            layout: .batchRoot
+        ))
+        let (rows, effects) = play(run.events, tool: .esViritu, sampleIDs: ["A", "B"])
+
+        XCTAssertEqual(logLines(effects).filter { $0.hasPrefix("info: Sample") }, [
+            "info: Sample 1/2 (B): Materializing B into the result folder",
+            "info: Sample 1/2 (B): Validating configuration...",
+            "info: Sample 1/2 (B): Running EsViritu...",
+            "info: Sample 1/2 (B): Detection complete",
+            "info: Sample 2/2 (A): Materializing A into the result folder",
+            "info: Sample 2/2 (A): Validating configuration...",
+            "info: Sample 2/2 (A): Running EsViritu...",
+        ])
+        XCTAssertEqual(logLines(effects).filter { $0.hasPrefix("error:") }, [
+            "error: Sample 2/2 (A): EsViritu log (last lines):\ntail",
+            "error: Sample 2/2 (A): \(reason)",
+        ])
+        XCTAssertEqual(rows.failedUnitReasons, [reason])
+    }
+
+    /// Review fix 1. A unit's label that sanitizes to a dialog id shows that id, and a label that
+    /// matches no id shows the label itself.
+    func testABatchLineShowsTheUnitsLabelWhenItMatchesNoSampleID() async throws {
+        let run = try await executorRun(StandInClassifierTool(
+            tool: .kraken2,
+            units: [("air.B", .complete), ("zeta", .complete)],
+            layout: .batchRoot
+        ))
+        let (_, effects) = play(run.events, tool: .kraken2, sampleIDs: ["air_B", "alpha"])
+        XCTAssertEqual(run.report.status, .completed, run.report.message)
+
+        XCTAssertEqual(progressLines(effects).filter { $0.contains("Running Kraken2") }, [
+            "0.25 Sample 1/2 (air_B): Running Kraken2...",
+            "0.75 Sample 2/2 (zeta): Running Kraken2...",
+        ])
+    }
+
     // MARK: - Lines the runner reads
 
     /// UX checklist 3 and S16. The bar never moves back, a line of standard error stays at info,
