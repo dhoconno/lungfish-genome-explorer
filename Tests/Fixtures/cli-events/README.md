@@ -62,13 +62,13 @@ The runs were made in process at program commit `1171aef68`, each on a small fix
 
 ## commands
 
-The contract table `CLIEventContractTable` names 25 leaf commands that emit events. Each has a folder here, named by its path with hyphens, such as `msa-annotate-add`. A file in it is one run that ends one way. `complete` ends in a `complete` line, `complete-with-warning` is such a run that also logs a warning, and `failed` ends in a `failed` line. Every line is a version 2 line, and every line is captured output.
+The contract table `CLIEventContractTable` names the leaf commands that emit events. Each has a folder here, named by its path with hyphens, such as `msa-annotate-add`. A file in it is one run that ends one way. `complete` ends in a `complete` line, `complete-with-warning` is such a run that also logs a warning, and `failed` ends in a `failed` line. Every line is a version 2 line, and every line is captured output.
 
 `CLIEventTranscriptCoverageTests` decodes each line with the current reader and with the frozen version 1 reader and expects the same events from both. It also checks that each run starts with `start`, ends with one terminal event, holds no line a reader skips as chatter, and carries no text that a system message wrote.
 
 ### Captured in process
 
-Twenty leaves need no external tool, so they ran in process on a small fixture, as the version 1 captures did. A command with a test seam handed its lines to a capturing sink. `fastq platform` and the four import commands have none, so their standard output was redirected for the length of the run, and `ImportStreamCapture` builds the fixtures of the four import commands. The scratch folder is rewritten to `/work` in its plain and slash-escaped spellings, and nothing else is edited.
+The leaves that need no external tool ran in process on a small fixture, as the version 1 captures did. A command with a test seam handed its lines to a capturing sink. `fastq platform` and the four import commands have none, so their standard output was redirected for the length of the run, and `ImportStreamCapture` builds the fixtures of the four import commands. The scratch folder is rewritten to `/work` in its plain and slash-escaped spellings, and nothing else is edited.
 
 `CLIEventTranscriptCoverageTests` runs the same captures again and fails when a line differs from its file. After a deliberate change to an emitter, run that suite with `LUNGFISH_RECAPTURE_CLI_EVENTS=1`, which writes the files instead of comparing them, and review the diff.
 

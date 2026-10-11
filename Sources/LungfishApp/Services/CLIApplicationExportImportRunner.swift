@@ -12,9 +12,10 @@ struct CLIApplicationExportImportResult: Sendable, Equatable {
 /// Runs `lungfish-cli import geneious` or `import application-export` and reports the collection it made.
 ///
 /// The stream is read through `CLISubprocessTransport`, so a version 2 CLI and an older CLI, whose
-/// private `applicationExport*` events `CLIEventLegacyNames` reads, give the same operation log, the
-/// same label and the same imported collection (decision V13). The collection comes from `outputs`
-/// only. The typed artifact that a version 2 CLI adds describes it and never stands in for it.
+/// private `applicationExport*` events `CLIEventLegacyNames` reads, give the same label, the same
+/// import and the same operation log apart from the summary lines a version 2 CLI prints on standard
+/// error, which the transport logs at info (decision V13). The collection comes from `outputs` only.
+/// The typed artifact that a version 2 CLI adds describes it and never stands in for it.
 actor CLIApplicationExportImportRunner {
     enum RunError: Error, LocalizedError {
         case cliNotFound

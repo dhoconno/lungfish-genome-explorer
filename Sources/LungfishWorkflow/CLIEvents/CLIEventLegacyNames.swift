@@ -41,9 +41,12 @@ private let legacyNamesLogger = Logger(subsystem: LogSubsystem.workflow, categor
 /// `operation` key, which is a name version 1 already had and a key the decoder ignores.
 /// `CLIEventLegacyNamesTests` pins that.
 ///
-/// Delete this file as a unit when the `.legacy` rows expire, together with
-/// `CLIEventLegacyNamesTests`, `Tests/Fixtures/cli-events/legacy` and the one call in
-/// `CLIEventLine.init(from:)`.
+/// Delete this file as a unit when the last `.legacy` row goes, 2.9 by today's rows, with the
+/// legacy branch of `CLIEventLine.init(from:)`, `CLIEventLegacyNamesTests` and the `legacy`
+/// fixtures, the legacy check in `ImportStreamCapture.assertVersion2Streams`, the runner tests
+/// that print an old name (`rg -l '"event":"(nativeBundleImport|applicationExport)' Tests`),
+/// whose literal expectations move to the `commands` transcripts, and the legacy sections of
+/// `docs/formats/cli-events.md` and the fixtures README.
 enum CLIEventLegacyNames {
     /// The day this table was written. A build that prints a name from it is older than this day.
     static let dated = "2026-10-11"

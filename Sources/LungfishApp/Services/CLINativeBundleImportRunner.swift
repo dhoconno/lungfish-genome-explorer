@@ -12,8 +12,9 @@ struct CLINativeBundleImportResult: Sendable, Equatable {
 /// Runs `lungfish-cli import msa` or `import tree` and reports the bundle it made.
 ///
 /// The stream is read through `CLISubprocessTransport`, so a version 2 CLI and an older CLI, whose
-/// private `nativeBundleImport*` events `CLIEventLegacyNames` reads, give the same operation log, the
-/// same label and the same imported bundle (decision V13). The bundle comes from `outputs` only. The
+/// private `nativeBundleImport*` events `CLIEventLegacyNames` reads, give the same label, the same
+/// import and the same operation log apart from the summary lines a version 2 CLI prints on standard
+/// error, which the transport logs at info (decision V13). The bundle comes from `outputs` only. The
 /// typed artifact that a version 2 CLI adds describes it and never stands in for it.
 actor CLINativeBundleImportRunner {
     enum BundleKind: String, Sendable {
