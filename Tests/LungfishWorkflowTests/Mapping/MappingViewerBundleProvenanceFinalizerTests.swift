@@ -6,7 +6,7 @@ import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
-    private var tempDirectory: URL!
+    var tempDirectory: URL!
 
     override func setUpWithError() throws {
         tempDirectory = FileManager.default.temporaryDirectory
@@ -1813,7 +1813,7 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         }
     }
 
-    private func makeFixture(
+    func makeFixture(
         resultDirectoryName: String = "Sample"
     ) throws -> (
         resultDirectory: URL,

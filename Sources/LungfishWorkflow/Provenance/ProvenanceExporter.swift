@@ -252,7 +252,7 @@ public struct ProvenanceExporter: Sendable {
         )
     }
 
-    private func mergeProvenanceChain(
+    func mergeProvenanceChain(
         _ envelopes: [ProvenanceEnvelope],
         fallback: ProvenanceEnvelope
     ) -> ProvenanceEnvelope {

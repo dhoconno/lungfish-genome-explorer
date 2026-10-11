@@ -743,7 +743,7 @@ struct MarkdupCommand: AsyncParsableCommand {
         return related.filter { $0.path == output.path } + related.filter { $0.path != output.path }
     }
 
-    private static func markdupEnvelope(
+    static func markdupEnvelope(
         _ envelope: ProvenanceEnvelope,
         focusedOn selectedOutputs: [ProvenanceFileDescriptor]
     ) -> ProvenanceEnvelope {

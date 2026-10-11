@@ -672,7 +672,7 @@ public final class ReferenceBundleAnnotationImportService {
     }
 }
 
-private extension ProvenanceEnvelope {
+extension ProvenanceEnvelope {
     func outputDescriptor(matchingPath path: String) -> ProvenanceFileDescriptor? {
         let descriptors = steps.flatMap(\.outputs)
             + (output.map { [$0] } ?? [])
