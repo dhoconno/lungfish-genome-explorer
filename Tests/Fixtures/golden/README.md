@@ -17,7 +17,7 @@ python3 scripts/golden/golden.py compare --strict         # leave out rules N1 a
 
 Without `--cli` the command runs `swift build --skip-update --product lungfish-cli --package-path <repo root>`. The compare prints a unified diff and exits 1 when any golden differs, when a fresh output has no golden, when a golden is not produced, or when a self-check fails. It prints the wall time of each capture and of the whole run and writes them to `/Users/Shared/lungfish-golden/cache/last-compare.json`. The four captures take 25 to 60 seconds on the Mac they were captured on, depending on load, plus the build.
 
-The captures run in a fixed scratch folder, `/Users/Shared/lungfish-golden/run`, which is emptied at the start of every run and kept afterwards for inspection. A fixed folder keeps the bytes of outputs that embed their own paths the same from run to run. The CLI is cloned into that folder, so the executable path that provenance records does not depend on the checkout. Each command gets a minimal environment with the bare `PATH` the app gives the CLI, `TMPDIR` inside the scratch folder and `COLUMNS=80`. Thread counts are pinned in argv. A lock file in the cache folder keeps two runs from overlapping.
+The captures run in a fixed scratch folder, `/Users/Shared/lungfish-golden/run`, which is emptied at the start of every run and kept afterwards for inspection. A fixed folder keeps the bytes of outputs that embed their own paths the same from run to run. The CLI is cloned into that folder, so the executable path that provenance records does not depend on the checkout. Records written under schema version 2 name the CLI as `<external>/lungfish-cli` instead of its path. Each command gets a minimal environment with the bare `PATH` the app gives the CLI, `TMPDIR` inside the scratch folder and `COLUMNS=80`. Thread counts are pinned in argv. A lock file in the cache folder keeps two runs from overlapping.
 
 The captures run the CLI with `LUNGFISH_STORAGE_ROOT=/Users/Shared/lungfish-golden/storage`, the golden environment that `Tests/Fixtures/golden-environment/lock.json` pins. It holds the minimap2, samtools, seqkit, kraken2, EsViritu, BBTools, pysam and openpyxl environments, the Kraken2 database named Viral and the EsViritu Viral DB. `python3 scripts/golden/environment.py provision` builds it, and every run checks it against the lock before any capture that needs it. Nothing is installed or updated by the compare. Every path under `/Users/Shared/lungfish-golden` is the same on every Mac and for every user, so the goldens are not bound to an account. `docs/contracts/MACHINES.md` says which Macs run the comparison. The genotype capture downloads the demo project archive once into `/Users/Shared/lungfish-golden/cache` and checks its size and SHA-256 on every run.
 
@@ -25,7 +25,7 @@ The captures run the CLI with `LUNGFISH_STORAGE_ROOT=/Users/Shared/lungfish-gold
 
 ### cli-help
 
-`lungfish-cli --experimental-dump-help` lists the command tree, 280 command paths including the hidden `fastq ont-genotype`. The capture runs `<command path> --help` for each one and stores one file per path, named like `lungfish-cli.fastq.materialize.txt`, with `index.tsv` listing the path, whether it is shown, the exit status and the file.
+`lungfish-cli --experimental-dump-help` lists the command tree, 283 command paths including the hidden `fastq ont-genotype`. The capture runs `<command path> --help` for each one and stores one file per path, named like `lungfish-cli.fastq.materialize.txt`, with `index.tsv` listing the path, whether it is shown, the exit status and the file.
 
 ### mapping
 
@@ -71,7 +71,7 @@ The program manager ruled on these on 2026-10-02. Each one names the row of the 
 
 | Rule | What it masks | Why it varies |
 |---|---|---|
-| R5 | `processIdentifier` in provenance, as `<PID>` | The process ID changes every run |
+| R5 | `processIdentifier` in provenance, as `<PID>` | The process ID changes every run. Records written under schema version 2 carry none, so no golden holds one since Phase 2.6 |
 | R6 | minimap2 CPU ratio, CPU seconds and peak memory | They follow scheduling and load |
 | R7 | kraken2 sequences and bases per minute | They are computed from elapsed time |
 | R8 | Hash and size of mapping records whose path ends in `.sam`, `.bam` or `.bai` | minimap2 writes the per-run reference staging folder into `@PG`, and the header and records goldens compare the content |
@@ -138,7 +138,7 @@ The rule reads the lock of the checkout that holds `scripts/golden/normalize.py`
 
 ### What stays unmasked
 
-Some fields would differ with another environment or after an update. They stay unmasked, so the goldens are bound to the locked golden environment. They are the conda and database paths under `/Users/Shared/lungfish-golden/storage`, the tool versions, the `dependencySet`, the database fingerprints in `classifiers/environment.json`, and the `(dev)` build label of a SwiftPM build. A golden that records the home folder fails the run's portability check, because the home folder differs between users. A CLI inside a Preview or Stable app runs in place, resolves another channel's storage and records another version label, so its goldens differ from these.
+Some fields would differ with another environment or after an update. They stay unmasked, so the goldens are bound to the locked golden environment. They are the conda and database paths under `/Users/Shared/lungfish-golden/storage`, the tool versions, the `dependencySet`, the database fingerprints in `classifiers/environment.json`, and the `(dev)` build label of a SwiftPM build. A lock hash that is not this checkout's stays unmasked too (rule L1). A golden that records the home folder fails the run's portability check, because the home folder differs between users. A CLI inside a Preview or Stable app runs in place, resolves another channel's storage and records another version label, so its goldens differ from these.
 
 ## Updating a golden deliberately
 
