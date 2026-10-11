@@ -283,6 +283,30 @@ public enum ClassifierParityFixtures {
         return (classified, unclassified)
     }
 
+    /// The viruses and families of an EsViritu `<sample>.detected_virus.info.tsv`, as the GUI
+    /// counts them for its row: the distinct accessions of its data rows, and the distinct
+    /// families among them, leaving out empty, `NA` and `none` families. Throws when the header
+    /// lacks either column.
+    public static func esVirituDetections(_ url: URL) throws -> (viruses: Int, families: Int) {
+        func fields(_ line: String) -> [String] {
+            line.split(separator: "\t", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        }
+        let lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty && !$0.hasPrefix("#") }
+        guard let header = lines.first.map(fields),
+              let accession = header.firstIndex(of: "Accession"),
+              let family = header.firstIndex(of: "family") else {
+            throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: url.path])
+        }
+        var accessions: Set<String> = []
+        var families: Set<String> = []
+        for row in lines.dropFirst().map(fields) where row.count > max(accession, family) && !row[accession].isEmpty {
+            accessions.insert(row[accession])
+            if !["", "na", "none"].contains(row[family].lowercased()) { families.insert(row[family]) }
+        }
+        return (accessions.count, families.count)
+    }
+
     /// The `name: count` lines of an EsViritu `_esviritu.readstats.yaml`.
     public static func esVirituReadStats(_ url: URL) throws -> [String: Int] {
         var stats: [String: Int] = [:]

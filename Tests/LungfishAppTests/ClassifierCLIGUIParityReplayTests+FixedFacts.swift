@@ -27,19 +27,23 @@ struct ClassifierParitySampleFacts {
     let runsAsPairs: Bool
     /// What EsViritu's read statistics count before its quality filter, when fixed.
     let esVirituReadsBeforeFilter: Int?
+    /// Whether the reads come from the SARS-CoV-2 fixture, so every classifier must find a
+    /// virus in them. A fact of the fixture, not of a database build.
+    let sarsCoV2: Bool
 
     static func forBundle(_ path: String) -> ClassifierParitySampleFacts {
         switch path {
         case ClassifierParityFixtures.mergeBundlePath:
-            return .init(sampleID: "merge", fragments: 100, materializedReads: nil, readSetComposition: (23, 77), runsAsPairs: true, esVirituReadsBeforeFilter: nil)
+            // BBMerge's merged reads and unmerged pairs of the SARS-CoV-2 pairs.
+            return .init(sampleID: "merge", fragments: 100, materializedReads: nil, readSetComposition: (23, 77), runsAsPairs: true, esVirituReadsBeforeFilter: nil, sarsCoV2: true)
         case ClassifierParityFixtures.pairBundlePath:
             // EsViritu counts reads, so the 100 pairs are 200 reads before its filter.
-            return .init(sampleID: "sarscov2-pair", fragments: 100, materializedReads: nil, readSetComposition: nil, runsAsPairs: true, esVirituReadsBeforeFilter: 200)
+            return .init(sampleID: "sarscov2-pair", fragments: 100, materializedReads: nil, readSetComposition: nil, runsAsPairs: true, esVirituReadsBeforeFilter: 200, sarsCoV2: true)
         case ClassifierParityFixtures.negativeControlBundlePath:
-            return .init(sampleID: "negative-control", fragments: 40, materializedReads: nil, readSetComposition: nil, runsAsPairs: false, esVirituReadsBeforeFilter: nil)
+            return .init(sampleID: "negative-control", fragments: 40, materializedReads: nil, readSetComposition: nil, runsAsPairs: false, esVirituReadsBeforeFilter: nil, sarsCoV2: false)
         default:
             let subset = ClassifierParityFixtures.subsetReads
-            return .init(sampleID: "len-150-any-00000000", fragments: subset, materializedReads: subset, readSetComposition: nil, runsAsPairs: false, esVirituReadsBeforeFilter: subset)
+            return .init(sampleID: "len-150-any-00000000", fragments: subset, materializedReads: subset, readSetComposition: nil, runsAsPairs: false, esVirituReadsBeforeFilter: subset, sarsCoV2: true)
         }
     }
 }
@@ -104,6 +108,9 @@ extension ClassifierCLIGUIParityReplayTests {
             if parityCase == .k5, totals.classified != 0 {
                 violate("negative control classifies nothing", "classified \(totals.classified)")
             }
+            if expected.sarsCoV2, totals.classified == 0 {
+                violate("kreport classifies SARS-CoV-2 reads", "classified 0 of \(total)")
+            }
         } else {
             violate("kreport counts \(expected.fragments) fragments", "no readable \(kreport.lastPathComponent)")
         }
@@ -156,6 +163,13 @@ extension ClassifierCLIGUIParityReplayTests {
             }
         } else if stats == nil {
             violate("EsViritu writes its read statistics", "no _esviritu.readstats.yaml")
+        }
+        if expected.sarsCoV2 {
+            let table = folder.appendingPathComponent("\(expected.sampleID).detected_virus.info.tsv")
+            let detections = try? ClassifierParityFixtures.esVirituDetections(table)
+            if (detections?.viruses ?? 0) == 0 {
+                violate("EsViritu detects a virus in the SARS-CoV-2 reads", detections.map { "\(table.lastPathComponent) lists \($0.viruses)" } ?? "no readable \(table.lastPathComponent)")
+            }
         }
         let esViritu = invocations(of: "EsViritu", in: facts)
         if esViritu.isEmpty {
@@ -230,9 +244,17 @@ extension ClassifierCLIGUIParityReplayTests {
             check("title", row.title, "EsViritu \(first.sampleID)")
             check("first detail", row.firstDetail, "Starting EsViritu viral detection\u{2026}")
             check("state", row.stateLabel, "Completed")
-            let detected = row.completionDetail == "No viral hits detected"
-                || row.completionDetail.range(of: "^[0-9]+ viruses detected in [0-9]+ families$", options: .regularExpression) != nil
-            check("completion detail", detected ? "today's form" : row.completionDetail, "today's form")
+            // From side A's own detection table, as the Kraken2 detail comes from its kreport,
+            // so a route that reads its result back wrongly cannot pass with today's form. The
+            // fixed facts reject a SARS-CoV-2 table that lists no virus.
+            let table = run.analysisFolder.map {
+                sampleFolder(of: parityCase, analysis: $0, sampleID: first.sampleID)
+                    .appendingPathComponent("\(first.sampleID).detected_virus.info.tsv")
+            }
+            let detections = table.flatMap { try? ClassifierParityFixtures.esVirituDetections($0) }
+            check("completion detail", row.completionDetail, detections.map {
+                $0.viruses == 0 ? "No viral hits detected" : "\($0.viruses) viruses detected in \($0.families) families"
+            })
             check("log Building esviritu.sqlite", row.logLines.first { $0.message.hasPrefix("Building esviritu.sqlite") }?.description, "[info] Building esviritu.sqlite from single-sample result")
         case (.esViritu, true):
             check("title", row.title, "EsViritu Batch (\(samples.count) samples)")
