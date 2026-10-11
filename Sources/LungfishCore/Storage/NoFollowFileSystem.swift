@@ -37,8 +37,38 @@ public enum NoFollowFileSystem {
     /// linked back, and the folder must be a real directory. Before V3 such a
     /// path was walked from `/`, which refused every link but `/var` and
     /// `/tmp`, rolled back verified installs and opened protected folders.
+    /// A record writer opens its destination with
+    /// ``openDestinationFolder(_:)`` instead.
     public static func openDirectoryHierarchy(_ url: URL) throws -> Int32 {
         try openDirectoryHierarchy(url, anchoredAt: trustedAnchor(for: url) ?? url)
+    }
+
+    /// Opens the folder a durable writer publishes a record into, such as an
+    /// output folder the user named. Inside a project or bundle this is
+    /// ``openDirectoryHierarchy(_:)``, so a link below the `.lungfish*`
+    /// anchor and an anchor that is itself a link stay refused.
+    ///
+    /// Outside every project and bundle the folder is the user's own layout
+    /// (plan decision V3). It opens by its full path and the kernel resolves
+    /// every link on the way, the folder's own included, so the descriptor
+    /// names the real folder, which must be a directory. An output folder
+    /// reached through a link keeps working as it did before records were
+    /// published through `DurableReplace`. ``openDirectoryHierarchy(_:)``
+    /// still refuses a folder that is itself a link, because recovery code
+    /// checks LGE's own work and operation folders with it.
+    public static func openDestinationFolder(_ url: URL) throws -> Int32 {
+        if let anchor = trustedAnchor(for: url) {
+            return try openDirectoryHierarchy(url, anchoredAt: anchor)
+        }
+        let requested = url.standardizedFileURL
+        guard requested.isFileURL, requested.path.hasPrefix("/") else {
+            throw POSIXError(.EINVAL)
+        }
+        let descriptor = Darwin.open(requested.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard descriptor >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        return try walk(from: descriptor, components: [])
     }
 
     /// Opens `url` without following symbolic links below `anchor`.

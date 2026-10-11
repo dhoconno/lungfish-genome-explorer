@@ -100,6 +100,9 @@ final class NoFollowFileSystemAnchorTests: XCTestCase {
         }
     }
 
+    /// The general open keeps refusing it, because recovery code checks LGE's
+    /// own work and operation folders with it. A record writer's destination
+    /// opens through `openDestinationFolder`, pinned below.
     func testDestinationThatIsItselfASymlinkIsRejectedWithoutProject() throws {
         let real = root.appendingPathComponent("real", isDirectory: true)
         try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
@@ -109,6 +112,54 @@ final class NoFollowFileSystemAnchorTests: XCTestCase {
         XCTAssertThrowsError(try NoFollowFileSystem.openDirectoryHierarchy(link)) {
             let code = ($0 as? POSIXError)?.code
             XCTAssertTrue(code == .ELOOP || code == .ENOTDIR, "\(String(describing: code))")
+        }
+    }
+
+    /// Plan decision V3. Outside every project and bundle a record writer's
+    /// destination is the user's own layout, so a folder that is itself a
+    /// link opens as the real folder it names. `convert` and `genotype
+    /// export` into an output folder reached through a link rely on it.
+    func testDestinationFolderThatIsItselfASymlinkOpensAsItsRealFolderWithoutProject() throws {
+        let real = root.appendingPathComponent("real", isDirectory: true)
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        let link = root.appendingPathComponent("link", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+
+        let descriptor = try NoFollowFileSystem.openDestinationFolder(link)
+        defer { Darwin.close(descriptor) }
+        try assertDescriptor(descriptor, isSameDirectoryAs: real)
+
+        let file = root.appendingPathComponent("file")
+        try Data().write(to: file)
+        let fileLink = root.appendingPathComponent("file-link", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: fileLink, withDestinationURL: file)
+        XCTAssertThrowsError(try NoFollowFileSystem.openDestinationFolder(fileLink)) {
+            XCTAssertEqual(($0 as? POSIXError)?.code, .ENOTDIR)
+        }
+    }
+
+    /// A record writer's destination still refuses a link below a
+    /// `.lungfish*` anchor and an anchor that is itself a link.
+    func testDestinationFolderRefusesLinksBelowAProjectOrBundle() throws {
+        let outside = root.appendingPathComponent("outside", isDirectory: true)
+        let project = root.appendingPathComponent("P.lungfish", isDirectory: true)
+        let bundle = root.appendingPathComponent("runs/S1.lungfishfastq", isDirectory: true)
+        let realProject = root.appendingPathComponent("real.lungfish", isDirectory: true)
+        for folder in [outside, project, bundle, realProject] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        let plantedInProject = project.appendingPathComponent("planted", isDirectory: true)
+        let plantedInBundle = bundle.appendingPathComponent("derived", isDirectory: true)
+        let linkedProject = root.appendingPathComponent("linked.lungfish", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: plantedInProject, withDestinationURL: outside)
+        try FileManager.default.createSymbolicLink(at: plantedInBundle, withDestinationURL: outside)
+        try FileManager.default.createSymbolicLink(at: linkedProject, withDestinationURL: realProject)
+
+        for refused in [plantedInProject, plantedInBundle, linkedProject] {
+            XCTAssertThrowsError(
+                try NoFollowFileSystem.openDestinationFolder(refused),
+                refused.lastPathComponent
+            )
         }
     }
 

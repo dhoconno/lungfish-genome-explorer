@@ -30,10 +30,11 @@ import Synchronization
 ///    transaction, falling back to `fsync` when a volume refuses it.
 ///    ``transaction(_:)`` groups many publications under that one flush.
 ///
-/// The parent folder is opened with ``NoFollowFileSystem``, anchored at the
-/// outermost `.lungfish*` component or, outside every project and bundle, at
-/// the folder itself (plan decision V3). A link below a project or bundle is
-/// refused, and links above the anchor are followed.
+/// The parent folder is opened with ``NoFollowFileSystem/openDestinationFolder(_:)``.
+/// Inside a project or bundle it is anchored at the outermost `.lungfish*`
+/// component and a link below that anchor is refused. Outside every project
+/// and bundle it opens by its full path and follows links, its own included
+/// (plan decision V3).
 ///
 /// The work is synchronous and has no suspension point, so nothing can stop
 /// it between the swap and the removal of the retired copy. It never checks
@@ -347,7 +348,7 @@ public enum DurableReplace {
 
     private static func openFolder(_ directoryURL: URL) throws -> Int32 {
         do {
-            return try NoFollowFileSystem.openDirectoryHierarchy(directoryURL)
+            return try NoFollowFileSystem.openDestinationFolder(directoryURL)
         } catch {
             throw ReplaceError.unsafeDirectory(directoryURL.path)
         }
