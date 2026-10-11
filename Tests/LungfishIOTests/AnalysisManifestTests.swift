@@ -117,6 +117,35 @@ final class AnalysisManifestTests: XCTestCase {
         XCTAssertEqual(manifest.analyses.first?.tool, "esviritu")
     }
 
+    /// The Inspector loads the manifest each time it shows a FASTQ bundle, so a load hides the
+    /// entries of deleted analyses from its caller and leaves the bundle's file as it is.
+    func testLoadHidesStaleEntriesAndNeverWritesTheFile() throws {
+        let analysesDir = try AnalysesFolder.url(for: projectDir)
+        let existingDir = analysesDir.appendingPathComponent("esviritu-2026-01-15T10-00-00")
+        try FileManager.default.createDirectory(at: existingDir, withIntermediateDirectories: true)
+
+        let good = AnalysisManifestEntry(
+            tool: "esviritu", analysisDirectoryName: "esviritu-2026-01-15T10-00-00",
+            displayName: "EsViritu", summary: "exists"
+        )
+        let stale = AnalysisManifestEntry(
+            tool: "kraken2", analysisDirectoryName: "kraken2-DOES-NOT-EXIST",
+            displayName: "Kraken2", summary: "stale"
+        )
+        try AnalysisManifestStore.recordAnalysis(good, bundleURL: bundleDir)
+        try AnalysisManifestStore.recordAnalysis(stale, bundleURL: bundleDir)
+        let manifestURL = bundleDir.appendingPathComponent(AnalysisManifest.filename)
+        let bytesBefore = try Data(contentsOf: manifestURL)
+
+        let manifest = AnalysisManifestStore.load(bundleURL: bundleDir, projectURL: projectDir)
+
+        XCTAssertEqual(manifest.analyses.map(\.tool), ["esviritu"], "The load hides the stale entry from its caller")
+        XCTAssertEqual(
+            try Data(contentsOf: manifestURL), bytesBefore,
+            "Loading rewrote analyses-manifest.json, and showing a bundle must never change its files"
+        )
+    }
+
     func testLoadPreservesGroupedAnalysisEntries() throws {
         let analysesDir = try AnalysesFolder.url(for: projectDir)
         let groupedDir = analysesDir

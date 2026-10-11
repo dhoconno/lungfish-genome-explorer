@@ -123,7 +123,7 @@ public enum AnalysisManifestStore {
     // MARK: - Load
 
     /// Loads the manifest from `bundleURL`, pruning entries whose analysis directories
-    /// no longer exist under `projectURL/Analyses/` or grouped descendants.
+    /// no longer exist under `projectURL/Analyses/` or grouped descendants. It never writes the file.
     ///
     /// Returns an empty manifest when the file is missing or cannot be decoded.
     public static func load(bundleURL: URL, projectURL: URL) -> AnalysisManifest {
@@ -139,11 +139,7 @@ public enum AnalysisManifestStore {
             return AnalysisManifest()
         }
 
-        let pruned = pruneStaleEntries(manifest: &manifest, projectURL: projectURL)
-        if pruned > 0 {
-            logger.info("Pruned \(pruned) stale entries; re-saving manifest")
-            try? save(manifest, to: manifestURL)
-        }
+        pruneStaleEntries(manifest: &manifest, projectURL: projectURL)
 
         return manifest
     }
