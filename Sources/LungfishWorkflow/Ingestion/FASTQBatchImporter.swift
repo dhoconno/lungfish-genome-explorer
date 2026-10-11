@@ -1281,7 +1281,10 @@ public enum FASTQBatchImporter {
         ))
 
         let finalizedAt = Date()
+        // Every other step of the record ran under the import step (plan decision S6).
+        let importStepID = UUID()
         steps.append(StepExecution(
+            id: importStepID,
             toolName: "lungfish import fastq",
             toolVersion: WorkflowRun.currentAppVersion,
             command: reproducibleImportCommand(pair: pair, config: config, durable: true),
@@ -1353,7 +1356,8 @@ public enum FASTQBatchImporter {
         if FileManager.default.fileExists(atPath: stagingCSVMetadataURL.path) {
             builder = try builder.output(stagingCSVMetadataURL, format: .text, role: .output)
         }
-        for step in steps {
+        for var step in steps {
+            if step.id != importStepID { step.parentStepID = importStepID }
             builder = builder.step(ProvenanceStep(stepExecution: step))
         }
 
@@ -1414,10 +1418,14 @@ public enum FASTQBatchImporter {
                 outputs: step.outputs.map(descriptor),
                 exitStatus: step.exitStatus,
                 wallTimeSeconds: step.wallTimeSeconds,
+                peakMemoryBytes: step.peakMemoryBytes,
                 stderr: step.stderr,
                 dependsOn: step.dependsOn,
                 startedAt: step.startedAt,
-                completedAt: step.completedAt
+                completedAt: step.completedAt,
+                parentStepID: step.parentStepID,
+                managedToolID: step.managedToolID,
+                toolVersionEvidence: step.toolVersionEvidence
             )
         }
 

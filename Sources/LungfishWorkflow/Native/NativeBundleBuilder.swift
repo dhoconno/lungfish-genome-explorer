@@ -366,7 +366,11 @@ public final class NativeBundleBuilder: ObservableObject {
             bundleURL: publishedBundleURL
         )
 
-        await ProvenanceRecorder.shared.recordStep(
+        // Each tool step below ran under this one (plan decision S6) when it is a CLI step. The builder's own
+        // name is no command a script can run, and `bundle create` takes the tool steps over into a CLI step
+        // of its own, so the steps record no parent then.
+        let isCLIStep = command.first.map { URL(fileURLWithPath: $0).lastPathComponent } == CLICommandIdentity.executableName
+        let importStepID = await ProvenanceRecorder.shared.recordStep(
             runID: runID,
             toolName: workflowName,
             toolVersion: WorkflowRun.currentAppVersion,
@@ -395,7 +399,8 @@ public final class NativeBundleBuilder: ObservableObject {
                 exitCode: step.exitCode,
                 wallTime: step.wallTime,
                 stderr: step.stderr,
-                dependsOn: step.dependsOnPrevious ? previousNativeStepID.map { [$0] } ?? [] : []
+                dependsOn: step.dependsOnPrevious ? previousNativeStepID.map { [$0] } ?? [] : [],
+                parentStepID: isCLIStep ? importStepID : nil
             ) ?? previousNativeStepID
         }
         await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
