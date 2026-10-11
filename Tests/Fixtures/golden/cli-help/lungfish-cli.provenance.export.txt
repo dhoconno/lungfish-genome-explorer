@@ -1,6 +1,6 @@
 OVERVIEW: Export reproducible reports from a Lungfish provenance sidecar
 
-USAGE: lungfish-cli provenance export <input> --format <format> --output <output>
+USAGE: lungfish-cli provenance export <input> --format <format> --output <output> [--allow-unpinned]
 
 ARGUMENTS:
   <input>                 Provenance sidecar file, bundle, or output directory
@@ -10,6 +10,10 @@ OPTIONS:
                           Export format: shell, python, nextflow, snakemake,
                           methods, json
   --output <output>       Output directory for the export bundle
+  --allow-unpinned        Write a shell, Python, Nextflow or Snakemake export
+                          even when LGE cannot pin a step's tool version, and
+                          name each such step in the script and its export
+                          record
   --version               Show the version.
   -h, --help              Show help information.
 

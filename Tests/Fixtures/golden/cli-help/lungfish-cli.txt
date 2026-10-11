@@ -49,6 +49,8 @@ SUBCOMMANDS:
   tools                   Inspect and update managed third-party tools
   conda                   Manage bioconda tool plugins via micromamba
   blast                   BLAST verification of classified reads
+  kraken2                 Run Kraken2 taxonomic classification, with optional
+                          Bracken abundance profiling
   esviritu                Run EsViritu viral metagenomics detection on FASTQ
                           files
   taxtriage               Run TaxTriage metagenomic classification pipeline

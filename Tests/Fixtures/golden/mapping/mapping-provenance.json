@@ -150,7 +150,7 @@
   "recordedAt" : "<EPOCH>",
   "referenceFASTAPath" : "<RUN_ROOT>\/mapping\/inputs\/genome.fasta",
   "runtimeIdentity" : {
-    "mapper" : "managed conda environment minimap2; executable minimap2",
+    "mapper" : "managed conda environment minimap2; executable minimap2; package bioconda::minimap2=2.31=h6bd33b9_0",
     "samtools" : "managed conda environment samtools; executable samtools; package bioconda::samtools=1.24=h36b3a25_1"
   },
   "sampleName" : "sarscov2-test",
@@ -220,7 +220,7 @@
       "startTime" : "<EPOCH>",
       "stderr" : "[M::mm_idx_gen::<DURATION>*<CPU-RATIO>] collected minimizers\n[M::mm_idx_gen::<DURATION>*<CPU-RATIO>] sorted minimizers\n[M::main::<DURATION>*<CPU-RATIO>] loaded\/built the index for 1 target sequence(s)\n[M::mm_mapopt_update::<DURATION>*<CPU-RATIO>] mid_occ = 1000\n[M::mm_idx_stat] kmer size: 21; skip: 11; is_hpc: 0; #seq: 1\n[M::mm_idx_stat::<DURATION>*<CPU-RATIO>] distinct minimizers: 4980 (100.00% are singletons); average occurrences: 1.000; average spacing: 5.990; total length: 29829\n[M::worker_pipeline::<DURATION>*<CPU-RATIO>] mapped 200 sequences\n[M::main] Version: 2.31-r1302\n[M::main] CMD: minimap2 -a -x sr -t 2 -R @RG\\tID:sarscov2-test\\tSM:sarscov2-test\\tLB:sarscov2-test\\tPL:ILLUMINA\\tPU:sarscov2-test --secondary=no -o <RUN_ROOT>\/mapping\/out\/sarscov2-test.raw.sam <RUN_ROOT>\/mapping\/tmp\/mapping-reference-stage-<UUID-1>\/reference.fa <RUN_ROOT>\/mapping\/inputs\/test_1.fastq.gz <RUN_ROOT>\/mapping\/inputs\/test_2.fastq.gz\n[M::main] Real time: <DURATION> sec; CPU: <CPU-SECONDS> sec; Peak RSS: <PEAK-RSS> GB\n",
       "toolName" : "minimap2",
-      "toolVersion" : "2.31 (managed conda environment minimap2; executable minimap2)",
+      "toolVersion" : "2.31 (managed conda environment minimap2; executable minimap2; package bioconda::minimap2=2.31=h6bd33b9_0)",
       "wallTime" : "<DURATION>"
     },
     {

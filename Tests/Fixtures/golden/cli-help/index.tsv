@@ -121,6 +121,8 @@ lungfish-cli conda db install-managed	shown	0	lungfish-cli.conda.db.install-mana
 lungfish-cli conda extract	shown	0	lungfish-cli.conda.extract.txt
 lungfish-cli blast	shown	0	lungfish-cli.blast.txt
 lungfish-cli blast verify	shown	0	lungfish-cli.blast.verify.txt
+lungfish-cli kraken2	shown	0	lungfish-cli.kraken2.txt
+lungfish-cli kraken2 classify	shown	0	lungfish-cli.kraken2.classify.txt
 lungfish-cli esviritu	shown	0	lungfish-cli.esviritu.txt
 lungfish-cli esviritu detect	shown	0	lungfish-cli.esviritu.detect.txt
 lungfish-cli esviritu download-db	shown	0	lungfish-cli.esviritu.download-db.txt

@@ -15,8 +15,8 @@ ARGUMENTS:
 OPTIONS:
   --db <db>               Database name (e.g., 'Viral', 'Standard-8')
   --preset <preset>       Sensitivity preset: sensitive, balanced, precise
-                          (default: balanced) (values: sensitive, balanced,
-                          precise; default: balanced)
+                          (values: sensitive, balanced, precise; default:
+                          balanced)
   -o, --output-dir <output-dir>
                           Output directory (default: current directory)
   --paired                Input files are paired-end reads
@@ -42,13 +42,11 @@ OPTIONS:
   --quick                 Use Kraken2 quick mode
   --bracken-read-length <bracken-read-length>
                           Read length for Bracken -r flag (default: 150)
-                          (default: 150)
   --bracken-level <bracken-level>
                           Bracken taxonomic level: D,P,C,O,F,G,S (default:
                           automatic for the selected database)
   --bracken-threshold <bracken-threshold>
                           Bracken minimum read threshold (default: 10)
-                          (default: 10)
   --extra-args <extra-args>
                           Additional kraken2 arguments passed verbatim
   --format <format>       Output format: text, json, tsv (default: text)

@@ -1,0 +1,21 @@
+OVERVIEW: Run Kraken2 taxonomic classification, with optional Bracken abundance
+profiling
+
+Classify metagenomic reads or assembled sequences against an installed
+Kraken2 database, and add a Bracken abundance profile with --profile.
+Manage databases with `lungfish-cli conda db`.
+
+`lungfish-cli conda classify` is the older spelling of the same command
+and still works.
+
+USAGE: lungfish-cli kraken2 <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  classify                Run Kraken2 taxonomic classification on FASTQ or
+                          FASTA inputs
+
+  See 'lungfish-cli help kraken2 <subcommand>' for detailed help.
