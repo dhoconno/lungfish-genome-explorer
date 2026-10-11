@@ -157,6 +157,9 @@ extension ToolVersionEvidence {
     ///
     /// A tool that a source build or a Python runtime installs (Bracken, primalscheme3) has no conda package
     /// that names its version, so neither the record nor the pin could say what ran. That is `unknown`.
+    /// Bracken's version comes from its validated source overlay receipt through `ManagedBrackenVersion`
+    /// (decision S20), so a step that ran Bracken takes its evidence from there and not from this
+    /// constructor.
     ///
     /// Call this in the writer after the run. It reads files and starts no process, so it never belongs in a
     /// `ToolProcess` observer.
