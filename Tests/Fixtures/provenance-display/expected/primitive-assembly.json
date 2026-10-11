@@ -96,6 +96,14 @@
       "value" : "Lungfish test"
     },
     {
+      "label" : "Executable",
+      "value" : "Not recorded"
+    },
+    {
+      "label" : "Process ID",
+      "value" : "Not recorded"
+    },
+    {
       "label" : "OS",
       "value" : "macOS test"
     },

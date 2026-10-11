@@ -14,7 +14,7 @@ import LungfishWorkflow
 /// adapter is in the Older record format, and no envelope of any version is, nor is a typed record
 /// such as `mapping-provenance.json`. A fact that format never held reads Not recorded and does not
 /// make the record Incomplete, a fact it could hold and lacks still does, and the label never hides
-/// Incomplete.
+/// Incomplete. A date the reader invented reads Not recorded.
 @MainActor
 final class ProvenanceOlderRecordFormatTests: XCTestCase {
     private let olderTitle = "Older record format"
@@ -226,24 +226,74 @@ final class ProvenanceOlderRecordFormatTests: XCTestCase {
 
     // MARK: - Not recorded
 
-    /// An exit status the record's format never held reads Not recorded in its row, so the row is not left out.
-    func testAnExitStatusTheFormatNeverHeldReadsNotRecordedInItsRow() throws {
+    /// A tree record with no `createdAt` was dated by the reader with the sidecar's modification date.
+    /// The date is not a fact the record holds, so the Run Summary says Not recorded.
+    func testADateTheReaderInventedReadsNotRecorded() async throws {
+        let project = try makeProject()
+        let folder = project.appendingPathComponent("Analyses/Tree.lungfishtree", isDirectory: true)
+        let sidecar = folder.appendingPathComponent(".lungfish-provenance.json")
+        try place(ProvenanceLegacyRecords.tree, at: sidecar)
+        let fileDate = Date(timeIntervalSince1970: 1_777_777_776)
+        try FileManager.default.setAttributes([.modificationDate: fileDate], ofItemAtPath: sidecar.path)
+
+        let model = await loadModel(folder)
+
+        XCTAssertNil(model.summary.createdAt, "Neither 1970 nor the file's date is shown as if recorded.")
+        XCTAssertTrue(model.summary.createdAtNotRecorded)
+        XCTAssertEqual(model.audit.status, .legacy)
+        XCTAssertTrue(model.copyableText.contains("Created: Not recorded"), model.copyableText)
+        let texts = try ProvenanceSection(viewModel: model).inspect().findAll(ViewType.Text.self).compactMap { try? $0.string() }
+        XCTAssertTrue(texts.contains("Created"), "\(texts)")
+        let fileDateText = fileDate.formatted(date: .abbreviated, time: .shortened)
+        XCTAssertFalse(texts.contains { $0.contains("1970") || $0.contains(fileDateText) }, "No date is shown. \(texts)")
+    }
+
+    func testARecordThatHoldsItsDateShowsIt() async throws {
+        let model = try await loadedRecord(ProvenanceLegacyRecords.msa, bundle: "Aligned.lungfishmsa")
+
+        XCTAssertNotNil(model.summary.createdAt)
+        XCTAssertFalse(model.summary.createdAtNotRecorded)
+    }
+
+    func testTheRunSummaryRowsReadNotRecordedInsteadOfBeingLeftOut() throws {
         let viewModel = ProvenanceInspectorViewModel()
+        viewModel.summary.createdAtNotRecorded = true
         viewModel.summary.exitStatusNotRecorded = true
 
         let inspected = try ProvenanceSection(viewModel: viewModel).inspect()
         let values = inspected.findAll(ViewType.Text.self, where: {
             (try? $0.accessibilityIdentifier()) == "provenance-summary-value"
         }).compactMap { try? $0.string() }
-        XCTAssertEqual(values.filter { $0 == "Not recorded" }.count, 1, "\(values)")
+        XCTAssertEqual(values.filter { $0 == "Not recorded" }.count, 2, "\(values)")
         let labels = inspected.findAll(ViewType.Text.self).compactMap { try? $0.string() }
-        XCTAssertTrue(labels.contains("Exit Status"), "\(labels)")
+        XCTAssertTrue(labels.contains("Created") && labels.contains("Exit Status"), "\(labels)")
     }
 
-    func testARunSummaryWithNothingMissingLeavesTheExitStatusRowOut() throws {
+    func testARunSummaryWithNothingMissingLeavesTheseRowsOut() throws {
         let viewModel = ProvenanceInspectorViewModel()
         let labels = try ProvenanceSection(viewModel: viewModel).inspect().findAll(ViewType.Text.self).compactMap { try? $0.string() }
 
+        XCTAssertFalse(labels.contains("Created"))
         XCTAssertFalse(labels.contains("Exit Status"))
+    }
+
+    func testEmptyRuntimeRowsReadNotRecordedInPlaceOfTheOldMessage() throws {
+        let viewModel = ProvenanceInspectorViewModel()
+        viewModel.runtimeRows = []
+
+        let texts = try ProvenanceSection(viewModel: viewModel).inspect().findAll(ViewType.Text.self).compactMap { try? $0.string() }
+
+        XCTAssertTrue(texts.contains("Not recorded"), "\(texts)")
+        XCTAssertFalse(texts.contains("No runtime identity fields are available."))
+    }
+
+    func testRuntimeRowsThatAreFilteredOutAreNotCalledNotRecorded() throws {
+        let viewModel = ProvenanceInspectorViewModel()
+        viewModel.runtimeRows = [ProvenanceRuntimeRow(label: "Executable", value: "lungfish-cli")]
+        viewModel.searchText = "nothing matches this"
+
+        let texts = try ProvenanceSection(viewModel: viewModel).inspect().findAll(ViewType.Text.self).compactMap { try? $0.string() }
+
+        XCTAssertFalse(texts.contains("Not recorded"), "The record holds the row, the filter hides it. \(texts)")
     }
 }

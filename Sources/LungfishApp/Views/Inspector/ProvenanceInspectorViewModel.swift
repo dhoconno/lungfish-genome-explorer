@@ -225,8 +225,9 @@ struct ProvenanceRunSummary: Equatable {
     var statusLabel: String = "No provenance required"
     var exitStatus: Int?
     var wallTimeSeconds: TimeInterval?
-    /// An exit status the record's format never held reads Not recorded in its row instead of the
-    /// row being left out.
+    /// A date the reader invented, or an exit status the record's format never held, reads Not
+    /// recorded in its row instead of the row being left out.
+    var createdAtNotRecorded = false
     var exitStatusNotRecorded = false
     var stepCount: Int = 0
     var inputCount: Int = 0
@@ -1011,7 +1012,7 @@ final class ProvenanceInspectorViewModel {
                     ("Workflow", summary.workflowName),
                     ("Workflow Version", summary.workflowVersion),
                     ("Tool", summary.toolVersion.isEmpty ? summary.toolName : "\(summary.toolName) \(summary.toolVersion)"),
-                    ("Created", summary.createdAt?.formatted(date: .abbreviated, time: .shortened) ?? ""),
+                    ("Created", summary.createdAt?.formatted(date: .abbreviated, time: .shortened) ?? (summary.createdAtNotRecorded ? "Not recorded" : "")),
                     ("Exit Status", summary.exitStatus.map(String.init) ?? (summary.exitStatusNotRecorded ? "Not recorded" : "")),
                     ("Wall Time", summary.wallTimeSeconds.map { "\(String(format: "%.2f", $0)) s" } ?? ""),
                     ("Steps", "\(summary.stepCount)"),

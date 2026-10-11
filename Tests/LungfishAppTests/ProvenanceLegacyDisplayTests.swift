@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishApp
 import LungfishTestSupport
+import LungfishWorkflow
 
 /// Pins what the Inspector's Provenance tab shows a scientist for each real legacy
 /// record shape, before any write-side change (Phase 2.4, finding R8, lane W1C).
@@ -17,10 +18,9 @@ import LungfishTestSupport
 /// moves any of them has to say so in its diff.
 ///
 /// The project holds only the record, so a file the record lists inside the project is
-/// absent and reads `intermediate file, not kept`. Runtime rows are compared only for
-/// the fields a record's bytes carry. For a record that omits them, readers before 2.6
-/// filled Executable, Process ID, Architecture and Dependency Set from the Mac they ran on,
-/// so a bare run, which carries only an app version and an OS, is compared on those two.
+/// absent and reads `intermediate file, not kept`. Every Runtime row is compared. A fact
+/// the record never held reads Not recorded, because since 2.6 no reader fills one from the
+/// Mac it runs on (plan decision S4), and an expected file pins that reading.
 ///
 /// To review a changed display, run `diff` between the expected file and the actual
 /// file the failure names. The actual file is written under the temporary directory.
@@ -52,11 +52,7 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
                 url: gff3, sidebarType: .annotation, contentMode: .genomics, displayName: "MN908947.3.gff3"
             ),
             in: project,
-            matching: ProvenanceDisplayCase(
-                name: "bare-legacy-run",
-                recordsWorkflowVersion: true,
-                recordedRuntimeLabels: ["App Version", "OS"]
-            ),
+            matching: ProvenanceDisplayCase(name: "bare-legacy-run"),
             sidecarName: sidecarName
         )
     }
@@ -86,13 +82,7 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
                 displayName: "SIMULATED-MHC-annotated-reference"
             ),
             in: project,
-            matching: ProvenanceDisplayCase(
-                name: "embedded-run-envelope",
-                recordsWorkflowVersion: true,
-                recordedRuntimeLabels: [
-                    "App Version", "Executable", "Process ID", "OS", "Architecture", "Dependency Set",
-                ]
-            ),
+            matching: ProvenanceDisplayCase(name: "embedded-run-envelope"),
             sidecarName: ".lungfish-provenance.json"
         )
         XCTAssertNotNil(model.resolvedEnvelope?.legacyRun, "The record carries its embedded legacy run.")
@@ -116,18 +106,15 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
                 displayName: "Aligned"
             ),
             in: project,
-            matching: ProvenanceDisplayCase(
-                name: "primitive-msa",
-                recordsWorkflowVersion: false,
-                recordedRuntimeLabels: ["Executable", "Process ID", "OS"]
-            ),
+            matching: ProvenanceDisplayCase(name: "primitive-msa"),
             sidecarName: ".lungfish-provenance.json"
         )
     }
 
-    /// A tree record with no `createdAt`: the reader dates it by the sidecar's modification
-    /// date, which the test sets so the date is the same on every Mac.
-    func testPrimitiveTreeRecordWithoutCreatedAtIsDatedBySidecarModificationDate() async throws {
+    /// A tree record with no `createdAt`. The reader dates it by the sidecar's modification date, which
+    /// the test sets so the date is the same on every Mac, and reports that it invented the date. The
+    /// Run Summary then reads Created Not recorded and shows neither that date nor 1970.
+    func testPrimitiveTreeRecordWithoutCreatedAtReadsCreatedNotRecorded() async throws {
         let project = try makeProject()
         let bundle = project.appendingPathComponent("Analyses/Tree.lungfishtree", isDirectory: true)
         let sidecar = bundle.appendingPathComponent(".lungfish-provenance.json")
@@ -143,15 +130,14 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
                 displayName: "Tree"
             ),
             in: project,
-            matching: ProvenanceDisplayCase(
-                name: "primitive-tree",
-                recordsWorkflowVersion: false,
-                recordedRuntimeLabels: ["Executable", "OS"]
-            ),
+            matching: ProvenanceDisplayCase(name: "primitive-tree"),
             sidecarName: ".lungfish-provenance.json"
         )
-        let createdAt = try XCTUnwrap(model.summary.createdAt)
-        XCTAssertEqual(createdAt.timeIntervalSince1970, modificationDate.timeIntervalSince1970, accuracy: 0.001)
+        XCTAssertNil(model.summary.createdAt, "The sidecar's modification date is not a date the record holds.")
+        XCTAssertTrue(model.summary.createdAtNotRecorded)
+        let reading = try XCTUnwrap(ProvenanceRecorder.findProvenanceReading(for: bundle)?.reading)
+        XCTAssertEqual(reading.envelope.createdAt.timeIntervalSince1970, modificationDate.timeIntervalSince1970, accuracy: 0.001)
+        XCTAssertTrue(reading.createdAtWasInvented, "The reader dated the record by its file and says so.")
     }
 
     /// An assembler's own record, stored as `assembly/provenance.json` with no envelope.
@@ -171,11 +157,7 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
                 displayName: "assembly-output"
             ),
             in: project,
-            matching: ProvenanceDisplayCase(
-                name: "primitive-assembly",
-                recordsWorkflowVersion: true,
-                recordedRuntimeLabels: ["App Version", "OS", "Architecture", "Conda Environment"]
-            ),
+            matching: ProvenanceDisplayCase(name: "primitive-assembly"),
             sidecarName: "provenance.json"
         )
     }
@@ -200,11 +182,7 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
                 displayName: "minimap2-2026-07-14T15-20-00"
             ),
             in: project,
-            matching: ProvenanceDisplayCase(
-                name: "typed-mapping-schema3",
-                recordsWorkflowVersion: false,
-                recordedRuntimeLabels: ["Executable", "Conda Environment"]
-            ),
+            matching: ProvenanceDisplayCase(name: "typed-mapping-schema3"),
             sidecarName: "mapping-provenance.json"
         )
     }
@@ -229,7 +207,10 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
 
         // These guard the expected file: a lookup that found nothing must not be pinned.
         XCTAssertNotNil(model.resolvedEnvelope, "No record was found for \(displayCase.name).", file: file, line: line)
-        XCTAssertNotNil(model.summary.createdAt, "The Run Summary must date \(displayCase.name).", file: file, line: line)
+        XCTAssertTrue(
+            model.summary.createdAt != nil || model.summary.createdAtNotRecorded,
+            "The Run Summary must date \(displayCase.name) or say the date is Not recorded.", file: file, line: line
+        )
         XCTAssertEqual(
             model.resolvedSidecarURL?.lastPathComponent, sidecarName,
             "The record came from an unexpected file.", file: file, line: line

@@ -29,10 +29,10 @@ Each test copies its record into a temporary project before anything reads it. T
 `expected/<case>.json` holds the audit status, the Run Summary, the Warnings, the Lineage, the Files and Outputs rows and the Invocation and Options rows for one case, as the Inspector's view model builds them. The Raw JSON pane is not compared here, because Phase 2.4 lane W2C changes it on purpose and pins it in its own test.
 
 - `createdAtMilliseconds` is the instant the Run Summary dates the record. The Created text follows the Mac's time zone and locale, so the test compares the instant.
-- The tree record has no `createdAt`, so the reader dates it by the sidecar's modification date. The test sets that date itself, 1777777776 seconds since 1970, after it writes the file, so the value does not come from the Mac that runs the test.
-- Runtime rows appear only for fields the record's bytes carry. For a record that omits Executable, Process ID, Architecture or Dependency Set, readers before 2.6 filled them in from the Mac they ran on, so the file leaves them out. The same holds for the workflow version of a record that carries none.
+- The tree record has no `createdAt`. The reader dates it by the sidecar's modification date and reports that it invented the date, so the Run Summary reads Created Not recorded and the expected file holds no instant. The test sets that date itself, 1777777776 seconds since 1970, after it writes the file, to show that the tab does not use it.
+- Every Runtime row is pinned. A fact the record never held reads Not recorded, because since 2.6 no reader fills one from the Mac it runs on. The Dependency Set row is the one exception, and it is left out when the record holds none. The workflow version of a record that carries none reads Not recorded the same way.
+- `notRecorded` lists the Run Summary rows that read Not recorded instead of being left out. They are a date the reader invented and an exit status a primitive record never held.
 - A bare run or primitive record is the Older record format. Its status is `legacy` when nothing it could hold is missing, and `incomplete` when something is, with an Older record format warning after the gaps. An envelope of any version and a typed record never are.
-- `notRecorded` lists the Run Summary rows that read Not recorded instead of being left out. It names Exit Status for a primitive record, whose format never held one.
 - The temporary project reads as `<project>`, any home folder as `<home>`, and a managed tool path as the tool's name. The bare run names its author's checkout in its recorded paths, which is why `<home>` appears in `bare-legacy-run.json`.
 - The size labels come from `ByteCountFormatter` in an English locale.
 

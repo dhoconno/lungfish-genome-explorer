@@ -187,8 +187,24 @@
   ],
   "runtime" : [
     {
+      "label" : "App Version",
+      "value" : "Not recorded"
+    },
+    {
       "label" : "Executable",
       "value" : "minimap2"
+    },
+    {
+      "label" : "Process ID",
+      "value" : "Not recorded"
+    },
+    {
+      "label" : "OS",
+      "value" : "Not recorded"
+    },
+    {
+      "label" : "Architecture",
+      "value" : "Not recorded"
     },
     {
       "label" : "Conda Environment",
@@ -208,7 +224,8 @@
     "toolName" : "minimap2",
     "toolVersion" : "v2.31",
     "wallTimeSeconds" : 95.4,
-    "workflowName" : "lungfish map"
+    "workflowName" : "lungfish map",
+    "workflowVersion" : "Not recorded"
   },
   "warnings" : [
     {

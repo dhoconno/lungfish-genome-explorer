@@ -64,6 +64,10 @@
   ],
   "runtime" : [
     {
+      "label" : "App Version",
+      "value" : "Not recorded"
+    },
+    {
       "label" : "Executable",
       "value" : "/Applications/Lungfish.app/Contents/MacOS/lungfish-cli"
     },
@@ -74,6 +78,10 @@
     {
       "label" : "OS",
       "value" : "macOS test"
+    },
+    {
+      "label" : "Architecture",
+      "value" : "Not recorded"
     }
   ],
   "summary" : {
@@ -89,7 +97,8 @@
     "toolName" : "lungfish align mafft",
     "toolVersion" : "v0.1.0",
     "wallTimeSeconds" : 2,
-    "workflowName" : "multiple-sequence-alignment-mafft"
+    "workflowName" : "multiple-sequence-alignment-mafft",
+    "workflowVersion" : "Not recorded"
   },
   "warnings" : [
     {

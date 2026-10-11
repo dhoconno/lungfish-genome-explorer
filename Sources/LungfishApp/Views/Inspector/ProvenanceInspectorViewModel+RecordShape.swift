@@ -88,8 +88,13 @@ extension ProvenanceCoverageMonitor {
 extension ProvenanceInspectorViewModel {
     /// Marks the Run Summary rows whose fact the record never held, from how the reader read it.
     ///
-    /// An exit status a primitive record never held reads Not recorded in its row.
+    /// A date the reader invented, with the file's date or 1970, is not a fact the record holds, so
+    /// the row reads Not recorded. So does an exit status a primitive record never held.
     func applyReading(_ reading: ProvenanceEnvelopeReader.Reading?, to envelope: ProvenanceEnvelope) {
+        if reading?.createdAtWasInvented == true {
+            summary.createdAt = nil
+            summary.createdAtNotRecorded = true
+        }
         summary.exitStatusNotRecorded = envelope.exitStatus == nil && ProvenanceRecordShapeRule(reading).neverHeldAnExitStatus
     }
 }

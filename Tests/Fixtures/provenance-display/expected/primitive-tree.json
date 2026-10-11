@@ -63,19 +63,32 @@
   ],
   "runtime" : [
     {
+      "label" : "App Version",
+      "value" : "Not recorded"
+    },
+    {
       "label" : "Executable",
       "value" : "/usr/local/bin/lungfish-cli"
     },
     {
+      "label" : "Process ID",
+      "value" : "Not recorded"
+    },
+    {
       "label" : "OS",
       "value" : "macOS test"
+    },
+    {
+      "label" : "Architecture",
+      "value" : "Not recorded"
     }
   ],
   "summary" : {
-    "createdAtMilliseconds" : 1777777776000,
-    "createdAtUTC" : "2026-05-03T03:09:36.000Z",
     "exitStatus" : 0,
     "inputCount" : 1,
+    "notRecorded" : [
+      "Created"
+    ],
     "outputCount" : 3,
     "sidecarDisplayPath" : "Analyses/Tree.lungfishtree/.lungfish-provenance.json",
     "signatureCount" : 0,
@@ -84,7 +97,8 @@
     "toolName" : "lungfish tree infer iqtree",
     "toolVersion" : "v0.5.0-alpha6",
     "wallTimeSeconds" : 4,
-    "workflowName" : "phylogenetic-tree-infer-iqtree"
+    "workflowName" : "phylogenetic-tree-infer-iqtree",
+    "workflowVersion" : "Not recorded"
   },
   "warnings" : [
     {

@@ -213,6 +213,8 @@ struct ProvenanceSection: View {
             }
             if let createdAt = viewModel.summary.createdAt {
                 summaryRow("Created", value: createdAt.formatted(date: .abbreviated, time: .shortened))
+            } else if viewModel.summary.createdAtNotRecorded {
+                summaryRow("Created", value: "Not recorded")
             }
             if let exitStatus = viewModel.summary.exitStatus {
                 summaryRow("Exit Status", value: "\(exitStatus)")
@@ -310,7 +312,8 @@ struct ProvenanceSection: View {
     private var runtimeContent: some View {
         VStack(alignment: .leading, spacing: 6) {
             if filteredRuntimeRows.isEmpty {
-                emptyMessage("No runtime identity fields are available.")
+                // A record that holds no runtime facts reads Not recorded. A filter that hides them does not.
+                emptyMessage(viewModel.runtimeRows.isEmpty ? "Not recorded" : "No runtime identity fields are available.")
             } else {
                 ForEach(filteredRuntimeRows) { row in
                     summaryRow(row.label, value: row.value)

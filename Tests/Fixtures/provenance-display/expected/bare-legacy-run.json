@@ -104,8 +104,20 @@
       "value" : "lungfish-cli 0.4.0-alpha.11"
     },
     {
+      "label" : "Executable",
+      "value" : "Not recorded"
+    },
+    {
+      "label" : "Process ID",
+      "value" : "Not recorded"
+    },
+    {
       "label" : "OS",
       "value" : "macOS 26.4.1 (arm64)"
+    },
+    {
+      "label" : "Architecture",
+      "value" : "Not recorded"
     }
   ],
   "summary" : {

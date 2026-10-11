@@ -18,15 +18,14 @@ import LungfishWorkflow
 /// What the Inspector's Provenance tab shows for one record.
 ///
 /// Every string passes through ``ProvenanceDisplayRedaction`` first, so the
-/// snapshot names no temporary folder, home folder or managed tool root. Fields
-/// the record's bytes do not carry, and that the reader fills in from the
-/// Mac it runs on, are left out by the capture and are never compared.
+/// snapshot names no temporary folder, home folder or managed tool root. A fact
+/// the record never held reads Not recorded and the capture keeps it, because
+/// since plan decision S4 no reader fills one from the Mac it runs on.
 struct ProvenanceDisplaySnapshot: Codable, Equatable {
     struct Summary: Codable, Equatable {
         var statusLabel: String
         var workflowName: String
-        /// Nil when the record's bytes carry no workflow version. The reader then
-        /// shows its own app version, which differs from Mac to Mac.
+        /// Not recorded when the record's bytes carry no workflow version.
         var workflowVersion: String?
         var toolName: String
         var toolVersion: String
@@ -43,8 +42,8 @@ struct ProvenanceDisplaySnapshot: Codable, Equatable {
         var outputCount: Int
         var signatureCount: Int
         var sidecarDisplayPath: String?
-        /// The Run Summary rows that read Not recorded instead of being left out, because the record's
-        /// format never held the fact. Nil when there is none.
+        /// The Run Summary rows that read Not recorded instead of being left out, because the reader
+        /// invented the date or the record's format never held the exit status. Nil when there is none.
         var notRecorded: [String]?
     }
 
@@ -104,16 +103,9 @@ struct ProvenanceDisplaySnapshot: Codable, Equatable {
 
 // MARK: - Per-record choices
 
-/// What a record's bytes carry, which decides what the snapshot may pin.
 struct ProvenanceDisplayCase {
     /// The name of the expected file, without its extension.
     let name: String
-    /// False when the bytes carry no workflow version.
-    let recordsWorkflowVersion: Bool
-    /// The Runtime labels whose values the bytes carry. Every other row comes
-    /// from the reading Mac (Executable, Process ID, Architecture, Dependency
-    /// Set) and is not captured.
-    let recordedRuntimeLabels: [String]
 }
 
 // MARK: - Capture
@@ -132,7 +124,7 @@ extension ProvenanceDisplaySnapshot {
             summary: Summary(
                 statusLabel: summary.statusLabel,
                 workflowName: redaction(summary.workflowName),
-                workflowVersion: displayCase.recordsWorkflowVersion ? summary.workflowVersion : nil,
+                workflowVersion: summary.workflowVersion,
                 toolName: redaction(summary.toolName),
                 toolVersion: summary.toolVersion,
                 createdAtMilliseconds: summary.createdAt.map(Self.milliseconds),
@@ -144,7 +136,7 @@ extension ProvenanceDisplaySnapshot {
                 outputCount: summary.outputCount,
                 signatureCount: summary.signatureCount,
                 sidecarDisplayPath: summary.sidecarDisplayPath.map(redaction.callAsFunction),
-                notRecorded: summary.exitStatusNotRecorded ? ["Exit Status"] : nil
+                notRecorded: Self.notRecordedRows(of: summary)
             ),
             warnings: model.warnings.map {
                 Warning(title: $0.title, message: redaction($0.message))
@@ -182,10 +174,14 @@ extension ProvenanceDisplaySnapshot {
             options: model.optionRows.map {
                 OptionRow(kind: $0.kind, name: $0.name, displayValue: redaction($0.displayValue))
             },
-            runtime: model.runtimeRows
-                .filter { displayCase.recordedRuntimeLabels.contains($0.label) }
-                .map { RuntimeRow(label: $0.label, value: redaction($0.value)) }
+            runtime: model.runtimeRows.map { RuntimeRow(label: $0.label, value: redaction($0.value)) }
         )
+    }
+
+    @MainActor
+    private static func notRecordedRows(of summary: ProvenanceRunSummary) -> [String]? {
+        let rows = (summary.createdAtNotRecorded ? ["Created"] : []) + (summary.exitStatusNotRecorded ? ["Exit Status"] : [])
+        return rows.isEmpty ? nil : rows
     }
 
     private static func milliseconds(_ date: Date) -> Int64 {
