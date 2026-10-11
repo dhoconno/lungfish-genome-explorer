@@ -316,6 +316,7 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
             FileManager.default.fileExists(atPath: ready.path) && OperationCenter.shared.isTrackingAnalysisOutput(folder)
         }
         XCTAssertTrue(running, "the stand-in command never started or the row never tracked its folder")
+        let recordFileWhileRunning = try ClassifierRouteFixtures.fileNumber(of: runRecord)
 
         OperationCenter.shared.cancel(id: row.id)
         let finished = await waitUntil(timeout: .seconds(30)) { self.item(row.id).map { !$0.state.isActive } ?? true }
@@ -329,6 +330,10 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: terminated.path), "the command got SIGTERM and the grace to handle it")
         XCTAssertEqual(AnalysisRunRecord.load(from: folder)?.outcome, .cancelled, "listed as a cancelled run at the next open")
         XCTAssertEqual(try Data(contentsOf: runRecord), try Data(contentsOf: commandsCancel), "the command's cancel record, byte for byte (E5)")
+        XCTAssertEqual(
+            try ClassifierRouteFixtures.fileNumber(of: runRecord), recordFileWhileRunning,
+            "the app rewrote the command's cancel record after the command exited"
+        )
         XCTAssertEqual(
             try ClassifierRouteFixtures.snapshot(of: made.project, ignoring: [AnalysisRunRecord.fileName]), before,
             "no other file of the project changed"
@@ -463,6 +468,7 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
         XCTAssertTrue(tracking, "the row never tracked the folder the output line named, or the overlay never showed \(lastOverlay ?? "")")
         XCTAssertTrue(AnalysisRunRecord.isIncomplete(folder), "the folder stays hidden while the command runs")
         let overlayWhileRunning = overlay(of: viewer).flatMap { $0.isHidden ? nil : $0.message }
+        let recordFileWhileRunning = completed ? nil : try ClassifierRouteFixtures.fileNumber(of: recordURL)
         FileManager.default.createFile(atPath: go.path, contents: nil)
 
         let finished = await waitUntil(timeout: .seconds(30)) { self.item(started.id).map { !$0.state.isActive } ?? true }
@@ -480,6 +486,10 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
             XCTAssertFalse(AnalysisRunRecord.isIncomplete(folder), "the command settled the completed folder")
         } else {
             XCTAssertEqual(try Data(contentsOf: recordURL), recordBefore, "the failed record keeps its bytes")
+            XCTAssertEqual(
+                try ClassifierRouteFixtures.fileNumber(of: recordURL), recordFileWhileRunning,
+                "the app rewrote the command's failed record after the command exited"
+            )
         }
         return RouteRun(
             item: item,

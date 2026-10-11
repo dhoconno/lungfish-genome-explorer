@@ -269,9 +269,11 @@ public struct AnalysisRunRecord: Codable, Equatable, Sendable {
     }
 
     /// Notes that the run ended without completing. The directory stays
-    /// incomplete, so it stays hidden. A directory without a record is left alone.
+    /// incomplete, so it stays hidden. A directory without a record is left alone,
+    /// and so is a record that already notes `outcome`, so the app never rewrites
+    /// the record a `lungfish-cli` run settled itself after the command exited.
     public static func recordOutcome(_ outcome: Outcome, in directoryURL: URL) {
-        guard var record = load(from: directoryURL) else { return }
+        guard var record = load(from: directoryURL), record.outcome != outcome else { return }
         record.outcome = outcome
         try? begin(record, in: directoryURL)
     }

@@ -357,6 +357,13 @@ enum ClassifierRouteFixtures {
         return record
     }
 
+    /// The file system's number of the file at `url`, which an atomic rewrite changes, so a test
+    /// tells a rewrite with the same bytes from no write.
+    static func fileNumber(of url: URL) throws -> Int {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        return try XCTUnwrap((attributes[.systemFileNumber] as? NSNumber)?.intValue, url.path)
+    }
+
     /// Every file under `folder` with its bytes, the run record left out when `ignoring` names it.
     static func snapshot(of folder: URL, ignoring ignored: Set<String> = []) throws -> [String: Data] {
         var files: [String: Data] = [:]
