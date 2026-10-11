@@ -300,6 +300,31 @@ struct AnalysisRunExecutorTests {
         #expect(try fixture.record(at: report.recordURL).exitStatus == 64)
     }
 
+    @Test("A one-folder plan with two units fails before any folder")
+    func oneFolderPlanWithTwoUnitsIsRefused() async throws {
+        let fixture = try AnalysisRunTestProject()
+        defer { fixture.cleanup() }
+        let probe = FakeToolProbe()
+        let recorder = AnalysisRunEventRecorder()
+        var tool = FakeAnalysisRunTool(probe: probe)
+        tool.layout = .singleFolder
+        tool.units = [
+            AnalysisRunPlannedUnit(label: "s1", value: .complete),
+            AnalysisRunPlannedUnit(label: "s2", value: .complete),
+        ]
+
+        let report = await AnalysisRunExecutor.unsigned.execute(tool, fixture.request(), events: recorder.events)
+
+        #expect(report.status == .failed)
+        #expect(report.exitCode == 64)
+        #expect(report.message == AnalysisRunError.oneFolderHoldsOneUnit(AnalysisToolID(rawValue: "kraken2"), unitCount: 2).errorDescription)
+        #expect(report.analysisDirectory == nil)
+        #expect(report.recordURL == nil)
+        #expect(probe.phases == ["plan"])
+        #expect(recorder.names == ["start", "failed"])
+        #expect(!FileManager.default.fileExists(atPath: fixture.project.appendingPathComponent("Analyses").path))
+    }
+
     @Test("A plan with no unit and a request with no command fail before any folder")
     func emptyPlanAndMissingCommandFail() async throws {
         let fixture = try AnalysisRunTestProject()

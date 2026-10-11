@@ -91,9 +91,11 @@ public struct AnalysisRunIdentity: Sendable, Equatable {
 
 /// How a run's result folder holds its units (E2).
 public enum AnalysisRunLayout: String, Sendable, Equatable, CaseIterable {
-    /// Every unit writes into the result folder itself, as a plain `--output` run of one sample
-    /// does today. The root record replaces any record a unit wrote there, so a unit hands its
-    /// record's facts to the root record through its context.
+    /// The unit writes into the result folder itself, as a plain `--output` run of one sample
+    /// does today. The root record replaces any record the unit wrote there, so a unit hands its
+    /// record's facts to the root record through its context. The layout holds exactly one unit,
+    /// which may hold several samples, and the executor refuses a plan with more before any folder
+    /// exists.
     case singleFolder
     /// The result folder is a batch root. Each unit gets its own folder, named after its label
     /// through the one sanitizer `AnalysesFolder.batchSampleDirectory(named:in:)`, and a
@@ -103,6 +105,7 @@ public enum AnalysisRunLayout: String, Sendable, Equatable, CaseIterable {
     /// runs several samples in one process, such as TaxTriage. A `--project` run's folder is named
     /// `<tool>-batch-<timestamp>` and its `analysis-metadata.json` says batch. Otherwise the
     /// executor treats it as ``singleFolder``, so each unit gets the result folder itself and the
-    /// root record replaces any record a unit wrote there.
+    /// root record replaces any record a unit wrote there. Unlike ``singleFolder`` it may hold
+    /// several units, each writing files of its own.
     case sharedBatchRoot
 }

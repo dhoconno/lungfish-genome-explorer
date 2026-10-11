@@ -94,6 +94,14 @@ public struct AnalysisRunExecutor: Sendable {
             guard !plan.units.isEmpty else {
                 throw AnalysisRunError.emptyPlan(identity.toolID)
             }
+            // One folder holds one unit, so no unit writes over another's outputs while the root
+            // record keeps the first one's digests.
+            switch plan.layout {
+            case .singleFolder where plan.units.count > 1:
+                throw AnalysisRunError.oneFolderHoldsOneUnit(identity.toolID, unitCount: plan.units.count)
+            case .singleFolder, .batchRoot, .sharedBatchRoot:
+                break
+            }
         } catch {
             // A refused plan exits with the code its error carries, so a command keeps its own
             // codes for the refusals it moved into the plan.

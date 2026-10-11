@@ -83,6 +83,8 @@ public enum AnalysisRunError: Error, LocalizedError, Sendable, Equatable {
     case missingCommandLine
     /// The tool planned no unit.
     case emptyPlan(AnalysisToolID)
+    /// The tool planned several units in a one-folder layout, which holds exactly one.
+    case oneFolderHoldsOneUnit(AnalysisToolID, unitCount: Int)
     /// The finalize asked for a viewer index and the executor has no index builder.
     case noResultIndexer(AnalysisToolID)
     /// The destination is a project folder or its `Analyses` folder, which a result never fills.
@@ -94,6 +96,8 @@ public enum AnalysisRunError: Error, LocalizedError, Sendable, Equatable {
             return "The analysis run names no command to record."
         case .emptyPlan(let toolID):
             return "The \(toolID.rawValue) plan holds no samples to run."
+        case .oneFolderHoldsOneUnit(let toolID, let unitCount):
+            return "The \(toolID.rawValue) plan puts \(unitCount) runs into one result folder, which holds one run."
         case .noResultIndexer(let toolID):
             return "No viewer index builder is available for \(toolID.rawValue) results."
         case .destinationIsProjectFolder(let path):
