@@ -192,7 +192,7 @@ public enum ParameterValue: Sendable, Codable, Hashable {
             self = .boolean(try container.decode(Bool.self, forKey: .value))
         case .file:
             let path = try container.decode(String.self, forKey: .value)
-            self = .file(URL(fileURLWithPath: path))
+            self = .file(Self.recordedFileURL(path))
         case .array:
             self = .array(try container.decode([ParameterValue].self, forKey: .value))
         case .dictionary:
@@ -200,6 +200,21 @@ public enum ParameterValue: Sendable, Codable, Hashable {
         case .null:
             self = .null
         }
+    }
+
+    /// The URL of a recorded file value, whose `path` is the text the record holds. An absolute
+    /// path decodes as before. `URL(fileURLWithPath:)` would put the reading process's working
+    /// folder in front of a relative path or a placeholder such as `<workspace>/reads.fastq`, and
+    /// the reading user's home in place of a leading `~`, so those keep their text in a file URL
+    /// with a relative path instead (finding F5).
+    static func recordedFileURL(_ path: String) -> URL {
+        guard !path.isEmpty, !path.hasPrefix("/") else {
+            return URL(fileURLWithPath: path)
+        }
+        var components = URLComponents()
+        components.scheme = "file"
+        components.path = path
+        return components.url ?? URL(fileURLWithPath: path)
     }
 
     public func encode(to encoder: Encoder) throws {
