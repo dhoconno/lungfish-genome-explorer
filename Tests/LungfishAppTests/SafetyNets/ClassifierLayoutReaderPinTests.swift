@@ -10,7 +10,7 @@
 // MainSplitViewController). This suite builds each shape LGE has written, and each shape the
 // executor will write, with ClassifierLayoutFixtures, and pins what the readers do with it.
 //
-// Three halves cover each layout.
+// Three kinds of pin cover each layout.
 //   - The sidebar row, in the snapshot Tests/Fixtures/sidebar-scan/classifier-layouts.txt.
 //   - The route. A layout with an index opens a viewer, and the rows for those are in
 //     RoutingSafetyNetTable+BundleAndClassifierRows.swift. A layout with no index routes to the
@@ -18,6 +18,10 @@
 //     suite pins the decision at the router (a nil database) and never selects it.
 //   - A run that failed, was cancelled or is still going stays out of every listing and is
 //     offered for review in the Operations Panel.
+//
+// The fixtures are literal files, so a writer cannot move a pin. One test runs the import
+// writer and compares its folder with the fixture, which keeps the claim "as an import
+// writes it" true.
 //
 // An executor lane that changes a row on purpose edits the line here or rewrites the snapshot:
 //
@@ -32,6 +36,7 @@ import XCTest
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishKit
+@testable import LungfishWorkflow
 import LungfishTestSupport
 
 @MainActor
@@ -247,6 +252,42 @@ final class ClassifierLayoutReaderPinTests: XCTestCase {
         )
         XCTAssertNotNil(AnalysesFolder.readAnalysisMetadata(from: built.imports.appendingPathComponent(Name.outsideClaimedOutput)))
         XCTAssertNil(AnalysesFolder.readAnalysisMetadata(from: built.imports.appendingPathComponent(Name.outsideCLIOutput)))
+    }
+
+    // MARK: - Writer parity
+
+    /// "As an import writes it" is a claim about `MetagenomicsImportService.importEsViritu`, so
+    /// this runs the writer on a detection table and compares its folder with the fixture. Every
+    /// file name and the sidebar row must agree. A writer that changes its layout fails here, and
+    /// its owner decides whether the fixture or the readers follow.
+    func testImportedEsVirituFixtureIsWhatTheImportWriterLeaves() throws {
+        let root = try TestTempDirectory.make(prefix: "ClassifierLayoutImport")
+        defer { TestTempDirectory.cleanup(root) }
+        let input = root.appendingPathComponent("input", isDirectory: true)
+        try Layouts.writeEsVirituDetectionTable(sample: Layouts.sample, into: input, virusCount: 3)
+
+        let written = try MetagenomicsImportService.importEsViritu(
+            inputURL: input,
+            outputDirectory: root.appendingPathComponent("written.lungfish/Analyses", isDirectory: true),
+            preferredName: "HG002_import"
+        ).resultDirectory
+        let fixture = try Layouts.importedEsViritu(
+            named: Name.importedEsViritu,
+            timestamp: "2026-02-09T12-30-00",
+            in: root.appendingPathComponent("fixture.lungfish/Analyses", isDirectory: true)
+        )
+
+        XCTAssertEqual(written.lastPathComponent, Name.importedEsViritu)
+        XCTAssertEqual(
+            try FileManager.default.subpathsOfDirectory(atPath: written.path).sorted(),
+            try FileManager.default.subpathsOfDirectory(atPath: fixture.path).sorted(),
+            "the import writer leaves a different set of files than the fixture"
+        )
+        func row(of project: String) -> String {
+            let url = root.appendingPathComponent(project, isDirectory: true)
+            return SidebarScanSnapshot.render(SidebarProjectScanner.scanRootNodes(from: url), projectURL: url, summary: "")
+        }
+        XCTAssertEqual(row(of: "written.lungfish"), row(of: "fixture.lungfish"))
     }
 
     // MARK: - Helpers

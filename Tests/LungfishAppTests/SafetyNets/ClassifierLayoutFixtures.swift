@@ -128,12 +128,16 @@ enum ClassifierLayoutFixtures {
         return folder
     }
 
-    /// `lungfish-cli import esviritu`. A tool-prefixed folder with metadata and the copied files at its root.
+    /// `lungfish-cli import esviritu`. A tool-prefixed folder with metadata, the sidecar and the files
+    /// the import copied into its root. The import takes the first `*virus*.tsv` in name order as the
+    /// detection table, and a full command line output folder holds an assembly summary that sorts
+    /// before it, so the input here is the detection table alone.
     @discardableResult
     static func importedEsViritu(named name: String, timestamp: String, in analyses: URL) throws -> URL {
         let folder = try SafetyNetFiles.makeDirectory(analyses.appendingPathComponent(name, isDirectory: true))
         try writeMetadata(tool: "esviritu", isBatch: false, timestamp: timestamp, to: folder)
-        try writeEsVirituFiles(sample: sample, into: folder, virusCount: 3)
+        try writeEsVirituSidecar(sample: sample, into: folder, virusCount: 3)
+        try writeEsVirituDetectionTable(sample: sample, into: folder, virusCount: 3)
         try SafetyNetFiles.write("{}", to: folder.appendingPathComponent(".lungfish-provenance.json"))
         return folder
     }
@@ -328,17 +332,61 @@ enum ClassifierLayoutFixtures {
         }
     }
 
-    /// The tables and sidecar EsViritu leaves for one sample, named by the sample as the golden inventory shows.
-    private static func writeEsVirituFiles(sample: String, into folder: URL, virusCount: Int) throws {
+    /// `esviritu-result.json`, with the keys the scan reads and the paths the other readers follow.
+    static func writeEsVirituSidecar(sample: String, into folder: URL, virusCount: Int) throws {
         try SafetyNetFiles.write(
             #"{"config":{"sampleName":"\#(sample)","threads":2,"qualityFilter":true,"readFormat":"unpaired"},"detectionPath":"\#(sample).detected_virus.info.tsv","assemblyPath":"\#(sample).detected_virus.assembly_summary.tsv","taxProfilePath":"\#(sample).tax_profile.tsv","coveragePath":"\#(sample).virus_coverage_windows.tsv","virusCount":\#(virusCount),"toolVersion":"1.3.3"}"#,
             to: folder.appendingPathComponent("esviritu-result.json")
         )
-        for table in ["detected_virus.info.tsv", "detected_virus.assembly_summary.tsv", "tax_profile.tsv", "virus_coverage_windows.tsv"] {
-            try SafetyNetFiles.write("virus\treads\n", to: folder.appendingPathComponent("\(sample).\(table)"))
+    }
+
+    /// `<sample>.detected_virus.info.tsv`, the table the probe and the import look for.
+    static func writeEsVirituDetectionTable(sample: String, into folder: URL, virusCount: Int) throws {
+        try SafetyNetFiles.write(
+            esVirituDetectionTable(sample: sample, virusCount: virusCount),
+            to: folder.appendingPathComponent("\(sample).detected_virus.info.tsv")
+        )
+    }
+
+    /// The tables and sidecar EsViritu leaves for one sample, named by the sample as the golden
+    /// inventory shows. The detection table carries one row per virus, so the sidecar's count and
+    /// the table agree.
+    static func writeEsVirituFiles(sample: String, into folder: URL, virusCount: Int) throws {
+        try writeEsVirituSidecar(sample: sample, into: folder, virusCount: virusCount)
+        try writeEsVirituDetectionTable(sample: sample, into: folder, virusCount: virusCount)
+        // The other three tables hold only the header the golden capture shows. No reader of the
+        // scan or the router opens them.
+        let headers = [
+            "detected_virus.assembly_summary.tsv": "sample_ID\tfiltered_reads_in_sample\tAssembly\tAsm_length\tkingdom\tphylum\ttclass\torder\tfamily\tgenus\tspecies\tsubspecies\tadj_taxonomy\tread_count\tcovered_bases\tavg_read_identity\tconsensus_ref_identity\tAccession\tSegment\tRPKMF\n",
+            "tax_profile.tsv": "sample_ID\tfiltered_reads_in_sample\tkingdom\tphylum\ttclass\torder\tfamily\tgenus\tspecies\tsubspecies\tread_count\tRPKMF\tavg_read_identity\tconsensus_ref_identity\tassembly_list\n",
+            "virus_coverage_windows.tsv": "Accession\twindow_index\twindow_start\twindow_end\taverage_coverage\n",
+        ]
+        for (table, header) in headers {
+            try SafetyNetFiles.write(header, to: folder.appendingPathComponent("\(sample).\(table)"))
         }
-        try SafetyNetFiles.write("reads: 10\n", to: folder.appendingPathComponent("\(sample)_esviritu.readstats.yaml"))
+        try SafetyNetFiles.write("reads for EsViritu denominator: 55\nreads pre-quality filter: 55\n", to: folder.appendingPathComponent("\(sample)_esviritu.readstats.yaml"))
         try SafetyNetFiles.write("", to: folder.appendingPathComponent("\(sample)_temp/\(sample).third.filt.sorted.bam"))
+    }
+
+    /// `<sample>.detected_virus.info.tsv` with the 25 columns of the golden capture
+    /// (Tests/Fixtures/golden/classifiers/esviritu) and one synthetic row per virus.
+    static func esVirituDetectionTable(sample: String, virusCount: Int) -> String {
+        let header = [
+            "sample_ID", "Name", "description", "Length", "Segment", "Accession", "Assembly", "Asm_length",
+            "kingdom", "phylum", "tclass", "order", "family", "genus", "species", "subspecies", "adj_taxonomy",
+            "RPKMF", "read_count", "covered_bases", "mean_coverage", "avg_read_identity",
+            "consensus_ref_identity", "Pi", "filtered_reads_in_sample",
+        ]
+        let rows = (0..<virusCount).map { index -> String in
+            let accession = "MW33878\(index + 1).1"
+            return [
+                sample, "Synthetic virus \(index + 1)", "Synthetic test virus", "29889", "NA", accession, "acc:\(accession)", "29889",
+                "k__Viruses", "p__Pisuviricota", "c__Pisoniviricetes", "o__Nidovirales", "f__Coronaviridae",
+                "g__Betacoronavirus", "s__Betacoronavirus pandemicum", "t__Synthetic", "true",
+                "32848.8", "54", "6407", "0.27", "0.995", "1.0", "0.0", "55",
+            ].joined(separator: "\t")
+        }
+        return ([header.joined(separator: "\t")] + rows).joined(separator: "\n") + "\n"
     }
 
     private static func kraken2BatchRoot(named name: String, in analyses: URL, samples: [String], index: Bool) throws -> URL {
