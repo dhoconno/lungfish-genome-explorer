@@ -23,7 +23,7 @@ Every line has `event` and `schemaVersion`. The other keys depend on the event.
 | `start` | `message`, `progress` (always 0) | The operation began |
 | `progress` | `progress` from 0 to 1, `message` | How far it has got |
 | `log` | `level`, `message` | A line for the operation log. `level` is `debug`, `info`, `warning` or `error` |
-| `output` | `path`, `role`, `artifacts` | A file became available before the end. No command writes one yet |
+| `output` | `path`, `role`, `artifacts` | A file or folder became available before the end. An analysis run writes one with the role `analysis-directory` once its result folder exists |
 | `complete` | `outputs`, `output`, `message`, `progress` (always 1), `artifacts` | The operation finished. `outputs` lists every path it made |
 | `failed` | `error`, `detail` | The operation failed. `detail` is optional extra context |
 
@@ -46,7 +46,7 @@ A reader keeps a `kind` it does not know as a plain string. In the app, `CLIEven
 
 ### Roles and the primer trim example
 
-A runner finds an artifact by its role. `CLIEventArtifact.Role` names the roles that a command and an app runner both read, and a writer may use others.
+A runner finds an artifact by its role. `CLIEventArtifact.Role` names the roles that a command and an app runner both read, and a writer may use others. The EsViritu roles are named in `EsVirituAnalysisRunTool.ArtifactRole`.
 
 | Role | What the artifact is |
 | --- | --- |
@@ -56,6 +56,17 @@ A runner finds an artifact by its role. `CLIEventArtifact.Role` names the roles 
 | `variants` | The called variants, a compressed VCF |
 | `variants-index` | Their tabix index |
 | `variants-database` | The SQLite database of the track |
+| `analysis-directory` | The result folder of an analysis run, named by its early `output` line. The app's classifier runner tracks it for Results and Reveal Output Files |
+| `classification-report` | The Kraken2 report of a sample, `classification.kreport` |
+| `classification-output` | The compressed Kraken2 output of every read |
+| `bracken-profile` | The Bracken abundance profile |
+| `classification-result` | `classification-result.json`, which the Kraken2 viewer loads |
+| `classification-database` | The Kraken2 viewer's index of the result, `kraken2.sqlite` |
+| `classifier-database` | The EsViritu viewer's index of the result, `esviritu.sqlite` |
+| `esviritu-detections` | The EsViritu detection table of a sample |
+| `esviritu-result` | The result file of an EsViritu sample, `esviritu-result.json` |
+| `batch-summary` | The summary table of a batch |
+| `batch-manifest` | The manifest of a batch |
 
 `bam primer-trim` is the first command that types its outputs. Its `outputs` keep the version 1 order, the trimmed BAM, then its index, then its record, and its `artifacts` describe the same three paths.
 
@@ -133,6 +144,17 @@ The three `build-db` leaves wrote objects with `progress` and `message` and no `
 
 The rows parsed, the database path and the cleanup summary go to standard error while the switch is on. Without the switch, which is how the app runs these leaves, the text stays on standard output and no event is printed. The warnings of the read count pass, such as a failed `samtools markdup`, travel with the human text. The other warnings go to standard error in both modes, and `--quiet` drops the text and every warning.
 
+## Analysis runs
+
+`kraken2 classify`, its older spelling `conda classify`, and `esviritu detect` run through the analysis run executor, `AnalysisRunExecutor` in the Workflow module, which writes their stream. `AnalysisRunEvents` in the same module documents it. With `--format json` a run writes these lines in this order.
+
+1. One `start` line.
+2. One `output` line with the role `analysis-directory` and the absolute path of the result folder, once the folder exists and before any sample runs. A run the command refuses before it makes a folder, such as one that names a database the registry does not hold, writes none.
+3. `progress` lines on the scale of the whole run. Each unit, one sample, starts with the line `Running <label> (<i> of <n>).`, or `Running <label>.` in a run of one sample. Its own progress maps onto the run as `(index + fraction) / count`, so the fraction never moves back, and the lines of the finalize, such as the build of the viewer database, come at the end of the range. `log` lines come between them. Each `log` line at level `warning` is one of the run's warnings, and a completed run with a warning reads Completed with Warnings.
+4. Exactly one last line. `complete` names the result folder in `outputs`, types the result in `artifacts` with the roles above and names the root record with the role `provenance`. Its message is the completion detail. `failed` holds the reason in `error`.
+
+A cancelled run ends with `failed`, exit status 125 and no `detail`. A run that failed from its samples carries `detail` only when exactly one sample failed, in a run of one sample or in a batch that stops at its first failed sample, so the detail always belongs to the reason in `error`. The text is what the failing sample handed over, such as the last lines of the EsViritu log. The executor turns carriage returns into line breaks and removes colour codes, every other control character but the tab, and every blank line. It keeps the last 20 lines, each cut to 400 characters, within 4,096 bytes. A refused run, a folder that could not be made, a failed finalize and a batch where several samples failed carry none, and no record holds the text. `kraken2 classify` hands over no detail, because its reason already holds the standard error of the tool.
+
 ## The contract table
 
 `CLIEventContractTable` in `Sources/LungfishCLI/Support/CLIEventContract.swift` holds one row for each leaf command of `lungfish-cli`. A leaf is a command with no subcommands. A row is keyed by the leaf's path without the program name, such as `msa annotate add`, and it says in one of four cases what the leaf writes for a machine reader.
@@ -154,6 +176,6 @@ A leaf that lists `--format json` and prints text anyway is a `.text` row, and s
 
 `Tests/Fixtures/cli-events/v2/bam-primer-trim.ndjson` is a version 2 run of `bam primer-trim`. It was captured in process on the sarscov2 fixture, with standard output redirected for the length of the run and the scratch folder rewritten to `/work`. `CLIPrimerTrimRunnerTests` reads it with the runner and with the frozen version 1 reader, which gets the same outcome and `outputs`.
 
-`Tests/Fixtures/cli-events/commands` holds one folder for each leaf that emits events. Most transcripts were captured in process, and five came from real runs of the built `lungfish-cli` for the leaves that run an external tool. `CLIEventTranscriptCoverageTests` decodes every line under version 2 with no ignored event and expects one terminal event last. It reads each run with the frozen version 1 reader to the same outcome and `outputs`, and it pins the order of `outputs` for `variants call` and `bam primer-trim`. It also runs the leaves that need no tool again and fails when a line differs from its transcript. `Tests/Fixtures/cli-events/results` holds the documents of the result schemas that have a fixture, each from a real run.
+`Tests/Fixtures/cli-events/commands` holds one folder for each leaf that emits events. Most transcripts were captured in process, and those of the leaves that run an external tool came from real runs of the built `lungfish-cli`, which the fixtures README lists under Captured from the built CLI. `CLIEventTranscriptCoverageTests` decodes every line under version 2 with no ignored event and expects one terminal event last. It reads each run with the frozen version 1 reader to the same outcome and `outputs`, and it pins the order of `outputs` for `variants call` and `bam primer-trim`. It also runs the leaves that need no tool again and fails when a line differs from its transcript. `Tests/Fixtures/cli-events/results` holds the documents of the result schemas that have a fixture, each from a real run.
 
 `CLISubprocessTransportTests` plays every version 1 transcript, and the same run written as version 2 lines, through the transport and gets the same outcome both ways. `OperationCenterCLIBridgeTests` plays four of them through a runner and the bridge, one for each label a run can end on.
