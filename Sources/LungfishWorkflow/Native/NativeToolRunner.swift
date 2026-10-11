@@ -421,10 +421,10 @@ public actor NativeToolRunner {
     private var toolsDirectory: URL?
 
     /// Home directory used for managed tool resolution.
-    private let homeDirectory: URL
+    let homeDirectory: URL
 
     /// App identity used to resolve the managed-storage namespace (injectable for tests).
-    private let appIdentity: LungfishAppIdentity
+    let appIdentity: LungfishAppIdentity
 
     /// Default timeout for tool execution (5 minutes).
     private let defaultTimeout: TimeInterval = 300
@@ -591,10 +591,7 @@ public actor NativeToolRunner {
 
         logger.info("Running \(tool.rawValue): \(resolvedArgs.joined(separator: " "))")
 
-        let effectiveEnvironment = managedToolEnvironment(
-            for: tool,
-            overriding: environment
-        )
+        let effectiveEnvironment = managedToolEnvironment(for: tool, overriding: environment)
 
         let result = try await runProcess(
             executableURL: toolPath,
@@ -735,7 +732,9 @@ public actor NativeToolRunner {
             stdout: .capture(),
             stderr: .capture(limit: maxStderrBytes ?? ToolProcessSpec.defaultStderrCaptureLimit),
             timeout: try NativeToolProcessAdapter.limit(actualTimeout, name: name),
-            label: name
+            label: name,
+            environmentChange: observedEnvironmentChange(overriding: environment),
+            identityHint: Self.nativeToolName(toolName)
         )
         let processResult = try await NativeToolProcessAdapter.run(spec, timeout: actualTimeout, onEvent: onEvent)
         let result = NativeToolResult(
@@ -779,10 +778,7 @@ public actor NativeToolRunner {
         _ = try requireProvenancePolicy(for: tool)
         let toolPath = try findTool(tool)
         let actualTimeout = timeout ?? defaultTimeout
-        let effectiveEnvironment = managedToolEnvironment(
-            for: tool,
-            overriding: environment
-        )
+        let effectiveEnvironment = managedToolEnvironment(for: tool, overriding: environment)
         logger.info("Running \(tool.rawValue): \(arguments.joined(separator: " ")) > \(outputFile.path, privacy: .public)")
         let name = tool.rawValue
         let temporaryOutputFile = temporaryOutputURL(for: outputFile)
@@ -804,7 +800,9 @@ public actor NativeToolRunner {
                 workingDirectory: workingDirectory,
                 stdout: .file(temporaryOutputFile),
                 timeout: try NativeToolProcessAdapter.limit(actualTimeout, name: name),
-                label: name
+                label: name,
+                environmentChange: observedEnvironmentChange(overriding: effectiveEnvironment),
+                identityHint: name
             )
             processResult = try await NativeToolProcessAdapter.run(spec, timeout: actualTimeout, onEvent: nil)
         } catch {
@@ -1032,14 +1030,15 @@ extension NativeToolRunner {
         let stageNames = stages.map(\.tool.rawValue).joined(separator: " | ")
         logger.info("Running pipeline: \(stageNames)")
         let specs = stages.enumerated().map { index, stage in
-            ToolProcessSpec(
+            let stageEnvironment = managedToolEnvironment(for: stage.tool, overriding: environment)
+            return ToolProcessSpec(
                 executableURL: toolPaths[index],
                 arguments: stage.arguments,
-                environment: ToolProcessSpec.inheritedEnvironment(
-                    overriding: managedToolEnvironment(for: stage.tool, overriding: environment) ?? [:]
-                ),
+                environment: ToolProcessSpec.inheritedEnvironment(overriding: stageEnvironment ?? [:]),
                 workingDirectory: workingDirectory,
-                label: stage.tool.rawValue
+                label: stage.tool.rawValue,
+                environmentChange: observedEnvironmentChange(overriding: stageEnvironment),
+                identityHint: stage.tool.rawValue
             )
         }
 
