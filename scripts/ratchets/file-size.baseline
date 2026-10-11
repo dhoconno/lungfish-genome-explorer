@@ -203,7 +203,7 @@ Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3DesignPipeline.swift 1055
 Sources/LungfishWorkflow/Provenance/GUIImportedProvenanceRehydrator.swift 1032
 Sources/LungfishWorkflow/Provenance/ProvenanceExporter.swift 1709
 Sources/LungfishWorkflow/Provenance/ProvenancePublicationSnapshot.swift 862
-Sources/LungfishWorkflow/Provenance/ProvenanceWriter.swift 1741
+Sources/LungfishWorkflow/Provenance/ProvenanceWriter.swift 1647
 Sources/LungfishWorkflow/Recipes/RecipeEngine.swift 824
 Sources/LungfishWorkflow/SequenceAnnotation/SequenceAnnotationTrackWorkflow.swift 1311
 Sources/LungfishWorkflow/Storage/ProjectStorageCleanupExecutor.swift 2486
