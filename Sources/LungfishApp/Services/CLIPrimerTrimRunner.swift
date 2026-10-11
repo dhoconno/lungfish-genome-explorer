@@ -11,11 +11,11 @@ import LungfishWorkflow
 /// Result of a successful `lungfish-cli bam primer-trim` run, decoded from
 /// the shared `CLIEvent` schema instead of the private `runStart`/
 /// `stageProgress`/`runComplete`/… JSON shape this runner used to hand-parse.
-/// `BAMPrimerTrimSubcommand` folds its rich completion
-/// fields (`outputAlignmentTrackID`/`Name`, `bamPath`, `baiPath`,
-/// `provenanceSidecarPath`) into `CLIEvent.complete`'s `outputs`
-/// (`[bamPath, baiPath, provenanceSidecarPath]`) and a
-/// `"trackID=… trackName=…"` message; this type parses them back out.
+/// `BAMPrimerTrimSubcommand` names the trimmed BAM, its index and its record
+/// in `CLIEvent.complete`'s `outputs` (`[bamPath, baiPath,
+/// provenanceSidecarPath]`), types each of them as an artifact with a role
+/// from version 2 on, and puts the track in a `"trackID=… trackName=…"`
+/// message. This type holds them read back out.
 struct CLIPrimerTrimResult: Sendable, Equatable {
     let trackID: String?
     let trackName: String?
@@ -121,7 +121,7 @@ struct CLIPrimerTrimRunner {
                 isCancelled: { false },
                 onEvent: onEvent
             )
-            return Self.parseCompletion(outputs: result.outputs, message: result.message)
+            return Self.parseCompletion(outputs: result.outputs, message: result.message, artifacts: result.artifacts)
         } catch let error as CLISubprocessTransport.RunError {
             switch error {
             case .nonZeroExit(let status, let stderr):
@@ -142,10 +142,21 @@ struct CLIPrimerTrimRunner {
         transport.cancel()
     }
 
-    /// Parses the `"trackID=… trackName=…"` message and `[bamPath, baiPath,
-    /// provenanceSidecarPath]` outputs `BAMPrimerTrimSubcommand` encodes into
-    /// `CLIEvent.complete` for a successful run.
-    private static func parseCompletion(outputs: [String], message: String?) -> CLIPrimerTrimResult {
+    /// Parses the `"trackID=… trackName=…"` message and the three paths
+    /// `BAMPrimerTrimSubcommand` reports in `CLIEvent.complete` for a
+    /// successful run.
+    ///
+    /// A version 2 CLI types each path as an artifact, and the runner reads it
+    /// by role. A version 1 CLI writes no artifacts, so each path falls back to
+    /// its place in `outputs`, `[bamPath, baiPath, provenanceSidecarPath]`,
+    /// which a version 2 CLI keeps too, as `docs/formats/cli-events.md` requires.
+    /// The trimmed BAM is already inside the reference bundle either way, so the
+    /// caller reloads the bundle and imports none of these paths.
+    private static func parseCompletion(
+        outputs: [String],
+        message: String?,
+        artifacts: [CLIEventArtifact]
+    ) -> CLIPrimerTrimResult {
         var trackID: String?
         var trackName: String?
         if let message {
@@ -160,12 +171,18 @@ struct CLIPrimerTrimRunner {
                 }
             }
         }
+        func typed(_ role: String) -> String? {
+            artifacts.first { $0.role == role }?.path
+        }
+        func positional(_ index: Int) -> String? {
+            outputs.indices.contains(index) ? outputs[index] : nil
+        }
         return CLIPrimerTrimResult(
             trackID: trackID,
             trackName: trackName,
-            bamPath: outputs.indices.contains(0) ? outputs[0] : nil,
-            baiPath: outputs.indices.contains(1) ? outputs[1] : nil,
-            provenanceSidecarPath: outputs.indices.contains(2) ? outputs[2] : nil
+            bamPath: typed(CLIEventArtifact.Role.alignment) ?? positional(0),
+            baiPath: typed(CLIEventArtifact.Role.alignmentIndex) ?? positional(1),
+            provenanceSidecarPath: typed(CLIEventArtifact.Role.provenance) ?? positional(2)
         )
     }
 

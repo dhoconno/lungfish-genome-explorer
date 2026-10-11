@@ -136,12 +136,12 @@ final class CLIPrimerTrimRunnerTests: XCTestCase {
 
     /// The runner gives its caller paths and never hands an output to bundle import. The
     /// trimmed BAM is already inside the reference bundle, which the caller reloads, so
-    /// nothing reaches `onBundleReadyWithContext`.
+    /// nothing reaches `onBundleReadyWithContext`, from a version 1 or a version 2 CLI.
     @MainActor
     func testTheRunnerHandsNoOutputToBundleImport() async throws {
         let folder = try TestTempDirectory.make(prefix: "primer-trim-import")
         defer { TestTempDirectory.cleanup(folder) }
-        let cli = try standInCLI(in: folder, printing: [
+        let version1 = try standInCLI(in: folder, printing: [
             #"{"event":"start","message":"starting","progress":0}"#,
             #"{"event":"complete","output":"/tmp/trimmed.bam","outputs":["/tmp/trimmed.bam","/tmp/trimmed.bam.bai","/tmp/trimmed.primer-trim-provenance.json"],"message":"trackID=trimmed trackName=Trimmed"}"#,
         ])
@@ -150,10 +150,111 @@ final class CLIPrimerTrimRunnerTests: XCTestCase {
         OperationCenter.shared.onBundleReadyWithContext = { urls, _ in imports.append(urls) }
         defer { OperationCenter.shared.onBundleReadyWithContext = saved }
 
-        let result = try await CLIPrimerTrimRunner(cliURLOverride: cli).run(arguments: ["bam", "primer-trim"])
+        let result = try await CLIPrimerTrimRunner(cliURLOverride: version1).run(arguments: ["bam", "primer-trim"])
+        let version2Folder = try TestTempDirectory.make(prefix: "primer-trim-import-v2")
+        defer { TestTempDirectory.cleanup(version2Folder) }
+        let version2 = try standInCLI(in: version2Folder, printing: try Self.version2Transcript())
+        let typedResult = try await CLIPrimerTrimRunner(cliURLOverride: version2).run(arguments: ["bam", "primer-trim"])
 
         XCTAssertEqual(result.bamPath, "/tmp/trimmed.bam")
+        XCTAssertEqual(typedResult.bamPath, Self.capturedBAM)
         XCTAssertEqual(imports.calls, [], "nothing of a primer trim run reaches bundle import")
+    }
+
+    // MARK: - The version 2 exemplar (Phase 2.6 lane C3)
+
+    /// The trimmed BAM of the captured version 2 run, inside the reference bundle at
+    /// `alignments/primer-trimmed/<track id>.bam`, where it lands today.
+    private static let capturedBAM = "/work/Sample.lungfishref/alignments/primer-trimmed/aln_DA825F94.bam"
+    private static let capturedRecord = "/work/Sample.lungfishref/alignments/primer-trimmed/aln_DA825F94.primer-trim-provenance.json"
+
+    /// `Tests/Fixtures/cli-events/v2/bam-primer-trim.ndjson`, a version 2 run of
+    /// `bam primer-trim` captured in process on the sarscov2 fixture.
+    private static func version2Transcript() throws -> [String] {
+        let url = CLIEventCompatCorpus.v1Folder
+            .deletingLastPathComponent()
+            .appendingPathComponent("v2/bam-primer-trim.ndjson")
+        return try String(contentsOf: url, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map(String.init)
+    }
+
+    /// A version 2 CLI types the trimmed BAM, its index and its record, and the runner
+    /// reads them by role. The same completion with its artifacts taken away, as a
+    /// version 1 CLI writes it, gives the same result from the places in `outputs`.
+    func testAVersion2RunIsReadFromItsTypedArtifactsAndMatchesVersion1() async throws {
+        let lines = try Self.version2Transcript()
+        let complete = try XCTUnwrap(lines.last)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(complete.utf8)) as? [String: Any])
+        XCTAssertNotNil(object["artifacts"], "the captured completion is typed")
+        object.removeValue(forKey: "artifacts")
+        object.removeValue(forKey: "schemaVersion")
+        let untyped = String(decoding: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), as: UTF8.self)
+
+        let typedFolder = try TestTempDirectory.make(prefix: "primer-trim-v2")
+        defer { TestTempDirectory.cleanup(typedFolder) }
+        let untypedFolder = try TestTempDirectory.make(prefix: "primer-trim-v1")
+        defer { TestTempDirectory.cleanup(untypedFolder) }
+        let typed = try await CLIPrimerTrimRunner(cliURLOverride: try standInCLI(in: typedFolder, printing: lines))
+            .run(arguments: ["bam", "primer-trim"])
+        let positional = try await CLIPrimerTrimRunner(
+            cliURLOverride: try standInCLI(in: untypedFolder, printing: Array(lines.dropLast()) + [untyped])
+        ).run(arguments: ["bam", "primer-trim"])
+
+        XCTAssertEqual(typed, CLIPrimerTrimResult(
+            trackID: "aln_DA825F94",
+            trackName: "Primer-trimmed Sample",
+            bamPath: Self.capturedBAM,
+            baiPath: Self.capturedBAM + ".bai",
+            provenanceSidecarPath: Self.capturedRecord
+        ))
+        XCTAssertEqual(positional, typed)
+    }
+
+    /// The frozen version 1 reader reads the version 2 transcript to the same events,
+    /// so an older app gets the same outcome and `outputs`, in their version 1 order.
+    func testTheFrozenVersion1ReaderReadsTheVersion2TranscriptToTheSameOutcome() throws {
+        let frozen = FrozenCLIEventV1LineDecoder()
+        let current = CLIEventLineDecoder()
+        let lines = try Self.version2Transcript()
+
+        let frozenEvents = try lines.map { try XCTUnwrap(try frozen.decode(line: $0), $0) }
+        let currentLines = try lines.map { try XCTUnwrap(try current.decodeLine($0), $0) }
+
+        XCTAssertEqual(currentLines.compactMap(\.event).count, lines.count, "every line holds an event this reader knows")
+        XCTAssertEqual(frozenEvents.map(\.asCLIEvent), currentLines.compactMap(\.event))
+        XCTAssertEqual(currentLines.map(\.schemaVersion), Array(repeating: 2, count: lines.count))
+        XCTAssertEqual(frozenEvents.filter(\.isTerminal).count, 1)
+        XCTAssertEqual(frozenEvents.last, .complete(
+            outputs: [Self.capturedBAM, Self.capturedBAM + ".bai", Self.capturedRecord],
+            message: "trackID=aln_DA825F94 trackName=Primer-trimmed Sample"
+        ))
+        XCTAssertEqual(currentLines.last?.artifacts.map(\.role), [
+            CLIEventArtifact.Role.alignment,
+            CLIEventArtifact.Role.alignmentIndex,
+            CLIEventArtifact.Role.provenance,
+        ])
+    }
+
+    /// Typed artifacts are read first. Each role a CLI did not type falls back to its
+    /// place in `outputs`.
+    func testTypedArtifactsAreReadFirstAndAMissingRoleFallsBackToItsPlace() async throws {
+        let folder = try TestTempDirectory.make(prefix: "primer-trim-roles")
+        defer { TestTempDirectory.cleanup(folder) }
+        let complete = """
+        {"artifacts":[{"kind":"bam","path":"/typed/trimmed.bam","role":"alignment"},\
+        {"kind":"provenance","path":"/typed/trimmed.primer-trim-provenance.json","role":"provenance"}],\
+        "event":"complete","message":"trackID=aln_2 trackName=Typed",\
+        "outputs":["/listed/trimmed.bam","/listed/trimmed.bam.bai","/listed/trimmed.primer-trim-provenance.json"],\
+        "schemaVersion":2}
+        """
+        let cli = try standInCLI(in: folder, printing: [complete])
+
+        let result = try await CLIPrimerTrimRunner(cliURLOverride: cli).run(arguments: ["bam", "primer-trim"])
+
+        XCTAssertEqual(result.bamPath, "/typed/trimmed.bam")
+        XCTAssertEqual(result.baiPath, "/listed/trimmed.bam.bai", "an untyped index falls back to its place")
+        XCTAssertEqual(result.provenanceSidecarPath, "/typed/trimmed.primer-trim-provenance.json")
     }
 
     func testBuildCLIArgumentsIncludesAllRequiredFlags() {

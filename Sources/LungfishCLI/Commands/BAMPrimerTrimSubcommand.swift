@@ -125,12 +125,11 @@ extension BAMCommand {
             let bundleURL = URL(fileURLWithPath: bundlePath)
             let schemeURL = URL(fileURLWithPath: schemePath)
 
+            let events = CLIEventEmitter(enabled: format == .json, emit: emit)
             let emitEvent: (BAMCommand.PrimerTrimEvent) -> Void = { event in
                 switch format {
                 case .json:
-                    if let line = encode(event: event) {
-                        emit(line)
-                    }
+                    events.emit(cliEvent(from: event), artifacts: artifacts(from: event))
                 case .text:
                     emit(event.message)
                 default:
@@ -505,18 +504,14 @@ extension BAMCommand {
     }
 }
 
-/// Encodes over the shared `CLIEvent` wire schema instead of
-/// `PrimerTrimEvent`'s own ad hoc JSON shape. The rich completion fields
-/// (`outputAlignmentTrackID`, `bamPath`, `baiPath`, `provenanceSidecarPath`)
-/// that `CLIPrimerTrimRunner`'s only GUI caller never reads beyond the track
-/// name are folded into `complete`'s `outputs` (in the fixed order
-/// `[bamPath, baiPath, provenanceSidecarPath]`) and a
-/// `"trackID=… trackName=…"` message, matching `VariantsCommand`'s pattern.
-private func encode(event: BAMCommand.PrimerTrimEvent) -> String? {
-    guard let data = try? JSONEncoder().encode(cliEvent(from: event)) else { return nil }
-    return String(data: data, encoding: .utf8)
-}
-
+/// Maps a step onto the shared `CLIEvent` wire schema, which
+/// `CLIEventEmitter` writes as a version 2 line, instead of
+/// `PrimerTrimEvent`'s own ad hoc JSON shape. The completion folds the
+/// trimmed BAM, its index and its record into `complete`'s `outputs` in the
+/// fixed version 1 order `[bamPath, baiPath, provenanceSidecarPath]`, and the
+/// track into a `"trackID=… trackName=…"` message, matching `VariantsCommand`'s
+/// pattern. A version 1 `CLIPrimerTrimRunner` finds each file by its place
+/// in `outputs`, so that order never changes.
 private func cliEvent(from event: BAMCommand.PrimerTrimEvent) -> CLIEvent {
     switch event.event {
     case "runStart":
@@ -539,6 +534,33 @@ private func cliEvent(from event: BAMCommand.PrimerTrimEvent) -> CLIEvent {
         // stageStart, stageComplete, attachStart) is a plain narration line.
         return .log(level: .info, message: event.message)
     }
+}
+
+/// The typed artifacts of the completion, one each for the trimmed BAM, its
+/// index and its record, which a version 2 `CLIPrimerTrimRunner` reads by
+/// role. Every other step carries none.
+private func artifacts(from event: BAMCommand.PrimerTrimEvent) -> [CLIEventArtifact] {
+    guard event.event == "runComplete",
+          let bamPath = event.bamPath,
+          let baiPath = event.baiPath,
+          let recordPath = event.provenanceSidecarPath else {
+        return []
+    }
+    return [
+        CLIEventArtifact(
+            kind: FormatIdentifier.bam.id,
+            path: bamPath,
+            role: CLIEventArtifact.Role.alignment,
+            provenancePath: recordPath
+        ),
+        CLIEventArtifact(
+            kind: FormatIdentifier.bai.id,
+            path: baiPath,
+            role: CLIEventArtifact.Role.alignmentIndex,
+            provenancePath: recordPath
+        ),
+        CLIEventArtifact(kind: "provenance", path: recordPath, role: CLIEventArtifact.Role.provenance),
+    ]
 }
 
 private final class PrimerTrimEventEmitter: @unchecked Sendable {

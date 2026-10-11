@@ -50,6 +50,18 @@ public struct CLIEventArtifact: Sendable, Equatable, Codable {
 }
 
 extension CLIEventArtifact {
+    /// Roles that a command writes and an app runner reads, so both sides spell
+    /// them the same way. A writer may use any other role, and a reader keeps a
+    /// role it does not know as a plain string.
+    public enum Role {
+        /// The alignment a command made, such as the trimmed BAM of `bam primer-trim`.
+        public static let alignment = "alignment"
+        /// The index of that alignment.
+        public static let alignmentIndex = "alignment-index"
+        /// The provenance record of the run.
+        public static let provenance = "provenance"
+    }
+
     /// The bundle kind that ``kind`` names, looked up in `BundleKindRegistry`.
     ///
     /// Nil when ``kind`` names no registered bundle kind, such as a file kind
