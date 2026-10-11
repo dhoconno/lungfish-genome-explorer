@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 
@@ -102,12 +103,17 @@ struct CLIMSAActionRunner {
         isNativeBundleExtension(url.pathExtension)
     }
 
+    /// The bundle kinds an `msa` action can return as its output. A run that returns one of them
+    /// completes with a bundle URL, and every other output completes as a plain file URL.
+    private static let nativeBundleOutputKinds: Set<BundleKindID> = [
+        .multipleSequenceAlignment, .reference, .phylogeneticTree,
+    ]
+
+    /// Reads the kind through the registry's lowercased lookup, as this runner always lowercased the extension.
     private static func isNativeBundleExtension(_ pathExtension: String) -> Bool {
-        switch pathExtension.lowercased() {
-        case "lungfishmsa", "lungfishref", "lungfishtree":
-            return true
-        default:
+        guard let kind = BundleKindRegistry.descriptor(forLowercasedExtension: pathExtension)?.id else {
             return false
         }
+        return nativeBundleOutputKinds.contains(kind)
     }
 }
