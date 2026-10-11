@@ -14,7 +14,8 @@ public struct AnalysisRunReport: Sendable, Equatable {
     /// Every warning line of the run, in order. A completed run with warnings reads Completed
     /// with Warnings.
     public let warnings: [String]
-    /// The exit code the command ends with (``AnalysisRunExitCode``).
+    /// The exit code the command ends with (``AnalysisRunExitCode``). A plan that refused the
+    /// request exits with the code its error carries (``AnalysisRunExitCoding``).
     public let exitCode: Int32
     /// The root record, or nil when none was written.
     public let recordURL: URL?
@@ -39,7 +40,8 @@ public struct AnalysisRunReport: Sendable, Equatable {
 }
 
 /// The exit codes an analysis run ends with. They equal `CLIExitCode` in LungfishCLI, which this
-/// module cannot import.
+/// module cannot import. A run that failed exits with ``workflowError``, except a run whose plan
+/// refused it with an error that carries its own code (``AnalysisRunExitCoding``).
 public enum AnalysisRunExitCode {
     /// A completed run, with or without warnings.
     public static let completed: Int32 = 0
@@ -60,6 +62,19 @@ public enum AnalysisRunExitCode {
             return workflowError
         }
     }
+}
+
+/// An error a plan refuses a request with that says which code its command exits with, such as
+/// `CLIExitCode.inputError` (3) for a refused input or `CLIExitCode.dependency` (126) for a
+/// missing database. LungfishCLI conforms its refusal errors, which this module cannot import.
+///
+/// Only an error thrown by ``AnalysisRunTool/plan(_:context:)`` sets the exit code, and only when
+/// no cancel was requested. A code of 0, 125 or one outside 1 to 255 reads as
+/// ``AnalysisRunExitCode/workflowError``, so a failed run never exits as a success or a cancel.
+/// Every failure after the plan exits with ``AnalysisRunExitCode/workflowError``.
+public protocol AnalysisRunExitCoding: Error {
+    /// The code the command exits with when its plan refuses the request with this error.
+    var analysisRunExitCode: Int32 { get }
 }
 
 /// Why the executor itself stopped a run.

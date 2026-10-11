@@ -19,6 +19,8 @@ enum FakeUnitScript: Sendable {
     case fail(String)
     /// Throws.
     case throwError(String)
+    /// Throws an error that carries an exit code, which only a plan's error sets.
+    case throwCoded(String, exitCode: Int32)
     /// Reports these fractions, then completes.
     case progress([Double])
     /// Completes without writing or recording an output.
@@ -39,6 +41,13 @@ enum FakeUnitScript: Sendable {
 
 struct FakeToolError: Error, LocalizedError {
     let message: String
+    var errorDescription: String? { message }
+}
+
+/// A refusal that carries the exit code of its command, as `conda classify`'s input errors do.
+struct FakeCodedError: AnalysisRunExitCoding, LocalizedError {
+    let message: String
+    let analysisRunExitCode: Int32
     var errorDescription: String? { message }
 }
 
@@ -133,6 +142,8 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
     var layout: AnalysisRunLayout = .singleFolder
     var units: [AnalysisRunPlannedUnit<FakeUnitScript>] = [AnalysisRunPlannedUnit(label: "s1", value: .complete)]
     var planError: String?
+    /// The exit code the plan's error carries, which makes it a ``FakeCodedError``.
+    var planErrorExitCode: Int32?
     var readSetPlan: ParameterValue?
     var sourceBundle: URL?
     var finalizeError: String?
@@ -165,17 +176,17 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
             let entries = (try? FileManager.default.contentsOfDirectory(atPath: analyses.path)) ?? []
             probe.observe("analysesEmptyAtPlan", entries.isEmpty)
         }
-        if let planError {
-            throw FakeToolError(message: planError)
-        }
         switch planCancels {
         case .cancelAndThrow?:
             Self.cancelCurrentTask()
-            throw CancellationError()
+            throw planFailure ?? CancellationError()
         case .cancelAndReturn?:
             Self.cancelCurrentTask()
         case nil:
             break
+        }
+        if let planFailure {
+            throw planFailure
         }
         return AnalysisRunPlan(
             layout: layout,
@@ -187,6 +198,13 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
                 readSetPlan: readSetPlan
             )
         )
+    }
+
+    /// The error the plan throws, if any.
+    private var planFailure: (any Error)? {
+        guard let planError else { return nil }
+        guard let planErrorExitCode else { return FakeToolError(message: planError) }
+        return FakeCodedError(message: planError, analysisRunExitCode: planErrorExitCode)
     }
 
     func run(_ unit: AnalysisRunUnit<FakeUnitScript>, context: AnalysisRunUnitContext) async throws -> AnalysisUnitOutcome<URL> {
@@ -208,6 +226,8 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
             return .failed(reason: reason)
         case .throwError(let reason):
             throw FakeToolError(message: reason)
+        case .throwCoded(let reason, let exitCode):
+            throw FakeCodedError(message: reason, analysisRunExitCode: exitCode)
         case .progress(let fractions):
             for fraction in fractions {
                 context.progress(fraction, "\(unit.label) at \(fraction)")

@@ -95,7 +95,11 @@ public struct AnalysisRunExecutor: Sendable {
                 throw AnalysisRunError.emptyPlan(identity.toolID)
             }
         } catch {
-            let ending: AnalysisRunEnding = cancelIsRequested ? .cancelled : .failed(reason: Self.reason(for: error))
+            // A refused plan exits with the code its error carries, so a command keeps its own
+            // codes for the refusals it moved into the plan.
+            let ending: AnalysisRunEnding = cancelIsRequested
+                ? .cancelled
+                : .failed(reason: Self.reason(for: error), exitCode: Self.planExitCode(for: error))
             return report(ending, identity: identity, folder: nil, recordURL: nil, finalization: nil, journal: journal)
         }
         // A cancel during the plan leaves no folder, like a refused plan.
@@ -115,7 +119,14 @@ public struct AnalysisRunExecutor: Sendable {
             )
         } catch {
             let reason = "The analysis folder could not be prepared: \(Self.reason(for: error))"
-            return report(.failed(reason: reason), identity: identity, folder: nil, recordURL: nil, finalization: nil, journal: journal)
+            return report(
+                .failed(reason: reason, exitCode: AnalysisRunExitCode.workflowError),
+                identity: identity,
+                folder: nil,
+                recordURL: nil,
+                finalization: nil,
+                journal: journal
+            )
         }
         journal.emit(.output(path: folder.root.path, role: CLIEventArtifact.Role.analysisDirectory))
         plan.recordInputs.forEach(journal.recordInput)
@@ -131,7 +142,7 @@ public struct AnalysisRunExecutor: Sendable {
         } else {
             switch tool.terminalPolicy.outcome(for: units.reports, unitCount: plan.units.count) {
             case .failed(let reason):
-                ending = .failed(reason: reason)
+                ending = .failed(reason: reason, exitCode: AnalysisRunExitCode.workflowError)
             case .completed:
                 (ending, finalization) = await finalize(
                     tool,
@@ -205,7 +216,7 @@ public struct AnalysisRunExecutor: Sendable {
         } catch {
             guard !cancelIsRequested else { return (.cancelled, nil) }
             let reason = "The \(tool.identity.displayName) results could not be finished: \(Self.reason(for: error))"
-            return (.failed(reason: reason), nil)
+            return (.failed(reason: reason, exitCode: AnalysisRunExitCode.workflowError), nil)
         }
     }
 
@@ -280,13 +291,30 @@ public struct AnalysisRunExecutor: Sendable {
         }
         return error.localizedDescription
     }
+
+    /// The exit code of a run whose plan refused it with `error`, the code the error carries
+    /// (``AnalysisRunExitCoding``), or the workflow error code. A carried code that would read as
+    /// a success or a cancel, 0, 125 or one outside 1 to 255, reads as the workflow error code.
+    static func planExitCode(for error: Error) -> Int32 {
+        guard let coded = error as? any AnalysisRunExitCoding else {
+            return AnalysisRunExitCode.workflowError
+        }
+        let code = coded.analysisRunExitCode
+        guard (1...255).contains(code), code != AnalysisRunExitCode.cancelled else {
+            return AnalysisRunExitCode.workflowError
+        }
+        return code
+    }
 }
 
 /// How a run ended, inside the executor.
 enum AnalysisRunEnding: Sendable, Equatable {
     case completed
-    case failed(reason: String)
-    /// The run's task was cancelled. Only a cancel request ends a run this way.
+    /// The run failed for `reason`. Its command exits with `exitCode`, which is
+    /// `AnalysisRunExitCode.workflowError` for every failure but a refused plan whose error
+    /// carries its own code.
+    case failed(reason: String, exitCode: Int32)
+    /// A cancel was requested. Only a cancel request ends a run this way.
     case cancelled
 
     var status: RunStatus {
@@ -298,14 +326,18 @@ enum AnalysisRunEnding: Sendable, Equatable {
     }
 
     var exitCode: Int32 {
-        AnalysisRunExitCode.code(for: status)
+        switch self {
+        case .completed: return AnalysisRunExitCode.completed
+        case .failed(_, let exitCode): return exitCode
+        case .cancelled: return AnalysisRunExitCode.cancelled
+        }
     }
 
     /// Why the run did not complete, for the root record and the `failed` event. Nil when it completed.
     func message(displayName: String) -> String? {
         switch self {
         case .completed: return nil
-        case .failed(let reason): return reason
+        case .failed(let reason, _): return reason
         case .cancelled: return "\(displayName) was cancelled."
         }
     }

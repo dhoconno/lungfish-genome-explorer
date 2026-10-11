@@ -55,7 +55,10 @@ extension AnalysisRunExecutor {
             return RootRecordResult(ending: ending, url: try services.writer.write(envelope, to: folder.root))
         } catch {
             let settled: AnalysisRunEnding = ending == .completed
-                ? .failed(reason: "The run's provenance record could not be written: \(Self.reason(for: error))")
+                ? .failed(
+                    reason: "The run's provenance record could not be written: \(Self.reason(for: error))",
+                    exitCode: AnalysisRunExitCode.workflowError
+                )
                 : ending
             for attempt in [(inputs, steps), ([], [])] {
                 if let envelope = try? rootEnvelope(

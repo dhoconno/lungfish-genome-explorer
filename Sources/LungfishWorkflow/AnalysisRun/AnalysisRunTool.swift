@@ -40,6 +40,10 @@ public protocol AnalysisRunTool: Sendable {
     var terminalPolicy: AnalysisRunTerminalPolicy { get }
 
     /// Phase P0. Turns the request into units without writing anything.
+    ///
+    /// A thrown error refuses the request. The run fails before any folder exists, and its
+    /// command exits with the code the error carries (``AnalysisRunExitCoding``), else with
+    /// ``AnalysisRunExitCode/workflowError``.
     func plan(
         _ request: AnalysisRunRequest,
         context: AnalysisRunPlanningContext

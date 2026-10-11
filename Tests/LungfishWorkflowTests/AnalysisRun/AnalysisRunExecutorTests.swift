@@ -212,6 +212,64 @@ struct AnalysisRunExecutorTests {
         #expect(recorder.names == ["start", "failed"])
     }
 
+    @Test("A refused plan exits with the code its error carries, and a code that reads as success or cancel exits 64")
+    func refusedPlanExitsWithItsCode() async throws {
+        let fixture = try AnalysisRunTestProject()
+        defer { fixture.cleanup() }
+        let refusal = "The confidence must be between 0 and 1."
+        let cases: [(carried: Int32, exits: Int32)] = [(3, 3), (126, 126), (0, 64), (125, 64), (256, 64), (-1, 64)]
+        for (carried, exits) in cases {
+            let recorder = AnalysisRunEventRecorder()
+            var tool = FakeAnalysisRunTool(probe: FakeToolProbe())
+            tool.planError = refusal
+            tool.planErrorExitCode = carried
+
+            let report = await AnalysisRunExecutor.unsigned.execute(tool, fixture.request(), events: recorder.events)
+
+            #expect(report.exitCode == exits, "carried \(carried)")
+            #expect(report.status == .failed)
+            #expect(report.message == refusal)
+            #expect(report.analysisDirectory == nil)
+            #expect(report.recordURL == nil)
+            #expect(recorder.names == ["start", "failed"])
+        }
+        #expect(!FileManager.default.fileExists(atPath: fixture.project.appendingPathComponent("Analyses").path))
+    }
+
+    @Test("A coded error thrown after the plan cancelled its task exits 125")
+    func codedPlanErrorDuringACancelExitsAsACancel() async throws {
+        let fixture = try AnalysisRunTestProject()
+        defer { fixture.cleanup() }
+        let recorder = AnalysisRunEventRecorder()
+        var tool = FakeAnalysisRunTool(probe: FakeToolProbe())
+        tool.planCancels = .cancelAndThrow
+        tool.planError = "The input could not be read."
+        tool.planErrorExitCode = 3
+        let request = fixture.request()
+
+        let report = await Task { [tool] in await AnalysisRunExecutor.unsigned.execute(tool, request, events: recorder.events) }.value
+
+        #expect(report.status == .cancelled)
+        #expect(report.exitCode == 125)
+        #expect(report.analysisDirectory == nil)
+        #expect(recorder.names == ["start", "failed"])
+    }
+
+    @Test("A coded error after the plan exits 64")
+    func codedErrorAfterThePlanExits64() async throws {
+        let fixture = try AnalysisRunTestProject()
+        defer { fixture.cleanup() }
+        var tool = FakeAnalysisRunTool(probe: FakeToolProbe())
+        tool.units = [AnalysisRunPlannedUnit(label: "s1", value: .throwCoded("The reads could not be read.", exitCode: 3))]
+
+        let report = await AnalysisRunExecutor.unsigned.execute(tool, fixture.request(), events: .discarding)
+
+        #expect(report.status == .failed)
+        #expect(report.exitCode == 64)
+        #expect(report.message == "The reads could not be read.")
+        #expect(try fixture.record(at: report.recordURL).exitStatus == 64)
+    }
+
     @Test("A plan with no unit and a request with no command fail before any folder")
     func emptyPlanAndMissingCommandFail() async throws {
         let fixture = try AnalysisRunTestProject()
