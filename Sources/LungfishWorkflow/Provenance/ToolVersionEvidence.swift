@@ -16,9 +16,12 @@ import Foundation
 import LungfishIO
 
 public enum ToolVersionEvidence: Sendable, Hashable {
-    /// A version the tool's own probe printed. `reportedLine` is the raw line
-    /// the probe printed when the caller kept it (`2.31-r1302`), and it is
-    /// never what a writer records.
+    /// A version read from the tool or from the environment that holds it.
+    /// `reportedLine` is the raw line the probe printed when the caller kept
+    /// it (`2.31-r1302`). For a version read from an environment's conda-meta
+    /// it is the package record, `<name>-<version>-<build>`
+    /// (`condaMeta(id:environment:lock:)`). It is never what a writer records
+    /// as the version.
     case observed(version: String, reportedLine: String?)
     /// A version copied from the lock without running the tool. It says what
     /// the lock pins, not what is installed.

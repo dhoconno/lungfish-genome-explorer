@@ -6,7 +6,8 @@
 // samtools merge, samtools index and the pysam retained-read demux filter. Until this lane each one wrote the
 // literal `unknown` as its version and named no managed tool. The genotype golden holds 26 such steps in 12
 // records. This suite runs the whole pipeline on stand-in tools, reads every record the run wrote and holds
-// the steps to what they record now. The pin that held the `unknown` literals at the base is commit 11320cbdb.
+// the steps to what they record now. The lane's first commit pinned the `unknown` literals at the base, and the
+// tests below replaced that pin in the commit that changed the steps.
 //
 // A step names its lock entry in `managedToolID` and the version the environment that ran it holds in
 // `toolVersionEvidence`. The version is read from the environment's conda-meta after the run, so an
