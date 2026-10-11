@@ -282,7 +282,7 @@ Finally, remember what the [Confidence](../../GLOSSARY.md#confidence-kraken-2) t
 
 ## On the command line
 
-These commands repeat the procedure, as [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) explains. Every flag of `kraken2 classify` is listed in [Classification](../appendices/cli-reference.md#classification) in the CLI Reference, and the import in [`import kraken2`](../appendices/cli-reference.md#import-kraken2). The older spelling `conda classify` takes the same flags, and a command copied from the Operations panel still uses it.
+These commands repeat the procedure, as [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) explains. Every flag of `kraken2 classify` is listed in [Classification](../appendices/cli-reference.md#classification) in the CLI Reference, and the import in [`import kraken2`](../appendices/cli-reference.md#import-kraken2). The older spelling `conda classify` takes the same flags. A command copied from the Operations panel uses `kraken2 classify` with `--project`, so running it makes a new result folder under `Analyses`.
 
 ```bash
 PROJECT="$HOME/Documents/LGE Demo Projects/Pathogen Detection.lungfish"
