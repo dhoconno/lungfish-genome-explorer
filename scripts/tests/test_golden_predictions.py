@@ -540,6 +540,20 @@ def test_a_rule_that_gives_a_value_decides_even_when_a_rule_without_one_covers_t
     assert verdict.wrong[0][2] == "new value is 198, predicted 199"
 
 
+DECIDERS = [
+    pytest.param({"old": 150}, id="old"),
+    pytest.param({"oldPattern": "1[0-4][0-9]"}, id="oldPattern"),
+    pytest.param({"value": 199}, id="value"),
+    pytest.param({"pattern": "2[0-9][0-9]"}, id="pattern"),
+]
+
+
+@pytest.mark.parametrize("decider", DECIDERS)
+def test_a_rule_with_old_oldpattern_value_or_pattern_decides_over_a_rule_without_one(decider):
+    prediction = doc(entry(COUNTS, changed=[{"path": "/mapped"}, {"path": "/mapped", **decider}]))
+    assert problems(BASE, tree(MAPPED_198), prediction) == ["wrong mapping/counts.json changed /mapped"]
+
+
 def test_a_change_that_every_rule_giving_a_value_refuses_is_counted_by_no_rule():
     prediction = doc(entry(COUNTS, changed=[{"path": "/mapped", "value": 199}, {"path": "/mapped", "count": 1}]))
     _, _, verdict = check_trees(BASE, tree(MAPPED_198), prediction)
@@ -606,12 +620,22 @@ PAIRINGS = [
     # Every other block keeps position pairing
     ("an-id-of-the-smaller-side-is-missing", [row("a", 1), row("b", 1)], [row("a", 2), row("b2", 2), row("c", 2)],
      ["added /rows[2]", "changed /rows[0]/k", "changed /rows[1]/id", "changed /rows[1]/k"]),
-    ("duplicate-ids", [row("a", 1), row("a", 1)], [row("a", 2), row("a", 2), row("b", 2)], ["added /rows[2]", "changed /rows[0]/k", "changed /rows[1]/k"]),
+    ("duplicate-ids-on-the-older-side", [row("a", 1), row("a", 1)], [row("x", 2), row("a", 2), row("b", 2)],
+     ["added /rows[2]", "changed /rows[0]/id", "changed /rows[0]/k", "changed /rows[1]/k"]),
+    ("duplicate-ids-on-the-newer-side", [row("x", 1), row("a", 1)], [row("a", 2), row("a", 2), row("x", 2)],
+     ["added /rows[2]", "changed /rows[0]/id", "changed /rows[0]/k", "changed /rows[1]/k"]),
     ("an-element-without-an-id", [row("a", 1), {"k": 1}], [row("a", 2), {"k": 2}, row("b", 2)], ["added /rows[2]", "changed /rows[0]/k", "changed /rows[1]/k"]),
     ("ids-on-some-and-paths-on-others", [row("a", 1), row("b", 1, "path")], [row("a", 2), row("b", 2, "path"), row("c", 2, "path")],
      ["added /rows[2]", "changed /rows[0]/k", "changed /rows[1]/k"]),
     ("the-same-number-of-elements", [row("a", 1), row("b", 1)], [row("b", 2), row("a", 2)],
      ["changed /rows[0]/id", "changed /rows[0]/k", "changed /rows[1]/id", "changed /rows[1]/k"]),
+    ("a-boolean-is-no-id", [row(True, 1)], [row(False, 2), row(True, 2)], ["added /rows[1]", "changed /rows[0]/id", "changed /rows[0]/k"]),
+    ("a-number-is-no-id", [row(1, 1), row(2, 1)], [row(1, 2), row(3, 2), row(2, 2)],
+     ["added /rows[2]", "changed /rows[0]/k", "changed /rows[1]/id", "changed /rows[1]/k"]),
+    # An element that has both keys is known by its id, even when its paths repeat
+    ("id-wins-over-path", [{"id": "a", "path": "p", "k": 1}, {"id": "b", "path": "p", "k": 1}],
+     [{"id": "a", "path": "p", "k": 2}, {"id": "x", "path": "p", "k": 2}, {"id": "b", "path": "p", "k": 2}],
+     ["added /rows[1]", "changed /rows[0]/k", "changed /rows[2]/k"]),
 ]
 
 
@@ -625,6 +649,14 @@ def test_a_paired_element_is_named_by_its_new_index_and_a_removed_one_by_its_old
     two = [row("a", 1), row("d", 1)]
     assert row_changes(four, [row("a", 2), row("d", 2)]) == ["changed /rows[0]/k", "changed /rows[1]/k", "removed /rows[1]", "removed /rows[2]"]
     assert row_changes(two, [row(name, 2) for name in "abcd"]) == ["added /rows[1]", "added /rows[2]", "changed /rows[0]/k", "changed /rows[3]/k"]
+
+
+def test_a_block_after_an_earlier_block_moved_the_indexes_names_each_element_by_the_side_it_comes_from():
+    shifted, head = [row("q", 1), row("r", 1), row("e", 1)], [row("p", 1), row("e", 1)]  # p became q and r, so the new side is one row longer
+    removal = row_changes(head + [row("a", 1), row("b", 1), row("c", 1)], shifted + [row("a", 2), row("c", 2)])
+    assert removal == ["added /rows[1]", "changed /rows[0]/id", "changed /rows[3]/k", "changed /rows[4]/k", "removed /rows[3]"]
+    insertion = row_changes(head + [row("a", 1), row("c", 1)], shifted + [row("a", 2), row("b", 2), row("c", 2)])
+    assert insertion == ["added /rows[1]", "added /rows[4]", "changed /rows[0]/id", "changed /rows[3]/k", "changed /rows[5]/k"]
 
 
 def test_invalid_json_is_never_predicted():
