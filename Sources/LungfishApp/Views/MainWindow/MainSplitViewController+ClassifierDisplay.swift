@@ -341,7 +341,13 @@ extension MainSplitViewController {
                 viewerController.clearViewport(statusMessage: "This Savont batch has no results yet.")
             }
             return
-        case .naoMgs, .nvd, .czId, .unknown:
+        case .czId:
+            // Nothing writes a CZ-ID batch, so the row shows what any analysis with no viewer shows.
+            inspectorController?.clearSelection()
+            inspectorController?.updateProvenanceTarget(url: batchURL, sidebarType: .analysisResult, displayName: dirName)
+            viewerController.clearViewport(statusMessage: "Unsupported analysis: \(AnalysisToolID.czId.rawValue). Inspect or reveal \(dirName) from the sidebar.")
+            return
+        case .naoMgs, .nvd, .unknown:
             break
         }
 
@@ -626,17 +632,7 @@ extension MainSplitViewController {
         viewerController.clearViewport(statusMessage: "")
 
         let placeholder = DatabaseBuildPlaceholderView()
-
-        let contentView = viewerController.view
-        contentView.addSubview(placeholder)
-        registerTransientViewportOverlay(placeholder)
-        placeholder.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            placeholder.topAnchor.constraint(equalTo: contentView.topAnchor),
-            placeholder.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            placeholder.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            placeholder.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-        ])
+        installDatabaseBuildPlaceholder(placeholder)
 
         let dirName = resultURL.lastPathComponent
         mainSplitLogger.info(
@@ -650,6 +646,21 @@ extension MainSplitViewController {
             placeholder: placeholder,
             request: databaseBuildRequest
         )
+    }
+
+    /// Fills the viewport with `placeholder` as a transient overlay, unless it is already there.
+    private func installDatabaseBuildPlaceholder(_ placeholder: DatabaseBuildPlaceholderView) {
+        guard placeholder.superview == nil else { return }
+        let contentView = viewerController.view
+        contentView.addSubview(placeholder)
+        registerTransientViewportOverlay(placeholder)
+        placeholder.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            placeholder.topAnchor.constraint(equalTo: contentView.topAnchor),
+            placeholder.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            placeholder.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            placeholder.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+        ])
     }
 
     func beginDatabaseBuildRequest(
@@ -735,18 +746,7 @@ extension MainSplitViewController {
                         self.commitDatabaseBuildCompletion(completionRequest) {
                             placeholder.showError("Build failed: \(errorDescription)")
                             // Ensure the placeholder is still in the viewport hierarchy so the error is visible.
-                            if placeholder.superview == nil {
-                                let contentView = self.viewerController.view
-                                contentView.addSubview(placeholder)
-                                self.registerTransientViewportOverlay(placeholder)
-                                placeholder.translatesAutoresizingMaskIntoConstraints = false
-                                NSLayoutConstraint.activate([
-                                    placeholder.topAnchor.constraint(equalTo: contentView.topAnchor),
-                                    placeholder.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-                                    placeholder.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-                                    placeholder.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-                                ])
-                            }
+                            self.installDatabaseBuildPlaceholder(placeholder)
                             placeholder.onRetry = { [weak self] in
                                 placeholder.removeFromSuperview()
                                 self?.showDatabaseBuildPlaceholder(tool: tool, resultURL: resultURL)

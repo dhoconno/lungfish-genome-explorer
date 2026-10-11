@@ -211,6 +211,36 @@ extension RoutingSafetyNetTable {
                     )
                 )
             },
+            RoutingRow(family: .containers, name: "CZ-ID batch root, a tool with no viewer", type: .batchGroup) { context in
+                // Nothing writes a cz-id-batch folder, but the sidebar lists one as a batch with
+                // the CZ badge. Selecting it shows the state an analysis with no viewer shows.
+                let batch = try SafetyNetFiles.makeDirectory(
+                    context.url("Analyses/cz-id-batch-2026-01-15T20-40-00", isDirectory: true)
+                )
+                try metadata("cz-id", isBatch: true, in: batch)
+                let item = try RoutingSafetyNetItems.scannedAnalysis(batch)
+                return RoutingRowFixture(
+                    item: item,
+                    expected: RoutingObservation(
+                        status: "Unsupported analysis: cz-id. Inspect or reveal cz-id-batch-2026-01-15T20-40-00 from the sidebar.",
+                        provenance: "analysisResult \(context.render(batch))"
+                    )
+                )
+            },
+            RoutingRow(family: .containers, name: "CZ-ID batch root without a sidecar", type: .batchGroup) { context in
+                // A folder the scanner knows only by its name reads the same.
+                let batch = try SafetyNetFiles.makeDirectory(
+                    context.url("Analyses/cz-id-batch-2026-01-15T20-50-00", isDirectory: true)
+                )
+                let item = try RoutingSafetyNetItems.scannedAnalysis(batch)
+                return RoutingRowFixture(
+                    item: item,
+                    expected: RoutingObservation(
+                        status: "Unsupported analysis: cz-id. Inspect or reveal cz-id-batch-2026-01-15T20-50-00 from the sidebar.",
+                        provenance: "analysisResult \(context.render(batch))"
+                    )
+                )
+            },
         ]
     }
 
