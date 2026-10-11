@@ -52,7 +52,7 @@ Lungfish follows your macOS system appearance (Light or Dark mode) automatically
 ### File Handling
 
 The app registers file associations for common genomic formats:
-- `.lungfish` / `.lungfishbundle`: Genome bundles
+- `.lungfishref` reference bundles, `.lungfishmsa` alignments, `.lungfishtree` trees, `.lungfishmhcref` MHC references and `.lungfishprimeranalysis` primer analyses
 - `.fa` / `.fasta`: FASTA sequence files
 - `.gff` / `.gff3`: GFF annotation files
 - `.vcf`: Variant Call Format files

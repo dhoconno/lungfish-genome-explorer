@@ -20,7 +20,7 @@ The app is built around **genome bundles**: self-contained packages that include
 
 ## Opening an Existing Bundle
 
-If you already have a `.lungfish` or `.lungfishbundle` file:
+A project is a `.lungfish` folder, and the sidebar lists the bundles inside it, such as `.lungfishref` reference bundles and `.lungfishfastq` read bundles. If you already have a project folder:
 
 1. Choose **File > Open** (Cmd+O)
 2. Navigate to your bundle file
