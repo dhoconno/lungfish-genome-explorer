@@ -734,7 +734,8 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             throw FASTQIngestionError.clumpifyFailed("clumpify.sh completed without producing output")
         }
 
-        let toolVersion = await runner.getToolVersion(.clumpify) ?? Self.pinnedManagedToolVersion(named: "bbtools")
+        let evidence = await versionEvidence(for: .clumpify)
+        let toolVersion = evidence.version
         return StepExecution(
             toolName: "clumpify.sh",
             toolVersion: toolVersion ?? "unknown",
@@ -759,7 +760,8 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
     ) async throws -> FASTQProcessingRecord {
         progress(1.0, "clumpify.sh complete")
         logger.info("Clumpified reads with bbtools (\(config.qualityBinning.rawValue) binning)")
-        let toolVersion = await runner.getToolVersion(.clumpify) ?? Self.pinnedManagedToolVersion(named: "bbtools")
+        let evidence = await versionEvidence(for: .clumpify)
+        let toolVersion = evidence.version
         let commandLine = steps
             .filter { $0.toolName == "clumpify.sh" }
             .map { "clumpify.sh " + $0.command.dropFirst().joined(separator: " ") }
@@ -861,7 +863,8 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             )
         }
 
-        let toolVersion = await runner.getToolVersion(.trimGalore) ?? Self.pinnedManagedToolVersion(named: "trim_galore")
+        let evidence = await versionEvidence(for: .trimGalore)
+        let toolVersion = evidence.version
         let trimStep = StepExecution(
             toolName: "trim_galore",
             toolVersion: toolVersion ?? "unknown",
@@ -968,7 +971,8 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             throw FASTQIngestionError.clumpifyFailed("reformat.sh completed without producing interleaved output")
         }
 
-        let toolVersion = await runner.getToolVersion(.reformat) ?? Self.pinnedManagedToolVersion(named: "bbtools")
+        let evidence = await versionEvidence(for: .reformat)
+        let toolVersion = evidence.version
         let step = StepExecution(
             toolName: "reformat.sh",
             toolVersion: toolVersion ?? "unknown",
@@ -1102,7 +1106,8 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             "Interleaved \(outcome.counts.r1Records) pairs into \(outputFile.lastPathComponent) with \(tool.executableName)"
         )
 
-        let toolVersion = await runner.getToolVersion(tool) ?? Self.pinnedVersion(for: tool)
+        let evidence = await versionEvidence(for: tool)
+        let toolVersion = evidence.version
         let interleaveCommand = ["LungfishWorkflow", "interleave-pairs", r1.path, r2.path]
         let step = StepExecution(
             toolName: tool.executableName,
@@ -1220,7 +1225,8 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         progress(1.0, "reformat.sh complete")
         logger.info("Binned quality scores with reformat.sh (\(config.qualityBinning.rawValue))")
 
-        let toolVersion = await runner.getToolVersion(.reformat) ?? Self.pinnedManagedToolVersion(named: "bbtools")
+        let evidence = await versionEvidence(for: .reformat)
+        let toolVersion = evidence.version
         let step = StepExecution(
             toolName: "reformat.sh",
             toolVersion: toolVersion ?? "unknown",
@@ -1325,7 +1331,8 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         }
 
         progress(1.0, "Compression complete")
-        let toolVersion = await runner.getToolVersion(tool) ?? Self.pinnedVersion(for: tool)
+        let evidence = await versionEvidence(for: tool)
+        let toolVersion = evidence.version
         let step = StepExecution(
             toolName: tool.executableName,
             toolVersion: toolVersion ?? "unknown",
@@ -1347,23 +1354,14 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         )
     }
 
-    private static func pinnedVersion(for tool: NativeTool) -> String? {
-        switch tool {
-        case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat, .bbmap, .mapPacBio:
-            return pinnedManagedToolVersion(named: "bbtools")
-        case .bgzip:
-            return pinnedManagedToolVersion(named: "htslib")
-        case .pigz:
-            return pinnedManagedToolVersion(named: "pigz")
-        case .trimGalore:
-            return pinnedManagedToolVersion(named: "trim_galore")
-        default:
-            return nil
-        }
+    /// A probe that answers is observed. One that does not leaves the lock's pin for the tool's id,
+    /// recorded as a pin and never as a measurement, or unknown when the lock holds none.
+    private func versionEvidence(for tool: NativeTool) async -> ToolVersionEvidence {
+        Self.versionEvidence(observed: await runner.getToolVersion(tool), for: tool)
     }
 
-    private static func pinnedManagedToolVersion(named id: String) -> String? {
-        ManagedToolLock.bundled.entry(id: ManagedToolID(rawValue: id))?.version
+    static func versionEvidence(observed: String?, for tool: NativeTool, lock: ManagedToolLock = .bundled) -> ToolVersionEvidence {
+        observed.map { .observed(version: $0, reportedLine: nil) } ?? .lockPin(for: tool.managedToolID, in: lock)
     }
 
     // MARK: - Helpers
