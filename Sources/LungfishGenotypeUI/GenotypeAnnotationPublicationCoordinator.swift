@@ -2,29 +2,44 @@ import Darwin
 import Foundation
 import LungfishIO
 
-enum GenotypeAnnotationPublicationFaultPoint: Equatable, Sendable {
+public enum GenotypeAnnotationPublicationFaultPoint: Equatable, Sendable {
     case beforeProvenancePublication
     case commitDirectorySync
 }
 
-typealias GenotypeAnnotationPublicationFaultInjector =
+public typealias GenotypeAnnotationPublicationFaultInjector =
     @Sendable (GenotypeAnnotationPublicationFaultPoint) -> Error?
 
-struct GenotypeAnnotationPublicationSnapshot: Sendable {
-    let annotationData: Data?
-    let provenanceData: Data?
+public struct GenotypeAnnotationPublicationSnapshot: Sendable {
+    public let annotationData: Data?
+    public let provenanceData: Data?
+
+    public init(annotationData: Data?, provenanceData: Data?) {
+        self.annotationData = annotationData
+        self.provenanceData = provenanceData
+    }
 }
 
-struct GenotypeAnnotationPublicationPayload: Sendable {
-    let annotationData: Data
-    let provenanceData: Data
+public struct GenotypeAnnotationPublicationPayload: Sendable {
+    public let annotationData: Data
+    public let provenanceData: Data
+
+    public init(annotationData: Data, provenanceData: Data) {
+        self.annotationData = annotationData
+        self.provenanceData = provenanceData
+    }
 }
 
-struct GenotypeAnnotationPublicationTransactionError: Error, LocalizedError {
-    let primaryError: Error
-    let rollbackError: Error?
+public struct GenotypeAnnotationPublicationTransactionError: Error, LocalizedError {
+    public let primaryError: Error
+    public let rollbackError: Error?
 
-    var errorDescription: String? {
+    public init(primaryError: Error, rollbackError: Error?) {
+        self.primaryError = primaryError
+        self.rollbackError = rollbackError
+    }
+
+    public var errorDescription: String? {
         guard let rollbackError else { return primaryError.localizedDescription }
         return "\(primaryError.localizedDescription) Rollback also failed: \(rollbackError.localizedDescription)"
     }
@@ -52,13 +67,25 @@ private enum GenotypeAnnotationPublicationCoordinatorError: Error, LocalizedErro
 /// puts back every file that no longer holds what the snapshot read. The bundle opens the way
 /// `DurableReplace` opens a folder, anchored at the outermost `.lungfish*` component, so a link
 /// below that anchor is refused (V3).
-struct GenotypeAnnotationPublicationCoordinator {
-    let bundleURL: URL
-    let annotationFilename: String
-    let provenanceFilename: String
-    let faultInjector: GenotypeAnnotationPublicationFaultInjector?
+public struct GenotypeAnnotationPublicationCoordinator {
+    public let bundleURL: URL
+    public let annotationFilename: String
+    public let provenanceFilename: String
+    public let faultInjector: GenotypeAnnotationPublicationFaultInjector?
 
-    func transact(
+    public init(
+        bundleURL: URL,
+        annotationFilename: String,
+        provenanceFilename: String,
+        faultInjector: GenotypeAnnotationPublicationFaultInjector?
+    ) {
+        self.bundleURL = bundleURL
+        self.annotationFilename = annotationFilename
+        self.provenanceFilename = provenanceFilename
+        self.faultInjector = faultInjector
+    }
+
+    public func transact(
         prepare: (GenotypeAnnotationPublicationSnapshot) throws -> GenotypeAnnotationPublicationPayload?
     ) throws -> GenotypeAnnotationPublicationPayload? {
         let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(for: bundleURL)

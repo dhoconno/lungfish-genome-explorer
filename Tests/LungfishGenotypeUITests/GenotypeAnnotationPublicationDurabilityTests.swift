@@ -8,8 +8,7 @@ import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishTestSupport
-import LungfishWorkflow
-@testable import LungfishGenotypeUI
+import LungfishGenotypeUI
 
 /// `GenotypeAnnotationPublicationCoordinator` publishes `annotations.json` and
 /// its provenance record through `DurableReplace`, inside one transaction
@@ -22,8 +21,8 @@ final class GenotypeAnnotationPublicationDurabilityTests: XCTestCase {
     private var root: URL!
 
     private static let annotationName = GenotypeAnnotationSidecar.filename
-    private static let provenanceName = ProvenanceRecorder
-        .fileSidecarURL(for: URL(fileURLWithPath: "/\(GenotypeAnnotationSidecar.filename)")).lastPathComponent
+    /// The record name `ProvenanceRecorder.fileSidecarURL(for:)` gives `annotations.json`.
+    private static let provenanceName = "\(GenotypeAnnotationSidecar.filename).lungfish-provenance.json"
 
     override func setUpWithError() throws {
         root = try TestTempDirectory.make(prefix: "genotype-durability")
