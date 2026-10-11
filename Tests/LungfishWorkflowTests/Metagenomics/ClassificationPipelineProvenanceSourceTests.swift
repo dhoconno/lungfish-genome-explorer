@@ -547,18 +547,24 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
     /// The database installer and the classification pipeline read the version through one function,
     /// so they cannot disagree about which claim wins.
     func testTheInstallerAndThePipelineShareOneBrackenVersionRule() async throws {
-        let cases: [(FakeClassificationCondaFixture.BrackenInstall, String?)] = [
-            (.sourceOverlay(version: "3.1"), "3.1"),
-            (.condaPackage(version: "1.0.0"), "1.0.0"),
-            (.none, nil),
+        let cases: [(FakeClassificationCondaFixture.BrackenInstall, String?, ManagedBrackenVersion.Source?)] = [
+            (.sourceOverlay(version: "3.1"), "3.1", .sourceOverlay),
+            (.condaPackage(version: "1.0.0"), "1.0.0", .condaPackage),
+            (.none, nil, nil),
         ]
-        for (install, expected) in cases {
+        for (install, expected, expectedSource) in cases {
             let fixture = try FakeClassificationCondaFixture(brackenInstall: install)
             defer { fixture.cleanup() }
             let rule = await ManagedMetagenomicsDatabaseToolRunner.managedBrackenVersion(
                 fixture.condaManager, environment: ClassificationPipeline.brackenEnvironment
             )
             XCTAssertEqual(rule, expected, "\(install)")
+            // The claim that supplied the version is what a record names as the source.
+            let claim = await ManagedMetagenomicsDatabaseToolRunner.managedBracken(
+                fixture.condaManager, environment: ClassificationPipeline.brackenEnvironment
+            )
+            XCTAssertEqual(claim?.version, expected, "\(install)")
+            XCTAssertEqual(claim?.source, expectedSource, "\(install)")
             do {
                 let installed = try await ManagedMetagenomicsDatabaseToolRunner.resolveManagedToolVersion(
                     fixture.condaManager, "bracken-build", ClassificationPipeline.brackenEnvironment, fixture.root

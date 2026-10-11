@@ -22,6 +22,20 @@ public struct MetagenomicsDatabaseToolResult: Sendable, Equatable {
     }
 }
 
+/// A Bracken version and the claim that supplied it, read by the database installer and the
+/// classification pipeline through one function (plan decision S20).
+struct ManagedBrackenVersion: Sendable, Equatable {
+    enum Source: Sendable, Equatable {
+        /// A validated source overlay, whose receipt names the build that runs (3.1).
+        case sourceOverlay
+        /// The conda package alone (1.0.0).
+        case condaPackage
+    }
+
+    let version: String
+    let source: Source
+}
+
 public protocol MetagenomicsDatabaseToolRunning: Sendable {
     func run(name: String, arguments: [String], environment: String, workingDirectory: URL, timeout: TimeInterval) async throws -> MetagenomicsDatabaseToolResult
     func executableDirectory(environment: String) async throws -> URL
@@ -120,13 +134,18 @@ public struct ManagedMetagenomicsDatabaseToolRunner: MetagenomicsDatabaseToolRun
     /// overlay's 3.1 is what runs. Without one, the conda package's version. Nothing asks the tool,
     /// because the 3.1 build prints `Bracken v3.0.1` and the 1.0.0 wrapper prints a usage error.
     public static func managedBrackenVersion(_ condaManager: CondaManager, environment: String) async -> String? {
+        await managedBracken(condaManager, environment: environment)?.version
+    }
+
+    /// The same rule with the claim that supplied the version, so a record can say where it came from.
+    static func managedBracken(_ condaManager: CondaManager, environment: String) async -> ManagedBrackenVersion? {
         if let version = await condaManager.validatedSourceOverlayVersion(kind: .bracken, environment: environment) {
-            return version
+            return ManagedBrackenVersion(version: version, source: .sourceOverlay)
         }
         let environmentURL = await condaManager.environmentURL(named: environment)
         guard let version = CondaMetaReader.primaryPackage(named: "bracken", inEnvironment: environmentURL)?.version,
               !version.isEmpty else { return nil }
-        return version
+        return ManagedBrackenVersion(version: version, source: .condaPackage)
     }
 
     public static func resolveManagedToolVersion(_ condaManager: CondaManager, _ name: String, _ environment: String, _ workingDirectory: URL) async throws -> String {
