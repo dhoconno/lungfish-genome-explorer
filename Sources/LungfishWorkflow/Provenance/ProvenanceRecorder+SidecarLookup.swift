@@ -168,7 +168,28 @@ extension ProvenanceRecorder {
         return (sidecarURL, provenance.canonicalEnvelope(sourceDirectory: directory))
     }
 
+    /// The folder's own record and roll-ups first, then root files named like a record, then the
+    /// records of operations on the folder. The last two can belong to another operation, so when
+    /// the folder's own record was interrupted only the first group is offered.
     private static func directorySidecarCandidates(for directory: URL) -> [URL] {
+        let canonicalCandidates = [
+            directory.appendingPathComponent(provenanceFilename),
+            directory
+                .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+                .appendingPathComponent(ProvenanceWriter.bundleRollupFilename),
+            directory.appendingPathComponent(ProvenanceWriter.bundleRollupFilename),
+            directory
+                .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+                .appendingPathComponent(provenanceFilename),
+        ]
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey]
+        )) ?? []
+        guard !canonicalRecordWasInterrupted(in: directory, names: contents.map(\.lastPathComponent)) else {
+            return canonicalCandidates
+        }
+
         let operationCandidates = [
             directory
                 .appendingPathComponent("assembly", isDirectory: true)
@@ -181,36 +202,17 @@ extension ProvenanceRecorder {
                 .appendingPathComponent("manual-annotation-provenance.json"),
             directory.appendingPathComponent("extraction-metadata.json"),
         ] + nestedOperationSidecarCandidates(for: directory)
-
-        let canonicalCandidates = [
-            directory.appendingPathComponent(provenanceFilename),
-            directory
-                .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
-                .appendingPathComponent(ProvenanceWriter.bundleRollupFilename),
-            directory.appendingPathComponent(ProvenanceWriter.bundleRollupFilename),
-            directory
-                .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
-                .appendingPathComponent(provenanceFilename),
-        ]
-        return canonicalCandidates + workflowNamedRootSidecarCandidates(for: directory) + operationCandidates
+        return canonicalCandidates + workflowNamedRootSidecarCandidates(in: contents) + operationCandidates
     }
 
-    /// Root files named like a record, for a folder that holds no canonical record. Such a file
-    /// can belong to another operation, so the fallback stops when the folder's own record was
-    /// interrupted (`canonicalRecordWasInterrupted(in:names:)`).
-    private static func workflowNamedRootSidecarCandidates(for directory: URL) -> [URL] {
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey]
-        ) else {
-            return []
-        }
+    /// Root files named like a record, for a folder that holds no canonical record.
+    private static func workflowNamedRootSidecarCandidates(in contents: [URL]) -> [URL] {
         let canonicalFilenames: Set<String> = [
             provenanceFilename,
             ProvenanceWriter.bundleRollupFilename,
             MappingProvenance.filename,
         ]
-        let candidates = contents
+        return contents
             .filter { url in
                 let filename = url.lastPathComponent
                 guard !canonicalFilenames.contains(filename) else { return false }
@@ -222,17 +224,12 @@ extension ProvenanceRecorder {
                 return values?.isRegularFile == true
             }
             .sorted { $0.path < $1.path }
-        guard !candidates.isEmpty,
-              !canonicalRecordWasInterrupted(in: directory, names: contents.map(\.lastPathComponent)) else {
-            return []
-        }
-        return candidates
     }
 
     /// Whether the folder's own `.lungfish-provenance.json` exists and reads as no JSON object,
     /// which is every file the tolerant reader refuses, or is missing beside its own swap
     /// tombstone, staged copy or the aside a released writer left. An interrupted write leaves
-    /// one of these states, and a read runs no recovery, so it only looks (lane P1 review).
+    /// one of these states, and a read runs no recovery, so it only looks.
     private static func canonicalRecordWasInterrupted(in directory: URL, names: [String]) -> Bool {
         let canonical = directory.appendingPathComponent(provenanceFilename)
         if FileManager.default.fileExists(atPath: canonical.path) {

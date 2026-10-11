@@ -54,6 +54,27 @@ final class ProvenanceSidecarFallbackTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: stage.path), "a read runs no recovery")
     }
 
+    /// A released writer moved the old record to `.provenance-displaced-` before it published the
+    /// new one. Neither the named sibling nor an operation record of the folder stands in.
+    func testAMissingRecordBesideItsReleasedAsideIsNotReplacedByAnotherRecord() throws {
+        let aside = folder.appendingPathComponent(".\(ProvenanceRecorder.provenanceFilename)\(ProvenanceWriter.releasedDisplacedInfix)\(UUID().uuidString)")
+        try record(named: "own-operation").write(to: aside)
+        try record(named: "extraction-operation").write(to: folder.appendingPathComponent("extraction-metadata.json"))
+        assertNoSiblingStandsIn()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: aside.path), "a read runs no recovery")
+    }
+
+    /// The fixed operation records of a folder, such as an annotation edit, are another
+    /// operation's record too.
+    func testAnEmptyRecordIsNotReplacedByAnAnnotationEditRecord() throws {
+        try FileManager.default.removeItem(at: folder.appendingPathComponent("other.lungfish-provenance.json"))
+        let metadata = folder.appendingPathComponent("metadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: metadata, withIntermediateDirectories: true)
+        try record(named: "annotation-edit").write(to: metadata.appendingPathComponent("annotation-edit-provenance.json"))
+        try Data().write(to: canonical)
+        assertNoSiblingStandsIn()
+    }
+
     func testAFolderThatNeverHadARecordStillFindsItsWorkflowNamedRecord() throws {
         let found = ProvenanceRecorder.findProvenanceEnvelope(for: folder)
         XCTAssertEqual(found?.envelope.workflowName, "sibling-operation")
@@ -77,7 +98,10 @@ final class ProvenanceSidecarFallbackTests: XCTestCase {
             found?.envelope.workflowName, "sibling-operation",
             "the finder returned another operation's record for the folder", file: file, line: line
         )
-        XCTAssertNil(found, "nothing else in the project describes the folder", file: file, line: line)
+        XCTAssertNil(
+            found, "nothing else in the project describes the folder, but found \(found?.envelope.workflowName ?? "")",
+            file: file, line: line
+        )
     }
 
     private func record(named workflowName: String) throws -> Data {
