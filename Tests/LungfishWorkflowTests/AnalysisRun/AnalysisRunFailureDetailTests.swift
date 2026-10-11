@@ -112,7 +112,7 @@ struct AnalysisRunFailureDetailTests {
         ]
         tool.failureDetails = ["s1": "the completed unit's text", "s2": "second tail"]
 
-        let report = await AnalysisRunExecutor.unsigned.execute(
+        _ = await AnalysisRunExecutor.unsigned.execute(
             tool,
             fixture.request(groupsSamples: true),
             events: recorder.events

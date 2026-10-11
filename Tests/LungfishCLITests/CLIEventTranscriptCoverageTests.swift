@@ -14,8 +14,8 @@ import XCTest
 /// Check A3 of the contract table (plan decision S18, QA correction 8).
 ///
 /// Each leaf that emits events has a folder under `Tests/Fixtures/cli-events/commands`. Most were
-/// captured in process, and the five that run an external tool were captured from real runs of the
-/// built `lungfish-cli`. The checks decode every line under version 2, expect one terminal event last,
+/// captured in process, and the leaves in `toolLeaves`, which run an external tool or the FASTQ
+/// import, were captured from real runs of the built `lungfish-cli`. The checks decode every line under version 2, expect one terminal event last,
 /// read each run with the frozen version 1 reader to the same outcome and outputs, and pin the order
 /// of `outputs` for `variants call` and `bam primer-trim`. The capture tests run the in-process leaves
 /// again and fail when a line differs from its transcript, so a transcript cannot go stale while the
