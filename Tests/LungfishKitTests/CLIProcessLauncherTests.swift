@@ -26,6 +26,19 @@ final class CLIProcessLauncherTests: XCTestCase {
         XCTAssertEqual(spec.label, "lungfish-cli")
     }
 
+    /// Phase 2.7 lane S0. `CLISubprocessTransport.run` passes its grace periods here, and
+    /// `CLIImportRunner` already does, so both values must reach the spec unchanged.
+    func testTheGracePeriodsReachTheSpec() {
+        let spec = CLIProcessLauncher.spec(
+            executableURL: cli,
+            arguments: [],
+            terminationGracePeriod: .seconds(5),
+            drainGracePeriod: .milliseconds(500)
+        )
+        XCTAssertEqual(spec.terminationGracePeriod, .seconds(5))
+        XCTAssertEqual(spec.drainGracePeriod, .milliseconds(500))
+    }
+
     func testCapturedOutputKeepsStdout() {
         let spec = CLIProcessLauncher.spec(executableURL: cli, arguments: [], standardOutput: .captured)
         XCTAssertEqual(spec.stdout, .capture())

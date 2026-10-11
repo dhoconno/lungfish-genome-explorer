@@ -31,6 +31,12 @@ private let transportLogger = Logger(subsystem: LogSubsystem.app, category: "CLI
 /// immediately (it only records the request in `CLIRunCancellation`, which
 /// cancels the task that runs the ToolProcess), never
 /// blocking on the actor's in-flight `run`.
+///
+/// A cancel sends SIGTERM to the CLI and SIGKILL after the run's
+/// `terminationGracePeriod`. The default is zero, which kills the CLI right
+/// after the signal, so a command that cleans up on SIGTERM
+/// (`SIGTERMCancellation` in `LungfishCLI`) gets no time to do it. A runner
+/// whose command cleans up or writes a cancelled record passes a real grace.
 public actor CLISubprocessTransport {
     public enum RunError: Error, LocalizedError, Sendable, Equatable {
         case cliNotFound
@@ -90,6 +96,8 @@ public actor CLISubprocessTransport {
     /// Cancels the run, whether it is running or about to start. Safe to call
     /// from any thread; never blocks on `run`'s actor isolation. The process
     /// tree is stopped by ``ToolProcess`` once the run's task sees the cancel.
+    /// The CLI and its descendants get SIGTERM at once, and whatever is left
+    /// gets SIGKILL after the `terminationGracePeriod` that `run` was given.
     public nonisolated func cancel() {
         cancellation.cancel()
     }
@@ -100,6 +108,16 @@ public actor CLISubprocessTransport {
     ///
     /// - Parameters:
     ///   - arguments: Full CLI argv, e.g. `["tree", "infer", "iqtree", ...]`.
+    ///   - terminationGracePeriod: How long the CLI's process tree has between
+    ///     SIGTERM and SIGKILL when the run is cancelled. A tree that exits
+    ///     sooner ends the wait at once, so the grace costs nothing when the
+    ///     CLI cleans up and exits quickly. The default is zero, which sends
+    ///     SIGKILL right after SIGTERM and gives the CLI's own cleanup no time.
+    ///     Keep a real value under the 10 seconds `OperationCenter` allows
+    ///     before it marks a cancelling row cancelled.
+    ///   - drainGracePeriod: How long to wait for a descendant that holds the
+    ///     CLI's output open after the CLI has exited. Nil keeps the
+    ///     ``ToolProcess`` default of five seconds.
     ///   - isCancelled: Polled before launch and after exit to detect an
     ///     operation cancelled via its `OperationCenter` row rather than
     ///     `cancel()` directly (matches the previous per-runner
@@ -113,6 +131,8 @@ public actor CLISubprocessTransport {
     ///     event to the main actor itself.
     public func run(
         arguments: [String],
+        terminationGracePeriod: Duration = .zero,
+        drainGracePeriod: Duration? = nil,
         isCancelled: @Sendable () async -> Bool,
         onEvent: @escaping @Sendable (CLIEvent) -> Void
     ) async throws -> Result {
@@ -175,7 +195,12 @@ public actor CLISubprocessTransport {
         }
 
         let outcome = await CLIProcessLauncher.run(
-            CLIProcessLauncher.spec(executableURL: binaryURL, arguments: arguments),
+            CLIProcessLauncher.spec(
+                executableURL: binaryURL,
+                arguments: arguments,
+                terminationGracePeriod: terminationGracePeriod,
+                drainGracePeriod: drainGracePeriod
+            ),
             cancellation: cancellation,
             onStdoutLine: handleLine,
             onStderrLine: handleStandardErrorLine

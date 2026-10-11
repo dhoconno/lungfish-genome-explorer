@@ -433,6 +433,246 @@ final class CLISubprocessTransportTests: XCTestCase {
         let gone = await waitUntil(timeout: .seconds(30)) { !ProcessTreeTerminator.processExists(pid: pid) }
         XCTAssertTrue(gone)
     }
+
+    // MARK: - Cancel grace (Phase 2.7 lane S0, panel decision E5)
+
+    /// Makes a FIFO that no one writes to. A stand-in CLI opens it for reading and
+    /// writing and waits on it with the shell's own `read -t`, which starts no
+    /// child process. The terminator signals every descendant it finds, so a
+    /// stand-in that waited with `sleep` would be woken early by that signal.
+    private func makeHold() -> URL {
+        let hold = folder.appendingPathComponent("hold.fifo")
+        XCTAssertEqual(mkfifo(hold.path, 0o600), 0, "mkfifo failed")
+        return hold
+    }
+
+    /// A stand-in CLI that cleans up on SIGTERM the way a command under
+    /// `SIGTERMCancellation` does. Its handler works for `cleanupSeconds`, then
+    /// writes `marker` and exits by itself. `started` appears once the handler is
+    /// in place.
+    private func cleaningCLI(cleanupSeconds: Int, hold: URL, started: URL, marker: URL) throws -> URL {
+        try fakeCLI("""
+        #!/bin/bash
+        exec 3<> "\(hold.path)"
+        trap 'read -t \(cleanupSeconds) -u 3 line; echo cleaned > "\(marker.path)"; exit 0' TERM
+        echo started > "\(started.path)"
+        while true; do read -t 1 -u 3 line; done
+        """)
+    }
+
+    private func fileExists(_ url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.path)
+    }
+
+    private func readPID(_ url: URL) -> Int32? {
+        (try? String(contentsOf: url, encoding: .utf8))
+            .flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    }
+
+    /// Starts `run` on a transport over `cli`, cancels it once `started` exists and
+    /// returns how long the run took to end after the cancel. The run must end with
+    /// a `CancellationError`.
+    private func cancelOnceStarted(
+        _ cli: URL,
+        started: URL,
+        run: @escaping @Sendable (CLISubprocessTransport) async throws -> CLISubprocessTransport.Result
+    ) async throws -> Duration {
+        let transport = CLISubprocessTransport(cliURLOverride: cli)
+        let task = Task { try await run(transport) }
+        let up = await waitUntil(timeout: .seconds(30)) { fileExists(started) }
+        XCTAssertTrue(up, "the stand-in CLI never started")
+        let clock = ContinuousClock()
+        let start = clock.now
+        transport.cancel()
+        let outcome = try await wait(for: task)
+        switch outcome {
+        case .success:
+            XCTFail("a cancelled run returns no result")
+        case .failure(let error):
+            XCTAssertTrue(error is CancellationError, "\(error)")
+        }
+        return start.duration(to: clock.now)
+    }
+
+    /// A cancel sends SIGTERM, and the CLI has `terminationGracePeriod` to clean up
+    /// before SIGKILL. Here the cleanup takes two seconds, and the run ends when the
+    /// CLI exits by itself, long before the 60 second deadline (`wait(for:)` fails the
+    /// test after 30 seconds, so a run that waited for the deadline cannot pass).
+    func testACancelGivesTheCLIItsTerminationGraceToCleanUp() async throws {
+        let hold = makeHold()
+        let started = folder.appendingPathComponent("started")
+        let marker = folder.appendingPathComponent("cleaned")
+        let cli = try cleaningCLI(cleanupSeconds: 2, hold: hold, started: started, marker: marker)
+
+        _ = try await cancelOnceStarted(cli, started: started) { transport in
+            try await transport.run(
+                arguments: [],
+                terminationGracePeriod: .seconds(60),
+                isCancelled: { false },
+                onEvent: { _ in }
+            )
+        }
+
+        XCTAssertTrue(fileExists(marker), "the CLI finished its own cleanup and exited by itself")
+    }
+
+    /// The grace is a bound, not a promise. A CLI that ignores SIGTERM lives until the
+    /// grace ends and is then killed, so a cancel still ends the run.
+    func testACLIThatIgnoresSIGTERMIsKilledWhenTheGraceEnds() async throws {
+        let started = folder.appendingPathComponent("started")
+        let pidFile = folder.appendingPathComponent("cli.pid")
+        let cli = try fakeCLI("""
+        #!/bin/sh
+        trap '' TERM
+        echo $$ > "\(pidFile.path)"
+        echo started > "\(started.path)"
+        while true; do /bin/sleep 1; done
+        """)
+
+        let elapsed = try await cancelOnceStarted(cli, started: started) { transport in
+            try await transport.run(
+                arguments: [],
+                terminationGracePeriod: .seconds(1),
+                isCancelled: { false },
+                onEvent: { _ in }
+            )
+        }
+
+        XCTAssertGreaterThanOrEqual(elapsed, .seconds(1), "SIGKILL waited for the whole grace")
+        let pid = try XCTUnwrap(readPID(pidFile))
+        defer { kill(pid, SIGKILL) }
+        let gone = await waitUntil(timeout: .seconds(30)) { !ProcessTreeTerminator.processExists(pid: pid) }
+        XCTAssertTrue(gone, "the grace ended, so the CLI was killed")
+    }
+
+    /// A run given no grace keeps the behaviour it had before this lane. SIGKILL
+    /// follows SIGTERM at once, so the cleanup handler, which needs 20 seconds,
+    /// never finishes.
+    func testWithoutAGraceTheCancelStillKillsTheCLIAtOnce() async throws {
+        let hold = makeHold()
+        let started = folder.appendingPathComponent("started")
+        let marker = folder.appendingPathComponent("cleaned")
+        let cli = try cleaningCLI(cleanupSeconds: 20, hold: hold, started: started, marker: marker)
+
+        _ = try await cancelOnceStarted(cli, started: started) { transport in
+            try await transport.run(arguments: [], isCancelled: { false }, onEvent: { _ in })
+        }
+
+        XCTAssertFalse(fileExists(marker), "the default grace is zero, so the handler was cut off")
+    }
+
+    /// After a cancel with a grace no descendant of the CLI is left. The CLI leaves on
+    /// SIGTERM, and the tools it started stay behind in the states a real tool can be
+    /// in. One stops on SIGTERM and runs in a process group of its own, which is where
+    /// `ToolProcess` puts every tool. One ignores SIGTERM and has a helper of its own in
+    /// a third group, which only a walk of the process table can find. The grace ends
+    /// and what is left is killed.
+    func testNoDescendantOfTheCLISurvivesACancelWithAGrace() async throws {
+        let cliPIDFile = folder.appendingPathComponent("cli.pid")
+        let stopperPIDFile = folder.appendingPathComponent("stopper.pid")
+        let ignorerPIDFile = folder.appendingPathComponent("ignorer.pid")
+        let helperPIDFile = folder.appendingPathComponent("helper.pid")
+        let helper = try script(named: "helper.sh", """
+        #!/bin/sh
+        trap '' TERM
+        echo $$ > "\(helperPIDFile.path)"
+        while true; do /bin/sleep 1; done
+        """)
+        let ignorer = try script(named: "ignorer.sh", """
+        #!/bin/sh
+        trap '' TERM
+        echo $$ > "\(ignorerPIDFile.path)"
+        set -m
+        /bin/sh "\(helper.path)" &
+        set +m
+        while true; do /bin/sleep 1; done
+        """)
+        let stopper = try script(named: "stopper.sh", """
+        #!/bin/sh
+        trap 'exit 0' TERM
+        echo $$ > "\(stopperPIDFile.path)"
+        while true; do /bin/sleep 1; done
+        """)
+        let cli = try fakeCLI("""
+        #!/bin/sh
+        trap 'exit 0' TERM
+        echo $$ > "\(cliPIDFile.path)"
+        set -m
+        /bin/sh "\(stopper.path)" &
+        /bin/sh "\(ignorer.path)" &
+        set +m
+        while true; do /bin/sleep 1; done
+        """)
+        let transport = CLISubprocessTransport(cliURLOverride: cli)
+        let task = Task {
+            try await transport.run(
+                arguments: [],
+                terminationGracePeriod: .seconds(1),
+                isCancelled: { false },
+                onEvent: { _ in }
+            )
+        }
+
+        var tools: [Int32] = []
+        let up = await waitUntil(timeout: .seconds(30)) {
+            tools = [cliPIDFile, stopperPIDFile, ignorerPIDFile, helperPIDFile].compactMap { readPID($0) }
+            return tools.count == 4
+        }
+        defer { tools.forEach { kill($0, SIGKILL) } }
+        guard up else {
+            transport.cancel()
+            return XCTFail("the stand-in CLI never started its tools")
+        }
+        let (cliPID, stopperPID, ignorerPID, helperPID) = (tools[0], tools[1], tools[2], tools[3])
+        let tree = ProcessTreeTerminator.descendantProcessIDs(of: cliPID)
+        XCTAssertTrue([stopperPID, ignorerPID, helperPID].allSatisfy(tree.contains), "the walk from the CLI reaches every tool, found \(tree)")
+        XCTAssertNotEqual(getpgid(stopperPID), getpgid(cliPID), "a tool runs in a group of its own")
+        XCTAssertNotEqual(getpgid(helperPID), getpgid(ignorerPID), "so does the helper of a tool")
+
+        transport.cancel()
+        let outcome = try await wait(for: task)
+        guard case .failure(let error) = outcome else { return XCTFail("a cancelled run returns no result") }
+        XCTAssertTrue(error is CancellationError, "\(error)")
+
+        let everyone = tools + tree
+        let gone = await waitUntil(timeout: .seconds(30)) {
+            !everyone.contains { ProcessTreeTerminator.processExists(pid: $0) }
+        }
+        XCTAssertTrue(gone, "no descendant of the CLI survives, whatever its group or its answer to SIGTERM")
+    }
+
+    /// The drain grace reaches the run. The CLI exits at once and leaves a helper that
+    /// holds its output open for six seconds. ToolProcess's own default of five seconds
+    /// gives up on the helper and fails the run with incomplete output, so a run that
+    /// succeeds was given the longer drain.
+    func testTheDrainGracePeriodReachesTheRun() async throws {
+        let complete = try completeLine(outputs: ["/tmp/result"])
+        let cli = try fakeCLI("""
+        #!/bin/sh
+        /bin/sleep 6 &
+        echo '\(complete)'
+        """)
+        let transport = CLISubprocessTransport(cliURLOverride: cli)
+        let task = Task {
+            try await transport.run(
+                arguments: [],
+                drainGracePeriod: .seconds(30),
+                isCancelled: { false },
+                onEvent: { _ in }
+            )
+        }
+
+        let result = try await wait(for: task).get()
+        XCTAssertEqual(result.outputs, ["/tmp/result"])
+    }
+
+    /// Writes an executable script named `name` beside the stand-in CLI.
+    private func script(named name: String, _ body: String) throws -> URL {
+        let url = folder.appendingPathComponent(name)
+        try body.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        return url
+    }
 }
 
 private final class EventLog: @unchecked Sendable {
