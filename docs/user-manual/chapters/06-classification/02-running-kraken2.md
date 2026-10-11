@@ -10,7 +10,7 @@ tools: [kraken2, bracken]
 parameters_refs: [classify.kraken2, classify.taxonomy-browser, classify.extract-reads-by-taxon]
 entry_points:
   - "Tools > Classification > Kraken2..."
-  - "CLI: lungfish-cli conda classify"
+  - "CLI: lungfish-cli kraken2 classify"
 shots:
   - id: kraken2-dialog
     caption: "The FASTQ/FASTA Operations dialog opened from Tools > Classification > Kraken2..., with the dataset line naming Imports/SRR12486983.lungfishfastq, the Database picker on Viral with its description and recommended memory, and the Sensitivity control on Balanced."
@@ -282,15 +282,15 @@ Finally, remember what the [Confidence](../../GLOSSARY.md#confidence-kraken-2) t
 
 ## On the command line
 
-These commands repeat the procedure, as [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) explains. Every flag of `conda classify` is listed in [Classification](../appendices/cli-reference.md#classification) in the CLI Reference, and the import in [`import kraken2`](../appendices/cli-reference.md#import-kraken2).
+These commands repeat the procedure, as [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) explains. Every flag of `kraken2 classify` is listed in [Classification](../appendices/cli-reference.md#classification) in the CLI Reference, and the import in [`import kraken2`](../appendices/cli-reference.md#import-kraken2). The older spelling `conda classify` takes the same flags, and a command copied from the Operations panel still uses it.
 
 ```bash
 PROJECT="$HOME/Documents/LGE Demo Projects/Pathogen Detection.lungfish"
 
 # Classify against Viral, then Standard-16, running Bracken as the dialog does.
-lungfish-cli conda classify "$PROJECT/Imports/SRR12486983.lungfishfastq" \
+lungfish-cli kraken2 classify "$PROJECT/Imports/SRR12486983.lungfishfastq" \
   --db Viral --profile --output-dir "$PROJECT/Analyses/kraken2-viral"
-lungfish-cli conda classify "$PROJECT/Imports/SRR12486983.lungfishfastq" \
+lungfish-cli kraken2 classify "$PROJECT/Imports/SRR12486983.lungfishfastq" \
   --db Standard-16 --profile --output-dir "$PROJECT/Analyses/kraken2-standard16"
 
 # Extract the HSV-1 reads (NCBI taxonomy ID 10298) and everything below it.

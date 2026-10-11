@@ -137,7 +137,7 @@ For a run you intend to reproduce exactly, pin `--threads` to a fixed number. Se
 
 ## Command index
 
-The program has 45 top-level commands. Each row names the section that lists its subcommands and flags, and the chapter that teaches the operation in the window, where one does.
+The program has 46 top-level commands. Each row names the section that lists its subcommands and flags, and the chapter that teaches the operation in the window, where one does.
 
 | Command | What it is for | Section | Chapter |
 |---|---|---|---|
@@ -148,7 +148,7 @@ The program has 45 top-level commands. Each row names the section that lists its
 | `blast` | Check a classification against NCBI BLAST. | [Classification](#classification) | [BLAST Verification](../06-classification/06-blast-verification.md) |
 | `build-db` | Build the database a classifier result viewer reads. | [Classification](#classification) | None |
 | `bundle` | Create, inspect, validate, copy, and mark duplicates in reference bundles. | [Reference bundles](#reference-bundles) | [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md) |
-| `conda` | Plugin packs, managed environments, Kraken 2, and its databases. | [Tool packs, databases, and managed tools](#tool-packs-databases-and-managed-tools) and [Classification](#classification) | [Plugin Packs](../01-foundations/07-plugin-packs.md) |
+| `conda` | Plugin packs, managed environments, Kraken 2 databases, and the older spelling of `kraken2 classify`. | [Tool packs, databases, and managed tools](#tool-packs-databases-and-managed-tools) and [Classification](#classification) | [Plugin Packs](../01-foundations/07-plugin-packs.md) |
 | `convert` | Convert a sequence file between formats. | [Sequence utilities](#sequence-utilities) | None |
 | `cz-id` | Summarize or convert a CZ ID taxon report. | [Classification](#classification) | [Importing CZ ID Results](../06-classification/08-importing-cz-id-results.md) |
 | `debug` | Environment, container, and log diagnostics. | [Diagnostics](#diagnostics) | [Plugin Packs](../01-foundations/07-plugin-packs.md) |
@@ -163,6 +163,7 @@ The program has 45 top-level commands. Each row names the section that lists its
 | `haplotypes` | Manage haplotype definition sets. | [MHC genotyping](#mhc-genotyping) | [Exporting Genotypes](../09-genotyping/04-haplotype-definitions-and-export.md) |
 | `import` | Bring files into a project. | [Importing into a project](#importing-into-a-project) | [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#the-import-center) |
 | `import-fastq` | The same command as `import fastq`. | [Importing into a project](#importing-into-a-project) | [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) |
+| `kraken2` | Run Kraken 2 classification, with optional Bracken abundance profiling. | [Classification](#classification) | [Running Kraken 2](../06-classification/02-running-kraken2.md) |
 | `map` | Map reads with minimap2, BWA-MEM2, Bowtie2, or BBMap. | [Mapping and alignment tracks](#mapping-and-alignment-tracks) | [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) |
 | `markdup` | Mark PCR duplicates with samtools markdup. | [Mapping and alignment tracks](#mapping-and-alignment-tracks) | [Alignment Quality](../04-alignments/04-alignment-quality.md) |
 | `metadata` | Read and write FASTQ sample metadata. | [Sample metadata](#sample-metadata) | [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) |
@@ -2236,23 +2237,25 @@ lungfish-cli gatk collect-metrics [--execute] [--dry-run] --vcf <vcf> --output-p
 
 ## Classification
 
-The window covers this ground under **Tools > Classification**, which [What Is Read Classification](../06-classification/01-what-is-classification.md) and the chapters after it work through. [Running Freyja](../06-classification/07-running-freyja.md) covers `freyja demix`, the last command in this group. Kraken 2 runs through `conda classify`, and its databases are managed with `conda db`, which [Tool packs, databases, and managed tools](#tool-packs-databases-and-managed-tools) lists. Kraken 2 matches reads by [k-mers](../../GLOSSARY.md#k-mer) and [minimizers](../../GLOSSARY.md#minimizer), defined in the Glossary. Seven one-letter codes name taxonomic ranks in these commands, `D` for domain, `P` for phylum, `C` for class, `O` for order, `F` for family, `G` for genus, and `S` for species.
+The window covers this ground under **Tools > Classification**, which [What Is Read Classification](../06-classification/01-what-is-classification.md) and the chapters after it work through. [Running Freyja](../06-classification/07-running-freyja.md) covers `freyja demix`, the last command in this group. Kraken 2 runs through `kraken2 classify`, which is also spelled `conda classify`, and its databases are managed with `conda db`, which [Tool packs, databases, and managed tools](#tool-packs-databases-and-managed-tools) lists. Kraken 2 matches reads by [k-mers](../../GLOSSARY.md#k-mer) and [minimizers](../../GLOSSARY.md#minimizer), defined in the Glossary. Seven one-letter codes name taxonomic ranks in these commands, `D` for domain, `P` for phylum, `C` for class, `O` for order, `F` for family, `G` for genus, and `S` for species.
 
 Run this from the folder holding the human-mito practice data, after downloading the Standard-8 database. Almost every read should come back as Homo sapiens, which makes it a quick check that classification works.
 
 ```bash
 lungfish-cli conda db download Standard-8
-lungfish-cli conda classify HG002.chrM_R1.fastq.gz HG002.chrM_R2.fastq.gz \
+lungfish-cli kraken2 classify HG002.chrM_R1.fastq.gz HG002.chrM_R2.fastq.gz \
   --paired --db Standard-8 -o hg002-chrM-kraken2
 ```
 
-### `conda classify`
+### `kraken2 classify`
 
 Classifies reads or assembled sequences with Kraken 2 against an installed database, optionally followed by Bracken abundance estimates. Explained in [Running Kraken 2](../06-classification/02-running-kraken2.md).
 
 ```text
-lungfish-cli conda classify [<options>] <fastq-files> ... --db <db>
+lungfish-cli kraken2 classify [<options>] <fastq-files> ... --db <db>
 ```
+
+`conda classify` is the older spelling of this command. Both spellings take the same flags and run the same code. The Operations panel still shows `conda classify` for a run started in the window, so a command copied from it uses the older spelling. A run started as `kraken2 classify` records that spelling in its provenance.
 
 The output folder holds `classification.kreport`, the per-read `classification.kraken`, `classification.bracken` when `--profile` is given, and the provenance record. The kreport has eight columns because LGE always asks Kraken 2 for minimizer data. `--read-format auto` plans a single input, a file or a `.lungfishfastq` bundle. Its read pairs run as pairs in Kraken 2's paired mode, and its merged or single reads run beside them in the same Kraken 2 run, each with an empty mate staged beside it so it gets the call a single-end run would give. A file whose records strictly alternate read 1 and read 2 is split into two temporary mate files. A run that held pairs counts fragments, a pair counting once, and the result records how many came from pairs and how many from merged or single reads. `unpaired` classifies every read on its own. Two separate files still need `--paired`, which conflicts with any other explicit `--read-format`, and `--unpaired` adds a file of merged or single reads beside such a pair. The input files may mix gzip and plain text, such as a gzip R1 beside a plain R2. Kraken 2 reads every file with the decompression of the first, so each file in the other form is read from a copy in the first file's form, staged in the run's `.lungfish-classify-inputs` folder, removed after the run, and recorded as the step `Lungfish Classification Input Compression Staging`. Files that share the first file's form stage nothing. When Kraken 2 read any file the run staged and then deleted, its provenance step records no `durableReplayArgv`, so repeat such a run with the run's recorded command. The command refuses a run whose input sits inside an output it would remove before Kraken 2 starts, such as an earlier run's provenance copy under `.lungfish-provenance/intermediates/classification-inputs`. That refusal, and settings that fail the pipeline's validation, leave an earlier run's `.lungfish-provenance.json` in the folder byte for byte, while in a new folder a failed validation still records the failed run. A rerun into the same folder still removes the earlier run's report, per-read output, and Bracken profile before Kraken 2 starts, and a few of the command's own early failures, such as an unknown database, still replace the earlier record, so give each run its own `--output-dir`. To extract the reads of one taxon afterwards, run `extract reads --by-classifier --tool kraken2 --result <folder> --taxon <taxid> --output <file>`, which finds the source FASTQ from the result's own record.
 
