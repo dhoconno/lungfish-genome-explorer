@@ -7,6 +7,7 @@ import Foundation
 import XCTest
 @testable import LungfishCLI
 import LungfishCore
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class ProvenanceExportCommandTests: XCTestCase {
@@ -415,18 +416,32 @@ final class ProvenanceExportCommandTests: XCTestCase {
           ]
         }
         """.utf8).write(to: sidecarURL, options: .atomic)
-        let outputDirectory = directory.appendingPathComponent("assembly-shell-export", isDirectory: true)
 
+        // The record decodes through the primitive adapter, the Older record format, which the CLI never
+        // writes as a script, with or without --allow-unpinned (plan decision V6).
+        let shellOutput = directory.appendingPathComponent("assembly-shell-export", isDirectory: true)
+        do {
+            try await ProvenanceCommand.ExportSubcommand.parse([
+                bundleURL.path, "--export-format", "shell", "--output", shellOutput.path, "--allow-unpinned",
+            ]).run()
+            XCTFail("the assembly record is the Older record format and must not become a shell script")
+        } catch let CLIError.validationFailed(lines) {
+            XCTAssertEqual(lines.first?.hasPrefix("This record decoded as the Older record format"), true, lines.joined())
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: shellOutput.path))
+
+        // The same record resolves from the bundle for a format that is never gated.
+        let outputDirectory = directory.appendingPathComponent("assembly-json-export", isDirectory: true)
         let command = try ProvenanceCommand.ExportSubcommand.parse([
             bundleURL.path,
-            "--export-format", "shell",
+            "--export-format", "json",
             "--output", outputDirectory.path
         ])
 
         try await command.run()
 
         let script = try String(
-            contentsOf: outputDirectory.appendingPathComponent("run.sh"),
+            contentsOf: outputDirectory.appendingPathComponent("provenance.json"),
             encoding: .utf8
         )
         XCTAssertTrue(script.contains("spades.py"), script)
@@ -589,7 +604,10 @@ final class ProvenanceExportCommandTests: XCTestCase {
                 )
             ]
         )
-        try ProvenanceJSON.encoder.encode(legacy).write(to: sidecarURL, options: .atomic)
+        // A bare run is the Older record format, which the CLI never writes as a script (plan
+        // decision V6), so the run is written as its canonical envelope.
+        // testAnOlderRecordFormatIsNeverAScriptEvenWithTheFlag covers the bare form.
+        try ProvenanceJSON.encoder.encode(legacy.canonicalEnvelope()).write(to: sidecarURL, options: .atomic)
 
         let command = try ProvenanceCommand.ExportSubcommand.parse([
             sidecarURL.path,
@@ -1561,5 +1579,215 @@ final class ProvenanceExportCommandTests: XCTestCase {
             dir.deleteLastPathComponent()
         }
         throw XCTSkip("Missing fixture \(relativePath)")
+    }
+}
+
+// MARK: - The pin gate (plan decisions S7 and V6)
+
+extension ProvenanceExportCommandTests {
+    /// A record whose one step ran minimap2 in its managed environment with no recorded version.
+    private func writeUnpinnedRecord(in directory: URL) throws -> URL {
+        let sidecarURL = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let envelope = ProvenanceEnvelope(
+            workflowName: "map",
+            toolName: "minimap2",
+            steps: [ProvenanceStep(
+                toolName: "minimap2",
+                toolVersion: "unknown (managed conda environment minimap2; executable minimap2)",
+                argv: ["minimap2", "-a", "ref.fa", "reads.fq"],
+                exitStatus: 0
+            )],
+            exitStatus: 0
+        )
+        try ProvenanceJSON.encoder.encode(envelope).write(to: sidecarURL, options: .atomic)
+        return sidecarURL
+    }
+
+    func testAllowUnpinnedParsesAndIsOffByDefault() throws {
+        let arguments = ["/tmp/.lungfish-provenance.json", "--export-format", "shell", "--output", "/tmp/out"]
+        XCTAssertFalse(try ProvenanceCommand.ExportSubcommand.parse(arguments).allowUnpinned)
+        XCTAssertTrue(try ProvenanceCommand.ExportSubcommand.parse(arguments + ["--allow-unpinned"]).allowUnpinned)
+        let root = try LungfishCLI.parseAsRoot(LungfishCLI.normalizedArgumentsForParsing(
+            ["provenance", "export", "/tmp/x", "--format", "python", "--output", "/tmp/out", "--allow-unpinned"]
+        ))
+        XCTAssertTrue(try XCTUnwrap(root as? ProvenanceCommand.ExportSubcommand).allowUnpinned)
+    }
+
+    func testAScriptExportOfAnUnpinnedRecordIsRefusedNamingTheStepAndTheFlag() async throws {
+        for format in ["shell", "python", "nextflow", "snakemake"] {
+            let directory = try makeTempDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let sidecarURL = try writeUnpinnedRecord(in: directory)
+            let outputDirectory = directory.appendingPathComponent("export", isDirectory: true)
+            let command = try ProvenanceCommand.ExportSubcommand.parse([
+                sidecarURL.path, "--export-format", format, "--output", outputDirectory.path,
+            ])
+            do {
+                try await command.run()
+                XCTFail("a \(format) export of an unpinned record must be refused")
+            } catch let error as CLIError {
+                guard case .validationFailed(let lines) = error else {
+                    XCTFail("\(format): expected a validation failure, got \(error)")
+                    continue
+                }
+                XCTAssertEqual(error.exitCode, .inputError, format)
+                XCTAssertEqual(lines.count, 3, format)
+                XCTAssertEqual(
+                    lines.dropFirst().first,
+                    "Step 1, minimap2 in lge-minimap2. Its version was not recorded, so no version can be pinned.",
+                    format
+                )
+                XCTAssertEqual(lines.last?.hasPrefix("Pass --allow-unpinned to write it anyway."), true, format)
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: outputDirectory.path), "\(format): a refusal writes nothing")
+        }
+    }
+
+    func testAllowUnpinnedWritesTheScriptAndRecordsTheFlag() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sidecarURL = try writeUnpinnedRecord(in: directory)
+        let outputDirectory = directory.appendingPathComponent("export", isDirectory: true)
+        let command = try ProvenanceCommand.ExportSubcommand.parse([
+            sidecarURL.path, "--export-format", "shell", "--output", outputDirectory.path, "--allow-unpinned",
+        ])
+
+        try await command.run()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputDirectory.appendingPathComponent("run.sh").path))
+        let exportEnvelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: try Data(contentsOf: outputDirectory
+                .appendingPathComponent("provenance", isDirectory: true)
+                .appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        )
+        XCTAssertEqual(exportEnvelope.argv, [
+            "lungfish-cli", "provenance", "export", sidecarURL.path,
+            "--export-format", "shell", "--output", outputDirectory.path, "--allow-unpinned",
+        ])
+    }
+
+    func testMethodsAndJSONExportsOfAnUnpinnedRecordAreNeverGated() async throws {
+        for format in ["methods", "json"] {
+            let directory = try makeTempDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let sidecarURL = try writeUnpinnedRecord(in: directory)
+            let outputDirectory = directory.appendingPathComponent("export", isDirectory: true)
+            try await ProvenanceCommand.ExportSubcommand.parse([
+                sidecarURL.path, "--export-format", format, "--output", outputDirectory.path,
+            ]).run()
+            XCTAssertTrue(FileManager.default.fileExists(atPath: outputDirectory.path), format)
+        }
+    }
+
+    func testAnOlderRecordFormatIsNeverAScriptEvenWithTheFlag() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sidecarURL = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let legacy = WorkflowRun(
+            name: "Legacy", startTime: Date(timeIntervalSince1970: 100), endTime: Date(timeIntervalSince1970: 108),
+            status: .completed,
+            steps: [StepExecution(
+                toolName: "fastp", toolVersion: "0.24.1", command: ["fastp", "-i", "reads.fastq", "-o", "trimmed.fastq"],
+                inputs: [], outputs: [], exitCode: 0, wallTime: 3
+            )]
+        )
+        try ProvenanceJSON.encoder.encode(legacy).write(to: sidecarURL, options: .atomic)
+        XCTAssertEqual(try ProvenanceCommand.resolveProvenanceReading(sidecarURL).reading.shape, .workflowRun)
+
+        let scriptOutput = directory.appendingPathComponent("script", isDirectory: true)
+        do {
+            try await ProvenanceCommand.ExportSubcommand.parse([
+                sidecarURL.path, "--export-format", "shell", "--output", scriptOutput.path, "--allow-unpinned",
+            ]).run()
+            XCTFail("a bare run must never be exported as a script")
+        } catch let CLIError.validationFailed(lines) {
+            XCTAssertEqual(lines.first?.hasPrefix("This record decoded as the Older record format"), true, lines.joined())
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: scriptOutput.path))
+
+        let methodsOutput = directory.appendingPathComponent("methods", isDirectory: true)
+        try await ProvenanceCommand.ExportSubcommand.parse([
+            sidecarURL.path, "--export-format", "methods", "--output", methodsOutput.path,
+        ]).run()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: methodsOutput.appendingPathComponent("methods.md").path))
+    }
+
+    func testATypedMappingRecordGivenAsAFileReadsAsATypedRecord() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mappingSidecarURL = try writeMappingProvenance(to: directory)
+        XCTAssertEqual(try ProvenanceCommand.resolveProvenanceReading(mappingSidecarURL).reading.shape, .typedRecord)
+        XCTAssertEqual(try ProvenanceCommand.resolveProvenanceReading(directory).reading.shape, .typedRecord)
+    }
+
+    /// The restored golden records the gate refuses for a shell export, as
+    /// `ProvenanceExportPinGateTests.goldenRefusals` and the app's test list them.
+    private static let goldenRefusals: [String] = [
+        "genotype/bundle/SIMULATED-MHC-haplotypes.retained_demux_provenance.json | olderRecordFormat",
+        "genotype/bundle/SIMULATED-MHC-haplotypes.xlsx.export/request.json | olderRecordFormat",
+        "genotype/bundle/SIMULATED-MHC-haplotypes.xlsx.provenance.json | olderRecordFormat",
+        "genotype/bundle/lungfish-provenance.json | needsOverride | Step 1 minimap2 | Step 2 samtools sort | Step 3 minimap2 | Step 4 samtools sort | Step 5 samtools merge | Step 6 samtools index | Step 7 pysam retained-read demux filter",
+        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.md.sorted.bam.bai.lungfish-provenance.json | needsOverride | Step 1 samtools index",
+        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.md.sorted.bam.lungfish-provenance.json | needsOverride | Step 1 samtools merge",
+        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv.lungfish-provenance.json | needsOverride | Step 1 pysam retained-read demux filter",
+        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained-demux-samples.csv.lungfish-provenance.json | needsOverride | Step 1 pysam retained-read demux filter",
+        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained-demux-stats.json.lungfish-provenance.json | needsOverride | Step 1 pysam retained-read demux filter",
+        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai.lungfish-provenance.json | needsOverride | Step 1 pysam retained-read demux filter",
+        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained.demuxed.bam.lungfish-provenance.json | needsOverride | Step 1 pysam retained-read demux filter",
+        "genotype/bundle/provenance/amplicon-genotyping/mapping/001-SIMULATED-MHC-A-pairs.sorted.bam.lungfish-provenance.json | needsOverride | Step 1 minimap2 | Step 2 samtools sort",
+        "genotype/bundle/provenance/amplicon-genotyping/mapping/002-SIMULATED-MHC-B-pairs.sorted.bam.lungfish-provenance.json | needsOverride | Step 1 minimap2 | Step 2 samtools sort",
+        "genotype/bundle/provenance/bundle.lungfish-provenance.json | needsOverride | Step 1 minimap2 | Step 2 samtools sort | Step 3 minimap2 | Step 4 samtools sort | Step 5 samtools merge | Step 6 samtools index | Step 7 pysam retained-read demux filter",
+        "genotype/bundle/provenance/retained-demux-genotyping-provenance.json.lungfish-provenance.json | needsOverride | Step 1 pysam retained-read demux filter",
+        "genotype/bundle/retained-demux-genotyping-provenance.json | olderRecordFormat | Step 1 minimap2 | Step 2 samtools sort | Step 3 minimap2 | Step 4 samtools sort | Step 5 samtools merge | Step 6 samtools index | Step 7 pysam retained-read demux filter | Step 10 openpyxl ONT genotype workbook report",
+        "genotype/exports/pivot.xlsx.export/request.json | olderRecordFormat",
+        "genotype/exports/pivot.xlsx.provenance.json | olderRecordFormat",
+        "genotype/exports/workbook.xlsx.export/request.json | olderRecordFormat",
+        "genotype/exports/workbook.xlsx.provenance.json | olderRecordFormat",
+    ]
+
+    func testTheCLIRefusesTheSameRestoredGoldenRecordsAsTheApp() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let root = ProvenanceCompatCorpus.repositoryRoot.appendingPathComponent("Tests/Fixtures/golden", isDirectory: true)
+        let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil))
+        // The golden normalizer's placeholders, restored as `GoldenProvenanceRecords.restoredCopies(in:)` in
+        // the Workflow tests restores them, so each record reads in the shape it was written in.
+        let restorations = [
+            (#""<(TIMESTAMP|GENERATED_AT)>""#, #""2026-10-10T12:00:00Z""#),
+            (#""<(DURATION|PID|EPOCH)>""#, "1"),
+            (#""<SIZE-[A-Z0-9]+>""#, "1"),
+            (#""<UUID-([0-9])>""#, #""00000000-0000-0000-0000-00000000000$1""#),
+            (#""<UUID-([0-9]{2})>""#, #""00000000-0000-0000-0000-0000000000$1""#),
+        ]
+        var restored: [String: URL] = [:]
+        for case let url as URL in enumerator where url.pathExtension == "json" {
+            let relative = url.path.replacingOccurrences(of: root.path + "/", with: "")
+            guard !relative.hasPrefix("cli-help/"), !relative.hasPrefix("tools/"),
+                  let envelope = try? ProvenanceEnvelopeReader.decode(Data(contentsOf: url)),
+                  !envelope.steps.isEmpty else { continue }
+            var text = try String(contentsOf: url, encoding: .utf8)
+            for (pattern, template) in restorations {
+                text = text.replacingOccurrences(of: pattern, with: template, options: .regularExpression)
+            }
+            let copy = directory.appendingPathComponent(relative)
+            try FileManager.default.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: copy)
+            restored[relative] = copy
+        }
+        XCTAssertEqual(restored.count, 44)
+
+        var refused: [String] = []
+        for (path, url) in restored.sorted(by: { $0.key < $1.key }) {
+            let source = try ProvenanceCommand.resolveProvenanceReading(url)
+            let gate = ProvenanceExporter(signingProvider: nil).pinGate(
+                for: source.reading.envelope, shape: source.reading.shape, format: .shell,
+                sourceSidecarURL: source.sidecarURL, sourceRootURL: url
+            )
+            guard !gate.permitsExport(allowUnpinned: false) else { continue }
+            let verdict = gate.refusesOlderRecordFormat ? "olderRecordFormat" : "needsOverride"
+            refused.append(([path, verdict] + gate.unpinnedSteps.map { "\($0.stepLabel) \($0.toolName)" }).joined(separator: " | "))
+        }
+        XCTAssertEqual(refused, Self.goldenRefusals)
     }
 }

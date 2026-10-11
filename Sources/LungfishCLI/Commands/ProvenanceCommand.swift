@@ -19,21 +19,36 @@ struct ProvenanceCommand: AsyncParsableCommand {
     }
 
     static func resolveProvenanceSource(_ url: URL) throws -> (sidecarURL: URL, envelope: ProvenanceEnvelope) {
+        let resolved = try resolveProvenanceReading(url)
+        return (resolved.sidecarURL, resolved.reading.envelope)
+    }
+
+    /// The record for a sidecar, data file, bundle or folder, with the shape the reader decoded it in.
+    ///
+    /// A file is read as a sidecar first, as `ProvenanceRecorder.loadEnvelope(fromSidecar:)` reads it,
+    /// and otherwise found by `ProvenanceRecorder.findProvenanceReading(for:)`. A typed mapping record
+    /// goes to the finder first, because only the finder converts it and reads it as a typed record,
+    /// which is never the Older record format (plan decision V6).
+    static func resolveProvenanceReading(_ url: URL) throws -> (sidecarURL: URL, reading: ProvenanceEnvelopeReader.Reading) {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
             throw CLIError.inputFileNotFound(path: url.path)
         }
         guard isDirectory.boolValue else {
-            if let envelope = ProvenanceRecorder.loadEnvelope(fromSidecar: url) {
-                return (url, envelope)
+            if url.lastPathComponent == MappingProvenance.filename,
+               let resolved = ProvenanceRecorder.findProvenanceReading(for: url) {
+                return resolved
             }
-            if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: url) {
+            if let reading = (try? ProvenanceEnvelopeReader.read(fromSidecar: url)) ?? nil {
+                return (url, reading)
+            }
+            if let resolved = ProvenanceRecorder.findProvenanceReading(for: url) {
                 return resolved
             }
             throw CLIError.inputFileNotFound(path: ProvenanceRecorder.fileSidecarURL(for: url).path)
         }
 
-        if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: url) {
+        if let resolved = ProvenanceRecorder.findProvenanceReading(for: url) {
             return resolved
         }
         throw CLIError.inputFileNotFound(
@@ -130,24 +145,45 @@ struct ProvenanceCommand: AsyncParsableCommand {
         @Option(name: .customLong("output"), help: "Output directory for the export bundle")
         var output: String
 
+        @Flag(
+            name: .customLong("allow-unpinned"),
+            help: "Write a shell, Python, Nextflow or Snakemake export even when LGE cannot pin a step's tool version, and name each such step in the script and its export record"
+        )
+        var allowUnpinned = false
+
         func run() async throws {
             let inputURL = URL(fileURLWithPath: input)
             let outputURL = URL(fileURLWithPath: output)
             do {
-                let provenanceSource = try ProvenanceCommand.resolveProvenanceSource(inputURL)
+                let provenanceSource = try ProvenanceCommand.resolveProvenanceReading(inputURL)
                 let selectedExportFormat = try ProvenanceExportFormat.cliValue(exportFormat)
-                let fallbackArgv = [
+                let exporter = ProvenanceExporter()
+                // Plan decision S7. The gate runs before anything is written, never inside exportBundle.
+                let gate = exporter.pinGate(
+                    for: provenanceSource.reading.envelope,
+                    shape: provenanceSource.reading.shape,
+                    format: selectedExportFormat,
+                    sourceSidecarURL: provenanceSource.sidecarURL,
+                    sourceRootURL: inputURL
+                )
+                guard gate.permitsExport(allowUnpinned: allowUnpinned) else {
+                    throw CLIError.validationFailed(errors: gate.refusalLines)
+                }
+                var fallbackArgv = [
                     CLICommandIdentity.executableName, "provenance", "export",
                     input,
                     "--export-format", exportFormat,
                     "--output", output
                 ]
+                if allowUnpinned {
+                    fallbackArgv.append(ProvenanceExporter.allowUnpinnedFlag)
+                }
                 let exportArgv = Self.exportArgv(
                     processArguments: CommandLine.arguments,
                     fallback: fallbackArgv
                 )
-                let bundle = try ProvenanceExporter().exportBundle(
-                    provenanceSource.envelope,
+                let bundle = try exporter.exportBundle(
+                    provenanceSource.reading.envelope,
                     format: selectedExportFormat,
                     to: outputURL,
                     sourceSidecarURL: provenanceSource.sidecarURL,
