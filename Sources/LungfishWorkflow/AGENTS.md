@@ -48,7 +48,7 @@ A new domain is a folder here until Phase 4d splits domains into their own targe
 
 ## Where a Kraken2 run starts here
 
-`ClassificationPipeline.classify` (ClassificationPipeline.swift line 201) runs kraken2 through `CondaManager.runTool` in the `kraken2` environment (line 624) and records provenance through `ProvenanceRecorder` (line 264). The CLI caller is ClassifyCommand.swift (see Sources/LungfishCLI/AGENTS.md). The GUI caller is AppDelegate+Classification.swift (see Sources/LungfishApp/AGENTS.md). The GUI builds the `lungfish-cli conda classify` command it records with `ClassificationCLIInvocationBuilder` (Metagenomics/ClassificationCLIInvocationBuilder.swift line 23), so an option added to ClassifyCommand must be added there too.
+`ClassificationPipeline.classify` (ClassificationPipeline.swift line 201) runs kraken2 through `CondaManager.runTool` in the `kraken2` environment (line 628) and records provenance through `ProvenanceRecorder` (line 264). The CLI caller is `Kraken2AnalysisRunTool` (Metagenomics/Kraken2AnalysisRunTool.swift), whose unit runs the pipeline through `Kraken2RunServices.sharedPipeline` (Metagenomics/Kraken2RunRequest.swift) under `AnalysisRunExecutor`, and `ClassifyCommand` runs that tool (see Sources/LungfishCLI/AGENTS.md). The GUI caller is AppDelegate+Classification.swift (see Sources/LungfishApp/AGENTS.md). Since Phase 2.7 (decision E11) the GUI records the `lungfish-cli kraken2 classify` command that `ClassificationCLIInvocationBuilder` (Metagenomics/ClassificationCLIInvocationBuilder.swift line 29) builds, so an option added to ClassifyCommand must be added there too. Line numbers in this section were checked at commit 41acd1677.
 
 ## Contracts this module owns
 
