@@ -20,7 +20,7 @@ public enum EsVirituCLIInvocationBuilder {
     /// runs the same files. The database, output folder, thread count, quality
     /// filter and extra arguments follow, so the CLI never falls back to
     /// defaults of its own.
-    nonisolated static func esVirituDetectCLIArguments(for config: EsVirituConfig) -> [String] {
+    public static func esVirituDetectCLIArguments(for config: EsVirituConfig) -> [String] {
         var args = ["--input"] + config.inputFiles.map(\.path)
         args += ["--sample", config.sampleName]
         args += ["--read-format", config.plansReadSet ? "auto" : config.readFormat.rawValue]
@@ -41,9 +41,9 @@ public enum EsVirituCLIInvocationBuilder {
     ///
     /// Every sample's inputs follow one `--input`, and `--sample` names the
     /// first sample. No command runs a batch, so the batch row records none
-    /// (`cli-parity-gap` `esviritu-batch` on ``beginEsVirituBatchOperation(configs:routeContext:reporter:launch:)``).
+    /// (`cli-parity-gap` `esviritu-batch` on `AppDelegate.beginEsVirituBatchOperation(configs:routeContext:reporter:launch:)`).
     /// Only the batch provenance still starts from this list.
-    nonisolated static func esVirituBatchCLIArguments(for configs: [EsVirituConfig]) -> [String] {
+    public static func esVirituBatchCLIArguments(for configs: [EsVirituConfig]) -> [String] {
         var args = ["--input"]
         for config in configs {
             args += config.inputFiles.map(\.path)

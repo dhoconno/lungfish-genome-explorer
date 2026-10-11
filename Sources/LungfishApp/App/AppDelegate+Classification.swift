@@ -869,7 +869,7 @@ extension AppDelegate {
         let esVirituFailedRunDirectory = esVirituOwnedDirectory
 
         let esCliArgv = [CLICommandIdentity.executableName, "esviritu", "detect"]
-            + Self.esVirituDetectCLIArguments(for: config)
+            + EsVirituCLIInvocationBuilder.esVirituDetectCLIArguments(for: config)
         Self.beginEsVirituOperation(config: config, routeContext: routeContext) { opID in
             let config = config // The detached task cannot capture the mutable local.
             if let esVirituOwnedDirectory { OperationCenter.shared.trackAnalysisOutput(esVirituOwnedDirectory, for: opID) }
@@ -1619,7 +1619,7 @@ extension AppDelegate {
         let batchRoot = firstConfig.outputDirectory.deletingLastPathComponent()
 
         let esBatchCliArgv = [CLICommandIdentity.executableName, "esviritu", "detect"]
-            + Self.esVirituBatchCLIArguments(for: configs)
+            + EsVirituCLIInvocationBuilder.esVirituBatchCLIArguments(for: configs)
         Self.beginEsVirituBatchOperation(configs: configs, routeContext: routeContext) { opID in
             let configs = configs // The detached task cannot capture the mutable local.
             if let createdBatchDirectory { OperationCenter.shared.trackAnalysisOutput(createdBatchDirectory, for: opID) }

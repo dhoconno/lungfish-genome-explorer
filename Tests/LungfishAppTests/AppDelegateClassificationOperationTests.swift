@@ -275,7 +275,7 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         // run's provenance records (R3).
         XCTAssertEqual(
             try RecordedCLICommand.arguments(of: item.cliCommand),
-            ["esviritu", "detect"] + AppDelegate.esVirituDetectCLIArguments(for: config)
+            ["esviritu", "detect"] + EsVirituCLIInvocationBuilder.esVirituDetectCLIArguments(for: config)
         )
         let command = try RecordedCLICommand.parse(item.cliCommand, as: EsVirituCommand.DetectSubcommand.self)
         XCTAssertEqual(command.inputFiles, inputs.map(\.path))
@@ -368,7 +368,7 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         // Without the planner the row would name `paired` for one input, which
         // `esviritu detect` refuses, so a pasted command could not reproduce the run.
         config.plansReadSet = false
-        let unplanned = AppDelegate.esVirituDetectCLIArguments(for: config)
+        let unplanned = EsVirituCLIInvocationBuilder.esVirituDetectCLIArguments(for: config)
         let index = try XCTUnwrap(unplanned.firstIndex(of: "--read-format"))
         XCTAssertEqual(unplanned[index + 1], "paired")
         XCTAssertNotNil(EsVirituCommand.DetectSubcommand.inputCountError(format: .paired, fileCount: 1))
@@ -423,7 +423,7 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
     }
 
     func testEsVirituBatchArgumentsFallBackToABatchSampleName() {
-        XCTAssertEqual(AppDelegate.esVirituBatchCLIArguments(for: []), ["--input", "--sample", "batch"])
+        XCTAssertEqual(EsVirituCLIInvocationBuilder.esVirituBatchCLIArguments(for: []), ["--input", "--sample", "batch"])
     }
 
     // MARK: - TaxTriage

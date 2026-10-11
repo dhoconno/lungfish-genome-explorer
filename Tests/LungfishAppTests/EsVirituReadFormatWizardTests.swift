@@ -104,7 +104,7 @@ final class EsVirituReadFormatWizardTests: XCTestCase {
             databasePath: URL(fileURLWithPath: "/tmp/esv-db"),
             readFormat: .interleaved
         )
-        let args = AppDelegate.esVirituDetectCLIArguments(for: guiConfig)
+        let args = EsVirituCLIInvocationBuilder.esVirituDetectCLIArguments(for: guiConfig)
         let readFormat = try XCTUnwrap(args.firstIndex(of: "--read-format"))
         XCTAssertEqual(args[readFormat + 1], "interleaved")
 
@@ -128,7 +128,7 @@ final class EsVirituReadFormatWizardTests: XCTestCase {
             readFormat: .unpaired
         )
         let command = try EsVirituCommand.DetectSubcommand.parse(
-            ["detect"] + AppDelegate.esVirituDetectCLIArguments(for: guiConfig)
+            ["detect"] + EsVirituCLIInvocationBuilder.esVirituDetectCLIArguments(for: guiConfig)
         )
         let cliConfig = try command.makeConfigForTesting(
             databaseURL: guiConfig.databasePath,

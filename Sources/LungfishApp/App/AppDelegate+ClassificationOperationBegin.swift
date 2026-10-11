@@ -136,7 +136,7 @@ extension AppDelegate {
             operationType: .classification,
             cliCommand: OperationCenter.buildCLICommand(
                 subcommand: "esviritu detect",
-                args: esVirituDetectCLIArguments(for: config)
+                args: EsVirituCLIInvocationBuilder.esVirituDetectCLIArguments(for: config)
             ),
             routeContext: routeContext
         )
