@@ -1384,24 +1384,22 @@ public enum FASTQBatchImporter {
         stagingBundleURL: URL,
         publishedBundleURL: URL
     ) -> ProvenanceEnvelope {
+        func value(_ parameter: ParameterValue) -> ParameterValue {
+            rewriteStagedParameterValue(parameter, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
+        }
+        func descriptor(_ file: ProvenanceFileDescriptor) -> ProvenanceFileDescriptor {
+            rewriteStagedDescriptor(file, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
+        }
+        func arguments(_ argv: [String]) -> [String] {
+            rewriteStagedArguments(argv, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
+        }
         let options = ProvenanceOptions(
-            explicit: envelope.options.explicit.mapValues {
-                rewriteStagedParameterValue($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
-            },
-            defaults: envelope.options.defaults.mapValues {
-                rewriteStagedParameterValue($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
-            },
-            resolvedDefaults: envelope.options.resolvedDefaults.mapValues {
-                rewriteStagedParameterValue($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
-            }
+            explicit: envelope.options.explicit.mapValues(value),
+            defaults: envelope.options.defaults.mapValues(value),
+            resolvedDefaults: envelope.options.resolvedDefaults.mapValues(value)
         )
         let steps = envelope.steps.map { step in
-            let replayArgv = rewriteStagedArguments(
-                step.durableReplayArgv ?? step.argv,
-                stagingBundleURL: stagingBundleURL,
-                publishedBundleURL: publishedBundleURL
-            )
-            let replayCommand = replayArgv.map(shellEscape).joined(separator: " ")
+            let replayArgv = arguments(step.durableReplayArgv ?? step.argv)
             return ProvenanceStep(
                 id: step.id,
                 toolName: step.toolName,
@@ -1409,21 +1407,11 @@ public enum FASTQBatchImporter {
                 githubReleaseVersion: step.githubReleaseVersion,
                 argv: step.argv,
                 durableReplayArgv: replayArgv,
-                reproducibleCommand: replayCommand,
-                resolvedOptions: step.resolvedOptions.mapValues {
-                    rewriteStagedParameterValue(
-                        $0,
-                        stagingBundleURL: stagingBundleURL,
-                        publishedBundleURL: publishedBundleURL
-                    )
-                },
+                reproducibleCommand: replayArgv.map(shellEscape).joined(separator: " "),
+                resolvedOptions: step.resolvedOptions.mapValues(value),
                 runtimeIdentity: step.runtimeIdentity,
-                inputs: step.inputs.map {
-                    rewriteStagedDescriptor($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
-                },
-                outputs: step.outputs.map {
-                    rewriteStagedDescriptor($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
-                },
+                inputs: step.inputs.map(descriptor),
+                outputs: step.outputs.map(descriptor),
                 exitStatus: step.exitStatus,
                 wallTimeSeconds: step.wallTimeSeconds,
                 stderr: step.stderr,
@@ -1433,11 +1421,7 @@ public enum FASTQBatchImporter {
             )
         }
 
-        let durableReplayArgv = rewriteStagedArguments(
-            envelope.durableReplayArgv ?? envelope.argv,
-            stagingBundleURL: stagingBundleURL,
-            publishedBundleURL: publishedBundleURL
-        )
+        let durableReplayArgv = arguments(envelope.durableReplayArgv ?? envelope.argv)
         let reproducibleCommand = durableReplayArgv.map(shellEscape).joined(separator: " ")
 
         return ProvenanceEnvelope(
@@ -1455,15 +1439,9 @@ public enum FASTQBatchImporter {
             reproducibleCommand: reproducibleCommand,
             options: options,
             runtimeIdentity: envelope.runtimeIdentity,
-            files: envelope.files.map {
-                rewriteStagedDescriptor($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
-            },
-            output: envelope.output.map {
-                rewriteStagedDescriptor($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
-            },
-            outputs: envelope.outputs.map {
-                rewriteStagedDescriptor($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
-            },
+            files: envelope.files.map(descriptor),
+            output: envelope.output.map(descriptor),
+            outputs: envelope.outputs.map(descriptor),
             steps: steps,
             wallTimeSeconds: envelope.wallTimeSeconds,
             exitStatus: envelope.exitStatus,

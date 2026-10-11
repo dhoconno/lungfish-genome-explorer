@@ -378,24 +378,13 @@ public final class NativeBundleBuilder: ObservableObject {
             wallTime: wallTime,
             stderr: warningsStderr(configuration.warnings)
         )
+        func record(_ url: URL, _ role: FileRole) -> FileRecord {
+            provenanceFileRecord(for: url, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL, role: role)
+        }
         var previousNativeStepID: UUID?
         for step in nativeToolSteps {
-            let inputs = provenanceInputURLs(for: step, configuration: configuration).map {
-                provenanceFileRecord(
-                    for: $0,
-                    stagingBundleURL: stagingBundleURL,
-                    publishedBundleURL: publishedBundleURL,
-                    role: .input
-                )
-            }
-            let outputs = step.outputURLs.map {
-                provenanceFileRecord(
-                    for: $0,
-                    stagingBundleURL: stagingBundleURL,
-                    publishedBundleURL: publishedBundleURL,
-                    role: .output
-                )
-            }
+            let inputs = provenanceInputURLs(for: step, configuration: configuration).map { record($0, .input) }
+            let outputs = step.outputURLs.map { record($0, .output) }
             previousNativeStepID = await ProvenanceRecorder.shared.recordStep(
                 runID: runID,
                 toolName: step.toolName,
