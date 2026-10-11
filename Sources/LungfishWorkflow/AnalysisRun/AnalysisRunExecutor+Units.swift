@@ -1,0 +1,77 @@
+// AnalysisRunExecutor+Units.swift - The unit loop of an analysis run, phase P2
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import Foundation
+import LungfishIO
+
+/// The units that ran.
+struct AnalysisRunUnitResults<Result: Sendable>: Sendable {
+    var reports: [AnalysisUnitReport<Result>]
+}
+
+extension AnalysisRunExecutor {
+    /// Runs the plan's units one at a time, in plan order.
+    ///
+    /// A batch root gives each unit its own folder through `AnalysesFolder.batchSampleDirectory`,
+    /// the one sanitizer, and the unit's sample name is that folder's name. The tool's policy says
+    /// whether the loop goes on after a failed unit.
+    func runUnits<Tool: AnalysisRunTool>(
+        _ tool: Tool,
+        plan: AnalysisRunPlan<Tool.Unit>,
+        folder: AnalysisRunFolder,
+        journal: AnalysisRunJournal
+    ) async -> AnalysisRunUnitResults<Tool.UnitResult> {
+        let count = plan.units.count
+        let policy = tool.terminalPolicy
+        var reports: [AnalysisUnitReport<Tool.UnitResult>] = []
+        for (index, planned) in plan.units.enumerated() {
+            journal.emit(.progress(
+                fraction: AnalysisRunJournal.runFraction(index: index, count: count, unitFraction: 0),
+                message: count > 1 ? "Running \(planned.label) (\(index + 1) of \(count))." : "Running \(planned.label)."
+            ))
+
+            var directory = folder.root
+            var sampleName = planned.label
+            let outcome: AnalysisUnitOutcome<Tool.UnitResult>
+            do {
+                if plan.layout == .batchRoot {
+                    directory = try AnalysesFolder.batchSampleDirectory(named: planned.label, in: folder.root)
+                    sampleName = directory.lastPathComponent
+                }
+                outcome = try await tool.run(
+                    AnalysisRunUnit(
+                        index: index,
+                        count: count,
+                        label: planned.label,
+                        sampleName: sampleName,
+                        directory: directory,
+                        value: planned.value
+                    ),
+                    context: journal.unitContext(
+                        index: index,
+                        count: count,
+                        rootDirectory: folder.root,
+                        projectURL: folder.projectURL
+                    )
+                )
+            } catch {
+                outcome = .failed(reason: Self.reason(for: error))
+            }
+
+            let report = AnalysisUnitReport(
+                index: index,
+                label: planned.label,
+                sampleName: sampleName,
+                directory: directory,
+                outcome: outcome
+            )
+            reports.append(report)
+            if let warning = policy.warning(for: report, unitCount: count) {
+                journal.warn(warning)
+            }
+            guard policy.continues(after: report) else { break }
+        }
+        return AnalysisRunUnitResults(reports: reports)
+    }
+}
