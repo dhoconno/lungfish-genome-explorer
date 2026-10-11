@@ -113,23 +113,48 @@ final class ProvenanceExportPlanSpecTests: XCTestCase {
         let lock = ManagedToolLock.bundled
         var checked = 0
         for entry in lock.entries where entry.pythonRuntime == nil && entry.sourceBuild == nil {
-            let environment = ProvenanceManagedEnvironment(name: entry.environment)
             let lockVersion = try XCTUnwrap(entry.version, entry.id.rawValue)
-            for version in [lockVersion, "9.9.9", "0.0.1"] {
-                let spec = try XCTUnwrap(ProvenanceExportPlan.pinned(environment, version: version).packageSpec)
-                let parsed = try XCTUnwrap(CondaSpec(spec: spec), "\(entry.id.rawValue) \(version): \(spec)")
-                XCTAssertEqual(parsed.version, version, "\(entry.id.rawValue): \(spec)")
-                XCTAssertEqual(parsed.build != nil, version == lockVersion, "\(entry.id.rawValue) \(version): \(spec)")
-                XCTAssertNotNil(parsed.channel, "\(entry.id.rawValue): \(spec)")
-            }
-            for version in ["unknown", "unresolved", "critical libmamba The given prefix does not exist"] {
-                let spec = try XCTUnwrap(ProvenanceExportPlan.pinned(environment, version: version).packageSpec)
-                XCTAssertFalse(spec.contains("="), "\(entry.id.rawValue) \(version): \(spec)")
-                XCTAssertFalse(spec.contains("::"), "\(entry.id.rawValue) \(version): \(spec)")
+            // A record that holds no package, and one that recorded the lock's own spec for the entry. A step
+            // whose version is not the spec's ran something else, so the spec never reaches the export.
+            for environment in [
+                ProvenanceManagedEnvironment(name: entry.environment),
+                ProvenanceManagedEnvironment(name: entry.environment, packageSpec: lock.packageSpec(of: entry)),
+            ] {
+                for version in [lockVersion, "9.9.9", "0.0.1"] {
+                    let spec = try XCTUnwrap(ProvenanceExportPlan.pinned(environment, version: version).packageSpec)
+                    let parsed = try XCTUnwrap(CondaSpec(spec: spec), "\(entry.id.rawValue) \(version): \(spec)")
+                    XCTAssertEqual(parsed.version, version, "\(entry.id.rawValue): \(spec)")
+                    XCTAssertEqual(parsed.build != nil, version == lockVersion, "\(entry.id.rawValue) \(version): \(spec)")
+                    XCTAssertNotNil(parsed.channel, "\(entry.id.rawValue): \(spec)")
+                }
+                for version in ["unknown", "unresolved", "critical libmamba The given prefix does not exist"] {
+                    let spec = try XCTUnwrap(ProvenanceExportPlan.pinned(environment, version: version).packageSpec)
+                    XCTAssertFalse(spec.contains("="), "\(entry.id.rawValue) \(version): \(spec)")
+                    XCTAssertFalse(spec.contains("::"), "\(entry.id.rawValue) \(version): \(spec)")
+                }
             }
             checked += 1
         }
-        XCTAssertGreaterThan(checked, 40, "the lock holds 17 tools and 28 pack tools, and two pack tools have no conda spec")
+        XCTAssertEqual(checked, 42, "17 tools and 27 pack tools, and two of the pack tools have no conda spec")
+    }
+
+    /// A native pack tool and a conda-run mapper record the lock's spec whatever their probe printed, so a
+    /// record can hold `2.2.1` beside `bioconda::minimap2=2.31=h6bd33b9_0`, or a probe error read as `unknown`
+    /// beside `bioconda::bwa-mem2=2.3=hda5e58c_0`. A spec of another version is the lock the writer read and
+    /// not what ran, so the plan keeps the recorded version and the lock's channel and package.
+    func testPlanDropsARecordedSpecOfAnotherVersion() throws {
+        let minimap2 = plan(managedStep("minimap2", version: "2.2.1", environment: "minimap2", package: "bioconda::minimap2=2.31=h6bd33b9_0"))
+        XCTAssertEqual(try environment("minimap2", in: minimap2).packageSpec, "bioconda::minimap2=2.2.1")
+        let bwa = plan(managedStep("bwa-mem2", version: "unknown", environment: "bwa-mem2", package: "bioconda::bwa-mem2=2.3=hda5e58c_0"))
+        XCTAssertEqual(try environment("bwa-mem2", in: bwa).packageSpec, "bwa-mem2")
+        // The lock does not hold this environment, so the recorded channel and package are all there is.
+        let unknown = plan(managedStep("tool", version: "2.0", environment: "my-env", package: "bioconda::my-package=1.0=b_0"))
+        XCTAssertEqual(try environment("my-env", in: unknown).packageSpec, "bioconda::my-package=2.0")
+        let unversioned = plan(managedStep("tool", version: "unknown", environment: "my-env", package: "bioconda::my-package=1.0=b_0"))
+        XCTAssertEqual(try environment("my-env", in: unversioned).packageSpec, "my-package")
+        // At the recorded version the spec is what ran, whatever its build.
+        let same = plan(managedStep("tool", version: "1.0", environment: "my-env", package: "bioconda::my-package=1.0=b_0"))
+        XCTAssertEqual(try environment("my-env", in: same).packageSpec, "bioconda::my-package=1.0=b_0")
     }
 
     func testPlanWritesTheBarePackageForAnUnknownVersion() throws {

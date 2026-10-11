@@ -395,7 +395,7 @@ struct ProvenanceExportPlan {
 
     /// An environment with a package pin. A version other than the recorded one is never written.
     ///
-    /// A recorded conda spec is what ran, so it stays as recorded. Otherwise the lock entry installed in
+    /// A recorded conda spec stays as recorded only at the recorded version. Otherwise the lock entry installed in
     /// the environment names the channel and the package, found through either lock list so a pack
     /// tool resolves. When the recorded version is the lock entry's version the plan writes the lock's
     /// spec with its build (`bioconda::whatshap=2.3=py311h1457a19_3` for `phasing` at 2.3). When the
@@ -419,7 +419,14 @@ struct ProvenanceExportPlan {
                 name: environment.name, executable: environment.executable, packageSpec: spec, variant: environment.variant
             )
         }
-        if let recorded = environment.packageSpec, CondaSpec(spec: recorded) != nil { return environment }
+        if let recorded = environment.packageSpec, let spec = CondaSpec(spec: recorded) {
+            // A spec of another version is the lock the writer read, not what ran.
+            if spec.version == version { return environment }
+            if lock.entry(environment: environment.name) == nil {
+                let channel = spec.channel.map { "\($0)::" } ?? ""
+                return with(version.first?.isNumber == true ? "\(channel)\(spec.name)=\(version)" : spec.name)
+            }
+        }
         let numeric = version.first?.isNumber == true
         guard let entry = lock.entry(environment: environment.name) else {
             if environment.packageSpec != nil { return environment }
