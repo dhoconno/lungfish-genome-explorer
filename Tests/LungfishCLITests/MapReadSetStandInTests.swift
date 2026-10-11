@@ -231,11 +231,13 @@ final class MapReadSetStandInTests: XCTestCase {
         XCTAssertLessThan(try XCTUnwrap(names.firstIndex(of: materialization.toolName)), try XCTUnwrap(names.firstIndex(of: split.toolName)))
     }
 
-    /// The mapper step of a sample of pairs and single reads records the
-    /// read-set plan as its options: the capability, the fragment counts by
-    /// kind and the number of runs (READ-PAIRING.md, Provenance). Each BBMap
-    /// run records it. A sample of only single reads records nothing new.
-    func testMapperStepRecordsTheReadSetPlan() async throws {
+    /// A sample of pairs and single reads records the read-set plan once, in
+    /// the run's resolved defaults, the one home of the plan (E13): the
+    /// capability, the fragment counts by kind and the number of runs
+    /// (READ-PAIRING.md, Provenance). BBMap maps such a sample in two runs and
+    /// still holds one plan, and no mapper step holds a copy. A sample of only
+    /// single reads records nothing new.
+    func testRunRecordsTheReadSetPlanOnceInItsOneHome() async throws {
         let streamDirectory = root.appendingPathComponent("plan-stream", isDirectory: true)
         try await map(fixtures.mergeDerivative, tool: .minimap2, outputDirectory: streamDirectory)
         let bbmapDirectory = root.appendingPathComponent("plan-bbmap", isDirectory: true)
@@ -244,34 +246,57 @@ final class MapReadSetStandInTests: XCTestCase {
         try await map(fixtures.singleRoot, tool: .minimap2, outputDirectory: singleDirectory)
         _ = try standIn.takeCalls()
 
-        let stream = try XCTUnwrap(MappingProvenance.load(from: streamDirectory))
-        let streamSteps = stream.steps.filter { $0.toolName == "minimap2" }
-        XCTAssertEqual(streamSteps.count, 1, "\(stream.steps.map(\.toolName))")
-        let streamPlan = Self.readSetPlan(of: streamSteps.first)
-        XCTAssertEqual(streamPlan?["capability"], .string("both_in_one_run/name_interleaved_stream"))
-        XCTAssertEqual(streamPlan?["pairedFragments"], .integer(1))
-        XCTAssertEqual(streamPlan?["mergedReads"], .integer(3))
-        XCTAssertEqual(streamPlan?["runs"], .integer(1))
+        let stream = try Self.recordedEnvelope(in: streamDirectory)
+        XCTAssertEqual(stream.steps.filter { $0.toolName == "minimap2" }.count, 1, "\(stream.steps.map(\.toolName))")
+        let streamPlan = try XCTUnwrap(stream.readSetPlan, "the run records the read-set plan")
+        XCTAssertEqual(streamPlan.place, .resolvedDefaults, "the plan's one home (E13)")
+        XCTAssertEqual(streamPlan.fields["capability"], .string("both_in_one_run/name_interleaved_stream"))
+        XCTAssertEqual(streamPlan.fields["pairedFragments"], .integer(1))
+        XCTAssertEqual(streamPlan.fields["mergedReads"], .integer(3))
+        XCTAssertEqual(streamPlan.fields["runs"], .integer(1))
+        Self.assertNoSecondCopy(of: stream, in: streamDirectory)
 
-        let bbmap = try XCTUnwrap(MappingProvenance.load(from: bbmapDirectory))
-        let bbmapRuns = bbmap.steps.filter { $0.toolName == "bbmap.sh" }
-        XCTAssertEqual(bbmapRuns.count, 2, "\(bbmap.steps.map(\.toolName))")
-        for run in bbmapRuns {
-            let plan = Self.readSetPlan(of: run)
-            XCTAssertEqual(plan?["capability"], .string("pairs_or_singles_per_run"))
-            XCTAssertEqual(plan?["pairedFragments"], .integer(1))
-            XCTAssertEqual(plan?["mergedReads"], .integer(3))
-            XCTAssertEqual(plan?["runs"], .integer(2))
-        }
+        let bbmap = try Self.recordedEnvelope(in: bbmapDirectory)
+        XCTAssertEqual(bbmap.steps.filter { $0.toolName == "bbmap.sh" }.count, 2, "\(bbmap.steps.map(\.toolName))")
+        let bbmapPlan = try XCTUnwrap(bbmap.readSetPlan, "the run records the read-set plan")
+        XCTAssertEqual(bbmapPlan.place, .resolvedDefaults, "the plan's one home (E13)")
+        XCTAssertEqual(bbmapPlan.fields["capability"], .string("pairs_or_singles_per_run"))
+        XCTAssertEqual(bbmapPlan.fields["pairedFragments"], .integer(1))
+        XCTAssertEqual(bbmapPlan.fields["mergedReads"], .integer(3))
+        XCTAssertEqual(bbmapPlan.fields["runs"], .integer(2))
+        Self.assertNoSecondCopy(of: bbmap, in: bbmapDirectory)
 
-        let single = try XCTUnwrap(MappingProvenance.load(from: singleDirectory))
-        let singleStep = try XCTUnwrap(single.steps.first { $0.toolName == "minimap2" })
-        XCTAssertNil(singleStep.resolvedOptions?["readSetPlan"], "a sample of only single reads records nothing new")
+        let single = try Self.recordedEnvelope(in: singleDirectory)
+        XCTAssertNil(single.readSetPlan, "a sample of only single reads records nothing new")
+        XCTAssertEqual(single.options.resolvedDefaults, [:], "a run without a plan adds nothing to the resolved defaults")
+        Self.assertNoSecondCopy(of: single, in: singleDirectory)
     }
 
-    private static func readSetPlan(of step: StepExecution?) -> [String: ParameterValue]? {
-        guard case .dictionary(let plan)? = step?.resolvedOptions?["readSetPlan"] else { return nil }
-        return plan
+    private static func recordedEnvelope(in directory: URL) throws -> ProvenanceEnvelope {
+        try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: directory), "the run wrote its record")
+    }
+
+    /// The plan sits in the resolved defaults and nowhere else: not in the
+    /// explicit options, not in a step of the record, and not in a step of the
+    /// `mapping-provenance.json` sidecar.
+    private static func assertNoSecondCopy(
+        of envelope: ProvenanceEnvelope,
+        in directory: URL,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let key = RecordedReadSetPlan.key
+        XCTAssertNil(envelope.options.explicit[key], "no copy in the explicit options", file: file, line: line)
+        XCTAssertEqual(
+            envelope.steps.filter { $0.resolvedOptions[key] != nil }.map(\.toolName), [],
+            "no step of the record holds a copy", file: file, line: line
+        )
+        let sidecar = MappingProvenance.load(from: directory)
+        XCTAssertNotNil(sidecar, "the sidecar was written", file: file, line: line)
+        XCTAssertEqual(
+            (sidecar?.steps ?? []).filter { $0.resolvedOptions?[key] != nil }.map(\.toolName), [],
+            "no step of the sidecar holds a copy", file: file, line: line
+        )
     }
 
     // MARK: - Helpers

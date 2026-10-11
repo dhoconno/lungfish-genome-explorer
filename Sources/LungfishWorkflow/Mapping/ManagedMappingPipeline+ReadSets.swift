@@ -26,18 +26,16 @@ extension ManagedMappingPipeline {
     /// merge is normalized like any run, so flagstat and every summary read
     /// the merged BAM. The per-run files and the merge are removed.
     ///
-    /// Each mapper step of a sample of pairs and single reads records the
-    /// read-set plan (``ReadSetPlan/provenanceParameters``) as options. A
-    /// plan that records nothing new adds nothing.
+    /// No mapper step records the read-set plan. The run records it once
+    /// (``saveCanonicalEnvelope(of:readSetPlan:to:writer:)``), so the two runs
+    /// of a BBMap sample do not hold a copy each.
     func mapAndNormalize(
         prepared: PreparedMappingExecution,
         command: ManagedMappingCommand,
-        readSetPlan: ReadSetPlan?,
         mapperVersion: String,
         samtoolsVersion: String,
         progress: ProgressHandler?
     ) async throws -> MappedAlignment {
-        let planOptions = readSetPlan?.provenanceParameters ?? [:]
         let request = prepared.request
         let referenceURL = prepared.referenceLocator.referenceURL
         let readLayoutPlan = request.readLayoutPlan
@@ -53,26 +51,26 @@ extension ManagedMappingPipeline {
         var intermediates: [URL] = []
         if bbmapRuns.isEmpty {
             alignmentURL = MappingCommandBuilder.rawAlignmentURL(for: request)
-            steps.append(Self.recording(planOptions, in: try await executeMappingCommand(
+            steps.append(try await executeMappingCommand(
                 command,
                 outputURL: alignmentURL,
                 inputRecords: mapperExecutionInputRecords(for: request, referenceURL: referenceURL),
                 mapperVersion: mapperVersion,
                 progress: progress
-            )))
+            ))
         } else {
             var sortedRuns: [URL] = []
             for (index, run) in bbmapRuns.enumerated() {
                 progress?(0.1 + 0.5 * Double(index) / Double(bbmapRuns.count), "Running BBMap on read set \(index + 1) of \(bbmapRuns.count)...")
                 let inputRecords = run.inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) }
                     + [ProvenanceRecorder.fileRecord(url: referenceURL, format: .fasta, role: .reference)]
-                steps.append(Self.recording(planOptions, in: try await executeMappingCommand(
+                steps.append(try await executeMappingCommand(
                     run.command,
                     outputURL: run.rawAlignmentURL,
                     inputRecords: inputRecords,
                     mapperVersion: mapperVersion,
                     progress: progress
-                )))
+                ))
                 let sortedURL = run.rawAlignmentURL.deletingPathExtension().deletingPathExtension().appendingPathExtension("bam")
                 steps.append(try await samtoolsSort(
                     inputURL: run.rawAlignmentURL,
@@ -127,31 +125,31 @@ extension ManagedMappingPipeline {
         return steps
     }
 
-    /// `step` with `options` added to its resolved options, or unchanged when
-    /// `options` is empty.
-    static func recording(_ options: [String: ParameterValue], in step: StepExecution) -> StepExecution {
-        guard !options.isEmpty else { return step }
-        return StepExecution(
-            id: step.id,
-            toolName: step.toolName,
-            toolVersion: step.toolVersion,
-            githubReleaseVersion: step.githubReleaseVersion,
-            containerImage: step.containerImage,
-            containerDigest: step.containerDigest,
-            command: step.command,
-            durableReplayArgv: step.durableReplayArgv,
-            resolvedOptions: (step.resolvedOptions ?? [:]).merging(options) { _, planValue in planValue },
-            runtimeIdentity: step.runtimeIdentity,
-            inputs: step.inputs,
-            outputs: step.outputs,
-            exitCode: step.exitCode,
-            wallTime: step.wallTime,
-            peakMemoryBytes: step.peakMemoryBytes,
-            stderr: step.stderr,
-            dependsOn: step.dependsOn,
-            startTime: step.startTime,
-            endTime: step.endTime
-        )
+    /// Writes the canonical record of a finished run with its read-set plan
+    /// (``ReadSetPlan/provenanceParameters``) in the one home, the run's
+    /// resolved defaults (E13). No mapper step holds the plan, so a BBMap
+    /// sample that maps in two runs holds one copy.
+    ///
+    /// A run without a plan, and a plan that records nothing new, add
+    /// nothing, and the record is then exactly what
+    /// ``MappingProvenance/saveCanonicalEnvelope(to:writer:)`` writes. The
+    /// `mapping-provenance.json` sidecar holds no plan.
+    @discardableResult
+    func saveCanonicalEnvelope(
+        of provenance: MappingProvenance,
+        readSetPlan: ReadSetPlan?,
+        to directory: URL,
+        writer: ProvenanceWriter = ProvenanceWriter()
+    ) throws -> URL {
+        var envelope = provenance.canonicalEnvelope(sourceDirectory: directory)
+        if let planOptions = readSetPlan?.provenanceParameters, !planOptions.isEmpty {
+            envelope.options = ProvenanceOptions(
+                explicit: envelope.options.explicit,
+                defaults: envelope.options.defaults,
+                resolvedDefaults: envelope.options.resolvedDefaults.merging(planOptions) { _, planValue in planValue }
+            )
+        }
+        return try writer.write(envelope, to: directory)
     }
 
     /// `samtools merge -c -p` of sorted BAMs that share one read group, so
