@@ -62,6 +62,22 @@ final class GenotypeAnnotationRecoveryCopyTests: XCTestCase {
         )
     }
 
+    /// `genotype export` reads the sidecar twice in one run, and the analyst
+    /// sees the line once.
+    func testTwoReadsOfOneBundleGiveOneLine() throws {
+        try tombstone("kept", modified: Date())
+        let lines = Lines()
+
+        let bodies = try GenotypeAnnotationRecoveryCopy.$noticeSink.withValue({ lines.append($0) }) {
+            try (0..<2).map { _ in
+                try ONTGenotypeResultBundleData.loadAnnotationSidecarSnapshot(forBundleAt: bundleURL).sidecar.sampleNotes.map(\.body)
+            }
+        }
+
+        XCTAssertEqual(bodies, [["kept"], ["kept"]], "each read takes the copy")
+        XCTAssertEqual(lines.all.count, 1, lines.all.joined(separator: "\n"))
+    }
+
     func testASidecarThatHoldsBytesIsReadAsItIsWithoutAWarning() throws {
         try tombstone("retired", modified: Date())
         var current = GenotypeAnnotationSidecar.empty(generatedAt: "2026-10-11T00:00:00Z")

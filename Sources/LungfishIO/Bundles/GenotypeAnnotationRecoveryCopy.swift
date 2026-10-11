@@ -5,6 +5,7 @@
 import Darwin
 import Foundation
 import LungfishCore
+import Synchronization
 
 /// Reads `annotations.json`, or its recovery copy when an interrupted ExFAT swap left the name
 /// empty (plan decision P9).
@@ -14,11 +15,15 @@ import LungfishCore
 /// the empty file the rename reserved it with, while the annotations wait in the tombstone. A
 /// reader then takes the newest tombstone that holds bytes, in memory. It renames nothing,
 /// because a read runs no recovery, and it prints one line on standard error that names the
-/// recovery copy, so an export never drops the annotations without a word. Opening the result in
-/// the app, or the next write of the annotations, puts the copy back under its name.
+/// recovery copy, so an export never drops the annotations without a word. A process prints that
+/// line once per bundle, however often it reads the file. Opening the result in the app, or the
+/// next write of the annotations, puts the copy back under its name.
 package enum GenotypeAnnotationRecoveryCopy {
     /// Receives the warning line. Standard error unless a test binds it.
     @TaskLocal package static var noticeSink: (@Sendable (String) -> Void)?
+
+    /// The `annotations.json` paths this process already warned about.
+    private static let warnedPaths = Mutex<Set<String>>([])
 
     /// The bytes a reader sees for `annotations.json` in `bundleURL`, or `nil` when it holds none.
     static func readSidecarData(forBundleAt bundleURL: URL) throws -> Data? {
@@ -46,6 +51,7 @@ package enum GenotypeAnnotationRecoveryCopy {
               !copy.isEmpty
         else { return data }
         let path = bundleURL.appendingPathComponent(filename).path
+        guard warnedPaths.withLock({ $0.insert(path).inserted }) else { return copy }
         let line = "warning: \(path) is \(data == nil ? "missing" : "empty"), so the annotations came from "
             + "its recovery copy \(copyName). Opening the result in Lungfish Genome Explorer restores the file."
         if let noticeSink {
