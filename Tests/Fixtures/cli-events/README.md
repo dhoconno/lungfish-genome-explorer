@@ -1,6 +1,6 @@
 # CLI event fixtures
 
-These folders hold transcripts of the event lines that `lungfish-cli` prints when a command runs with events on. `CLIEventCompatibilityTests` decodes every file in `v1`, `CLIPrimerTrimRunnerTests` reads the file in `v2`, and `CLIEventContractCoverageTests` decodes every file under `commands`. The wire format is written down in `docs/formats/cli-events.md`.
+These folders hold transcripts of the event lines that `lungfish-cli` prints when a command runs with events on. `CLIEventCompatibilityTests` decodes every file in `v1`, `CLIPrimerTrimRunnerTests` reads the file in `v2`, `CLIEventTranscriptCoverageTests` decodes every file under `commands`, and `CLIEventContractCoverageTests` decodes every file under `results`. The wire format is written down in `docs/formats/cli-events.md`.
 
 ## v1
 
@@ -41,13 +41,13 @@ These files must not be captured again. After the version 2 encoder landed, the 
 
 The contract table `CLIEventContractTable` names 21 leaf commands that emit events. Each has a folder here, named by its path with hyphens, such as `msa-annotate-add`. A file in it is one run that ends one way. `complete` ends in a `complete` line, `complete-with-warning` is such a run that also logs a warning, and `failed` ends in a `failed` line. Every line is a version 2 line, and every line is captured output.
 
-`CLIEventContractCoverageTests` decodes each line with the current reader and with the frozen version 1 reader and expects the same events from both. It also checks that each run starts with `start`, ends with one terminal event, holds no line a reader skips as chatter, and carries no text that a system message wrote.
+`CLIEventTranscriptCoverageTests` decodes each line with the current reader and with the frozen version 1 reader and expects the same events from both. It also checks that each run starts with `start`, ends with one terminal event, holds no line a reader skips as chatter, and carries no text that a system message wrote.
 
 ### Captured in process
 
 Sixteen leaves need no external tool, so they ran in process on a small fixture, as the version 1 captures did. A command with a test seam handed its lines to a capturing sink. `fastq platform` has none, so its standard output was redirected for the length of the run. The scratch folder is rewritten to `/work` in its plain and slash-escaped spellings, and nothing else is edited.
 
-`CLIEventTranscriptCaptureTests` runs the same 20 captures again and fails when a line differs from its file. After a deliberate change to an emitter, run that suite with `LUNGFISH_RECAPTURE_CLI_EVENTS=1`, which writes the files instead of comparing them, and review the diff.
+`CLIEventTranscriptCoverageTests` runs the same 20 captures again and fails when a line differs from its file. After a deliberate change to an emitter, run that suite with `LUNGFISH_RECAPTURE_CLI_EVENTS=1`, which writes the files instead of comparing them, and review the diff.
 
 A failed run is kept only when Lungfish wrote its message. A Foundation message changes with the system language and the macOS release, so `msa export` and `fastq platform` have no failed run.
 
@@ -107,7 +107,7 @@ Some leaves print text before their document. `convert` prints status lines unle
 
 `small.fasta` is the first record of `Tests/Fixtures/sarscov2/genome.fasta`, cut after five lines of sequence.
 
-The other `.result` schemas have no file here. The test names each one with its reason. For some, no Swift type decodes the document, because the command builds it as a dictionary or its type is private or only encodes. For others, a real run needs the network, or a result bundle or model that the repository does not hold, or writes the user, the machine or a storage path into the document. The test also names the three schemas that the app decodes, which are `r1-ont-barcode-genotyping`, `r5-genotype-cohort-report` and `r2-full-length-ont-mhc`, with the decoder and the test that covers each today.
+The other `.result` schemas have no file here. The test names each one with its reason. For some, no Swift type decodes the document, because the command builds it as a dictionary or its type is private or only encodes. For others, a real run needs the network, or inputs that the suite does not build, such as a result bundle or a model, or writes the user, the machine or a storage path into the document. The test also names the three schemas that the app decodes, which are `r1-ont-barcode-genotyping`, `r5-genotype-cohort-report` and `r2-full-length-ont-mhc`, with the decoder and the test that covers each today.
 
 ## Shapes no run produced
 

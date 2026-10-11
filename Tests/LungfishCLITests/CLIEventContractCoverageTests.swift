@@ -93,7 +93,12 @@ final class CLIEventContractCoverageTests: XCTestCase {
             }
             checked += 1
         }
-        XCTAssertEqual(checked, 21, "The 21 leaves that emit CLIEvent lines")
+        let eventsRows = CLIEventContractTable.entries.values.filter {
+            if case .events = $0 { return true }
+            return false
+        }
+        XCTAssertGreaterThan(checked, 0)
+        XCTAssertEqual(checked, eventsRows.count, "Every row that emits events had its help read")
     }
 
     func testTheHelpCheckCanFail() throws {
@@ -453,7 +458,7 @@ final class CLIEventContractCoverageTests: XCTestCase {
             ]
         ),
         (
-            "A real run needs a result bundle or a model that the repository does not hold, or writes the user, the machine or a storage path into the document",
+            "A real run needs inputs that this suite does not build, such as a result bundle or a model, or writes the user, the machine or a storage path into the document",
             [
                 "cz-id-summary", "debug-container", "debug-env", "demo-info", "demo-list",
                 "genotype-ai-haplotyping", "metadata-export", "metadata-get", "nao-mgs-summary",

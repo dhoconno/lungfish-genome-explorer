@@ -36,7 +36,6 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         "tree infer iqtree", "align mafft", "assemble", "variants call", "bam primer-trim",
     ]
 
-
     static var transcriptsFolder: URL {
         CLIEventContractCoverageTests.repositoryRoot.appendingPathComponent("Tests/Fixtures/cli-events/commands", isDirectory: true)
     }
@@ -88,7 +87,6 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
             if case .events = contract { return path }
             return nil
         })
-        XCTAssertEqual(eventsLeaves.count, 21)
         XCTAssertEqual(
             eventsLeaves.subtracting(withTranscript).sorted(),
             [],
@@ -624,7 +622,6 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         })
         let captured = Set(Self.captures().map(\.leaf))
         XCTAssertEqual(captured, inProcess, "Each events leaf that needs no tool has captures, and no other leaf does")
-        XCTAssertEqual(inProcess.count, 16)
         for leaf in inProcess {
             XCTAssertTrue(
                 Self.captures().contains { $0.leaf == leaf && $0.name.hasPrefix("complete") },

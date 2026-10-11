@@ -66,7 +66,7 @@ public enum CLIEventContractTable {
     private static let formatJSON = "--format json"
     private static let jsonEvents = "--json-events"
     private static let ignoresFormat = "lists --format json and ignores it, 2.10 to 2.12"
-    private static let humanTextOnly = "human text only, lists no machine switch"
+    private static let humanTextOnly = "text output only, lists no machine switch"
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
