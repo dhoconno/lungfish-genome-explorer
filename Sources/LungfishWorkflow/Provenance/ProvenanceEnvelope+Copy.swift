@@ -32,24 +32,48 @@ extension ProvenanceEnvelope {
 }
 
 extension ProvenanceOptions {
-    /// These options with the parameters of a nested run added to the run-level resolved defaults, which is
-    /// the one home of `readSetPlan` (plan decision E13). It is the merge rule of `ProvenanceRecorder.save`
-    /// with one difference, the target. The recorder still merges into the explicit options until the
-    /// classifier producers converge on the resolved defaults.
+    /// Where `mergingRunParameters` adds a run parameter that the options hold nothing for.
+    enum RunParameterHome: Sendable {
+        /// The run-level resolved defaults, the one home of `readSetPlan` (plan decision E13).
+        case resolvedDefaults
+        /// The explicit options, the home that `ProvenanceRecorder.save` keeps.
+        case explicit
+    }
+
+    /// These options with the parameters of a run added to `home`, the run-level resolved defaults unless
+    /// the caller says otherwise. The resolved defaults are the one home of `readSetPlan` (plan decision
+    /// E13), and `ProvenanceEnvelope.with` merges the parameters of a nested run into them.
+    ///
+    /// `ProvenanceRecorder.save` passes `.explicit`. It keeps the explicit options for the pipelines that
+    /// save through it, whose legacy GUI route stays until 2.9 (E14), while the new routes write the E13
+    /// home themselves. The explicit home also keeps a run value that a caller's resolved default
+    /// contradicts, where the resolved defaults home drops it.
     ///
     /// A parameter is added only when the options hold nothing for it. The explicit options win a clash,
     /// because explicit options are what was asked for, so a key they hold is never copied. A parameter that
     /// the options already record as a default or as a resolved default with the same value is not copied
     /// either, and a resolved default with another value stays as it is.
-    func mergingRunParameters(_ parameters: [String: ParameterValue]) -> ProvenanceOptions {
+    func mergingRunParameters(
+        _ parameters: [String: ParameterValue],
+        into home: RunParameterHome = .resolvedDefaults
+    ) -> ProvenanceOptions {
         let onlyInRun = parameters.filter { key, value in
             explicit[key] == nil && defaults[key] != value && resolvedDefaults[key] != value
         }
         guard !onlyInRun.isEmpty else { return self }
-        return ProvenanceOptions(
-            explicit: explicit,
-            defaults: defaults,
-            resolvedDefaults: resolvedDefaults.merging(onlyInRun) { given, _ in given }
-        )
+        switch home {
+        case .resolvedDefaults:
+            return ProvenanceOptions(
+                explicit: explicit,
+                defaults: defaults,
+                resolvedDefaults: resolvedDefaults.merging(onlyInRun) { given, _ in given }
+            )
+        case .explicit:
+            return ProvenanceOptions(
+                explicit: explicit.merging(onlyInRun) { given, _ in given },
+                defaults: defaults,
+                resolvedDefaults: resolvedDefaults
+            )
+        }
     }
 }

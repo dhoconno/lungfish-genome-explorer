@@ -265,9 +265,14 @@ public actor ProvenanceRecorder {
     ///   - options: The record's explicit, default and resolved options, in place of the
     ///     run's own. The run's parameters are merged into the explicit options, so a
     ///     parameter that only the run carries stays in the record. Kraken2's
-    ///     `readSetPlan` is one. The caller's explicit value wins a clash. A parameter the
-    ///     caller already records as a default or a resolved default with the same value is
-    ///     not copied, because explicit options are what was asked for.
+    ///     `readSetPlan` is one. The recorder keeps the explicit options for the pipelines
+    ///     that save through it, whose legacy GUI route stays until 2.9 (plan decision
+    ///     E14), while the new routes write the resolved defaults, the E13 home, themselves.
+    ///     The caller's explicit value wins a clash. A parameter the caller already records
+    ///     as a default or a resolved default with the same value is not copied, because
+    ///     explicit options are what was asked for. A run value that a caller's resolved
+    ///     default contradicts stays in the explicit options, so the record keeps both
+    ///     values. `ProvenanceOptions.mergingRunParameters` holds the rule.
     ///   - dropMissingRunLevelFiles: When true, the run-level `files` and
     ///     `outputs` roll-ups drop paths that no longer exist on disk. Steps keep
     ///     their historically true records. Pipelines that delete an intermediate
@@ -287,19 +292,8 @@ public actor ProvenanceRecorder {
         logDeclarationsWithoutObservation(of: run)
         var envelope = run.canonicalEnvelope()
         if let options {
-            // `ProvenanceOptions.mergingRunParameters` holds this rule with the resolved defaults as its
-            // target. The recorder keeps the explicit options as its target until the classifier
-            // producers converge on that home, because the move changes their records.
-            let onlyInRun = run.parameters.filter { key, value in
-                options.defaults[key] != value && options.resolvedDefaults[key] != value
-            }
-            envelope = envelope.with {
-                $0.options = ProvenanceOptions(
-                    explicit: options.explicit.merging(onlyInRun) { given, _ in given },
-                    defaults: options.defaults,
-                    resolvedDefaults: options.resolvedDefaults
-                )
-            }
+            // The recorder keeps the explicit home, as the doc of `options` says.
+            envelope = envelope.with { $0.options = options.mergingRunParameters(run.parameters, into: .explicit) }
         }
         if dropMissingRunLevelFiles {
             envelope = envelope.droppingMissingRunLevelFiles()
