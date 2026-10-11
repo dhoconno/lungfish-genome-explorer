@@ -63,7 +63,7 @@ Additions never change the number. A new key, a new step field, a new descriptor
 
 Readers accept any version. A reader ignores keys it does not know, reads the keys it knows at any version and never refuses a record because of its version number. LGE writes version 2. The encoder always writes its own version, even for a record rebuilt from one it read at another version, because the bytes it writes are always in its own shape.
 
-A file `format` and a file `role` are open from version 2. A reader keeps a value it does not know, such as `csv` or `sampleSheet`, and writes it back unchanged. Below version 2 a reader refuses an unknown format or role as released builds always did, so the record falls to the primitive adapter and keeps the shape and signature payload it had. A build released before LGE wrote version 2 refuses such a value at any version and reads that record through the adapter. Such a build also takes a signature over that record to cover its raw bytes, so the signature verifies only in builds that read the record as an envelope. The kinds of typed value stay closed, and a typed value of a kind the reader does not know reads as a plain object.
+A file `format` and a file `role` are open from version 2. A reader keeps a value it does not know, such as `csv` or `sampleSheet`, and writes it back unchanged. Below version 2 a reader refuses an unknown format or role as released builds always did, so the record falls to the primitive adapter and keeps the shape and signature payload it had. A build released before LGE wrote version 2 refuses such a value at any version and reads that record through the adapter. Such a build also takes a signature over that record to cover its raw bytes, so the signature verifies only in builds that read the record as an envelope. The kinds of typed value stay closed. In the run's `options` a value of an unknown kind reads as a plain object, and in a step's `resolvedOptions` the envelope decoder refuses the record.
 
 ## What version 2 removes
 
@@ -79,7 +79,7 @@ Version 1 wrote 14 keys twice, once under the canonical name and once under the 
 | Step `startTime`, `endTime` | Step `startedAt`, `completedAt` |
 | Descriptor `sha256`, `sizeBytes` | Descriptor `checksumSHA256`, `fileSize` |
 
-`status` stays, because it is the canonical status key. Version 2 also writes slashes without escapes. A signature survives that change, because signing covers the parsed object reserialized, not the raw bytes. A version 1 record keeps its whole-second `startTime` and `endTime`, and `lungfish-cli ops stats` uses them for its wall time when they are there. A version 2 record gives the same span from its canonical fields, within a second.
+`status` stays, because it is the canonical status key. Version 2 also writes slashes without escapes. A signature survives that change, because signing covers the parsed object reserialized, not the raw bytes. A version 1 record keeps its whole-second `startTime` and `endTime`, and `lungfish-cli ops stats` uses them for its wall time when they are there. A version 2 record gives the same span from its canonical fields, within a second. The `ops stats` of every released build reads a bare run and counts no version 2 record, and a build before 0.4.0-alpha.14 reads none.
 
 ## Older record format
 

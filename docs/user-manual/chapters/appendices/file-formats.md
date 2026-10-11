@@ -536,21 +536,18 @@ A [provenance sidecar](../../GLOSSARY.md#provenance-sidecar) is a JSON file writ
 
 ### The full envelope
 
-A sidecar written by a command-line operation carries the top-level keys below. This one was written by the `lungfish-cli extract sequence` command in [Extracting Sequences](../02-sequences/03-extracting-and-comparing.md), with the file paths shortened, the LGE version written as `<version>`, and repeated entries cut where the `...` lines stand.
+A sidecar written by a command-line operation carries the top-level keys below. This one was written by the `lungfish-cli extract sequence` command in [Extracting Sequences](../02-sequences/03-extracting-and-comparing.md), with the file paths shortened, the LGE version written as `<version>`, the keys put in reading order rather than the file's alphabetical order, and repeated entries cut where the `...` lines stand.
 
 ```json
 {
-  "schemaVersion": 1,
-  "id": "E2CF7B18-B869-4ADE-8D94-FC2942F7BAFD",
-  "name": "lungfish extract sequence",
-  "createdAt": "2026-09-27T16:10:38Z",
+  "schemaVersion": 2,
+  "id": "AFD4B599-D22F-4F3D-9AF0-726B62054882",
+  "createdAt": "2026-10-11T09:36:56Z",
   "workflowName": "lungfish extract sequence",
   "workflowVersion": "Lungfish <version>",
   "toolName": "lungfish extract sequence",
-  "toolVersion": "lungfish-cli <version>",
-  "tool": { "kind": "cli", "name": "lungfish extract sequence", "version": "lungfish-cli <version>" },
-  "appVersion": "Lungfish <version>",
-  "hostOS": "macOS 26.6.2 (arm64)",
+  "toolVersion": "<version>",
+  "tool": { "kind": "cli", "name": "lungfish extract sequence", "version": "<version>" },
   "argv": ["lungfish-cli", "extract", "sequence", ".../genome/sequence.fa.gz", "NG_000007:70545-72152", "--output", ".../hbb-gene.fasta"],
   "durableReplayArgv": ["lungfish-cli", "extract", "sequence", ".../genome/sequence.fa.gz", "NG_000007:70545-72152", "--output", ".../hbb-gene.fasta"],
   "reproducibleCommand": "lungfish-cli extract sequence '.../genome/sequence.fa.gz' NG_000007:70545-72152 --output .../hbb-gene.fasta",
@@ -558,40 +555,35 @@ A sidecar written by a command-line operation carries the top-level keys below. 
     "appVersion": "Lungfish <version>",
     "architecture": "arm64",
     "dependencySet": "2026.2",
-    "executablePath": ".../lungfish-cli",
-    "operatingSystemVersion": "macOS 26.6.2 (arm64)",
-    "processIdentifier": 14883,
-    "user": "..."
+    "executablePath": "<external>/lungfish-cli",
+    "managedToolLockSHA256": "9c102049...",
+    "operatingSystemVersion": "macOS 26.7.1 (arm64)"
   },
-  "runtime": { "appVersion": "Lungfish <version>", "hostOS": "macOS 26.6.2 (arm64)", "user": "..." },
   "options": {
     "explicit": { "region": { "type": "string", "value": "NG_000007:70545-72152" }, "...": "..." },
     "defaults": { "flank": { "type": "integer", "value": 0 }, "lineWidth": { "type": "integer", "value": 70 }, "...": "..." },
     "resolvedDefaults": { "coordinate_system": { "type": "string", "value": "0-based half-open" }, "...": "..." }
   },
-  "parameters": { "region": { "type": "string", "value": "NG_000007:70545-72152" }, "...": "..." },
   "files": [
     { "path": ".../genome/sequence.fa.gz", "role": "input", "format": "fasta",
-      "sha256": "a3faac89...", "sizeBytes": 24227, "checksumSHA256": "a3faac89...", "fileSize": 24227 },
+      "checksumSHA256": "a3faac89...", "fileSize": 24227 },
     "..."
   ],
   "output": { "path": ".../hbb-gene.fasta", "role": "output", "format": "fasta", "...": "..." },
   "outputs": [ { "path": ".../hbb-gene.fasta", "role": "output", "format": "fasta", "...": "..." } ],
-  "steps": [ { "id": "...", "command": ["..."], "exitCode": 0, "...": "..." } ],
-  "startTime": "2026-09-27T16:10:38Z",
-  "endTime": "2026-09-27T16:10:38Z",
+  "steps": [ { "id": "...", "toolName": "lungfish extract sequence", "argv": ["..."], "exitStatus": 0, "...": "..." } ],
   "status": "completed",
   "exitStatus": 0,
-  "wallTimeSeconds": 0.098,
+  "wallTimeSeconds": 0.11340498924255371,
   "signatures": []
 }
 ```
 
-Most readers need only four keys. Read `reproducibleCommand` for what was run, `files` for what went in, `outputs` for what came out, and `status` for whether it worked. `schemaVersion` is `1` and is written in [camelCase](../../GLOSSARY.md#camel-case), like every key here, so a search for `schema_version` finds nothing. The `options` block splits what you typed, under `explicit`, from what you accepted, under `defaults`, and `resolvedDefaults` records every value the run used. An extraction records its span there in LGE's internal count from 0 and labels it `coordinate_system` `0-based half-open`, so `effectiveStart` reads 70544 for a cut that starts at base 70545.
+Most readers need only four keys. Read `reproducibleCommand` for what was run, `files` for what went in, `outputs` for what came out, and `status` for whether it worked. `schemaVersion` is `2` and is written in [camelCase](../../GLOSSARY.md#camel-case), like every key here, so a search for `schema_version` finds nothing. The `options` block splits what you typed, under `explicit`, from what you accepted, under `defaults`, and `resolvedDefaults` records every value the run used. An extraction records its span there in LGE's internal count from 0 and labels it `coordinate_system` `0-based half-open`, so `effectiveStart` reads 70544 for a cut that starts at base 70545.
 
-Three pairs of keys hold the same thing under an older and a newer spelling. Every file entry carries `sha256` and `checksumSHA256` with the same [checksum](../../GLOSSARY.md#checksum), and `sizeBytes` and `fileSize` with the same byte count. `durableReplayArgv` holds the command as a list of separate words for a program, while `reproducibleCommand` holds it as one line you can paste into Terminal.
+A record that an earlier LGE wrote holds `schemaVersion` 1 and repeats 14 keys under an older spelling, such as `sha256` beside `checksumSHA256` with the same [checksum](../../GLOSSARY.md#checksum), `sizeBytes` beside `fileSize`, and `appVersion` and `hostOS` beside `runtimeIdentity`. LGE reads both spellings and now writes each fact once. `durableReplayArgv` holds the command as a list of separate words for a program, while `reproducibleCommand` holds it as one line you can paste into Terminal.
 
-`signatures` is empty unless a signer is configured, which is off by default. `wallTimeSeconds` is recorded at full decimal precision, and only the leading digits mean anything. `appVersion` and `workflowVersion` name the LGE that ran the command. A step that ran an outside tool names that tool's version in its own `toolVersion`, and a tool that would not report its version leaves `unknown` or whatever it printed there, as [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) notes for LoFreq. The `runtimeIdentity.dependencySet` value, `2026.2` here, names the pinned tool set, whose versions [Tool Versions](tool-versions.md) lists.
+`signatures` is empty unless a signer is configured, which is off by default. `wallTimeSeconds` is recorded at full decimal precision, and only the leading digits mean anything. `runtimeIdentity.appVersion` and `workflowVersion` name the LGE that ran the command, and `executablePath` names its program as `<external>/` followed by the file name, never by the folder it was installed in. A step that ran an outside tool names that tool's version in its own `toolVersion`, and a tool that would not report its version leaves `unknown` or whatever it printed there, as [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) notes for LoFreq. The `runtimeIdentity.dependencySet` value, `2026.2` here, names the pinned tool set, whose versions [Tool Versions](tool-versions.md) lists, and `managedToolLockSHA256` is the checksum of the exact file that pins them.
 
 ### The older shape
 
@@ -606,10 +598,10 @@ Each entry in `steps` holds the fields below.
 | Field | What it holds |
 |---|---|
 | `id` and `dependsOn` | The step's own name and the names of the steps that had to finish first |
-| `command`, `argv` | The exact argument list, one word per entry |
+| `argv` | The exact argument list, one word per entry. An older record also holds it as `command` |
 | `reproducibleCommand` | The same command as one line |
-| `startTime`, `endTime`, `wallTime`, `wallTimeSeconds` | When the step ran and how long it took |
-| `exitCode`, `exitStatus` | The number the tool returned, where 0 means success |
+| `startedAt`, `completedAt`, `wallTimeSeconds` | When the step ran and how long it took. An older record also holds `startTime`, `endTime` and `wallTime` |
+| `exitStatus` | The number the tool returned, where 0 means success. An older record also holds it as `exitCode` |
 | `toolName`, `toolVersion` | Which tool ran and which build of it |
 | `resolvedOptions` | The settings the step ran with |
 | `stderr` | The tool's [standard error](../../GLOSSARY.md#stderr) text, its progress notes and complaints |

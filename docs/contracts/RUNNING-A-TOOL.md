@@ -93,7 +93,7 @@ Look a lock entry up with `ManagedToolLock.entry(id:)` or `entry(environment:)`,
 | Name | What it hashes | Who uses it |
 |---|---|---|
 | `ManagedToolLock.manifestHash` | The lock decoded and re-encoded with sorted keys | Receipts, the launch fast path, Debug to Preview tool sharing and two Python copies of the rule in the release tooling |
-| `ManagedToolLockIdentity.fileSHA256` | The exact bytes of the bundled lock file, from the same read that decodes `ManagedToolLock.bundled` | Nothing records it yet. 2.6 writes it into run records (`docs/contracts/RECORDING-PROVENANCE.md`) |
+| `ManagedToolLockIdentity.fileSHA256` | The exact bytes of the bundled lock file, from the same read that decodes `ManagedToolLock.bundled` | Run records, as `runtimeIdentity.managedToolLockSHA256` beside the bundled lock's dependency set |
 
 A whitespace edit to the lock changes the second and leaves the first. The identity is nil when the file cannot be read, never the hash of empty data.
 
