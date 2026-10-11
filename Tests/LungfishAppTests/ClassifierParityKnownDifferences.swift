@@ -192,12 +192,15 @@ enum ClassifierParityKnownDifferences {
                   closedBy: sharedPipeline),
         namedFile(.b, [.k2: 1, .k3: 1], "*.lungfish-classify-inputs/merged.emptymate.fastq that does not exist",
                   "As on side A", closedBy: sharedPipeline),
+        // Landing 2 found both still matching after A7 landed. A7 records the move as a step of its
+        // own (E7), but the records written before the move keep the old path and digest, and side
+        // C shows the same through the CLI route's finalize (ClassifierParityKnownDifferences+RouteC).
         namedFile(.a, [.e1: 6, .e2: 6, .e3: 20], "*/*_temp/*.third.filt.sorted.bam* that does not exist",
-                  "The GUI's build-db esviritu moves the BAM and its index to bams/, and the records still name them in _temp/",
-                  closedBy: "A7, whose BAM move is a recorded step (E7)"),
+                  "The GUI's build-db esviritu moves the BAM and its index to bams/, and the records written before the move still name them in _temp/",
+                  closedBy: bamRelocation),
         namedFile(.a, [.e1: 3, .e2: 3, .e3: 10], "*/bams/*.third.filt.sorted.bam with another digest",
-                  "The BAM that build-db esviritu moved to bams/ holds another digest than the records state",
-                  closedBy: "A7, whose BAM move is a recorded step (E7)"),
+                  "The BAM that build-db esviritu moved to bams/ holds other bytes than the digest the records state, the digest of the file in _temp/",
+                  closedBy: bamRelocation),
     ]
 
     /// One line per found difference that no entry declares, and per entry that matches another
