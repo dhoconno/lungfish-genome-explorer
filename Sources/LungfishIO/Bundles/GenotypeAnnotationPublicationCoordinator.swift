@@ -28,6 +28,24 @@ public struct GenotypeAnnotationPublicationPayload: Sendable {
         self.annotationData = annotationData
         self.provenanceData = provenanceData
     }
+
+    /// The payload of a coordinator that has no record name, whose record
+    /// the caller publishes alongside `annotations.json`.
+    public init(annotationData: Data) {
+        self.init(annotationData: annotationData, provenanceData: Data())
+    }
+}
+
+/// How a coordinator publishes the record under its record name.
+public enum GenotypeAnnotationRecordPublication: Equatable, Sendable {
+    /// The coordinator publishes the payload's record bytes over the file under the name.
+    case payload
+    /// `alongside` publishes the record over the file under the name. A rollback puts back the
+    /// record the snapshot read when the name no longer holds it.
+    case alongside
+    /// `alongside` publishes a record that must be new and never replaces a file. A rollback
+    /// removes it only once `alongside` returned, so a file another writer put there stays.
+    case alongsideNew
 }
 
 public struct GenotypeAnnotationPublicationTransactionError: Error, LocalizedError {
@@ -48,6 +66,7 @@ public struct GenotypeAnnotationPublicationTransactionError: Error, LocalizedErr
 private enum GenotypeAnnotationPublicationCoordinatorError: Error, LocalizedError {
     case unsafeFile(String)
     case systemFailure(operation: String, path: String, code: Int32)
+    case changedByAnotherWriter(String)
 
     var errorDescription: String? {
         switch self {
@@ -55,6 +74,8 @@ private enum GenotypeAnnotationPublicationCoordinatorError: Error, LocalizedErro
             return "Genotype annotation publication requires a real regular file: \(path)"
         case let .systemFailure(operation, path, code):
             return "Could not \(operation) at \(path) (errno \(code): \(String(cString: strerror(code))))."
+        case .changedByAnotherWriter(let path):
+            return "\(path) holds bytes another writer published, so the rollback left them in place."
         }
     }
 }
@@ -64,54 +85,94 @@ private enum GenotypeAnnotationPublicationCoordinatorError: Error, LocalizedErro
 /// Each file goes through ``DurableReplace`` inside one ``DurableReplace/transaction(_:)``, so a name
 /// holds a complete old or new file at every step, both files and the folder are synced, and one
 /// full flush follows the pair (plan decisions S1, V1 and V2). A failure after either publication
-/// puts back every file that no longer holds what the snapshot read. The bundle opens the way
+/// puts back every file that holds what this publication wrote, or that holds nothing, and leaves
+/// a file another writer changed in the meantime, reporting it. The bundle opens the way
 /// `DurableReplace` opens a folder, anchored at the outermost `.lungfish*` component, so a link
 /// below that anchor is refused (V3).
+///
+/// The GUI annotation store, the CLI genotype annotation commands and the AI haplotyping publisher
+/// all publish through it (row B8). A CLI command's record goes out through `ProvenanceWriter` in
+/// `alongside`, so it keeps the writer's bytes and signing, and a coordinator without a record name
+/// publishes `annotations.json` only, for a caller whose record lives in another folder.
 public struct GenotypeAnnotationPublicationCoordinator {
     public let bundleURL: URL
     public let annotationFilename: String
-    public let provenanceFilename: String
+    public let provenanceFilename: String?
+    public let recordPublication: GenotypeAnnotationRecordPublication
     public let faultInjector: GenotypeAnnotationPublicationFaultInjector?
 
     public init(
         bundleURL: URL,
         annotationFilename: String,
-        provenanceFilename: String,
+        provenanceFilename: String?,
+        recordPublication: GenotypeAnnotationRecordPublication = .payload,
         faultInjector: GenotypeAnnotationPublicationFaultInjector?
     ) {
         self.bundleURL = bundleURL
         self.annotationFilename = annotationFilename
         self.provenanceFilename = provenanceFilename
+        self.recordPublication = recordPublication
         self.faultInjector = faultInjector
     }
 
+    /// Takes the bundle's publication lock, then publishes what `prepare` returns.
     public func transact(
         prepare: (GenotypeAnnotationPublicationSnapshot) throws -> GenotypeAnnotationPublicationPayload?
     ) throws -> GenotypeAnnotationPublicationPayload? {
         let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(for: bundleURL)
         defer { publicationLock.release() }
+        return try publish(alongside: {}, prepare: prepare)
+    }
 
+    /// Publishes what `prepare` returns for a caller that already holds the bundle's publication
+    /// lock. `alongside` runs inside the transaction once `annotations.json` holds the new bytes
+    /// and before the payload's record. It publishes the record when `recordPublication` says so,
+    /// or one kept in another folder, and a throw there rolls the pair back.
+    public func transact(
+        assuming publicationLock: ONTGenotypeBundlePublicationLock,
+        alongside: () throws -> Void = {},
+        prepare: (GenotypeAnnotationPublicationSnapshot) throws -> GenotypeAnnotationPublicationPayload?
+    ) throws -> GenotypeAnnotationPublicationPayload? {
+        let expected = ONTGenotypeBundlePublicationLock.lockURL(for: bundleURL).standardizedFileURL
+        guard publicationLock.lockURL.standardizedFileURL == expected else {
+            throw GenotypeAnnotationSidecarPublicationError.mismatchedPublicationLock(
+                expectedPath: expected.path,
+                actualPath: publicationLock.lockURL.standardizedFileURL.path
+            )
+        }
+        return try publish(alongside: alongside, prepare: prepare)
+    }
+
+    private func publish(
+        alongside: () throws -> Void,
+        prepare: (GenotypeAnnotationPublicationSnapshot) throws -> GenotypeAnnotationPublicationPayload?
+    ) throws -> GenotypeAnnotationPublicationPayload? {
         let directoryFD = try openBundleDirectory()
         defer { Darwin.close(directoryFD) }
 
         // An ExFAT swap that stopped halfway leaves its old file under a tombstone and nothing under
         // the name. Restore it first, or the snapshot would see nothing and an edit built from
         // nothing would replace it.
-        for filename in [annotationFilename, provenanceFilename] {
+        for filename in [annotationFilename, provenanceFilename].compactMap({ $0 }) {
             try DurableReplace.recover(named: filename, in: bundleURL)
         }
 
         let snapshot = GenotypeAnnotationPublicationSnapshot(
             annotationData: try readRegularFile(annotationFilename, directoryFD: directoryFD),
-            provenanceData: try readRegularFile(provenanceFilename, directoryFD: directoryFD)
+            provenanceData: try provenanceFilename.flatMap { try readRegularFile($0, directoryFD: directoryFD) }
         )
         guard let payload = try prepare(snapshot) else { return nil }
 
+        var publishedAlongside = false
         do {
             try DurableReplace.transaction {
                 try publish(payload.annotationData, filename: annotationFilename, directoryFD: directoryFD)
                 if let error = faultInjector?(.beforeProvenancePublication) { throw error }
-                try publish(payload.provenanceData, filename: provenanceFilename, directoryFD: directoryFD)
+                try alongside()
+                publishedAlongside = true
+                if let provenanceFilename, recordPublication == .payload {
+                    try publish(payload.provenanceData, filename: provenanceFilename, directoryFD: directoryFD)
+                }
                 if let error = faultInjector?(.commitDirectorySync) { throw error }
                 guard Darwin.fsync(directoryFD) == 0 else {
                     throw systemError("synchronize annotation publication directory", bundleURL.path)
@@ -120,7 +181,12 @@ public struct GenotypeAnnotationPublicationCoordinator {
             return payload
         } catch {
             // Nothing may have changed yet, so only a restored or failed file wraps the error.
-            let outcome = rollBack(snapshot, directoryFD: directoryFD)
+            let outcome = rollBack(
+                snapshot,
+                payload: payload,
+                publishedAlongside: publishedAlongside,
+                directoryFD: directoryFD
+            )
             guard outcome.restored || outcome.error != nil else { throw error }
             throw GenotypeAnnotationPublicationTransactionError(
                 primaryError: error,
@@ -224,22 +290,38 @@ public struct GenotypeAnnotationPublicationCoordinator {
         removeTemporary = false
     }
 
-    /// Puts back every file that no longer holds what the snapshot read, in one transaction, and
-    /// syncs the folder. `restored` says whether any file had to change.
+    /// Puts back, in one transaction, every file that holds what this publication wrote or that
+    /// holds nothing, and syncs the folder. `restored` says whether any file had to change.
     private func rollBack(
         _ snapshot: GenotypeAnnotationPublicationSnapshot,
+        payload: GenotypeAnnotationPublicationPayload,
+        publishedAlongside: Bool,
         directoryFD: Int32
     ) -> (restored: Bool, error: Error?) {
         var errors: [Error] = []
         var restored = false
+        // Each name, the bytes the snapshot read, and the bytes this publication wrote, where
+        // `nil` means any bytes under the name are this publication's.
+        var names: [(String, Data?, Data?)] = [(annotationFilename, snapshot.annotationData, payload.annotationData)]
+        if let provenanceFilename {
+            switch recordPublication {
+            case .payload:
+                names.append((provenanceFilename, snapshot.provenanceData, payload.provenanceData))
+            case .alongside:
+                names.append((provenanceFilename, snapshot.provenanceData, nil))
+            case .alongsideNew where publishedAlongside:
+                names.append((provenanceFilename, snapshot.provenanceData, nil))
+            case .alongsideNew:
+                break
+            }
+        }
         do {
             try DurableReplace.transaction {
-                for (filename, data) in [
-                    (annotationFilename, snapshot.annotationData),
-                    (provenanceFilename, snapshot.provenanceData),
-                ] {
+                for (filename, data, published) in names {
                     do {
-                        if try restore(data, as: filename, directoryFD: directoryFD) { restored = true }
+                        if try restore(data, replacing: published, as: filename, directoryFD: directoryFD) {
+                            restored = true
+                        }
                     } catch {
                         errors.append(error)
                     }
@@ -260,15 +342,25 @@ public struct GenotypeAnnotationPublicationCoordinator {
     }
 
     /// Returns whether `filename` had to change to hold `data` again, or to be absent when `data`
-    /// is `nil`. A name that cannot be read counts as changed, and the restore reports why.
-    private func restore(_ data: Data?, as filename: String, directoryFD: Int32) throws -> Bool {
-        let matches: Bool
+    /// is `nil`. A name that still holds `data` is left alone. A name that holds `published`, holds
+    /// nothing or cannot be read is put back, and the restore reports why it could not. A name
+    /// that holds anything else was changed by another writer and is left alone with an error.
+    /// A `published` of `nil` counts any bytes under the name as this publication's.
+    private func restore(_ data: Data?, replacing published: Data?, as filename: String, directoryFD: Int32) throws -> Bool {
+        let current: Data??
         do {
-            matches = try readRegularFile(filename, directoryFD: directoryFD) == data
+            current = .some(try readRegularFile(filename, directoryFD: directoryFD))
         } catch {
-            matches = false
+            current = .none
         }
-        if matches { return false }
+        if case .some(let found) = current {
+            if found == data { return false }
+            if let found, let published, found != published {
+                throw GenotypeAnnotationPublicationCoordinatorError.changedByAnotherWriter(
+                    bundleURL.appendingPathComponent(filename).path
+                )
+            }
+        }
         if let data {
             try publish(data, filename: filename, directoryFD: directoryFD)
         } else {
