@@ -8,8 +8,9 @@
 // `unavailable`, an empty string), or the text of a failed probe. This type
 // names those cases so a reader can tell a measured version from a pin from a
 // gap. A step records it under `toolVersionEvidence` beside `toolVersion`, in
-// the wire shape at the end of this file, and the producers that fill it come
-// later.
+// the wire shape at the end of this file. A producer reads a managed
+// environment's conda-meta (`condaMeta(id:environment:lock:)`), and the other
+// producers are added one pipeline at a time.
 
 import Foundation
 import LungfishIO
@@ -135,6 +136,54 @@ public enum ToolVersionEvidence: Sendable, Hashable {
         }
         return .observed(version: head, reportedLine: nil)
     }
+}
+
+// MARK: - Evidence read from the environment that ran
+
+extension ToolVersionEvidence {
+    /// The version of a managed tool read from the `conda-meta` of the environment that ran it, with the
+    /// lock's pin as the fallback (Phase 2.7 decision P12).
+    ///
+    /// `environment` is the conda environment folder, such as `<root>/envs/samtools`. The package is the one
+    /// the lock entry's spec installs, so `bbtools` reads `bbmap`. A package record that is there gives
+    /// `.observed(version:reportedLine:)`, and `reportedLine` is the record as one line,
+    /// `<name>-<version>-<build>` (`minimap2-2.31-h6bd33b9_0`). That line is built from the three names and
+    /// holds no path, however many paths the record itself keeps. The version is the environment's own, so it
+    /// differs from the lock's when the environment was changed after the install. When the environment holds
+    /// no usable record of the package, the lock's pin is recorded as a pin.
+    ///
+    /// A tool that a source build or a Python runtime installs (Bracken, primalscheme3) has no conda package
+    /// that names its version, so neither the record nor the pin could say what ran. That is `unknown`.
+    ///
+    /// Call this in the writer after the run. It reads files and starts no process, so it never belongs in a
+    /// `ToolProcess` observer.
+    public static func condaMeta(
+        id: ManagedToolID, environment: URL, lock: ManagedToolLock = .bundled
+    ) -> ToolVersionEvidence {
+        guard let entry = lock.entry(id: id) else { return .unknown(.noProbe) }
+        guard let spec = lock.packageSpec(of: entry), let package = CondaSpec(spec: spec)?.name else {
+            return .unknown(.noProbe)
+        }
+        if let record = CondaMetaReader.primaryPackage(named: package, inEnvironment: environment),
+           let line = packageRecordLine(of: record) {
+            return .observed(version: record.version, reportedLine: line)
+        }
+        return .lockPin(for: id, in: lock)
+    }
+
+    /// A package record as `<name>-<version>-<build>`, or nil when a part is empty or is not a plain token
+    /// (a part with a slash, a space or a line break could carry a path or break the line).
+    static func packageRecordLine(of record: CondaMetaPackage) -> String? {
+        var parts = [record.name, record.version]
+        if let build = record.build, !build.isEmpty { parts.append(build) }
+        guard parts.allSatisfy({ !$0.isEmpty && $0.unicodeScalars.allSatisfy(plainRecordCharacters.contains) }) else {
+            return nil
+        }
+        return parts.joined(separator: "-")
+    }
+
+    private static let plainRecordCharacters =
+        CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-!~")
 }
 
 // MARK: - Wire shape
