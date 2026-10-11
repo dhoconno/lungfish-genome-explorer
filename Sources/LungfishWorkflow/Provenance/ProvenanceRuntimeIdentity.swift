@@ -32,6 +32,10 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
     public let containerImage: String?
     public let containerDigest: String?
     public let dependencySet: String?
+    /// The SHA-256 of the bundled managed tool lock file's exact bytes, which names the pins in force
+    /// beside `dependencySet`. A writer records it when the dependency set it records is the bundled
+    /// lock's. A record written before schema version 2 holds none.
+    public let managedToolLockSHA256: String?
 
     private enum CodingKeys: String, CodingKey {
         case appVersion
@@ -47,11 +51,13 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         case containerImage
         case containerDigest
         case dependencySet
+        case managedToolLockSHA256
     }
 
     /// A writer's identity. Each default is a fact of the writing process, and a blank value takes the
     /// default as before. The writer's own executable, whether taken from the default or passed as
-    /// `argv[0]`, is recorded as `<external>/<file name>`, and no process ID is recorded.
+    /// `argv[0]`, is recorded as `<external>/<file name>`, and no process ID is recorded. The bundled
+    /// lock's hash is recorded with the bundled lock's dependency set.
     public init(
         appVersion: String? = WorkflowRun.currentAppVersion,
         executablePath: String? = Self.currentExecutablePath,
@@ -83,6 +89,7 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         self.containerImage = containerImage
         self.containerDigest = containerDigest
         self.dependencySet = dependencySet
+        self.managedToolLockSHA256 = Self.bundledLockSHA256(recordingDependencySet: dependencySet)
     }
 
     /// The identity a record holds, for a reader. It takes the process ID the record holds, or nil,
@@ -101,7 +108,8 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         pluginPack: String? = nil,
         containerImage: String? = nil,
         containerDigest: String? = nil,
-        dependencySet: String?
+        dependencySet: String?,
+        managedToolLockSHA256: String? = nil
     ) {
         self.appVersion = Self.recorded(appVersion)
         self.executablePath = Self.recorded(executablePath)
@@ -116,6 +124,7 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         self.containerImage = containerImage
         self.containerDigest = containerDigest
         self.dependencySet = dependencySet
+        self.managedToolLockSHA256 = Self.recorded(managedToolLockSHA256)
     }
 
     /// A missing or blank key decodes as nil. A present value decodes trimmed, as before.
@@ -134,6 +143,7 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         containerImage = try container.decodeIfPresent(String.self, forKey: .containerImage)
         containerDigest = try container.decodeIfPresent(String.self, forKey: .containerDigest)
         dependencySet = try container.decodeIfPresent(String.self, forKey: .dependencySet)
+        managedToolLockSHA256 = Self.recorded(try container.decodeIfPresent(String.self, forKey: .managedToolLockSHA256))
     }
 
     /// Writes every fact the identity holds except the process ID, which no record written since
@@ -152,6 +162,16 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         try container.encodeIfPresent(containerImage, forKey: .containerImage)
         try container.encodeIfPresent(containerDigest, forKey: .containerDigest)
         try container.encodeIfPresent(dependencySet, forKey: .dependencySet)
+        try container.encodeIfPresent(managedToolLockSHA256, forKey: .managedToolLockSHA256)
+    }
+
+    /// The bundled lock file's SHA-256 when `dependencySet` is the bundled lock's dependency set, and nil
+    /// for any other set or when the lock could not be read. The hash names the bundled lock only.
+    static func bundledLockSHA256(recordingDependencySet dependencySet: String?) -> String? {
+        guard let identity = ManagedToolLock.bundledIdentity, dependencySet == identity.dependencySet else {
+            return nil
+        }
+        return identity.fileSHA256
     }
 
     /// A recorded text value trimmed, or nil when the record holds none or only blanks.

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import CryptoKit
 import XCTest
 import LungfishTestSupport
 @testable import LungfishWorkflow
@@ -337,5 +338,99 @@ final class ProvenanceSchemaVersion2EncoderTests: XCTestCase {
         XCTAssertEqual(recorded.appVersion, "Lungfish 2026.9.58")
         XCTAssertEqual(recorded.executablePath, CommandLine.arguments.first)
         XCTAssertEqual(recorded.processIdentifier, 7)
+    }
+
+    // MARK: The lock identity
+
+    /// The SHA-256 of the bundled lock file's exact bytes.
+    static func bundledLockFileSHA256() throws -> String {
+        let data = try Data(contentsOf: try ManagedToolLock.resourceURL())
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// The lock hash an identity writes, read from its encoded bytes.
+    static func writtenLockHash(of identity: ProvenanceRuntimeIdentity) throws -> String? {
+        let json = try JSONSerialization.jsonObject(with: ProvenanceJSON.encoder.encode(identity)) as? [String: Any]
+        return json?["managedToolLockSHA256"] as? String
+    }
+
+    /// A writer that records the bundled lock's dependency set also records the SHA-256 of the lock
+    /// file's bytes, at the run and at each step that takes the default dependency set.
+    func testANewlyWrittenRecordHoldsTheBundledLockFilesSHA256() throws {
+        let expected = try Self.bundledLockFileSHA256()
+        let dependencySet = ManagedToolLock.bundled.resolvedDependencySet
+        let step = ProvenanceStep(
+            toolName: "samtools",
+            runtimeIdentity: ProvenanceRuntimeIdentity(
+                executablePath: "/opt/conda/envs/samtools/bin/samtools",
+                condaEnvironment: "samtools"
+            ),
+            exitStatus: 0
+        )
+        let envelope = ProvenanceEnvelope(
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            workflowName: "lock.identity",
+            toolName: "lungfish-cli",
+            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            steps: [step],
+            exitStatus: 0
+        )
+        for inProject in [false, true] {
+            let written = try Self.write(envelope, inProject: inProject)
+            defer { written.cleanup() }
+            let json = try written.json()
+            let runtime = try XCTUnwrap(json["runtimeIdentity"] as? [String: Any])
+            XCTAssertEqual(runtime["dependencySet"] as? String, dependencySet)
+            XCTAssertEqual(runtime["managedToolLockSHA256"] as? String, expected, "inProject \(inProject)")
+            let steps = try XCTUnwrap(json["steps"] as? [[String: Any]])
+            let stepRuntime = try XCTUnwrap(steps.first?["runtimeIdentity"] as? [String: Any])
+            XCTAssertEqual(stepRuntime["managedToolLockSHA256"] as? String, expected, "inProject \(inProject)")
+            let read = try ProvenanceEnvelopeReader.decodeCanonical(written.data)
+            XCTAssertEqual(try Self.writtenLockHash(of: read.runtimeIdentity), expected, "the hash reads back")
+        }
+    }
+
+    /// A writer that records no dependency set, or another lock's, records no lock hash, because the
+    /// hash names the bundled lock only.
+    func testAWriterThatRecordsAnotherDependencySetRecordsNoLockHash() throws {
+        for dependencySet in [nil, "1999.1"] as [String?] {
+            let identity = ProvenanceRuntimeIdentity(dependencySet: dependencySet)
+            XCTAssertNil(try Self.writtenLockHash(of: identity), "dependencySet \(dependencySet ?? "nil")")
+        }
+    }
+
+    /// No reader fills the lock hash. A record that holds none reads none through the strict reader,
+    /// the bare-run reader and the primitive adapter, even when its dependency set is the reading
+    /// Mac's.
+    func testAReaderNeverFillsTheLockHash() throws {
+        let dependencySet = ManagedToolLock.bundled.resolvedDependencySet
+        let first = try Self.write(Self.completedRun())
+        defer { first.cleanup() }
+        var object = try first.json()
+        var runtime = try XCTUnwrap(object["runtimeIdentity"] as? [String: Any])
+        runtime["managedToolLockSHA256"] = nil
+        runtime["dependencySet"] = dependencySet
+        object["runtimeIdentity"] = runtime
+        let withoutHash = try JSONSerialization.data(withJSONObject: object)
+        let strict = try ProvenanceEnvelopeReader.read(withoutHash)
+        XCTAssertEqual(strict.shape, .envelope)
+        XCTAssertNil(try Self.writtenLockHash(of: strict.envelope.runtimeIdentity))
+
+        // Version 1 refuses a role it does not know, so this record falls to the primitive adapter.
+        let primitive: [String: Any] = [
+            "workflowName": "older.tool",
+            "createdAt": "2026-10-10T00:00:00Z",
+            "runtimeIdentity": ["appVersion": "Lungfish 2026.9.58", "dependencySet": dependencySet],
+            "files": [["path": "/data/samples.csv", "role": "sampleSheet"]],
+        ]
+        let adapted = try ProvenanceEnvelopeReader.read(try JSONSerialization.data(withJSONObject: primitive))
+        XCTAssertEqual(adapted.shape, .primitive)
+        XCTAssertEqual(adapted.envelope.runtimeIdentity.dependencySet, dependencySet)
+        XCTAssertNil(try Self.writtenLockHash(of: adapted.envelope.runtimeIdentity))
+
+        let bareRun = try ProvenanceJSON.encoder.encode(WorkflowRun(name: "Bare run", status: .completed))
+        let legacy = try ProvenanceEnvelopeReader.read(bareRun)
+        XCTAssertEqual(legacy.shape, .workflowRun)
+        XCTAssertNil(try Self.writtenLockHash(of: legacy.envelope.runtimeIdentity))
     }
 }

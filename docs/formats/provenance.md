@@ -27,7 +27,7 @@ LGE writes every new record as an envelope. The encoder sorts the keys, writes d
 | `toolName`, `toolVersion`, `tool` | The tool the run reports as its own |
 | `argv`, `durableReplayArgv`, `reproducibleCommand` | The command as words, as replayable words when the run used scratch files, and as one shell line |
 | `options` | `explicit`, `defaults` and `resolvedDefaults`, each a map of typed values |
-| `runtimeIdentity` | The app version, executable, operating system, architecture and dependency set of the run, with its environment. A writer names its own executable `<external>/<file name>` and records no process ID, which an older record may hold |
+| `runtimeIdentity` | The app version, executable, operating system and architecture of the run, its environment, and its dependency set with `managedToolLockSHA256`, the SHA-256 of the exact bytes of the tool lock in force. A writer names its own executable `<external>/<file name>` and records no process ID, which an older record may hold |
 | `files`, `output`, `outputs` | File descriptors with a path, a role, a format, a SHA-256 and a size |
 | `steps` | One entry for each tool the run invoked |
 | `wallTimeSeconds`, `exitStatus`, `stderr` | How long it took, the exit status and the bounded standard error |

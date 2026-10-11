@@ -149,6 +149,8 @@ final class ProvenanceHonestRuntimeTests: XCTestCase {
         XCTAssertEqual(identity.operatingSystemVersion, WorkflowRun.currentHostOS)
         XCTAssertEqual(identity.architecture, ProvenanceRuntimeIdentity.currentArchitecture)
 
+        // The bundled lock's dependency set brings the bundled lock file's SHA-256 with it.
+        let lock = try XCTUnwrap(ManagedToolLock.bundledIdentity)
         let written = ProvenanceRuntimeIdentity(
             appVersion: "Lungfish 2026.10.10 (fixture)",
             executablePath: "/usr/local/bin/lungfish-cli",
@@ -156,7 +158,7 @@ final class ProvenanceHonestRuntimeTests: XCTestCase {
             architecture: "arm64",
             user: nil,
             condaEnvironment: "lungfish",
-            dependencySet: "2026.2"
+            dependencySet: lock.dependencySet
         )
         XCTAssertEqual(
             String(decoding: try ProvenanceJSON.encoder.encode(written), as: UTF8.self),
@@ -165,8 +167,9 @@ final class ProvenanceHonestRuntimeTests: XCTestCase {
               "appVersion" : "Lungfish 2026.10.10 (fixture)",
               "architecture" : "arm64",
               "condaEnvironment" : "lungfish",
-              "dependencySet" : "2026.2",
+              "dependencySet" : "\(lock.dependencySet)",
               "executablePath" : "/usr/local/bin/lungfish-cli",
+              "managedToolLockSHA256" : "\(lock.fileSHA256)",
               "operatingSystemVersion" : "macOS 26.0.0 (arm64)"
             }
             """

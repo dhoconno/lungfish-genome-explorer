@@ -39,7 +39,7 @@ A record is one `ProvenanceEnvelope` (`Sources/LungfishWorkflow/Provenance/Prove
 | The installed package as `channel::name=version=build` beside the locked spec | The lock says what was meant and conda-meta says what ran | 2.5 builds the typed tool identity (`ManagedToolID`) and the version probe table (`ManagedToolVersionProbe`) and computes `ToolVersionEvidence`, and 2.6 writes them |
 | Explicit, default and resolved parameters, including `readSetPlan` | `docs/contracts/READ-PAIRING.md` promises them | `readSetPlan` survives through the options merge below. The CLI `conda classify` record carries it in 2.7 |
 | Reference and database identity by checksum, cited from the reference bundle or install receipt | Results change with the database release | Kraken2 records it today. EsViritu, TaxTriage and NAO-MGS are not scheduled yet |
-| Lock identity (dependency set, lock version, lock file SHA-256) and the app version with build | It names the pins in force | The app version is recorded today. 2.5 computes the lock hash as `ManagedToolLockIdentity.fileSHA256`, the SHA-256 of the lock file's exact bytes and not `manifestHash`, and 2.6 writes it |
+| Lock identity (dependency set, lock version, lock file SHA-256) and the app version with build | It names the pins in force | The app version is recorded. 2.5 computes the lock hash as `ManagedToolLockIdentity.fileSHA256`, the SHA-256 of the lock file's exact bytes and not `manifestHash`. 2.6 writes it as `runtimeIdentity.managedToolLockSHA256` wherever a writer records the bundled lock's dependency set, and never in a reader. The hash names the exact lock, so the lock version is not written |
 
 ## Status, parameters, stderr and hashes
 
