@@ -21,14 +21,14 @@ extension AppDelegate {
     /// operation ID only when the row started. The row locks no bundle. Its
     /// title names the goal and the first input file.
     ///
-    /// The row records the `lungfish-cli conda classify` command that
-    /// `ClassificationCLIInvocationBuilder` builds from `config`, the same
-    /// argv mapping the batch replay command uses. `--db` is the registry name
-    /// and not a filesystem path, and the preset, read format, profile options
-    /// and output folder are all included, so the command runs as pasted. The
-    /// row used to print the builder's `displayString`, which starts with the
-    /// legacy executable name `lungfish`. The arguments are unchanged and the
-    /// command now starts with `lungfish-cli`.
+    /// The row records the `lungfish-cli kraken2 classify` command with the
+    /// arguments `ClassificationCLIInvocationBuilder` builds from `config`, the
+    /// same argv mapping the batch replay command uses. `--db` is the registry
+    /// name and not a filesystem path, and the preset, read format, profile
+    /// options and output folder are all included, so the command runs as
+    /// pasted. The row used to print the builder's `displayString`, which
+    /// starts with the legacy executable name `lungfish`, and then named the
+    /// command `conda classify`, the same command under its older name.
     @discardableResult
     static func beginClassificationOperation(
         config: ClassificationConfig,
@@ -59,31 +59,32 @@ extension AppDelegate {
         return result
     }
 
-    /// The `lungfish-cli conda classify` command for one sample, built from
-    /// `config` by `ClassificationCLIInvocationBuilder`, the argv mapping the
-    /// batch provenance replay command uses too.
+    /// The `lungfish-cli kraken2 classify` command for one sample, with the
+    /// arguments `ClassificationCLIInvocationBuilder` builds from `config`, the
+    /// argv mapping the batch provenance replay command uses too. The row names
+    /// the command `kraken2 classify`, as the builder, the replay command, the
+    /// CLI route and the command's own records do (Phase 2.7 decision E11).
     nonisolated static func classificationCLICommand(for config: ClassificationConfig) -> String {
         OperationCenter.buildCLICommand(
-            subcommand: "conda classify",
+            subcommand: "kraken2 classify",
             args: Array(ClassificationCLIInvocationBuilder.build(for: config).arguments.dropFirst(2))
         )
     }
 
-    /// The command a Kraken2 batch row records, one `lungfish-cli conda
+    /// The command a Kraken2 batch row records, one `lungfish-cli kraken2
     /// classify` command per sample on its own line, or nil for an empty
     /// batch (R3).
     ///
-    /// `conda classify` has no batch form, and the batch runs one
-    /// classification per sample, so each line is that sample's command from
-    /// `classificationCLICommand(for:)`. Each line is the `conda classify`
-    /// command of that sample in the provenance replay command,
-    /// `classificationBatchReplayCommand`, with the registry name in `--db`,
-    /// the sample's output folder and the run's settings. The replay command
-    /// also checks the database's installation receipt before each sample,
-    /// which the row leaves out because those checks are shell tests, not
-    /// `lungfish-cli` commands. The row used to record one command with the
-    /// database path in `--db`, no output folder and every input of every
-    /// sample in one unpaired list, which reproduced nothing.
+    /// The legacy batch runs one classification per sample, so each line is
+    /// that sample's command from `classificationCLICommand(for:)`. Each line
+    /// is the `kraken2 classify` command of that sample in the provenance
+    /// replay command, `classificationBatchReplayCommand`, with the registry
+    /// name in `--db`, the sample's output folder and the run's settings. The
+    /// replay command also checks the database's installation receipt before
+    /// each sample, which the row leaves out because those checks are shell
+    /// tests, not `lungfish-cli` commands. The row used to record one command
+    /// with the database path in `--db`, no output folder and every input of
+    /// every sample in one unpaired list, which reproduced nothing.
     nonisolated static func classificationBatchCLICommand(for configs: [ClassificationConfig]) -> String? {
         guard !configs.isEmpty else { return nil }
         return configs.map(classificationCLICommand(for:)).joined(separator: "\n")

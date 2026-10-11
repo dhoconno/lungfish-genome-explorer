@@ -278,7 +278,7 @@ final class ClassifierLaunchRouteTests: XCTestCase {
             let recorded = try XCTUnwrap(row.cliCommand, testCase.name)
             XCTAssertTrue(recorded.hasPrefix("lungfish-cli \(launch.arguments[0]) \(launch.arguments[1]) "), "\(testCase.name): D4")
             XCTAssertEqual(try RecordedCLICommand.arguments(of: recorded), launch.arguments, "\(testCase.name): the row records the argv that runs")
-            XCTAssertNotEqual(recorded, today.cliCommand, "\(testCase.name): today's row records conda classify or nothing")
+            XCTAssertNotEqual(recorded, today.cliCommand, "\(testCase.name): today's row records its own output folder or nothing")
         }
     }
 

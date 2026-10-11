@@ -82,8 +82,8 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
 
         let recorded = try XCTUnwrap(item.cliCommand)
         XCTAssertTrue(
-            recorded.hasPrefix("lungfish-cli conda classify "),
-            "the row used to start with the legacy executable name lungfish"
+            recorded.hasPrefix("lungfish-cli kraken2 classify "),
+            "E11 names the command kraken2 classify, after lungfish-cli and not the legacy executable name lungfish"
         )
         let command = try RecordedCLICommand.parse(recorded, as: ClassifyCommand.self)
         XCTAssertEqual(command.databaseName, "Viral", "--db is the registry name the CLI resolves")
@@ -99,13 +99,11 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         XCTAssertTrue(command.profile)
         XCTAssertEqual(command.brackenReadLength, BrackenProfileRequest.automaticDefault.readLength)
         XCTAssertEqual(command.brackenThreshold, BrackenProfileRequest.automaticDefault.threshold)
-        // The arguments are the builder's, the same mapping the batch replay
-        // command uses. The builder spells kraken2 classify since 2.7 (E11), and
-        // the row keeps the conda classify spelling the app writes until lane A10
-        // moves the launch, a spelling of the same command.
+        // The argv is the builder's whole, the same mapping the batch replay
+        // command uses. The builder spells kraken2 classify since 2.7 (E11).
         XCTAssertEqual(
-            Array(try RecordedCLICommand.arguments(of: recorded).dropFirst(2)),
-            Array(ClassificationCLIInvocationBuilder.build(for: config).arguments.dropFirst(2))
+            try RecordedCLICommand.arguments(of: recorded),
+            ClassificationCLIInvocationBuilder.build(for: config).arguments
         )
     }
 
@@ -189,9 +187,10 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertEqual(item.routeContext, routeContext)
 
-        // One `conda classify` per sample (R3). The row used to record one
-        // command with the database path in `--db`, no output folder and every
-        // input of every sample, which the CLI could not run as the batch ran.
+        // One `kraken2 classify` per sample (R3, E11). The row used to record
+        // one command with the database path in `--db`, no output folder and
+        // every input of every sample, which the CLI could not run as the
+        // batch ran. The replay command runs the same `kraken2 classify`.
         let lines = try XCTUnwrap(item.cliCommand).components(separatedBy: "\n")
         XCTAssertEqual(lines.count, 2, "one command per sample")
         let script = try XCTUnwrap(AppDelegate.classificationBatchReplayCommand(configurations: [first, second]).last)
@@ -205,13 +204,11 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
             XCTAssertEqual(command.minHitGroups, 2)
             XCTAssertEqual(command.globalOptions.threads, 4)
             XCTAssertEqual(
-                Array(try RecordedCLICommand.arguments(of: line).dropFirst(2)),
-                Array(ClassificationCLIInvocationBuilder.build(for: config).arguments.dropFirst(2)),
-                "the line is the builder's argv for the sample"
+                try RecordedCLICommand.arguments(of: line),
+                ClassificationCLIInvocationBuilder.build(for: config).arguments,
+                "the line is the builder's kraken2 classify argv for the sample"
             )
-            // The replay command spells the builder's kraken2 classify (E11), the row conda classify.
-            let respelled = line.replacingOccurrences(of: " conda classify ", with: " kraken2 classify ")
-            XCTAssertTrue(script.contains(respelled), "the replay command runs the same classify for the sample")
+            XCTAssertTrue(script.contains(line), "the replay command runs the same command for the sample")
         }
         XCTAssertEqual(script.components(separatedBy: "kraken2 classify").count - 1, 2, "one classify per sample")
     }
