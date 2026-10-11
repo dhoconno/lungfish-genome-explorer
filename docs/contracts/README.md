@@ -18,6 +18,17 @@ These documents are the written rules for extending Lungfish Genome Explorer (LG
 | `docs/contracts/SCREENCASTS.md` | make a new screencast, change one after review, or publish one to the website's Videos page |
 | `docs/contracts/screencast-checklist.md` | need the copyable per-video checklist |
 
+## Format specs for project folders
+
+These specs in `docs/formats` say what a project holds on disk. Each fact in them cites the Swift file it comes from.
+
+| Spec | Read it when you |
+|---|---|
+| `docs/formats/bundle-kinds.md` | add or change a bundle kind, decide a kind from a folder extension, or choose the record names a new write uses |
+| `docs/formats/reference-bundle.md` | read or write a `.lungfishref` bundle, its manifest, its tracks, its view state or its records |
+| `docs/formats/fastq-bundle.md` | read or write a `.lungfishfastq` bundle, a virtual bundle or the reads metadata sidecar |
+| `docs/formats/analyses-layout.md` | create, name, find or delete a result folder under `Analyses/` |
+
 ## Where the contracts come from
 
 The rules come from the architecture review in `docs/reports/2026-10-02-architecture-review/REVIEW.md` and the phased program in `docs/plans/2026-10-02-architecture-program.md`. Finding IDs (R1 to R18) in the contracts refer to the review. When a program phase replaces a touch point or a rule with code, the contract that names it is updated in the same change.
