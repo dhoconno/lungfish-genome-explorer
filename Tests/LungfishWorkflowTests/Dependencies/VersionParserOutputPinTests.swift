@@ -311,7 +311,9 @@ final class VersionParserOutputPinTests: XCTestCase {
                 stderr: "ERROR: unknown command '--version'\n",
                 native: nil, detect: "ERROR: unknown command '--version'", correct: "2.3"),
         // The installed 2.3 build prints a stale 2.2.1 from the version subcommand, so both parsers
-        // read a version the package does not have. Only conda-meta says 2.3 (the lock pin).
+        // read a version the package does not have. Only conda-meta says 2.3 (the lock pin). The
+        // mapping pipeline reads conda-meta for bwa-mem2 since 2.6 (`MappingToolVersionProbe`), so
+        // nothing parses this output in production, and the row stays to show why.
         Capture(name: "bwa-mem2 version subcommand", exitCode: 0, stdout: "2.2.1\n", stderr: "",
                 native: "2.2.1", detect: "2.2.1", correct: "2.3"),
         // vsearch prints its citation first. The native parser records the DOI prefix 10.7717 and the

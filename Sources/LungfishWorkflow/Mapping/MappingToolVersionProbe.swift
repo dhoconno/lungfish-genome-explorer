@@ -3,11 +3,14 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 /// The version a mapping run records for its mapper.
 ///
 /// minimap2, BWA-MEM2 and Bowtie2 run through micromamba in their own
-/// environment and are probed there with `detectToolVersion`, as before.
+/// environment and are probed there with `detectToolVersion`. The probe table
+/// marks BWA-MEM2 `.condaMetaOnly`, because its 2.3 build rejects `--version`
+/// and `-v` and prints a stale 2.2.1 from `version`, so conda-meta supplies it.
 /// BBMap runs through `NativeToolRunner` in the BBTools environment, so the
 /// same runner probes it. It runs `reformat.sh --version`, the lightest
 /// BBTools wrapper, because `bbmap.sh` and `mapPacBio.sh` start a JVM sized to
@@ -29,9 +32,18 @@ enum MappingToolVersionProbe {
             return try await detectToolVersion(
                 toolName: executable,
                 environment: tool.environmentName,
-                condaManager: condaManager
+                condaManager: condaManager,
+                condaPackage: condaPackage(for: tool)
             )
         }
+    }
+
+    /// The conda package whose installed version is the mapper's version, nil for a mapper that
+    /// reports its own. The lock id, the environment and the package share one name for the
+    /// mappers, and the probe table's dialect says whether the tool's own output is trusted.
+    static func condaPackage(for tool: MappingTool) -> String? {
+        let id = ManagedToolID(rawValue: tool.environmentName)
+        return ManagedToolVersionProbe.probe(for: id)?.dialect == .condaMetaOnly ? id.rawValue : nil
     }
 
     /// The BBTools version the runner's `reformat.sh` prints, or `unknown`.
