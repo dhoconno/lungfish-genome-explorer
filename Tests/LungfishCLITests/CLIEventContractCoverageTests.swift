@@ -4,7 +4,9 @@
 
 import ArgumentParser
 import Foundation
+import LungfishIO
 import LungfishTestSupport
+import LungfishWorkflow
 import XCTest
 @testable import LungfishCLI
 
@@ -12,7 +14,8 @@ import XCTest
 ///
 /// A1 walks the command tree and compares it with the table. A2 reads the checked-in help
 /// golden of each `.events` leaf. The legacy tests pin the private shapes that are left,
-/// so the list can only fall when a lane deletes a row.
+/// so the list can only fall when a lane deletes a row. The warning tests show that the
+/// three `msa annotate` commands emit each warning they count.
 final class CLIEventContractCoverageTests: XCTestCase {
 
     // MARK: The command tree
@@ -221,6 +224,165 @@ final class CLIEventContractCoverageTests: XCTestCase {
         XCTAssertEqual(counts["events"], 21)
         XCTAssertEqual(counts["legacy"], 20)
         XCTAssertEqual(counts.values.reduce(0, +), CLIEventContractTable.entries.count)
+    }
+
+    // MARK: Counted warnings
+
+    /// `msa annotate add`, `edit` and `project` put a `warningCount` on `complete`. Review of
+    /// lane C1 found that they never emitted the warnings they counted, so a reader that takes
+    /// warnings from events saw none. Each counted warning is now a `warning` log event in front
+    /// of `complete`, which is what the version 2 warning rule asks for.
+
+    /// `seq1` has a gap inside the selection, so the annotation splits when it projects onto `seq2`.
+    private static let projectionRows = """
+    >seq1
+    A-CG-T
+    >seq2
+    ATCGGT
+
+    """
+
+    private final class Lines {
+        private(set) var all: [String] = []
+
+        func append(_ line: String) {
+            all.append(line)
+        }
+    }
+
+    private func makeScratch() throws -> URL {
+        let url = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts/CLIEventContract-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    /// An alignment with one annotation added to `seq1`, and the id of that annotation.
+    private func annotatedBundle(in scratch: URL) throws -> (bundle: URL, sourceID: String) {
+        let source = scratch.appendingPathComponent("aln.fasta")
+        try Self.projectionRows.write(to: source, atomically: true, encoding: .utf8)
+        let bundle = scratch.appendingPathComponent("aln.lungfishmsa", isDirectory: true)
+        _ = try MultipleSequenceAlignmentBundle.importAlignment(from: source, to: bundle, options: .init(name: "aln"))
+        try MSACommand.AddSubcommand.parse([
+            bundle.path, "--row", "seq1", "--columns", "3-6",
+            "--name", "selection-feature", "--type", "gene", "--strand", "+", "--format", "json",
+        ]).executeForTesting { _ in }
+        let store = try MultipleSequenceAlignmentBundle.load(from: bundle).loadAnnotationStore()
+        return (bundle, try XCTUnwrap(store.sourceAnnotations.first).id)
+    }
+
+    /// What a run printed about warnings. The messages are those of its `warning` log events,
+    /// the count is the `warningCount` key of its `complete` line, and the last flag says
+    /// whether every warning came before that line.
+    private struct WarningReport {
+        let messages: [String]
+        let countOnComplete: Int?
+        let allBeforeComplete: Bool
+    }
+
+    private func warningReport(_ lines: [String]) throws -> WarningReport {
+        let decoder = CLIEventLineDecoder()
+        var messages: [String] = []
+        var count: Int?
+        var completeSeen = false
+        var allBefore = true
+        for line in lines {
+            guard let event = try decoder.decode(line: line) else { continue }
+            switch event {
+            case .log(.warning, let message):
+                messages.append(message)
+                if completeSeen { allBefore = false }
+            case .complete:
+                completeSeen = true
+                let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+                count = object["warningCount"] as? Int
+            default:
+                break
+            }
+        }
+        return WarningReport(messages: messages, countOnComplete: count, allBeforeComplete: allBefore)
+    }
+
+    func testAnnotateProjectEmitsOneWarningEventForEachWarningItCounts() throws {
+        let scratch = try makeScratch()
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let (bundle, sourceID) = try annotatedBundle(in: scratch)
+        let lines = Lines()
+
+        try MSACommand.ProjectSubcommand.parse([
+            bundle.path, "--source-annotation", sourceID, "--target-rows", "seq2",
+            "--conflict-policy", "append", "--format", "json",
+        ]).executeForTesting { lines.append($0) }
+
+        let report = try warningReport(lines.all)
+        let stored = try MultipleSequenceAlignmentBundle.load(from: bundle).loadAnnotationStore()
+            .projectedAnnotations.flatMap(\.warnings)
+        XCTAssertEqual(report.countOnComplete, 1, "The fixture counts one warning, or this test proves nothing")
+        XCTAssertEqual(report.messages.count, report.countOnComplete, "Warning log events against the warningCount of complete")
+        XCTAssertEqual(report.messages, stored, "Each event carries the warning the bundle stored")
+        XCTAssertTrue(report.allBeforeComplete, "A warning after complete would never reach the panel")
+    }
+
+    func testAnnotateEditEmitsOneWarningEventForEachWarningItCounts() throws {
+        let scratch = try makeScratch()
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let (bundle, sourceID) = try annotatedBundle(in: scratch)
+        try MSACommand.ProjectSubcommand.parse([
+            bundle.path, "--source-annotation", sourceID, "--target-rows", "seq2",
+            "--conflict-policy", "append", "--format", "json",
+        ]).executeForTesting { _ in }
+        let projected = try XCTUnwrap(
+            MultipleSequenceAlignmentBundle.load(from: bundle).loadAnnotationStore().projectedAnnotations.first
+        )
+        let lines = Lines()
+
+        try MSACommand.EditSubcommand.parse([
+            bundle.path, "--annotation", projected.id, "--name", "curated-projection", "--format", "json",
+        ]).executeForTesting { lines.append($0) }
+
+        let report = try warningReport(lines.all)
+        XCTAssertEqual(report.countOnComplete, 1, "An edit keeps the warnings of the annotation it edits")
+        XCTAssertEqual(report.messages.count, report.countOnComplete, "Warning log events against the warningCount of complete")
+        XCTAssertEqual(report.messages, projected.warnings)
+        XCTAssertTrue(report.allBeforeComplete)
+    }
+
+    func testAnnotateAddEmitsOneWarningEventForEachWarningItCounts() throws {
+        let scratch = try makeScratch()
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let source = scratch.appendingPathComponent("aln.fasta")
+        try Self.projectionRows.write(to: source, atomically: true, encoding: .utf8)
+        let bundle = scratch.appendingPathComponent("aln.lungfishmsa", isDirectory: true)
+        _ = try MultipleSequenceAlignmentBundle.importAlignment(from: source, to: bundle, options: .init(name: "aln"))
+        let lines = Lines()
+
+        try MSACommand.AddSubcommand.parse([
+            bundle.path, "--row", "seq1", "--columns", "3-6",
+            "--name", "selection-feature", "--type", "gene", "--format", "json",
+        ]).executeForTesting { lines.append($0) }
+
+        // A new annotation carries no warnings today, so this pins zero against zero. The command
+        // emits whatever its annotation counts, and the count and the events cannot part.
+        let report = try warningReport(lines.all)
+        XCTAssertEqual(report.countOnComplete, 0)
+        XCTAssertEqual(report.messages.count, report.countOnComplete)
+    }
+
+    func testAnnotateProjectInTextModeStillPrintsItsWarningsLineAndNoEvent() throws {
+        let scratch = try makeScratch()
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let (bundle, sourceID) = try annotatedBundle(in: scratch)
+        let lines = Lines()
+
+        try MSACommand.ProjectSubcommand.parse([
+            bundle.path, "--source-annotation", sourceID, "--target-rows", "seq2",
+        ]).executeForTesting { lines.append($0) }
+
+        XCTAssertTrue(
+            lines.all.contains { $0.hasPrefix("Warnings: Projection split into 2 intervals") },
+            "Text mode keeps its one Warnings line: \(lines.all)"
+        )
+        XCTAssertFalse(lines.all.contains { $0.hasPrefix("{") }, "Text mode prints no event line")
     }
 
     // MARK: Help golden helpers

@@ -128,7 +128,7 @@ extension MSACommand {
                     workflowName: "multiple-sequence-alignment-annotation-add",
                     toolName: "lungfish msa annotate add"
                 )
-
+                annotation.warnings.forEach { emitter.emitWarning(actionID: actionID, message: $0) }
                 emitter.emitComplete(actionID: actionID, output: updated.url.path, warningCount: annotation.warnings.count)
                 if globalOptions.outputFormat != .json && !globalOptions.quiet {
                     emit("Added annotation \(annotation.id)")
@@ -265,7 +265,7 @@ extension MSACommand {
                     workflowName: "multiple-sequence-alignment-annotation-edit",
                     toolName: "lungfish msa annotate edit"
                 )
-
+                edited.warnings.forEach { emitter.emitWarning(actionID: actionID, message: $0) }
                 emitter.emitComplete(actionID: actionID, output: updated.url.path, warningCount: edited.warnings.count)
                 if globalOptions.outputFormat != .json && !globalOptions.quiet {
                     emit("Edited annotation \(edited.id)")
@@ -461,8 +461,8 @@ extension MSACommand {
                     workflowName: "multiple-sequence-alignment-annotation-project",
                     toolName: "lungfish msa annotate project"
                 )
-
                 let warningCount = projected.reduce(0) { $0 + $1.warnings.count }
+                projected.flatMap(\.warnings).forEach { emitter.emitWarning(actionID: actionID, message: $0) }
                 emitter.emitComplete(actionID: actionID, output: updated.url.path, warningCount: warningCount)
                 if globalOptions.outputFormat != .json && !globalOptions.quiet {
                     emit("Projected annotation \(annotation.id)")
