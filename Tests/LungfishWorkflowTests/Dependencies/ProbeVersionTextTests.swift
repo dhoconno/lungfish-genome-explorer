@@ -72,16 +72,30 @@ final class ProbeVersionTextTests: XCTestCase {
         XCTAssertEqual(parseToolVersion(from: "nightly-build\nsecond line\n"), "nightly-build")
     }
 
-    /// A line that complains about the probe is no version (2.6). micromamba's own error is not
-    /// listed, so the detect parser still records it until 2.7 stops the first-line fallback.
+    /// A probe that exits nonzero gets no first-line fallback (2.7), because its first line is the
+    /// tool's complaint in whatever words it chose. A version number it printed still counts, as
+    /// bwa's `Version:` line does after its usage exit. A line with micromamba's markers is no
+    /// version even when the probe exited 0.
+    func testAFailedProbeGetsNoFirstLineFallback() {
+        XCTAssertEqual(parseToolVersion(from: "nightly-build\n", exitCode: 0), "nightly-build")
+        XCTAssertNil(parseToolVersion(from: "nightly-build\n", exitCode: 1))
+        XCTAssertEqual(parseToolVersion(from: "Program: bwa\nVersion: 0.7.17-r1188\n", exitCode: 1), "0.7.17")
+        XCTAssertNil(parseToolVersion(
+            from: "critical libmamba The given prefix does not exist: \"/x/envs/bbmap\"\n", exitCode: 0))
+    }
+
+    /// A line that complains about the probe is no version (2.6). micromamba's own complaint is one
+    /// too, because its log level and its library name mark the line (2.7).
     func testProbeErrorLinesAreRecognised() {
         for line in [
             "ERROR: unknown command '--version'", "Invalid option: --.", "--version is not a valid option",
             "usage: ribodetector_cpu [-h]", "FATAL(lofreq_main.c|main:336): Unrecognized command '--version'",
+            "critical libmamba The given prefix does not exist: \"/x/envs/bbmap\"",
+            "warning  libmamba Cache file \"/x/pkgs/cache/a.json\" was modified by another instance",
         ] {
             XCTAssertTrue(ProbeVersionText.looksLikeProbeError(line), line)
         }
-        for line in ["nightly-build", "tool 1.2.3", "critical libmamba The given prefix does not exist: \"/x/envs/bbmap\""] {
+        for line in ["nightly-build", "tool 1.2.3", "Detected 67108864KB total memory on macOS"] {
             XCTAssertFalse(ProbeVersionText.looksLikeProbeError(line), line)
         }
     }

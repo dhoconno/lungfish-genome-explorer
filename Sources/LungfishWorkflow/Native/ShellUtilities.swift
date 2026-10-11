@@ -167,7 +167,7 @@ func detectToolVersion(
                 environment: environment,
                 timeout: timeout
             )
-            if let version = parseToolVersion(from: result.stdout + result.stderr) {
+            if let version = parseToolVersion(from: result.stdout + result.stderr, exitCode: result.exitCode) {
                 return version
             }
         } catch is CancellationError {
@@ -185,18 +185,21 @@ func detectToolVersion(
 ///
 /// Returns the first semver-like pattern (e.g. `2.1.3`) outside any file
 /// path, with a token written `v2.31.0` preferred (see `ProbeVersionText`),
-/// else the first output line unless it reads as an error, else `nil` for
-/// empty output. bwa-mem2's `ERROR: unknown command '--version'` is an error
-/// line and gives no version. Paths are skipped because several tools print
-/// their own location before the version. EsViritu prints
-/// `.../lib/python3.14/site-packages/EsViritu` then `1.3.3`, and a match
-/// inside that path recorded Python's `3.14` as EsViritu's version. Bowtie2
-/// and SKESA print their executable path too.
-func parseToolVersion(from output: String) -> String? {
+/// else the first output line when the probe exited 0 and the line does not
+/// read as an error, else `nil`. A probe that exited nonzero gets no
+/// first-line fallback, so micromamba's complaint about a missing environment
+/// (`critical libmamba ...`, exit 1) is not recorded as a version. bwa-mem2's
+/// `ERROR: unknown command '--version'` is an error line and gives no version.
+/// Paths are skipped because several tools print their own location before the
+/// version. EsViritu prints `.../lib/python3.14/site-packages/EsViritu` then
+/// `1.3.3`, and a match inside that path recorded Python's `3.14` as
+/// EsViritu's version. Bowtie2 and SKESA print their executable path too.
+func parseToolVersion(from output: String, exitCode: Int32 = 0) -> String? {
     let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
     let lines = trimmed.components(separatedBy: .newlines)
     if let version = ProbeVersionText.version(in: lines, skippingCommandEcho: false) { return version }
+    guard exitCode == 0 else { return nil }
     let firstLine = lines.first ?? trimmed
     return ProbeVersionText.looksLikeProbeError(firstLine) ? nil : firstLine
 }
@@ -207,15 +210,16 @@ func parseToolVersion(from output: String) -> String? {
 /// its own copy in `CLIProvenanceSupport.parseCondaToolVersion`, and sub-phase 2.7 merges the
 /// three. A table of real probe output, `VersionParserOutputPinTests`, pins every tool's result.
 enum ProbeVersionText {
-    /// Words that mark a line as a complaint about the probe and never a version.
+    /// Words that mark a line as a complaint about the probe and never a version. `critical` and
+    /// `libmamba` are micromamba's log level and library name, so every line it writes is its own
+    /// complaint, such as `critical libmamba The given prefix does not exist`.
     private static let probeErrorMarkers = [
         "fatal", "error", "unrecognized", "unrecognised", "unknown command", "unknown option",
         "usage", "invalid", "no such", "not found", "illegal", "not a valid",
+        "critical", "libmamba",
     ]
 
-    /// True for a line that reads as an error or a usage text. micromamba's own complaint about a
-    /// missing environment (`critical libmamba ...`) is not listed, and sub-phase 2.7 stops the
-    /// first-line fallback that still records it.
+    /// True for a line that reads as an error or a usage text.
     static func looksLikeProbeError(_ line: String) -> Bool {
         let lowered = line.lowercased()
         return probeErrorMarkers.contains { lowered.contains($0) }

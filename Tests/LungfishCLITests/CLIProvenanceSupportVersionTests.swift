@@ -91,6 +91,18 @@ final class CLIProvenanceSupportVersionTests: XCTestCase {
         XCTAssertEqual(CLIProvenanceSupport.parseCondaToolVersion("nightly-build\n"), "nightly-build")
     }
 
+    /// micromamba's own complaint about a missing environment is no version (2.7). It is the
+    /// first line of the output, and the CLI parser used to keep a plain first line. A probe that
+    /// exits nonzero gets no first-line fallback at all, and a version number it printed still counts.
+    func testMicromambasOwnErrorIsNoVersion() {
+        let missing = "critical libmamba The given prefix does not exist: \"\(Self.root)/envs/ribodetector\"\n"
+        XCTAssertNil(CLIProvenanceSupport.parseCondaToolVersion(missing))
+        XCTAssertNil(CLIProvenanceSupport.parseCondaToolVersion(missing, exitCode: 1))
+        XCTAssertNil(CLIProvenanceSupport.parseCondaToolVersion("nightly-build\n", exitCode: 1))
+        XCTAssertEqual(CLIProvenanceSupport.parseCondaToolVersion("nightly-build\n", exitCode: 0), "nightly-build")
+        XCTAssertEqual(CLIProvenanceSupport.parseCondaToolVersion("deacon 0.16.0\n", exitCode: 1), "0.16.0")
+    }
+
     /// A version keeps four numeric parts (2.6).
     func testAFourPartVersionIsKept() {
         // gatk --version, the head of the real output.

@@ -37,7 +37,7 @@ enum CLIProvenanceSupport {
                     environment: environment,
                     timeout: 30
                 )
-                if let version = parseCondaToolVersion(result.stdout + result.stderr) {
+                if let version = parseCondaToolVersion(result.stdout + result.stderr, exitCode: result.exitCode) {
                     return version
                 }
             } catch {
@@ -50,10 +50,10 @@ enum CLIProvenanceSupport {
     /// The version in a probe's combined stdout and stderr, or nil when the output is empty.
     ///
     /// The first dotted number anywhere in the text, up to four numeric parts and a local build
-    /// suffix such as `+lge.5`, else the first line unless it reads as an error. This is the
-    /// CLI's own parser. `NativeToolRunner.parseVersionProbe` and `parseToolVersion(from:)` are
-    /// the other two, and sub-phase 2.7 merges the three.
-    static func parseCondaToolVersion(_ output: String) -> String? {
+    /// suffix such as `+lge.5`, else the first line when the probe exited 0 and the line does not
+    /// read as an error. This is the CLI's own parser. `NativeToolRunner.parseVersionProbe` and
+    /// `parseToolVersion(from:)` are the other two, and sub-phase 2.7 merges the three.
+    static func parseCondaToolVersion(_ output: String, exitCode: Int32 = 0) -> String? {
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
         if let range = trimmed.range(
             of: #"\d+\.\d+(\.\d+){0,2}(\+[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?"#,
@@ -61,7 +61,7 @@ enum CLIProvenanceSupport {
         ) {
             return String(trimmed[range])
         }
-        guard let firstLine = trimmed.split(whereSeparator: \.isNewline).first.map(String.init) else { return nil }
+        guard exitCode == 0, let firstLine = trimmed.split(whereSeparator: \.isNewline).first.map(String.init) else { return nil }
         let lowered = firstLine.lowercased()
         return probeErrorMarkers.contains { lowered.contains($0) } ? nil : firstLine
     }
@@ -71,6 +71,7 @@ enum CLIProvenanceSupport {
     private static let probeErrorMarkers = [
         "fatal", "error", "unrecognized", "unrecognised", "unknown command", "unknown option",
         "usage", "invalid", "no such", "not found", "illegal", "not a valid",
+        "critical", "libmamba",
     ]
 
     static func bundlePayloadURLs(in bundleURL: URL) -> [URL] {

@@ -333,14 +333,20 @@ final class VersionParserOutputPinTests: XCTestCase {
         Capture(name: "medaka_variant --version", exitCode: 1, stdout: "",
                 stderr: "Invalid option: --.\n",
                 native: nil, detect: nil, correct: nil),
+        // A missing conda environment prints micromamba's own complaint and exits 1. The probe reports
+        // no version, so a parser says nothing (2.7). The detect parser used to record that first line.
+        // The environment's version comes from conda-meta or the lock.
+        Capture(name: "micromamba missing environment", exitCode: 1, stdout: "",
+                stderr: "critical libmamba The given prefix does not exist: \"\(root)/envs/bbmap\"\n",
+                native: nil, detect: nil, correct: nil),
     ]
 
     // MARK: - Known defects, left for 2.7
 
     /// Each row pins a wrong value as it is today. `correct` is what the tool reports. A row stays
     /// here until the parser change that fixes it lands, and that commit moves the row to `clean`.
-    /// Phase 2.6 moved its rows out. minratio, micromamba, hifiasm's help text and three-word roots
-    /// wait for the 2.7 merge. The bwa-mem2 and Bracken banners name a version the package does not run.
+    /// Phase 2.6 moved its rows out. minratio, hifiasm's help text and three-word roots wait for the
+    /// rest of 2.7. The bwa-mem2 and Bracken banners name a version the package does not run.
     private static let knownDefects: [Capture] = [
         // The detect parser reads minratio=0.40 from the echoed command line (2.7). The native parser
         // skips that line, as it skips every echoed java command, so it reads the banner. This is the
@@ -353,13 +359,6 @@ final class VersionParserOutputPinTests: XCTestCase {
                     "BBTools version 40.02",
                     "For help, please run the shellscript with no parameters, or look in /docs/."),
                 native: "40.02", detect: "0.40", correct: "40.02"),
-        // A missing conda environment prints micromamba's error and the detect parser returns that
-        // first line as the version. The native parser returns nil (2.5 fixes the bbmap environment,
-        // 2.7 stops the first-line fallback).
-        Capture(name: "micromamba missing environment", exitCode: 1, stdout: "",
-                stderr: "critical libmamba The given prefix does not exist: \"\(root)/envs/bbmap\"\n",
-                native: nil, detect: "critical libmamba The given prefix does not exist: \"\(root)/envs/bbmap\"",
-                correct: "40.02"),
         // The installed 2.3 build prints a stale 2.2.1 from the version subcommand, so both parsers
         // read a version the package does not have. Only conda-meta says 2.3 (the lock pin). The
         // mapping pipeline reads conda-meta for bwa-mem2 since 2.6 (`MappingToolVersionProbe`), so
@@ -479,7 +478,7 @@ final class VersionParserOutputPinTests: XCTestCase {
             capture.native, "native parser on \(capture.name)", file: file, line: line
         )
         XCTAssertEqual(
-            parseToolVersion(from: capture.stdout + capture.stderr),
+            parseToolVersion(from: capture.stdout + capture.stderr, exitCode: capture.exitCode),
             capture.detect, "detect parser on \(capture.name)", file: file, line: line
         )
     }
