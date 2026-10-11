@@ -169,9 +169,9 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
     var finalizeWarnings: [String] = []
     var finalizeOutputs = true
     /// Options each unit records right after its input, before it fails or completes.
-    var unitOptions: AnalysisRunRecordOptions?
+    var unitOptions: AnalysisRootRecordOptions?
     /// Options the finalization adds.
-    var finalizeOptions: AnalysisRunRecordOptions?
+    var finalizeOptions: AnalysisRootRecordOptions?
     /// A plan that cancels its own run, then throws or returns its plan.
     var planCancels: PlanCancel?
     /// A finalize that cancels its own run, then returns what it wrote.
@@ -214,7 +214,7 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
         return AnalysisRunPlan(
             layout: layout,
             units: units,
-            options: AnalysisRunRecordOptions(
+            options: AnalysisRootRecordOptions(
                 explicit: ["threads": .integer(2)],
                 defaults: ["confidence": .number(0)],
                 resolved: ["confidence": .number(0.1)],

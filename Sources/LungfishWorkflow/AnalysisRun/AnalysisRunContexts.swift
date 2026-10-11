@@ -37,7 +37,7 @@ public struct AnalysisRunUnitContext: Sendable {
     private let logHandler: @Sendable (CLIEventLogLevel, String) -> Void
     private let inputRecorder: @Sendable (ProvenanceFileDescriptor) -> Void
     private let stepRecorder: @Sendable (ProvenanceStep) -> Void
-    private let optionsRecorder: @Sendable (AnalysisRunRecordOptions) -> Void
+    private let optionsRecorder: @Sendable (AnalysisRootRecordOptions) -> Void
 
     public init(
         rootDirectory: URL,
@@ -46,7 +46,7 @@ public struct AnalysisRunUnitContext: Sendable {
         log: @escaping @Sendable (CLIEventLogLevel, String) -> Void = { _, _ in },
         recordInput: @escaping @Sendable (ProvenanceFileDescriptor) -> Void = { _ in },
         recordStep: @escaping @Sendable (ProvenanceStep) -> Void = { _ in },
-        recordOptions: @escaping @Sendable (AnalysisRunRecordOptions) -> Void = { _ in }
+        recordOptions: @escaping @Sendable (AnalysisRootRecordOptions) -> Void = { _ in }
     ) {
         self.rootDirectory = rootDirectory
         self.projectURL = projectURL
@@ -88,11 +88,11 @@ public struct AnalysisRunUnitContext: Sendable {
 
     /// Adds options to the root record, such as the Bracken resolution the unit settled, the
     /// inputs it materialized or the read-set plan it made from them (E13). The executor merges
-    /// them into the plan's options by the rule ``AnalysisRunRecordOptions`` states, as they
+    /// them into the plan's options by the rule ``AnalysisRootRecordOptions`` states, as they
     /// arrive, so a failed or cancelled run's record holds what the units recorded before they
     /// stopped. Record them as soon as they are known. In a batch a unit adds only run-level
     /// values, and its own record keeps the facts of its sample.
-    public func recordOptions(_ options: AnalysisRunRecordOptions) {
+    public func recordOptions(_ options: AnalysisRootRecordOptions) {
         optionsRecorder(options)
     }
 }

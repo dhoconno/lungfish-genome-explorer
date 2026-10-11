@@ -20,7 +20,7 @@ final class AnalysisRunJournal: Sendable {
         var inputs: [ProvenanceFileDescriptor] = []
         var steps: [ProvenanceStep] = []
         /// The root record's options, the plan's with every later contribution merged in.
-        var options = AnalysisRunRecordOptions()
+        var options = AnalysisRootRecordOptions()
         /// Set once the last line went out. Every later line is dropped.
         var sealed = false
     }
@@ -76,8 +76,8 @@ final class AnalysisRunJournal: Sendable {
     }
 
     /// Merges options into the root record's, in the order they arrive (see
-    /// ``AnalysisRunRecordOptions``). The executor records the plan's first.
-    func recordOptions(_ options: AnalysisRunRecordOptions) {
+    /// ``AnalysisRootRecordOptions``). The executor records the plan's first.
+    func recordOptions(_ options: AnalysisRootRecordOptions) {
         state.withLock { $0.options = $0.options.merging(options) }
     }
 
@@ -93,7 +93,7 @@ final class AnalysisRunJournal: Sendable {
         state.withLock { $0.steps }
     }
 
-    var recordedOptions: AnalysisRunRecordOptions {
+    var recordedOptions: AnalysisRootRecordOptions {
         state.withLock { $0.options }
     }
 

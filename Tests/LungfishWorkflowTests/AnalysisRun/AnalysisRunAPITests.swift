@@ -82,7 +82,7 @@ struct AnalysisRunAPITests {
     @Test("The read-set plan lands under its one key in the resolved options")
     func readSetPlanLandsInTheResolvedOptions() {
         let plan: ParameterValue = .dictionary(["capability": .string("pairsOrSinglesPerRun"), "runs": .integer(2)])
-        let options = AnalysisRunRecordOptions(
+        let options = AnalysisRootRecordOptions(
             explicit: ["threads": .integer(4)],
             resolved: ["confidence": .number(0.2), "readSetPlan": .string("stale")],
             readSetPlan: plan
@@ -91,8 +91,8 @@ struct AnalysisRunAPITests {
         #expect(options.resolvedIncludingReadSetPlan["readSetPlan"] == plan)
         #expect(options.resolvedIncludingReadSetPlan["confidence"] == .number(0.2))
         #expect(options.explicit["readSetPlan"] == nil)
-        #expect(AnalysisRunRecordOptions(resolved: ["a": .integer(1)]).resolvedIncludingReadSetPlan == ["a": .integer(1)])
-        #expect(AnalysisRunRecordOptions.readSetPlanValue(of: nil) == nil)
+        #expect(AnalysisRootRecordOptions(resolved: ["a": .integer(1)]).resolvedIncludingReadSetPlan == ["a": .integer(1)])
+        #expect(AnalysisRootRecordOptions.readSetPlanValue(of: nil) == nil)
     }
 
     // MARK: Events
@@ -235,7 +235,7 @@ struct AnalysisRunAPITests {
         context.log(.warning, "careful")
         context.recordInput(ProvenanceFileDescriptor(path: "/tmp/reads.fastq", checksumSHA256: nil, fileSize: nil, format: .fastq, role: .input))
         context.recordStep(ProvenanceStep(toolName: "kraken2"))
-        context.recordOptions(AnalysisRunRecordOptions(resolved: ["profileState": .string("degraded")]))
+        context.recordOptions(AnalysisRootRecordOptions(resolved: ["profileState": .string("degraded")]))
 
         #expect(seen.snapshot == [
             "progress 0.5 half",
@@ -250,14 +250,14 @@ struct AnalysisRunAPITests {
     func recordedOptionsMergeKeyByKey() {
         let earlier: ParameterValue = .dictionary(["capability": .string("singlesPerRun")])
         let later: ParameterValue = .dictionary(["capability": .string("pairsOrSinglesPerRun")])
-        let plan = AnalysisRunRecordOptions(
+        let plan = AnalysisRootRecordOptions(
             explicit: ["threads": .integer(4)],
             defaults: ["confidence": .number(0)],
             resolved: ["confidence": .number(0.1), "database": .string("standard")],
             readSetPlan: earlier
         )
 
-        let unit = plan.merging(AnalysisRunRecordOptions(
+        let unit = plan.merging(AnalysisRootRecordOptions(
             explicit: ["memoryMapping": .boolean(true)],
             resolved: ["confidence": .number(0.2), "profileState": .string("degraded")],
             readSetPlan: later
@@ -268,7 +268,7 @@ struct AnalysisRunAPITests {
         #expect(unit.readSetPlan == later)
 
         // A contribution without a read-set plan keeps the one before.
-        #expect(unit.merging(AnalysisRunRecordOptions(resolved: ["index": .string("kraken2.sqlite")])).readSetPlan == later)
+        #expect(unit.merging(AnalysisRootRecordOptions(resolved: ["index": .string("kraken2.sqlite")])).readSetPlan == later)
     }
 }
 

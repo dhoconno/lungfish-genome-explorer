@@ -63,7 +63,7 @@ public struct AnalysisRunPlan<Value: Sendable>: Sendable {
     /// The units in the order they run. A plan holds at least one.
     public var units: [AnalysisRunPlannedUnit<Value>]
     /// The options of the root record, which the units and the finalize may add to.
-    public var options: AnalysisRunRecordOptions
+    public var options: AnalysisRootRecordOptions
     /// Inputs of the root record that the plan already described, such as a database reference.
     /// The executor hashes none of them again (see ``AnalysisRunUnitContext/recordInput(_:)``).
     public var recordInputs: [ProvenanceFileDescriptor]
@@ -71,7 +71,7 @@ public struct AnalysisRunPlan<Value: Sendable>: Sendable {
     public init(
         layout: AnalysisRunLayout,
         units: [AnalysisRunPlannedUnit<Value>],
-        options: AnalysisRunRecordOptions = AnalysisRunRecordOptions(),
+        options: AnalysisRootRecordOptions = AnalysisRootRecordOptions(),
         recordInputs: [ProvenanceFileDescriptor] = []
     ) {
         self.layout = layout
@@ -105,7 +105,7 @@ public struct AnalysisRunPlannedUnit<Value: Sendable>: Sendable {
 /// inputs and steps do. In a batch the unit records keep the facts of each sample and a unit adds
 /// only run-level values. How a batch root records `readSetPlan` across its samples is the tool's
 /// to settle.
-public struct AnalysisRunRecordOptions: Sendable, Equatable {
+public struct AnalysisRootRecordOptions: Sendable, Equatable {
     /// The key of the read-set plan in the resolved options, its one home (E13).
     public static let readSetPlanKey = "readSetPlan"
 
@@ -146,8 +146,8 @@ public struct AnalysisRunRecordOptions: Sendable, Equatable {
 
     /// These options with `later` merged in by the rule above, key by key with the later value
     /// winning, and `later`'s read-set plan replacing this one when it has one.
-    func merging(_ later: AnalysisRunRecordOptions) -> AnalysisRunRecordOptions {
-        AnalysisRunRecordOptions(
+    func merging(_ later: AnalysisRootRecordOptions) -> AnalysisRootRecordOptions {
+        AnalysisRootRecordOptions(
             explicit: explicit.merging(later.explicit) { _, new in new },
             defaults: defaults.merging(later.defaults) { _, new in new },
             resolved: resolved.merging(later.resolved) { _, new in new },

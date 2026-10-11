@@ -24,8 +24,8 @@ public struct AnalysisRunFinalization: Sendable {
     /// warning line, and the run still completes.
     public var warnings: [String]
     /// Options the finalize adds to the root record, merged after the plan's and the units' by
-    /// the rule ``AnalysisRunRecordOptions`` states. Nil adds none.
-    public var options: AnalysisRunRecordOptions?
+    /// the rule ``AnalysisRootRecordOptions`` states. Nil adds none.
+    public var options: AnalysisRootRecordOptions?
 
     public init(
         outputs: [AnalysisRunOutput] = [],
@@ -34,7 +34,7 @@ public struct AnalysisRunFinalization: Sendable {
         artifacts: [CLIEventArtifact] = [],
         completionDetail: String? = nil,
         warnings: [String] = [],
-        options: AnalysisRunRecordOptions? = nil
+        options: AnalysisRootRecordOptions? = nil
     ) {
         self.outputs = outputs
         self.steps = steps

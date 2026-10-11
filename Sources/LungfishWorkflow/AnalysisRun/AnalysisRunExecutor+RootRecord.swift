@@ -10,7 +10,7 @@ struct RootRecordInput: Sendable {
     let identity: AnalysisRunIdentity
     let request: AnalysisRunRequest
     /// The plan's options with every contribution of the units and the finalize merged in.
-    let options: AnalysisRunRecordOptions
+    let options: AnalysisRootRecordOptions
     let finalization: AnalysisRunFinalization?
     let clock: ProvenanceRunClock
 }

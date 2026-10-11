@@ -73,11 +73,11 @@ struct AnalysisRunExecutorTests {
             var tool = FakeAnalysisRunTool(probe: FakeToolProbe())
             tool.units = [AnalysisRunPlannedUnit(label: "s1", value: script)]
             tool.readSetPlan = .string("planned before the reads were materialized")
-            tool.unitOptions = AnalysisRunRecordOptions(
+            tool.unitOptions = AnalysisRootRecordOptions(
                 resolved: ["profileState": .string("degraded"), "confidence": .number(0.3)],
                 readSetPlan: Self.readSetPlan
             )
-            tool.finalizeOptions = AnalysisRunRecordOptions(resolved: ["viewerIndex": .string("kraken2.sqlite")])
+            tool.finalizeOptions = AnalysisRootRecordOptions(resolved: ["viewerIndex": .string("kraken2.sqlite")])
 
             let report = await AnalysisRunExecutor.unsigned.execute(tool, fixture.request(), events: .discarding)
 
