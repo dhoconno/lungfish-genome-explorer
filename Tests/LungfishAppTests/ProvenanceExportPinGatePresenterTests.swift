@@ -85,7 +85,8 @@ final class ProvenanceExportPinGatePresenterTests: XCTestCase {
     func testTheSheetNamesEachUnpinnedToolAndItsReasonWithCancelAsTheDefault() throws {
         let model = try XCTUnwrap(ProvenanceExportPinSheetModel(gate: try request().pinGate(exporter: exporter)))
         XCTAssertEqual(model.kind, .confirmUnpinned)
-        // The alert's first button is its default, so Return cancels, as the CLI refuses without the flag.
+        // Cancel comes first, and testReturnAnswersCancelAndNoKeyExportsAnyway checks that Return answers it,
+        // as the CLI refuses without the flag.
         XCTAssertEqual(model.buttonTitles, [ProvenanceExportPinSheetModel.cancelTitle, ProvenanceExportPinSheetModel.exportAnywayTitle])
         XCTAssertEqual(model.buttonTitles, ["Cancel", "Export Anyway…"])
         XCTAssertEqual(model.rows, [
@@ -100,6 +101,18 @@ final class ProvenanceExportPinGatePresenterTests: XCTestCase {
                 + "• minimap2, step 1. Its version was not recorded, so no version can be pinned.\n\n"
                 + "Export Anyway… names each of these tools in the shell script and in its export record."
         )
+    }
+
+    func testReturnAnswersCancelAndNoKeyExportsAnyway() throws {
+        // UX review fix 1. AppKit gives a button titled Cancel the Escape key even when it comes first, which
+        // leaves the sheet with no default button, so the alert sets the keys itself.
+        let model = try XCTUnwrap(ProvenanceExportPinSheetModel(gate: try request().pinGate(exporter: exporter)))
+        let alert = ProvenanceExportPinGatePresenter.makeAlert(model)
+        XCTAssertEqual(alert.buttons.map(\.title), ["Cancel", "Export Anyway…"])
+        XCTAssertEqual(alert.buttons[0].keyEquivalent, "\r")
+        XCTAssertEqual(alert.buttons[1].keyEquivalent, "")
+        XCTAssertEqual(alert.buttons[0].accessibilityIdentifier(), ProvenanceExportPinSheetModel.cancelIdentifier)
+        XCTAssertEqual(alert.buttons[1].accessibilityIdentifier(), ProvenanceExportPinSheetModel.exportAnywayIdentifier)
     }
 
     func testConfirmWritesTheExportAndCancelLeavesTheFolderUnchanged() throws {

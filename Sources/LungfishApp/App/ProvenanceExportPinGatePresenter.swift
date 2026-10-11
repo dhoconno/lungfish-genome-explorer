@@ -163,6 +163,17 @@ enum ProvenanceExportPinGatePresenter {
         window: NSWindow,
         answer: @escaping (ProvenanceExportPinSheetResponse) -> Void
     ) {
+        makeAlert(model).beginSheetModal(for: window) { response in
+            answer(model.kind == .confirmUnpinned && response == .alertSecondButtonReturn ? .exportAnyway : .cancel)
+        }
+    }
+
+    /// The alert a sheet model shows.
+    ///
+    /// AppKit gives a button titled Cancel the Escape key even when it comes first, which would leave
+    /// the unpinned sheet with no default button. So Return answers Cancel, as the CLI refuses without
+    /// `--allow-unpinned`, and no key answers Export Anyway….
+    static func makeAlert(_ model: ProvenanceExportPinSheetModel) -> NSAlert {
         let alert = NSAlert()
         alert.messageText = model.messageText
         alert.informativeText = model.informativeText
@@ -173,9 +184,9 @@ enum ProvenanceExportPinGatePresenter {
         if model.kind == .confirmUnpinned, alert.buttons.count == 2 {
             alert.buttons[0].setAccessibilityIdentifier(ProvenanceExportPinSheetModel.cancelIdentifier)
             alert.buttons[1].setAccessibilityIdentifier(ProvenanceExportPinSheetModel.exportAnywayIdentifier)
+            alert.buttons[0].keyEquivalent = "\r"
+            alert.buttons[1].keyEquivalent = ""
         }
-        alert.beginSheetModal(for: window) { response in
-            answer(model.kind == .confirmUnpinned && response == .alertSecondButtonReturn ? .exportAnyway : .cancel)
-        }
+        return alert
     }
 }
