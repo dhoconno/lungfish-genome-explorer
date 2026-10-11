@@ -933,8 +933,10 @@ features:
       counts fragments (the Fragments and Read Pairing cards). Inputs may mix
       gzip and plain files, and a file in the other compression than the first
       is read from a staged copy recorded as Lungfish Classification Input
-      Compression Staging. Recorded commands keep `conda classify` until 2.7
-      (S19). The Tools menu launch runs in process unless the hidden key
+      Compression Staging. Since 2.7 (E11) the wizard's rows and the run
+      records name `kraken2 classify`, and a command recorded as
+      `conda classify` still parses and replays. The Tools menu launch runs in
+      process unless the hidden key
       ClassifierLaunchRoute.kraken2.single or ClassifierLaunchRoute.kraken2.batch
       names cli. That route runs `lungfish-cli kraken2 classify` with --project,
       and --batch for several samples, and shows it in the same row.
