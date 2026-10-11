@@ -1129,17 +1129,7 @@ public actor CondaManager {
         logger.info("Running conda tool: micromamba \(args.joined(separator: " "), privacy: .public)")
 
         // Hermetic: nothing from the caller's shell beyond TMPDIR.
-        var processEnvironment: [String: String] = [
-            "MAMBA_ROOT_PREFIX": rootPrefix.path,
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-            "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
-        ]
-        if let tempDirectory = ProcessInfo.processInfo.environment["TMPDIR"] {
-            processEnvironment["TMPDIR"] = tempDirectory
-        }
-        if let environmentVariables {
-            processEnvironment.merge(environmentVariables) { _, new in new }
-        }
+        let processEnvironment = hermeticToolEnvironment(adding: environmentVariables)
         let spec = ToolProcessSpec(
             executableURL: micromambaPath,
             arguments: args,
@@ -1147,7 +1137,9 @@ public actor CondaManager {
             workingDirectory: workingDirectory,
             timeout: CondaFamilyProcess.limit(seconds: timeout),
             terminationGracePeriod: CondaFamilyProcess.terminationGracePeriod,
-            label: name
+            label: name,
+            environmentChange: observedEnvironmentChange(of: processEnvironment),
+            identityHint: environment
         )
         let result: ToolProcessResult
         do {
