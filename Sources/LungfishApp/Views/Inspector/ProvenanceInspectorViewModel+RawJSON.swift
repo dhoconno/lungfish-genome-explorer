@@ -33,6 +33,7 @@ struct ProvenanceRawJSONDisplay: Equatable {
     static let noRecordMessage = "No raw provenance JSON is available."
     static let tooLargeMessage = "This record is too large to show here."
     static let notShownMessage = "This record could not be shown as text."
+    static let decodedRecordCaption = "Shows the decoded record, not the file."
 
     enum Content: Equatable {
         /// There is no record, so there is no JSON.
@@ -67,24 +68,26 @@ struct ProvenanceRawJSONDisplay: Equatable {
         }
         content = .text
         revealURL = nil
+        // The sentence about where the text came from comes first, then the one about the cut.
+        var captions = source == .decodedRecord ? [Self.decodedRecordCaption] : []
         let scan = Self.scan(text, lineLimit: Self.maximumShownLines)
         let withinLines = scan.cut.map { String(text[..<$0]) } ?? text
         if withinLines.count > Self.maximumShownCharacters {
             shownText = String(withinLines.prefix(Self.maximumShownCharacters))
-            captions = [
+            captions.append(
                 "Showing the first \(Self.maximumShownCharacters) of \(text.count) characters. "
-                    + "Copy takes the whole record.",
-            ]
+                    + "Copy takes the whole record."
+            )
         } else if scan.cut != nil {
             shownText = withinLines
-            captions = [
+            captions.append(
                 "Showing the first \(Self.maximumShownLines) of \(scan.lines) lines. "
-                    + "Copy takes the whole record.",
-            ]
+                    + "Copy takes the whole record."
+            )
         } else {
             shownText = text
-            captions = []
         }
+        self.captions = captions
     }
 
     /// The number of lines in `text`, and the end of its `lineLimit`th line when it has more.
@@ -144,6 +147,27 @@ extension ProvenanceInspectorViewModel {
             rawJSON = Self.encodedRecordJSON(envelope)
             rawJSONSource = .decodedRecord
         }
+    }
+
+    /// The sidecar's own text for the Raw JSON pane, or nil when the pane shows the record encoded again.
+    ///
+    /// It is read here, off the main actor, and only for a record the pane shows at all. A leading
+    /// UTF-8 byte order mark is an encoding signature and not text, so a file that starts with one
+    /// shows its own text without it. The text is returned only when its UTF-8 bytes are the file's
+    /// bytes after the mark, so a file that cannot be read or is not UTF-8 falls back to the encoded
+    /// record, which the pane says, instead of showing something the file does not hold.
+    nonisolated static func sidecarText(at url: URL, for envelope: ProvenanceEnvelope) -> String? {
+        let fileRowCount = deduplicatedFileDescriptors(allFileDescriptors(in: envelope)).count
+        guard shouldInlineRawJSON(fileRowCount: fileRowCount, envelope: envelope),
+              let bytes = try? Data(contentsOf: url) else {
+            return nil
+        }
+        let utf8ByteOrderMark: [UInt8] = [0xEF, 0xBB, 0xBF]
+        let content = bytes.starts(with: utf8ByteOrderMark) ? Data(bytes.dropFirst(utf8ByteOrderMark.count)) : bytes
+        guard let text = String(data: content, encoding: .utf8), Data(text.utf8) == content else {
+            return nil
+        }
+        return text
     }
 
     /// Whether the record is small enough for the pane. Past 500 file rows, or 200 paths in a step,

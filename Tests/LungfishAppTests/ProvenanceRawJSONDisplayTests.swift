@@ -243,4 +243,103 @@ final class ProvenanceRawJSONDisplayTests: XCTestCase {
         XCTAssertTrue(texts.contains(Message.notShown), "\(texts)")
         XCTAssertFalse(texts.contains(Message.noRecord))
     }
+
+    // MARK: - The text is the file's, or the pane says it is not
+
+    private let decodedRecordCaption = "Shows the decoded record, not the file."
+
+    /// A folder holding `bytes` as its own record, loaded through the view model's lookup.
+    private func loadedModel(sidecarBytes bytes: Data) async throws -> ProvenanceInspectorViewModel {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("provenance-raw-json-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+        try bytes.write(to: folder.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+
+        let model = ProvenanceInspectorViewModel()
+        model.load(item: ProvenanceInspectableItem(
+            url: folder, sidebarType: .analysisResult, contentMode: .genomics, displayName: "Result"
+        ))
+        let finished = await waitUntil(timeout: .seconds(30)) { !model.isLoading }
+        XCTAssertTrue(finished, "The provenance lookup did not finish.")
+        XCTAssertNotNil(model.resolvedEnvelope, "The record was found.")
+        return model
+    }
+
+    /// A native bundle loader hands the Inspector a record it has verified and no file text, so
+    /// the pane shows the record encoded again and says so.
+    func testAVerifiedRecordShowsTheDecodedRecordAndSaysSo() throws {
+        let record = ProvenanceEnvelope.fixture()
+        let sidecar = URL(fileURLWithPath: "/nowhere/Primers.lungfishprimers/provenance.json")
+        let model = ProvenanceInspectorViewModel()
+        model.configureVerifiedSources([
+            ProvenanceSource(
+                id: sidecar.path,
+                name: "Analysis",
+                item: ProvenanceInspectableItem(
+                    url: sidecar.deletingLastPathComponent(),
+                    sidebarType: .primerAnalysisBundle,
+                    contentMode: .genomics,
+                    displayName: "Analysis"
+                ),
+                verifiedRecord: VerifiedProvenanceRecord(envelope: record, sidecarURL: sidecar)
+            ),
+        ])
+
+        XCTAssertEqual(model.rawJSONSource, .decodedRecord)
+        XCTAssertEqual(captions(of: model).first, decodedRecordCaption)
+        XCTAssertEqual(model.rawJSON, String(decoding: try ProvenanceJSON.encoder.encode(record), as: UTF8.self))
+    }
+
+    func testTheDecodedRecordCaptionComesBeforeTheCutCaption() throws {
+        let model = ProvenanceInspectorViewModel()
+        model.resolvedEnvelope = ProvenanceEnvelope.fixture()
+        model.rawJSON = record(lines: 100)
+        model.rawJSONSource = .decodedRecord
+
+        XCTAssertEqual(captions(of: model), [
+            decodedRecordCaption,
+            "Showing the first 80 of 100 lines. Copy takes the whole record.",
+        ])
+    }
+
+    func testAFileOfTextShowsNoDecodedRecordCaption() async throws {
+        let record = ProvenanceEnvelope.fixture()
+        let bytes = try ProvenanceJSON.encoder.encode(record)
+        let model = try await loadedModel(sidecarBytes: bytes)
+
+        XCTAssertEqual(model.rawJSONSource, .file)
+        XCTAssertEqual(Data(model.rawJSON.utf8), bytes)
+        XCTAssertFalse(captions(of: model).contains(decodedRecordCaption))
+    }
+
+    /// A leading byte order mark is not part of the text and does not make the file unreadable as
+    /// text, so the pane shows the file's own text and not the record encoded again.
+    func testAFileWithAByteOrderMarkShowsItsOwnText() async throws {
+        let bytes = try ProvenanceJSON.encoder.encode(ProvenanceEnvelope.fixture())
+        let model = try await loadedModel(sidecarBytes: Data([0xEF, 0xBB, 0xBF]) + bytes)
+
+        XCTAssertEqual(model.rawJSONSource, .file)
+        XCTAssertEqual(Data(model.rawJSON.utf8), bytes, "The pane shows the file's text, without the mark.")
+        XCTAssertFalse(captions(of: model).contains(decodedRecordCaption))
+
+        let pasteboard = NSPasteboard.withUniqueName()
+        addTeardownBlock { pasteboard.releaseGlobally() }
+        model.pasteboard = pasteboard
+        model.copyRawJSON()
+        XCTAssertEqual(pasteboard.data(forType: .string), bytes)
+    }
+
+    /// A UTF-16 file reads as a record, but its bytes are not text the pane can show as the file's,
+    /// so the pane shows the record encoded again and says so.
+    func testAFileThatIsNotUTF8ShowsTheDecodedRecordAndSaysSo() async throws {
+        let json = try ProvenanceJSON.encoder.encode(ProvenanceEnvelope.fixture())
+        let utf16 = try XCTUnwrap(String(decoding: json, as: UTF8.self).data(using: .utf16))
+        let model = try await loadedModel(sidecarBytes: utf16)
+
+        XCTAssertEqual(model.rawJSONSource, .decodedRecord)
+        XCTAssertEqual(captions(of: model).first, decodedRecordCaption)
+        let envelope = try XCTUnwrap(model.resolvedEnvelope)
+        XCTAssertEqual(model.rawJSON, String(decoding: try ProvenanceJSON.encoder.encode(envelope), as: UTF8.self))
+    }
 }

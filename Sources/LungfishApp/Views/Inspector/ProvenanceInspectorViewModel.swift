@@ -559,23 +559,6 @@ final class ProvenanceInspectorViewModel {
         )
     }
 
-    /// The sidecar's own text for the Raw JSON pane, or nil when the pane shows the record encoded again.
-    ///
-    /// It is read here, off the main actor, and only for a record the pane shows at all. The text is
-    /// returned only when its UTF-8 bytes are the file's bytes, so a file that cannot be read, is not
-    /// UTF-8, or starts with a byte order mark falls back to the encoded record instead of showing
-    /// something the file does not hold.
-    nonisolated private static func sidecarText(at url: URL, for envelope: ProvenanceEnvelope) -> String? {
-        let fileRowCount = deduplicatedFileDescriptors(allFileDescriptors(in: envelope)).count
-        guard shouldInlineRawJSON(fileRowCount: fileRowCount, envelope: envelope),
-              let bytes = try? Data(contentsOf: url),
-              let text = String(data: bytes, encoding: .utf8),
-              Data(text.utf8) == bytes else {
-            return nil
-        }
-        return text
-    }
-
     struct ProvenanceUpstreamRun: Sendable {
         var envelope: ProvenanceEnvelope
         var sidecarURL: URL?
@@ -822,14 +805,14 @@ final class ProvenanceInspectorViewModel {
         )
     }
 
-    nonisolated private static func allFileDescriptors(in envelope: ProvenanceEnvelope) -> [ProvenanceFileDescriptor] {
+    nonisolated static func allFileDescriptors(in envelope: ProvenanceEnvelope) -> [ProvenanceFileDescriptor] {
         envelope.files
             + (envelope.output.map { [$0] } ?? [])
             + envelope.outputs
             + envelope.steps.flatMap { $0.inputs + $0.outputs }
     }
 
-    nonisolated private static func deduplicatedFileDescriptors(_ descriptors: [ProvenanceFileDescriptor]) -> [ProvenanceFileDescriptor] {
+    nonisolated static func deduplicatedFileDescriptors(_ descriptors: [ProvenanceFileDescriptor]) -> [ProvenanceFileDescriptor] {
         var seen = Set<String>()
         return descriptors.filter { descriptor in
             let key = "\(descriptor.role.rawValue)|\(descriptor.path)"

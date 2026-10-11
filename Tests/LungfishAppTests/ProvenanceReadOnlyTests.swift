@@ -271,17 +271,17 @@ final class ProvenanceReadOnlyTests: XCTestCase {
         XCTAssertEqual(pasteboard.data(forType: .string), fileBytes)
     }
 
-    /// A file that is not text that reproduces its own bytes cannot be shown as the file. A
-    /// leading byte order mark reads as JSON, but the text drops it, so the pane falls back to
-    /// the record encoded again and Copy copies that.
-    func testRawJSONFallsBackToTheRecordWhenTheFileIsNotExactText() async throws {
+    /// A leading UTF-8 byte order mark is an encoding signature and not text. The pane shows the
+    /// file's own text without the mark, not the record encoded again, and Copy copies that text.
+    func testRawJSONOfAFileWithAByteOrderMarkIsItsOwnTextWithoutTheMark() async throws {
         let project = try makeProject()
         let folder = project.appendingPathComponent("Analyses/bom-result", isDirectory: true)
         let sidecar = folder.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         let reads = folder.appendingPathComponent("reads.fastq")
         try place(Data("@r\nACGT\n+\n!!!!\n".utf8), at: reads)
         let record = makeRecord(files: [try ProvenanceFileDescriptor.file(url: reads, format: .fastq, role: .input)])
-        try place(Data([0xEF, 0xBB, 0xBF]) + ProvenanceJSON.encoder.encode(record), at: sidecar)
+        let encoded = try ProvenanceJSON.encoder.encode(record)
+        try place(Data([0xEF, 0xBB, 0xBF]) + encoded, at: sidecar)
 
         let model = try await assertReadingLeavesProjectUnchanged(
             ProvenanceInspectableItem(
@@ -290,9 +290,9 @@ final class ProvenanceReadOnlyTests: XCTestCase {
             in: project
         )
 
-        let envelope = try XCTUnwrap(model.resolvedEnvelope, "A file with a byte order mark still reads as a record.")
-        XCTAssertEqual(model.rawJSON, String(decoding: try ProvenanceJSON.encoder.encode(envelope), as: UTF8.self))
-        XCTAssertNotEqual(Data(model.rawJSON.utf8), try Data(contentsOf: sidecar))
+        XCTAssertNotNil(model.resolvedEnvelope, "A file with a byte order mark still reads as a record.")
+        XCTAssertEqual(Data(model.rawJSON.utf8), encoded, "The pane shows the file's text, which follows the mark.")
+        XCTAssertNotEqual(Data(model.rawJSON.utf8), try Data(contentsOf: sidecar), "The mark is not text.")
 
         let pasteboard = NSPasteboard.withUniqueName()
         addTeardownBlock { pasteboard.releaseGlobally() }
