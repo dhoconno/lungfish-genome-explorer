@@ -827,8 +827,13 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         let summaryStderr = try XCTUnwrap(envelope.stderr)
         XCTAssertEqual(attemptStderr, processStderr)
         XCTAssertLessThan(summaryStderr.count, attemptStderr.count)
-        XCTAssertTrue(summaryStderr.hasPrefix(String(processStderr.prefix(2_048))))
-        XCTAssertTrue(summaryStderr.hasSuffix(String(processStderr.suffix(8_192))))
+        // The cut keeps whole lines. The head ends at the last line break inside the first
+        // 2,048 characters (89 lines of 23) and the tail starts after the first line break
+        // inside the last 8,192 (the last 356 lines).
+        let processLines = processStderr.split(separator: "\n")
+        XCTAssertEqual(summaryStderr, ProvenanceStderr.truncated(processStderr))
+        XCTAssertTrue(summaryStderr.hasPrefix(processLines.prefix(89).joined(separator: "\n") + "\n... [truncated]"))
+        XCTAssertTrue(summaryStderr.hasSuffix(processLines.suffix(356).joined(separator: "\n") + "\n"))
         XCTAssertEqual(summaryStderr.components(separatedBy: "\n... [truncated] ...\n").count, 2)
 
         let importer = BundleFASTQOperationImporter(destinationDirectory: fixture.directory)

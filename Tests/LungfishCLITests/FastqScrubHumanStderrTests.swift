@@ -23,16 +23,19 @@ final class FastqScrubHumanStderrTests: XCTestCase {
         return banner + "\n" + middle + "\n" + failure
     }
 
-    func testALongStderrKeepsItsFirst2048AndItsLast8192Characters() throws {
+    func testALongStderrKeepsTheWholeLinesAtItsStartAndItsEnd() throws {
         let log = Self.failureLog(characters: 20_000)
         XCTAssertEqual(log.count, 20_000)
 
         // A tool ends its stderr with a newline, which the step does not keep.
         let kept = try XCTUnwrap(FastqScrubHumanSubcommand.normalizedStderr(log + "\n"))
 
-        XCTAssertEqual(kept, String(log.prefix(2_048)) + Self.marker + String(log.suffix(8_192)))
+        // The log between the banner and the failure line is one line of 19,880 characters
+        // with no space, which neither window holds whole, so the cut keeps the two whole
+        // lines around it and nothing of the line between.
+        XCTAssertEqual(kept, Self.banner + Self.marker + Self.failure)
         XCTAssertTrue(kept.hasPrefix(Self.banner), "the banner survives")
-        XCTAssertTrue(kept.hasSuffix(Self.failure), "the last 8,192 characters, and with them the failure line, survive")
+        XCTAssertTrue(kept.hasSuffix(Self.failure), "the failure line survives")
         XCTAssertEqual(kept.components(separatedBy: Self.marker).count, 2, "exactly one marker")
     }
 

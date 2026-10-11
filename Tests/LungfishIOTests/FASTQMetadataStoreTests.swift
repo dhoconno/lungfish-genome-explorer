@@ -461,9 +461,12 @@ final class FASTQMetadataStoreTests: XCTestCase {
         )
 
         let kept = try XCTUnwrap(result.stderr)
-        XCTAssertEqual(kept, String(log.prefix(2_048)) + Self.truncationMarker + String(log.suffix(8_192)))
+        // The log between the banner and the failure line is one line of 19,880 characters
+        // with no space, which neither window holds whole, so the cut keeps the two whole
+        // lines around it and nothing of the line between.
+        XCTAssertEqual(kept, Self.stderrBanner + Self.truncationMarker + Self.stderrFailure)
         XCTAssertTrue(kept.hasPrefix(Self.stderrBanner), "the banner survives")
-        XCTAssertTrue(kept.hasSuffix(Self.stderrFailure), "the last 8,192 characters, and with them the failure line, survive")
+        XCTAssertTrue(kept.hasSuffix(Self.stderrFailure), "the failure line survives")
         XCTAssertEqual(kept.components(separatedBy: Self.truncationMarker).count, 2, "exactly one marker")
     }
 
