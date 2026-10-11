@@ -811,14 +811,14 @@ extension BundleManifest {
         return copy(browserSummary: .some(synthesized))
     }
 
+    /// Publishes `manifest.json` through ``DurableReplace``, so the name holds a complete old or new
+    /// manifest at every step and the bytes and the folder are synced (plan decisions S1, V1 and V2).
     public func save(to bundleURL: URL) throws {
-        let manifestURL = bundleURL.appendingPathComponent(Self.filename)
-
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
 
         let data = try encoder.encode(withSynthesizedBrowserSummaryIfNeeded())
-        try data.write(to: manifestURL, options: .atomic)
+        try DurableReplace.replace(data, named: Self.filename, in: bundleURL)
     }
 }

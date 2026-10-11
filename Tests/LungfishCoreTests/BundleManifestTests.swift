@@ -153,15 +153,21 @@ final class BundleManifestTests: XCTestCase {
         XCTAssertEqual(updated.recordStore, recordStore)
     }
 
-    func testBundleManifestSaveUsesAtomicWrite() throws {
-        let root = try repoRoot()
-        let sourceURL = root.appendingPathComponent("Sources/LungfishCore/Bundles/BundleManifest.swift")
-        let source = try readRepositorySource(sourceURL)
+    func testBundleManifestSaveReplacesTheFileInsteadOfTruncatingItInPlace() throws {
+        let bundleURL = tempDirectory.appendingPathComponent("InPlace.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let source = SourceInfo(organism: "Test organism", assembly: "TG1")
+        try BundleManifest(name: "Old", identifier: "test.old", source: source).save(to: bundleURL)
+        let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
+        let oldBytes = try Data(contentsOf: manifestURL)
 
-        XCTAssertTrue(
-            source.contains("try data.write(to: manifestURL, options: .atomic)"),
-            "BundleManifest.save(to:) should atomically replace manifest.json instead of truncating in place"
-        )
+        // A reader that opened the old manifest keeps reading all of it while a save replaces it.
+        let reader = try FileHandle(forReadingFrom: manifestURL)
+        defer { try? reader.close() }
+        try BundleManifest(name: "New", identifier: "test.new", source: source).save(to: bundleURL)
+
+        XCTAssertEqual(try reader.readToEnd(), oldBytes)
+        XCTAssertEqual(try BundleManifest.load(from: bundleURL).name, "New")
     }
 
     // MARK: - SourceInfo Tests
@@ -1312,17 +1318,5 @@ final class BundleManifestTests: XCTestCase {
             source: SourceInfo(organism: "Test", assembly: "Test"),
             recordStore: recordStore
         )
-    }
-
-    private func repoRoot() throws -> URL {
-        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        let fileManager = FileManager.default
-        for _ in 0..<10 {
-            if fileManager.fileExists(atPath: directory.appendingPathComponent("Package.swift").path) {
-                return directory
-            }
-            directory = directory.deletingLastPathComponent()
-        }
-        throw XCTSkip("Could not locate Package.swift above \(#filePath)")
     }
 }
