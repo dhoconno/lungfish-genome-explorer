@@ -37,11 +37,12 @@ final class CLIProvenanceSupportVersionTests: XCTestCase {
         XCTAssertNil(CLIProvenanceSupport.parseCondaToolVersion(" \n\n"))
     }
 
-    // MARK: - Known defects, fixed in 2.6
+    // MARK: - Output the two tools never print today
 
     /// ribodetector_cpu is probed with `--version`, then `-h`, then `--help`. Nothing reaches `-h`
-    /// while `--version` answers. The help text holds no dotted number, so the first line is recorded (2.6).
-    func testHelpTextFallbackRecordsTheUsageLine() {
+    /// while `--version` answers. The help text holds no dotted number and its first line is a usage
+    /// line, so no version is recorded (2.6).
+    func testHelpTextIsNoVersion() {
         let help = Self.lines(
             "usage: ribodetector_cpu [-h] [-c CONFIG] -l LEN -i [INPUT ...] -o [OUTPUT ...]",
             "                        [-r [RRNA ...]] [-e {rrna,norrna,both,none}]",
@@ -79,18 +80,15 @@ final class CLIProvenanceSupportVersionTests: XCTestCase {
             "  --model-file MODEL_FILE",
             "                        Model file path without extension (uses .onnx). Default: packaged model_len70_101.",
             "  -v, --version         show program's version number and exit")
-        XCTAssertEqual(
-            CLIProvenanceSupport.parseCondaToolVersion(help),
-            "usage: ribodetector_cpu [-h] [-c CONFIG] -l LEN -i [INPUT ...] -o [OUTPUT ...]"
-        )
+        XCTAssertNil(CLIProvenanceSupport.parseCondaToolVersion(help))
     }
 
-    /// bwa-mem2 rejects `--version` and `-v`, and the error line is recorded as the version (2.6).
-    func testAnErrorLineIsRecordedAsTheVersion() {
-        XCTAssertEqual(
-            CLIProvenanceSupport.parseCondaToolVersion("ERROR: unknown command '--version'\n"),
-            "ERROR: unknown command '--version'"
-        )
+    /// An error line is never a version (2.6). A plain first line still is, as before.
+    func testAnErrorLineIsNoVersion() {
+        XCTAssertNil(CLIProvenanceSupport.parseCondaToolVersion("ERROR: unknown command '--version'\n"))
+        XCTAssertNil(CLIProvenanceSupport.parseCondaToolVersion("Invalid option: --.\n"))
+        XCTAssertNil(CLIProvenanceSupport.parseCondaToolVersion("--version is not a valid option\n"))
+        XCTAssertEqual(CLIProvenanceSupport.parseCondaToolVersion("nightly-build\n"), "nightly-build")
     }
 
     /// A version keeps four numeric parts (2.6).

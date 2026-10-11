@@ -64,6 +64,28 @@ final class ProbeVersionTextTests: XCTestCase {
         XCTAssertEqual(version(["tool 2.5.1+ (beta)"]), "2.5.1")
     }
 
+    /// The detect parser's first-line fallback keeps a plain line and drops an error line (2.6).
+    func testTheDetectParserRecordsNoErrorLineAsAVersion() {
+        XCTAssertNil(parseToolVersion(from: "ERROR: unknown command '--version'\n"))
+        XCTAssertNil(parseToolVersion(from: "Invalid option: --.\n"))
+        XCTAssertNil(parseToolVersion(from: "--version is not a valid option\n"))
+        XCTAssertEqual(parseToolVersion(from: "nightly-build\nsecond line\n"), "nightly-build")
+    }
+
+    /// A line that complains about the probe is no version (2.6). micromamba's own error is not
+    /// listed, so the detect parser still records it until 2.7 stops the first-line fallback.
+    func testProbeErrorLinesAreRecognised() {
+        for line in [
+            "ERROR: unknown command '--version'", "Invalid option: --.", "--version is not a valid option",
+            "usage: ribodetector_cpu [-h]", "FATAL(lofreq_main.c|main:336): Unrecognized command '--version'",
+        ] {
+            XCTAssertTrue(ProbeVersionText.looksLikeProbeError(line), line)
+        }
+        for line in ["nightly-build", "tool 1.2.3", "critical libmamba The given prefix does not exist: \"/x/envs/bbmap\""] {
+            XCTAssertFalse(ProbeVersionText.looksLikeProbeError(line), line)
+        }
+    }
+
     /// The left-most dotted number wins, outside paths and echoed commands.
     func testTheFirstDottedNumberWins() {
         XCTAssertEqual(version(["samtools 1.24", "Using htslib 1.24"]), "1.24")

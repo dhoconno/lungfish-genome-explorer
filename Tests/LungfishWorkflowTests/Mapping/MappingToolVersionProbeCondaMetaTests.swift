@@ -92,6 +92,15 @@ final class MappingToolVersionProbeCondaMetaTests: XCTestCase {
         XCTAssertEqual(version, "2.3")
     }
 
+    /// Without a conda-meta record the probe is all that is left, and it prints only an error line,
+    /// so the record holds `unknown` and never the error text (2.6).
+    func testBwaMem2WithoutACondaMetaRecordRecordsUnknown() async throws {
+        let version = try await MappingToolVersionProbe.version(
+            of: .bwaMem2, executable: "bwa-mem2", condaManager: condaManager, nativeToolRunner: runner
+        )
+        XCTAssertEqual(version, "unknown")
+    }
+
     /// minimap2 and Bowtie2 stay `.selfReported`, so conda-meta never replaces their own answer.
     func testSelfReportingMappersStillAskTheTool() async throws {
         try installPackage("minimap2", version: "9.9", build: "h0_0", inEnvironment: "minimap2")

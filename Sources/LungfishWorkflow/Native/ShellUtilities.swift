@@ -185,7 +185,8 @@ func detectToolVersion(
 ///
 /// Returns the first semver-like pattern (e.g. `2.1.3`) outside any file
 /// path, with a token written `v2.31.0` preferred (see `ProbeVersionText`),
-/// else the first output line, else `nil` for empty output. Paths are
+/// else the first output line unless it reads as an error (bwa-mem2's `ERROR:
+/// unknown command '--version'` is no version), else `nil` for empty output. Paths are
 /// skipped because several tools print their own location before the
 /// version. EsViritu prints `.../lib/python3.14/site-packages/EsViritu`
 /// then `1.3.3`, and a match inside that path recorded Python's `3.14` as
@@ -194,7 +195,9 @@ func parseToolVersion(from output: String) -> String? {
     let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
     let lines = trimmed.components(separatedBy: .newlines)
-    return ProbeVersionText.version(in: lines, skippingCommandEcho: false) ?? lines.first ?? trimmed
+    if let version = ProbeVersionText.version(in: lines, skippingCommandEcho: false) { return version }
+    let firstLine = lines.first ?? trimmed
+    return ProbeVersionText.looksLikeProbeError(firstLine) ? nil : firstLine
 }
 
 /// The rule the Workflow's two version parsers share for finding a version token.
@@ -203,6 +206,20 @@ func parseToolVersion(from output: String) -> String? {
 /// its own copy in `CLIProvenanceSupport.parseCondaToolVersion`, and sub-phase 2.7 merges the
 /// three. A table of real probe output, `VersionParserOutputPinTests`, pins every tool's result.
 enum ProbeVersionText {
+    /// Words that mark a line as a complaint about the probe and never a version.
+    private static let probeErrorMarkers = [
+        "fatal", "error", "unrecognized", "unrecognised", "unknown command", "unknown option",
+        "usage", "invalid", "no such", "not found", "illegal", "not a valid",
+    ]
+
+    /// True for a line that reads as an error or a usage text. micromamba's own complaint about a
+    /// missing environment (`critical libmamba ...`) is not listed, and sub-phase 2.7 stops the
+    /// first-line fallback that still records it.
+    static func looksLikeProbeError(_ line: String) -> Bool {
+        let lowered = line.lowercased()
+        return probeErrorMarkers.contains { lowered.contains($0) }
+    }
+
     /// The version in the lines, outside any path. A token written `v2.31.0` is the tool naming
     /// its own version, so the first such token wins. Without one, the first dotted number wins.
     /// A version keeps up to four numeric parts, as GATK writes `4.6.2.0`, and a local build

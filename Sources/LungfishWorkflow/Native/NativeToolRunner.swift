@@ -555,24 +555,14 @@ public actor NativeToolRunner {
     public static func parseVersionProbe(exitCode: Int32, stdout: String, stderr: String) -> String? {
         let scanned = [stdout, stderr].flatMap { output in
             output.split(separator: "\n", omittingEmptySubsequences: true).prefix(8)
-                .map(String.init).filter { !looksLikeProbeError($0) }
+                .map(String.init).filter { !ProbeVersionText.looksLikeProbeError($0) }
         }
         if let version = ProbeVersionText.version(in: scanned, skippingCommandEcho: true) { return version }
         guard exitCode == 0,
               let firstLine = stdout.split(separator: "\n").first?.trimmingCharacters(in: .whitespaces),
-              !firstLine.isEmpty, !looksLikeProbeError(firstLine)
+              !firstLine.isEmpty, !ProbeVersionText.looksLikeProbeError(firstLine)
         else { return nil }
         return firstLine
-    }
-
-    private static let probeErrorMarkers = [
-        "fatal", "error", "unrecognized", "unrecognised", "unknown command", "unknown option",
-        "usage", "invalid", "no such", "not found", "illegal",
-    ]
-
-    private static func looksLikeProbeError(_ line: String) -> Bool {
-        let lowered = line.lowercased()
-        return probeErrorMarkers.contains { lowered.contains($0) }
     }
     
     // MARK: - Tool Execution

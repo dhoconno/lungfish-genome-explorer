@@ -39,8 +39,10 @@ final class VersionParserOutputPinTests: XCTestCase {
         let native: String?
         /// What `parseToolVersion(from: stdout + stderr)` returns today.
         let detect: String?
-        /// The version the tool really reports, for defect rows.
-        let correct: String
+        /// The version the tool really reports, for defect rows. Nil when the probe reports none, as
+        /// bedGraphToBigWig, medaka_variant and bwa-mem2 reject it. Their version comes from the lock
+        /// or conda-meta, and a parser must say nothing rather than record the error line.
+        let correct: String?
     }
 
     private static let root = "/Users/test/.lungfish/conda"
@@ -318,6 +320,23 @@ final class VersionParserOutputPinTests: XCTestCase {
         Capture(name: "primalscheme3 +lge.5", exitCode: 0,
                 stdout: "PrimalScheme3-LGE version: 3.3.0+lge.5\n", stderr: "",
                 native: "3.3.0+lge.5", detect: "3.3.0+lge.5", correct: "3.3.0+lge.5"),
+        // A probe that prints only an error line has no version, so a parser records none (2.6). The
+        // detect parser used to record the first line and the CLI parser too. These are real outputs
+        // from the owner's install, which the golden environment lacks. bwa-mem2 rejects --version and
+        // then -v, which is the order detectToolVersion tries, and the mapping pipeline reads its
+        // version from conda-meta instead.
+        Capture(name: "bwa-mem2 --version", exitCode: 1, stdout: "",
+                stderr: "ERROR: unknown command '--version'\n",
+                native: nil, detect: nil, correct: nil),
+        Capture(name: "bwa-mem2 -v", exitCode: 1, stdout: "",
+                stderr: "ERROR: unknown command '-v'\n",
+                native: nil, detect: nil, correct: nil),
+        Capture(name: "bedGraphToBigWig --version", exitCode: 255, stdout: "",
+                stderr: "--version is not a valid option\n",
+                native: nil, detect: nil, correct: nil),
+        Capture(name: "medaka_variant --version", exitCode: 1, stdout: "",
+                stderr: "Invalid option: --.\n",
+                native: nil, detect: nil, correct: nil),
     ]
 
     // MARK: - Known defects, fixed in 2.6 and 2.7
@@ -343,27 +362,12 @@ final class VersionParserOutputPinTests: XCTestCase {
                 stderr: "critical libmamba The given prefix does not exist: \"\(root)/envs/bbmap\"\n",
                 native: nil, detect: "critical libmamba The given prefix does not exist: \"\(root)/envs/bbmap\"",
                 correct: "40.02"),
-        // bwa-mem2 rejects --version, and the detect parser records the error line (2.6).
-        Capture(name: "bwa-mem2 --version", exitCode: 1, stdout: "",
-                stderr: "ERROR: unknown command '--version'\n",
-                native: nil, detect: "ERROR: unknown command '--version'", correct: "2.3"),
         // The installed 2.3 build prints a stale 2.2.1 from the version subcommand, so both parsers
         // read a version the package does not have. Only conda-meta says 2.3 (the lock pin). The
         // mapping pipeline reads conda-meta for bwa-mem2 since 2.6 (`MappingToolVersionProbe`), so
         // nothing parses this output in production, and the row stays to show why.
         Capture(name: "bwa-mem2 version subcommand", exitCode: 0, stdout: "2.2.1\n", stderr: "",
                 native: "2.2.1", detect: "2.2.1", correct: "2.3"),
-        // Tools that reject the probe: the detect parser records the error line (2.6).
-        Capture(name: "bedGraphToBigWig --version", exitCode: 255, stdout: "",
-                stderr: "--version is not a valid option\n",
-                native: nil, detect: "--version is not a valid option", correct: "2.10"),
-        Capture(name: "medaka_variant --version", exitCode: 1, stdout: "",
-                stderr: "Invalid option: --.\n",
-                native: nil, detect: "Invalid option: --.", correct: "2.2.2"),
-        // detectToolVersion tries -v after --version, and bwa-mem2 rejects that too (2.6).
-        Capture(name: "bwa-mem2 -v", exitCode: 1, stdout: "",
-                stderr: "ERROR: unknown command '-v'\n",
-                native: nil, detect: "ERROR: unknown command '-v'", correct: "2.3"),
         // The assembly pipeline falls back to `hifiasm -h` when --version gives nothing, and the help
         // text lists the -D default [5.0] before any version. The text is the head of the real output.
         // Nothing reads it while --version works, and the rest of the help lists more options (2.7).
