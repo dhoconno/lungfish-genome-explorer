@@ -104,30 +104,19 @@ enum ReferenceBundleImportProvenanceRehydrator {
                 copy.toolVersionEvidence = source.toolVersionEvidence
             }
         }
-        let updatedEnvelope = ProvenanceEnvelope(
-            schemaVersion: canonical.schemaVersion,
-            id: canonical.id,
-            createdAt: canonical.createdAt,
-            workflowName: canonical.workflowName,
-            workflowVersion: canonical.workflowVersion,
-            toolName: canonical.toolName,
-            toolVersion: canonical.toolVersion,
-            tool: canonical.tool,
-            argv: context.replayCommand,
-            durableReplayArgv: context.replayCommand,
-            reproducibleCommand: context.replayCommand.map(shellEscape).joined(separator: " "),
-            options: updatedOptions,
-            runtimeIdentity: canonical.runtimeIdentity,
-            files: canonical.files,
-            output: canonical.output,
-            outputs: canonical.outputs,
-            steps: steps,
-            wallTimeSeconds: canonical.wallTimeSeconds,
-            exitStatus: canonical.exitStatus,
-            stderr: canonical.stderr,
-            signatures: canonical.signatures,
-            legacyWorkflowRun: updated
-        )
+        // The canonical envelope is made of the rebuilt run, which holds no release version, so the
+        // record's own comes back from the envelope it was read from. That run also embeds a copy of the
+        // old explicit options as its parameters. Only a nested run the record itself held, as one
+        // written before 2.4 does, has parameters the options lack, so the copy merges that one.
+        let updatedEnvelope = canonical.with {
+            $0.githubReleaseVersion = envelope.githubReleaseVersion
+            $0.argv = context.replayCommand
+            $0.durableReplayArgv = context.replayCommand
+            $0.reproducibleCommand = context.replayCommand.map(shellEscape).joined(separator: " ")
+            $0.options = updatedOptions
+            $0.steps = steps
+            $0.legacyRun = envelope.legacyRun
+        }
 
         try ProvenanceWriter(signingProvider: nil).write(updatedEnvelope, to: bundleURL)
     }

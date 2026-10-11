@@ -703,31 +703,15 @@ public enum FASTQIngestionService {
             $0.path == metadataDescriptor.path && $0.role == metadataDescriptor.role ? metadataDescriptor : $0
         } ?? metadataDescriptor
 
-        let mergedEnvelope = ProvenanceEnvelope(
-            schemaVersion: existingEnvelope.schemaVersion,
-            id: existingEnvelope.id,
-            createdAt: existingEnvelope.createdAt,
-            workflowName: existingEnvelope.workflowName,
-            workflowVersion: existingEnvelope.workflowVersion,
-            toolName: existingEnvelope.toolName,
-            toolVersion: existingEnvelope.toolVersion,
-            githubReleaseVersion: existingEnvelope.githubReleaseVersion,
-            tool: existingEnvelope.tool,
-            argv: existingEnvelope.argv,
-            durableReplayArgv: existingEnvelope.durableReplayArgv,
-            reproducibleCommand: existingEnvelope.reproducibleCommand,
-            options: options,
-            runtimeIdentity: existingEnvelope.runtimeIdentity,
-            files: files,
-            output: output,
-            outputs: outputs,
-            steps: existingEnvelope.steps + [metadataStep],
-            wallTimeSeconds: combinedWallTime(existingEnvelope.wallTimeSeconds, metadataStep.wallTimeSeconds),
-            exitStatus: existingEnvelope.exitStatus ?? 0,
-            stderr: existingEnvelope.stderr,
-            signatures: [],
-            legacyWorkflowRun: nil
-        )
+        let mergedEnvelope = existingEnvelope.with {
+            $0.options = options
+            $0.files = files
+            $0.output = output
+            $0.outputs = outputs
+            $0.steps = existingEnvelope.steps + [metadataStep]
+            $0.wallTimeSeconds = combinedWallTime(existingEnvelope.wallTimeSeconds, metadataStep.wallTimeSeconds)
+            $0.exitStatus = existingEnvelope.exitStatus ?? 0
+        }
         try ProvenanceWriter(signingProvider: nil).write(mergedEnvelope, to: bundleURL)
     }
 
@@ -919,30 +903,16 @@ public enum FASTQIngestionService {
             }
         )
 
-        return ProvenanceEnvelope(
-            schemaVersion: rewrittenExisting.schemaVersion,
-            id: rewrittenExisting.id,
-            createdAt: rewrittenExisting.createdAt,
-            workflowName: rewrittenExisting.workflowName,
-            workflowVersion: rewrittenExisting.workflowVersion,
-            toolName: rewrittenExisting.toolName,
-            toolVersion: rewrittenExisting.toolVersion,
-            tool: rewrittenExisting.tool,
-            argv: rewrittenExisting.argv,
-            durableReplayArgv: rewrittenExisting.durableReplayArgv,
-            reproducibleCommand: rewrittenExisting.reproducibleCommand,
-            options: options,
-            runtimeIdentity: rewrittenExisting.runtimeIdentity,
-            files: files,
-            output: output,
-            outputs: outputs,
-            steps: rewrittenExisting.steps + ingestionEnvelope.steps,
-            wallTimeSeconds: combinedWallTime(rewrittenExisting.wallTimeSeconds, ingestionEnvelope.wallTimeSeconds),
-            exitStatus: ingestionEnvelope.exitStatus ?? rewrittenExisting.exitStatus,
-            stderr: ingestionEnvelope.stderr ?? rewrittenExisting.stderr,
-            signatures: [],
-            legacyWorkflowRun: nil
-        )
+        return rewrittenExisting.with {
+            $0.options = options
+            $0.files = files
+            $0.output = output
+            $0.outputs = outputs
+            $0.steps = rewrittenExisting.steps + ingestionEnvelope.steps
+            $0.wallTimeSeconds = combinedWallTime(rewrittenExisting.wallTimeSeconds, ingestionEnvelope.wallTimeSeconds)
+            $0.exitStatus = ingestionEnvelope.exitStatus ?? rewrittenExisting.exitStatus
+            $0.stderr = ingestionEnvelope.stderr ?? rewrittenExisting.stderr
+        }
     }
 
     nonisolated private static func replacedOutputPathMap(

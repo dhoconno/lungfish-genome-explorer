@@ -360,33 +360,17 @@ struct SampleMetadataEditPersistenceService {
                     }.count + 1),
                 ]) { _, rhs in rhs }
             )
-            let updatedEnvelope = ProvenanceEnvelope(
-                schemaVersion: existingEnvelope.schemaVersion,
-                id: existingEnvelope.id,
-                createdAt: existingEnvelope.createdAt,
-                workflowName: existingEnvelope.workflowName,
-                workflowVersion: existingEnvelope.workflowVersion,
-                toolName: existingEnvelope.toolName,
-                toolVersion: existingEnvelope.toolVersion,
-                githubReleaseVersion: existingEnvelope.githubReleaseVersion,
-                tool: existingEnvelope.tool,
-                argv: existingEnvelope.argv,
-                durableReplayArgv: existingEnvelope.durableReplayArgv,
-                reproducibleCommand: existingEnvelope.reproducibleCommand,
-                options: updatedOptions,
-                runtimeIdentity: existingEnvelope.runtimeIdentity,
-                files: deduplicatedPreferringLast(existingEnvelope.files + inputs + [output]),
-                output: existingEnvelope.output.map {
+            let updatedEnvelope = existingEnvelope.with { copy in
+                copy.options = updatedOptions
+                copy.files = deduplicatedPreferringLast(existingEnvelope.files + inputs + [output])
+                copy.output = existingEnvelope.output.map {
                     $0.path == journalURL.path && $0.role == .output ? output : $0
-                } ?? output,
-                outputs: deduplicatedPreferringLast(existingEnvelope.outputs + [output]),
-                steps: existingEnvelope.steps + [step],
-                wallTimeSeconds: (existingEnvelope.wallTimeSeconds ?? 0) + (step.wallTimeSeconds ?? 0),
-                exitStatus: 0,
-                stderr: existingEnvelope.stderr,
-                signatures: [],
-                legacyWorkflowRun: nil
-            )
+                } ?? output
+                copy.outputs = deduplicatedPreferringLast(existingEnvelope.outputs + [output])
+                copy.steps = existingEnvelope.steps + [step]
+                copy.wallTimeSeconds = (existingEnvelope.wallTimeSeconds ?? 0) + (step.wallTimeSeconds ?? 0)
+                copy.exitStatus = 0
+            }
             _ = try writeProvenance(updatedEnvelope, bundleURL, tracker.observe)
         } catch {
             let preserved = try snapshot.restore(ifCurrentMatches: tracker.currentWitness)

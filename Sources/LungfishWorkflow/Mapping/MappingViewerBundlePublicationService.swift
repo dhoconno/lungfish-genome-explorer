@@ -907,31 +907,13 @@ public enum MappingViewerBundlePublicationService {
                 "viewerBundle": .file(viewerBundleURL),
             ]) { _, finalValue in finalValue }
         )
-        let updatedEnvelope = ProvenanceEnvelope(
-            schemaVersion: envelope.schemaVersion,
-            id: envelope.id,
-            createdAt: envelope.createdAt,
-            workflowName: envelope.workflowName,
-            workflowVersion: envelope.workflowVersion,
-            toolName: envelope.toolName,
-            toolVersion: envelope.toolVersion,
-            githubReleaseVersion: envelope.githubReleaseVersion,
-            tool: envelope.tool,
-            argv: envelope.argv,
-            durableReplayArgv: envelope.durableReplayArgv,
-            reproducibleCommand: envelope.reproducibleCommand,
-            options: updatedOptions,
-            runtimeIdentity: envelope.runtimeIdentity,
-            files: deduplicated(refreshedFiles + inputs + publicationOutputs),
-            output: refreshedPrimaryOutput,
-            outputs: deduplicated(refreshedOutputs + publicationOutputs),
-            steps: refreshedSteps + [publicationStep],
-            wallTimeSeconds: envelope.wallTimeSeconds,
-            exitStatus: envelope.exitStatus,
-            stderr: envelope.stderr,
-            signatures: [],
-            legacyWorkflowRun: nil
-        )
+        let updatedEnvelope = envelope.with {
+            $0.options = updatedOptions
+            $0.files = deduplicated(refreshedFiles + inputs + publicationOutputs)
+            $0.output = refreshedPrimaryOutput
+            $0.outputs = deduplicated(refreshedOutputs + publicationOutputs)
+            $0.steps = refreshedSteps + [publicationStep]
+        }
 
         try writer.write(updatedEnvelope, to: resultDirectoryURL)
     }
@@ -1390,35 +1372,20 @@ public enum MappingViewerBundlePublicationService {
                 copy.outputs = try step.outputs.map(remapDescriptor)
             }
         }
-        return ProvenanceEnvelope(
-            schemaVersion: envelope.schemaVersion,
-            id: envelope.id,
-            createdAt: envelope.createdAt,
-            workflowName: envelope.workflowName,
-            workflowVersion: envelope.workflowVersion,
-            toolName: envelope.toolName,
-            toolVersion: envelope.toolVersion,
-            githubReleaseVersion: envelope.githubReleaseVersion,
-            tool: envelope.tool,
-            argv: argv,
-            durableReplayArgv: envelope.durableReplayArgv?.map(remapString),
-            reproducibleCommand: argv.map(shellQuote).joined(separator: " "),
-            options: ProvenanceOptions(
+        return try envelope.with {
+            $0.argv = argv
+            $0.durableReplayArgv = envelope.durableReplayArgv?.map(remapString)
+            $0.reproducibleCommand = argv.map(shellQuote).joined(separator: " ")
+            $0.options = ProvenanceOptions(
                 explicit: remapOptions(envelope.options.explicit),
                 defaults: remapOptions(envelope.options.defaults),
                 resolvedDefaults: remapOptions(envelope.options.resolvedDefaults)
-            ),
-            runtimeIdentity: envelope.runtimeIdentity,
-            files: try envelope.files.map(remapDescriptor),
-            output: try envelope.output.map(remapDescriptor),
-            outputs: try envelope.outputs.map(remapDescriptor),
-            steps: steps,
-            wallTimeSeconds: envelope.wallTimeSeconds,
-            exitStatus: envelope.exitStatus,
-            stderr: envelope.stderr,
-            signatures: [],
-            legacyWorkflowRun: nil
-        )
+            )
+            $0.files = try envelope.files.map(remapDescriptor)
+            $0.output = try envelope.output.map(remapDescriptor)
+            $0.outputs = try envelope.outputs.map(remapDescriptor)
+            $0.steps = steps
+        }
     }
 
     private static func remappedParameterValue(

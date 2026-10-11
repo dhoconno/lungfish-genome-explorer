@@ -768,29 +768,12 @@ struct MarkdupCommand: AsyncParsableCommand {
                 copy.peakMemoryBytes = nil
             }
         }
-        return ProvenanceEnvelope(
-            schemaVersion: envelope.schemaVersion,
-            id: envelope.id,
-            createdAt: envelope.createdAt,
-            workflowName: envelope.workflowName,
-            workflowVersion: envelope.workflowVersion,
-            toolName: envelope.toolName,
-            toolVersion: envelope.toolVersion,
-            tool: envelope.tool,
-            argv: envelope.argv,
-            reproducibleCommand: envelope.reproducibleCommand,
-            options: envelope.options,
-            runtimeIdentity: envelope.runtimeIdentity,
-            files: files,
-            output: selectedOutputs.first,
-            outputs: selectedOutputs,
-            steps: steps,
-            wallTimeSeconds: envelope.wallTimeSeconds,
-            exitStatus: envelope.exitStatus,
-            stderr: envelope.stderr,
-            signatures: [],
-            legacyWorkflowRun: nil
-        )
+        return envelope.with {
+            $0.files = files
+            $0.output = selectedOutputs.first
+            $0.outputs = selectedOutputs
+            $0.steps = steps
+        }
     }
 
     private static func provenanceSteps(

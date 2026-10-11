@@ -588,29 +588,10 @@ public final class ReferenceBundleAnnotationImportService {
                 rehydrated.outputDescriptor(matchingPath: databaseURL.path),
                 matchingPath: databaseURL.path
             )
-            mergedEnvelope = ProvenanceEnvelope(
-                schemaVersion: preservingDatabaseOutput.schemaVersion,
-                id: preservingDatabaseOutput.id,
-                createdAt: preservingDatabaseOutput.createdAt,
-                workflowName: preservingDatabaseOutput.workflowName,
-                workflowVersion: preservingDatabaseOutput.workflowVersion,
-                toolName: preservingDatabaseOutput.toolName,
-                toolVersion: preservingDatabaseOutput.toolVersion,
-                tool: preservingDatabaseOutput.tool,
-                argv: preservingDatabaseOutput.argv,
-                reproducibleCommand: preservingDatabaseOutput.reproducibleCommand,
-                options: preservingDatabaseOutput.options,
-                runtimeIdentity: preservingDatabaseOutput.runtimeIdentity,
-                files: mergedProvenanceFiles(rehydrated.files, preservingDatabaseOutput.files),
-                output: preservingDatabaseOutput.output,
-                outputs: preservingDatabaseOutput.outputs,
-                steps: rehydrated.steps + preservingDatabaseOutput.steps,
-                wallTimeSeconds: preservingDatabaseOutput.wallTimeSeconds,
-                exitStatus: preservingDatabaseOutput.exitStatus,
-                stderr: preservingDatabaseOutput.stderr,
-                signatures: [],
-                legacyWorkflowRun: nil
-            )
+            mergedEnvelope = preservingDatabaseOutput.with {
+                $0.files = mergedProvenanceFiles(rehydrated.files, preservingDatabaseOutput.files)
+                $0.steps = rehydrated.steps + preservingDatabaseOutput.steps
+            }
         } catch ProvenanceRehydrationError.missingSourceProvenance {
             mergedEnvelope = wrappingEnvelope
         }
@@ -692,39 +673,22 @@ extension ProvenanceEnvelope {
             return replacement
         }
 
-        return ProvenanceEnvelope(
-            schemaVersion: schemaVersion,
-            id: id,
-            createdAt: createdAt,
-            workflowName: workflowName,
-            workflowVersion: workflowVersion,
-            toolName: toolName,
-            toolVersion: toolVersion,
-            tool: tool,
-            argv: argv,
-            reproducibleCommand: reproducibleCommand,
-            options: options,
-            runtimeIdentity: runtimeIdentity,
-            files: files.map(replaced),
-            output: output.map(replaced),
-            outputs: outputs.map(replaced),
-            steps: steps.map { step in
-                step.with { copy in
-                    copy.outputs = step.outputs.map(replaced)
+        return with { copy in
+            copy.files = files.map(replaced)
+            copy.output = output.map(replaced)
+            copy.outputs = outputs.map(replaced)
+            copy.steps = steps.map { step in
+                step.with { stepCopy in
+                    stepCopy.outputs = step.outputs.map(replaced)
                     // This copy never kept these facts, and keeping them comes with 2.7.
-                    copy.githubReleaseVersion = nil
-                    copy.durableReplayArgv = nil
-                    copy.resolvedOptions = [:]
-                    copy.runtimeIdentity = nil
-                    copy.peakMemoryBytes = nil
+                    stepCopy.githubReleaseVersion = nil
+                    stepCopy.durableReplayArgv = nil
+                    stepCopy.resolvedOptions = [:]
+                    stepCopy.runtimeIdentity = nil
+                    stepCopy.peakMemoryBytes = nil
                 }
-            },
-            wallTimeSeconds: wallTimeSeconds,
-            exitStatus: exitStatus,
-            stderr: stderr,
-            signatures: [],
-            legacyWorkflowRun: nil
-        )
+            }
+        }
     }
 }
 

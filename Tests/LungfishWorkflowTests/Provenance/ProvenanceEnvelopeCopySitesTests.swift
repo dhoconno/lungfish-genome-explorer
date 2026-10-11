@@ -2,17 +2,16 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.7 lane S4a, scope row B3, plan decisions P5 and E13. Twelve sites copy a recorded envelope
-// field by field. A site that names every field drops each field it forgets, and three facts were
-// forgotten: the status, which a copy derived from the exit status cannot tell cancelled from
-// completed, and a pre-2.4 record's `readSetPlan`, which sat only in the nested run that the encoder
-// never writes, and the release version and durable replay command that some sites left out.
+// Phase 2.7 lane S4a, scope row B3, plan decisions P5 and E13. Twelve sites copied a recorded envelope
+// field by field. A site that names every field drops each field it forgets. Three facts were forgotten.
+// They are the status, which a copy derived from the exit status cannot tell cancelled from completed,
+// a pre-2.4 record's `readSetPlan`, which sat only in the nested run that the encoder never writes, and
+// the release version and durable replay command that some sites left out. The sites call
+// `ProvenanceEnvelope.with` now, and these tests keep them honest.
 //
 // Each test sends the three sources of `EnvelopeCopySources` through a site and checks what the copy
-// holds. `EnvelopeCopySources.knownDefects` lists the pairs that fail at the base commit. They are expected failures, so the
-// commit that moves a site onto `ProvenanceEnvelope.with` removes its pairs and the pin flips to a plain
-// expectation. The facts of every copy go to the folder named by `LUNGFISH_COPY_PIN_FACTS_DIR`, when set,
-// so the facts at the base and after the change can be compared.
+// holds. The facts of every copy go to the folder named by `LUNGFISH_COPY_PIN_FACTS_DIR`, when set, so
+// the facts of two builds can be compared.
 //
 // This file covers the Workflow sites that a test reaches without a window or a tool. The App sites are
 // in `ProvenanceEnvelopeCopySitesAppTests` and the markdup site is in `MarkdupEnvelopeCopyTests`.
@@ -95,6 +94,10 @@ final class ProvenanceEnvelopeCopySitesTests: XCTestCase {
                 site: "ProvenanceExporter:268", kind: kind, copy: merged,
                 keeping: receiver
             )
+            CopySources.assertCarried(
+                merged, from: receiver, except: CopySources.changedByTheHelper(kind).union(["createdAt", "files", "steps"]),
+                site: "ProvenanceExporter:268"
+            )
             XCTAssertEqual(merged.id, receiver.id, "the merged record is the exported run")
             XCTAssertEqual(merged.steps.count, 4, "the merge holds the steps of both runs")
         }
@@ -115,9 +118,8 @@ final class ProvenanceEnvelopeCopySitesTests: XCTestCase {
             )
             let base = try CopySources.baseEnvelope(workflowName: "source fastq import", output: reads)
             try ProvenanceWriter(signingProvider: nil).write(base, to: sourceBundle)
-            try CopySources.rewriteSidecar(
-                at: sourceBundle.appendingPathComponent(ProvenanceWriter.provenanceFilename), as: kind
-            )
+            // The copy reads the record of the one output it copies, which a bundle also holds.
+            try CopySources.rewriteEveryRecord(under: sourceBundle, as: kind)
             let destination = project.root.appendingPathComponent("Imports/copied.lungfishfastq", isDirectory: true)
 
             _ = try FASTQBundleCopyImportWorkflow().importBundle(
@@ -204,6 +206,10 @@ final class ProvenanceEnvelopeCopySitesTests: XCTestCase {
             CopySources.assertFaithfulCopy(
                 site: "ReferenceBundleAnnotationImportService:695", kind: kind, copy: copy,
                 keeping: receiver
+            )
+            CopySources.assertCarried(
+                copy, from: receiver, except: CopySources.changedByTheHelper(kind).union(["files", "output", "outputs", "steps"]),
+                site: "ReferenceBundleAnnotationImportService:695"
             )
             XCTAssertEqual(copy.output, replacement, "the replacement is the one change")
         }

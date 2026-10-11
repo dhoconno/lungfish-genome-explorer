@@ -300,31 +300,15 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
         sourceEnvelope: ProvenanceEnvelope,
         copyEnvelope: ProvenanceEnvelope
     ) -> ProvenanceEnvelope {
-        ProvenanceEnvelope(
-            schemaVersion: copyEnvelope.schemaVersion,
-            id: copyEnvelope.id,
-            createdAt: copyEnvelope.createdAt,
-            workflowName: copyEnvelope.workflowName,
-            workflowVersion: copyEnvelope.workflowVersion,
-            toolName: copyEnvelope.toolName,
-            toolVersion: copyEnvelope.toolVersion,
-            githubReleaseVersion: copyEnvelope.githubReleaseVersion,
-            tool: copyEnvelope.tool,
-            argv: copyEnvelope.argv,
-            durableReplayArgv: copyEnvelope.durableReplayArgv,
-            reproducibleCommand: copyEnvelope.reproducibleCommand,
-            options: copyEnvelope.options,
-            runtimeIdentity: copyEnvelope.runtimeIdentity,
-            files: deduplicated(sourceEnvelope.files + copyEnvelope.files),
-            output: copyEnvelope.output,
-            outputs: copyEnvelope.outputs,
-            steps: sourceEnvelope.steps + copyEnvelope.steps,
-            wallTimeSeconds: copyEnvelope.wallTimeSeconds,
-            exitStatus: copyEnvelope.exitStatus,
-            stderr: copyEnvelope.stderr,
-            signatures: [],
-            legacyWorkflowRun: nil
-        )
+        copyEnvelope.with {
+            $0.files = deduplicated(sourceEnvelope.files + copyEnvelope.files)
+            $0.steps = sourceEnvelope.steps + copyEnvelope.steps
+            // The copy step succeeded, but a bundle copied from a cancelled or failed run is still that
+            // run's partial result, so the copy keeps the status of the run it copies.
+            if sourceEnvelope.status == .cancelled || sourceEnvelope.status == .failed {
+                $0.status = sourceEnvelope.status
+            }
+        }
     }
 
     private func resolvedDestinationBundleURL(outputURL: URL, sourceBundleURL: URL) -> URL {
@@ -477,31 +461,12 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
         _ envelope: ProvenanceEnvelope,
         pathMap: [String: String]
     ) -> ProvenanceEnvelope {
-        ProvenanceEnvelope(
-            schemaVersion: envelope.schemaVersion,
-            id: envelope.id,
-            createdAt: envelope.createdAt,
-            workflowName: envelope.workflowName,
-            workflowVersion: envelope.workflowVersion,
-            toolName: envelope.toolName,
-            toolVersion: envelope.toolVersion,
-            githubReleaseVersion: envelope.githubReleaseVersion,
-            tool: envelope.tool,
-            argv: envelope.argv,
-            durableReplayArgv: envelope.durableReplayArgv,
-            reproducibleCommand: envelope.reproducibleCommand,
-            options: envelope.options,
-            runtimeIdentity: envelope.runtimeIdentity,
-            files: envelope.files.map { rewriteDescriptor($0, pathMap: pathMap) },
-            output: envelope.output.map { rewriteDescriptor($0, pathMap: pathMap) },
-            outputs: envelope.outputs.map { rewriteDescriptor($0, pathMap: pathMap) },
-            steps: envelope.steps.map { rewriteStep($0, pathMap: pathMap) },
-            wallTimeSeconds: envelope.wallTimeSeconds,
-            exitStatus: envelope.exitStatus,
-            stderr: envelope.stderr,
-            signatures: [],
-            legacyWorkflowRun: nil
-        )
+        envelope.with { copy in
+            copy.files = envelope.files.map { rewriteDescriptor($0, pathMap: pathMap) }
+            copy.output = envelope.output.map { rewriteDescriptor($0, pathMap: pathMap) }
+            copy.outputs = envelope.outputs.map { rewriteDescriptor($0, pathMap: pathMap) }
+            copy.steps = envelope.steps.map { rewriteStep($0, pathMap: pathMap) }
+        }
     }
 
     private func rewriteStep(_ step: ProvenanceStep, pathMap: [String: String]) -> ProvenanceStep {

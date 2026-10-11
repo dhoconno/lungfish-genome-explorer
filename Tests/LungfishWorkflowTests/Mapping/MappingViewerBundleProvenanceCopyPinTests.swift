@@ -6,8 +6,7 @@
 // result's canonical record, refreshes its descriptors and appends the publication step
 // (`rewriteCanonicalProvenance`, line 910). The fixture is the finalizer tests', so this extension sits
 // beside them and reuses it. The pin sends each of the three sources of `EnvelopeCopySources` through
-// the publication and checks what the rewritten record holds. The known defects of the base commit
-// live in `EnvelopeCopySources.knownDefects`.
+// the publication and checks what the rewritten record holds.
 
 import XCTest
 import LungfishTestSupport

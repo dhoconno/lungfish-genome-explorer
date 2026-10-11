@@ -6,8 +6,7 @@
 // run's record and one focused record beside each output, a copy of the run's envelope that keeps the
 // selected outputs (`MarkdupCommand.markdupEnvelope`, line 771). The copy used to name every field and
 // drop the ones it forgot, among them the status, the release version and the durable replay command.
-// The pin sends the three sources of `EnvelopeCopySources` through it. The known defects of the base
-// commit live in `EnvelopeCopySources.knownDefects`, which all three test targets share.
+// The pin sends the three sources of `EnvelopeCopySources` through it.
 
 import XCTest
 import LungfishTestSupport
@@ -32,6 +31,10 @@ final class MarkdupEnvelopeCopyTests: XCTestCase {
             CopySources.assertFaithfulCopy(
                 site: "MarkdupCommand:771", kind: kind, copy: copy,
                 keeping: source
+            )
+            CopySources.assertCarried(
+                copy, from: source, except: CopySources.changedByTheHelper(kind).union(["files", "output", "outputs", "steps"]),
+                site: "MarkdupCommand:771"
             )
             XCTAssertEqual(copy.id, source.id, "the focused record is the same run")
             XCTAssertEqual(copy.outputs, source.outputs)

@@ -2,14 +2,14 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.7 lane S4a. Twelve sites copy a recorded envelope into a new one. A copy that names every
-// field drops each field it forgets, and three facts were being forgotten: the status, because a status
-// derived from the exit status cannot tell a cancelled run from a completed one, and a pre-2.4 record's
-// `readSetPlan`, which sat only in the nested run that the encoder never writes. This file builds the
-// three sources the same way for every site and for every test target.
+// Phase 2.7 lane S4a. Twelve sites copied a recorded envelope into a new one. A copy that names every
+// field drops each field it forgets. Two facts were being forgotten. The first is the status, because a
+// status derived from the exit status cannot tell a cancelled run from a completed one. The second is a
+// pre-2.4 record's `readSetPlan`, which sat only in the nested run that the encoder never writes. This
+// file builds the three sources the same way for every site and for every test target.
 //
 // A source is made from a base envelope the site's own fixture builds, by editing the record's JSON,
-// so it works before `ProvenanceEnvelope.with` exists and does not depend on how the base was built.
+// so it does not depend on how the base was built or on the helper that the pins check.
 
 import Foundation
 import LungfishWorkflow
@@ -48,8 +48,9 @@ public enum EnvelopeCopySources {
         "singleReadReason": .string("orphan reads run as single reads"),
     ])
 
-    /// Another run parameter that only the nested run holds, to show the merge carries more than the plan.
-    public static let nestedOnlyThreads: ParameterValue = .integer(4)
+    /// Another run parameter that only the nested run holds, under a key no site sets, to show the merge
+    /// carries more than the plan.
+    public static let nestedOnlyParameter: ParameterValue = .string("only in the nested run")
 
     public enum SourceError: Error {
         case notAJSONObject
@@ -70,7 +71,7 @@ public enum EnvelopeCopySources {
             var nested = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: bytes)
                 .legacyWorkflowRun(preferCanonicalSteps: true)
             nested.status = .completed
-            nested.parameters = ["readSetPlan": readSetPlan, "threads": nestedOnlyThreads]
+            nested.parameters = ["readSetPlan": readSetPlan, "copyPinNestedOnly": nestedOnlyParameter]
             let nestedBytes = try ProvenanceJSON.encoder.encode(nested)
             object["legacyWorkflowRun"] = try JSONSerialization.jsonObject(with: nestedBytes)
         }
@@ -83,6 +84,19 @@ public enum EnvelopeCopySources {
     /// Rewrites a sidecar a writer just wrote so that it is a record of `kind`.
     public static func rewriteSidecar(at url: URL, as kind: Kind) throws {
         try recordBytes(kind, from: Data(contentsOf: url)).write(to: url, options: .atomic)
+    }
+
+    /// Rewrites every envelope record below `folder`. A bundle writer also writes a record per output,
+    /// and a reader that looks for the record of one output reads that file and not the root.
+    public static func rewriteEveryRecord(under folder: URL, as kind: Kind) throws {
+        guard let enumerator = FileManager.default.enumerator(
+            at: folder, includingPropertiesForKeys: [.isRegularFileKey]
+        ) else { return }
+        for case let url as URL in enumerator where url.pathExtension == "json" {
+            guard let object = try? JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any],
+                  object["workflowName"] != nil, object["steps"] != nil else { continue }
+            try rewriteSidecar(at: url, as: kind)
+        }
     }
 
     /// An envelope as a record of `kind` would decode, for sites that take an envelope in memory.
@@ -221,7 +235,7 @@ extension EnvelopeCopySources {
             if copy.options.resolvedDefaults["readSetPlan"] != readSetPlan {
                 problems.append("options.resolvedDefaults lost the readSetPlan of the nested run")
             }
-            if copy.options.resolvedDefaults["threads"] != nestedOnlyThreads {
+            if copy.options.resolvedDefaults["copyPinNestedOnly"] != nestedOnlyParameter {
                 problems.append("options.resolvedDefaults lost the other parameter of the nested run")
             }
             if copy.options.explicit["readSetPlan"] != nil {
@@ -231,31 +245,45 @@ extension EnvelopeCopySources {
         return problems
     }
 
-    /// Pairs written `site/kind` whose copy drops what the source recorded. The pins list them before the
-    /// fix as expected failures, and the commit that moves a site onto `ProvenanceEnvelope.with` removes
-    /// its pairs, which flips each to a plain expectation. One table serves all three test targets.
-    public static let knownDefects: Set<String> = {
-        // Sites that drop the status, the plan and the release version for all three sources.
-        let allThree = [
-            "FASTQIngestionService:706",
-            "FASTQIngestionService:922",
-            "SampleMetadataBundleImportService:363",
-            "MarkdupCommand:771",
-            "MappingViewerBundlePublicationService:910",
-            "MappingViewerBundlePublicationService:1393",
-            "ReferenceBundleAnnotationImportService:695",
-            "ReferenceBundleImportProvenanceRehydrator:107",
-            "ProvenanceExporter:268",
-        ]
-        var pairs = Set(allThree.flatMap { site in Kind.allCases.map { "\(site)/\($0.rawValue)" } })
-        // The copy import takes the copy run's options, so only the status of a bundle it copies is at stake.
-        pairs.insert("FASTQBundleCopyImportWorkflow:303,480/\(Kind.cancelled.rawValue)")
-        pairs.insert("FASTQBundleCopyImportWorkflow:303,480/\(Kind.failedLastStepExitedZero.rawValue)")
-        return pairs
-    }()
+    /// The properties `ProvenanceEnvelope.with` changes on its own for a source of `kind`, which are the
+    /// signatures, the nested run and, when the run holds parameters the options lack, the options.
+    public static func changedByTheHelper(_ kind: Kind) -> Set<String> {
+        var changed: Set<String> = ["signatures", "legacyRun"]
+        if kind == .preTwoFourNestedPlan { changed.insert("options") }
+        return changed
+    }
 
-    /// Asserts the copy is faithful. A pair in `knownDefects` is a defect the lane pins before the fix,
-    /// so its assertion is an expected failure that flips when the site is fixed.
+    /// Asserts that every stored property of `copy` that the site does not change is the source's, by
+    /// reflection, so a field added to the envelope later is checked without another edit.
+    public static func assertCarried(
+        _ copy: ProvenanceEnvelope,
+        from source: ProvenanceEnvelope,
+        except changed: Set<String>,
+        site: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        func texts(of value: Any) -> [(label: String, text: String)] {
+            Mirror(reflecting: value).children.compactMap { child in
+                child.label.map { ($0, "\(child.value)") }
+            }
+        }
+        let before = Dictionary(uniqueKeysWithValues: texts(of: source).map { ($0.label, $0.text) })
+        let after = texts(of: copy)
+        for property in after where !changed.contains(property.label) {
+            XCTAssertEqual(
+                property.text, before[property.label], "\(site) changed or dropped \(property.label)",
+                file: file, line: line
+            )
+        }
+        XCTAssertEqual(Set(after.map(\.label)), Set(before.keys), "\(site) returned another type", file: file, line: line)
+        XCTAssertTrue(
+            changed.isSubset(of: Set(before.keys)),
+            "\(site) names a property the envelope does not have", file: file, line: line
+        )
+    }
+
+    /// Asserts the copy is faithful.
     public static func assertFaithfulCopy(
         site: String,
         kind: Kind,
@@ -275,13 +303,6 @@ extension EnvelopeCopySources {
             keeping: source,
             keepsDurableReplayArgv: keepsDurableReplayArgv
         )
-        let message = "\(site) copied a \(kind.rawValue) source unfaithfully"
-        if knownDefects.contains("\(site)/\(kind.rawValue)") {
-            XCTExpectFailure("Defect B3, \(site): the copy drops what the source recorded") {
-                XCTAssertEqual(found, [], message, file: file, line: line)
-            }
-        } else {
-            XCTAssertEqual(found, [], message, file: file, line: line)
-        }
+        XCTAssertEqual(found, [], "\(site) copied a \(kind.rawValue) source unfaithfully", file: file, line: line)
     }
 }

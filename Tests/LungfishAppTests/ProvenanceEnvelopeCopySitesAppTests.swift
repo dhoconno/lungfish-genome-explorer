@@ -6,8 +6,7 @@
 // `ProvenanceEnvelopeCopySitesTests`, and this file pins the three that sit in LungfishApp, the sample
 // sheet metadata append (`FASTQIngestionService.swift:706`), the in-place ingestion merge (`:922`) and
 // the sample metadata edit (`SampleMetadataBundleImportService.swift:363`). Each test sends the three
-// sources of `EnvelopeCopySources` through the site and checks what the copy holds. The known defects
-// of the base commit live in `EnvelopeCopySources.knownDefects`, so one table flips.
+// sources of `EnvelopeCopySources` through the site and checks what the copy holds.
 
 import XCTest
 import LungfishCore

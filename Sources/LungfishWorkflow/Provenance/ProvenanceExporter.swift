@@ -265,30 +265,11 @@ public struct ProvenanceExporter: Sendable {
                 : envelope.steps
         })
 
-        return ProvenanceEnvelope(
-            schemaVersion: fallback.schemaVersion,
-            id: fallback.id,
-            createdAt: envelopes.first?.createdAt ?? fallback.createdAt,
-            workflowName: fallback.workflowName,
-            workflowVersion: fallback.workflowVersion,
-            toolName: fallback.toolName,
-            toolVersion: fallback.toolVersion,
-            tool: fallback.tool,
-            argv: fallback.argv,
-            durableReplayArgv: fallback.durableReplayArgv,
-            reproducibleCommand: fallback.reproducibleCommand,
-            options: fallback.options,
-            runtimeIdentity: fallback.runtimeIdentity,
-            files: mergedFiles,
-            output: fallback.output,
-            outputs: fallback.outputs,
-            steps: mergedSteps,
-            wallTimeSeconds: fallback.wallTimeSeconds,
-            exitStatus: fallback.exitStatus,
-            stderr: fallback.stderr,
-            signatures: [],
-            legacyWorkflowRun: nil
-        )
+        return fallback.with {
+            $0.createdAt = envelopes.first?.createdAt ?? fallback.createdAt
+            $0.files = mergedFiles
+            $0.steps = mergedSteps
+        }
     }
 
     private func uniqueFileDescriptors(_ descriptors: [ProvenanceFileDescriptor]) -> [ProvenanceFileDescriptor] {
