@@ -4,7 +4,7 @@ This contract says what a provenance record is in Lungfish Genome Explorer (LGE)
 
 ## What a record is
 
-A record is one `ProvenanceEnvelope` (`Sources/LungfishWorkflow/Provenance/ProvenanceEnvelope.swift`). One encoder, `ProvenanceEnvelope.encode(to:)`, turns it into JSON. One writer, `ProvenanceWriter` (`Sources/LungfishWorkflow/Provenance/ProvenanceWriter.swift`), rewrites its paths for the project, signs it when a provider is set and publishes it, so an envelope encoded anywhere else skips all three. `ProvenanceRunBuilder` assembles a record, `ProvenanceEnvelopeReader` reads one, and the `ProvenanceRecorder` actor gathers the steps of a multi-step pipeline until sub-phase 2.7.
+A record is one `ProvenanceEnvelope` (`Sources/LungfishWorkflow/Provenance/ProvenanceEnvelope.swift`). One encoder, `ProvenanceEnvelope.encode(to:)`, turns it into JSON. One writer, `ProvenanceWriter` (`Sources/LungfishWorkflow/Provenance/ProvenanceWriter.swift`), rewrites its paths for the project, signs it when a provider is set and publishes it, so an envelope encoded anywhere else skips all three. `ProvenanceRunBuilder` assembles a record, `ProvenanceEnvelopeReader` reads one, and the `ProvenanceRecorder` actor gathers the steps of a multi-step pipeline until sub-phase 2.7. A rewrite, a signed write and an observed write publish through `DurableReplace`, as `docs/contracts/EXTERNAL-VOLUMES.md` describes.
 
 ## Rules
 
@@ -113,7 +113,6 @@ Sub-phase 2.7 builds the hook, with the recorder rebuilt on `ProvenanceRunBuilde
 
 | Work | Where it goes |
 |---|---|
-| Writer durability. A rewrite moves the old sidecar aside before the new one moves in, so a crash between the two leaves none. The fix is a rewrite through `PortableRename.swap`, a record-of-truth fsync policy and directory sync through the anchored walk only | The first task of the session after 2.4 |
 | The hook above, termination detail per step, the recorder rebuilt on `ProvenanceRunBuilder` with bounded retention, and one envelope copy helper that keeps `status` for the rehydrators | 2.7 |
 | A digest cache under the key rule above, and hashing off the main actor in GUI exports | 2.7 for the cache, 2.9 for the GUI sites |
 | The CLI `conda classify` record carrying `readSetPlan` and status, and one record for GUI and CLI Kraken2 | 2.7 |

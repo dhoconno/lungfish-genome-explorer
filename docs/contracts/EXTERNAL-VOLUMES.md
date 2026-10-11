@@ -25,7 +25,7 @@ The owner set this rule on 2026-10-07 after Preview 2026.10.9 finished a Viral R
 
 The URL calls throw `POSIXError` and return a `PortableRename.Mechanism`, which a caller records when its provenance names how it published.
 
-A swap on ExFAT is not atomic. Three renames take its place, and a failed step undoes the earlier ones. A crash between the first two leaves the replaced entry under `.<name>.lungfish-swap-<UUID>`. The next swap of the same entry puts it back first, and so does opening the project, through `PortableRename.recoverInterruptedSwaps`. A tombstone beside an entry that exists holds a retired generation and is never deleted automatically.
+A swap on ExFAT is not atomic. Three renames take its place, and a failed step undoes the earlier ones. A crash between the first two leaves the replaced entry under `.<name>.lungfish-swap-<UUID>`. The next swap of the same entry puts it back first when the entry is missing. Opening the project runs `PortableRename.recoverInterruptedSwaps`, and there an entry that is missing, or holds only the empty file an interrupted rename reserved it with, takes its newest tombstone that holds bytes. A read runs no recovery. Any other tombstone beside an entry that exists holds a retired generation and is never deleted automatically.
 
 ## Replacing a file durably
 
@@ -41,11 +41,11 @@ A record that a later run rewrites, such as a provenance record, goes through `D
 
 `DurableReplace.transaction` groups many publications under one flush, so a bundle that writes 101 records flushes the drive once. `ProvenanceWriter` writes rewrites, signed writes and observed writes this way. A first write that replaces nothing keeps `DurableAtomicFileStore.create`, which never replaces a file, and joins the same flush.
 
-Before it stages, a publication restores a name that holds nothing from its newest leftover that holds bytes. A leftover is a `.lungfish-swap-` tombstone or an aside the caller names, such as the `.<name>.provenance-displaced-<UUID>` copy that earlier releases left when a rewrite stopped halfway. An empty file under the name beside such a leftover is the reservation of a rename that never ran, and it gives way to the leftover. A caller whose observer saw the name empty passes `Recovery.none`, so the observer's receipt still holds. `DurableReplace.recover` runs the same restore on its own.
+Before it stages, a publication restores a name that holds nothing from its newest leftover that holds bytes. A leftover is a `.lungfish-swap-` tombstone or an aside the caller names, such as the `.<name>.provenance-displaced-<UUID>` copy that earlier releases left when a rewrite stopped halfway. An empty file under the name beside such a leftover is the reservation of a rename that never ran, and it gives way to the leftover. A caller whose observer saw the name empty passes `Recovery.none`, so the observer's receipt still holds. `DurableReplace.recover` runs the same restore on its own. Inside a project, opening the project restores an entry an empty reservation holds before anything reads it. Outside a project the next write of the record restores it, because a read runs no recovery.
 
 ## Opening a folder without following links
 
-Every durable writer opens its folder with `NoFollowFileSystem.openDirectoryHierarchy` in LungfishCore. Inside a project or bundle the walk starts at the outermost `.lungfish*` folder. It follows links above that folder and refuses a link below it. Outside every project and bundle the folder itself is the anchor, so a conda root under a storage folder that moved to an external drive and was linked back still opens. A folder that is itself a link is refused in both cases.
+Every durable writer opens its folder with `NoFollowFileSystem.openDirectoryHierarchy` in LungfishCore. Inside a project or bundle the walk starts at the outermost `.lungfish*` folder. It follows links above that folder and refuses a link below it. Outside every project and bundle the folder itself is the anchor, so a conda root under a storage folder that moved to an external drive and was linked back still opens. A folder that is itself a link is refused in both cases, except `/tmp` and `/var`, the links macOS installs, which open through `/private`. A folder outside every project opens by its full path, so a link above it may lead into a project and through that project's links above the folder. The threat model accepts links above an anchor, and no LGE writer reaches a project that way.
 
 ## What differs on ExFAT
 
