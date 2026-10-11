@@ -7,10 +7,13 @@ import Foundation
 /// The route a Kraken2 or EsViritu launch from the FASTQ operations dialog takes (Phase 2.7,
 /// panel decision E10).
 enum ClassifierLaunchRoute: String, Sendable, Equatable, CaseIterable {
-    /// Today's route. The app runs the pipeline in process (AppDelegate+Classification.swift).
+    /// The route before Phase 2.7. The app runs the pipeline in process
+    /// (AppDelegate+Classification.swift). A key that names it keeps a launch there until the
+    /// route goes in 2.9 (E14).
     case legacy
-    /// The app runs `lungfish-cli kraken2 classify` or `esviritu detect` with `--project` and shows
-    /// the command's events in the row (AppDelegate+ClassificationCLIRoute.swift).
+    /// The default since lane F3 (E10). The app runs `lungfish-cli kraken2 classify` or
+    /// `esviritu detect` with `--project` and shows the command's events in the row
+    /// (AppDelegate+ClassificationCLIRoute.swift).
     case cli
 }
 
@@ -44,9 +47,10 @@ enum ClassifierLaunchPath: String, Sendable, Equatable, CaseIterable {
 /// Reads the route of each classifier launch from the defaults it is given, so a test passes its
 /// own suite and never touches the user's defaults.
 struct ClassifierLaunchRouteSettings {
-    /// The route of a launch whose key is unset or holds a value this reader does not know. It
-    /// stays on today's route until parity side C is green, and lane F3 flips it in one commit.
-    static let defaultRoute: ClassifierLaunchRoute = .legacy
+    /// The route of a launch whose key is unset or holds a value this reader does not know. Lane
+    /// F3 moved it to the CLI route once parity side C was green, C against C' listed nothing and
+    /// every case passed with real tools (E10, ClassifierCLIGUIParityReplayTests).
+    static let defaultRoute: ClassifierLaunchRoute = .cli
 
     let defaults: UserDefaults
 

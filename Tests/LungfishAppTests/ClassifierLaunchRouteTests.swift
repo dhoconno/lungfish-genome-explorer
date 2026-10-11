@@ -51,29 +51,29 @@ final class ClassifierLaunchRouteTests: XCTestCase {
         XCTAssertEqual(ClassifierLaunchPath.esViritu(sampleCount: 3), .esVirituBatch)
     }
 
-    func testEveryLaunchStaysOnTodaysRouteUntilParitySideCIsGreen() {
-        XCTAssertEqual(ClassifierLaunchRouteSettings.defaultRoute, .legacy, "lane F3 flips the default after parity side C")
+    func testEveryLaunchTakesTheCLIRouteSinceParitySideCIsGreen() {
+        XCTAssertEqual(ClassifierLaunchRouteSettings.defaultRoute, .cli, "lane F3 flipped the default after parity side C (E10)")
         let routes = ClassifierLaunchRouteSettings(defaults: defaults)
         for path in ClassifierLaunchPath.allCases {
-            XCTAssertEqual(routes.route(for: path), .legacy, path.rawValue)
+            XCTAssertEqual(routes.route(for: path), .cli, path.rawValue)
         }
     }
 
     func testAKeyMovesOnlyItsOwnLaunch() {
-        defaults.set("cli", forKey: ClassifierLaunchPath.kraken2Batch.defaultsKey)
-        defaults.set(true, forKey: ClassifierLaunchPath.esVirituSingle.defaultsKey)
+        defaults.set("legacy", forKey: ClassifierLaunchPath.kraken2Batch.defaultsKey)
+        defaults.set(false, forKey: ClassifierLaunchPath.esVirituSingle.defaultsKey)
         defaults.set("someday", forKey: ClassifierLaunchPath.esVirituBatch.defaultsKey)
         let routes = ClassifierLaunchRouteSettings(defaults: defaults)
 
-        XCTAssertEqual(routes.route(for: .kraken2Single), .legacy)
-        XCTAssertEqual(routes.route(for: .kraken2Batch), .cli)
-        XCTAssertEqual(routes.route(for: .esVirituSingle), .cli, "a Boolean true asks for the CLI route")
-        XCTAssertEqual(routes.route(for: .esVirituBatch), .legacy, "a value this reader does not know keeps the default")
-
-        defaults.set(false, forKey: ClassifierLaunchPath.esVirituSingle.defaultsKey)
-        defaults.set("LEGACY", forKey: ClassifierLaunchPath.kraken2Batch.defaultsKey)
-        XCTAssertEqual(routes.route(for: .esVirituSingle), .legacy)
+        XCTAssertEqual(routes.route(for: .kraken2Single), .cli)
         XCTAssertEqual(routes.route(for: .kraken2Batch), .legacy)
+        XCTAssertEqual(routes.route(for: .esVirituSingle), .legacy, "a Boolean false asks for the legacy route")
+        XCTAssertEqual(routes.route(for: .esVirituBatch), .cli, "a value this reader does not know keeps the default")
+
+        defaults.set(true, forKey: ClassifierLaunchPath.esVirituSingle.defaultsKey)
+        defaults.set("CLI", forKey: ClassifierLaunchPath.kraken2Batch.defaultsKey)
+        XCTAssertEqual(routes.route(for: .esVirituSingle), .cli)
+        XCTAssertEqual(routes.route(for: .kraken2Batch), .cli)
     }
 
     func testTheCLIRouteNeedsAnOpenProject() {
@@ -93,7 +93,8 @@ final class ClassifierLaunchRouteTests: XCTestCase {
             )
         }
         let unset = ClassifierLaunchRouteSettings(defaults: UserDefaults(suiteName: "\(suiteName!)-unset")!)
-        XCTAssertEqual(delegate.classifierLaunchRoute(for: .kraken2Single, routeContext: project, routes: unset), .legacy)
+        XCTAssertEqual(delegate.classifierLaunchRoute(for: .kraken2Single, routeContext: project, routes: unset), .cli)
+        XCTAssertEqual(delegate.classifierLaunchRoute(for: .kraken2Single, routeContext: noProject, routes: unset), .legacy)
     }
 
     // MARK: - Kraken2 argv
