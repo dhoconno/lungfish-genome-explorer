@@ -81,11 +81,14 @@ struct CLIClassifierRunner {
         transport.cancel()
     }
 
-    /// Runs `request` for the row `operationID` and returns how it completed.
+    /// Runs `request` for the row `operationID` and returns how it completed. It runs on the
+    /// concurrent executor by declaration, so the read-back of the result stays off the main
+    /// actor whatever isolation the caller has.
     ///
     /// - Parameter showProgress: The viewer's progress overlay, called on the main actor with
     ///   every line the row shows.
     /// - Throws: `CancellationError` when the run was cancelled, else ``CLIClassifierFailure``.
+    @concurrent
     func run(
         _ request: CLIClassifierRunRequest,
         operationID: UUID,
