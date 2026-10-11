@@ -1,6 +1,6 @@
 # Developer ID certificate
 
-Lungfish Genome Explorer (LGE) releases are signed with a Developer ID Application certificate. Apple's original Developer ID Certification Authority, the G1 Sub-CA, expires on 2027-02-01 at 22:12:15 UTC, and every certificate it issued stops working then. Releases that are already notarized and carry a secure timestamp keep opening. New releases need a certificate from the Developer ID Certification Authority (G2), which Apple keeps valid to 2031. Apple's notice says each G2 certificate expires one year after it is issued, so it is renewed every year.
+Lungfish Genome Explorer (LGE) releases are signed with a Developer ID Application certificate. Apple's original Developer ID Certification Authority, the G1 Sub-CA, expires on 2027-02-01 at 22:12:15 UTC, and every certificate it issued stops working then. Releases that are already notarized and carry a secure timestamp keep opening. New releases need a certificate from the Developer ID Certification Authority (G2), which is valid to 2031-09-17. Apple's notice says each G2 certificate expires one year after it is issued, but the first one, created on 2026-10-11, is valid to 2031-09-17, the end date of the G2 Sub-CA itself. Go by the expiry date that `developer_id.py show` and the doctor print.
 
 ## What a release signs
 
@@ -48,7 +48,7 @@ The Account Holder runs these steps at the Mac Studio, which is the release Mac,
 
 ### Switch releases to it
 
-1. Select it. Run `python3 scripts/release/release.py configure-machine --replace --signing-identity "<identity name>" --team-id <Team ID> --notary-profile <notary profile> --certificate-sha1 <new SHA-1>` with the identity name, Team ID and notary profile that the current profile holds. Add `--signing-keychain` or `--notary-keychain` when the current profile names a keychain. To let each yearly renewal take over without a profile change, pass `--certificate-policy newest-g2` instead of `--certificate-sha1`.
+1. Select it. Run `python3 scripts/release/release.py configure-machine --replace --signing-identity "<identity name>" --team-id <Team ID> --notary-profile <notary profile> --certificate-sha1 <new SHA-1>` with the identity name, Team ID and notary profile that the current profile holds. Add `--signing-keychain` or `--notary-keychain` when the current profile names a keychain. To let a renewed certificate take over without a profile change, pass `--certificate-policy newest-g2` instead of `--certificate-sha1`.
 2. Check readiness. `release.py doctor` prints `PASS signing certificate` with the G2 issuer. Then run `release.py setup`, because the setup proof binds the selected SHA-1 and the old proof no longer counts.
 3. Release as usual with `release.py package` and `release.py publish`. Sparkle accepts an update when its signature satisfies the designated requirement of the installed build. That requirement names the team and Apple's Developer ID markers rather than a Sub-CA, and the `requirement` line of `verify` checks the new signature against it.
 
@@ -57,9 +57,9 @@ The Account Holder runs these steps at the Mac Studio, which is the release Mac,
 1. Copy the identity to the laptop, the standby release Mac. In Keychain Access on the Mac Studio, export the new certificate together with its private key as a `.p12` file with a strong password. Move it over a private channel such as AirDrop, never email or git. Import it on the laptop, delete the `.p12` file on both Macs, check the chain and prove the certificate as above, then select it and run `doctor` and `setup` there too.
 2. Remove the old identity after the first G2-signed release has shipped and updated an installed copy through Sparkle. Delete the old certificate and its private key in Keychain Access on both Macs, or let it expire. Keep the certificate choice in the profile.
 
-## Every year
+## Renewal
 
-A G2 certificate expires one year after it is issued, and the doctor warns 60 days before that. Create the next one and prove it with `verify --certificate-sha1` as above, select it with `configure-machine --replace` (a `newest-g2` profile picks it up by itself), then run `doctor` and `setup`, copy it to the laptop and remove the old identity once a release signed with the new one has shipped. Releases signed while the old certificate was valid keep working, because their secure timestamp proves when they were signed.
+The doctor warns 60 days before the selected certificate expires. Create the next one and prove it with `verify --certificate-sha1` as above, select it with `configure-machine --replace` (a `newest-g2` profile picks it up by itself), then run `doctor` and `setup`, copy it to the laptop and remove the old identity once a release signed with the new one has shipped. Releases signed while the old certificate was valid keep working, because their secure timestamp proves when they were signed.
 
 ## Where the rules live in code
 
