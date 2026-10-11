@@ -353,6 +353,198 @@ extension RoutingSafetyNetTable {
                     )
                 )
             },
+        ] + classifierLayoutRows
+    }
+
+    // MARK: Classifier result layouts
+
+    /// The layouts LGE writes for Kraken2 and EsViritu and the layouts the 2.7 analysis run
+    /// executor will write, each as ClassifierLayoutFixtures builds it (Phase 2.7 lane A2).
+    ///
+    /// Only layouts that open a viewer are rows here. A folder with no index routes to the
+    /// database build placeholder, whose first act is to launch `lungfish-cli build-db`, so those
+    /// layouts are pinned at the router in ClassifierLayoutReaderPinTests.
+    static var classifierLayoutRows: [RoutingRow] {
+        typealias Layouts = ClassifierLayoutFixtures
+        typealias Name = ClassifierLayoutFixtures.Name
+        return [
+            RoutingRow(family: .classifiers, name: "Kraken2 batch the window wrote, with index, manifest and summary", type: .batchGroup) { context in
+                let batch = try Layouts.windowKraken2Batch(
+                    named: Name.windowKraken2Batch, timestamp: Layouts.timestamp(of: Name.windowKraken2Batch),
+                    in: context.url("Analyses", isDirectory: true),
+                    samples: [Layouts.sample, Layouts.secondSample], index: true
+                )
+                let path = context.render(batch)
+                return RoutingRowFixture(
+                    item: try RoutingSafetyNetItems.scannedAnalysis(batch),
+                    expected: RoutingObservation(
+                        viewports: ["TaxonomyViewController"],
+                        mode: .metagenomics,
+                        classifierContext: "\(path) samples=[HG002,MMU-17]",
+                        native: ["taxonomy batch=\(path) selected=[HG002,MMU-17]"],
+                        inspector: ["batchOperation=Kraken2"],
+                        provenance: "classificationResult \(path)"
+                    )
+                )
+            },
+            RoutingRow(family: .classifiers, name: "EsViritu batch of one sample the window wrote, with index, manifest and summary", type: .batchGroup) { context in
+                let batch = try Layouts.windowEsVirituBatch(
+                    named: Name.windowEsVirituBatchOfOne, timestamp: Layouts.timestamp(of: Name.windowEsVirituBatchOfOne),
+                    in: context.url("Analyses", isDirectory: true),
+                    samples: [Layouts.sample], index: true
+                )
+                let path = context.render(batch)
+                return RoutingRowFixture(
+                    item: try RoutingSafetyNetItems.scannedAnalysis(batch),
+                    expected: RoutingObservation(
+                        viewports: ["EsVirituResultViewController"],
+                        mode: .metagenomics,
+                        classifierContext: "\(path) samples=[HG002]",
+                        native: ["esViritu batch=\(path) selected=[HG002]"],
+                        inspector: ["batchOperation=EsViritu"],
+                        provenance: "esvirituResult \(path)"
+                    )
+                )
+            },
+            RoutingRow(family: .classifiers, name: "Kraken2 sample on the executor, with index and hidden inputs", type: .classificationResult) { context in
+                let result = try Layouts.executorKraken2Single(
+                    named: Name.executorKraken2Single, timestamp: Layouts.timestamp(of: Name.executorKraken2Single),
+                    in: context.url("Analyses", isDirectory: true)
+                )
+                let path = context.render(result)
+                return RoutingRowFixture(
+                    item: try RoutingSafetyNetItems.scannedAnalysis(result),
+                    expected: RoutingObservation(
+                        viewports: ["TaxonomyViewController"],
+                        mode: .metagenomics,
+                        classifierContext: "\(path) samples=[HG002]",
+                        native: ["taxonomy batch=\(path) selected=[HG002]"],
+                        inspector: ["batchOperation=Kraken2"],
+                        provenance: "classificationResult \(path)"
+                    )
+                )
+            },
+            RoutingRow(family: .classifiers, name: "Kraken2 batch on the executor, with hidden inputs at the root", type: .batchGroup) { context in
+                let batch = try Layouts.executorKraken2Batch(
+                    named: Name.executorKraken2Batch, timestamp: Layouts.timestamp(of: Name.executorKraken2Batch),
+                    in: context.url("Analyses", isDirectory: true),
+                    samples: [Layouts.sample, Layouts.secondSample]
+                )
+                let path = context.render(batch)
+                return RoutingRowFixture(
+                    item: try RoutingSafetyNetItems.scannedAnalysis(batch),
+                    expected: RoutingObservation(
+                        viewports: ["TaxonomyViewController"],
+                        mode: .metagenomics,
+                        classifierContext: "\(path) samples=[HG002,MMU-17]",
+                        native: ["taxonomy batch=\(path) selected=[HG002,MMU-17]"],
+                        inspector: ["batchOperation=Kraken2"],
+                        provenance: "classificationResult \(path)"
+                    )
+                )
+            },
+            RoutingRow(family: .classifiers, name: "EsViritu batch on the executor, with hidden inputs at the root", type: .batchGroup) { context in
+                let batch = try Layouts.executorEsVirituBatch(
+                    named: Name.executorEsVirituBatch, timestamp: Layouts.timestamp(of: Name.executorEsVirituBatch),
+                    in: context.url("Analyses", isDirectory: true),
+                    samples: [Layouts.sample]
+                )
+                let path = context.render(batch)
+                return RoutingRowFixture(
+                    item: try RoutingSafetyNetItems.scannedAnalysis(batch),
+                    expected: RoutingObservation(
+                        viewports: ["EsVirituResultViewController"],
+                        mode: .metagenomics,
+                        classifierContext: "\(path) samples=[HG002]",
+                        native: ["esViritu batch=\(path) selected=[HG002]"],
+                        inspector: ["batchOperation=EsViritu"],
+                        provenance: "esvirituResult \(path)"
+                    )
+                )
+            },
+            RoutingRow(family: .classifiers, name: "EsViritu sample folder of an executor batch narrows the picker", type: .esvirituResult) { context in
+                // The scanner lists a classifier batch as a leaf, so no scanned row points at a
+                // sample folder. The router still handles one, as it does for Kraken2 above.
+                let batch = try Layouts.executorEsVirituBatch(
+                    named: Name.executorEsVirituBatch, timestamp: Layouts.timestamp(of: Name.executorEsVirituBatch),
+                    in: context.url("Analyses", isDirectory: true),
+                    samples: [Layouts.sample, Layouts.secondSample]
+                )
+                let path = context.render(batch)
+                return RoutingRowFixture(
+                    item: SidebarItem(
+                        title: Layouts.secondSample, type: .esvirituResult,
+                        url: batch.appendingPathComponent(Layouts.secondSample, isDirectory: true)
+                    ),
+                    expected: RoutingObservation(
+                        viewports: ["EsVirituResultViewController"],
+                        mode: .metagenomics,
+                        classifierContext: "\(path) samples=[HG002,MMU-17]",
+                        native: ["esViritu batch=\(path) selected=[MMU-17]"],
+                        inspector: ["batchOperation=EsViritu"],
+                        provenance: "esvirituResult \(path)"
+                    )
+                )
+            },
+            RoutingRow(family: .classifiers, name: "Kraken2 result in a folder the user named, known by its metadata only", type: .classificationResult) { context in
+                // A caller-chosen `--output-dir` the executor claims gets the metadata, so the
+                // router no longer needs the folder name to find the tool.
+                let result = try Layouts.executorKraken2Single(
+                    named: Name.claimedKraken2, timestamp: "2026-02-11T11-30-00",
+                    in: context.url("Analyses", isDirectory: true)
+                )
+                let path = context.render(result)
+                return RoutingRowFixture(
+                    item: try RoutingSafetyNetItems.scannedAnalysis(result),
+                    expected: RoutingObservation(
+                        viewports: ["TaxonomyViewController"],
+                        mode: .metagenomics,
+                        classifierContext: "\(path) samples=[HG002]",
+                        native: ["taxonomy batch=\(path) selected=[HG002]"],
+                        inspector: ["batchOperation=Kraken2"],
+                        provenance: "classificationResult \(path)"
+                    )
+                )
+            },
+            RoutingRow(family: .classifiers, name: "Kraken2 folder known only by its sidecar opens nothing", type: .classificationResult) { context in
+                // The scanner lists it from classification-result.json. The router needs a tool
+                // prefix in the name or metadata, so it finds neither and the selection ends silently.
+                let result = try Layouts.probeOnlyKraken2(
+                    named: Name.probeOnlyKraken2, in: context.url("Analyses", isDirectory: true)
+                )
+                return RoutingRowFixture(
+                    item: try RoutingSafetyNetItems.scannedAnalysis(result),
+                    expected: nothing()
+                )
+            },
+            RoutingRow(family: .classifiers, name: "EsViritu folder known only by its tables opens nothing", type: .esvirituResult) { context in
+                // The command line writes this layout when `--output` has a free name.
+                let result = try Layouts.cliEsViritu(
+                    named: Name.cliEsVirituFreeName, in: context.url("Analyses", isDirectory: true)
+                )
+                return RoutingRowFixture(
+                    item: try RoutingSafetyNetItems.scannedAnalysis(result),
+                    expected: nothing()
+                )
+            },
+            RoutingRow(family: .classifiers, name: "Kraken2 sidecar folder as an analysis result is unsupported", type: .analysisResult) { context in
+                // The "Unsupported analysis" ending for a folder the router cannot place. It needs an
+                // item typed as a generic analysis result that carries the Kraken2 tool id. The
+                // scanner types a Kraken2 folder as a classification result, so only a hand-built
+                // item reaches this ending. The scanned row of the same folder is the row above.
+                let result = try Layouts.probeOnlyKraken2(
+                    named: Name.probeOnlyKraken2, in: context.url("Analyses", isDirectory: true)
+                )
+                let item = SidebarItem(title: result.lastPathComponent, type: .analysisResult, url: result)
+                item.userInfo["analysisTool"] = "kraken2"
+                return RoutingRowFixture(
+                    item: item,
+                    expected: RoutingObservation(
+                        status: "Unsupported analysis: kraken2. Inspect or reveal \(Name.probeOnlyKraken2) from the sidebar.",
+                        provenance: "analysisResult \(context.render(result))"
+                    )
+                )
+            },
         ]
     }
 }
