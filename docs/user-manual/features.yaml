@@ -446,7 +446,6 @@ features:
     viewport_class: none
     sources:
       - Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift
-      - Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController+OperationBegin.swift
       - Sources/LungfishApp/Services/FASTQStatisticsService.swift
       - Sources/LungfishKit/FASTQDisplayNameResolver.swift
     module: [LungfishApp, LungfishKit]

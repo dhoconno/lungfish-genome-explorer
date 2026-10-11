@@ -78,35 +78,6 @@ public enum FASTQStatisticsService {
         }
     }
 
-    public static func computeAndCache(
-        for fastqURL: URL,
-        existingMetadata: PersistedFASTQMetadata? = nil,
-        runner: NativeToolRunner = .shared,
-        progress: (@Sendable (Int) -> Void)? = nil
-    ) async throws -> FASTQStatisticsComputationResult {
-        let summary = try await fetchSeqkitSummary(for: [fastqURL], runner: runner)
-        let (histogram, processedReads) = try await collectFASTQHistogram(
-            from: [fastqURL],
-            progress: progress
-        )
-        let statistics = buildFASTQStatistics(
-            summary: summary,
-            histogram: histogram,
-            fallbackReadCount: processedReads
-        )
-
-        var metadata = existingMetadata ?? FASTQMetadataStore.load(for: fastqURL) ?? PersistedFASTQMetadata()
-        metadata.computedStatistics = statistics
-        metadata.seqkitStats = summary.asMetadata()
-        FASTQMetadataStore.save(metadata, for: fastqURL)
-
-        return FASTQStatisticsComputationResult(
-            statistics: statistics,
-            seqkitMetadata: summary.asMetadata(),
-            scannedReadCount: processedReads
-        )
-    }
-
     public static func compute(
         for fastqURL: URL,
         runner: NativeToolRunner = .shared,

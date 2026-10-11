@@ -61,20 +61,6 @@ private func parseFASTQReadPreviewRecords(from fastqText: String) -> [FASTQReadP
     return records
 }
 
-/// Errors raised while computing the FASTQ quality report.
-enum FASTQQualityReportError: Error, LocalizedError {
-    /// seqkit stats could not be run or its output could not be parsed, so no
-    /// statistics are available to display.
-    case statisticsUnavailable(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .statisticsUnavailable(let detail):
-            return "Statistics unavailable: \(detail)"
-        }
-    }
-}
-
 @MainActor
 public final class FASTQDatasetViewController: NSViewController {
     // MARK: - Layout Defaults
@@ -95,7 +81,6 @@ public final class FASTQDatasetViewController: NSViewController {
     // MARK: - Operation Categories
 
     private enum LegacyOperationKind: Int, CaseIterable {
-        case qualityReport
         case subsampleProportion
         case subsampleCount
         case lengthFilter
@@ -122,7 +107,6 @@ public final class FASTQDatasetViewController: NSViewController {
 
         var previewKind: OperationPreviewView.OperationKind {
             switch self {
-            case .qualityReport: return .qualityReport
             case .subsampleProportion: return .subsampleProportion
             case .subsampleCount: return .subsampleCount
             case .lengthFilter: return .lengthFilter
@@ -163,7 +147,6 @@ public final class FASTQDatasetViewController: NSViewController {
     private var sourceURL: URL?
     private var derivativeManifest: FASTQDerivedBundleManifest?
     private var selectedOperation: OperationKind?
-    private var qualityReportTask: Task<Void, Never>?
     private var fastaPreviewTask: Task<Void, Never>?
 
     public var onStatisticsUpdated: ((FASTQDatasetStatistics) -> Void)?
@@ -303,8 +286,6 @@ public final class FASTQDatasetViewController: NSViewController {
     // MARK: - Lifecycle
 
     private func cancelBackgroundTasks() {
-        qualityReportTask?.cancel()
-        qualityReportTask = nil
         fastaPreviewTask?.cancel()
         fastaPreviewTask = nil
         readPreviewTask?.cancel()
@@ -364,7 +345,6 @@ public final class FASTQDatasetViewController: NSViewController {
         sparklineStrip.update(with: statistics)
         previewCanvas.update(operation: selectedOperation?.previewKind ?? .none, statistics: statistics)
         loadFASTAPreview(fastqURL: fastqURL, fallbackRecords: records)
-        updateQualityReportButton()
         showOperationsDialogLauncherHint()
         setStatus("Loaded: \(statistics.readCount) reads")
         if let derivativeManifest {
@@ -792,8 +772,6 @@ public final class FASTQDatasetViewController: NSViewController {
         runBar.addSubview(runButton)
 
         cancelButton.bezelStyle = .rounded
-        cancelButton.target = self
-        cancelButton.action = #selector(cancelOperationClicked(_:))
         cancelButton.translatesAutoresizingMaskIntoConstraints = false
         cancelButton.isHidden = true
         runBar.addSubview(cancelButton)
@@ -1092,24 +1070,6 @@ public final class FASTQDatasetViewController: NSViewController {
             configureButton.font = .systemFont(ofSize: 11)
             configureButton.translatesAutoresizingMaskIntoConstraints = false
             parameterBar.addArrangedSubview(configureButton)
-
-        case .qualityReport:
-            if hasQualityData {
-                let label = NSTextField(labelWithString: "Quality data already computed. Sparkline charts are populated above.")
-                label.font = .systemFont(ofSize: 11)
-                label.textColor = .secondaryLabelColor
-                parameterBar.addArrangedSubview(label)
-            } else if qualityReportTask != nil {
-                let label = NSTextField(labelWithString: "Computing quality report...")
-                label.font = .systemFont(ofSize: 11)
-                label.textColor = .secondaryLabelColor
-                parameterBar.addArrangedSubview(label)
-            } else {
-                let label = NSTextField(labelWithString: "Scan all reads to compute per-position quality, length distribution, and quality score histograms.")
-                label.font = .systemFont(ofSize: 11)
-                label.textColor = .secondaryLabelColor
-                parameterBar.addArrangedSubview(label)
-            }
 
         case .assembleReads:
             let label = NSTextField(labelWithString: "Assemble reads de novo into contigs and scaffolds using SPAdes.")
@@ -1538,239 +1498,7 @@ public final class FASTQDatasetViewController: NSViewController {
         }
     }
 
-    // MARK: - Quality Report
-
-    private func updateQualityReportButton() {
-        // Quality report availability is reflected by the selected operation controls.
-        // If quality data already exists, the parameter bar shows "already computed".
-        if selectedOperation == .qualityReport {
-            updateParameterBar()
-        }
-    }
-
-    /// Selects the Quality Report operation controls and immediately runs them.
-    private func selectAndRunQualityReport() {
-        selectedOperation = .qualityReport
-        updateParameterBar()
-
-        // Run immediately
-        computeQualityReport()
-    }
-
-    /// Runs the quality report computation (reused by sidebar Run button and sparkline callback).
-    private func computeQualityReport() {
-        guard let url = fastqURL else { return }
-        guard qualityReportTask == nil else { return }
-
-        Self.beginQualityReportOperation(fastqURL: url) { opID in
-            runButton.isEnabled = false
-            cancelButton.isHidden = false
-            progressIndicator.startAnimation(nil)
-            setStatus("Computing quality report...")
-
-            let startTime = Date()
-
-            // Capture existing stats (may already have seqkit summary from import)
-            let existingStats = self.statistics
-            let existingSeqkit = FASTQMetadataStore.load(for: url)?.seqkitStats
-
-            qualityReportTask = Task.detached(priority: .userInitiated) { [weak self] in
-                do {
-                    let runner = NativeToolRunner.shared
-
-                    // 1. Reuse cached seqkit summary if available, otherwise run seqkit stats
-                    let numSeqs: Int
-                    let sumLen: Int64
-                    let minLen: Int
-                    let avgLen: Double
-                    let maxLen: Int
-                    let medianLen: Int
-                    let n50Len: Int
-                    let q20: Double
-                    let q30: Double
-                    let avgQual: Double
-                    let gc: Double
-
-                    if let sk = existingSeqkit, sk.numSeqs > 0 {
-                        // Already have exact seqkit metrics from import — skip the 50s scan
-                        numSeqs = sk.numSeqs
-                        sumLen = sk.sumLen
-                        minLen = sk.minLen
-                        avgLen = sk.avgLen
-                        maxLen = sk.maxLen
-                        q20 = sk.q20Percentage
-                        q30 = sk.q30Percentage
-                        avgQual = sk.averageQuality
-                        gc = sk.gcPercentage
-                        // Median and N50 from cached computedStatistics
-                        medianLen = existingStats?.medianReadLength ?? 0
-                        n50Len = existingStats?.n50ReadLength ?? 0
-                    } else {
-                        // No cached seqkit data — run full seqkit stats
-                        let seqkitResult = try await runner.run(
-                            .seqkit,
-                            arguments: ["stats", "-a", "-T", url.path],
-                            timeout: 900
-                        )
-                        var _numSeqs = 0, _minLen = 0, _maxLen = 0, _medianLen = 0, _n50Len = 0
-                        var _sumLen: Int64 = 0
-                        var _avgLen = 0.0, _q20 = 0.0, _q30 = 0.0, _avgQual = 0.0, _gc = 0.0
-
-                        // Header-driven parsing: a seqkit release that adds or
-                        // reorders columns must not shift values between fields.
-                        // A parse failure surfaces as a failed operation rather than
-                        // rendering zeros as if they were real measurements.
-                        guard seqkitResult.isSuccess else {
-                            throw FASTQQualityReportError.statisticsUnavailable(
-                                "seqkit stats exited \(seqkitResult.exitCode): \(seqkitResult.stderr)"
-                            )
-                        }
-                        let row: SeqkitStatsRow
-                        do {
-                            row = try SeqkitStatsParser.parse(seqkitResult.stdout)
-                        } catch {
-                            throw FASTQQualityReportError.statisticsUnavailable(error.localizedDescription)
-                        }
-                        _numSeqs = row.numSeqs
-                        _sumLen = row.sumLen
-                        _minLen = row.minLen
-                        _avgLen = row.avgLen
-                        _maxLen = row.maxLen
-                        _medianLen = row.q2.map { Int($0) } ?? 0
-                        _n50Len = row.n50.map { Int($0) } ?? 0
-                        // seqkit 2.13 prints Q20(%) and Q30(%) as whole
-                        // percents; count the bases so the cards match
-                        // Refresh QC Summary.
-                        let fractions = try await FASTQQualityFractions.scan(url)
-                        if fractions.baseCount == row.sumLen, fractions.baseCount > 0 {
-                            _q20 = fractions.q20Percentage
-                            _q30 = fractions.q30Percentage
-                        } else {
-                            _q20 = row.q20Percent ?? 0
-                            _q30 = row.q30Percent ?? 0
-                        }
-                        _avgQual = row.avgQual ?? 0
-                        _gc = row.gcPercent ?? 0
-                        numSeqs = _numSeqs; sumLen = _sumLen; minLen = _minLen; avgLen = _avgLen
-                        maxLen = _maxLen; medianLen = _medianLen; n50Len = _n50Len
-                        q20 = _q20; q30 = _q30; avgQual = _avgQual; gc = _gc
-                    }
-
-                    // 2. Sampled distributions from 100k reads via FASTQStatisticsCollector
-                    let seqkitURL = try await runner.findTool(.seqkit)
-                    let sampleFile = url.deletingLastPathComponent()
-                        .appendingPathComponent(".qr-sample-\(UUID().uuidString).fq.gz")
-                    defer { try? FileManager.default.removeItem(at: sampleFile) }
-
-                    let headResult = try await runner.runProcess(
-                        executableURL: seqkitURL,
-                        arguments: ["head", "-n", "100000", "-o", sampleFile.path, url.path],
-                        timeout: 120
-                    )
-
-                    var sampledHistogram: [Int: Int] = [:]
-                    var qualityScoreHistogram: [UInt8: Int] = [:]
-                    var perPositionQuality: [PositionQualitySummary] = []
-
-                    if headResult.isSuccess {
-                        let collector = FASTQStatisticsCollector()
-                        let reader = FASTQReader(validateSequence: false)
-                        for try await record in reader.records(from: sampleFile) {
-                            collector.process(record)
-                        }
-                        let sampled = collector.finalize()
-                        sampledHistogram = sampled.readLengthHistogram
-                        qualityScoreHistogram = sampled.qualityScoreHistogram
-                        perPositionQuality = sampled.perPositionQuality
-                    }
-
-                    // 3. Build combined statistics: exact metrics + sampled distributions
-                    let fullStats = FASTQDatasetStatistics(
-                        readCount: numSeqs,
-                        baseCount: sumLen,
-                        meanReadLength: avgLen,
-                        minReadLength: minLen,
-                        maxReadLength: maxLen,
-                        medianReadLength: medianLen,
-                        n50ReadLength: n50Len,
-                        meanQuality: avgQual,
-                        q20Percentage: q20,
-                        q30Percentage: q30,
-                        gcContent: gc / 100.0,
-                        readLengthHistogram: sampledHistogram,
-                        qualityScoreHistogram: qualityScoreHistogram,
-                        perPositionQuality: perPositionQuality
-                    )
-
-                    var metadata = FASTQMetadataStore.load(for: url) ?? PersistedFASTQMetadata()
-                    metadata.computedStatistics = fullStats
-                    FASTQMetadataStore.save(metadata, for: url)
-
-                    let elapsed = Int(Date().timeIntervalSince(startTime))
-                    DispatchQueue.main.async { [weak self] in
-                        MainActor.assumeIsolated {
-                            guard let self else { return }
-                            _ = OperationCenter.shared.complete(id: opID, detail: "Complete — \(fullStats.readCount) reads")
-                            self.qualityReportTask = nil
-                            self.statistics = fullStats
-                            self.summaryBar.update(with: fullStats)
-                            self.sparklineStrip.update(with: fullStats)
-                            self.previewCanvas.update(operation: self.selectedOperation?.previewKind ?? .none, statistics: fullStats)
-                            self.updateRunButtonState()
-                            self.cancelButton.isHidden = true
-                            self.progressIndicator.stopAnimation(nil)
-                            self.updateQualityReportButton()
-                            self.setStatus("Quality report complete (\(elapsed)s)")
-                            self.onStatisticsUpdated?(fullStats)
-                        }
-                    }
-                } catch is CancellationError {
-                    // User cancelled — return silently, don't show error
-                    let elapsed = Int(Date().timeIntervalSince(startTime))
-                    DispatchQueue.main.async { [weak self] in
-                        MainActor.assumeIsolated {
-                            guard let self else { return }
-                            _ = OperationCenter.shared.complete(id: opID, detail: "Cancelled")
-                            self.qualityReportTask = nil
-                            self.updateRunButtonState()
-                            self.cancelButton.isHidden = true
-                            self.progressIndicator.stopAnimation(nil)
-                            self.setStatus("Quality report cancelled (\(elapsed)s)")
-                        }
-                    }
-                } catch {
-                    let errorMessage = "\(error)"
-                    let elapsed = Int(Date().timeIntervalSince(startTime))
-                    DispatchQueue.main.async { [weak self] in
-                        MainActor.assumeIsolated {
-                            guard let self else { return }
-                            _ = OperationCenter.shared.fail(id: opID, detail: errorMessage)
-                            self.qualityReportTask = nil
-                            self.updateRunButtonState()
-                            self.cancelButton.isHidden = true
-                            self.progressIndicator.stopAnimation(nil)
-                            self.setStatus("Quality report failed (\(elapsed)s)")
-                            // Error details are in the Operations Panel — auto-open it
-                            (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     // MARK: - Actions
-
-    @objc private func cancelOperationClicked(_ sender: Any) {
-        if let task = qualityReportTask {
-            task.cancel()
-            qualityReportTask = nil
-            updateRunButtonState()
-            cancelButton.isHidden = true
-            progressIndicator.stopAnimation(nil)
-            setStatus("Quality report cancelled")
-        }
-    }
 
     @objc private func parameterPopupChanged(_ sender: NSPopUpButton) {
         if sender === contaminantModePopup {
@@ -1811,11 +1539,6 @@ public final class FASTQDatasetViewController: NSViewController {
     }
 
     @objc private func runOperationClicked(_ sender: Any) {
-        // Quality report has its own execution path
-        if selectedOperation == .qualityReport {
-            computeQualityReport()
-            return
-        }
         // Classification operations dispatch to tool-specific launch methods
         if selectedOperation == .classifyReads {
             launchFASTQOperationTool(.kraken2)
@@ -2031,10 +1754,6 @@ public final class FASTQDatasetViewController: NSViewController {
         }
 
         switch kind {
-        case .qualityReport:
-            // Quality report is not a derivative operation; handled via computeQualityReport()
-            return nil
-
         case .classifyReads:
             // Classify & Profile Reads is dispatched via ToolsMenuActions; not a derivative operation
             return nil
@@ -2284,19 +2003,12 @@ public final class FASTQDatasetViewController: NSViewController {
     /// and current configuration state. Called at the end of updateParameterBar()
     /// and whenever currentDemuxConfig changes.
     private func updateRunButtonState() {
-        // Do not override state while an operation is in progress
-        guard qualityReportTask == nil else { return }
-
         guard let kind = selectedOperation else {
             runButton.isEnabled = false
             return
         }
 
         switch kind {
-        case .qualityReport:
-            // Disabled when data already exists or report is running
-            runButton.isEnabled = !hasQualityData && qualityReportTask == nil
-            runButton.title = "Run"
         case .classifyReads:
             runButton.isEnabled = true
             runButton.title = "Run"
@@ -2328,11 +2040,6 @@ public final class FASTQDatasetViewController: NSViewController {
     }
 
     // MARK: - Helpers
-
-    private var hasQualityData: Bool {
-        guard let stats = statistics else { return false }
-        return !stats.perPositionQuality.isEmpty && !stats.qualityScoreHistogram.isEmpty
-    }
 
     private func setStatus(_ line: String, isError: Bool = false) {
         statusLabel.stringValue = line
