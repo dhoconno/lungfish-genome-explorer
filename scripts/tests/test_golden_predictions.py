@@ -126,6 +126,35 @@ def set_versions(*versions):
     return mutate
 
 
+def together(*mutators):
+    """A mutator that applies these mutators in order."""
+
+    def mutate(document):
+        for each in mutators:
+            each(document)
+
+    return mutate
+
+
+def complete_every_step(document):
+    for each in document["steps"]:
+        each["status"] = "completed"
+
+
+def insert_step(index, name):
+    def mutate(document):
+        document["steps"].insert(index, {**step(name), "status": "completed"})
+
+    return mutate
+
+
+def replace_steps(start, stop, *names):
+    def mutate(document):
+        document["steps"][start:stop] = [step(name) for name in names]
+
+    return mutate
+
+
 def edit_json(name: str, mutate, dump=foundation) -> dict:
     document = copy.deepcopy(JSON_GOLDENS[name])
     mutate(document)
@@ -204,6 +233,9 @@ INDEX_LINES = INDEX.splitlines(keepends=True)
 INDEX_REORDERED = {INDEX_FILE: "".join(INDEX_LINES[:1] + INDEX_LINES[:0:-1]).encode()}
 NOTE_IN_TWO_FILES = {**edit_json(COUNTS, set_at("note", "x")), **edit_json(ENVIRONMENT, set_at("note", "x"))}
 ESCAPED_SLASH_KEY = edit_json(ENVIRONMENT, set_at("files", "v3.2.4/db.fna", "sizeBytes", 11))
+ONE_NEW_STEP_AND_A_STATUS_ON_THREE = doc(
+    entry(PROVENANCE, added=[{"path": "/steps[*]", "count": 1}, {"path": "/steps[*]/status", "value": "completed", "count": 3}])
+)
 
 PERTURBATIONS = [
     # A value changes
@@ -302,6 +334,35 @@ PERTURBATIONS = [
         edit_json(PROVENANCE, lambda d: d["steps"].pop(1)),
         doc(entry(PROVENANCE, removed=[{"path": "/steps[*]", "count": 1}])),
         [],
+    ),
+    case(
+        "step-inserted-in-the-middle-while-every-step-gains-a-key",
+        edit_json(PROVENANCE, together(complete_every_step, insert_step(1, "materialize"))),
+        ONE_NEW_STEP_AND_A_STATUS_ON_THREE,
+        [],
+    ),
+    case(
+        "unpredicted-change-in-a-step-that-an-insertion-shifted",
+        edit_json(PROVENANCE, together(set_at("steps", 1, "argv", 2, "99"), complete_every_step, insert_step(1, "materialize"))),
+        ONE_NEW_STEP_AND_A_STATUS_ON_THREE,
+        ["unpredicted mapping/provenance.json changed /steps[2]/argv[2]"],
+    ),
+    case(
+        "step-removed-while-every-other-step-gains-a-key",
+        edit_json(PROVENANCE, together(drop_at("steps", 1), complete_every_step)),
+        doc(entry(PROVENANCE, removed=[{"path": "/steps[*]", "count": 1}], added=[{"path": "/steps[*]/status", "value": "completed", "count": 2}])),
+        [],
+    ),
+    case(
+        "step-replaced-by-two-steps-with-other-ids-pairs-by-position",
+        edit_json(PROVENANCE, replace_steps(1, 2, "a", "b")),
+        NOTHING,
+        [
+            "unpredicted mapping/provenance.json added /steps[2]",
+            "unpredicted mapping/provenance.json changed /steps[1]/argv[0]",
+            "unpredicted mapping/provenance.json changed /steps[1]/id",
+            "unpredicted mapping/provenance.json changed /steps[1]/toolName",
+        ],
     ),
     case("array-reordered", edit_json(PROVENANCE, lambda d: d["steps"].reverse()), NOTHING, ["unpredicted mapping/provenance.json reordered /steps"]),
     case(
@@ -525,6 +586,45 @@ def test_a_long_array_with_one_inserted_row_is_one_change():
     grown = rows[:1500] + [{"n": -1, "name": "new"}] + rows[1500:]
     changes = predictions.compare_json("big.json", foundation({"rows": rows}).decode(), foundation({"rows": grown}).decode())
     assert [(c.kind, c.path) for c in changes] == [("added", ("rows", 1500))]
+
+
+def row(name, k, key="id"):
+    return {key: name, "k": k}
+
+
+def row_changes(old_rows, new_rows) -> list[str]:
+    before, after = foundation({"rows": old_rows}).decode(), foundation({"rows": new_rows}).decode()
+    return sorted(f"{c.kind} {predictions.render_path(c.path)}" for c in predictions.compare_json("x.json", before, after))
+
+
+PAIRINGS = [
+    # Objects with unique ids, where the smaller side's ids all stand on the larger side, pair by id
+    ("id-insertion", [row("a", 1), row("b", 1)], [row("a", 2), row("x", 2), row("b", 2)], ["added /rows[1]", "changed /rows[0]/k", "changed /rows[2]/k"]),
+    ("id-removal", [row("a", 1), row("b", 1), row("c", 1)], [row("a", 2), row("c", 2)], ["changed /rows[0]/k", "changed /rows[1]/k", "removed /rows[1]"]),
+    ("path-when-there-is-no-id", [row("p", 1, "path"), row("q", 1, "path")], [row("p", 2, "path"), row("n", 2, "path"), row("q", 2, "path")],
+     ["added /rows[1]", "changed /rows[0]/k", "changed /rows[2]/k"]),
+    # Every other block keeps position pairing
+    ("an-id-of-the-smaller-side-is-missing", [row("a", 1), row("b", 1)], [row("a", 2), row("b2", 2), row("c", 2)],
+     ["added /rows[2]", "changed /rows[0]/k", "changed /rows[1]/id", "changed /rows[1]/k"]),
+    ("duplicate-ids", [row("a", 1), row("a", 1)], [row("a", 2), row("a", 2), row("b", 2)], ["added /rows[2]", "changed /rows[0]/k", "changed /rows[1]/k"]),
+    ("an-element-without-an-id", [row("a", 1), {"k": 1}], [row("a", 2), {"k": 2}, row("b", 2)], ["added /rows[2]", "changed /rows[0]/k", "changed /rows[1]/k"]),
+    ("ids-on-some-and-paths-on-others", [row("a", 1), row("b", 1, "path")], [row("a", 2), row("b", 2, "path"), row("c", 2, "path")],
+     ["added /rows[2]", "changed /rows[0]/k", "changed /rows[1]/k"]),
+    ("the-same-number-of-elements", [row("a", 1), row("b", 1)], [row("b", 2), row("a", 2)],
+     ["changed /rows[0]/id", "changed /rows[0]/k", "changed /rows[1]/id", "changed /rows[1]/k"]),
+]
+
+
+@pytest.mark.parametrize(("old_rows", "new_rows", "expected"), [pytest.param(*p[1:], id=p[0]) for p in PAIRINGS])
+def test_a_changed_block_of_an_array_pairs_by_id_only_when_every_guard_holds(old_rows, new_rows, expected):
+    assert row_changes(old_rows, new_rows) == expected
+
+
+def test_a_paired_element_is_named_by_its_new_index_and_a_removed_one_by_its_old_index():
+    four = [row("a", 1), row("b", 1), row("c", 1), row("d", 1)]
+    two = [row("a", 1), row("d", 1)]
+    assert row_changes(four, [row("a", 2), row("d", 2)]) == ["changed /rows[0]/k", "changed /rows[1]/k", "removed /rows[1]", "removed /rows[2]"]
+    assert row_changes(two, [row(name, 2) for name in "abcd"]) == ["added /rows[1]", "added /rows[2]", "changed /rows[0]/k", "changed /rows[3]/k"]
 
 
 def test_invalid_json_is_never_predicted():

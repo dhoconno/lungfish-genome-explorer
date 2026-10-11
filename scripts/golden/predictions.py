@@ -57,6 +57,12 @@ Predictions file, one JSON object:
   the new file for changed and added values and in the old file for removed
   ones. A rule with no path names the document itself. Numbers compare by
   their spelling, like the bytes do.
+- In an array the elements that are equal pair first. The rest of a changed
+  block pairs by position, except that a block with more elements on one side
+  pairs by `id` (else `path`) when every element is an object with a string
+  one, the values are unique on each side and every value of the smaller side
+  stands on the larger. So a step inserted in the middle is one added element
+  and the steps after it keep their own indexes.
 - Every other file is compared by line and its rules have no path. A line that
   changes in place is `changed`, one that appears is `added` and one that goes
   is `removed`, and a report counts lines from 1 in the new file (the old file
@@ -347,11 +353,39 @@ def walk_list(file: str, old: list, new: list, path: tuple, out: list[Change]) -
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
             continue
-        paired = min(i2 - i1, j2 - j1)
-        for k in range(paired):
-            walk_json(file, old[i1 + k], new[j1 + k], path + (j1 + k,), out)
-        out.extend(Change(file, "removed", path + (k,), old=old[k]) for k in range(i1 + paired, i2))
-        out.extend(Change(file, "added", path + (k,), new=new[k]) for k in range(j1 + paired, j2))
+        for a, b in pair_elements(old[i1:i2], new[j1:j2]):
+            if a is None:
+                out.append(Change(file, "added", path + (j1 + b,), new=new[j1 + b]))
+            elif b is None:
+                out.append(Change(file, "removed", path + (i1 + a,), old=old[i1 + a]))
+            else:
+                walk_json(file, old[i1 + a], new[j1 + b], path + (j1 + b,), out)
+
+
+def pair_elements(old: list, new: list) -> list[tuple[int | None, int | None]]:
+    """How the elements of a changed block pair up, as (old index, new index) with None for an element on one side only.
+
+    A block pairs by position, except that a block with more elements on one side pairs by identity when every
+    element on both sides is an object with a string `id` (else, for all of them, a string `path`), the values are
+    unique on each side and every value of the shorter side stands on the longer. A step inserted in the middle is
+    then one added element and each step after it still meets itself. Any other block keeps position pairing, so
+    a renamed id shows as a change inside the element and is not hidden in a whole element that was added."""
+    key = None
+    if len(old) != len(new):
+        key = next((k for k in ("id", "path") if all(isinstance(x, dict) and isinstance(x.get(k), str) for x in old + new)), None)
+    if key:
+        before, after = [x[key] for x in old], [x[key] for x in new]
+        shorter, longer = sorted((before, after), key=len)
+        if len(set(before)) == len(before) and len(set(after)) == len(after) and set(shorter) <= set(longer):
+            pairs: list[tuple[int | None, int | None]] = []
+            for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, before, after, autojunk=False).get_opcodes():
+                if tag == "equal":
+                    pairs += [(i1 + k, j1 + k) for k in range(i2 - i1)]
+                else:
+                    pairs += [(i1 + k, None) for k in range(i2 - i1)] + [(None, j1 + k) for k in range(j2 - j1)]
+            return pairs
+    paired = min(len(old), len(new))
+    return [(k, k) for k in range(paired)] + [(k, None) for k in range(paired, len(old))] + [(None, k) for k in range(paired, len(new))]
 
 
 _LITERAL = re.compile(r'"(?:[^"\\]|\\.)*"|-?\d[0-9.eE+\-]*')
