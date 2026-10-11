@@ -4471,7 +4471,7 @@ It prints one citation per tool the run used, each with authors, title, journal,
 Turns a provenance record into a runnable script or a methods draft, as [Exporting as Nextflow or Snakemake](../08-workflows/02-exporting-as-nextflow-or-snakemake.md#procedure) describes. Explained in [Exporting as Nextflow or Snakemake](../08-workflows/02-exporting-as-nextflow-or-snakemake.md).
 
 ```text
-lungfish-cli provenance export <input> --format <format> --output <output>
+lungfish-cli provenance export <input> --format <format> --output <output> [--allow-unpinned]
 ```
 
 | Argument or flag | What it does |
@@ -4479,6 +4479,9 @@ lungfish-cli provenance export <input> --format <format> --output <output>
 | `<input>` | Provenance sidecar file, bundle, or output directory. |
 | `-f, --format, --export-format <format>` | Export format, one of `shell`, `python`, `nextflow`, `snakemake`, `methods`, or `json`. |
 | `--output <output>` | Output directory for the export bundle. |
+| `--allow-unpinned` | Write a shell, Python, Nextflow or Snakemake export even when LGE cannot pin a step's tool version, and name each such step in the script and its export record. |
+
+Without `--allow-unpinned`, a script export with such a step exits with status 3, names each step and its reason, and writes nothing. A record in the Older record format is never exported as a script, with or without the flag. The `methods` and `json` formats ignore the flag.
 
 ### `provenance verify`
 
