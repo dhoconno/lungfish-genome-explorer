@@ -134,13 +134,15 @@ final class SRAWindowUnpairedReadsTests: XCTestCase {
         XCTAssertNil(metadata.readClassification)
         XCTAssertNil(staged.reads.readCounts(in: metadata.readClassification), "the record keeps a pair's parameters")
 
-        // The command prints the warning as a JSON notice under --format
-        // json, and the window's runner logs a notice in the Operations row.
+        // The command prints the warning as a version 2 log event at level
+        // warning under --format json, and the window's runner logs it in
+        // the Operations row as a warning.
         let warning = try XCTUnwrap(imported.warnings.first)
-        let event = try CLIImportRunner.parseEvent(from: FASTQBatchImporter.encodeLogEvent(warning))
-        guard case .notice(let sample, let message)? = event else {
-            return XCTFail("expected a notice, got \(String(describing: event))")
+        guard case .notice(let sample, let message) = warning else {
+            return XCTFail("expected a notice, got \(warning)")
         }
+        var stream = FASTQImportEventStream(projectDirectory: project)
+        XCTAssertEqual(stream.events(for: warning), [.log(level: .warning, message: "\(run) — \(message)")])
         XCTAssertEqual(sample, run)
         XCTAssertTrue(
             message.hasPrefix("\(run).fastq.gz was not joined to \(run)_1.fastq.gz and \(run)_2.fastq.gz"),

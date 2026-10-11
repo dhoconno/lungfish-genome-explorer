@@ -20,8 +20,8 @@ import LungfishTestSupport
 /// `s1-runner.json` holds what the runner of the base `247504866` showed for the three runs of the
 /// S1 stream that the base CLI printed: a VSP2 import given `--platform element` for reads named
 /// as Illumina reads, which logs one notice and one read delta, a single-end file the recipe
-/// refuses, and the first run again cancelled once its first step began. Set
-/// `LUNGFISH_RECAPTURE_IMPORT_RUNNER=1` to write that file instead of comparing with it.
+/// refuses, and the first run again cancelled once its first step began. The file is frozen, and
+/// the same three runs of the version 2 stream, from the CLI that retired S1, are compared with it.
 final class CLIImportRunnerTranscriptTests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
@@ -61,28 +61,77 @@ final class CLIImportRunnerTranscriptTests: XCTestCase {
                     status: 125, cancels: true),
     ]
 
+    static let v2Runs = [
+        RecordedRun(name: "complete-with-warning", standardOutput: "../commands/import-fastq/complete-with-warning.ndjson",
+                    standardError: "v2-complete-with-warning.stderr", status: 0, cancels: false),
+        RecordedRun(name: "failed", standardOutput: "../commands/import-fastq/failed.ndjson",
+                    standardError: "v2-failed.stderr", status: 64, cancels: false),
+        RecordedRun(name: "cancelled", standardOutput: "../commands/import-fastq/failed-cancelled.ndjson",
+                    standardError: "v2-failed-cancelled.stderr", status: 125, cancels: true),
+    ]
+
     static var runsFolder: URL {
         ProvenanceCompatCorpus.repositoryRoot.appendingPathComponent("Tests/Fixtures/cli-events/import-fastq-runs", isDirectory: true)
     }
 
-    // MARK: The base
+    // MARK: The version 2 runs against the base
 
-    func testEachRealS1RunReadsInTheRowAsAtTheBase() async throws {
-        var observed: [String: Observation] = [:]
-        for run in Self.s1Runs {
-            observed[run.name] = try await observe(run)
+    /// Each real run of the version 2 stream reads in the row as the same run of the S1 stream read at
+    /// the base, `s1-runner.json`, apart from four deliberate differences named below.
+    func testEachRealVersion2RunReadsInTheRowAsItsS1RunDidAtTheBase() async throws {
+        let base = try JSONDecoder().decode(
+            [String: Observation].self, from: Data(contentsOf: Self.runsFolder.appendingPathComponent("s1-runner.json"))
+        )
+        for run in Self.v2Runs {
+            let observed = try await observe(run)
+            var expected = try XCTUnwrap(base[run.name])
+
+            // 1. One fraction for the whole import that only moves forward (UX objection 4), so the
+            //    bar no longer falls back from the launch fraction when a sample starts.
+            var floor = 0.0
+            expected.progress = expected.progress.map { state in
+                floor = max(floor, Double(state.prefix(5)) ?? 0)
+                return String(format: "%.3f", floor) + state.dropFirst(5)
+            }
+            // 2. onError hears a failure once, from the failed line, where S1 also reported the sample,
+            //    and a cancel as a cancel, where S1 read the exit status of the signal.
+            switch run.name {
+            case "failed": expected.errors = Array(expected.errors.suffix(1))
+            case "cancelled": expected.errors = ["Import cancelled"]
+            default: break
+            }
+            // 3. A failed line with one failure carries no detail, so the row's error detail and its
+            //    last log line, the exit status, are gone.
+            if run.name == "failed" {
+                expected.errorDetail = nil
+                expected.log.removeAll { $0 == "error: CLI exited with status 64" }
+            }
+            // 4. The human text on standard error reaches the log at info through the transport, and
+            //    the platform each sample is imported as is logged at info. Neither changes the label.
+            let humanText = Set(try String(contentsOf: Self.runsFolder.appendingPathComponent(run.standardError), encoding: .utf8)
+                .split(separator: "\n").map { "info: " + Self.withoutDurations(String($0)) })
+            let added = observed.log.filter { humanText.contains($0) || ($0.hasPrefix("info: ") && $0.contains(": Platform: ")) }
+            XCTAssertTrue(added.allSatisfy { $0.hasPrefix("info: ") }, "\(run.name) adds only info lines: \(added)")
+            XCTAssertTrue(added.contains { $0.contains(": Platform: ") }, "\(run.name) logs the platform")
+            var shown = observed
+            shown.log.removeAll { added.contains($0) }
+
+            XCTAssertEqual(shown, expected, "The row of the \(run.name) run")
         }
-        let recorded = Self.runsFolder.appendingPathComponent("s1-runner.json")
-        if ProcessInfo.processInfo.environment["LUNGFISH_RECAPTURE_IMPORT_RUNNER"] == "1" {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-            try encoder.encode(observed).write(to: recorded)
-            return
-        }
-        let expected = try JSONDecoder().decode([String: Observation].self, from: Data(contentsOf: recorded))
-        XCTAssertEqual(Set(observed.keys), Set(expected.keys))
-        for run in Self.s1Runs {
-            XCTAssertEqual(observed[run.name], expected[run.name], "The row of the \(run.name) run")
+    }
+
+    /// Plan decision T5. An older `lungfish-cli`, which prints the S1 stream of these runs, ends with a
+    /// failed row whose message names the mismatch, and no bundle is handed over.
+    func testAnOlderCLIThatPrintsS1EndsWithAMessageThatNamesTheMismatch() async throws {
+        for run in Self.s1Runs where !run.cancels {
+            let observed = try await observe(run)
+
+            XCTAssertEqual(observed.label, "Failed", run.name)
+            XCTAssertEqual(observed.bundles, [], run.name)
+            let message = try XCTUnwrap(observed.errorMessage, run.name)
+            XCTAssertTrue(message.hasPrefix("The lungfish-cli at "), message)
+            XCTAssertTrue(message.contains("did not report the import in the version 2 events this app reads"), message)
+            XCTAssertEqual(observed.errors, [message], run.name)
         }
     }
 
@@ -114,6 +163,8 @@ final class CLIImportRunnerTranscriptTests: XCTestCase {
             trap 'exit \(run.status)' TERM
             cat '\(standardOutput.path)'
             cat '\(standardError.path)' >&2
+            # The shell's own note on the signal that ends its sleep is not the run's text.
+            exec 2>/dev/null
             touch '\(printed.path)'
             while true; do sleep 0.1; done
             """

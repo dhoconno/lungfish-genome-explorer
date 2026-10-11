@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
-import Darwin
 import LungfishKit
 import LungfishCore
 import LungfishIO
@@ -23,43 +22,22 @@ func performCLIOperationCenterUpdate(_ block: @escaping @MainActor @Sendable () 
     }
 }
 
-// MARK: - CLIImportEvent
-
-/// A parsed event type that mirrors the JSON events the CLI emits during FASTQ import.
-///
-/// The CLI process outputs one JSON line per event on stdout. Each line has an `"event"` field
-/// that determines the case, plus event-specific payload fields.
-public enum CLIImportEvent: Sendable {
-    case importStart(sampleCount: Int, recipeName: String?)
-    case sampleStart(sample: String, index: Int, total: Int, r1: String, r2: String?)
-    case stepStart(sample: String, step: String, stepIndex: Int, totalSteps: Int)
-    case stepComplete(sample: String, step: String, durationSeconds: Double)
-    case notice(sample: String, message: String)
-    case recipeReadDelta(
-        sample: String,
-        label: String,
-        inputReads: Int,
-        outputReads: Int,
-        readsRemoved: Int,
-        percentRemoved: Double
-    )
-    case sampleComplete(sample: String, bundle: String, durationSeconds: Double, originalBytes: Int64, finalBytes: Int64)
-    case sampleSkip(sample: String, reason: String)
-    case sampleFailed(sample: String, error: String)
-    case importComplete(completed: Int, skipped: Int, failed: Int, totalDurationSeconds: Double)
-}
-
 // MARK: - CLIImportRunner
 
-/// Manages a `lungfish-cli import fastq` subprocess, parsing its JSON progress events
-/// and forwarding them to ``OperationCenter`` for the Operations Panel display.
+/// Manages a `lungfish-cli import fastq` subprocess. It reads the command's
+/// version 2 events through ``CLISubprocessTransport`` and shows them on the
+/// operation's ``OperationCenter`` row in the Operations Panel.
+///
+/// Before Phase 2.7 the command printed a private stream, S1, that this actor
+/// parsed itself. The events now carry the texts and levels the row showed
+/// for S1 (`FASTQImportEventStream` in LungfishWorkflow, lane Q4).
 public actor CLIImportRunner {
 
-    /// Non-actor-isolated handle to the running process, used by ``cancel()``
-    /// so termination never has to wait for the actor's executor. It also
-    /// remembers a cancel that arrives before the launch, so the CLI is then
-    /// never launched.
-    private let cancellation = CLIRunCancellation()
+    /// Runs the CLI. Its ``CLISubprocessTransport/cancel()`` is non-isolated,
+    /// so ``cancel()`` never waits for this actor's executor, and it remembers
+    /// a cancel that arrives before the launch, so the CLI is then never
+    /// launched.
+    private let transport = CLISubprocessTransport()
 
     // MARK: - Static: Binary Resolution
 
@@ -189,121 +167,37 @@ public actor CLIImportRunner {
         ([CLICommandIdentity.executableName] + arguments).map { shellEscape($0) }.joined(separator: " ")
     }
 
-    /// The Operations row's line for a `notice` event of `import fastq`.
-    /// The Import FASTQ sheet logs its grouping's notices with it too, so a
-    /// notice reads the same whichever of the two logs it.
+    /// The Operations row's line for a notice of `import fastq`. The Import
+    /// FASTQ sheet logs its grouping's notices with it too, so a notice reads
+    /// the same whichever of the two logs it.
     nonisolated static func noticeLine(sample: String, message: String) -> String {
-        "\(sample) — \(message)"
-    }
-
-    // MARK: - Static: Event Parsing
-
-    /// Parses a single JSON line from the CLI stdout into a ``CLIImportEvent``.
-    ///
-    /// - Parameter line: A single line of CLI output.
-    /// - Returns: The parsed event, or `nil` for non-JSON lines or unknown event types.
-    /// - Throws: If JSON parsing fails on a line that starts with `{`.
-    public static func parseEvent(from line: String) throws -> CLIImportEvent? {
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("{") else { return nil }
-
-        guard let data = trimmed.data(using: .utf8),
-              let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let event = dict["event"] as? String else {
-            return nil
-        }
-
-        switch event {
-        case "importStart":
-            let sampleCount = dict["sampleCount"] as? Int ?? 0
-            let recipeName = dict["recipeName"] as? String
-            return .importStart(sampleCount: sampleCount, recipeName: recipeName)
-
-        case "sampleStart":
-            return .sampleStart(
-                sample: dict["sample"] as? String ?? "",
-                index: dict["index"] as? Int ?? 0,
-                total: dict["total"] as? Int ?? 0,
-                r1: dict["r1"] as? String ?? "",
-                r2: dict["r2"] as? String
-            )
-
-        case "stepStart":
-            return .stepStart(
-                sample: dict["sample"] as? String ?? "",
-                step: dict["step"] as? String ?? "",
-                stepIndex: dict["stepIndex"] as? Int ?? 0,
-                totalSteps: dict["totalSteps"] as? Int ?? 0
-            )
-
-        case "stepComplete":
-            return .stepComplete(
-                sample: dict["sample"] as? String ?? "",
-                step: dict["step"] as? String ?? "",
-                durationSeconds: dict["durationSeconds"] as? Double ?? 0
-            )
-
-        case "notice":
-            return .notice(
-                sample: dict["sample"] as? String ?? "",
-                message: dict["message"] as? String ?? ""
-            )
-
-        case "recipeReadDelta":
-            return .recipeReadDelta(
-                sample: dict["sample"] as? String ?? "",
-                label: dict["label"] as? String ?? "",
-                inputReads: dict["inputReads"] as? Int ?? 0,
-                outputReads: dict["outputReads"] as? Int ?? 0,
-                readsRemoved: dict["readsRemoved"] as? Int ?? 0,
-                percentRemoved: dict["percentRemoved"] as? Double ?? 0
-            )
-
-        case "sampleComplete":
-            return .sampleComplete(
-                sample: dict["sample"] as? String ?? "",
-                bundle: dict["bundle"] as? String ?? "",
-                durationSeconds: dict["durationSeconds"] as? Double ?? 0,
-                originalBytes: (dict["originalBytes"] as? NSNumber)?.int64Value ?? 0,
-                finalBytes: (dict["finalBytes"] as? NSNumber)?.int64Value ?? 0
-            )
-
-        case "sampleSkip":
-            return .sampleSkip(
-                sample: dict["sample"] as? String ?? "",
-                reason: dict["reason"] as? String ?? ""
-            )
-
-        case "sampleFailed":
-            return .sampleFailed(
-                sample: dict["sample"] as? String ?? "",
-                error: dict["error"] as? String ?? ""
-            )
-
-        case "importComplete":
-            return .importComplete(
-                completed: dict["completed"] as? Int ?? 0,
-                skipped: dict["skipped"] as? Int ?? 0,
-                failed: dict["failed"] as? Int ?? 0,
-                totalDurationSeconds: dict["totalDurationSeconds"] as? Double ?? 0
-            )
-
-        default:
-            logger.debug("Unknown CLI event type: \(event, privacy: .public)")
-            return nil
-        }
+        FASTQImportEventStream.noticeLine(sample: sample, message: message)
     }
 
     // MARK: - Instance: Run
 
-    /// Spawns the CLI process and streams its JSON events to ``OperationCenter``.
+    /// Spawns the CLI and shows its version 2 events on the operation's row.
+    ///
+    /// Each `progress` event sets the row's detail, and its fraction moves the
+    /// bar only forward. Each `log` event is logged at its level, and each line
+    /// of standard error, the command's human text, at info. The bundles come
+    /// from the `outputs` of `complete`, by the role of their artifacts, and are
+    /// handed to `onBundleCreated` once the run has succeeded. A run that fails
+    /// fails the row with the message of its `failed` line. After a cancel the
+    /// row is left to the caller, which ends it once its own cleanup has run.
+    ///
+    /// A CLI that printed no `start` line is not a `lungfish-cli` of this
+    /// release. An older one prints the private stream S1, which this runner
+    /// no longer reads, so the row fails with a message that names the
+    /// mismatch (plan decision T5 of Phase 2.7).
     ///
     /// - Parameters:
     ///   - arguments: CLI arguments (from ``buildCLIArguments``).
     ///   - operationID: The ``OperationCenter`` operation ID to update.
-    ///   - projectDirectory: Project directory for resolving bundle paths.
-    ///   - onBundleCreated: Called on the main actor when a sample bundle is created.
-    ///   - onError: Called on the main actor when an error occurs.
+    ///   - projectDirectory: The project the import writes into. The bundles
+    ///     are named by the CLI, so it is kept for the callers' signature.
+    ///   - onBundleCreated: Called with each bundle the import made.
+    ///   - onError: Called with the message of a failure or a cancel.
     public func run(
         arguments: [String],
         operationID: UUID,
@@ -331,234 +225,146 @@ public actor CLIImportRunner {
             MainActor.assumeIsolated {
                 _ = OperationCenter.shared.update(
                     id: opID,
-                    progress: 0.01,
+                    progress: Self.launchFraction,
                     detail: "Launching import pipeline\u{2026}"
                 )
             }
         }
-
-        // Mutable state shared across the @Sendable event callback.
-        final class StreamState: @unchecked Sendable {
-            var totalSamples = 1
-            var lastSampleFailure: String?
-        }
-        let state = OSAllocatedUnfairLock(initialState: StreamState())
-
-        @Sendable func handleStdoutLine(_ lineStr: String) {
-            do {
-                guard let event = try Self.parseEvent(from: lineStr) else { return }
-
-                switch event {
-                case let .importStart(sampleCount, _):
-                    state.withLock { $0.totalSamples = max(sampleCount, 1) }
-
-                case let .sampleStart(sample, index, total, _, _):
-                    let currentTotal = state.withLock { current -> Int in
-                        current.totalSamples = max(total, 1)
-                        return current.totalSamples
-                    }
-                    let progress = Double(index) / Double(currentTotal)
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.update(
-                                id: opID,
-                                progress: progress * 0.05,
-                                detail: "Importing \(sample) (\(index + 1)/\(currentTotal))"
-                            )
-                        }
-                    }
-
-                case let .stepStart(sample, step, stepIndex, totalSteps):
-                    // stepIndex is 1-based from the CLI
-                    let fraction = Double(stepIndex) / Double(max(1, totalSteps))
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.update(
-                                id: opID,
-                                progress: fraction * 0.80,
-                                detail: "\(sample): \(step)"
-                            )
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .info,
-                                message: "\(sample) — step \(stepIndex)/\(totalSteps): \(step)"
-                            )
-                        }
-                    }
-
-                case let .stepComplete(sample, step, durationSeconds):
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .info,
-                                message: "\(sample) — \(step) completed (\(String(format: "%.1f", durationSeconds))s)"
-                            )
-                        }
-                    }
-
-                case let .notice(sample, message):
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .warning,
-                                message: Self.noticeLine(sample: sample, message: message)
-                            )
-                        }
-                    }
-
-                case let .recipeReadDelta(sample, label, inputReads, outputReads, _, _):
-                    let summary = RecipeAppliedInfo.ReadDeltaSummary(
-                        inputReads: inputReads,
-                        outputReads: outputReads
-                    )
-                    let message = RecipeAppliedInfo.readDeltaLogLine(label, summary)
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .info,
-                                message: "\(sample) — \(message)"
-                            )
-                        }
-                    }
-
-                case let .sampleComplete(sample, bundle, _, _, _):
-                    let bundleURL = projectDirectory
-                        .appendingPathComponent("Imports")
-                        .appendingPathComponent(bundle)
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .info,
-                                message: "\(sample) — bundle created"
-                            )
-                        }
-                    }
-                    onBundleCreated(bundleURL)
-
-                case let .sampleSkip(sample, reason):
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .warning,
-                                message: "\(sample) skipped: \(reason)"
-                            )
-                        }
-                    }
-
-                case let .sampleFailed(sample, error):
-                    let failureSummary = "\(sample): \(error)"
-                    state.withLock { $0.lastSampleFailure = failureSummary }
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .error,
-                                message: "\(sample) failed: \(error)"
-                            )
-                        }
-                    }
-                    onError(failureSummary)
-
-                case let .importComplete(completed, skipped, failed, totalDurationSeconds):
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .info,
-                                message: "Import complete — \(completed) done, \(skipped) skipped, \(failed) failed (\(String(format: "%.1f", totalDurationSeconds))s)"
-                            )
-                        }
-                    }
-                }
-            } catch {
-                logger.warning("Failed to parse CLI event: \(error.localizedDescription, privacy: .public)")
-            }
-        }
-
-        // The output is read until end of file as the CLI writes it, so events
-        // reach OperationCenter as the CLI emits them, not after exit. A cancel
-        // gives the CLI `cleanupGrace` after SIGTERM to remove its staging
-        // folders before ToolProcess sends SIGKILL. A tool the CLI started that
-        // keeps the output open after the CLI exits is stopped half a second
-        // later, so it cannot hold the import slot.
-        let outcome = await CLIProcessLauncher.run(
-            CLIProcessLauncher.spec(
-                executableURL: binaryURL,
-                arguments: arguments,
-                terminationGracePeriod: Self.cleanupGrace,
-                drainGracePeriod: .milliseconds(500)
-            ),
-            cancellation: cancellation,
-            onStdoutLine: { line in
-                guard !line.isEmpty else { return }
-                handleStdoutLine(line)
-            }
-        )
-
-        let exit: CLIProcessExit
-        let cancelRequested: Bool
-        switch outcome {
-        case .exited(let finished):
-            exit = finished
-            cancelRequested = false
-        case .cancelled(let finished?):
-            exit = finished
-            cancelRequested = true
-        case .cancelled(nil):
-            // A cancel came before the launch, so nothing ran. The caller
+        if Task.isCancelled {
+            // A cancel came before the launch, so nothing runs. The caller
             // ends the operation as cancelled.
             logger.info("CLI import cancelled before launch")
             onError("Import cancelled before it started")
             return
-        case .launchFailed(let reason):
-            let msg = "Failed to launch CLI process: \(reason)"
-            logger.error("\(msg, privacy: .public)")
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.fail(id: opID, detail: msg, errorMessage: msg)
-                }
-            }
-            onError(msg)
-            return
         }
 
-        // Handle a non-zero exit, or an exit whose output a lingering child
-        // process cut short.
-        if !exit.succeeded {
-            let exitStatus = exit.status
-            let incompleteNote = exit.incompleteOutput
-            let snapshot = state.withLock { current in current.lastSampleFailure }
-            let stderrOutput = exit.stderr
-            let trimmedStderr = stderrOutput.trimmingCharacters(in: .whitespacesAndNewlines)
-            let exitSummary = exitStatus != 0 ? "CLI exited with status \(exitStatus)" : (incompleteNote ?? "")
-            let msg = snapshot ?? exitSummary
-            var detailParts = [exitSummary]
-            if exitStatus != 0, let incompleteNote { detailParts.append(incompleteNote) }
-            detailParts.append(trimmedStderr)
-            detailParts = detailParts.filter { !$0.isEmpty }
-            let errorDetail = detailParts.isEmpty ? nil : detailParts.joined(separator: "\n\n")
-            logger.error("\(exitSummary, privacy: .public): \(stderrOutput, privacy: .public)")
-            // After a cancel the caller ends the operation, once its own
-            // cleanup has run, so the row is not ended here first.
-            if !cancelRequested {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(
-                            id: opID,
-                            detail: msg,
-                            errorMessage: msg,
-                            errorDetail: errorDetail
-                        )
-                    }
+        // The run's events reach the row as the CLI writes them. A cancel
+        // gives the CLI `cleanupGrace` after SIGTERM to remove its staging
+        // folders before ToolProcess sends SIGKILL. A tool the CLI started that
+        // keeps the output open after the CLI exits is stopped half a second
+        // later, so it cannot hold the import slot.
+        let row = OSAllocatedUnfairLock(initialState: RowProgress(fraction: Self.launchFraction))
+        do {
+            let result = try await transport.run(
+                arguments: arguments,
+                terminationGracePeriod: Self.cleanupGrace,
+                drainGracePeriod: .milliseconds(500),
+                isCancelled: { Task.isCancelled },
+                onEvent: { event in Self.show(event, on: opID, row: row) }
+            )
+            for bundle in Self.bundleURLs(in: result) {
+                onBundleCreated(bundle)
+            }
+        } catch let error as CLISubprocessTransport.RunError {
+            let sawStart = row.withLock { $0.sawStart }
+            guard let failure = Self.failure(for: error, sawStart: sawStart, binaryURL: binaryURL) else {
+                // The import completed without making a bundle, as when it
+                // skipped every sample. The caller says no bundle was made.
+                return
+            }
+            logger.error("\(failure.message, privacy: .public)")
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    _ = OperationCenter.shared.fail(
+                        id: opID,
+                        detail: failure.message,
+                        errorMessage: failure.message,
+                        errorDetail: failure.detail
+                    )
                 }
             }
-            onError(msg)
+            onError(failure.message)
+        } catch {
+            // A cancel. The caller ends the operation, once its own cleanup
+            // has run, so the row is not ended here first.
+            logger.info("CLI import cancelled")
+            onError("Import cancelled")
         }
+    }
+
+    /// Where the bar stands while the CLI launches. The bar never falls below it.
+    static let launchFraction = 0.01
+
+    /// What the row has shown of one run.
+    struct RowProgress {
+        var fraction: Double
+        var sawStart = false
+    }
+
+    /// Shows one event on the row. The command gives each event the text and
+    /// level the row shows, and the bar only moves forward.
+    static func show(_ event: CLIEvent, on id: UUID, row: OSAllocatedUnfairLock<RowProgress>) {
+        switch event {
+        case .start:
+            row.withLock { $0.sawStart = true }
+        case let .progress(fraction, message):
+            let shown = row.withLock { state -> Double in
+                state.fraction = max(state.fraction, fraction)
+                return state.fraction
+            }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    _ = OperationCenter.shared.update(id: id, progress: shown, detail: message)
+                }
+            }
+        case let .log(level, message):
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    OperationCenter.shared.log(id: id, level: level.importRowLevel, message: message)
+                }
+            }
+        case .output, .complete, .failed:
+            break
+        }
+    }
+
+    /// The bundles a completed import made, read from `outputs` by the role
+    /// of their artifacts. A completion without artifacts names bundles only.
+    static func bundleURLs(in result: CLISubprocessTransport.Result) -> [URL] {
+        let bundles = Set(result.artifacts.filter { $0.role == CLIEventArtifact.Role.bundle }.map(\.path))
+        return result.outputs
+            .filter { result.artifacts.isEmpty || bundles.contains($0) }
+            .map { URL(fileURLWithPath: $0) }
+    }
+
+    /// What the row and the caller show for a run that did not complete.
+    struct Failure: Equatable {
+        let message: String
+        let detail: String?
+    }
+
+    /// The failure of a run, or nil for an import that completed and named no
+    /// bundle, as one that skipped every sample does.
+    static func failure(for error: CLISubprocessTransport.RunError, sawStart: Bool, binaryURL: URL) -> Failure? {
+        switch error {
+        case let .failedEvent(message, detail):
+            return Failure(message: message, detail: detail)
+        case .missingCompletion:
+            return sawStart ? nil : mismatch(binaryURL, detail: nil)
+        case let .nonZeroExit(status, standardError):
+            let text = standardError.trimmingCharacters(in: .whitespacesAndNewlines)
+            // A clean exit fails only when a child process kept the output
+            // open, and the transport ends the text with that reason.
+            let message = status == 0
+                ? (text.split(separator: "\n").last.map(String.init) ?? "lungfish-cli did not finish its output")
+                : "CLI exited with status \(status)"
+            let detail = status == 0 ? text : [message, text].filter { !$0.isEmpty }.joined(separator: "\n\n")
+            return sawStart ? Failure(message: message, detail: detail) : mismatch(binaryURL, detail: detail)
+        case .cliNotFound:
+            return Failure(message: "lungfish-cli binary not found", detail: nil)
+        case let .launchFailed(reason):
+            return Failure(message: "Failed to launch CLI process: \(reason)", detail: nil)
+        }
+    }
+
+    /// The failure of a CLI that printed no version 2 event, such as an older
+    /// `lungfish-cli` that prints the private stream S1.
+    static func mismatch(_ binaryURL: URL, detail: String?) -> Failure {
+        Failure(
+            message: "The lungfish-cli at \(binaryURL.path) did not report the import in the version 2 events this app "
+                + "reads, so it is likely older than the app. Run the import with the lungfish-cli that came with this app.",
+            detail: detail
+        )
     }
 
     // MARK: - Instance: Cancel
@@ -573,13 +379,25 @@ public actor CLIImportRunner {
     ///
     /// Deliberately `nonisolated`: it must be callable — and must complete —
     /// even while `run()` is suspended awaiting the process. It goes through
-    /// ``cancellation`` rather than actor-isolated state, so cancellation
-    /// never has to wait in line behind the very operation it is trying to
-    /// stop. It returns at once. The CLI and its descendants get SIGTERM, and
-    /// the CLI has ``cleanupGrace`` to clean up and exit. ToolProcess
-    /// then kills whatever is left.
+    /// the transport's own cancellation rather than actor-isolated state, so
+    /// cancellation never has to wait in line behind the very operation it is
+    /// trying to stop. It returns at once. The CLI and its descendants get
+    /// SIGTERM, and the CLI has ``cleanupGrace`` to clean up and exit.
+    /// ToolProcess then kills whatever is left.
     public nonisolated func cancel() {
         logger.info("Terminating CLI process tree")
-        cancellation.cancel()
+        transport.cancel()
+    }
+}
+
+private extension CLIEventLogLevel {
+    /// The level the row logs an event at, the level the command gave it.
+    var importRowLevel: OperationLogLevel {
+        switch self {
+        case .debug: return .debug
+        case .info: return .info
+        case .warning: return .warning
+        case .error: return .error
+        }
     }
 }

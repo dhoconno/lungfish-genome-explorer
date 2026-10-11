@@ -59,156 +59,16 @@ final class CLIImportRunnerTests: XCTestCase {
     }
 
 
-    // MARK: - Event Parsing Tests
-
-    func testParseImportStartEvent() throws {
-        let json = """
-        {"event":"importStart","sampleCount":3,"recipeName":"vsp2","timestamp":"2026-04-04T10:00:00Z"}
-        """
-        let event = try XCTUnwrap(CLIImportRunner.parseEvent(from: json))
-        guard case let .importStart(sampleCount, recipeName) = event else {
-            return XCTFail("Expected importStart, got \(event)")
-        }
-        XCTAssertEqual(sampleCount, 3)
-        XCTAssertEqual(recipeName, "vsp2")
-    }
-
-    func testParseSampleStartEvent() throws {
-        let json = """
-        {"event":"sampleStart","sample":"Sample1","index":0,"total":3,"r1":"/path/r1.fastq.gz","r2":"/path/r2.fastq.gz","timestamp":"2026-04-04T10:00:00Z"}
-        """
-        let event = try XCTUnwrap(CLIImportRunner.parseEvent(from: json))
-        guard case let .sampleStart(sample, index, total, r1, r2) = event else {
-            return XCTFail("Expected sampleStart, got \(event)")
-        }
-        XCTAssertEqual(sample, "Sample1")
-        XCTAssertEqual(index, 0)
-        XCTAssertEqual(total, 3)
-        XCTAssertEqual(r1, "/path/r1.fastq.gz")
-        XCTAssertEqual(r2, "/path/r2.fastq.gz")
-    }
-
-    func testParseStepStartEvent() throws {
-        let json = """
-        {"event":"stepStart","sample":"Sample1","step":"Remove PCR duplicates","stepIndex":1,"totalSteps":5,"timestamp":"2026-04-04T10:00:00Z"}
-        """
-        let event = try XCTUnwrap(CLIImportRunner.parseEvent(from: json))
-        guard case let .stepStart(sample, step, stepIndex, totalSteps) = event else {
-            return XCTFail("Expected stepStart, got \(event)")
-        }
-        XCTAssertEqual(sample, "Sample1")
-        XCTAssertEqual(step, "Remove PCR duplicates")
-        XCTAssertEqual(stepIndex, 1)
-        XCTAssertEqual(totalSteps, 5)
-    }
-
-    func testParseStepCompleteEvent() throws {
-        let json = """
-        {"event":"stepComplete","sample":"Sample1","step":"Remove PCR duplicates","durationSeconds":12.5,"timestamp":"2026-04-04T10:00:05Z"}
-        """
-        let event = try XCTUnwrap(CLIImportRunner.parseEvent(from: json))
-        guard case let .stepComplete(sample, step, durationSeconds) = event else {
-            return XCTFail("Expected stepComplete, got \(event)")
-        }
-        XCTAssertEqual(sample, "Sample1")
-        XCTAssertEqual(step, "Remove PCR duplicates")
-        XCTAssertEqual(durationSeconds, 12.5)
-    }
-
-    func testParseRecipeReadDeltaEvent() throws {
-        let json = """
-        {"event":"recipeReadDelta","sample":"Sample1","label":"Deduplication","inputReads":1000000,"outputReads":720000,"readsRemoved":280000,"percentRemoved":28.0,"timestamp":"2026-04-04T10:00:05Z"}
-        """
-        let event = try XCTUnwrap(CLIImportRunner.parseEvent(from: json))
-        guard case let .recipeReadDelta(sample, label, inputReads, outputReads, readsRemoved, percentRemoved) = event else {
-            return XCTFail("Expected recipeReadDelta, got \(event)")
-        }
-        XCTAssertEqual(sample, "Sample1")
-        XCTAssertEqual(label, "Deduplication")
-        XCTAssertEqual(inputReads, 1_000_000)
-        XCTAssertEqual(outputReads, 720_000)
-        XCTAssertEqual(readsRemoved, 280_000)
-        XCTAssertEqual(percentRemoved, 28.0, accuracy: 0.001)
-    }
-
-    func testParseSampleCompleteEvent() throws {
-        let json = """
-        {"event":"sampleComplete","sample":"Sample1","bundle":"/project/Sample1.lungfishfastq","durationSeconds":45.2,"originalBytes":1048576,"finalBytes":524288,"timestamp":"2026-04-04T10:01:00Z"}
-        """
-        let event = try XCTUnwrap(CLIImportRunner.parseEvent(from: json))
-        guard case let .sampleComplete(sample, bundle, durationSeconds, originalBytes, finalBytes) = event else {
-            return XCTFail("Expected sampleComplete, got \(event)")
-        }
-        XCTAssertEqual(sample, "Sample1")
-        XCTAssertEqual(bundle, "/project/Sample1.lungfishfastq")
-        XCTAssertEqual(durationSeconds, 45.2)
-        XCTAssertEqual(originalBytes, 1_048_576)
-        XCTAssertEqual(finalBytes, 524_288)
-    }
-
-    func testParseSampleFailedEvent() throws {
-        let json = """
-        {"event":"sampleFailed","sample":"Sample2","error":"Input file not found","timestamp":"2026-04-04T10:01:00Z"}
-        """
-        let event = try XCTUnwrap(CLIImportRunner.parseEvent(from: json))
-        guard case let .sampleFailed(sample, error) = event else {
-            return XCTFail("Expected sampleFailed, got \(event)")
-        }
-        XCTAssertEqual(sample, "Sample2")
-        XCTAssertEqual(error, "Input file not found")
-    }
-
-    func testParseImportCompleteEvent() throws {
-        let json = """
-        {"event":"importComplete","completed":2,"skipped":0,"failed":1,"totalDurationSeconds":120.7,"timestamp":"2026-04-04T10:02:00Z"}
-        """
-        let event = try XCTUnwrap(CLIImportRunner.parseEvent(from: json))
-        guard case let .importComplete(completed, skipped, failed, totalDurationSeconds) = event else {
-            return XCTFail("Expected importComplete, got \(event)")
-        }
-        XCTAssertEqual(completed, 2)
-        XCTAssertEqual(skipped, 0)
-        XCTAssertEqual(failed, 1)
-        XCTAssertEqual(totalDurationSeconds, 120.7)
-    }
-
-    func testParseNonJSONLineReturnsNil() throws {
-        let line = "INFO: Starting import pipeline..."
-        let event = try CLIImportRunner.parseEvent(from: line)
-        XCTAssertNil(event)
-    }
-
-    func testParseSampleSkipEvent() throws {
-        let json = """
-        {"event":"sampleSkip","sample":"Sample3","reason":"Bundle already exists","timestamp":"2026-04-04T10:00:30Z"}
-        """
-        let event = try XCTUnwrap(CLIImportRunner.parseEvent(from: json))
-        guard case let .sampleSkip(sample, reason) = event else {
-            return XCTFail("Expected sampleSkip, got \(event)")
-        }
-        XCTAssertEqual(sample, "Sample3")
-        XCTAssertEqual(reason, "Bundle already exists")
-    }
-
-    func testParseNoticeEvent() throws {
-        let json = """
-        {"event":"notice","sample":"Sample1","message":"Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads.","timestamp":"2026-08-10T10:00:00Z"}
-        """
-        let event = try XCTUnwrap(CLIImportRunner.parseEvent(from: json))
-        guard case let .notice(sample, message) = event else {
-            return XCTFail("Expected notice, got \(event)")
-        }
-        XCTAssertEqual(sample, "Sample1")
-        XCTAssertEqual(message, "Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads.")
-    }
+    // MARK: - Events
 
     func testRunForwardsNoticeEventToOperationCenter() async throws {
         let tempDir = try makeTemporaryDirectory()
         let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")
         try """
         #!/bin/sh
-        echo '{"event":"notice","sample":"Sample1","message":"Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads."}'
-        echo '{"event":"importComplete","completed":1,"skipped":0,"failed":0,"totalDurationSeconds":0.01}'
+        echo '{"event":"start","message":"Starting FASTQ import","progress":0,"schemaVersion":2}'
+        echo '{"event":"log","level":"warning","message":"Sample1 — Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads.","schemaVersion":2}'
+        echo '{"event":"complete","outputs":["/project/Imports/Sample1.lungfishfastq"],"schemaVersion":2}'
         """.write(to: fakeCLI, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
 
@@ -246,7 +106,8 @@ final class CLIImportRunnerTests: XCTestCase {
             OperationCenter.shared.items.first { $0.id == operationID }
         }
         XCTAssertTrue(item?.logEntries.contains {
-            $0.message.contains("Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads.")
+            $0.level == .warning
+                && $0.message == "Sample1 — Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads."
         } == true)
     }
 
@@ -482,7 +343,7 @@ final class CLIImportRunnerTests: XCTestCase {
         let script = """
         #!/bin/sh
         /bin/sh -c 'trap "" TERM HUP INT; echo $$ > "$LUNGFISH_TEST_CHILD_PID_FILE"; while true; do sleep 1; done' &
-        echo '{"event":"importStart","sampleCount":1,"recipeName":"test"}'
+        echo '{"event":"start","message":"Starting FASTQ import","progress":0,"schemaVersion":2}'
         while true; do sleep 1; done
         """
         try script.write(to: fakeCLI, atomically: true, encoding: .utf8)
@@ -553,10 +414,10 @@ final class CLIImportRunnerTests: XCTestCase {
         let structuredError = "Recipe 'Illumina Amplicon Merge' cannot be applied to sample 'Solo': requires paired-end reads (R1 and R2), but only R1 was detected."
         let script = """
         #!/bin/sh
-        echo '{"event":"importStart","sampleCount":1,"recipeName":"Illumina Amplicon Merge"}'
-        echo '{"event":"sampleStart","sample":"Solo","index":0,"total":1,"r1":"Solo_R1.fastq"}'
-        echo '{"event":"sampleFailed","sample":"Solo","error":"\(structuredError)"}'
-        echo '{"event":"importComplete","completed":0,"skipped":0,"failed":1,"totalDurationSeconds":0.01}'
+        echo '{"event":"start","message":"Starting FASTQ import","progress":0,"schemaVersion":2}'
+        echo '{"event":"progress","message":"Importing Solo (1/1)","progress":0,"schemaVersion":2}'
+        echo '{"event":"log","level":"error","message":"Solo failed: \(structuredError)","schemaVersion":2}'
+        echo '{"error":"Solo: \(structuredError)","event":"failed","schemaVersion":2}'
         exit 64
         """
         try script.write(to: fakeCLI, atomically: true, encoding: .utf8)
@@ -618,11 +479,10 @@ final class CLIImportRunnerTests: XCTestCase {
         let script = """
         #!/bin/sh
         /bin/sh -c 'echo $$ > "$LUNGFISH_TEST_CHILD_PID_FILE"; sleep 60' &
-        echo '{"event":"importStart","sampleCount":1,"recipeName":"test"}'
-        echo '{"event":"sampleStart","sample":"Sample1","index":0,"total":1,"r1":"Sample1_R1.fastq.gz"}'
-        echo '{"event":"stepStart","sample":"Sample1","step":"Compute statistics","stepIndex":1,"totalSteps":1}'
-        echo '{"event":"sampleComplete","sample":"Sample1","bundle":"Sample1.lungfishfastq","durationSeconds":0.1,"originalBytes":10,"finalBytes":5}'
-        echo '{"event":"importComplete","completed":1,"skipped":0,"failed":0,"totalDurationSeconds":0.1}'
+        echo '{"event":"start","message":"Starting FASTQ import","progress":0,"schemaVersion":2}'
+        echo '{"event":"progress","message":"Sample1: Compute statistics","progress":0.8,"schemaVersion":2}'
+        echo '{"event":"log","level":"info","message":"Sample1 — bundle created","schemaVersion":2}'
+        echo '{"artifacts":[{"kind":"fastq","path":"/project/Imports/Sample1.lungfishfastq","role":"bundle"}],"event":"complete","outputs":["/project/Imports/Sample1.lungfishfastq"],"schemaVersion":2}'
         exit 0
         """
         try script.write(to: fakeCLI, atomically: true, encoding: .utf8)
@@ -695,7 +555,13 @@ final class CLIImportRunnerTests: XCTestCase {
             returnedBeforeTimeout,
             "CLIImportRunner should return when the parent lungfish-cli exits, even if a descendant still holds stdout open"
         )
-        XCTAssertTrue(bundles.snapshot().contains("Sample1.lungfishfastq"))
+        // The output a child process kept open is incomplete, so the run fails, as ToolProcess fails
+        // any run whose output it could not finish reading, and no bundle is handed over. The S1
+        // runner failed the row the same way but had handed the bundle over as the sample finished.
+        XCTAssertEqual(bundles.snapshot(), [])
+        let item = await MainActor.run { OperationCenter.shared.items.first { $0.id == operationID } }
+        XCTAssertEqual(item?.state, .failed)
+        XCTAssertTrue(item?.errorMessage?.contains("a child process kept it open") == true, String(describing: item?.errorMessage))
     }
 
     func testResolveCLIPathPrefersBundledSiblingExecutable() throws {

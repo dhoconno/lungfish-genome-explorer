@@ -67,7 +67,8 @@ final class SRAWindowImportLeftoversTests: XCTestCase {
         #!/bin/sh
         touch "\(marker.path)"
         mkdir -p "\(imports.path)/\(Self.run).lungfishfastq"
-        echo '{"event":"sampleComplete","sample":"\(Self.run)","bundle":"\(Self.run).lungfishfastq","durationSeconds":0.1,"originalBytes":1,"finalBytes":1}'
+        echo '{"event":"start","message":"Starting FASTQ import","progress":0,"schemaVersion":2}'
+        echo '{"event":"complete","outputs":["\(imports.path)/\(Self.run).lungfishfastq"],"schemaVersion":2}'
         """)
         let outcome = await importRun(cancelledFirst: true)
 
