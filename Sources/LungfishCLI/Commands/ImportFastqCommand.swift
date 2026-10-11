@@ -237,6 +237,11 @@ extension ImportCommand {
                         }
                     } catch let batchError as BatchImportError {
                         throw reporter.fail(batchError.errorDescription ?? batchError.localizedDescription, exitCode: .inputError)
+                    } catch {
+                        // Any other error of the scan, such as a folder this user may not list, still ends the
+                        // run in a failed line. ArgumentParser reports the error as before.
+                        reporter.failedEvent(error.localizedDescription)
+                        throw error
                     }
                 } else {
                     guard exists else {
@@ -353,6 +358,9 @@ extension ImportCommand {
                     oldRecipe = resolvedRecipe.legacyRecipe
                 } catch let batchError as BatchImportError {
                     throw reporter.fail(batchError.errorDescription ?? batchError.localizedDescription, exitCode: .inputError)
+                } catch {
+                    reporter.failedEvent(error.localizedDescription)
+                    throw error
                 }
             }
 

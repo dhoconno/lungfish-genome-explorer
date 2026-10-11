@@ -73,14 +73,61 @@ final class ImportFastqEventStreamTests: XCTestCase {
         ])
     }
 
+    /// The scan of an input folder can fail with an error that is not a `BatchImportError`, such as a
+    /// folder this user may not list. The run has printed `start` by then, so it still ends in one
+    /// `failed` line that holds the error (finding 1 of the Q4 review).
+    func testAFolderTheScanCannotReadEndsInOneFailedLine() async throws {
+        let scratch = try ImportStreamCapture.Scratch()
+        defer { scratch.remove() }
+        let folder = try Self.unreadableFolder(in: scratch)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path) }
+        try XCTSkipIf(FileManager.default.isReadableFile(atPath: folder.path), "this user can list a folder with no permissions")
+
+        let output = try await Self.run([folder.path], in: scratch)
+
+        let thrown = try XCTUnwrap(output.thrown, "the error still reaches ArgumentParser")
+        XCTAssertEqual(try Self.events(output).map(\.event), [
+            .start(message: "Starting FASTQ import"),
+            .failed(message: scratch.normalized(thrown.localizedDescription), detail: nil),
+        ])
+    }
+
+    /// The same run in text mode prints nothing before the error, as at the base, so the added `failed`
+    /// line belongs to `--format json` alone.
+    func testAFolderTheScanCannotReadPrintsNothingInTextMode() async throws {
+        let scratch = try ImportStreamCapture.Scratch()
+        defer { scratch.remove() }
+        let folder = try Self.unreadableFolder(in: scratch)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path) }
+        try XCTSkipIf(FileManager.default.isReadableFile(atPath: folder.path), "this user can list a folder with no permissions")
+
+        let output = try await Self.run([folder.path], in: scratch, json: false)
+
+        XCTAssertNotNil(output.thrown, "the error still reaches ArgumentParser")
+        XCTAssertEqual(output.standardOutput, [])
+        XCTAssertEqual(output.standardError, [])
+    }
+
     // MARK: Helpers
 
-    private static func run(_ arguments: [String], in scratch: ImportStreamCapture.Scratch) async throws -> ImportStreamCapture.Output {
+    private static func run(
+        _ arguments: [String],
+        in scratch: ImportStreamCapture.Scratch,
+        json: Bool = true
+    ) async throws -> ImportStreamCapture.Output {
         let command = try ImportCommand.FastqSubcommand.parse(arguments + [
             "--project", scratch.project.path, "--platform", "illumina", "--quality-binning", "none",
-            "--no-optimize-storage", "--no-color", "--threads", "2", "--format", "json",
-        ])
+            "--no-optimize-storage", "--no-color", "--threads", "2",
+        ] + (json ? ["--format", "json"] : []))
         return try await ImportStreamCapture.capture(in: scratch) { try await command.run() }
+    }
+
+    /// A folder with no permissions, which exists but cannot be listed.
+    private static func unreadableFolder(in scratch: ImportStreamCapture.Scratch) throws -> URL {
+        let folder = scratch.root.appendingPathComponent("locked", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: folder.path)
+        return folder
     }
 
     /// Every line of standard output, each a version 2 event.
