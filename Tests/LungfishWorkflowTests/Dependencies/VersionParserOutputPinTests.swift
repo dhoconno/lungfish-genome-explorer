@@ -64,7 +64,7 @@ final class VersionParserOutputPinTests: XCTestCase {
         items.joined(separator: "\n") + "\n"
     }
 
-    // MARK: - Clean outputs, both parsers right
+    // MARK: - Clean outputs, both entry points right
 
     private static let clean: [Capture] = [
         Capture(name: "samtools", exitCode: 0,
@@ -139,8 +139,7 @@ final class VersionParserOutputPinTests: XCTestCase {
         Capture(name: "fasterq-dump", exitCode: 0,
                 stdout: "\(root)/envs/sra-tools/bin/fasterq-dump : 3.4.1\n\n", stderr: "",
                 native: "3.4.1", detect: "3.4.1", correct: "3.4.1"),
-        // Right for the wrong reason in the native parser, which reads 40.02 out of the bbmap-40.02-0
-        // install directory in the echoed java line. The detect parser skips the path and reads the banner.
+        // Every entry point skips the echoed java command and the install path in it, so each reads the banner.
         Capture(name: "reformat.sh", exitCode: 0, stdout: "",
                 stderr: "java -ea   -Xmx300m -Xms300m -cp \(root)/envs/bbtools/opt/bbmap-40.02-0/current/ jgi.ReformatReads --version\n"
                     + "BBTools version 40.02\nFor help, please run the shellscript with no parameters, or look in /docs/.\n",
@@ -306,7 +305,7 @@ final class VersionParserOutputPinTests: XCTestCase {
                 native: "2.5.5", detect: "2.5.5", correct: "2.5.5",
                 storageRoot: "/Volumes/Lab 2.0 Disk/conda"),
         // vsearch prints its citation and a zlib line on stdout and its banner on stderr. A token written
-        // v2.31.0 is the tool naming its own version, so both parsers prefer it to a bare number such as
+        // v2.31.0 is the tool naming its own version, so both entry points prefer it to a bare number such as
         // zlib's 1.2.12 or a DOI (2.6). The real output from the owner's install, which the golden
         // environment lacks.
         Capture(name: "vsearch citation", exitCode: 0,
@@ -396,7 +395,7 @@ final class VersionParserOutputPinTests: XCTestCase {
     /// Phases 2.6 and 2.7 moved their rows out. The bwa-mem2 and Bracken banners name a version the
     /// package does not run.
     private static let knownDefects: [Capture] = [
-        // The installed 2.3 build prints a stale 2.2.1 from the version subcommand, so both parsers
+        // The installed 2.3 build prints a stale 2.2.1 from the version subcommand, so both entry points
         // read a version the package does not have. Only conda-meta says 2.3 (the lock pin). The
         // mapping pipeline reads conda-meta for bwa-mem2 since 2.6 (`MappingToolVersionProbe`), so
         // nothing parses this output in production, and the row stays to show why.
@@ -429,7 +428,7 @@ final class VersionParserOutputPinTests: XCTestCase {
         for capture in Self.knownDefects {
             XCTAssertTrue(
                 capture.native != capture.correct || capture.detect != capture.correct,
-                "\(capture.name) is listed as a defect but both parsers return \(capture.correct)"
+                "\(capture.name) is listed as a defect but both entry points return \(capture.correct)"
             )
         }
     }

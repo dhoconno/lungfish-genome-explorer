@@ -214,7 +214,7 @@ public struct ProbeVersionReading: Sendable, Hashable {
     }
 }
 
-/// The one rule that reads a tool version out of a version probe's output.
+/// The rule that the three version probe call sites share.
 ///
 /// Every call site reads a probe through `reading(exitCode:stdout:stderr:storageRoot:)`. They are
 /// `detectToolVersion` (by way of `parseToolVersion(from:)`), `NativeToolRunner.parseVersionProbe`
