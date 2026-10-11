@@ -570,7 +570,9 @@ public struct ONTGenotypingPipeline: Sendable {
                 wallTimeSeconds: sampleResult.filterResult.wallClockSeconds,
                 stderr: sampleResult.filterResult.stderr.isEmpty ? nil : sampleResult.filterResult.stderr,
                 startedAt: startedAt,
-                completedAt: completedAt
+                completedAt: completedAt,
+                managedToolID: Self.pysamID,
+                toolVersionEvidence: Self.pysamVersionEvidence
             ))
         }
 
