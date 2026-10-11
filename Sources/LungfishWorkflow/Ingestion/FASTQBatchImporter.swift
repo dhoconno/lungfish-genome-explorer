@@ -1383,7 +1383,7 @@ public enum FASTQBatchImporter {
         SequencingReadImportSource.isBAM(url) ? .bam : .fastq
     }
 
-    private static func rewriteStagedBundlePaths(
+    static func rewriteStagedBundlePaths(
         in envelope: ProvenanceEnvelope,
         stagingBundleURL: URL,
         publishedBundleURL: URL
