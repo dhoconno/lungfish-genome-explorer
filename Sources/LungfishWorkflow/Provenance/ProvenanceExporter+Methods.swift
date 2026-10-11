@@ -2,10 +2,14 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// The methods export writes one sentence for each tool. The first table here gives the sentence its
-// subject, what the tool did, and the second lists the parameters worth reporting after "with", each as
-// a noun phrase that reads after that word. Both match on the program token, the first word of the
-// recorded tool name without its folder, so a step named `samtools sort` reaches the samtools arm.
+// The methods export writes one sentence for each tool. Its subject, what the tool did, comes from the table
+// `methodsSubjects` for a program that did the same thing whatever subcommand ran, and from an arm of
+// `methodsOperation` for the four that did not. The parameters worth reporting after "with", each as a noun
+// phrase that reads after that word, come from the flag arms of `extractKeyParameters`, and from the table
+// `methodsParameterLists` for the programs whose flags those arms would read as another tool's. Both tables
+// are keyed by program token, the first word of the recorded tool name without its folder, so a step named
+// `samtools sort` reaches the samtools arm. The keys are executable names from a recorded command. They are
+// not analysis ids, and neither tool registry is their home.
 
 import Foundation
 
@@ -13,7 +17,9 @@ extension ProvenanceExporter {
     /// The subject of a tool's methods sentence.
     func methodsOperation(tool: String, subcommands: [String]) -> String {
         let verbs = Set(subcommands.map { $0.split(separator: " ").last.map(String.init) ?? "" })
-        switch Self.methodsProgram(of: tool) {
+        let program = Self.methodsProgram(of: tool)
+        // These four programs do different things by subcommand. Every other program has one subject.
+        switch program {
         case "bcftools":
             if verbs.contains("mpileup") || verbs.contains("call") {
                 return verbs.contains("view") || verbs.contains("filter")
@@ -25,28 +31,6 @@ extension ProvenanceExporter {
             if verbs.contains("sort") || verbs.contains("index") { return "Alignments were filtered, sorted and indexed" }
             if verbs.contains("faidx") { return "The reference was indexed" }
             return "Alignments were processed"
-        case "bgzip": return "Files were block-compressed"
-        case "tabix": return "Compressed files were indexed"
-        case "bedtobigbed": return "BED files were converted to BigBed"
-        case "bedgraphtobigwig": return "Signal tracks were converted to BigWig"
-        case "fastp": return "Reads were quality-filtered and trimmed"
-        case "fastqc": return "Read quality was assessed"
-        case "multiqc": return "Quality reports were aggregated"
-        case "bwa", "bwa-mem2": return "Reads were aligned"
-        case "minimap2": return "Reads were mapped to the reference"
-        case "spades", "spades.py": return "Reads were assembled de novo"
-        case "seqkit": return "Sequences were summarized"
-        case "vsearch": return "Sequences were clustered"
-        case "cutadapt": return "Adapters were trimmed"
-        case "bbduk.sh", "bbduk": return "Reads were quality-filtered and adapters removed"
-        case "bbmerge.sh", "bbmerge": return "Paired reads were merged"
-        case "clumpify.sh", "clumpify": return "Reads were clumped and deduplicated"
-        case "pigz", "gzip": return "Files were compressed"
-        case "kraken2": return "Reads were classified taxonomically"
-        case "bracken": return "Taxon abundances were re-estimated"
-        case "esviritu": return "Viral sequences were detected"
-        case "mafft": return "Sequences were aligned"
-        case "iqtree", "iqtree2", "iqtree3": return "A phylogeny was inferred"
         case "lofreq":
             // `indelqual` and `index` only prepare the alignment for `call`.
             let calls = verbs.isEmpty || verbs.contains("call") || verbs.contains("call-parallel")
@@ -54,23 +38,52 @@ extension ProvenanceExporter {
         case "ivar":
             // `trim` and `consensus` call no variants.
             return verbs.isEmpty || verbs.contains("variants") ? "Variants were called" : "Processing was performed"
-        default: return "Processing was performed"
+        default: return Self.methodsSubjects[program] ?? "Processing was performed"
         }
     }
+
+    /// What a program did, for the programs whose sentence does not depend on the subcommand that ran.
+    /// The keys are program tokens (`methodsProgram(of:)`), executable names from a recorded command,
+    /// not analysis ids. A program with two spellings has a key for each.
+    private static let methodsSubjects: [String: String] = [
+        "bgzip": "Files were block-compressed",
+        "tabix": "Compressed files were indexed",
+        "bedtobigbed": "BED files were converted to BigBed",
+        "bedgraphtobigwig": "Signal tracks were converted to BigWig",
+        "fastp": "Reads were quality-filtered and trimmed",
+        "fastqc": "Read quality was assessed",
+        "multiqc": "Quality reports were aggregated",
+        "bwa": "Reads were aligned",
+        "bwa-mem2": "Reads were aligned",
+        "minimap2": "Reads were mapped to the reference",
+        "spades": "Reads were assembled de novo",
+        "spades.py": "Reads were assembled de novo",
+        "seqkit": "Sequences were summarized",
+        "vsearch": "Sequences were clustered",
+        "cutadapt": "Adapters were trimmed",
+        "bbduk.sh": "Reads were quality-filtered and adapters removed",
+        "bbduk": "Reads were quality-filtered and adapters removed",
+        "bbmerge.sh": "Paired reads were merged",
+        "bbmerge": "Paired reads were merged",
+        "clumpify.sh": "Reads were clumped and deduplicated",
+        "clumpify": "Reads were clumped and deduplicated",
+        "pigz": "Files were compressed",
+        "gzip": "Files were compressed",
+        "kraken2": "Reads were classified taxonomically",
+        "bracken": "Taxon abundances were re-estimated",
+        "esviritu": "Viral sequences were detected",
+        "mafft": "Sequences were aligned",
+        "iqtree": "A phylogeny was inferred",
+        "iqtree2": "A phylogeny was inferred",
+        "iqtree3": "A phylogeny was inferred",
+    ]
 
     /// The parameters worth a methods sentence, from one command, each as a
     /// noun phrase that reads after "with" (`a minimum mapping quality of
     /// 20`, `secondary alignments (flag 256) excluded`).
     func extractKeyParameters(tool: String, argv: [String]) -> [String] {
         let toolName = Self.methodsProgram(of: tool)
-        // These tools take flags the general arms below read as another tool's (`-q`, `-l`), so each has
-        // its own list.
-        switch toolName {
-        case "kraken2": return Self.kraken2Parameters(argv)
-        case "bracken": return Self.brackenParameters(argv)
-        case "esviritu": return Self.esVirituParameters(argv)
-        default: break
-        }
+        if let list = Self.methodsParameterLists[toolName] { return list(argv) }
         var params: [String] = []
         var index = 1
         while index < argv.count {
@@ -106,6 +119,14 @@ extension ProvenanceExporter {
         }
         return params
     }
+
+    /// The programs whose flags the general arms of `extractKeyParameters` would read as another tool's
+    /// (`-q`, `-l`), each with its own list. The keys are program tokens, not analysis ids.
+    private static let methodsParameterLists: [String: @Sendable ([String]) -> [String]] = [
+        "kraken2": { ProvenanceExporter.kraken2Parameters($0) },
+        "bracken": { ProvenanceExporter.brackenParameters($0) },
+        "esviritu": { ProvenanceExporter.esVirituParameters($0) },
+    ]
 
     /// `(FORMAT/AD[0:1])/(FORMAT/AD[0:0]+FORMAT/AD[0:1])>=0.05 && FORMAT/DP>=10`
     /// as the thresholds a reader wants.
