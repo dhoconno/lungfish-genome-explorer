@@ -1,0 +1,7 @@
+{"event":"progress","message":"Preparing ONT Fluidigm sample split.","operation":"ontFluidigmSamples","progress":0.02}
+{"event":"progress","message":"Found 1 ONT FASTQ chunk.","operation":"ontFluidigmSamples","progress":0.080000000000000002}
+{"event":"progress","message":"Scanning chunk 1\/1: barcode11.fastq","operation":"ontFluidigmSamples","progress":0.10000000000000001}
+{"event":"progress","message":"Scanned chunk 1\/1: 4 reads.","operation":"ontFluidigmSamples","progress":0.79999999999999993}
+{"event":"progress","message":"Writing 2 sample bundles.","operation":"ontFluidigmSamples","progress":0.83999999999999997}
+{"event":"progress","message":"Writing ONT Fluidigm sample manifest.","operation":"ontFluidigmSamples","progress":0.92000000000000004}
+{"event":"progress","message":"ONT Fluidigm sample split complete.","operation":"ontFluidigmSamples","progress":1}

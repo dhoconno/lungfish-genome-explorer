@@ -1,0 +1,11 @@
+{"event":"applicationExportImportStart","kind":"alignment-tree","source":"\/work\/inputs\/Alignment Tree Export"}
+{"event":"applicationExportProgress","message":"Scanning Alignment Tree export...","progress":0.02}
+{"event":"applicationExportProgress","message":"Processing alignments\/example.aln...","progress":0.18}
+{"event":"applicationExportProgress","message":"Processing reports\/summary.tsv...","progress":0.3933333333333333}
+{"event":"applicationExportProgress","message":"Processing trees\/example.nwk...","progress":0.6066666666666667}
+{"event":"applicationExportProgress","message":"Writing Alignment Tree inventory...","progress":0.86}
+{"event":"applicationExportProgress","message":"Writing Alignment Tree import report...","progress":0.9}
+{"event":"applicationExportProgress","message":"Writing Alignment Tree import provenance...","progress":0.94}
+{"event":"applicationExportProgress","message":"Alignment Tree import complete.","progress":1}
+{"event":"applicationExportWarning","message":"reports\/summary.tsv is recognized as report but is not imported by this native-only operation."}
+{"collection":"\/work\/Project.lungfish\/Application Exports\/Alignment Tree Export Alignment Tree Import","event":"applicationExportImportComplete","warningCount":1}

@@ -4,6 +4,8 @@ import XCTest
 import LungfishCore
 
 final class ApplicationExportImportE2ETests: XCTestCase {
+    // `ImportStreamCapture`, the in-process capture of the import streams, is declared in
+    // `ImportMSATreeE2ETests.swift`.
     private let fileManager = FileManager.default
     private var tempRoots: [URL] = []
 
@@ -13,6 +15,15 @@ final class ApplicationExportImportE2ETests: XCTestCase {
         }
         tempRoots.removeAll()
         try super.tearDownWithError()
+    }
+
+    /// Phase 2.6 lane C5, step 1. The stream of `import geneious` and `import application-export` as
+    /// `lungfish-cli` printed it before version 2 events, captured in process on small fixtures and
+    /// checked in under `Tests/Fixtures/cli-events/legacy`. Step 3 of the lane moves both commands to
+    /// version 2 events and turns this check into the same one on the new transcripts. The old files
+    /// stay, because the legacy name table reads them.
+    func testTheGeneiousAndApplicationExportImportStreamsArePinnedInTheirOldShape() async throws {
+        try await ImportStreamCapture.assertOldShape(ofLeaves: ["import geneious", "import application-export"])
     }
 
     func testGeneiousImportRunsThroughCLIWithRepresentativeArchive() throws {

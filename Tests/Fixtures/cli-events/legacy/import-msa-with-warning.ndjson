@@ -1,0 +1,6 @@
+{"event":"nativeBundleImportStart","kind":"multiple-sequence-alignment","source":"\/work\/inputs\/duplicates.fasta"}
+{"event":"nativeBundleImportProgress","message":"Preparing MSA bundle destination...","progress":0.12}
+{"event":"nativeBundleImportProgress","message":"Parsing and indexing duplicates.fasta...","progress":0.35}
+{"event":"nativeBundleImportWarning","message":"Duplicate row names are present; stable row IDs preserve row order."}
+{"event":"nativeBundleImportProgress","message":"Writing MSA provenance...","progress":0.92}
+{"bundle":"\/work\/Project.lungfish\/Multiple Sequence Alignments\/duplicates.lungfishmsa","event":"nativeBundleImportComplete","progress":1,"warningCount":1}

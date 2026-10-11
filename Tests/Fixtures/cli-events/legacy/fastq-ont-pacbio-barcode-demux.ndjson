@@ -1,0 +1,7 @@
+{"event":"progress","message":"Running exact PacBio barcode demultiplexing on 1 ONT FASTQ chunk(s)","operation":"ontPacBioBarcodeDemux","progress":0.02}
+{"event":"progress","message":"Starting exact barcode demultiplexing...","operation":"ontPacBioBarcodeDemux","progress":0.02}
+{"event":"progress","message":"Building results...","operation":"ontPacBioBarcodeDemux","progress":0.66600000000000004}
+{"event":"progress","message":"Demultiplexing complete.","operation":"ontPacBioBarcodeDemux","progress":0.70000000000000007}
+{"event":"progress","message":"Materializing exact PacBio sample FASTQ bundles...","operation":"ontPacBioBarcodeDemux","progress":0.71999999999999997}
+{"event":"progress","message":"Finalizing exact PacBio sample FASTQ bundles...","operation":"ontPacBioBarcodeDemux","progress":0.92000000000000004}
+{"event":"progress","message":"PacBio barcode demultiplexing complete","operation":"ontPacBioBarcodeDemux","progress":1}

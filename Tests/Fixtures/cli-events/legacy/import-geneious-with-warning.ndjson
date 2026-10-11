@@ -1,0 +1,17 @@
+{"event":"applicationExportImportStart","kind":"geneious-export","source":"\/work\/inputs\/Representative"}
+{"event":"applicationExportProgress","message":"Scanning Geneious export...","progress":0.02}
+{"event":"applicationExportProgress","message":"Decoding Geneious sequence payloads...","progress":0.16}
+{"event":"applicationExportProgress","message":"Processing document.geneious...","progress":0.28}
+{"event":"applicationExportProgress","message":"Processing fileData.1...","progress":0.41500000000000004}
+{"event":"applicationExportProgress","message":"Processing refs\/reference.fa...","progress":0.55}
+{"event":"applicationExportProgress","message":"Processing reports\/summary.tsv...","progress":0.685}
+{"event":"applicationExportProgress","message":"Writing Geneious inventory...","progress":0.86}
+{"event":"applicationExportProgress","message":"Writing Geneious import report...","progress":0.9}
+{"event":"applicationExportProgress","message":"Writing Geneious import provenance...","progress":0.94}
+{"event":"applicationExportProgress","message":"Geneious import complete.","progress":1}
+{"event":"applicationExportWarning","message":"Native Geneious data is preserved but not decoded in the no-Geneious baseline."}
+{"event":"applicationExportWarning","message":"document.geneious contains native Geneious data that is preserved but not decoded in the no-Geneious baseline."}
+{"event":"applicationExportWarning","message":"fileData.1 contains native Geneious data that is preserved but not decoded in the no-Geneious baseline."}
+{"event":"applicationExportWarning","message":"refs\/reference.fa is a standalone reference sequence but reference import was disabled; preserved as a binary artifact."}
+{"event":"applicationExportWarning","message":"reports\/summary.tsv is recognized as report but is not auto-routed in the no-Geneious baseline; preserved as a binary artifact."}
+{"collection":"\/work\/Project.lungfish\/Geneious Imports\/Representative Geneious Import","event":"applicationExportImportComplete","warningCount":5}

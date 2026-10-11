@@ -1,0 +1,12 @@
+{"event":"applicationExportImportStart","kind":"geneious-export","source":"\/work\/inputs\/Representative"}
+{"event":"applicationExportProgress","message":"Scanning Geneious export...","progress":0.02}
+{"event":"applicationExportProgress","message":"Decoding Geneious sequence payloads...","progress":0.16}
+{"event":"applicationExportProgress","message":"Processing document.geneious...","progress":0.28}
+{"event":"applicationExportProgress","message":"Processing fileData.1...","progress":0.41500000000000004}
+{"event":"applicationExportProgress","message":"Processing refs\/reference.fa...","progress":0.55}
+{"event":"applicationExportProgress","message":"Processing reports\/summary.tsv...","progress":0.685}
+{"event":"applicationExportProgress","message":"Writing Geneious inventory...","progress":0.86}
+{"event":"applicationExportProgress","message":"Writing Geneious import report...","progress":0.9}
+{"event":"applicationExportProgress","message":"Writing Geneious import provenance...","progress":0.94}
+{"event":"applicationExportProgress","message":"Geneious import complete.","progress":1}
+{"collection":"\/work\/Project.lungfish\/Geneious Imports\/Representative Geneious Import","event":"applicationExportImportComplete","warningCount":0}

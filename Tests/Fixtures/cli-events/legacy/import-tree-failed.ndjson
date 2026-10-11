@@ -1,0 +1,2 @@
+{"event":"nativeBundleImportStart","kind":"phylogenetic-tree","source":"\/work\/inputs\/missing.nwk"}
+{"error":"Input file not found: \/work\/inputs\/missing.nwk","event":"nativeBundleImportFailed"}

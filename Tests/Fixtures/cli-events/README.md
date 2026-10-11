@@ -1,6 +1,6 @@
 # CLI event fixtures
 
-These folders hold transcripts of the event lines that `lungfish-cli` prints when a command runs with events on. `CLIEventCompatibilityTests` decodes every file in `v1`, `CLIPrimerTrimRunnerTests` reads the file in `v2`, `CLIEventTranscriptCoverageTests` decodes every file under `commands`, and `CLIEventContractCoverageTests` decodes every file under `results`. The wire format is written down in `docs/formats/cli-events.md`.
+These folders hold transcripts of the event lines that `lungfish-cli` prints when a command runs with events on. `CLIEventCompatibilityTests` decodes every file in `v1`, `CLIPrimerTrimRunnerTests` reads the file in `v2`, the runner tests of the four import commands play the files in `legacy`, `CLIEventTranscriptCoverageTests` decodes every file under `commands`, and `CLIEventContractCoverageTests` decodes every file under `results`. The wire format is written down in `docs/formats/cli-events.md`.
 
 ## v1
 
@@ -36,6 +36,29 @@ These files must not be captured again. After the version 2 encoder landed, the 
 ## v2
 
 `v2/bam-primer-trim.ndjson` is a version 2 run of `bam primer-trim` captured in process in lane C3, with paths rewritten to `/work` and `outputs` in version 1 order. `CLIPrimerTrimRunnerTests` asserts its track id.
+
+## legacy
+
+Every file in `legacy` is the stream of a command in the private shape that it printed before the version 2 envelope. The shapes are S2 for `import msa` and `import tree`, S3 for `import geneious` and `import application-export`, and S8 and S9 for the two ONT FASTQ commands, as numbered in the Phase 2.6 inventory. `ImportMSATreeE2ETests` and `ApplicationExportImportE2ETests` check that the four import commands still print the S2 and S3 files. `CLINativeBundleImportRunnerTests` and `CLIApplicationExportImportRunnerTests` play those files back through a stand-in `lungfish-cli` to pin what the Operations Panel shows for each.
+
+The runs were made in process at program commit `1171aef68`, each on a small fixture that `ImportStreamCapture` builds, with the scratch folder rewritten to `/work` in its plain and slash-escaped spellings. Nothing else is edited. The two ONT files hold the event lines from standard error, because those commands print their progress there. Like the files in `v1`, these must not be captured again. The four import commands print version 2 events by the end of Phase 2.6, so a new run would no longer show what an older CLI prints.
+
+| Transcript | Command and fixture |
+| --- | --- |
+| `import-msa` | `import msa` of a two-row CLUSTAL alignment |
+| `import-msa-with-warning` | `import msa` of an alignment whose two rows share a name, which logs one warning |
+| `import-msa-failed` | `import msa` of a file that does not exist, which ends in `nativeBundleImportFailed` |
+| `import-tree` | `import tree` of a tree with numeric support values |
+| `import-tree-with-warning` | `import tree` of a tree with no branch lengths, which logs one warning |
+| `import-tree-failed` | `import tree` of a file that does not exist |
+| `import-geneious` | `import geneious --no-import-references` of a folder that scans as a Geneious export |
+| `import-geneious-with-warning` | the same folder with `--preserve-unsupported`, which logs five warnings |
+| `import-geneious-failed` | `import geneious` of a file that does not exist |
+| `import-application-export` | `import application-export alignment-tree --no-import-references` of a folder with one alignment and one tree |
+| `import-application-export-with-warning` | the same folder with a report file that the native-only card does not import, which logs one warning |
+| `import-application-export-failed` | `import application-export alignment-tree` of a folder that does not exist |
+| `fastq-ont-fluidigm-samples` | `fastq ont-fluidigm-samples` on four reads and two barcodes |
+| `fastq-ont-pacbio-barcode-demux` | `fastq ont-pacbio-barcode-demux --chunk-jobs 1` on two reads and one plate barcode row |
 
 ## commands
 

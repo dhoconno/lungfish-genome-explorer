@@ -1,0 +1,2 @@
+{"event":"applicationExportImportStart","kind":"geneious-export","source":"\/work\/inputs\/missing.geneious"}
+{"error":"Input file not found: \/work\/inputs\/missing.geneious","event":"applicationExportImportFailed"}

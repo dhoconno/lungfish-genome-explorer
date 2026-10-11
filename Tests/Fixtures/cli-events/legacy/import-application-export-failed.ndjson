@@ -1,0 +1,2 @@
+{"event":"applicationExportImportStart","kind":"alignment-tree","source":"\/work\/inputs\/missing"}
+{"error":"Input file not found: \/work\/inputs\/missing","event":"applicationExportImportFailed"}

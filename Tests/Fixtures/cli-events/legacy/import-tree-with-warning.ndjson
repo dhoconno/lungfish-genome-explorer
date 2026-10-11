@@ -1,0 +1,6 @@
+{"event":"nativeBundleImportStart","kind":"phylogenetic-tree","source":"\/work\/inputs\/bare.nwk"}
+{"event":"nativeBundleImportProgress","message":"Preparing tree bundle destination...","progress":0.12}
+{"event":"nativeBundleImportProgress","message":"Parsing and indexing bare.nwk...","progress":0.35}
+{"event":"nativeBundleImportWarning","message":"Tree contains one or more edges without branch lengths."}
+{"event":"nativeBundleImportProgress","message":"Writing tree provenance...","progress":0.92}
+{"bundle":"\/work\/Project.lungfish\/Phylogenetic Trees\/bare.lungfishtree","event":"nativeBundleImportComplete","progress":1,"warningCount":1}

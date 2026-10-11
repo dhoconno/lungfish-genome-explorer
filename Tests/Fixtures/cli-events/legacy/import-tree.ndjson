@@ -1,0 +1,5 @@
+{"event":"nativeBundleImportStart","kind":"phylogenetic-tree","source":"\/work\/inputs\/mhc.nwk"}
+{"event":"nativeBundleImportProgress","message":"Preparing tree bundle destination...","progress":0.12}
+{"event":"nativeBundleImportProgress","message":"Parsing and indexing mhc.nwk...","progress":0.35}
+{"event":"nativeBundleImportProgress","message":"Writing tree provenance...","progress":0.92}
+{"bundle":"\/work\/Project.lungfish\/Phylogenetic Trees\/mhc.lungfishtree","event":"nativeBundleImportComplete","progress":1,"warningCount":0}

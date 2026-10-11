@@ -1,0 +1,2 @@
+{"event":"nativeBundleImportStart","kind":"multiple-sequence-alignment","source":"\/work\/inputs\/missing.aln"}
+{"error":"Input file not found: \/work\/inputs\/missing.aln","event":"nativeBundleImportFailed"}
