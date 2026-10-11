@@ -40,7 +40,7 @@ enum ReferenceBundleImportProvenanceRehydrator {
 
         let original = envelope.legacyWorkflowRun()
         let durableInput = ProvenanceRecorder.fileRecord(url: durableSourceURL, format: .unknown, role: .input)
-        let updatedSteps = original.steps.map { step in
+        let updatedSteps = original.steps.enumerated().map { index, step in
             let refreshedOutputs = step.outputs.map(refreshOutputRecord)
             return StepExecution(
                 id: step.id,
@@ -57,6 +57,9 @@ enum ReferenceBundleImportProvenanceRehydrator {
                 peakMemoryBytes: step.peakMemoryBytes,
                 stderr: step.stderr,
                 dependsOn: step.dependsOn,
+                // Every step now carries the collection's command, so a script would run the import once
+                // for each step. The steps after the first ran under it (plan decision S6).
+                parentStepID: index == 0 ? step.parentStepID : original.steps.first?.id,
                 startTime: step.startTime,
                 endTime: step.endTime
             )
@@ -96,7 +99,7 @@ enum ReferenceBundleImportProvenanceRehydrator {
         let steps = canonical.steps.map { step in
             step.with { copy in
                 guard let source = sourceSteps[step.id] else { return }
-                copy.parentStepID = source.parentStepID
+                copy.parentStepID = source.parentStepID ?? copy.parentStepID
                 copy.managedToolID = source.managedToolID
                 copy.toolVersionEvidence = source.toolVersionEvidence
             }

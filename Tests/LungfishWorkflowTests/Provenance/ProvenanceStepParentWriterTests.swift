@@ -97,6 +97,56 @@ final class ProvenanceStepParentWriterTests: XCTestCase {
         XCTAssertEqual(plainSteps.map(\.parentStepID), plainSteps.map { _ -> UUID? in nil })
     }
 
+    /// The Geneious and application-export imports build a reference bundle with the native builder and
+    /// then rehydrate its record, which gives every step the collection's import command. A script of that
+    /// record used to run the import once for each step. The later steps now name the first as their parent,
+    /// so the nested rule leaves the script one command.
+    func testARehydratedBuilderRecordExportsTheCollectionImportOnce() async throws {
+        let root = try makeStepParentDirectory()
+        let fasta = root.appendingPathComponent("source.fa")
+        try ">chr1\nACGT\n>chr2\nTGCA\n".write(to: fasta, atomically: true, encoding: .utf8)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        try writeFakeManagedTool(home: home, environment: "samtools", executable: "samtools", script: """
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then echo "samtools 1.23"; exit 0; fi
+        if [ "$1" = "faidx" ]; then printf "chr1\\t4\\t6\\t4\\t5\\nchr2\\t4\\t17\\t4\\t5\\n" > "$2.fai"; exit 0; fi
+        exit 2
+        """)
+        let bundleURL = try await NativeBundleBuilder(
+            toolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: home, appIdentity: .preview)
+        ).build(configuration: BuildConfiguration(
+            name: "Collection", identifier: "org.lungfish.test.collection", fastaURL: fasta, outputDirectory: root,
+            source: SourceInfo(organism: "Test", assembly: "Test"), compressFASTA: false
+        ))
+        let durable = root.appendingPathComponent("collection/original.gb")
+        try FileManager.default.createDirectory(at: durable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "LOCUS\n".write(to: durable, atomically: true, encoding: .utf8)
+        let replay = ["lungfish-cli", "import", "geneious", durable.path, "--output-dir", root.path]
+
+        try ReferenceBundleImportProvenanceRehydrator.rehydrateSidecar(
+            bundleURL: bundleURL,
+            durableSourceURL: durable,
+            sourceRelativePath: "original.gb",
+            context: ReferenceBundleImportProvenanceContext(
+                workflowName: "reference.import", replayCommand: replay,
+                options: ProvenanceOptions(explicit: ["format": .string("fasta")])
+            )
+        )
+
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
+        XCTAssertGreaterThan(record.steps.count, 1, "the builder ran a tool")
+        let first = try XCTUnwrap(record.steps.first)
+        XCTAssertEqual(record.steps.map(\.argv).filter { $0 == replay }.count, record.steps.count, "every step carries the collection command")
+        XCTAssertNil(first.parentStepID)
+        let later = Array(record.steps.dropFirst())
+        XCTAssertEqual(later.map(\.parentStepID), later.map { _ -> UUID? in first.id })
+
+        let script = ProvenanceExporter(signingProvider: nil).exportShell(record.legacyWorkflowRun(preferCanonicalSteps: true))
+        let commands = StepParentSupport.commandLines(of: script)
+        XCTAssertEqual(commands.count, 1, "\(commands)")
+        XCTAssertTrue(commands.first?.hasPrefix("lungfish-cli import geneious") == true, "\(commands)")
+    }
+
     private func writeFakeManagedTool(home: URL, environment: String, executable: String, script: String) throws {
         let binDir = home.appendingPathComponent(".lungfish/conda/envs", isDirectory: true)
             .appendingPathComponent(environment, isDirectory: true).appendingPathComponent("bin", isDirectory: true)
