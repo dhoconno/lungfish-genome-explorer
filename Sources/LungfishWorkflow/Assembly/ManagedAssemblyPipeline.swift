@@ -218,7 +218,7 @@ public struct ManagedAssemblyPipeline: Sendable {
             toolName: command.executable,
             environment: command.environment,
             condaManager: condaManager,
-            flags: versionFlags(for: request.tool)
+            flags: Self.versionFlags(for: request.tool)
         )
 
         progress?(0, "Normalizing \(request.tool.displayName) output...")
@@ -658,14 +658,16 @@ public struct ManagedAssemblyPipeline: Sendable {
             .last(where: { !$0.isEmpty })
     }
 
-    private func versionFlags(for tool: AssemblyTool) -> [String] {
+    /// The arguments tried in order to ask an assembler for its version. hifiasm has no fallback,
+    /// because the probe table declares `--version` for it and its `-h` text holds no version.
+    static func versionFlags(for tool: AssemblyTool) -> [String] {
         switch tool {
         case .spades, .megahit, .flye:
             return ["--version", "-v"]
         case .skesa:
             return ["--version", "-v"]
         case .hifiasm:
-            return ["--version", "-h"]
+            return ["--version"]
         }
     }
 }

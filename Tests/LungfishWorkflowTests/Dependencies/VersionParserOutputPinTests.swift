@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishIO
 @testable import LungfishWorkflow
 
 /// Pins the value each production version parser returns today on captured real probe output.
@@ -339,14 +340,34 @@ final class VersionParserOutputPinTests: XCTestCase {
         Capture(name: "micromamba missing environment", exitCode: 1, stdout: "",
                 stderr: "critical libmamba The given prefix does not exist: \"\(root)/envs/bbmap\"\n",
                 native: nil, detect: nil, correct: nil),
+        // hifiasm -h prints usage text, and its -D default [5.0] comes before any version. Usage text
+        // holds no version, so no parser reads one from it (2.7). The assembly pipeline no longer falls
+        // back to -h, and its version comes from --version. The text is the head of the real output.
+        Capture(name: "hifiasm -h help text", exitCode: 0, stdout: "",
+                stderr: lines(
+                    "Usage: hifiasm [options] <in_1.fq> <in_2.fq> <...>",
+                    "Options:",
+                    "  Input/Output:",
+                    "    -o STR       prefix of output files [hifiasm.asm]",
+                    "    -t INT       number of threads [1]",
+                    "    -h           show help information",
+                    "    --version    show version number",
+                    "  Preset options:",
+                    "    --ont        assemble Oxford Nanopore reads",
+                    "  Overlap/Error correction:",
+                    "    -k INT       k-mer length (must be <64) [51]",
+                    "    -w INT       minimizer window size [51]",
+                    "    -f INT       number of bits for bloom filter; 0 to disable [37]",
+                    "    -D FLOAT     drop k-mers occurring >FLOAT*coverage times [5.0]"),
+                native: nil, detect: nil, correct: nil),
     ]
 
     // MARK: - Known defects, left for 2.7
 
     /// Each row pins a wrong value as it is today. `correct` is what the tool reports. A row stays
     /// here until the parser change that fixes it lands, and that commit moves the row to `clean`.
-    /// Phase 2.6 moved its rows out. minratio, hifiasm's help text and three-word roots wait for the
-    /// rest of 2.7. The bwa-mem2 and Bracken banners name a version the package does not run.
+    /// Phase 2.6 moved its rows out. minratio and three-word roots wait for the rest of 2.7. The
+    /// bwa-mem2 and Bracken banners name a version the package does not run.
     private static let knownDefects: [Capture] = [
         // The detect parser reads minratio=0.40 from the echoed command line (2.7). The native parser
         // skips that line, as it skips every echoed java command, so it reads the banner. This is the
@@ -365,26 +386,6 @@ final class VersionParserOutputPinTests: XCTestCase {
         // nothing parses this output in production, and the row stays to show why.
         Capture(name: "bwa-mem2 version subcommand", exitCode: 0, stdout: "2.2.1\n", stderr: "",
                 native: "2.2.1", detect: "2.2.1", correct: "2.3"),
-        // The assembly pipeline falls back to `hifiasm -h` when --version gives nothing, and the help
-        // text lists the -D default [5.0] before any version. The text is the head of the real output.
-        // Nothing reads it while --version works, and the rest of the help lists more options (2.7).
-        Capture(name: "hifiasm -h help text", exitCode: 0, stdout: "",
-                stderr: lines(
-                    "Usage: hifiasm [options] <in_1.fq> <in_2.fq> <...>",
-                    "Options:",
-                    "  Input/Output:",
-                    "    -o STR       prefix of output files [hifiasm.asm]",
-                    "    -t INT       number of threads [1]",
-                    "    -h           show help information",
-                    "    --version    show version number",
-                    "  Preset options:",
-                    "    --ont        assemble Oxford Nanopore reads",
-                    "  Overlap/Error correction:",
-                    "    -k INT       k-mer length (must be <64) [51]",
-                    "    -w INT       minimizer window size [51]",
-                    "    -f INT       number of bits for bloom filter; 0 to disable [37]",
-                    "    -D FLOAT     drop k-mers occurring >FLOAT*coverage times [5.0]"),
-                native: nil, detect: "5.0", correct: "0.25.0"),
         // The 3.1 build prints a stale v3.0.1, and since 2.6 production reads the overlay's 3.1 (S20).
         // The real output from the owner's install, which the golden environment lacks.
         Capture(name: "bracken", exitCode: 0,
@@ -465,6 +466,14 @@ final class VersionParserOutputPinTests: XCTestCase {
     func testCaptureNamesAreUnique() {
         let names = (Self.clean + Self.knownDefects).map(\.name)
         XCTAssertEqual(names.count, Set(names).count, "a capture name appears twice")
+    }
+
+    /// The assembly pipeline asks hifiasm for its version with the one argument the probe table
+    /// declares. It used to fall back to `-h`, whose help text holds no version (2.7).
+    func testHifiasmIsProbedWithTheDeclaredArgumentOnly() {
+        let declared = ManagedToolVersionProbe.probe(for: ManagedToolID(rawValue: "hifiasm"))?.arguments
+        XCTAssertEqual(declared, ["--version"])
+        XCTAssertEqual(ManagedAssemblyPipeline.versionFlags(for: .hifiasm), declared)
     }
 
     func testDetectParserOnEmptyOutputReturnsNil() {

@@ -72,6 +72,39 @@ final class ProbeVersionTextTests: XCTestCase {
         XCTAssertEqual(parseToolVersion(from: "nightly-build\nsecond line\n"), "nightly-build")
     }
 
+    /// Usage text holds no version, so no line from its first line on is read (2.7). hifiasm's help
+    /// lists the -D default [5.0] before any version. The native parser only missed it because the
+    /// number sits past its first 8 lines, so this help is short enough to sit inside them. A version
+    /// printed before the usage block still counts, as bwa and samtools print theirs.
+    func testUsageTextHoldsNoVersion() {
+        let usage = Self.joined(
+            "Usage: tool [options] <in.fq>", "  -t INT   number of threads [1]",
+            "  -D FLOAT drop k-mers occurring >FLOAT*coverage times [5.0]")
+        XCTAssertNil(parseToolVersion(from: usage))
+        XCTAssertNil(NativeToolRunner.parseVersionProbe(exitCode: 0, stdout: "", stderr: usage))
+        XCTAssertNil(NativeToolRunner.parseVersionProbe(exitCode: 0, stdout: usage, stderr: ""))
+        let bwa = Self.joined(
+            "Program: bwa (alignment via Burrows-Wheeler transformation)", "Version: 0.7.17-r1188", "",
+            "Usage:   bwa <command> [options]", "  -k INT   minimum seed length 19.5")
+        XCTAssertEqual(parseToolVersion(from: bwa, exitCode: 1), "0.7.17")
+        XCTAssertEqual(NativeToolRunner.parseVersionProbe(exitCode: 1, stdout: "", stderr: bwa), "0.7.17")
+    }
+
+    /// A line opens usage text when its first word is `usage`, in any case. A longer word or a word
+    /// inside a line is no usage text.
+    func testOnlyALineWhoseFirstWordIsUsageOpensUsageText() {
+        for line in ["Usage: hifiasm [options]", "usage: ribodetector_cpu [-h]", "  \tUSAGE", "Usage   bwa <command>"] {
+            XCTAssertTrue(ProbeVersionText.opensUsageText(line), line)
+        }
+        for line in ["usagestats 2.5", "Memory usage: 3.2GB", "tool 1.0", "", "us"] {
+            XCTAssertFalse(ProbeVersionText.opensUsageText(line), line)
+        }
+    }
+
+    private static func joined(_ items: String...) -> String {
+        items.joined(separator: "\n") + "\n"
+    }
+
     /// A probe that exits nonzero gets no first-line fallback (2.7), because its first line is the
     /// tool's complaint in whatever words it chose. A version number it printed still counts, as
     /// bwa's `Version:` line does after its usage exit. A line with micromamba's markers is no

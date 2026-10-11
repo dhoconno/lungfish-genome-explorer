@@ -190,6 +190,8 @@ func detectToolVersion(
 /// first-line fallback, so micromamba's complaint about a missing environment
 /// (`critical libmamba ...`, exit 1) is not recorded as a version. bwa-mem2's
 /// `ERROR: unknown command '--version'` is an error line and gives no version.
+/// Usage text holds no version either, so no line from the one that opens it
+/// on is read (hifiasm's `-h` lists the `-D` default `[5.0]`).
 /// Paths are skipped because several tools print their own location before the
 /// version. EsViritu prints `.../lib/python3.14/site-packages/EsViritu` then
 /// `1.3.3`, and a match inside that path recorded Python's `3.14` as
@@ -198,7 +200,8 @@ func parseToolVersion(from output: String, exitCode: Int32 = 0) -> String? {
     let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
     let lines = trimmed.components(separatedBy: .newlines)
-    if let version = ProbeVersionText.version(in: lines, skippingCommandEcho: false) { return version }
+    let readable = ProbeVersionText.linesBeforeUsage(lines)
+    if let version = ProbeVersionText.version(in: readable, skippingCommandEcho: false) { return version }
     guard exitCode == 0 else { return nil }
     let firstLine = lines.first ?? trimmed
     return ProbeVersionText.looksLikeProbeError(firstLine) ? nil : firstLine
@@ -223,6 +226,20 @@ enum ProbeVersionText {
     static func looksLikeProbeError(_ line: String) -> Bool {
         let lowered = line.lowercased()
         return probeErrorMarkers.contains { lowered.contains($0) }
+    }
+
+    /// True when a line opens usage text, as `Usage: hifiasm [options]` does. Its first word is
+    /// `usage` in any case, so a longer word (`usagestats`) or a word inside a line is not one.
+    static func opensUsageText(_ line: String) -> Bool {
+        line.split(whereSeparator: { $0.isWhitespace || $0 == ":" }).first?.lowercased() == "usage"
+    }
+
+    /// The lines before the first one that opens usage text. Usage text lists option defaults
+    /// such as hifiasm's `-D FLOAT ... [5.0]` and holds no version, so nothing from that line on
+    /// is read. A tool that prints its version before the usage block, as bwa and samtools do,
+    /// keeps it.
+    static func linesBeforeUsage(_ lines: [String]) -> [String] {
+        Array(lines.prefix { !opensUsageText($0) })
     }
 
     /// The version in the lines, outside any path. A token written `v2.31.0` is the tool naming
