@@ -42,7 +42,7 @@ final class Kraken2ClassifyCommandTests: XCTestCase {
                 "--memory-mapping", "--quick", "--bracken-read-length", "100",
                 "--bracken-level", "G", "--bracken-threshold", "5",
                 "--extra-args", "--report-minimizer-data",
-                "--format", "json", "-vv", "--quiet", "--progress", "--debug",
+                "--format", "json", "-vv", "--quiet", "--progress", "--no-progress", "--debug",
                 "--log-file", "classify.log", "--no-color", "--threads", "4",
             ],
             "PlusPF"
@@ -139,8 +139,9 @@ final class Kraken2ClassifyCommandTests: XCTestCase {
     }
 
     /// The fixture itself, read through the spelling that already exists, so a
-    /// typo in it cannot pass for equal options.
-    func testTheEveryOptionLineSetsWhatItClaims() throws {
+    /// typo in it cannot pass for equal options. `--progress` and `--no-progress`
+    /// both parse, because the command validates neither against the other.
+    func testTheEveryOptionLineSetsEachOptionItNames() throws {
         let command = try classifyCommand(["conda", "classify"], Self.argumentLines[2].arguments)
         XCTAssertEqual(command.fastqFiles, ["reads_R1.fastq.gz", "reads_R2.fastq.gz"])
         XCTAssertEqual(command.preset, .precise)
@@ -157,8 +158,16 @@ final class Kraken2ClassifyCommandTests: XCTestCase {
         XCTAssertEqual(command.brackenLevel, "G")
         XCTAssertEqual(command.brackenThreshold, 5)
         XCTAssertEqual(command.extraArgs, "--report-minimizer-data")
-        XCTAssertEqual(command.globalOptions.threads, 4)
-        XCTAssertEqual(command.globalOptions.verbosity, 2)
+        let global = command.globalOptions
+        XCTAssertEqual(global.outputFormat, .json)
+        XCTAssertEqual(global.verbosity, 2)
+        XCTAssertTrue(global.quiet)
+        XCTAssertTrue(global.showProgress)
+        XCTAssertTrue(global.noProgress)
+        XCTAssertTrue(global.debug)
+        XCTAssertEqual(global.logFile, "classify.log")
+        XCTAssertTrue(global.noColor)
+        XCTAssertEqual(global.threads, 4)
     }
 
     func testTheKraken2GroupHoldsClassifyCommandAndNoWrapper() throws {
