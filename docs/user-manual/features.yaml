@@ -404,10 +404,12 @@ features:
       - Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift
       - Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet+Platform.swift
       - Sources/LungfishApp/Services/FASTQIngestionService+OperationBegin.swift
+      - Sources/LungfishApp/Services/CLIImportRunner.swift
       - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImportOperationBegin.swift
       - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImportBatch.swift
       - Sources/LungfishApp/Views/FASTQ/FASTQImportConfiguration.swift
       - Sources/LungfishCLI/Commands/ImportFastqCommand.swift
+      - Sources/LungfishCLI/Commands/ImportFastqCommand+Events.swift
       - Sources/LungfishCLI/Commands/FastqMaterializeSubcommand.swift
       - Sources/LungfishIO/Formats/FASTQ/PlatformInference.swift
       - Sources/LungfishWorkflow/Ingestion/ImportPlatformRequest.swift
@@ -415,12 +417,15 @@ features:
       - Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter+SameBatch.swift
       - Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter+UnpairedReads.swift
       - Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter+PairDetection.swift
+      - Sources/LungfishWorkflow/Ingestion/FASTQImportEventStream.swift
     module: [LungfishApp, LungfishCLI, LungfishIO, LungfishWorkflow]
     tests:
       - Tests/LungfishAppTests/FASTQImportSheetDetectionTests.swift
+      - Tests/LungfishAppTests/CLIImportRunnerTranscriptTests.swift
       - Tests/LungfishWorkflowTests/Ingestion/FASTQBatchImporterSameBatchTests.swift
       - Tests/LungfishWorkflowTests/Ingestion/FASTQBatchImporterFolderPairsTests.swift
       - Tests/LungfishCLITests/ImportFastqFolderPairsTests.swift
+      - Tests/LungfishCLITests/ImportFastqTextOutputPinTests.swift
     notes: >-
       Batch-imports paired-end or single-end FASTQ at any size with virtual
       previews that keep the UI responsive while operations run on the full
