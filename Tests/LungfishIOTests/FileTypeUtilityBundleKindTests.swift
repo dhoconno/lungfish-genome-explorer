@@ -10,7 +10,7 @@ import XCTest
 /// same answers through the sidebar and the import log. These tests run in the IO target alone, so a
 /// registry edit that moves a category fails here first.
 final class FileTypeUtilityBundleKindTests: XCTestCase {
-    /// The kinds `FileTypeUtility` gives a category of their own. Every other kind is unknown to it.
+    /// The two kinds `FileTypeUtility` calls a reference bundle. The FASTQ bundle is the only other kind it names.
     private static let referenceKinds: [BundleKindID] = [.reference, .mhcReference]
 
     private func folderExtension(of kind: BundleKindID, file: StaticString = #filePath, line: UInt = #line) throws -> String {
@@ -53,11 +53,24 @@ final class FileTypeUtilityBundleKindTests: XCTestCase {
         XCTAssertTrue(FileTypeUtility.isKnownExtension(ext))
     }
 
-    /// The project, the alignment, the tree, both primer kinds, the genotype and 12S results, the CZ ID
-    /// import, a run bundle and both workflow kinds have no category of their own. The 12S reference
-    /// database is left out until the commit that settles its answer (plan row S10).
+    /// The 12S reference database is its own kind and not a genome reference (plan row S10). FileTypeUtility
+    /// listed it as a reference bundle, so the import log counted it as a genomics format.
+    func testTwelveSReferenceIsItsOwnKindAndNotAGenomeReferenceBundle() throws {
+        let ext = try folderExtension(of: .twelveSReference)
+        for spelling in [ext, ext.uppercased()] {
+            XCTAssertNotEqual(
+                detect("Example.\(spelling)").category, .referenceBundle,
+                "A .\(spelling) folder is not a genome reference bundle"
+            )
+        }
+        XCTAssertNotEqual(FileTypeUtility.detect(extension: ext).category, .referenceBundle)
+        XCTAssertFalse(FileTypeUtility.allKnownExtensions.contains(ext), "\(ext) names no category of its own")
+    }
+
+    /// The project, the alignment, the tree, both primer kinds, the genotype and 12S results, the 12S
+    /// reference database, the CZ ID import, a run bundle and both workflow kinds have no category of their own.
     func testEveryOtherKindIsUnknownAndOffersQuickLook() throws {
-        let named: Set<BundleKindID> = Set(Self.referenceKinds + [.fastq, .twelveSReference])
+        let named: Set<BundleKindID> = Set(Self.referenceKinds + [.fastq])
         var checked = 0
         for descriptor in BundleKindRegistry.all where !named.contains(descriptor.id) {
             let ext = try folderExtension(of: descriptor.id)
@@ -71,6 +84,6 @@ final class FileTypeUtilityBundleKindTests: XCTestCase {
             XCTAssertFalse(FileTypeUtility.isKnownExtension(ext), "\(descriptor.id) is not a known extension")
             checked += 1
         }
-        XCTAssertEqual(checked, 11, "15 kinds, less the 3 named kinds and the 12S reference")
+        XCTAssertEqual(checked, 12, "15 kinds, less the 3 named kinds")
     }
 }
