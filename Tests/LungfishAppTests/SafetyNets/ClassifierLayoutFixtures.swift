@@ -1,4 +1,4 @@
-// ClassifierLayoutFixtures.swift - Every classifier result layout LGE writes, as literal folders
+// ClassifierLayoutFixtures.swift - Every classifier result layout LGE writes, as folders for the pins
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
@@ -6,9 +6,22 @@
 // through `--project` and `--output-dir`. Readers decide what the sidebar lists and which
 // viewer opens from the shape of the folder alone (AnalysesFolder, SidebarProjectScanner,
 // ClassifierDatabaseRouter, MainSplitViewController). These builders write each shape LGE
-// has written, and each shape the executor will write, as literal files. A change to a
-// writer therefore cannot change a pin. The sidebar snapshot, the routing table and
-// ClassifierLayoutReaderPinTests all build their folders here.
+// has written, and each shape the executor will write. The sidebar snapshot, the routing
+// table and ClassifierLayoutReaderPinTests all build their folders here.
+//
+// Which files are literal and which come from today's writers
+//   - Literal text written by this file. The Kraken2 and EsViritu sidecars and tables, the batch
+//     summaries, the provenance stand-ins, the hidden inputs and analysis-metadata.json. A change
+//     to a writer of these files cannot move a pin. The metadata text has the bytes that
+//     AnalysesFolder.writeAnalysisMetadata wrote at 18e422c4f (pretty printed, sorted keys, ISO 8601
+//     in UTC), so a reader that stops decoding what 2.6 wrote fails a pin. Only the instant is
+//     computed, from the pinned local timestamp, because the scan shows it in the local zone.
+//   - Files from today's writers. The batch manifests, from MetagenomicsBatchResultStore
+//     saveClassification and saveEsViritu. The indexes (kraken2.sqlite and esviritu.sqlite), from
+//     RoutingSafetyNetFixtures.kraken2Result and esVirituResult, which run the database writers.
+//     The run folders of interruptedRun, whose metadata and run record come from
+//     AnalysesFolder.createAnalysisDirectory and whose outcome comes from
+//     AnalysisRunRecord.recordOutcome. A change to one of these writers moves the files it writes.
 //
 // Evidence for the shapes
 //   - Command line output, from Tests/Fixtures/golden/classifiers/*/files.txt and
@@ -91,8 +104,9 @@ enum ClassifierLayoutFixtures {
         return folder
     }
 
-    /// One Kraken2 run in the window. A folder from `createAnalysisDirectory` with metadata and the
-    /// pipeline's files. The index is built at the first view, so the folder has none.
+    /// One Kraken2 run in the window. The folder `createAnalysisDirectory` made, in the state a completed
+    /// run leaves it, with metadata and the pipeline's files. The index is built at the first view, so
+    /// the folder has none.
     @discardableResult
     static func windowKraken2Single(named name: String, timestamp: String, in analyses: URL) throws -> URL {
         let folder = try SafetyNetFiles.makeDirectory(analyses.appendingPathComponent(name, isDirectory: true))
@@ -317,10 +331,22 @@ enum ClassifierLayoutFixtures {
 
     // MARK: - Files
 
+    /// `analysis-metadata.json` as literal text with the bytes that `AnalysesFolder.writeAnalysisMetadata`
+    /// wrote at 18e422c4f. The file is pretty printed with sorted keys and no final newline, and
+    /// `created` is ISO 8601 in UTC. It does not go through the writer, so a change to the metadata
+    /// codec cannot rewrite a fixture. `created` is the instant of the pinned local timestamp,
+    /// because the scan shows it in the local zone and the snapshot must read the same in every zone.
     private static func writeMetadata(tool: String, isBatch: Bool, timestamp: String, to folder: URL) throws {
-        try AnalysesFolder.writeAnalysisMetadata(
-            .init(tool: tool, isBatch: isBatch, created: try SidebarScanSafetyNetProjects.pinnedDate(timestamp)),
-            to: folder
+        let created = ISO8601DateFormatter().string(from: try SidebarScanSafetyNetProjects.pinnedDate(timestamp))
+        try SafetyNetFiles.write(
+            """
+            {
+              "created" : "\(created)",
+              "isBatch" : \(isBatch),
+              "tool" : "\(tool)"
+            }
+            """,
+            to: folder.appendingPathComponent("analysis-metadata.json")
         )
     }
 

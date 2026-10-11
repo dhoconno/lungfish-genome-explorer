@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.7 lane A2, risk R11 of the plan ("Executor migration changes classifier result
-// layout for existing projects") and decisions E1, E2 and E5. The analysis run executor
+// layout for existing projects") and decisions E1, E1b, E2 and E5. The analysis run executor
 // writes Kraken2 and EsViritu results through `--project` and `--output-dir`. The readers
 // that decide what the sidebar lists and which viewer opens never ask a writer. They look
 // at the shape of the folder (AnalysesFolder, SidebarProjectScanner, ClassifierDatabaseRouter,
@@ -19,9 +19,12 @@
 //   - A run that failed, was cancelled or is still going stays out of every listing and is
 //     offered for review in the Operations Panel.
 //
-// The fixtures are literal files, so a writer cannot move a pin. One test runs the import
-// writer and compares its folder with the fixture, which keeps the claim "as an import
-// writes it" true.
+// Most fixture files are literal text, and analysis-metadata.json is one of them, so a change
+// to the metadata codec cannot rewrite a folder that 2.6 wrote and the pins fail if a reader
+// stops decoding it. The batch manifests, the indexes and the run folders come from today's
+// writers, as the header of ClassifierLayoutFixtures lists, and a change to one of those
+// writers moves the files it writes. One test runs the import writer and compares its folder
+// with the fixture, which keeps the claim "as an import writes it" true.
 //
 // An executor lane that changes a row on purpose edits the line here or rewrites the snapshot:
 //
