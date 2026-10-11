@@ -37,7 +37,7 @@ private let legacyNamesLogger = Logger(subsystem: LogSubsystem.workflow, categor
 ///   Failed     a `failed` with the error as its message
 ///
 /// S8 and S9, the progress lines of `fastq ont-fluidigm-samples` and
-/// `fastq ont-pacbio-barcode-demux`, need no row. They print `progress` with an extra
+/// `fastq ont-pacbio-barcode-demux`, need no row. They printed `progress` with an extra
 /// `operation` key, which is a name version 1 already had and a key the decoder ignores.
 /// `CLIEventLegacyNamesTests` pins that.
 ///

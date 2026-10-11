@@ -4,7 +4,7 @@ A `lungfish-cli` command can report its progress as a stream of JSON lines. The 
 
 ## Switching events on
 
-A command prints events when it runs with `--format json`. The one exception is `assemble`, which uses `--json-events`. With the switch off, a command prints human text and no event line. Recorded commands carry `--format json` and replay on later builds, so the switch keeps its name.
+A command prints events when it runs with `--format json`. `assemble` uses `--json-events` instead, and `fastq ont-fluidigm-samples` and `fastq ont-pacbio-barcode-demux` print events on every run until 2.8, because the app runs them with no switch. With the switch off, any other command prints human text only. Recorded commands carry `--format json` and replay on later builds, so the switch keeps its name.
 
 ## One line, one event
 
@@ -53,6 +53,9 @@ A runner finds an artifact by its role. `CLIEventArtifact.Role` names the roles 
 | `alignment` | The alignment the command made |
 | `alignment-index` | The index of that alignment |
 | `provenance` | The provenance record of the run |
+| `variants` | The called variants, a compressed VCF |
+| `variants-index` | Their tabix index |
+| `variants-database` | The SQLite database of the track |
 
 `bam primer-trim` is the first command that types its outputs. Its `outputs` keep the version 1 order, the trimmed BAM, then its index, then its record, and its `artifacts` describe the same three paths.
 
@@ -63,6 +66,8 @@ A runner finds an artifact by its role. `CLIEventArtifact.Role` names the roles 
 | Its record | `provenance` | `provenance` |
 
 The BAM and its index also name the record in `provenancePath`. The app's primer trim runner reads each path by role, and it falls back to the path's place in `outputs` when a version 1 CLI wrote no artifacts.
+
+`variants call` types its outputs the same way, with the kinds `variant-database`, `vcf` and `tbi`, and `align mafft` types its bundle as `multiple-sequence-alignment` with the role `alignment`.
 
 ## The version rule
 
@@ -98,7 +103,7 @@ The Operations panel adopts this rule in 2.8 (decision S16). Until then each fam
 
 ## Old private shapes
 
-Some commands printed events in shapes of their own before version 2, and a `lungfish-cli` built before the envelope still prints them. The MSA and tree imports and the application export import wrote five names each, and the two ONT FASTQ commands write `progress` lines with an extra `operation` key. The app can meet such a CLI through `LUNGFISH_CLI_PATH`, a stale build folder or a `PATH` install.
+Some commands printed events in shapes of their own before version 2, and a `lungfish-cli` built before the envelope still prints them. The MSA and tree imports and the application export import wrote five names each, and the two ONT FASTQ commands wrote `progress` lines with an extra `operation` key. The app can meet such a CLI through `LUNGFISH_CLI_PATH`, a stale build folder or a `PATH` install.
 
 The version 2 decoder reads the first two shapes through a dated legacy table, `CLIEventLegacyNames` in the Workflow module (decision V13). It consults the table only for a line that has no `schemaVersion` and whose event name it does not know. A name the table does not know stays an ignored line, and a missing field or a field of the wrong type takes the default that the app's own parsers used, so the decoder never throws on these lines.
 
@@ -118,7 +123,7 @@ The app reads the stream of each import command through `CLISubprocessTransport`
 
 The two ONT FASTQ commands need no row. `progress` is a name of version 1, and the decoder ignores the `operation` key, so their lines already read as `progress` events.
 
-`CLIEventLegacyNamesTests` decodes each transcript in `Tests/Fixtures/cli-events/legacy` and compares every line with a frozen copy of how the two import runners read it. The table is dated 2026-10-11. It is deleted as a unit when the last `.legacy` row goes, 2.9 by today's rows. The unit also holds the legacy branch of the decoder, `CLIEventLegacyNamesTests` with those transcripts, the legacy check in `ImportStreamCapture`, the runner tests that print an old name, and the legacy sections of this page and the fixtures README. The contract table below lists the four import commands as `.events` rows, because they print version 2 events now, and the two ONT FASTQ commands as `.legacy` rows until their sub-phase retires the shape.
+`CLIEventLegacyNamesTests` decodes each transcript in `Tests/Fixtures/cli-events/legacy` and compares every line with a frozen copy of how the two import runners read it. The table is dated 2026-10-11. It is deleted as a unit when the last `.legacy` row goes, 2.9 by today's rows. The unit also holds the legacy branch of the decoder, `CLIEventLegacyNamesTests` with those transcripts, the legacy check in `ImportStreamCapture`, the runner tests that print an old name, and the legacy sections of this page and the fixtures README. The contract table below lists the four import commands and the two ONT FASTQ commands as `.events` rows.
 
 ## The contract table
 
@@ -126,7 +131,7 @@ The two ONT FASTQ commands need no row. `progress` is a name of version 1, and t
 
 | Case | What the leaf does |
 | --- | --- |
-| `.events` | Prints the event lines of this page when its switch is on, and names the switch and the stream. `assemble` uses `--json-events` on standard error until 2.8, and the others use `--format json` on standard output |
+| `.events` | Prints the event lines of this page when its switch is on, and names the switch and the stream. `assemble` uses `--json-events` on standard error until 2.8, the two ONT FASTQ commands print on standard error with no switch until 2.8, and the others use `--format json` on standard output |
 | `.result` | Prints one JSON document to standard output, under its JSON switch or on every run. The row names the schema of that document |
 | `.legacy` | Prints a private stream shape that a later sub-phase retires. The row names the shape and the sub-phase |
 | `.text` | Prints human text only, or prints text for a switch it lists. The row gives the reason |
