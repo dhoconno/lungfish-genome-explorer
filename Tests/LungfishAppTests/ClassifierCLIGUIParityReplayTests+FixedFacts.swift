@@ -13,6 +13,7 @@
 import Foundation
 import XCTest
 import LungfishTestSupport
+@testable import LungfishWorkflow
 
 /// What one sample of a case must show, from the fixtures alone.
 struct ClassifierParitySampleFacts {
@@ -41,6 +42,10 @@ struct ClassifierParitySampleFacts {
             return .init(sampleID: "sarscov2-pair", fragments: 100, materializedReads: nil, readSetComposition: nil, runsAsPairs: true, esVirituReadsBeforeFilter: 200, sarsCoV2: true)
         case ClassifierParityFixtures.negativeControlBundlePath:
             return .init(sampleID: "negative-control", fragments: 40, materializedReads: nil, readSetComposition: nil, runsAsPairs: false, esVirituReadsBeforeFilter: nil, sarsCoV2: false)
+        case ClassifierParityFixtures.lowSignalControlBundlePath:
+            // The negative control's 40 reads and five that K1 classifies under Betacoronavirus
+            // pandemicum (taxid 3418604).
+            return .init(sampleID: "low-signal-control", fragments: 45, materializedReads: nil, readSetComposition: nil, runsAsPairs: false, esVirituReadsBeforeFilter: nil, sarsCoV2: true)
         default:
             let subset = ClassifierParityFixtures.subsetReads
             return .init(sampleID: "len-150-any-00000000", fragments: subset, materializedReads: subset, readSetComposition: nil, runsAsPairs: false, esVirituReadsBeforeFilter: subset, sarsCoV2: true)
@@ -55,9 +60,8 @@ extension ClassifierCLIGUIParityReplayTests {
         run: ClassifierParitySideRun
     ) throws -> [ClassifierParityDifference] {
         if case .notRun = run.terminal { return [] }
-        // Every case is expected to complete. K5 does not today, which
-        // ClassifierParityKnownDifferences declares. The facts of a run that did not are not
-        // read.
+        // Every case is expected to complete, the controls K5 and K6 with a degraded Bracken
+        // profile (F2 bio ruling 1, E4). The facts of a run that did not are not read.
         guard run.terminal.succeeded else {
             return [ClassifierParityDifference(id: "fact: the run completes", detail: "\(run.side) \(run.terminal)")]
         }
@@ -108,6 +112,9 @@ extension ClassifierCLIGUIParityReplayTests {
             if parityCase == .k5, totals.classified != 0 {
                 violate("negative control classifies nothing", "classified \(totals.classified)")
             }
+            if parityCase == .k6, totals.classified != 5 {
+                violate("low-signal control classifies its five SARS-CoV-2 reads", "classified \(totals.classified)")
+            }
             if expected.sarsCoV2, totals.classified == 0 {
                 violate("kreport classifies SARS-CoV-2 reads", "classified 0 of \(total)")
             }
@@ -138,12 +145,80 @@ extension ClassifierCLIGUIParityReplayTests {
         }
 
         if parityCase.profiles {
-            let bracken = invocations(of: "bracken", in: facts)
+            brackenViolations(parityCase, folder: folder, facts: facts, violate: violate)
+        }
+    }
+
+    /// What Bracken did, from the fixtures alone (F2 bio ruling 1). K5's report has no species
+    /// row, so the preflight degrades the profile with exit 2 before Bracken runs. K6's one
+    /// species holds five reads, under the threshold of ten, so Bracken runs and its
+    /// est_abundance finds no reads. The installed `bracken` driver then exits 1, not 0 as the
+    /// ruling read it, so the pipeline degrades with `toolFailed`, on both routes alike. Every
+    /// other profile runs Bracken at species level.
+    private func brackenViolations(
+        _ parityCase: ClassifierParityCase,
+        folder: URL,
+        facts: [ProvenanceCompatFacts.Value],
+        violate: (String, String) -> Void
+    ) {
+        let bracken = invocations(of: "bracken", in: facts)
+        let steps = Self.steps(in: facts)
+        func stepText(_ step: [String: ProvenanceCompatFacts.Value]) -> String {
+            "\(step["toolName"].map(String.init(describing:)) ?? "?") exit \(step["exitStatus"].map(String.init(describing:)) ?? "?")"
+        }
+        func ran(_ tool: String, exit: Int64, saying text: String) -> Bool {
+            steps.contains { step in
+                guard case .string(tool)? = step["toolName"], case .integer(exit)? = step["exitStatus"] else { return false }
+                if case .string(let stderr)? = step["stderr"] { return stderr.contains(text) }
+                return false
+            }
+        }
+        let degradedReason: BrackenProfileDegradationReason?
+        switch parityCase {
+        case .k5:
+            degradedReason = .rankAbsentFromReport
+            if !bracken.isEmpty {
+                violate("runs no Bracken", bracken.map { $0.joined(separator: " ") }.joined(separator: "; "))
+            }
+            if !ran("Lungfish Bracken Preflight", exit: 2, saying: "The Kraken report has no rows at resolved rank S (Species).") {
+                violate("records the Bracken preflight with exit 2 and its reason", steps.map(stepText).joined(separator: ", "))
+            }
+        case .k6:
+            degradedReason = .toolFailed
+            if !ran("bracken", exit: 1, saying: "Error: no reads found. Please check your Kraken report") {
+                violate("records Bracken's exit 1 and its no reads found", steps.map(stepText).joined(separator: ", "))
+            }
+        default:
+            degradedReason = nil
             if bracken.isEmpty {
                 violate("records its Bracken argv", "no record step runs bracken")
             }
-            for argv in bracken where Self.value(of: "-l", in: argv) != "S" || Self.value(of: "-r", in: argv) != "150" || Self.value(of: "-t", in: argv) != "10" {
-                violate("runs Bracken at species level with -r 150 and -t 10", argv.joined(separator: " "))
+        }
+        for argv in bracken where Self.value(of: "-l", in: argv) != "S" || Self.value(of: "-r", in: argv) != "150" || Self.value(of: "-t", in: argv) != "10" {
+            violate("runs Bracken at species level with -r 150 and -t 10", argv.joined(separator: " "))
+        }
+        guard let degradedReason else { return }
+        if FileManager.default.fileExists(atPath: folder.appendingPathComponent("classification.bracken").path) {
+            violate("writes no Bracken profile", "classification.bracken exists")
+        }
+        let outcome = (try? ClassificationResult.load(from: folder))?.profileOutcome
+        if outcome?.state != .degraded || outcome?.reason != degradedReason {
+            violate("degrades its profile with \(degradedReason.rawValue)", "classification-result.json: \(outcome.map { "\($0.state) \($0.reason?.rawValue ?? "no reason")" } ?? "unreadable")")
+        }
+        let recorded = Self.values(named: "profileReason", in: facts)
+        let encoded = (try? JSONEncoder().encode(recorded)).map { String(decoding: $0, as: UTF8.self) } ?? ""
+        if !encoded.contains("\"\(degradedReason.rawValue)\"") {
+            violate("records profileReason \(degradedReason.rawValue)", encoded)
+        }
+    }
+
+    /// Every step object of every record in the facts.
+    static func steps(in facts: [ProvenanceCompatFacts.Value]) -> [[String: ProvenanceCompatFacts.Value]] {
+        facts.flatMap { record -> [[String: ProvenanceCompatFacts.Value]] in
+            guard case .object(let run) = record, case .array(let steps)? = run["steps"] else { return [] }
+            return steps.compactMap { step in
+                if case .object(let members) = step { return members }
+                return nil
             }
         }
     }
@@ -216,19 +291,31 @@ extension ClassifierCLIGUIParityReplayTests {
             let classified = "\(totals?.classified ?? -1) of \(first.fragments) reads classified"
             check("title", row.title, "\(parityCase.profiles ? "Profiling" : "Classifying") \(bundleName)")
             check("first detail", row.firstDetail, "Starting Kraken2 with Viral...")
-            if parityCase == .k5 {
-                // Today's row of a known defect (F2 bio ruling 1). Kraken2 classifies none of
-                // the 40 reads, KreportParser rejects the report of one unclassified line as
-                // empty, and the run fails before the Bracken preflight.
-                // ClassifierParityKnownDifferences declares the run's failure. Lane BR's parser
-                // fix and lane A8 move this branch to Completed with Warnings and one warning
-                // line (E4).
-                check("state", row.stateLabel, "Failed")
-                check("completion detail", row.completionDetail, "Empty Kraken2 report")
+            if parityCase == .k5 || parityCase == .k6 {
+                // The controls (F2 bio ruling 1, E4). Lane BR's parser reads K5's report of one
+                // unclassified line, so both controls complete with a degraded Bracken profile:
+                // no alert, the viewer loads the result, the folder stays, and one warning line
+                // names the reason.
+                // K6's reason is Bracken's stderr, which names its scratch report first.
+                let reason = parityCase == .k5
+                    ? "The Kraken report has no rows at resolved rank S (Species)."
+                    : "Error: no reads found. Please check your Kraken report"
+                check("state", row.stateLabel, "Completed with Warnings")
+                let detail = "\(classified); Bracken profiling degraded at resolved rank S: "
+                if parityCase == .k5 {
+                    check("completion detail", row.completionDetail, detail + reason)
+                } else if !row.completionDetail.hasPrefix(detail) || !row.completionDetail.contains(reason) {
+                    check("completion detail", row.completionDetail, detail + "<Bracken's stderr with> " + reason)
+                }
+                let warnings = row.logLines.filter { $0.level == "warning" || $0.level == "error" }
+                if warnings.count != 1 || warnings.first?.message.contains(reason) != true {
+                    violations.append(ClassifierParityDifference(
+                        id: "row: one warning line names the reason",
+                        detail: warnings.map(\.description).joined(separator: "\n")
+                    ))
+                }
+                check("alert", row.alertText, nil)
                 check("error message", row.errorMessage, nil)
-                check("log warning lines", row.logLines.filter { $0.level == "warning" }.map(\.description).joined(separator: "\n"), "")
-                check("log error lines", row.logLines.filter { $0.level == "error" }.map(\.description).joined(separator: "\n"), "[error] Failed: Empty Kraken2 report")
-                check("alert", row.alertText, "Classification Failed\nEmpty Kraken2 report")
                 return violations
             } else {
                 check("state", row.stateLabel, "Completed")

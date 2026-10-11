@@ -53,7 +53,7 @@ enum ClassifierParityKnownDifferences {
 
     private static let retire = "2.9, when the legacy GUI paths retire (E14)"
     /// One difference in each sample's record, two in the K3 batch.
-    private static let oneInEachKraken2Record: [ClassifierParityCase: Int] = [.k1: 1, .k2: 1, .k3: 2, .k4: 1]
+    private static let oneInEachKraken2Record: [ClassifierParityCase: Int] = [.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1]
 
     private static func pair(
         _ counts: [ClassifierParityCase: Int], _ id: String, _ reason: String, closedBy: String = retire
@@ -64,18 +64,20 @@ enum ClassifierParityKnownDifferences {
     // MARK: Folders
 
     private static let layout: [ClassifierParityKnownDifference] = [
-        pair([.k1: 1, .k2: 1, .k3: 1, .k4: 1], "analysis: only in A: analysis-metadata.json",
-             "AnalysesFolder writes it for the folder the GUI creates. The row's command names that folder with --output-dir, and a plain output folder gets none",
-             closedBy: "A8, whose plain one-folder output gains analysis-metadata.json (A8 M2, E1)"),
+        pair([.k3: 1], "analysis: only in A: analysis-metadata.json",
+             "The GUI's batch root. The row's command runs each sample alone with --output-dir in a folder below the root, which is not directly in Analyses/, so the claim writes no metadata (E1b, E8)"),
+        pair([.k1: 1, .k2: 1, .k4: 1, .k5: 1, .k6: 1], "analysis: differs: analysis-metadata.json",
+             "Both sides hold it since A8 claims a folder directly in Analyses/ with metadata (E1b), and each records the time its own run made the folder",
+             closedBy: "no lane, the created time of each run. A mask in the comparison would remove it"),
         pair([.e1: 1, .e2: 1], "analysis: only in A: analysis-metadata.json",
              "AnalysesFolder writes it for the batch folder the GUI creates. The row's command names the sample folder below it with --output, which gets none under E1b"),
-        pair([.k1: 1, .k2: 1, .k3: 2, .k4: 1, .e1: 1, .e2: 1], "source manifest: only in A: *",
+        pair([.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1, .e1: 1, .e2: 1], "source manifest: only in A: *",
              "Only the GUI records the run in the source bundle's analyses-manifest.json"),
         pair([.k1: 1, .k3: 1, .k4: 1], "analysis: only in A: *.lungfish-provenance/intermediates/classification-inputs/input-1-materialized-<UUID>.fastq",
              "D4. The GUI materializes the subset into a scratch folder it deletes, so the pipeline keeps a replay copy"),
         pair([.k1: 1, .k3: 1, .k4: 1], "analysis: only in B: *.lungfish-classify-inputs/materialized-<UUID>.fastq",
              "D4. The CLI materializes the subset into the output folder and keeps it"),
-        pair([.k1: 1, .k2: 1, .k3: 2, .k4: 1], "analysis: differs: *classification-result.json",
+        pair([.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1], "analysis: differs: *classification-result.json",
              "D12. config.inputFiles names the GUI's deleted scratch file and the CLI's kept file, and the GUI's outputDirectory URL ends in a slash"),
         pair([.k3: 1, .e1: 1, .e2: 1], "analysis: only in A: .lungfish-provenance.json",
              "The GUI's batch record at the batch root. The row's command runs each sample alone (E8)"),
@@ -117,20 +119,18 @@ enum ClassifierParityKnownDifferences {
 
     private static let kraken2Records: [ClassifierParityKnownDifference] = [
         kraken2Record("workflowName", oneInEachKraken2Record, "The pipeline's record (Metagenomics Classification or Profiling) against the lungfish.classify record the CLI writes in its place (BIO inventory 1.1). E15 keeps lungfish.classify on the CLI side"),
-        kraken2Record("toolName", oneInEachKraken2Record, "The GUI record takes its run-level tool from its first step, the replay copy or the single-read mate staging, and the CLI record from kraken2"),
-        kraken2Record("toolVersion", oneInEachKraken2Record, "As toolName, the LGE version of the copy step against kraken2's version"),
+        kraken2Record("toolName", oneInEachKraken2Record, "The GUI record takes its run-level tool from its first step, the replay copy, the single-read mate staging or kraken2, and the CLI root record names lungfish-cli (A8)"),
+        kraken2Record("toolVersion", oneInEachKraken2Record, "As toolName, the version of that first step against the LGE version of lungfish-cli"),
         kraken2Record("argv", oneInEachKraken2Record, "As toolName, the copy step's /bin/sh -c script against the CLI command (E11)"),
         kraken2Record("reproducibleCommand", oneInEachKraken2Record, "As argv"),
-        kraken2Record("explicitOptions.*", [.k1: 16, .k2: 20, .k3: 39, .k4: 19], "The CLI record drops the pipeline's options, the database identity among them, and with them the readSetPlan of a merge bundle (D6, E13)",
-                      closedBy: "A8 (E13)"),
-        kraken2Record("legacyRunParameters.*", [.k1: 16, .k2: 20, .k3: 39, .k4: 19], "As explicitOptions"),
-        kraken2Record("defaultOptions.*", [.k1: 6, .k2: 6, .k3: 12, .k4: 6], "The pipeline's defaults (confidence 0, read format unpaired) against the CLI's preset defaults (D7, D8, E12)",
-                      closedBy: "A8 (E12)"),
-        kraken2Record("resolvedDefaultOptions.*", [.k1: 5, .k2: 5, .k3: 10, .k4: 5], "The CLI record drops the database identity status, its core file sizes and the effective memory mapping (E9)",
-                      closedBy: "A8 (E9)"),
-        kraken2Record("files[*", [.k1: 4, .k2: 2, .k3: 7, .k4: 5], "D4. The GUI record names the scratch input and the replay copy, the CLI record the kept materialized input"),
-        kraken2Record("outputs[*", [.k1: 2, .k2: 1, .k3: 3, .k4: 2], "The GUI record lists classification-result.json and the replay copy as outputs, the CLI record does not"),
-        kraken2Record("output.*", [.k1: 2, .k2: 2, .k3: 4, .k4: 2], "The run's output is classification-result.json in the GUI record and the kreport in the CLI record"),
+        kraken2Record("durableReplayArgv", [.k5: 1, .k6: 1], "The GUI record of a plain file holds kraken2's command as its replay argv. The CLI root record names none, because the command it ran replays the run"),
+        kraken2Record("explicitOptions.*", [.k1: 16, .k2: 20, .k3: 39, .k4: 19, .k5: 19, .k6: 19], "The GUI record holds every pipeline option, the database identity and a merge bundle's readSetPlan among them. The CLI root record holds the options its command line gave, which an in-process replay reads from the test runner's argv, and keeps the readSetPlan in resolvedDefaults (D6, E13)"),
+        kraken2Record("legacyRunParameters.*", [.k1: 16, .k2: 20, .k3: 39, .k4: 19, .k5: 19, .k6: 19], "As explicitOptions"),
+        kraken2Record("defaultOptions.*", [.k1: 6, .k2: 6, .k3: 12, .k4: 6, .k5: 6, .k6: 6], "The pipeline's defaults (confidence 0, read format unpaired) in the GUI record against the command's one table in the CLI root record (D7, D8, E12)"),
+        kraken2Record("resolvedDefaultOptions.*", [.k1: 5, .k2: 5, .k3: 10, .k4: 5, .k5: 5, .k6: 5], "The CLI root record names no database identity status, core file sizes, effective memory mapping, extra arguments string or minimizer report flag. Its --db-digest names the database through the install receipt instead (E9)"),
+        kraken2Record("files[*", [.k1: 4, .k2: 1, .k3: 5, .k4: 4, .k5: 1, .k6: 1], "D4. The GUI record names the scratch input and the replay copy, the CLI record the kept materialized input. Both name the database as a reference, the GUI record with the size of its core files and the CLI record with the install receipt's payload size (E9)"),
+        kraken2Record("outputs[*", [.k1: 1, .k3: 1, .k4: 1], "The GUI record lists the pipeline's replay copy of the materialized input as an output, the CLI record does not (D4)"),
+        kraken2Record("output.*", [.k1: 2, .k2: 2, .k3: 4, .k4: 2, .k5: 2, .k6: 2], "The run's output is classification-result.json in the GUI record and the kreport in the CLI record"),
         kraken2Record("steps[*", [.k1: 7, .k2: 4, .k3: 11, .k4: 7], "D4. The GUI's copy or staging step against the CLI's fastq materialize step, so kraken2 reads another path and depends on another step"),
         kraken2Record("canonicalRunSteps[*", [.k1: 4, .k2: 4, .k3: 8, .k4: 4], "As steps"),
         kraken2Record("legacyRunSteps[*", [.k1: 4, .k2: 4, .k3: 8, .k4: 4], "As steps"),
@@ -166,18 +166,6 @@ enum ClassifierParityKnownDifferences {
     // MARK: Fixed facts
 
     private static let facts: [ClassifierParityKnownDifference] = [
-        ClassifierParityKnownDifference(
-            counts: [.k2: 1, .k3: 1], scope: .side(.b),
-            id: "fact: merge records its readSetPlan of 23 pairs and 77 merged reads",
-            reason: "D6. The CLI record drops the pipeline's readSetPlan, so the 23 pairs and 77 merged reads are not in it",
-            closedBy: "A8 (E13)"
-        ),
-        ClassifierParityKnownDifference(
-            counts: [.k5: 1], scope: .side(.b),
-            id: "fact: the run completes",
-            reason: "As on side A, the replay throws Empty Kraken2 report. After BR's parser fix the replay still exits 64 with a failed record (F2 bio ruling 1)",
-            closedBy: "A8, whose classify exits 0 with status completed on a degraded profile (A8 M0, E4)"
-        ),
     ]
 
     // MARK: Named files
@@ -196,10 +184,10 @@ enum ClassifierParityKnownDifferences {
     private static let namedFiles: [ClassifierParityKnownDifference] = [
         namedFile(.a, [.k1: 1, .k3: 2, .k4: 1, .e1: 2, .e3: 2], "<project>/.tmp/* that does not exist",
                   "D4, D5. The GUI's materialized scratch input, which it deletes after the run", closedBy: retire),
-        namedFile(.a, [.k1: 1, .k2: 1, .k3: 4, .k4: 1], "*classification.kraken that does not exist",
+        namedFile(.a, [.k1: 1, .k2: 1, .k3: 4, .k4: 1, .k5: 1, .k6: 1], "*classification.kraken that does not exist",
                   "ClassificationPipeline gzips the per-read output to classification.kraken.gz and deletes it, and no step records the compression",
                   closedBy: sharedPipeline),
-        namedFile(.b, [.k1: 1, .k2: 1, .k3: 2, .k4: 1], "*classification.kraken that does not exist",
+        namedFile(.b, [.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1], "*classification.kraken that does not exist",
                   "As on side A", closedBy: sharedPipeline),
         namedFile(.a, [.k2: 1, .k3: 2], "*.lungfish-classify-inputs/merged.emptymate.fastq that does not exist",
                   "ClassificationPipeline stages an empty mate for the merged reads and removes it after the run, where E3 keeps staged inputs",

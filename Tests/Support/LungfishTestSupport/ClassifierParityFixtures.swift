@@ -15,7 +15,8 @@
 // - the read-pairing merge bundle of Tests/Fixtures/read-pairing/kraken2 (23 pairs, 77 merged),
 // - the SARS-CoV-2 pair test_1 and test_2 as a paired derivative (the L5b shape of
 //   ReadSetFixtures), 100 pairs,
-// - the negative control, 40 synthetic reads with no viral hit.
+// - the negative control, 40 synthetic reads with no viral hit,
+// - the low-signal control, the negative control and five SARS-CoV-2 reads (lane A8, K6).
 //
 // The tools and the Kraken2 Viral database come from the Stable root that a SwiftPM test
 // resolves (`~/.lungfish-stable`). The EsViritu database is read in place from
@@ -33,12 +34,13 @@ public enum ClassifierParityFixtures {
     public static let previewReads = 10
     public static let minimumLength = 150
 
-    /// Project-relative paths of the four bundles.
+    /// Project-relative paths of the five bundles.
     public static let subsetRootBundlePath = "Imports/sarscov2-R1.lungfishfastq"
     public static let subsetBundlePath = "Imports/sarscov2-R1.lungfishfastq/derivatives/len-150-any-00000000.lungfishfastq"
     public static let mergeBundlePath = "Imports/merge.lungfishfastq"
     public static let pairBundlePath = "Imports/sarscov2-pair.lungfishfastq"
     public static let negativeControlBundlePath = "Imports/negative-control.lungfishfastq"
+    public static let lowSignalControlBundlePath = "Imports/low-signal-control.lungfishfastq"
 
     /// `Tests/Fixtures` of this checkout.
     public static var fixturesDirectory: URL {
@@ -51,7 +53,7 @@ public enum ClassifierParityFixtures {
 
     // MARK: - Projects
 
-    /// Builds `Project.lungfish` with the four bundles in `root` and returns the project.
+    /// Builds `Project.lungfish` with the five bundles in `root` and returns the project.
     @discardableResult
     public static func makeProject(in root: URL) throws -> URL {
         let project = root.appendingPathComponent(projectName, isDirectory: true)
@@ -59,12 +61,17 @@ public enum ClassifierParityFixtures {
         try makeSubsetBundles(in: project)
         try makeMergeBundle(at: project.appendingPathComponent(mergeBundlePath, isDirectory: true))
         try makePairBundle(at: project.appendingPathComponent(pairBundlePath, isDirectory: true))
-        let control = project.appendingPathComponent(negativeControlBundlePath, isDirectory: true)
-        try FileManager.default.createDirectory(at: control, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(
-            at: fixturesDirectory.appendingPathComponent("classifier-parity/negative-control.fastq"),
-            to: control.appendingPathComponent("negative-control.fastq")
-        )
+        for (bundlePath, file) in [
+            (negativeControlBundlePath, "negative-control.fastq"),
+            (lowSignalControlBundlePath, "low-signal-control.fastq"),
+        ] {
+            let control = project.appendingPathComponent(bundlePath, isDirectory: true)
+            try FileManager.default.createDirectory(at: control, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(
+                at: fixturesDirectory.appendingPathComponent("classifier-parity/\(file)"),
+                to: control.appendingPathComponent(file)
+            )
+        }
         return project
     }
 

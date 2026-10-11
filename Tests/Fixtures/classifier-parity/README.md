@@ -1,6 +1,6 @@
 # Classifier parity fixtures
 
-`ClassifierCLIGUIParityReplayTests` runs Kraken2, Bracken and EsViritu through the GUI path and through the command the GUI records, then compares the two results. `ClassifierParityFixtures` in `Tests/Support/LungfishTestSupport` builds one project per side with four bundles. Three of them come from other fixture folders. This folder holds the fourth.
+`ClassifierCLIGUIParityReplayTests` runs Kraken2, Bracken and EsViritu through the GUI path and through the command the GUI records, then compares the two results. `ClassifierParityFixtures` in `Tests/Support/LungfishTestSupport` builds one project per side with five bundles. Three of them come from other fixture folders. This folder holds the other two.
 
 | Bundle in the project | Source | What it holds |
 |---|---|---|
@@ -8,10 +8,11 @@
 | `Imports/merge.lungfishfastq` | `Tests/Fixtures/read-pairing/kraken2` | 77 merged reads and 23 unmerged pairs from BBMerge |
 | `Imports/sarscov2-pair.lungfishfastq` | `Tests/Fixtures/sarscov2/test_1.fastq.gz` and `test_2.fastq.gz` | The 100 SARS-CoV-2 read pairs as a paired derivative, the shape that runs as a pair |
 | `Imports/negative-control.lungfishfastq` | `negative-control.fastq` in this folder | 40 synthetic reads with no viral hit |
+| `Imports/low-signal-control.lungfishfastq` | `low-signal-control.fastq` in this folder | The 40 reads of the negative control and five SARS-CoV-2 reads |
 
 ## The negative control
 
-`negative-control.fastq` holds 40 reads of 150 bases drawn from a fixed 64-bit linear congruential generator, so its bytes do not depend on any random number library. No read matches the Kraken2 Viral database, so Kraken2 classifies none of them and its report holds only the unclassified line. Today `KreportParser` rejects that report as empty, so case K5 pins a failure on both routes. The GUI row reads Failed with the alert "Classification Failed" and "Empty Kraken2 report", and the replayed command throws the same message. `ClassifierParityKnownDifferences.swift` declares the failure as a known defect. Lane BR's parser fix lets the report parse, and lane A8 then pins K5 to a degraded Bracken profile and Completed with Warnings.
+`negative-control.fastq` holds 40 reads of 150 bases drawn from a fixed 64-bit linear congruential generator, so its bytes do not depend on any random number library. No read matches the Kraken2 Viral database, so Kraken2 classifies none of them and its report holds only the unclassified line. Lane BR's parser fix reads that report, so the Bracken preflight finds no species row and degrades the profile with the reason `rankAbsentFromReport` before Bracken runs. Lane A8 pins case K5 to that outcome on both routes. The GUI row reads Completed with Warnings with one warning line, and the replayed command exits 0 with a `completed` record.
 
 It was made on 2026-10-11 with this script, run as `python3 make_negative_control.py negative-control.fastq`.
 
@@ -34,3 +35,9 @@ with open(sys.argv[1], "w") as out:
 ```
 
 The file's SHA-256 is `a4c0e2b5f5d6537baa573592fdea0fcdc41837911a1483538c8fecd73e0edf6a`.
+
+## The low-signal control
+
+`low-signal-control.fastq` holds the 40 reads of the negative control, then five reads of `Tests/Fixtures/sarscov2/test_1.fastq.gz` that Kraken2 classifies under Betacoronavirus pandemicum (taxid 3418604) in case K1, in this order: `ERR5069949.2151832`, `ERR5069949.2417063`, `ERR5069949.376959`, `ERR5069949.2953930` and `ERR5069949.2185111`. Kraken2 classifies those five, so the species row holds five reads and the Bracken preflight passes. The wizard's Bracken threshold is ten reads, so Bracken's `est_abundance.py` finds no reads and writes no profile, while the `bracken` driver still exits 0. The pipeline then degrades the profile with the reason `outputMissing`. Case K6 pins that outcome on both routes, the second route to a degraded profile with real tools (F2 bioinformatics ruling 1).
+
+Lane A8 made it on 2026-10-11 with `make_low_signal_control.py`, which reads the negative control and the SARS-CoV-2 reads and writes the 40 reads followed by the five named reads, unchanged. The file's SHA-256 is `92c50c757ee3c75db312e4447a1038a09631840ad3e9dd334d468ba30c7cebea`.

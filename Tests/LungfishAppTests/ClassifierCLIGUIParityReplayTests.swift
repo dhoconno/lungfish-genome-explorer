@@ -101,6 +101,10 @@ final class ClassifierCLIGUIParityReplayTests: XCTestCase {
         try await assertParity(.k5)
     }
 
+    func testK6Kraken2AndBrackenOnTheLowSignalControl() async throws {
+        try await assertParity(.k6)
+    }
+
     func testE1EsVirituOnTheVirtualSubsetBundle() async throws {
         try await assertParity(.e1)
     }

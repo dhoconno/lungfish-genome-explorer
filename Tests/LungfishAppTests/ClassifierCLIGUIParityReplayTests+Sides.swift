@@ -29,6 +29,9 @@ enum ClassifierParityCase: String, CaseIterable, Sendable {
     case k4 = "K4"
     /// The wizard's Kraken2 request on the negative control, with no viral hit.
     case k5 = "K5"
+    /// The wizard's Kraken2 request on the low-signal control, five SARS-CoV-2 reads among the
+    /// 40 of the negative control, too few for Bracken's threshold (F2 bio ruling 1, lane A8).
+    case k6 = "K6"
     /// EsViritu on the subset bundle.
     case e1 = "E1"
     /// EsViritu on the SARS-CoV-2 pair.
@@ -44,7 +47,7 @@ enum ClassifierParityCase: String, CaseIterable, Sendable {
     var tool: Tool {
         switch self {
         case .e1, .e2, .e3: return .esViritu
-        case .k1, .k2, .k3, .k4, .k5: return .kraken2
+        case .k1, .k2, .k3, .k4, .k5, .k6: return .kraken2
         }
     }
 
@@ -55,6 +58,7 @@ enum ClassifierParityCase: String, CaseIterable, Sendable {
         case .k2: return [ClassifierParityFixtures.mergeBundlePath]
         case .k3: return [ClassifierParityFixtures.subsetBundlePath, ClassifierParityFixtures.mergeBundlePath]
         case .k5: return [ClassifierParityFixtures.negativeControlBundlePath]
+        case .k6: return [ClassifierParityFixtures.lowSignalControlBundlePath]
         case .e2: return [ClassifierParityFixtures.pairBundlePath]
         case .e3: return [ClassifierParityFixtures.subsetBundlePath, ClassifierParityFixtures.pairBundlePath]
         }
