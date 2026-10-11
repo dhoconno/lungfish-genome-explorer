@@ -5,8 +5,9 @@
 // Phase 2.7 lane A10. The runner set of CLIPrimerTrimRunnerTests for `CLIClassifierRunner`: a
 // command that exits at once, a cancel that stops the process tree and gives the command its
 // grace, the result folder read by its role and then by its place, the frozen version 1 reader,
-// and the argv that runs. The transcripts come from the real analysis run executor in process
-// (ClassifierCLIRouteFixtures.swift), played by a shell script in place of `lungfish-cli`.
+// and the argv that runs. A shell script in place of `lungfish-cli` plays lane A9's captured
+// `esviritu detect` runs, and for Kraken2, until lane A8's captured runs land, transcripts of the
+// real analysis run executor in process (ClassifierCLIRouteFixtures.swift).
 
 import XCTest
 @testable import LungfishApp
@@ -67,6 +68,49 @@ final class CLIClassifierRunnerTests: XCTestCase {
         XCTAssertEqual(completion.detail, "the command's own detail")
         XCTAssertNil(completion.taxonomyResult)
         XCTAssertTrue(completion.readBackProblem?.hasPrefix("The result in \(run.folder.lastPathComponent) could not be read back") == true)
+    }
+
+    /// Lane A9's captured `esviritu detect` run of one sample is read back from the sample folder
+    /// of its batch root to today's detection detail, never the command's own message (D9, D23).
+    func testACapturedEsVirituRunIsReadBackFromItsSampleFolder() async throws {
+        let root = try TestTempDirectory.make(prefix: "cli-classifier-runner-captured")
+        defer { TestTempDirectory.cleanup(root) }
+        let transcript = try CapturedClassifierTranscript.load(command: "esviritu-detect", run: "complete", root: root)
+        let folder = try XCTUnwrap(transcript.folder)
+        try ClassifierRouteFixtures.placeEsVirituRun(in: folder, samples: ["sarscov2"])
+        let cli = try ClassifierRouteFixtures.standInCLI(in: root, lines: transcript.lines)
+
+        let completion = try await CLIClassifierRunner(cliURLOverride: cli).run(
+            CLIClassifierRunRequest(tool: .esViritu, arguments: ["esviritu", "detect"], sampleIDs: ["sarscov2"]),
+            operationID: UUID()
+        )
+
+        XCTAssertEqual(completion.detail, try ClassifierRouteFixtures.expectedEsVirituDetail())
+        XCTAssertNotEqual(completion.detail, "1 viruses detected in 1 families", "the command's own message")
+        XCTAssertFalse(completion.completesWithWarning)
+        XCTAssertEqual(completion.folder?.standardizedFileURL, folder.standardizedFileURL)
+        XCTAssertNil(completion.taxonomyResult)
+        XCTAssertNil(completion.readBackProblem)
+    }
+
+    /// Lane A9's captured refusal of a missing database fails with the command's message as
+    /// today's alert text and error message, and no error detail since EsViritu never ran (D11).
+    func testACapturedEsVirituRefusalFailsWithItsMessage() async throws {
+        let root = try TestTempDirectory.make(prefix: "cli-classifier-runner-refusal")
+        defer { TestTempDirectory.cleanup(root) }
+        let transcript = try CapturedClassifierTranscript.load(command: "esviritu-detect", run: "failed", root: root)
+        let cli = try ClassifierRouteFixtures.standInCLI(in: root, lines: transcript.lines, exitStatus: 1)
+
+        do {
+            _ = try await CLIClassifierRunner(cliURLOverride: cli).run(
+                CLIClassifierRunRequest(tool: .esViritu, arguments: ["esviritu", "detect"], sampleIDs: ["sarscov2"]),
+                operationID: UUID()
+            )
+            XCTFail("a refused command must throw")
+        } catch let failure as CLIClassifierFailure {
+            let message = "Database directory not found: \(root.path)/missing-db"
+            XCTAssertEqual(failure, CLIClassifierFailure(message: message, errorMessage: message, errorDetail: nil))
+        }
     }
 
     /// The command runs with exactly the argv the row records.

@@ -2,9 +2,10 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.7 lane A10, UX differences D5 to D8, D11, D14 and D17. Each test runs the real analysis
-// run executor in process with a stand-in tool, so the stream is the one `--format json` prints,
-// and plays it through `CLIClassifierRowEvents`, the rules the CLI route's runner applies.
+// Phase 2.7 lane A10, UX differences D5 to D8, D11, D14 and D17. Each test plays a stream through
+// `CLIClassifierRowEvents`, the rules the CLI route's runner applies: lane A9's captured
+// `esviritu detect` runs, or for a shape no captured run has, the stream the real analysis run
+// executor prints for `--format json` when it runs a stand-in tool in process.
 
 import XCTest
 @testable import LungfishApp
@@ -40,6 +41,47 @@ final class CLIClassifierRowEventsTests: XCTestCase {
         XCTAssertEqual(effects.compactMap(\.trackedFolder).map(\.standardizedFileURL), [folder.standardizedFileURL])
         XCTAssertEqual(rows.analysisFolder?.standardizedFileURL, folder.standardizedFileURL)
         XCTAssertTrue(effects[0].bridged.isEmpty, "the begin text stays the first detail")
+    }
+
+    /// D5 to D7, D14, D17. Lane A9's captured `esviritu detect` runs of one sample, plain and with
+    /// `--batch`, read as today's single row. The executor's unit line is hidden, every pipeline
+    /// line is logged at info with no sample, the bar never moves back, the database line logs
+    /// today's single-sample line and shows no overlay, and the early output line names the
+    /// folder the row tracks. The captured refusal shows nothing, since the runner reads the
+    /// failure from the transport.
+    func testCapturedEsVirituRunsReadAsTodaysSingleRow() throws {
+        let root = URL(fileURLWithPath: "/tmp/lane a10c", isDirectory: true)
+        let decoder = CLIEventLineDecoder()
+        for (run, sample) in [("complete", "sarscov2"), ("complete-batch", "test")] {
+            let transcript = try CapturedClassifierTranscript.load(command: "esviritu-detect", run: run, root: root)
+            let (rows, effects) = play(try transcript.lines.compactMap { try decoder.decode(line: $0) }, tool: .esViritu, sampleIDs: [sample])
+
+            let logged = logLines(effects)
+            XCTAssertEqual(logged.first, "info: Validating configuration...", run)
+            XCTAssertFalse(logged.contains("info: Running \(sample)."), "\(run): the executor's unit line is not shown")
+            XCTAssertEqual(logged.filter { !$0.hasPrefix("info:") }, [], "\(run): no warning or error line")
+            XCTAssertFalse(logged.contains { $0.contains("Sample 1/1") }, "\(run): a single row's lines carry no sample")
+            XCTAssertEqual(
+                logged.filter { $0.hasPrefix("info: Building esviritu.sqlite") },
+                ["info: Building esviritu.sqlite from single-sample result"],
+                run
+            )
+            let fractions = effects.flatMap(\.bridged).compactMap { event -> Double? in
+                guard case let .progress(fraction, _) = event else { return nil }
+                return fraction
+            }
+            XCTAssertEqual(fractions, fractions.sorted(), "\(run): the bar never moves back")
+            XCTAssertEqual(fractions.last, 1, run)
+            XCTAssertFalse(effects.compactMap(\.overlay).contains("Building EsViritu database\u{2026}"), run)
+            XCTAssertEqual(effects.compactMap(\.trackedFolder), [try XCTUnwrap(transcript.folder)], run)
+            XCTAssertNil(rows.esVirituLogTail, run)
+            XCTAssertEqual(rows.failedUnitReasons, [], run)
+        }
+
+        let refusal = try CapturedClassifierTranscript.load(command: "esviritu-detect", run: "failed", root: root)
+        let (rows, effects) = play(try refusal.lines.compactMap { try decoder.decode(line: $0) }, tool: .esViritu, sampleIDs: ["sarscov2"])
+        XCTAssertEqual(effects, [CLIClassifierRowEvents.Effects(), CLIClassifierRowEvents.Effects()])
+        XCTAssertNil(rows.analysisFolder)
     }
 
     /// D11. The EsViritu log tail of a failed single run goes to the error detail, not the log,

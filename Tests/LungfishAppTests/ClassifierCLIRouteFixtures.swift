@@ -8,7 +8,9 @@
 // writes the result each unit leaves, from the kraken2-mini and esviritu-mini fixtures, and the
 // finalize writes the batch manifest and the database line the commands write. A shell script
 // plays the transcript in place of `lungfish-cli`, as the commands of lanes A8 and A9 print it.
-// When their real transcripts land, the tests switch to them.
+// Lane A10c plays lane A9's captured `esviritu detect` runs where one exists. The Kraken2 tests
+// and the shapes no captured run has (failed and degraded samples, a database failure, a cancel)
+// keep the executor's transcripts until lane A8's captured `kraken2 classify` runs land.
 
 import Foundation
 import LungfishCore
@@ -374,6 +376,59 @@ enum ClassifierRouteFixtures {
             files[String(url.path.dropFirst(folder.path.count))] = try Data(contentsOf: url)
         }
         return files
+    }
+}
+
+/// A run that lanes A8 and A9 captured from the built `lungfish-cli` under
+/// `Tests/Fixtures/cli-events/commands/`, with the capture's scratch folder `/work` rewritten to a
+/// test's root in its plain and slash-escaped spellings. Nothing else of a line changes.
+struct CapturedClassifierTranscript {
+    let lines: [String]
+    /// The folder the early `output` line names, under the test's root, or nil for a run that
+    /// failed before it made one.
+    let folder: URL?
+
+    static func load(command: String, run: String, root: URL) throws -> CapturedClassifierTranscript {
+        let url = ClassifierRouteFixtures.fixtures.appendingPathComponent("cli-events/commands/\(command)/\(run).ndjson")
+        let escapedRoot = root.path.replacingOccurrences(of: "/", with: "\\/")
+        let lines = try String(contentsOf: url, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { line in
+                String(line)
+                    .replacingOccurrences(of: "\\/work\\/", with: escapedRoot + "\\/")
+                    .replacingOccurrences(of: "/work/", with: root.path + "/")
+            }
+        let decoder = CLIEventLineDecoder()
+        var folder: URL?
+        for line in lines {
+            if case let .output(path, role) = try decoder.decode(line: line), role == CLIEventArtifact.Role.analysisDirectory {
+                folder = URL(fileURLWithPath: path, isDirectory: true)
+                break
+            }
+        }
+        return CapturedClassifierTranscript(lines: lines, folder: folder)
+    }
+}
+
+extension ClassifierRouteFixtures {
+    /// What an EsViritu run leaves in its batch root `folder` while it runs, for a captured
+    /// transcript: each sample's fixture result in its sample folder, the batch manifest the
+    /// read-back opens, and the running run record a stand-in settles at its end.
+    static func placeEsVirituRun(in folder: URL, samples: [String]) throws {
+        for sample in samples {
+            try writeResult(of: .esViritu, sample: sample, into: folder.appendingPathComponent(sample, isDirectory: true))
+        }
+        try MetagenomicsBatchResultStore.saveEsViritu(
+            EsVirituBatchResultManifest(
+                header: MetagenomicsBatchManifestHeader(schemaVersion: 1, createdAt: Date(), sampleCount: samples.count),
+                summaryTSV: "esviritu-batch-summary.tsv",
+                samples: samples.map {
+                    MetagenomicsBatchSampleRecord(sampleId: $0, resultDirectory: $0, inputFiles: [], isPairedEnd: false)
+                }
+            ),
+            to: folder
+        )
+        try AnalysisRunRecord.begin(AnalysisRunRecord(analysisName: "esviritu", command: "lungfish-cli esviritu detect"), in: folder)
     }
 }
 

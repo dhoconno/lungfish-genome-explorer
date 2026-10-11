@@ -6,9 +6,10 @@
 // Failed, Cancelled), as OperationCenterCLIBridgeTests has, and UX's requirement table D1 to
 // D18. Each run goes through `AppDelegate.runClassificationThroughCLI` or
 // `runEsVirituThroughCLI` on `OperationCenter.shared`, with a stand-in `lungfish-cli` that plays
-// what the real executor printed for the run (ClassifierCLIRouteFixtures.swift). The stand-in
-// holds its last line until the test saw the row track the folder, then settles the folder as
-// the command does. Every test checks that the route writes no byte after the command exits.
+// lane A9's captured `esviritu detect` run, or what the real executor printed for a shape no
+// captured run has (ClassifierCLIRouteFixtures.swift). The stand-in holds its last line until the
+// test saw the row track the folder, then settles the folder as the command does. Every test
+// checks that the route writes no byte after the command exits.
 
 import AppKit
 import XCTest
@@ -162,22 +163,33 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
         XCTAssertNil(run.viewer.taxonomyViewController, "nothing opens after an EsViritu run")
     }
 
-    /// D9, D23. A single EsViritu run reads today's detection detail from the sample folder of
-    /// its batch root.
-    func testASingleEsVirituRunReadsTodaysDetectionDetail() async throws {
+    /// D5 to D9, D14, D17, D23. Lane A9's captured `esviritu detect` run of one sample reads
+    /// today's row. The executor's unit line is hidden, every pipeline line is logged at info,
+    /// the database line logs today's single-sample line, and the detail is today's detection
+    /// detail read back from the sample folder of the batch root, not the command's message.
+    func testACapturedSingleEsVirituRunReadsTodaysRowAndDetectionDetail() async throws {
         let made = try ClassifierRouteFixtures.makeProject(in: root)
-        let run = try await runThroughRoute(
-            .esViritu([esVirituConfig(sample: "air-A", inputs: made.inputs)]),
-            tool: StandInClassifierTool(tool: .esViritu, units: [("air-A", .complete)], layout: .batchRoot),
-            project: made.project,
-            inputs: made.inputs
-        )
+        let transcript = try CapturedClassifierTranscript.load(command: "esviritu-detect", run: "complete", root: root)
+        let folder = try XCTUnwrap(transcript.folder)
+        try ClassifierRouteFixtures.placeEsVirituRun(in: folder, samples: ["sarscov2"])
+        let configs = Configs.esViritu([esVirituConfig(sample: "sarscov2", inputs: made.inputs)])
+        let run = try await play(transcript.lines, exitStatus: 0, folder: folder, completed: true, configs: configs, project: made.project)
 
-        XCTAssertEqual(run.item.title, "EsViritu air-A")
+        XCTAssertEqual(run.item.title, "EsViritu sarscov2")
         XCTAssertEqual(run.firstDetail, "Starting EsViritu viral detection\u{2026}")
         XCTAssertEqual(run.item.displayStateLabel, "Completed")
         XCTAssertEqual(run.item.detail, try ClassifierRouteFixtures.expectedEsVirituDetail())
-        XCTAssertTrue(loggedLines(of: run.item).contains("info: Building esviritu.sqlite from single-sample result"))
+        XCTAssertNotEqual(run.item.detail, "1 viruses detected in 1 families", "D9 reads the result back from disk")
+        let logged = loggedLines(of: run.item)
+        XCTAssertEqual(logged.filter { !$0.hasPrefix("info:") }, [], "no warning or error line")
+        XCTAssertEqual(logged.first, "info: Validating configuration...")
+        XCTAssertFalse(logged.contains("info: Running sarscov2."), "the executor's unit line is not shown")
+        XCTAssertTrue(logged.contains("info: Building esviritu.sqlite from single-sample result"))
+        XCTAssertTrue(logged.contains("info: Parsed 1 detection rows from EsViritu results"))
+        XCTAssertEqual(run.overlayWhileRunning, "Writing the EsViritu batch summary\u{2026}", "the database line has no overlay")
+        XCTAssertEqual(run.overlayHiddenAtTheEnd, true)
+        XCTAssertNil(run.viewer.taxonomyViewController, "nothing opens after an EsViritu run")
+        XCTAssertEqual(run.item.bundleURLs.map(\.standardizedFileURL), [folder.standardizedFileURL])
     }
 
     /// Review fix 4, a deliberate difference from today. A completed run whose result the app
@@ -239,6 +251,46 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
         let report = try XCTUnwrap(run.item.failureReportURL, "D12")
         XCTAssertTrue(try String(contentsOf: report, encoding: .utf8).contains("esviritu detect"), "the report names the command")
         XCTAssertEqual(run.overlayHiddenAtTheEnd, true)
+    }
+
+    /// D11 to D13. Lane A9's captured refusal of a missing database, which the command makes
+    /// before any folder exists, fails the row with the command's message in today's alert, no
+    /// error detail since EsViritu never ran, a failure report that names the command, and no
+    /// file written into the project.
+    func testACapturedEsVirituRefusalShowsTodaysAlertAndWritesNothing() async throws {
+        let made = try ClassifierRouteFixtures.makeProject(in: root)
+        let transcript = try CapturedClassifierTranscript.load(command: "esviritu-detect", run: "failed", root: root)
+        XCTAssertNil(transcript.folder)
+        let cli = try ClassifierRouteFixtures.standInCLI(in: root, lines: transcript.lines, exitStatus: 1)
+        let before = try ClassifierRouteFixtures.snapshot(of: made.project)
+        let (delegate, viewer, window) = makeDelegateAndViewer()
+        defer { close(window) }
+
+        let existing = Set(OperationCenter.shared.items.map(\.id))
+        delegate.runEsVirituThroughCLI(
+            configs: [esVirituConfig(sample: "sarscov2", inputs: made.inputs)],
+            viewerController: viewer,
+            routeContext: OperationRouteContext(projectURL: made.project, windowStateScopeID: nil),
+            cliURLOverride: cli
+        )
+        let row = try XCTUnwrap(OperationCenter.shared.items.first { !existing.contains($0.id) })
+        rowIDs.append(row.id)
+        let finished = await waitUntil(timeout: .seconds(30)) { self.item(row.id).map { !$0.state.isActive } ?? true }
+        XCTAssertTrue(finished)
+        _ = await waitUntil(timeout: .seconds(5)) { window.attachedSheet != nil }
+
+        let message = "Database directory not found: \(root.path)/missing-db"
+        let item = try XCTUnwrap(self.item(row.id))
+        XCTAssertEqual(item.displayStateLabel, "Failed")
+        XCTAssertEqual(item.detail, message)
+        XCTAssertEqual(item.errorMessage, message)
+        XCTAssertNil(item.errorDetail, "EsViritu never ran, so there is no log tail")
+        XCTAssertEqual(window.attachedSheet.map(Self.texts(in:)), "EsViritu Failed\n\(message)")
+        XCTAssertTrue(loggedLines(of: item).contains("error: \(message)"))
+        let report = try XCTUnwrap(item.failureReportURL, "D12")
+        XCTAssertTrue(try String(contentsOf: report, encoding: .utf8).contains("esviritu detect"), "the report names the command")
+        XCTAssertEqual(item.bundleURLs, [])
+        XCTAssertEqual(try ClassifierRouteFixtures.snapshot(of: made.project), before, "the refusal left no folder")
     }
 
     /// UX checklist 1. A Kraken2 batch whose every sample failed reads today's detail and alert,
@@ -402,10 +454,8 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
     }
 
     /// Runs `configs` through the route with a stand-in command that plays what the real
-    /// executor printed for `tool`, and checks the parts every outcome shares. The row tracks
-    /// the folder while the command runs, which keeps it hidden (D16, D17), and the route writes
-    /// no byte into the project after the command exits. `alteringTheResult` changes the folder
-    /// the executor left before the command plays.
+    /// executor printed for `tool`, and checks the parts every outcome shares (``play``).
+    /// `alteringTheResult` changes the folder the executor left before the command plays.
     private func runThroughRoute(
         _ configs: Configs,
         tool: StandInClassifierTool,
@@ -415,32 +465,56 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
         expectsAlert: Bool = false,
         alteringTheResult: ((URL) throws -> Void)? = nil
     ) async throws -> RouteRun {
-        let routeContext = OperationRouteContext(projectURL: project, windowStateScopeID: nil)
-        let launch: ClassifierCLIRouteLaunch
-        switch configs {
-        case .kraken2(let configs): launch = try XCTUnwrap(ClassifierCLIRouteLaunch.kraken2(configs: configs, projectURL: project))
-        case .esViritu(let configs): launch = try XCTUnwrap(ClassifierCLIRouteLaunch.esViritu(configs: configs, projectURL: project))
-        }
+        let launch = try Self.launch(of: configs, project: project)
         let recordCopy = root.appendingPathComponent("run-record-\(UUID().uuidString).json")
         var tool = tool
         tool.runRecordCopy = recordCopy
         let transcript = await ClassifierRouteFixtures.transcript(of: tool, project: project, inputs: inputs, arguments: launch.arguments)
         let folder = try XCTUnwrap(transcript.report.analysisDirectory)
-        let recordURL = AnalysisRunRecord.url(in: folder)
         let completed = transcript.report.status == .completed
         if completed {
             // The folder as it is while the command runs. The stand-in settles it at its end.
-            try FileManager.default.copyItem(at: recordCopy, to: recordURL)
+            try FileManager.default.copyItem(at: recordCopy, to: AnalysisRunRecord.url(in: folder))
         }
         try alteringTheResult?(folder)
+        return try await play(
+            transcript.lines,
+            exitStatus: transcript.report.exitCode,
+            folder: folder,
+            completed: completed,
+            configs: configs,
+            project: project,
+            standardError: standardError,
+            expectsAlert: expectsAlert
+        )
+    }
+
+    /// Runs `configs` through the route with a stand-in command that plays `lines`, the command
+    /// that left `folder` as it is while it runs, and checks the parts every outcome shares. The
+    /// row tracks the folder while the command runs, which keeps it hidden (D16, D17), and the
+    /// route writes no byte into the project after the command exits. The stand-in settles a
+    /// `completed` folder before its last line, as the command does.
+    private func play(
+        _ lines: [String],
+        exitStatus: Int32,
+        folder: URL,
+        completed: Bool,
+        configs: Configs,
+        project: URL,
+        standardError: [String] = [],
+        expectsAlert: Bool = false
+    ) async throws -> RouteRun {
+        let routeContext = OperationRouteContext(projectURL: project, windowStateScopeID: nil)
+        let launch = try Self.launch(of: configs, project: project)
+        let recordURL = AnalysisRunRecord.url(in: folder)
         let before = try ClassifierRouteFixtures.snapshot(of: project, ignoring: [AnalysisRunRecord.fileName])
         let recordBefore = completed ? nil : try Data(contentsOf: recordURL)
         let go = root.appendingPathComponent("go-\(UUID().uuidString)")
         let cli = try ClassifierRouteFixtures.standInCLI(
             in: root,
-            lines: transcript.lines,
+            lines: lines,
             standardError: standardError,
-            exitStatus: transcript.report.exitCode,
+            exitStatus: exitStatus,
             holdingTheLastLineUntil: go,
             settling: completed ? recordURL : nil
         )
@@ -460,7 +534,7 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
 
         // Every line but the last has reached the row once the overlay shows the last line the
         // route's rules make of them.
-        let lastOverlay = try Self.lastOverlay(of: transcript.lines.dropLast(), launch: launch)
+        let lastOverlay = try Self.lastOverlay(of: lines.dropLast(), launch: launch)
         let tracking = await waitUntil(timeout: .seconds(30)) {
             OperationCenter.shared.isTrackingAnalysisOutput(folder)
                 && (lastOverlay == nil || self.overlay(of: viewer)?.message == lastOverlay)
@@ -504,6 +578,13 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    private static func launch(of configs: Configs, project: URL) throws -> ClassifierCLIRouteLaunch {
+        switch configs {
+        case .kraken2(let configs): return try XCTUnwrap(ClassifierCLIRouteLaunch.kraken2(configs: configs, projectURL: project))
+        case .esViritu(let configs): return try XCTUnwrap(ClassifierCLIRouteLaunch.esViritu(configs: configs, projectURL: project))
+        }
+    }
 
     private func kraken2Config(inputs: [URL], sampleFolder: String) -> ClassificationConfig {
         ClassificationConfig(
