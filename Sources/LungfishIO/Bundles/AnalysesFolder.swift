@@ -59,13 +59,15 @@ public enum AnalysesFolder {
         return try? decoder.decode(AnalysisMetadata.self, from: data)
     }
 
-    /// Writes an `analysis-metadata.json` sidecar into an analysis directory.
+    /// Writes an `analysis-metadata.json` sidecar into an analysis directory through ``DurableReplace``,
+    /// so the name holds a complete old or new file at every step and the bytes and the folder are
+    /// synced (plan decisions S1, V1 and V2).
     public static func writeAnalysisMetadata(_ metadata: AnalysisMetadata, to directoryURL: URL) throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(metadata)
-        try data.write(to: directoryURL.appendingPathComponent(metadataFilename), options: .atomic)
+        try DurableReplace.replace(data, named: metadataFilename, in: directoryURL)
     }
 
     // MARK: - Tool Metadata
