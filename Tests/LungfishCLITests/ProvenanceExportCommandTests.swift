@@ -1654,7 +1654,13 @@ extension ProvenanceExportCommandTests {
 
         try await command.run()
 
-        XCTAssertTrue(FileManager.default.fileExists(atPath: outputDirectory.appendingPathComponent("run.sh").path))
+        let script = try String(contentsOf: outputDirectory.appendingPathComponent("run.sh"), encoding: .utf8)
+        let summary = "Step 1, minimap2 in lge-minimap2. Its version was not recorded, so no version can be pinned."
+        XCTAssertTrue(script.contains("# Exported with --allow-unpinned. LGE cannot pin the tool version\n"), script)
+        XCTAssertTrue(script.contains("#   \(summary)\n"), script)
+        XCTAssertTrue(script.contains(
+            "# Not pinned. Its version was not recorded, so no version can be pinned. Exported with --allow-unpinned.\n"
+        ), script)
         let exportEnvelope = try ProvenanceJSON.decoder.decode(
             ProvenanceEnvelope.self,
             from: try Data(contentsOf: outputDirectory
@@ -1665,6 +1671,8 @@ extension ProvenanceExportCommandTests {
             "lungfish-cli", "provenance", "export", sidecarURL.path,
             "--export-format", "shell", "--output", outputDirectory.path, "--allow-unpinned",
         ])
+        XCTAssertEqual(exportEnvelope.options.explicit["allowUnpinned"], .boolean(true))
+        XCTAssertEqual(exportEnvelope.options.resolvedDefaults["unpinnedSteps"], .array([.string(summary)]))
     }
 
     func testMethodsAndJSONExportsOfAnUnpinnedRecordAreNeverGated() async throws {

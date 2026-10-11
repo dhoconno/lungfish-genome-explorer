@@ -188,7 +188,8 @@ struct ProvenanceCommand: AsyncParsableCommand {
                     to: outputURL,
                     sourceSidecarURL: provenanceSource.sidecarURL,
                     sourceRootURL: inputURL,
-                    exportArgv: exportArgv
+                    exportArgv: exportArgv,
+                    allowUnpinned: allowUnpinned
                 )
                 print("Exported provenance \(selectedExportFormat.rawValue) to \(bundle.primaryArtifactURL.path)")
                 for artifact in bundle.signedReportArtifactURLs {

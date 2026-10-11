@@ -112,7 +112,8 @@ public struct ProvenanceExporter: Sendable {
         to outputDirectory: URL,
         sourceSidecarURL: URL?,
         sourceRootURL: URL? = nil,
-        exportArgv: [String] = []
+        exportArgv: [String] = [],
+        allowUnpinned: Bool = false
     ) throws -> ProvenanceExportBundle {
         let runClock = ProvenanceRunClock()
         let fileManager = FileManager.default
@@ -120,21 +121,21 @@ public struct ProvenanceExporter: Sendable {
 
         let (chainExpansion, run) = scriptSource(envelope, sourceSidecarURL: sourceSidecarURL, sourceRootURL: sourceRootURL)
         let expandedEnvelope = chainExpansion.envelope
-        let plan = exportPlan(run)
+        let (plan, pins) = planAndPins(run, allowUnpinned: allowUnpinned && format.isPinGated)
         let primaryArtifactURL: URL
         var generatedArtifactURLs: [URL] = []
         switch format {
         case .shell:
             primaryArtifactURL = outputDirectory.appendingPathComponent("run.sh")
-            try exportShell(run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
+            try exportShell(run, allowUnpinned: pins.allowUnpinned).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
             try makeExecutable(primaryArtifactURL)
         case .python:
             primaryArtifactURL = outputDirectory.appendingPathComponent("reproduce.py")
-            try exportPython(run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
+            try exportPython(run, allowUnpinned: pins.allowUnpinned).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
             try makeExecutable(primaryArtifactURL)
         case .nextflow:
             primaryArtifactURL = outputDirectory.appendingPathComponent("main.nf")
-            try exportNextflow(run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
+            try exportNextflow(run, allowUnpinned: pins.allowUnpinned).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
             let nextflowConfigURL = outputDirectory.appendingPathComponent("nextflow.config")
             try exportNextflowConfig(run).write(
                 to: nextflowConfigURL,
@@ -152,7 +153,7 @@ public struct ProvenanceExporter: Sendable {
             generatedArtifactURLs.append(contentsOf: [nextflowConfigURL, containerManifestURL])
         case .snakemake:
             primaryArtifactURL = outputDirectory.appendingPathComponent("Snakefile")
-            try exportSnakemake(run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
+            try exportSnakemake(run, allowUnpinned: pins.allowUnpinned).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
             let configURL = outputDirectory.appendingPathComponent("config.yaml")
             try exportSnakemakeConfig(run).write(
                 to: configURL,
@@ -189,6 +190,7 @@ public struct ProvenanceExporter: Sendable {
             sourceArtifacts: copiedSourceArtifacts,
             generatedArtifactURLs: generatedArtifactURLs + signedReportArtifactURLs,
             argv: exportArgv,
+            pins: pins,
             startedAt: runClock.startedAt,
             endedAt: runClock.now
         )
@@ -362,6 +364,7 @@ public struct ProvenanceExporter: Sendable {
         sourceArtifacts: [CopiedSourceArtifact],
         generatedArtifactURLs: [URL],
         argv: [String],
+        pins: ProvenanceExportPinNotes,
         startedAt: Date,
         endedAt: Date
     ) throws -> URL {
@@ -377,20 +380,18 @@ public struct ProvenanceExporter: Sendable {
                 sourceInputURL: sourceInputURL,
                 format: format,
                 outputDirectory: outputDirectory
-            )
+            ) + pins.defaultArgvSuffix(provided: argv)
         )
         .options(
             explicit: exportOptions(
                 sourceInputURL: sourceInputURL,
                 format: format,
                 outputDirectory: outputDirectory
-            ),
+            ).merging(pins.explicitOptions) { current, _ in current },
             defaults: [
                 "preserveSourceProvenance": .boolean(true)
             ],
-            resolved: [
-                "preserveSourceProvenance": .boolean(true)
-            ]
+            resolved: pins.resolvedOptions(["preserveSourceProvenance": .boolean(true)])
         )
         .runtime(ProvenanceRuntimeIdentity())
 
@@ -632,7 +633,7 @@ public struct ProvenanceExporter: Sendable {
         s += "process {\n"
         s += "    errorStrategy = 'terminate'\n"
         s += "}\n\n"
-        s += "// Managed tools are recreated from their recorded package pins.\n"
+        s += "// Managed tools are recreated from their recorded package pins.\n" + buildNote(plan, prefix: "// ")
         s += "conda.enabled = true\n"
         if plan.steps.contains(where: { $0.containerImage != nil }) {
             s += "docker.enabled = true\n"
@@ -668,7 +669,7 @@ public struct ProvenanceExporter: Sendable {
         let graph = WorkflowExportGraph(plan: plan)
         var s = ""
         s += "# The .lungfish project the recorded inputs live in. Run snakemake from\n"
-        s += "# inside the project, pass --directory, or set this to the project's path.\n"
+        s += "# inside the project, pass --directory, or set this to the project's path.\n" + buildNote(plan, prefix: "# ")
         s += "project: \".\"\n"
         s += "outdir: results\n"
         for name in graph.parameterFilenames {
@@ -711,27 +712,27 @@ public struct ProvenanceExporter: Sendable {
         for environment in plan.environments {
             s += "\(prefix)  \(environment.micromambaCreateCommand)\n"
         }
-        return s
+        return s + buildNote(plan, prefix: prefix)
     }
 
     // MARK: - Shell Script Export
 
     /// Generates a Bash script that reproduces the workflow.
-    public func exportShell(_ run: WorkflowRun) -> String {
+    public func exportShell(_ run: WorkflowRun, allowUnpinned: Bool = false) -> String {
         if let unavailable = unavailableReplayReason(run) { return unavailableReplayScript(unavailable, format: .shell) }
-        let plan = exportPlan(run)
+        let (plan, pins) = planAndPins(run, allowUnpinned: allowUnpinned)
         var s = ""
         s += "#!/usr/bin/env bash\n"
         s += "#\n"
         s += "# \(run.name)\n"
-        s += "# Generated by \(ProvenanceToolIdentityText.appVersionLabel(run.appVersion))\n"
+        s += "# Generated by \(recordedAppLabel(run))\n"
         s += "# Original run: \(iso8601(run.startTime))\n"
-        s += "# Host: \(run.hostOS)\n"
+        s += "# Host: \(recordedFact(run.hostOS))\n"
         if let user = run.runtime.user {
-            s += "# User: \(user)\n"
+            s += "# User: \(recordedFact(user))\n"
         }
         s += headerNotes(plan, prefix: "# ")
-        s += environmentNote(plan, prefix: "# ")
+        s += environmentNote(plan, prefix: "# ") + pins.header(prefix: "# ")
         s += "#\n"
         s += "# This script reproduces the analysis performed in Lungfish. Paths are\n"
         s += "# relative to the .lungfish project; run it from inside the project or\n"
@@ -758,9 +759,9 @@ public struct ProvenanceExporter: Sendable {
         for step in plan.replayableSteps {
             s += "# Step \(stepNumbers(step)): \(step.identity.displayLabel)"
             if let environment = step.environment {
-                s += " (conda environment \(environment.name))"
+                s += " (conda environment lge-\(environment.exportName))"
             }
-            s += "\n"
+            s += "\n" + pins.stepNote(step, prefix: "# ")
             if let image = step.containerImage {
                 s += "# Container: \(image)\n"
                 if let digest = step.containerDigest {
@@ -809,21 +810,21 @@ public struct ProvenanceExporter: Sendable {
     // MARK: - Python Script Export
 
     /// Generates a Python script using subprocess to reproduce the workflow.
-    public func exportPython(_ run: WorkflowRun) -> String {
+    public func exportPython(_ run: WorkflowRun, allowUnpinned: Bool = false) -> String {
         if let unavailable = unavailableReplayReason(run) { return unavailableReplayScript(unavailable, format: .python) }
-        let plan = exportPlan(run)
+        let (plan, pins) = planAndPins(run, allowUnpinned: allowUnpinned)
         var s = ""
         s += "#!/usr/bin/env python3\n"
         s += "\"\"\"\n"
         s += "\(run.name)\n"
-        s += "Generated by \(ProvenanceToolIdentityText.appVersionLabel(run.appVersion))\n"
+        s += "Generated by \(recordedAppLabel(run))\n"
         s += "Original run: \(iso8601(run.startTime))\n"
-        s += "Host: \(run.hostOS)\n"
+        s += "Host: \(recordedFact(run.hostOS))\n"
         if let user = run.runtime.user {
-            s += "User: \(user)\n"
+            s += "User: \(recordedFact(user))\n"
         }
         s += unresolvedPathNote(plan, prefix: "")
-        s += environmentNote(plan, prefix: "")
+        s += environmentNote(plan, prefix: "") + pins.header(prefix: "")
         s += "\n"
         s += "This script reproduces the analysis performed in Lungfish. Paths are\n"
         s += "relative to the .lungfish project; run it from inside the project or\n"
@@ -862,10 +863,10 @@ public struct ProvenanceExporter: Sendable {
 
         for step in plan.replayableSteps {
             let stepName = "step_\(step.number)_\(sanitize(step.toolName))"
-            s += "def \(stepName)():\n"
+            s += pins.stepNote(step, prefix: "# ") + "def \(stepName)():\n"
             s += "    \"\"\"\(step.identity.displayLabel)"
             if let environment = step.environment {
-                s += " (conda environment \(environment.name))"
+                s += " (conda environment lge-\(environment.exportName))"
             }
             if let image = step.containerImage {
                 s += " (container: \(image))"
@@ -935,9 +936,9 @@ public struct ProvenanceExporter: Sendable {
     // MARK: - Nextflow Export
 
     /// Generates a Nextflow DSL2 pipeline from the provenance record.
-    public func exportNextflow(_ run: WorkflowRun) -> String {
+    public func exportNextflow(_ run: WorkflowRun, allowUnpinned: Bool = false) -> String {
         if let unavailable = unavailableReplayReason(run) { return unavailableReplayScript(unavailable, format: .nextflow) }
-        let plan = exportPlan(run)
+        let (plan, pins) = planAndPins(run, allowUnpinned: allowUnpinned)
         let replayable = plan.replayableSteps.flatMap(\.sourceSteps)
         if !replayable.isEmpty, replayable.allSatisfy(isRetainedSelectionReplay) {
             // These receipts authorize exact byte copies to recorded paths, not
@@ -962,13 +963,13 @@ public struct ProvenanceExporter: Sendable {
         s += "#!/usr/bin/env nextflow\n"
         s += "/*\n"
         s += " * \(run.name)\n"
-        s += " * Generated by \(ProvenanceToolIdentityText.appVersionLabel(run.appVersion))\n"
+        s += " * Generated by \(recordedAppLabel(run))\n"
         s += " * Original run: \(iso8601(run.startTime))\n"
-        s += " * Host: \(run.hostOS)\n"
+        s += " * Host: \(recordedFact(run.hostOS))\n"
         if let user = run.runtime.user {
-            s += " * User: \(user)\n"
+            s += " * User: \(recordedFact(user))\n"
         }
-        s += headerNotes(plan, prefix: " * ")
+        s += headerNotes(plan, prefix: " * ") + pins.header(prefix: " * ")
         s += " *\n"
         s += " * Each process stages its inputs by file name and runs the recorded\n"
         s += " * command on them. Managed tools carry their recorded conda pin; run\n"
@@ -996,7 +997,7 @@ public struct ProvenanceExporter: Sendable {
         for node in graph.nodes {
             let step = node.step
             s += "/*\n"
-            s += " * Step \(stepNumbers(step)): \(step.identity.displayLabel)\n"
+            s += " * Step \(stepNumbers(step)): \(step.identity.displayLabel)\n" + pins.stepNote(step, prefix: " * ")
             if let wallTime = step.wallTime {
                 s += " * Original wall time: \(formatDuration(wallTime))\n"
             }
@@ -1071,9 +1072,9 @@ public struct ProvenanceExporter: Sendable {
     // MARK: - Snakemake Export
 
     /// Generates a Snakefile from the provenance record.
-    public func exportSnakemake(_ run: WorkflowRun) -> String {
+    public func exportSnakemake(_ run: WorkflowRun, allowUnpinned: Bool = false) -> String {
         if let unavailable = unavailableReplayReason(run) { return unavailableReplayScript(unavailable, format: .snakemake) }
-        let plan = exportPlan(run)
+        let (plan, pins) = planAndPins(run, allowUnpinned: allowUnpinned)
         let replayable = plan.replayableSteps.flatMap(\.sourceSteps)
         if !replayable.isEmpty, replayable.allSatisfy(isRetainedSelectionReplay) {
             // No wildcard declarations: braces and newlines are literal argv.
@@ -1089,13 +1090,13 @@ public struct ProvenanceExporter: Sendable {
         }
         var s = ""
         s += "# \(run.name)\n"
-        s += "# Generated by \(ProvenanceToolIdentityText.appVersionLabel(run.appVersion))\n"
+        s += "# Generated by \(recordedAppLabel(run))\n"
         s += "# Original run: \(iso8601(run.startTime))\n"
-        s += "# Host: \(run.hostOS)\n"
+        s += "# Host: \(recordedFact(run.hostOS))\n"
         if let user = run.runtime.user {
-            s += "# User: \(user)\n"
+            s += "# User: \(recordedFact(user))\n"
         }
-        s += headerNotes(plan, prefix: "# ")
+        s += headerNotes(plan, prefix: "# ") + pins.header(prefix: "# ")
         s += "#\n"
         s += "# Inputs are read from the .lungfish project named by config['project']\n"
         s += "# (default: the working directory). Managed tools are recreated from\n"
@@ -1131,7 +1132,7 @@ public struct ProvenanceExporter: Sendable {
             if let environment = step.environment, let spec = environment.packageSpec {
                 s += " (\(spec))"
             }
-            s += "\n"
+            s += "\n" + pins.stepNote(step, prefix: "# ")
             if let wallTime = step.wallTime {
                 s += "# Original wall time: \(formatDuration(wallTime))\n"
             }
@@ -1320,7 +1321,7 @@ public struct ProvenanceExporter: Sendable {
         if plan.steps.contains(where: { $0.sourceSteps.contains(where: isRetainedSelectionReplay) }) {
             s += "Retained-selection replay copies the recorded export bytes; the original GUI action remains audit history. "
         }
-        s += "This recorded workflow used \(ProvenanceToolIdentityText.appVersionLabel(run.appVersion)) on \(run.hostOS). "
+        s += "This recorded workflow used \(methodsRuntimePhrase(run)). "
         let inAppSteps = plan.inAppSteps
         if let unavailable = unavailableReplayReason(run) {
             s += "\(unavailable) A machine-readable audit record is available; no executable reproduction is claimed.\n"

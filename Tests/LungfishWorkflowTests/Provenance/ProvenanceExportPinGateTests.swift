@@ -249,6 +249,170 @@ final class ProvenanceExportPinGateTests: XCTestCase {
         XCTAssertEqual(result.assessment.steps.map(\.toolName), ["minimap2", "samtools"])
     }
 
+    // MARK: - The recorded override
+
+    /// Unpinned minimap2, pinned samtools and unpinned bracken.
+    private func overrideEnvelope() -> ProvenanceEnvelope {
+        envelope([
+            managedStep("minimap2", version: "unknown", environment: "minimap2"),
+            managedStep("samtools", version: "1.24", environment: "samtools"),
+            managedStep("bracken", version: "3.1", environment: "bracken"),
+        ])
+    }
+
+    private func temporaryDirectory(_ label: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(label)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        return url
+    }
+
+    private func exportRecord(in directory: URL) throws -> ProvenanceEnvelope {
+        try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: directory
+            .appendingPathComponent("provenance", isDirectory: true)
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename)))
+    }
+
+    func testTheOverrideNamesEachUnpinnedStepInTheHeaderBesideTheStepAndInTheRecord() throws {
+        let summaries = [
+            "Step 1, minimap2 in lge-minimap2. Its version was not recorded, so no version can be pinned.",
+            "Step 3, bracken in lge-bracken. LGE builds this tool from source, which a conda package spec cannot pin.",
+        ]
+        for (format, prefix) in [(ProvenanceExportFormat.shell, "# "), (.python, ""), (.nextflow, " * "), (.snakemake, "# ")] {
+            let directory = try temporaryDirectory("pin-override-\(format.cliToken)")
+            let bundle = try ProvenanceExporter(signingProvider: nil).exportBundle(
+                overrideEnvelope(), format: format, to: directory, sourceSidecarURL: nil, allowUnpinned: true
+            )
+            let script = try String(contentsOf: bundle.primaryArtifactURL, encoding: .utf8)
+            // Bioinformatics non-negotiable 3: the header names each unpinned step.
+            XCTAssertTrue(script.contains("\(prefix)Exported with --allow-unpinned. LGE cannot pin the tool version\n"), script)
+            for summary in summaries {
+                XCTAssertTrue(script.contains("\(prefix)  \(summary)\n"), "\(format.cliToken): \(summary)")
+            }
+            XCTAssertFalse(script.contains("Step 2, samtools in lge-samtools"), format.cliToken)
+            // Each unpinned step carries its own comment, and the pinned one none.
+            let stepPrefix = format == .nextflow ? " * " : "# "
+            XCTAssertEqual(script.components(separatedBy: "\(stepPrefix)Not pinned. ").count - 1, 2, format.cliToken)
+            XCTAssertTrue(script.contains(
+                "\(stepPrefix)Not pinned. Its version was not recorded, so no version can be pinned. Exported with --allow-unpinned.\n"
+            ), format.cliToken)
+
+            let record = try exportRecord(in: directory)
+            XCTAssertEqual(record.options.explicit["allowUnpinned"], .boolean(true), format.cliToken)
+            XCTAssertEqual(record.options.resolvedDefaults["unpinnedSteps"], .array(summaries.map { .string($0) }), format.cliToken)
+            XCTAssertEqual(record.argv.last, "--allow-unpinned", format.cliToken)
+        }
+    }
+
+    func testWithoutTheOverrideAScriptCarriesNoNotesAndItsRecordNoOverride() throws {
+        for format in [ProvenanceExportFormat.shell, .python, .nextflow, .snakemake] {
+            let directory = try temporaryDirectory("pin-no-override-\(format.cliToken)")
+            let bundle = try ProvenanceExporter(signingProvider: nil).exportBundle(
+                overrideEnvelope(), format: format, to: directory, sourceSidecarURL: nil
+            )
+            let script = try String(contentsOf: bundle.primaryArtifactURL, encoding: .utf8)
+            XCTAssertFalse(script.contains("--allow-unpinned"), format.cliToken)
+            XCTAssertFalse(script.contains("Not pinned."), format.cliToken)
+            let record = try exportRecord(in: directory)
+            XCTAssertNil(record.options.explicit["allowUnpinned"], format.cliToken)
+            XCTAssertNil(record.options.resolvedDefaults["unpinnedSteps"], format.cliToken)
+            XCTAssertFalse(record.argv.contains("--allow-unpinned"), format.cliToken)
+        }
+    }
+
+    func testMethodsAndJSONExportsRecordNoOverride() throws {
+        for format in [ProvenanceExportFormat.methods, .json] {
+            let directory = try temporaryDirectory("pin-ungated-\(format.cliToken)")
+            _ = try ProvenanceExporter(signingProvider: nil).exportBundle(
+                overrideEnvelope(), format: format, to: directory, sourceSidecarURL: nil, allowUnpinned: true
+            )
+            let record = try exportRecord(in: directory)
+            XCTAssertNil(record.options.explicit["allowUnpinned"], format.cliToken)
+            XCTAssertFalse(record.argv.contains("--allow-unpinned"), format.cliToken)
+        }
+    }
+
+    func testShellAndPythonNameTheEnvironmentVariantEachStepRunsIn() {
+        // Shell and Python run from PATH, so each step names the environment to activate (lane P5a's review).
+        var run = WorkflowRun(name: "variants", appVersion: "lungfish-cli 2026.10.10", hostOS: "macOS 26.6.2 (arm64)")
+        run.steps = [
+            managedStep("samtools", version: "1.23", environment: "samtools", package: "bioconda::samtools=1.23=aaaaaaa_0"),
+            managedStep("samtools", version: "1.24", environment: "samtools", package: "bioconda::samtools=1.24=h36b3a25_1"),
+        ]
+        let exporter = ProvenanceExporter(signingProvider: nil)
+        let shell = exporter.exportShell(run)
+        XCTAssertTrue(shell.contains("# Step 1: samtools v1.23 (conda environment lge-samtools)\n"), shell)
+        XCTAssertTrue(shell.contains("# Step 2: samtools v1.24 (conda environment lge-samtools_2)\n"), shell)
+        let python = exporter.exportPython(run)
+        XCTAssertTrue(python.contains("\"\"\"samtools v1.23 (conda environment lge-samtools)\"\"\""), python)
+        XCTAssertTrue(python.contains("\"\"\"samtools v1.24 (conda environment lge-samtools_2)\"\"\""), python)
+    }
+
+    func testTheHeaderSaysWhatABuildStringMeans() throws {
+        let note = [
+            "A spec without =<build> keeps the recorded version and leaves the build",
+            "to the solver. The lock's build strings name osx-arm64 builds, so on",
+            "another platform drop =<build> from a spec and keep its version.",
+        ]
+        var run = WorkflowRun(name: "builds", appVersion: "lungfish-cli 2026.10.10", hostOS: "macOS 26.6.2 (arm64)")
+        run.steps = [managedStep("samtools", version: "1.24", environment: "samtools")]
+        let exporter = ProvenanceExporter(signingProvider: nil)
+        XCTAssertTrue(exporter.exportShell(run).contains(note.map { "# \($0)\n" }.joined()))
+        XCTAssertTrue(exporter.exportPython(run).contains(note.map { "\($0)\n" }.joined()))
+
+        let nextflowDirectory = try temporaryDirectory("pin-build-note-nf")
+        _ = try exporter.exportBundle(envelope(run.steps), format: .nextflow, to: nextflowDirectory, sourceSidecarURL: nil)
+        let config = try String(contentsOf: nextflowDirectory.appendingPathComponent("nextflow.config"), encoding: .utf8)
+        XCTAssertTrue(config.contains(note.map { "// \($0)\n" }.joined()), config)
+        let snakemakeDirectory = try temporaryDirectory("pin-build-note-smk")
+        _ = try exporter.exportBundle(envelope(run.steps), format: .snakemake, to: snakemakeDirectory, sourceSidecarURL: nil)
+        let yaml = try String(contentsOf: snakemakeDirectory.appendingPathComponent("config.yaml"), encoding: .utf8)
+        XCTAssertTrue(yaml.contains(note.map { "# \($0)\n" }.joined()), yaml)
+
+        var bare = run
+        bare.steps = [StepExecution(
+            toolName: "fastp", toolVersion: "0.24.1", command: ["fastp", "-i", "r.fq"], inputs: [], outputs: [], exitCode: 0, wallTime: 1
+        )]
+        XCTAssertFalse(exporter.exportShell(bare).contains("=<build>"))
+    }
+
+    func testAFactTheRecordLeftEmptyPrintsAsNotRecorded() {
+        var run = WorkflowRun(name: "facts", appVersion: "", hostOS: "")
+        run.steps = [StepExecution(
+            toolName: "fastp", toolVersion: "0.24.1", command: ["fastp", "-i", "r.fq"], inputs: [], outputs: [], exitCode: 0, wallTime: 1
+        )]
+        let exporter = ProvenanceExporter(signingProvider: nil)
+        for (script, prefix) in [(exporter.exportShell(run), "# "), (exporter.exportPython(run), ""),
+                                 (exporter.exportNextflow(run), " * "), (exporter.exportSnakemake(run), "# ")] {
+            XCTAssertTrue(script.contains("\(prefix)Generated by LGE, version not recorded\n"), script)
+            XCTAssertTrue(script.contains("\(prefix)Host: not recorded\n"), script)
+        }
+        XCTAssertTrue(exporter.exportMethods(run).contains(
+            "This recorded workflow used an LGE version and an operating system that were not recorded."
+        ))
+    }
+
+    func testNoWrittenEnvironmentPinsAVersionOtherThanTheRecordedOne() throws {
+        // Bioinformatics non-negotiable 3, over every restored golden record and the versions the lock lacks.
+        let directory = try temporaryDirectory("pin-gate-versions")
+        var records = try GoldenProvenanceRecords.restoredCopies(in: directory).compactMap { path, url in
+            GoldenProvenanceRecords.cliReading(of: url).map { (path, $0.reading.envelope, Optional($0.sidecarURL)) }
+        }
+        records.append(("samtools 1.19", envelope([managedStep("samtools", version: "1.19", environment: "samtools")]), nil))
+        records.append(("bracken 3.1", envelope([managedStep("bracken", version: "3.1", environment: "bracken")]), nil))
+        let exporter = ProvenanceExporter(signingProvider: nil)
+        var written = 0
+        for (name, record, sidecar) in records {
+            let plan = exporter.exportPlan(exporter.scriptSource(record, sourceSidecarURL: sidecar, sourceRootURL: sidecar).run)
+            for step in plan.steps where step.kind == .tool {
+                guard let spec = step.environment?.packageSpec, let version = CondaSpec(spec: spec)?.version else { continue }
+                written += 1
+                XCTAssertEqual(version, step.identity.version, "\(name) step \(step.number) writes \(spec)")
+            }
+        }
+        XCTAssertGreaterThan(written, 2)
+    }
+
     // MARK: - Golden records
 
     /// The script export verdict of each restored golden record the gate refuses, read as the CLI
@@ -430,6 +594,7 @@ final class ProvenanceExportPinGateDemoSweepTests: XCTestCase {
 
             var verdicts: [String: Int] = [:]
             var reasons: [String: Int] = [:]
+            var flagged: [String] = []
             for sidecar in sample {
                 guard let reading = GoldenProvenanceRecords.cliReading(of: sidecar) else {
                     verdicts["unreadable", default: 0] += 1
@@ -444,6 +609,10 @@ final class ProvenanceExportPinGateDemoSweepTests: XCTestCase {
                 for step in gate.unpinnedSteps {
                     reasons["\(step.toolName) \(step.reason.code)", default: 0] += 1
                 }
+                if verdict != "exportable" {
+                    let relative = sidecar.path.replacingOccurrences(of: installed.path + "/", with: "")
+                    flagged.append("\(verdict) \(relative) (\(gate.unpinnedSteps.count) unpinned)")
+                }
             }
             let after = try DemoProjectTreeSnapshot.capture(of: installed)
             XCTAssertEqual(after.differences(from: before), [], "\(project.id) changed while the gate read it")
@@ -452,6 +621,9 @@ final class ProvenanceExportPinGateDemoSweepTests: XCTestCase {
             print("[pin-gate-demo] \(project.id) \(project.version), \(sample.count) of \(sidecars.count) records, \(counts)")
             for (reason, count) in reasons.sorted(by: { $0.key < $1.key }) {
                 print("[pin-gate-demo]   \(reason), \(count) steps")
+            }
+            for line in flagged {
+                print("[pin-gate-demo]   \(line)")
             }
             swept += 1
         }

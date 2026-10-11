@@ -133,6 +133,12 @@ final class ProvenanceExportPinGatePresenterTests: XCTestCase {
         // The recorded command carries the override (plan decision S7).
         XCTAssertEqual(record.argv, request.exportArgv(outputDirectory: confirmed, allowUnpinned: true))
         XCTAssertEqual(record.argv.last, "--allow-unpinned")
+        // The script and the record name the unpinned step.
+        let summary = "Step 1, minimap2 in lge-minimap2. Its version was not recorded, so no version can be pinned."
+        let script = try String(contentsOf: bundle.primaryArtifactURL, encoding: .utf8)
+        XCTAssertTrue(script.contains("#   \(summary)\n"), script)
+        XCTAssertEqual(record.options.explicit["allowUnpinned"], .boolean(true))
+        XCTAssertEqual(record.options.resolvedDefaults["unpinnedSteps"], .array([.string(summary)]))
     }
 
     func testAnExportWithNothingUnpinnedGoesStraightToTheSavePanel() throws {

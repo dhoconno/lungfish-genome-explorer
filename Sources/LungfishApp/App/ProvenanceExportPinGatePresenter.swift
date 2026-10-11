@@ -44,7 +44,8 @@ struct ProvenanceExportRequest {
             to: outputDirectory,
             sourceSidecarURL: sourceSidecarURL,
             sourceRootURL: selectedURL,
-            exportArgv: exportArgv(outputDirectory: outputDirectory, allowUnpinned: allowUnpinned)
+            exportArgv: exportArgv(outputDirectory: outputDirectory, allowUnpinned: allowUnpinned),
+            allowUnpinned: allowUnpinned
         )
     }
 
