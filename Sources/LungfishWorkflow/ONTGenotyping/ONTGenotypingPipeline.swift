@@ -412,7 +412,8 @@ public struct ONTGenotypingPipeline: Sendable {
             runtimeIdentity: rawProvenance?.runtimeIdentity ?? [:],
             steps: (rawProvenance?.steps ?? []) + [filterStep],
             exitStatus: filterResult.exitCode,
-            stderr: filterResult.stderr.isEmpty ? nil : filterResult.stderr
+            stderr: filterResult.stderr.isEmpty ? nil : filterResult.stderr,
+            readSetPlan: rawProvenance?.readSetPlan
         )
         try provenance.save(to: sampleDirectory)
         try provenance.saveCanonicalEnvelope(to: sampleDirectory)

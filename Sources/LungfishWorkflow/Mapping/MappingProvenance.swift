@@ -98,6 +98,9 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
     public let steps: [StepExecution]
     public let exitStatus: Int32?
     public let stderr: String?
+    /// The run's read set plan, as ``ReadSetPlan/provenanceParameters`` holds it under `readSetPlan`,
+    /// or nil for a run without one. The canonical record writes it to its resolved defaults (E13).
+    public let readSetPlan: ParameterValue?
 
     public init(
         schemaVersion: Int = 2,
@@ -132,7 +135,8 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         runtimeIdentity: [String: String] = [:],
         steps: [StepExecution] = [],
         exitStatus: Int32? = nil,
-        stderr: String? = nil
+        stderr: String? = nil,
+        readSetPlan: ParameterValue? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.workflowName = workflowName
@@ -178,6 +182,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         self.steps = steps
         self.exitStatus = exitStatus
         self.stderr = stderr
+        self.readSetPlan = readSetPlan
     }
 
     public var commandInvocations: [MappingCommandInvocation] {
@@ -218,7 +223,8 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             runtimeIdentity: runtimeIdentity,
             steps: steps,
             exitStatus: exitStatus,
-            stderr: stderr
+            stderr: stderr,
+            readSetPlan: readSetPlan
         )
     }
 
@@ -256,7 +262,8 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             runtimeIdentity: runtimeIdentity,
             steps: steps,
             exitStatus: exitStatus,
-            stderr: stderr
+            stderr: stderr,
+            readSetPlan: readSetPlan
         )
     }
 
@@ -306,7 +313,8 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
                 runtimeIdentity: runtimeIdentity,
                 steps: steps,
                 exitStatus: exitStatus,
-                stderr: stderr
+                stderr: stderr,
+                readSetPlan: readSetPlan
             )
         )
 
@@ -370,7 +378,8 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             runtimeIdentity: persisted.runtimeIdentity ?? [:],
             steps: persisted.steps ?? [],
             exitStatus: persisted.exitStatus,
-            stderr: persisted.stderr
+            stderr: persisted.stderr,
+            readSetPlan: persisted.readSetPlan
         )
     }
 
@@ -388,7 +397,8 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         steps: [StepExecution] = [],
         exitStatus: Int32? = nil,
         stderr: String? = nil,
-        inputLayoutReason: String? = nil
+        inputLayoutReason: String? = nil,
+        readSetPlan: ParameterValue? = nil
     ) -> MappingProvenance {
         // Only a resolved layout is recorded; a request that skipped
         // resolution leaves the fields nil so readers fall back honestly.
@@ -425,7 +435,8 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             runtimeIdentity: runtimeIdentity,
             steps: steps,
             exitStatus: exitStatus,
-            stderr: stderr
+            stderr: stderr,
+            readSetPlan: readSetPlan
         )
     }
 
@@ -579,7 +590,10 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             argv: mapperInvocation.argv,
             durableReplayArgv: mapperInvocation.durableReplayArgv,
             reproducibleCommand: mapperInvocation.durableReplayCommandLine,
-            options: ProvenanceOptions(explicit: canonicalParameters()),
+            options: ProvenanceOptions(
+                explicit: canonicalParameters(),
+                resolvedDefaults: readSetPlan.map { [RecordedReadSetPlan.key: $0] } ?? [:]
+            ),
             runtimeIdentity: ProvenanceRuntimeIdentity(
                 appVersion: WorkflowRun.currentAppVersion,
                 executablePath: mapperInvocation.argv.first ?? mapper.rawValue,
@@ -895,4 +909,5 @@ private struct PersistedMappingProvenance: Sendable, Codable, Equatable {
     let steps: [StepExecution]?
     let exitStatus: Int32?
     let stderr: String?
+    let readSetPlan: ParameterValue?
 }

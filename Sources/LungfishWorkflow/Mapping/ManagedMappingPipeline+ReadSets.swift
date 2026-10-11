@@ -26,9 +26,9 @@ extension ManagedMappingPipeline {
     /// merge is normalized like any run, so flagstat and every summary read
     /// the merged BAM. The per-run files and the merge are removed.
     ///
-    /// No mapper step records the read-set plan. The run records it once
-    /// (``saveCanonicalEnvelope(of:readSetPlan:to:writer:)``), so the two runs
-    /// of a BBMap sample do not hold a copy each.
+    /// No mapper step records the read-set plan. The run records it once, in
+    /// ``MappingProvenance/readSetPlan``, which the canonical record writes to
+    /// its resolved defaults, so the two runs of a BBMap sample hold one copy.
     func mapAndNormalize(
         prepared: PreparedMappingExecution,
         command: ManagedMappingCommand,
@@ -123,33 +123,6 @@ extension ManagedMappingPipeline {
         }
         steps += try plan.steps.map { try $0.stepExecution(toolVersion: WorkflowRun.currentAppVersion) }
         return steps
-    }
-
-    /// Writes the canonical record of a finished run with its read-set plan
-    /// (``ReadSetPlan/provenanceParameters``) in the one home, the run's
-    /// resolved defaults (E13). No mapper step holds the plan, so a BBMap
-    /// sample that maps in two runs holds one copy.
-    ///
-    /// A run without a plan, and a plan that records nothing new, add
-    /// nothing, and the record is then exactly what
-    /// ``MappingProvenance/saveCanonicalEnvelope(to:writer:)`` writes. The
-    /// `mapping-provenance.json` sidecar holds no plan.
-    @discardableResult
-    func saveCanonicalEnvelope(
-        of provenance: MappingProvenance,
-        readSetPlan: ReadSetPlan?,
-        to directory: URL,
-        writer: ProvenanceWriter = ProvenanceWriter()
-    ) throws -> URL {
-        var envelope = provenance.canonicalEnvelope(sourceDirectory: directory)
-        if let planOptions = readSetPlan?.provenanceParameters, !planOptions.isEmpty {
-            envelope.options = ProvenanceOptions(
-                explicit: envelope.options.explicit,
-                defaults: envelope.options.defaults,
-                resolvedDefaults: envelope.options.resolvedDefaults.merging(planOptions) { _, planValue in planValue }
-            )
-        }
-        return try writer.write(envelope, to: directory)
     }
 
     /// `samtools merge -c -p` of sorted BAMs that share one read group, so

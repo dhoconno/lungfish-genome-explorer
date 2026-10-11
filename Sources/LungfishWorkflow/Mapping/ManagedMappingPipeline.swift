@@ -99,8 +99,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
     ///   - inputLayoutReason: why a caller-supplied `inputLayout` was chosen,
     ///     recorded in provenance. Ignored when the pipeline resolves the layout.
     ///   - readSetPlan: the plan whose split or interleave wrote the inputs
-    ///     (``MappingInputResolver``), recorded as provenance steps and once in the
-    ///     run's resolved defaults.
+    ///     (``MappingInputResolver``), recorded as steps and once in the resolved defaults.
     public func run(
         request: MappingRunRequest,
         inputLayoutReason: String? = nil,
@@ -202,10 +201,11 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             steps: steps,
             exitStatus: 0,
             stderr: combinedStderr(steps.map(\.stderr)),
-            inputLayoutReason: prepared.inputLayoutReason
+            inputLayoutReason: prepared.inputLayoutReason,
+            readSetPlan: AnalysisRootRecordOptions.readSetPlanValue(of: readSetPlan)
         )
         try provenance.save(to: prepared.request.outputDirectory)
-        try saveCanonicalEnvelope(of: provenance, readSetPlan: readSetPlan, to: prepared.request.outputDirectory)
+        try provenance.saveCanonicalEnvelope(to: prepared.request.outputDirectory)
         progress?(1.0, "Mapping complete.")
         return result
     }
