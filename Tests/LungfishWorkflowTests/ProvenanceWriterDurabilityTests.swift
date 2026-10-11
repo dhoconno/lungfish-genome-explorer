@@ -389,8 +389,8 @@ final class ProvenanceWriterDurabilityTests: XCTestCase {
         XCTAssertNil(ProvenanceRecorder.findProvenanceEnvelope(for: folder), "no leftover stands in for the record")
 
         try writer.write(Self.envelope("sibling"), toSidecar: folder.appendingPathComponent("other.lungfish-provenance.json"))
-        XCTAssertEqual(ProvenanceRecorder.findProvenanceEnvelope(for: folder)?.envelope.workflowName, "sibling",
-                       "an empty name lets a sibling stand in, which is why no fault may empty it")
+        XCTAssertNil(ProvenanceRecorder.findProvenanceEnvelope(for: folder),
+                     "beside the record's own leftovers no sibling stands in, because a read runs no recovery")
         try writer.write(Self.envelope("record"), toSidecar: folder.appendingPathComponent(name))
         XCTAssertEqual(ProvenanceRecorder.findProvenanceEnvelope(for: folder)?.envelope.workflowName, "record")
     }

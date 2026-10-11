@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 
 extension ProvenanceRecorder {
@@ -194,6 +195,9 @@ extension ProvenanceRecorder {
         return canonicalCandidates + workflowNamedRootSidecarCandidates(for: directory) + operationCandidates
     }
 
+    /// Root files named like a record, for a folder that holds no canonical record. Such a file
+    /// can belong to another operation, so the fallback stops when the folder's own record was
+    /// interrupted (`canonicalRecordWasInterrupted(in:names:)`).
     private static func workflowNamedRootSidecarCandidates(for directory: URL) -> [URL] {
         guard let contents = try? FileManager.default.contentsOfDirectory(
             at: directory,
@@ -206,7 +210,7 @@ extension ProvenanceRecorder {
             ProvenanceWriter.bundleRollupFilename,
             MappingProvenance.filename,
         ]
-        return contents
+        let candidates = contents
             .filter { url in
                 let filename = url.lastPathComponent
                 guard !canonicalFilenames.contains(filename) else { return false }
@@ -218,6 +222,32 @@ extension ProvenanceRecorder {
                 return values?.isRegularFile == true
             }
             .sorted { $0.path < $1.path }
+        guard !candidates.isEmpty,
+              !canonicalRecordWasInterrupted(in: directory, names: contents.map(\.lastPathComponent)) else {
+            return []
+        }
+        return candidates
+    }
+
+    /// Whether the folder's own `.lungfish-provenance.json` exists and reads as no JSON object,
+    /// which is every file the tolerant reader refuses, or is missing beside its own swap
+    /// tombstone, staged copy or the aside a released writer left. An interrupted write leaves
+    /// one of these states, and a read runs no recovery, so it only looks (lane P1 review).
+    private static func canonicalRecordWasInterrupted(in directory: URL, names: [String]) -> Bool {
+        let canonical = directory.appendingPathComponent(provenanceFilename)
+        if FileManager.default.fileExists(atPath: canonical.path) {
+            guard let data = try? Data(contentsOf: canonical) else { return true }
+            return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] == nil
+        }
+        let ownPrefix = ".\(provenanceFilename)"
+        let leftoverInfixes = [
+            PortableRename.swapTombstoneInfix,
+            DurableReplace.stageInfix,
+            ProvenanceWriter.releasedDisplacedInfix,
+        ]
+        return names.contains { name in
+            leftoverInfixes.contains { name.hasPrefix(ownPrefix + $0) }
+        }
     }
 
     private static func fileSidecarCandidates(for fileURL: URL) -> [URL] {
