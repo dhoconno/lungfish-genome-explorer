@@ -101,9 +101,10 @@ struct ProvenanceExportPinSheetModel: Equatable {
         let name = gate.format.sentenceName
         if gate.refusesOlderRecordFormat {
             kind = .refuseOlderRecordFormat
-            messageText = "This record cannot be exported as a \(name)"
+            messageText = "This record cannot be exported as a \(name)."
             let subject = gate.olderRecordFormatUpstream.map { "It builds on \($0.lastPathComponent), which is" } ?? "It is"
-            informativeText = "\(subject) in the Older record format, which LGE never exports as a script. "
+            informativeText = "\(subject) in the Older record format. LGE fills in facts such records leave out, "
+                + "so a script made from one might not match what ran. "
                 + "Export it as a Methods Section or as Full Provenance (JSON) instead."
             rows = []
             buttonTitles = [Self.okTitle]
@@ -113,7 +114,7 @@ struct ProvenanceExportPinSheetModel: Equatable {
         kind = .confirmUnpinned
         rows = gate.unpinnedSteps.map { Row(tool: $0.toolName, step: $0.stepLabel, reason: $0.reason.sentence) }
         messageText = "Export a \(name) with unpinned tools?"
-        informativeText = "LGE cannot pin the version of these tools, so the \(name) may not recreate the environments that ran.\n\n"
+        informativeText = "LGE cannot promise that the \(name) installs the tool versions that ran, so its results may differ.\n\n"
             + rows.map { "• \($0.tool), \($0.step.lowercased()). \($0.reason)" }.joined(separator: "\n")
             + "\n\nExport Anyway… names each of these tools in the \(name) and in its export record."
         buttonTitles = [Self.cancelTitle, Self.exportAnywayTitle]

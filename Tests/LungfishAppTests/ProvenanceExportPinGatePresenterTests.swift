@@ -91,14 +91,14 @@ final class ProvenanceExportPinGatePresenterTests: XCTestCase {
         XCTAssertEqual(model.buttonTitles, ["Cancel", "Export Anyway…"])
         XCTAssertEqual(model.rows, [
             ProvenanceExportPinSheetModel.Row(
-                tool: "minimap2", step: "Step 1", reason: "Its version was not recorded, so no version can be pinned."
+                tool: "minimap2", step: "Step 1", reason: "Its version was not recorded."
             ),
         ])
         XCTAssertEqual(model.messageText, "Export a shell script with unpinned tools?")
         XCTAssertEqual(
             model.informativeText,
-            "LGE cannot pin the version of these tools, so the shell script may not recreate the environments that ran.\n\n"
-                + "• minimap2, step 1. Its version was not recorded, so no version can be pinned.\n\n"
+            "LGE cannot promise that the shell script installs the tool versions that ran, so its results may differ.\n\n"
+                + "• minimap2, step 1. Its version was not recorded.\n\n"
                 + "Export Anyway… names each of these tools in the shell script and in its export record."
         )
     }
@@ -118,15 +118,20 @@ final class ProvenanceExportPinGatePresenterTests: XCTestCase {
     func testConfirmWritesTheExportAndCancelLeavesTheFolderUnchanged() throws {
         let request = try request()
 
+        // The folder already holds an earlier export, whose script Cancel must leave byte for byte.
         let cancelled = directory.appendingPathComponent("cancelled", isDirectory: true)
         try FileManager.default.createDirectory(at: cancelled, withIntermediateDirectories: true)
+        let earlierScript = cancelled.appendingPathComponent("run.sh")
+        let earlierBytes = Data("#!/usr/bin/env bash\necho \"an earlier export\"\n".utf8)
+        try earlierBytes.write(to: earlierScript)
         let afterCancel = decide(request, answer: .cancel)
         XCTAssertEqual(afterCancel.shown.count, 1)
         XCTAssertEqual(afterCancel.proceeded, [], "Cancel never reaches the save panel")
         for allowUnpinned in afterCancel.proceeded {
             _ = try request.write(to: cancelled, allowUnpinned: allowUnpinned, exporter: exporter)
         }
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: cancelled.path), [])
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: cancelled.path), ["run.sh"])
+        XCTAssertEqual(try Data(contentsOf: earlierScript), earlierBytes)
 
         let confirmed = directory.appendingPathComponent("confirmed", isDirectory: true)
         let afterConfirm = decide(request, answer: .exportAnyway)
@@ -147,7 +152,7 @@ final class ProvenanceExportPinGatePresenterTests: XCTestCase {
         XCTAssertEqual(record.argv, request.exportArgv(outputDirectory: confirmed, allowUnpinned: true))
         XCTAssertEqual(record.argv.last, "--allow-unpinned")
         // The script and the record name the unpinned step.
-        let summary = "Step 1, minimap2 in lge-minimap2. Its version was not recorded, so no version can be pinned."
+        let summary = "Step 1, minimap2 in lge-minimap2. Its version was not recorded."
         let script = try String(contentsOf: bundle.primaryArtifactURL, encoding: .utf8)
         XCTAssertTrue(script.contains("#   \(summary)\n"), script)
         XCTAssertEqual(record.options.explicit["allowUnpinned"], .boolean(true))
@@ -182,7 +187,12 @@ final class ProvenanceExportPinGatePresenterTests: XCTestCase {
             }
         }
         let model = try XCTUnwrap(ProvenanceExportPinSheetModel(gate: try request(.shell, shape: .primitive).pinGate(exporter: exporter)))
-        XCTAssertEqual(model.messageText, "This record cannot be exported as a shell script")
+        XCTAssertEqual(model.messageText, "This record cannot be exported as a shell script.")
+        XCTAssertEqual(
+            model.informativeText,
+            "It is in the Older record format. LGE fills in facts such records leave out, so a script made from one "
+                + "might not match what ran. Export it as a Methods Section or as Full Provenance (JSON) instead."
+        )
     }
 
     func testTheRecordedCommandCarriesTheFlagOnlyAfterExportAnyway() throws {

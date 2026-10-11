@@ -426,7 +426,7 @@ final class ProvenanceExportCommandTests: XCTestCase {
             ]).run()
             XCTFail("the assembly record is the Older record format and must not become a shell script")
         } catch let CLIError.validationFailed(lines) {
-            XCTAssertEqual(lines.first?.hasPrefix("This record decoded as the Older record format"), true, lines.joined())
+            XCTAssertEqual(lines.first?.hasPrefix("This record is in the Older record format"), true, lines.joined())
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: shellOutput.path))
 
@@ -1634,7 +1634,7 @@ extension ProvenanceExportCommandTests {
                 XCTAssertEqual(lines.count, 3, format)
                 XCTAssertEqual(
                     lines.dropFirst().first,
-                    "Step 1, minimap2 in lge-minimap2. Its version was not recorded, so no version can be pinned.",
+                    "Step 1, minimap2 in lge-minimap2. Its version was not recorded.",
                     format
                 )
                 XCTAssertEqual(lines.last?.hasPrefix("Pass --allow-unpinned to write it anyway."), true, format)
@@ -1655,11 +1655,11 @@ extension ProvenanceExportCommandTests {
         try await command.run()
 
         let script = try String(contentsOf: outputDirectory.appendingPathComponent("run.sh"), encoding: .utf8)
-        let summary = "Step 1, minimap2 in lge-minimap2. Its version was not recorded, so no version can be pinned."
+        let summary = "Step 1, minimap2 in lge-minimap2. Its version was not recorded."
         XCTAssertTrue(script.contains("# Exported with --allow-unpinned. LGE cannot pin the tool version\n"), script)
         XCTAssertTrue(script.contains("#   \(summary)\n"), script)
         XCTAssertTrue(script.contains(
-            "# Not pinned. Its version was not recorded, so no version can be pinned. Exported with --allow-unpinned.\n"
+            "# Not pinned. Its version was not recorded. Exported with --allow-unpinned.\n"
         ), script)
         let exportEnvelope = try ProvenanceJSON.decoder.decode(
             ProvenanceEnvelope.self,
@@ -1710,7 +1710,7 @@ extension ProvenanceExportCommandTests {
             ]).run()
             XCTFail("a bare run must never be exported as a script")
         } catch let CLIError.validationFailed(lines) {
-            XCTAssertEqual(lines.first?.hasPrefix("This record decoded as the Older record format"), true, lines.joined())
+            XCTAssertEqual(lines.first?.hasPrefix("This record is in the Older record format"), true, lines.joined())
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: scriptOutput.path))
 

@@ -340,19 +340,19 @@ public struct ProvenanceExportPinGate: Sendable, Hashable {
             case .versionNotRecorded(.recordedAppVersion(let label)):
                 return "The record holds LGE's own version (\(label)) instead of the tool's."
             case .versionNotRecorded:
-                return "Its version was not recorded, so no version can be pinned."
+                return "Its version was not recorded."
             case .versionNotInLock(let recorded, let locked?):
-                return "Version \(recorded) ran, but LGE pins version \(locked)."
+                return "Version \(recorded) ran, but LGE installs version \(locked)."
             case .versionNotInLock(let recorded, nil):
-                return "Version \(recorded) ran, but LGE pins no version of this tool."
+                return "Version \(recorded) ran, and LGE installs no exact version of this tool."
             case .environmentNotInLock(let name):
                 return "LGE does not manage its conda environment \(name)."
             case .unpinnableRuntime(.sourceBuild):
-                return "LGE builds this tool from source, which a conda package spec cannot pin."
+                return "LGE builds this tool from source code, which no conda package reproduces."
             case .unpinnableRuntime(.pythonRuntime):
-                return "LGE installs this tool in its own Python runtime, which a conda package spec cannot pin."
-            case .specDoesNotPinVersion(let spec, let version):
-                return "The export would install \(spec ?? "no package"), which does not pin version \(version)."
+                return "LGE installs this tool in its own Python setup, which no conda package reproduces."
+            case .specDoesNotPinVersion(_, let version):
+                return "The export names no exact package for version \(version)."
             case .environmentNotWritten(let name):
                 return "The script writes no environment for this tool, which ran in \(name)."
             }
@@ -426,16 +426,16 @@ public struct ProvenanceExportPinGate: Sendable, Hashable {
     public var refusalLines: [String] {
         if refusesOlderRecordFormat, let upstream = olderRecordFormatUpstream {
             return [
-                "This record builds on \(upstream.path), which decoded as the Older record format, and LGE never "
-                    + "exports a \(format.sentenceName) that replays such a record, with or without "
-                    + "\(ProvenanceExporter.allowUnpinnedFlag).",
+                "This record builds on \(upstream.path), which is in the Older record format. LGE fills in facts "
+                    + "such records leave out, so it never exports a \(format.sentenceName) that replays one, with or "
+                    + "without \(ProvenanceExporter.allowUnpinnedFlag).",
                 "Export it with --format methods or --format json instead.",
             ]
         }
         if refusesOlderRecordFormat {
             return [
-                "This record decoded as the Older record format, which LGE never exports as a \(format.sentenceName), "
-                    + "with or without \(ProvenanceExporter.allowUnpinnedFlag).",
+                "This record is in the Older record format. LGE fills in facts such records leave out, so it never "
+                    + "exports one as a \(format.sentenceName), with or without \(ProvenanceExporter.allowUnpinnedFlag).",
                 "Export it with --format methods or --format json instead.",
             ]
         }

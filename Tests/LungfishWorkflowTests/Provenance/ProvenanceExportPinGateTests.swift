@@ -75,7 +75,7 @@ final class ProvenanceExportPinGateTests: XCTestCase {
         // The summary names the version that ran.
         XCTAssertEqual(
             result.unpinnedSteps.first?.summary,
-            "Step 1, samtools 1.19 in lge-samtools. Version 1.19 ran, but LGE pins version 1.24."
+            "Step 1, samtools 1.19 in lge-samtools. Version 1.19 ran, but LGE installs version 1.24."
         )
     }
 
@@ -103,13 +103,13 @@ final class ProvenanceExportPinGateTests: XCTestCase {
         for spelling in ["", "unknown", "unresolved", "unavailable", "n/a", "system"] {
             XCTAssertEqual(
                 ProvenanceExportPinGate.Reason.versionNotRecorded(.legacySpelling(spelling)).sentence,
-                "Its version was not recorded, so no version can be pinned.",
+                "Its version was not recorded.",
                 spelling
             )
         }
         XCTAssertEqual(
             ProvenanceExportPinGate.Reason.versionNotRecorded(.noProbe).sentence,
-            "Its version was not recorded, so no version can be pinned."
+            "Its version was not recorded."
         )
     }
 
@@ -198,8 +198,8 @@ final class ProvenanceExportPinGateTests: XCTestCase {
         )
         XCTAssertEqual(result.refusalLines, [
             "LGE did not write the Python script, because it cannot pin the tool version of 2 steps.",
-            "Step 1, minimap2 in lge-minimap2. Its version was not recorded, so no version can be pinned.",
-            "Step 3, bracken 3.1 in lge-bracken. LGE builds this tool from source, which a conda package spec cannot pin.",
+            "Step 1, minimap2 in lge-minimap2. Its version was not recorded.",
+            "Step 3, bracken 3.1 in lge-bracken. LGE builds this tool from source code, which no conda package reproduces.",
             "Pass --allow-unpinned to write it anyway. The Python script and its export record then name each of these steps.",
         ])
     }
@@ -453,8 +453,8 @@ final class ProvenanceExportPinGateTests: XCTestCase {
 
     func testTheOverrideNamesEachUnpinnedStepInTheHeaderBesideTheStepAndInTheRecord() throws {
         let summaries = [
-            "Step 1, minimap2 in lge-minimap2. Its version was not recorded, so no version can be pinned.",
-            "Step 3, bracken 3.1 in lge-bracken. LGE builds this tool from source, which a conda package spec cannot pin.",
+            "Step 1, minimap2 in lge-minimap2. Its version was not recorded.",
+            "Step 3, bracken 3.1 in lge-bracken. LGE builds this tool from source code, which no conda package reproduces.",
         ]
         for (format, prefix) in [(ProvenanceExportFormat.shell, "# "), (.python, ""), (.nextflow, " * "), (.snakemake, "# ")] {
             let directory = try temporaryDirectory("pin-override-\(format.cliToken)")
@@ -472,7 +472,7 @@ final class ProvenanceExportPinGateTests: XCTestCase {
             let stepPrefix = format == .nextflow ? " * " : "# "
             XCTAssertEqual(script.components(separatedBy: "\(stepPrefix)Not pinned. ").count - 1, 2, format.cliToken)
             XCTAssertTrue(script.contains(
-                "\(stepPrefix)Not pinned. Its version was not recorded, so no version can be pinned. Exported with --allow-unpinned.\n"
+                "\(stepPrefix)Not pinned. Its version was not recorded. Exported with --allow-unpinned.\n"
             ), format.cliToken)
 
             let record = try exportRecord(in: directory)
