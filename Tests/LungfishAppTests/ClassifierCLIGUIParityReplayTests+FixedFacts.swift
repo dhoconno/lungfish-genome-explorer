@@ -169,6 +169,9 @@ extension ClassifierCLIGUIParityReplayTests {
             if Self.value(of: "-t", in: argv) != "1" {
                 violate("runs EsViritu with -t 1", argv.joined(separator: " "))
             }
+            if Self.value(of: "-q", in: argv) != "True" {
+                violate("runs EsViritu with -q True", argv.joined(separator: " "))
+            }
         }
     }
 
