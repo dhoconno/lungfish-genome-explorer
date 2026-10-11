@@ -246,7 +246,8 @@ final class ProvenanceStepCopySitesTests: XCTestCase {
         let first = try convert()
         let second = try convert()
 
-        XCTAssertNotEqual(first.id, second.id, "the LungfishIO source carries no id, so each conversion makes one")
+        XCTAssertEqual(first.id, source.id, "the step keeps the id it got when samtools ran")
+        XCTAssertEqual(second.id, source.id, "a second conversion names the same step")
         XCTAssertEqual(first.inputs.map(\.path), [bam.path])
         XCTAssertEqual(first.durableReplayArgv, ["samtools", "index", bam.path])
     }

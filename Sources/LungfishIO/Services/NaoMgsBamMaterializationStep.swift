@@ -15,6 +15,8 @@ public struct NaoMgsBamMaterializationResult: Sendable {
 }
 
 public struct NaoMgsBamMaterializationStep: Sendable {
+    /// Fixed when the step ran, so every conversion of it keeps one step id.
+    public let id = UUID()
     public let sample: String
     public let toolName: String
     public let toolVersion: String

@@ -1417,7 +1417,7 @@ func naoMgsMaterializationProvenanceSteps(
             materializationReplayArgv: materializationReplayArgv
         )
         return ProvenanceStep(
-            toolName: step.toolName,
+            id: step.id, toolName: step.toolName,
             toolVersion: step.toolVersion,
             argv: step.argv,
             durableReplayArgv: durableReplayArgv,
