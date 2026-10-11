@@ -58,8 +58,8 @@ Tick each one or write "retired" once its program task has landed.
 
 ### Analysis kind
 
-- [ ] One `AnalysisToolDescriptor` in `AnalysisToolRegistry.all` in `Sources/LungfishIO/Analysis/AnalysisToolRegistry.swift`, placed so no id plus a hyphen starts another, with its provisioning link to a lock entry or its reason for none. `knownTools` and `displayName(for:)` derive from it.
-- [ ] The pins updated by hand in the same commit, which are `AnalysisToolRegistryTests`, `AnalysesFolderDisplayNamePinTests`, `SidebarPresentationPinTests`, `InspectorAnalysesIconPinTests` and the id list in `SidebarScanSafetyNetProjects.swift`. No snapshot is regenerated to make a test pass. `ToolRegistryAgreementTests` passes, with a new kind that has no lock link added to its exact set with a reason.
+- [ ] One `AnalysisToolDescriptor` in `AnalysisToolRegistry.all` in `Sources/LungfishIO/Analysis/AnalysisToolRegistry.swift`, placed so no id plus a hyphen starts another, with its provisioning link to a lock entry or its reason for none. Its `runsTools` holds the lock ids of the managed tools the pipeline launches and names in its record, defaults to the provisioned tool, and lists samtools or Bracken when the pipeline also records them. `AnalysisRunsToolsAgreementTests` holds each id to the lock and the version probe table. `knownTools` and `displayName(for:)` derive from it.
+- [ ] The pins updated by hand in the same commit, which are `AnalysisToolRegistryTests`, `AnalysisToolRunsToolsTests`, `AnalysesFolderDisplayNamePinTests`, `SidebarPresentationPinTests`, `InspectorAnalysesIconPinTests` and the id list in `SidebarScanSafetyNetProjects.swift`. No snapshot is regenerated to make a test pass. `ToolRegistryAgreementTests` passes, with a new kind that has no lock link added to its exact set with a reason.
 - [ ] No new analysis id literal in a `switch`, `==` or `hasPrefix` outside `Sources/LungfishIO/Analysis/`. `scripts/ratchets/tool-identity.sh` passes without a baseline change.
 
 ### Recognition tables until Phase 3b

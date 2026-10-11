@@ -74,7 +74,7 @@ The app's Cancel button sends SIGTERM to `lungfish-cli` through `CLIRunCancellat
 
 ## Adding a managed tool
 
-A managed tool is an entry of the lock. Its identity is a `ManagedToolID` (`Sources/LungfishIO/Analysis/ToolIdentity.swift`), the entry's `id` in `tools` or `packTools`. This is review finding R2. The lock is the one place provisioning facts live. Presentation facts live in the IO registry (see `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md`), and probe facts live in one Workflow table keyed by the lock id. Do these in one change.
+A managed tool is an entry of the lock. Its identity is a `ManagedToolID` (`Sources/LungfishIO/Analysis/ToolIdentity.swift`), the entry's `id` in `tools` or `packTools`. This is review finding R2. The lock is the one place provisioning facts live. Presentation facts live in the IO registry (see `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md`), and probe facts live in one Workflow table keyed by the lock id. A registry descriptor also carries `runsTools`, the lock ids of the managed tools its kind's pipeline launches and names in its record. It defaults to the provisioned managed tool, so a tool that an existing kind's pipeline records beside its own, such as samtools beside a mapper, is listed in that kind's descriptor. `AnalysisRunsToolsAgreementTests` holds each listed id to the lock and the version probe table. Do these in one change.
 
 | Step | What to do | What fails until you do it |
 |---|---|---|
