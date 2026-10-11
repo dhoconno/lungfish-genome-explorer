@@ -377,6 +377,51 @@ final class ProvenanceExportPinGateTests: XCTestCase {
         XCTAssertEqual(pipe(mpileup, into: call).unpinnedSteps, [])
     }
 
+    // MARK: - The Older record format anywhere in the chain
+
+    /// A bare run that wrote `aligned.bam`, kept as that file's sidecar, and an envelope that sorted it.
+    private func olderUpstreamChain(in directory: URL) throws -> (downstream: ProvenanceEnvelope, upstreamSidecar: URL) {
+        let reads = directory.appendingPathComponent("aligned.bam")
+        try Data("aligned reads".utf8).write(to: reads)
+        let produced = try ProvenanceFileDescriptor.file(url: reads, format: .bam, role: .output)
+        let legacy = WorkflowRun(
+            name: "map", startTime: Date(timeIntervalSince1970: 100), endTime: Date(timeIntervalSince1970: 108),
+            status: .completed,
+            steps: [StepExecution(
+                toolName: "minimap2", toolVersion: "2.31", command: ["minimap2", "-a", "ref.fa", "reads.fq"], inputs: [],
+                outputs: [FileRecord(path: reads.path, sha256: produced.checksumSHA256, role: .output)], exitCode: 0, wallTime: 1
+            )]
+        )
+        let upstreamSidecar = ProvenanceRecorder.fileSidecarURL(for: reads)
+        try ProvenanceJSON.encoder.encode(legacy).write(to: upstreamSidecar)
+        let input = try ProvenanceFileDescriptor.file(url: reads, format: .bam, role: .input)
+        let downstream = ProvenanceEnvelope(
+            workflowName: "sort", toolName: "samtools", files: [input],
+            steps: [ProvenanceStep(
+                toolName: "samtools", toolVersion: "1.24 (managed conda environment samtools; executable samtools)",
+                argv: ["samtools", "sort", reads.path], inputs: [input], exitStatus: 0
+            )],
+            exitStatus: 0
+        )
+        return (downstream, upstreamSidecar)
+    }
+
+    func testAnUpstreamRecordInTheOlderRecordFormatRefusesTheScript() throws {
+        // Bio review fix 3. The lineage resolver reads upstream records tolerantly, so a script over an
+        // envelope would replay a bare run's step that the gate refuses on its own.
+        let chain = try olderUpstreamChain(in: try temporaryDirectory("pin-gate-older-upstream"))
+        let exporter = ProvenanceExporter(signingProvider: nil)
+        let script = exporter.pinGate(for: chain.downstream, shape: .envelope, format: .snakemake, sourceSidecarURL: nil)
+        XCTAssertEqual(script.assessment.steps.map(\.toolName), ["minimap2", "samtools"], "the chain reaches the bare run")
+        XCTAssertTrue(script.refusesOlderRecordFormat)
+        XCTAssertFalse(script.permitsExport(allowUnpinned: true))
+        XCTAssertEqual(
+            script.refusalLines.first?.contains(chain.upstreamSidecar.path), true, script.refusalLines.joined(separator: "\n")
+        )
+        let methods = exporter.pinGate(for: chain.downstream, shape: .envelope, format: .methods, sourceSidecarURL: nil)
+        XCTAssertTrue(methods.permitsExport(allowUnpinned: false))
+    }
+
     // MARK: - The recorded override
 
     /// Unpinned minimap2, pinned samtools and unpinned bracken.

@@ -58,7 +58,16 @@ extension ProvenanceExporter {
         guard format.isPinGated else { return .ungated(format, shape: shape) }
         let source = scriptSource(envelope, sourceSidecarURL: sourceSidecarURL, sourceRootURL: sourceRootURL)
         let (assessment, unpinned) = ProvenanceExportPinGate.unpinnedSteps(in: exportPlan(source.run))
-        return ProvenanceExportPinGate(format: format, shape: shape, assessment: assessment, unpinnedSteps: unpinned)
+        // The lineage resolver reads upstream records tolerantly, so the script could replay a record in
+        // the Older record format that the gate refuses on its own (V6).
+        let own = sourceSidecarURL?.standardizedFileURL
+        let olderUpstream = ProvenanceExportPinGate.isOlderRecordFormat(shape) ? nil : source.expansion.sidecarURLs.first {
+            $0 != own && ProvenanceExportPinGate.isOlderRecordFormat(sidecar: $0)
+        }
+        return ProvenanceExportPinGate(
+            format: format, shape: shape, assessment: assessment, unpinnedSteps: unpinned,
+            olderRecordFormatUpstream: olderUpstream
+        )
     }
 
     /// What a script export renders: the record with every record that fed it merged in, upstream

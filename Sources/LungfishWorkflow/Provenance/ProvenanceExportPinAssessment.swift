@@ -391,14 +391,17 @@ public struct ProvenanceExportPinGate: Sendable, Hashable {
     public let assessment: ProvenanceExportPinAssessment
     /// The steps whose environments the export cannot pin, in script order.
     public let unpinnedSteps: [UnpinnedStep]
+    /// The sidecar of a record the chain reads in the Older record format, when the exported record
+    /// itself is not in that format. The script would replay that record's steps.
+    public let olderRecordFormatUpstream: URL?
 
     /// True for the four formats that run tools.
     public var isGated: Bool { format.isPinGated }
 
-    /// True when the record decoded as the Older record format and the format runs tools. No
-    /// override lets this export through (V6).
+    /// True when the format runs tools and the record, or a record its chain reads, decoded as the
+    /// Older record format. No override lets this export through (V6).
     public var refusesOlderRecordFormat: Bool {
-        isGated && Self.isOlderRecordFormat(shape)
+        isGated && (Self.isOlderRecordFormat(shape) || olderRecordFormatUpstream != nil)
     }
 
     /// True when the script would run a step the lock does not pin, which needs the override (S7).
@@ -414,6 +417,14 @@ public struct ProvenanceExportPinGate: Sendable, Hashable {
     /// The lines of a refusal, the reason first, then each unpinned step and the way past it. Empty
     /// when nothing is refused.
     public var refusalLines: [String] {
+        if refusesOlderRecordFormat, let upstream = olderRecordFormatUpstream {
+            return [
+                "This record builds on \(upstream.path), which decoded as the Older record format, and LGE never "
+                    + "exports a \(format.sentenceName) that replays such a record, with or without "
+                    + "\(ProvenanceExporter.allowUnpinnedFlag).",
+                "Export it with --format methods or --format json instead.",
+            ]
+        }
         if refusesOlderRecordFormat {
             return [
                 "This record decoded as the Older record format, which LGE never exports as a \(format.sentenceName), "
@@ -444,7 +455,18 @@ public struct ProvenanceExportPinGate: Sendable, Hashable {
 
     /// The gate for a format the pin check does not cover, which never refuses.
     static func ungated(_ format: ProvenanceExportFormat, shape: ProvenanceEnvelopeReader.RecordShape) -> ProvenanceExportPinGate {
-        ProvenanceExportPinGate(format: format, shape: shape, assessment: ProvenanceExportPinAssessment(steps: []), unpinnedSteps: [])
+        ProvenanceExportPinGate(
+            format: format, shape: shape, assessment: ProvenanceExportPinAssessment(steps: []), unpinnedSteps: [],
+            olderRecordFormatUpstream: nil
+        )
+    }
+
+    /// Whether a sidecar the chain merged reads as the Older record format. A typed mapping record
+    /// counts as typed, because only the finder converts it.
+    static func isOlderRecordFormat(sidecar url: URL) -> Bool {
+        guard url.lastPathComponent != MappingProvenance.filename,
+              let reading = (try? ProvenanceEnvelopeReader.read(fromSidecar: url)) ?? nil else { return false }
+        return isOlderRecordFormat(reading.shape)
     }
 
     /// The assessment of every replayable step of `plan`, and the tools among them the export cannot pin.

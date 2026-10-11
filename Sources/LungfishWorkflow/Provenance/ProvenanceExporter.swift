@@ -220,6 +220,8 @@ public struct ProvenanceExporter: Sendable {
     struct ProvenanceChainExpansion {
         let envelope: ProvenanceEnvelope
         let sourceArtifactURLs: [URL]
+        /// The sidecar of each merged record, upstream first, whose shape the pin gate reads.
+        let sidecarURLs: [URL]
     }
 
     /// The record with every record that fed it merged in, upstream first,
@@ -245,7 +247,8 @@ public struct ProvenanceExporter: Sendable {
         }
         return ProvenanceChainExpansion(
             envelope: mergeProvenanceChain(runs.map(\.envelope), fallback: envelope),
-            sourceArtifactURLs: uniqueExistingURLs(sourceArtifactURLs)
+            sourceArtifactURLs: uniqueExistingURLs(sourceArtifactURLs),
+            sidecarURLs: runs.compactMap { $0.sidecarURL?.standardizedFileURL }
         )
     }
 

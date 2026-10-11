@@ -102,7 +102,8 @@ struct ProvenanceExportPinSheetModel: Equatable {
         if gate.refusesOlderRecordFormat {
             kind = .refuseOlderRecordFormat
             messageText = "This record cannot be exported as a \(name)"
-            informativeText = "It is in the Older record format, which LGE never exports as a script. "
+            let subject = gate.olderRecordFormatUpstream.map { "It builds on \($0.lastPathComponent), which is" } ?? "It is"
+            informativeText = "\(subject) in the Older record format, which LGE never exports as a script. "
                 + "Export it as a Methods Section or as Full Provenance (JSON) instead."
             rows = []
             buttonTitles = [Self.okTitle]

@@ -1729,6 +1729,56 @@ extension ProvenanceExportCommandTests {
         XCTAssertEqual(try ProvenanceCommand.resolveProvenanceReading(directory).reading.shape, .typedRecord)
     }
 
+    func testAnOlderRecordFormatUpstreamRefusesTheScriptWithOrWithoutTheFlag() async throws {
+        // Bio review fix 3. A bare run kept as the sidecar of the file the downstream record read.
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let reads = directory.appendingPathComponent("aligned.bam")
+        try Data("aligned reads".utf8).write(to: reads)
+        let produced = try ProvenanceFileDescriptor.file(url: reads, format: .bam, role: .output)
+        let legacy = WorkflowRun(
+            name: "map", startTime: Date(timeIntervalSince1970: 100), endTime: Date(timeIntervalSince1970: 108),
+            status: .completed,
+            steps: [StepExecution(
+                toolName: "minimap2", toolVersion: "2.31", command: ["minimap2", "-a", "ref.fa", "reads.fq"], inputs: [],
+                outputs: [FileRecord(path: reads.path, sha256: produced.checksumSHA256, role: .output)], exitCode: 0, wallTime: 1
+            )]
+        )
+        let upstreamSidecar = ProvenanceRecorder.fileSidecarURL(for: reads)
+        try ProvenanceJSON.encoder.encode(legacy).write(to: upstreamSidecar, options: .atomic)
+        let input = try ProvenanceFileDescriptor.file(url: reads, format: .bam, role: .input)
+        let downstream = ProvenanceEnvelope(
+            workflowName: "sort", toolName: "samtools", files: [input],
+            steps: [ProvenanceStep(
+                toolName: "samtools", toolVersion: "1.24 (managed conda environment samtools; executable samtools)",
+                argv: ["samtools", "sort", reads.path], inputs: [input], exitStatus: 0
+            )],
+            exitStatus: 0
+        )
+        let sorted = directory.appendingPathComponent("sorted", isDirectory: true)
+        try FileManager.default.createDirectory(at: sorted, withIntermediateDirectories: true)
+        let sidecarURL = sorted.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        try ProvenanceJSON.encoder.encode(downstream).write(to: sidecarURL, options: .atomic)
+
+        for extra in [[String](), ["--allow-unpinned"]] {
+            let output = directory.appendingPathComponent("script-\(extra.count)", isDirectory: true)
+            do {
+                try await ProvenanceCommand.ExportSubcommand.parse(
+                    [sidecarURL.path, "--export-format", "shell", "--output", output.path] + extra
+                ).run()
+                XCTFail("a script over a bare run must be refused, flags \(extra)")
+            } catch let CLIError.validationFailed(lines) {
+                XCTAssertEqual(lines.first?.contains(upstreamSidecar.path), true, lines.joined(separator: "\n"))
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "flags \(extra)")
+        }
+        let methods = directory.appendingPathComponent("methods", isDirectory: true)
+        try await ProvenanceCommand.ExportSubcommand.parse(
+            [sidecarURL.path, "--export-format", "methods", "--output", methods.path]
+        ).run()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: methods.appendingPathComponent("methods.md").path))
+    }
+
     /// The restored golden records the gate refuses for a shell export, as
     /// `ProvenanceExportPinGateTests.goldenRefusals` and the app's test list them.
     private static let goldenRefusals: [String] = [
