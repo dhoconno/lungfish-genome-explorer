@@ -98,7 +98,23 @@ The Operations panel adopts this rule in 2.8 (decision S16). Until then each fam
 
 ## Old private shapes
 
-Some commands print events in shapes of their own. The MSA and tree imports, the application export import and the two ONT FASTQ commands do. A dated legacy table that maps their old names onto the events above is planned for the version 2 decoder (decision V13). It is not part of this format yet, and the app still reads those streams with their own parsers. The contract table below lists each of these commands as a `.legacy` row.
+Some commands printed events in shapes of their own before version 2, and a `lungfish-cli` built before the envelope still prints them. The MSA and tree imports and the application export import wrote five names each, and the two ONT FASTQ commands write `progress` lines with an extra `operation` key. The app can meet such a CLI through `LUNGFISH_CLI_PATH`, a stale build folder or a `PATH` install.
+
+The version 2 decoder reads the first two shapes through a dated legacy table, `CLIEventLegacyNames` in the Workflow module (decision V13). It consults the table only for a line that has no `schemaVersion` and whose event name it does not know. A name the table does not know stays an ignored line, and a missing field or a field of the wrong type takes the default that the app's own parsers used, so the decoder never throws on these lines.
+
+| Old names | Version 2 event |
+| --- | --- |
+| `nativeBundleImportStart`, `applicationExportImportStart` | `start`, with the message `Started <kind> import via lungfish-cli` |
+| `nativeBundleImportProgress`, `applicationExportProgress` | `progress`, with the same fraction and message |
+| `nativeBundleImportWarning`, `applicationExportWarning` | `log` at level `warning` |
+| `nativeBundleImportComplete`, `applicationExportImportComplete` | `complete`, with the bundle or collection in `outputs` and as its one typed artifact |
+| `nativeBundleImportFailed`, `applicationExportImportFailed` | `failed`, with the error as its message |
+
+The artifact of an old `complete` line has the role `bundle` and the kind that the extension names for a `.lungfishmsa` or `.lungfishtree` folder, or the role `collection` and the kind `import-collection` for a collection. An old `complete` line also carries a `warningCount`, which the table does not read. The old commands wrote one warning line for each warning they counted, so a reader that counts those lines gets the same number.
+
+The two ONT FASTQ commands need no row. `progress` is a name of version 1, and the decoder ignores the `operation` key, so their lines already read as `progress` events.
+
+`CLIEventLegacyNamesTests` decodes each transcript in `Tests/Fixtures/cli-events/legacy` and compares every line with a frozen copy of how the two import runners read it. The table is dated 2026-10-11. It is deleted as a unit, with its tests and those transcripts, when the `.legacy` rows expire. The contract table below lists each of these commands as a `.legacy` row until its sub-phase retires the shape.
 
 ## The contract table
 

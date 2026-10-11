@@ -1,6 +1,6 @@
 # CLI event fixtures
 
-These folders hold transcripts of the event lines that `lungfish-cli` prints when a command runs with events on. `CLIEventCompatibilityTests` decodes every file in `v1`, `CLIPrimerTrimRunnerTests` reads the file in `v2`, the runner tests of the four import commands play the files in `legacy`, `CLIEventTranscriptCoverageTests` decodes every file under `commands`, and `CLIEventContractCoverageTests` decodes every file under `results`. The wire format is written down in `docs/formats/cli-events.md`.
+These folders hold transcripts of the event lines that `lungfish-cli` prints when a command runs with events on. `CLIEventCompatibilityTests` decodes every file in `v1`, `CLIPrimerTrimRunnerTests` reads the file in `v2`, `CLIEventLegacyNamesTests` decodes every file in `legacy`, the runner tests of the four import commands play them, `CLIEventTranscriptCoverageTests` decodes every file under `commands`, and `CLIEventContractCoverageTests` decodes every file under `results`. The wire format is written down in `docs/formats/cli-events.md`.
 
 ## v1
 
@@ -39,7 +39,7 @@ These files must not be captured again. After the version 2 encoder landed, the 
 
 ## legacy
 
-Every file in `legacy` is the stream of a command in the private shape that it printed before the version 2 envelope. The shapes are S2 for `import msa` and `import tree`, S3 for `import geneious` and `import application-export`, and S8 and S9 for the two ONT FASTQ commands, as numbered in the Phase 2.6 inventory. `ImportMSATreeE2ETests` and `ApplicationExportImportE2ETests` check that the four import commands still print the S2 and S3 files. `CLINativeBundleImportRunnerTests` and `CLIApplicationExportImportRunnerTests` play those files back through a stand-in `lungfish-cli` to pin what the Operations Panel shows for each.
+Every file in `legacy` is the stream of a command in the private shape that it printed before the version 2 envelope. The shapes are S2 for `import msa` and `import tree`, S3 for `import geneious` and `import application-export`, and S8 and S9 for the two ONT FASTQ commands, as numbered in the Phase 2.6 inventory. `CLIEventLegacyNamesTests` reads each file with the version 2 decoder, which maps the names of S2 and S3 through its dated legacy table and needs no row for S8 and S9. `ImportMSATreeE2ETests` and `ApplicationExportImportE2ETests` check that the four import commands still print the S2 and S3 files. `CLINativeBundleImportRunnerTests` and `CLIApplicationExportImportRunnerTests` play those files back through a stand-in `lungfish-cli` to pin what the Operations Panel shows for each.
 
 The runs were made in process at program commit `1171aef68`, each on a small fixture that `ImportStreamCapture` builds, with the scratch folder rewritten to `/work` in its plain and slash-escaped spellings. Nothing else is edited. The two ONT files hold the event lines from standard error, because those commands print their progress there. Like the files in `v1`, these must not be captured again. The four import commands print version 2 events by the end of Phase 2.6, so a new run would no longer show what an older CLI prints.
 

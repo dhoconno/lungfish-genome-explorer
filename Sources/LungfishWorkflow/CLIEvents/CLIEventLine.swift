@@ -91,7 +91,9 @@ extension CLIEventArtifact {
 /// `schemaVersion`, an unknown key, an unknown event name and an unknown artifact
 /// kind all decode. A line whose event this reader does not know comes back with a nil
 /// ``event`` and its name in ``eventName``, and ``CLIEventLineDecoder`` notes it at
-/// debug level. `docs/formats/cli-events.md` states the version rule.
+/// debug level. A line with no `schemaVersion` that carries one of the private names of an
+/// older CLI is read through the dated table in `CLIEventLegacyNames` and comes back as the
+/// version 2 event it stands for. `docs/formats/cli-events.md` states the version rule.
 public struct CLIEventLine: Sendable, Equatable, Codable {
     /// The version new lines carry. A line without the key was written by version 1.
     public static let currentSchemaVersion = 2
@@ -129,6 +131,7 @@ public struct CLIEventLine: Sendable, Equatable, Codable {
         let name = try? container.decodeIfPresent(String.self, forKey: .event)
 
         var known: CLIEvent?
+        var legacyArtifacts: [CLIEventArtifact]?
         if let name, CLIEvent.EventName.all.contains(name) {
             do {
                 known = try CLIEvent(from: decoder)
@@ -138,12 +141,19 @@ public struct CLIEventLine: Sendable, Equatable, Codable {
                 // and the stream must go on without it.
                 if version <= Self.currentSchemaVersion { throw error }
             }
+        } else if let name, !container.contains(.schemaVersion),
+                  let legacy = CLIEventLegacyNames.translate(name: name, from: decoder) {
+            // A line with no schemaVersion and a private name of an older CLI. The dated table
+            // reads it as the version 2 event a current CLI prints for the same run, and any
+            // other name stays an ignored line.
+            known = legacy.event
+            legacyArtifacts = legacy.artifacts
         }
 
         schemaVersion = version
         eventName = name
         event = known
-        artifacts = (known?.carriesArtifacts ?? false) ? Self.readArtifacts(in: container) : []
+        artifacts = legacyArtifacts ?? ((known?.carriesArtifacts ?? false) ? Self.readArtifacts(in: container) : [])
     }
 
     public func encode(to encoder: Encoder) throws {
