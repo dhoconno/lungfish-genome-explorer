@@ -609,11 +609,44 @@ def test_many_changes_with_one_path_pattern_print_as_one_line():
     assert "mapping/provenance.json  removed /steps[*]/processIdentifier  x3, first /steps[0]/processIdentifier" in text
 
 
-def test_verbose_lists_every_change_and_the_count_behind_every_prediction():
-    prediction = doc(entry(PROVENANCE, removed=[{"path": "/steps[*]/processIdentifier"}]))
-    assert "     3  mapping/provenance.json  removed  /steps[*]/processIdentifier" in report(BASE, tree(NO_PIDS), prediction, verbose=True)
+def test_verbose_lists_every_change_one_by_one():
     lines = report(BASE, tree(NO_PIDS), NOTHING, verbose=True).splitlines()
     assert sum("removed /steps[" in line for line in lines) == 3
+    assert not any("x3" in line for line in lines)
+
+
+def test_the_count_behind_every_prediction_prints_without_verbose_and_whatever_the_verdict():
+    prediction = doc(entry(PROVENANCE, removed=[{"path": "/steps[*]/processIdentifier"}]))
+    row = "     3  mapping/provenance.json  removed  /steps[*]/processIdentifier"
+    clean = report(BASE, tree(NO_PIDS), prediction)
+    assert clean.splitlines()[-1].startswith("OK:") and "PREDICTED" in clean.splitlines() and row in clean
+    failing = report(BASE, tree({**NO_PIDS, **MAPPED_198}), prediction)
+    assert failing.splitlines()[-1].startswith("FAILED:") and row in failing
+    assert row in report(BASE, tree(NO_PIDS), prediction, verbose=True)
+
+
+def test_a_run_without_predictions_prints_no_table():
+    assert "PREDICTED" not in report(BASE, tree(NO_PIDS), NOTHING).splitlines()
+
+
+def test_the_table_names_the_files_that_a_file_added_or_removed_rule_accepted():
+    new = tree({"cli-help/lungfish-cli.a.txt": b"a\n", "cli-help/lungfish-cli.b.txt": b"b\n", "cli-help/lungfish-cli.bam.txt": None})
+    prediction = doc(added={"cli-help/*.txt": {"why": "two commands", "count": 2}}, removed={"cli-help/lungfish-cli.bam.txt": "gone"})
+    text = report(BASE, new, prediction)
+    assert "       2  cli-help/*.txt  file-added\n          cli-help/lungfish-cli.a.txt\n          cli-help/lungfish-cli.b.txt\n" in text
+    assert "       1  cli-help/lungfish-cli.bam.txt  file-removed\n          cli-help/lungfish-cli.bam.txt\n" in text
+
+
+def test_a_glob_without_a_count_shows_every_file_it_accepted():
+    new = tree({f"cli-help/lungfish-cli.{name}.txt": b"x\n" for name in "abc"})
+    lines = report(BASE, new, doc(added={"cli-help/*.txt": "new commands"})).splitlines()
+    assert lines[-1].startswith("OK:") and "       3  cli-help/*.txt  file-added" in lines
+    assert [line.strip() for line in lines if line.startswith(" " * 10)] == [f"cli-help/lungfish-cli.{name}.txt" for name in "abc"]
+
+
+def test_the_table_lists_no_file_names_under_a_rule_about_the_inside_of_a_file():
+    lines = report(BASE, tree(NO_PIDS), doc(entry(PROVENANCE, removed=[{"path": "/steps[*]/processIdentifier"}]))).splitlines()
+    assert lines[-2].strip() == "3  mapping/provenance.json  removed  /steps[*]/processIdentifier" and lines[-1].startswith("OK:")
 
 
 def test_a_changed_file_that_ignore_leaves_out_is_listed_with_its_reason():

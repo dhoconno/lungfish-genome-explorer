@@ -7,8 +7,11 @@
 A lane that recaptures goldens writes its predictions first, runs
 `golden.py capture`, then runs `check`. The command compares two copies of the
 goldens and exits 1 when a change was not predicted, when a changed value
-differs from its prediction or when a prediction did not happen. `diff` prints
-the observed changes with no predictions. Exit status 2 means the predictions
+differs from its prediction or when a prediction did not happen. Whatever the
+result, a PREDICTED table lists the number of changes each prediction
+accepted and, under each filesAdded or filesRemoved entry, the names of the
+files it accepted. `-v` lists every change one by one. `diff` prints the
+observed changes with no predictions. Exit status 2 means the predictions
 file, a SPEC or git could not be used.
 
 A SPEC names one copy of Tests/Fixtures/golden (see --root). It is a git
@@ -298,6 +301,7 @@ class Change:
 
 
 KIND_ORDER = ("file-added", "file-removed", "invalid-json", "binary", "reformatted", "reordered", "removed", "changed", "added")
+WHOLE_FILE_KINDS = ("file-added", "file-removed")
 
 
 def as_text(data: bytes) -> str | None:
@@ -648,6 +652,7 @@ class Verdict:
     wrong: list[tuple[Change, Rule, str]]
     unfulfilled: list[tuple[Rule, int]]
     accepted: list[int]  # per rule, in rule order
+    accepted_files: list[list[str]]  # per rule, the files that a file-added or file-removed rule accepted
 
     @property
     def ok(self) -> bool:
@@ -656,6 +661,7 @@ class Verdict:
 
 def evaluate(changes: list[Change], rules: list[Rule]) -> Verdict:
     accepted, touched = [0] * len(rules), [False] * len(rules)
+    accepted_files: list[list[str]] = [[] for _ in rules]
     unpredicted, wrong = [], []
     for change in changes:
         covering = [n for n, rule in enumerate(rules) if rule.covers(change)]
@@ -667,7 +673,10 @@ def evaluate(changes: list[Change], rules: list[Rule]) -> Verdict:
         deciders = [n for n in covering if rules[n].decides()] or covering
         if any(problems[n] is None for n in deciders):
             for n in covering:
-                accepted[n] += problems[n] is None
+                if problems[n] is None:
+                    accepted[n] += 1
+                    if change.kind in WHOLE_FILE_KINDS:
+                        accepted_files[n].append(change.file)
         else:
             wrong.append((change, rules[deciders[0]], problems[deciders[0]]))
             for n in covering:
@@ -677,7 +686,7 @@ def evaluate(changes: list[Change], rules: list[Rule]) -> Verdict:
         for n, rule in enumerate(rules)
         if (accepted[n] != rule.count if rule.count is not None else not (accepted[n] or touched[n]))
     ]
-    return Verdict(unpredicted, wrong, unfulfilled, accepted)
+    return Verdict(unpredicted, wrong, unfulfilled, accepted, accepted_files)
 
 
 def where(change: Change) -> str:
@@ -745,8 +754,11 @@ def format_verdict(
         for rule, got in verdict.unfulfilled:
             need = f"expected exactly {rule.count}, accounted for {got}" if rule.count is not None else "no change matched"
             lines.append(f"  {rule.label()}  ({need})" + (f"  why: {rule.why}" if rule.why else ""))
-    if verbose and verdict.ok:
-        lines += ["PREDICTED"] + [f"  {verdict.accepted[n]:>6}  {rule.label()}" for n, rule in enumerate(rules)]
+    if rules:
+        lines.append("PREDICTED")
+        for n, rule in enumerate(rules):
+            lines.append(f"  {verdict.accepted[n]:>6}  {rule.label()}")
+            lines += [f"          {name}" for name in verdict.accepted_files[n]]
     lines.append(
         f"{'OK' if verdict.ok else 'FAILED'}: {len(changes)} changes in {len({c.file for c in changes})} files, "
         f"{len(verdict.unpredicted)} unpredicted, {len(verdict.wrong)} with a wrong value, "
@@ -802,7 +814,7 @@ def main(argv: list[str] | None = None) -> int:
         sub.add_argument("--old", default="HEAD", metavar="SPEC", help="the goldens before the recapture (default HEAD)")
         sub.add_argument("--new", default="WORKTREE", metavar="SPEC", help="the goldens after it (default WORKTREE)")
         sub.add_argument("--root", default=DEFAULT_ROOT, help=f"the golden folder inside the checkout (default {DEFAULT_ROOT})")
-        sub.add_argument("-v", "--verbose", action="store_true", help="list every change and the count behind every prediction")
+        sub.add_argument("-v", "--verbose", action="store_true", help="list every change one by one")
         sub.add_argument("--repo", type=Path, default=REPO_ROOT, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     for stream in (sys.stdout, sys.stderr):
