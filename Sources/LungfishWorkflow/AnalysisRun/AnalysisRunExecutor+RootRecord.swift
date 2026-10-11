@@ -24,7 +24,8 @@ struct RootRecordResult: Sendable {
 extension AnalysisRunExecutor {
     /// Phase P4. Writes the root record into the result folder through `ProvenanceRunBuilder` and
     /// `ProvenanceWriter`, after every other record of the run, so a record written during the run
-    /// (a unit's record in a one-folder layout, or an index builder's) never wins.
+    /// (a unit's record in a one-folder layout or a shared batch root, or an index builder's)
+    /// never wins.
     ///
     /// The record's argv is the command that ran, its options are the plan's with what the units
     /// and the finalize recorded merged in and hold the read-set plan under `resolvedDefaults`

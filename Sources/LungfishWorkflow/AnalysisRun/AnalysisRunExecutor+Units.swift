@@ -14,8 +14,9 @@ struct AnalysisRunUnitResults<Result: Sendable>: Sendable {
 extension AnalysisRunExecutor {
     /// Runs the plan's units one at a time, in plan order.
     ///
-    /// A batch root gives each unit its own folder through `AnalysesFolder.batchSampleDirectory`,
-    /// the one sanitizer, and the unit's sample name is that folder's name. The loop checks for a
+    /// A `batchRoot` layout gives each unit its own folder through
+    /// `AnalysesFolder.batchSampleDirectory`, the one sanitizer, and the unit's sample name is that
+    /// folder's name. The other layouts hand each unit the result folder itself. The loop checks for a
     /// cancel request, the task's cancellation or the services' `cancelRequested`, before each
     /// unit and after it, whatever the unit returned or threw. A cancel request, and nothing else,
     /// makes the run cancelled, so a unit that failed because its child process was signalled
@@ -44,9 +45,12 @@ extension AnalysisRunExecutor {
             var sampleName = planned.label
             let outcome: AnalysisUnitOutcome<Tool.UnitResult>
             do {
-                if plan.layout == .batchRoot {
+                switch plan.layout {
+                case .batchRoot:
                     directory = try AnalysesFolder.batchSampleDirectory(named: planned.label, in: folder.root)
                     sampleName = directory.lastPathComponent
+                case .singleFolder, .sharedBatchRoot:
+                    break
                 }
                 outcome = try await tool.run(
                     AnalysisRunUnit(

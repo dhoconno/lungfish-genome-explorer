@@ -8,8 +8,8 @@ import LungfishIO
 /// Where the executor puts a run's result folder.
 public enum AnalysisRunDestination: Sendable, Equatable {
     /// A project. The executor creates `Analyses/<tool>-<timestamp>/`, or
-    /// `Analyses/<tool>-batch-<timestamp>/` for a batch root, with `analysis-metadata.json` and a
-    /// run record that names the command, as the app's windows do (E1). A replay makes a new
+    /// `Analyses/<tool>-batch-<timestamp>/` for either batch layout, with `analysis-metadata.json`
+    /// and a run record that names the command, as the app's windows do (E1). A replay makes a new
     /// folder and never overwrites an earlier result.
     case project(URL)
     /// A folder the caller named, such as `--output-dir`. The executor claims it with a run record
@@ -83,8 +83,9 @@ public struct AnalysisRunPlan<Value: Sendable>: Sendable {
 
 /// One unit of a plan.
 public struct AnalysisRunPlannedUnit<Value: Sendable>: Sendable {
-    /// The sample name, or another name for a unit that holds several samples. In a batch root
-    /// the unit's folder takes this name, sanitized and made unique.
+    /// The sample name, or another name for a unit that holds several samples. In a
+    /// ``AnalysisRunLayout/batchRoot`` layout the unit's folder takes this name, sanitized and
+    /// made unique.
     public var label: String
     public var value: Value
 
@@ -163,10 +164,12 @@ public struct AnalysisRunUnit<Value: Sendable>: Sendable {
     public let count: Int
     /// The label the plan gave the unit.
     public let label: String
-    /// The name the tool gives its sample. In a batch root it is the name of the unit's folder,
-    /// so the tool's own sample label equals the folder name. Otherwise it is the label.
+    /// The name the tool gives its sample. In a ``AnalysisRunLayout/batchRoot`` layout it is the
+    /// name of the unit's folder, so the tool's own sample label equals the folder name.
+    /// Otherwise it is the label.
     public let sampleName: String
-    /// Where the unit writes. A unit folder in a batch root, else the result folder itself.
+    /// Where the unit writes. A unit folder in a ``AnalysisRunLayout/batchRoot`` layout, else the
+    /// result folder itself.
     public let directory: URL
     public let value: Value
 

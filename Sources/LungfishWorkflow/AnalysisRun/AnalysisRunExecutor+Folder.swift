@@ -34,7 +34,13 @@ struct AnalysisRunFolder: Sendable {
         command: String,
         startedAt: Date
     ) throws -> AnalysisRunFolder {
-        let isBatch = layout == .batchRoot
+        let isBatch: Bool
+        switch layout {
+        case .singleFolder:
+            isBatch = false
+        case .batchRoot, .sharedBatchRoot:
+            isBatch = true
+        }
         switch destination {
         case .project(let projectURL):
             let root = try AnalysesFolder.createAnalysisDirectory(

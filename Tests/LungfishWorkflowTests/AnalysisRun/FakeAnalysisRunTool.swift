@@ -219,6 +219,7 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
         probe.observe("metadataAtRun", AnalysesFolder.readAnalysisMetadata(from: root) != nil)
         probe.observe("runRecordAtRun", AnalysisRunRecord.isIncomplete(root))
         probe.observe("rootRecordAtRun", FileManager.default.fileExists(atPath: Self.recordURL(in: root).path))
+        probe.observe("unit \(unit.label) writes into the root", unit.directory == root)
 
         let input = unit.directory.appendingPathComponent("\(unit.sampleName).input.fastq")
         try Data("@r1\nACGT\n+\nIIII\n".utf8).write(to: input)

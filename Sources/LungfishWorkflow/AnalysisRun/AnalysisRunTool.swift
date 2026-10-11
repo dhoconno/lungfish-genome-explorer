@@ -16,11 +16,11 @@ import LungfishIO
 ///    folder behind.
 /// 2. ``run(_:context:)`` (P2) runs one unit in the folder the executor made for it and writes the
 ///    unit's outputs and its own record there. The executor runs units one at a time, in plan
-///    order, and checks for a cancel request between them. In a one-folder layout the unit's folder
-///    is the result folder, and the root record written in P4 replaces any record the unit wrote
-///    there. So a unit hands each fact of its record to the root record through the context's
-///    `recordInput`, `recordStep` and `recordOptions` as soon as it has it, as the Kraken2
-///    wrapper record keeps the pipeline's steps today.
+///    order, and checks for a cancel request between them. In a one-folder layout or a shared batch
+///    root the unit's folder is the result folder, and the root record written in P4 replaces any
+///    record the unit wrote there. So a unit hands each fact of its record to the root record
+///    through the context's `recordInput`, `recordStep` and `recordOptions` as soon as it has it,
+///    as the Kraken2 wrapper record keeps the pipeline's steps today.
 /// 3. ``finalize(_:context:)`` (P3) writes the run-level artifacts, such as a summary, a batch
 ///    manifest and the viewer index, after every unit and before the executor writes the root
 ///    record. It runs only when the units leave the run completed.
@@ -99,4 +99,10 @@ public enum AnalysisRunLayout: String, Sendable, Equatable, CaseIterable {
     /// through the one sanitizer `AnalysesFolder.batchSampleDirectory(named:in:)`, and a
     /// `--project` run's folder is named `<tool>-batch-<timestamp>`.
     case batchRoot
+    /// The result folder is a batch root that every unit writes into directly, for an engine that
+    /// runs several samples in one process, such as TaxTriage. A `--project` run's folder is named
+    /// `<tool>-batch-<timestamp>` and its `analysis-metadata.json` says batch. Otherwise the
+    /// executor treats it as ``singleFolder``, so each unit gets the result folder itself and the
+    /// root record replaces any record a unit wrote there.
+    case sharedBatchRoot
 }

@@ -37,7 +37,8 @@ public struct AnalysisUnitReport<Result: Sendable>: Sendable {
     /// The unit's place in the plan, from 0.
     public let index: Int
     public let label: String
-    /// The name the unit gave its sample, the unit folder's name in a batch root.
+    /// The name the unit gave its sample, the unit folder's name in a
+    /// ``AnalysisRunLayout/batchRoot`` layout.
     public let sampleName: String
     public let directory: URL
     public let outcome: AnalysisUnitOutcome<Result>

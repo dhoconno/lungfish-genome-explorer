@@ -379,6 +379,31 @@ struct AnalysisRunExecutorTests {
         #expect(history.analyses.first?.status == .completed)
     }
 
+    @Test("A shared batch root is named and marked as a batch, and every unit writes into it")
+    func sharedBatchRootTakesEveryUnit() async throws {
+        let fixture = try AnalysisRunTestProject()
+        defer { fixture.cleanup() }
+        let probe = FakeToolProbe()
+        var tool = FakeAnalysisRunTool(probe: probe)
+        tool.layout = .sharedBatchRoot
+        tool.units = [
+            AnalysisRunPlannedUnit(label: "sample 1", value: .complete),
+            AnalysisRunPlannedUnit(label: "s2", value: .complete),
+        ]
+
+        let report = await AnalysisRunExecutor.unsigned.execute(tool, fixture.request(groupsSamples: true), events: .discarding)
+
+        #expect(report.status == .completed)
+        let folder = try #require(report.analysisDirectory)
+        #expect(folder.lastPathComponent.hasPrefix("kraken2-batch-"))
+        #expect(AnalysesFolder.readAnalysisMetadata(from: folder)?.isBatch == true)
+        #expect(probe.fact("unit sample 1 writes into the root") == true)
+        #expect(probe.fact("unit s2 writes into the root") == true)
+        #expect(probe.sampleNames == ["sample 1", "s2"])
+        #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("s2.kreport").path))
+        #expect(try AnalysesFolder.listAnalyses(in: fixture.project).map(\.url.lastPathComponent) == [folder.lastPathComponent])
+    }
+
     @Test("The default policy stops a batch at the failed unit")
     func defaultPolicyStopsTheBatch() async throws {
         let fixture = try AnalysisRunTestProject()
