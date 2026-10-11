@@ -558,6 +558,33 @@ final class ProvenanceSchemaVersion2EncoderTests: XCTestCase {
         XCTAssertEqual(read.tool.managedToolID, ManagedToolID(rawValue: "samtools"))
     }
 
+    // MARK: The workflow version
+
+    /// A record that holds no workflow version, written fresh or read and rewritten, is written
+    /// without the key, never with `null`.
+    func testARecordWithoutAWorkflowVersionIsWrittenWithoutTheKey() throws {
+        let fresh = ProvenanceEnvelope(
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            workflowName: "no.workflow.version",
+            workflowVersion: nil,
+            toolName: "fastp",
+            exitStatus: 0
+        )
+        let written = try Self.write(fresh)
+        defer { written.cleanup() }
+        let json = try written.json()
+        XCTAssertFalse(json.keys.contains("workflowVersion"), "a fresh record without a workflow version")
+        XCTAssertFalse(written.text.contains("null"))
+
+        var object = json
+        object["workflowVersion"] = nil
+        let read = try ProvenanceEnvelopeReader.decodeCanonical(try JSONSerialization.data(withJSONObject: object))
+        XCTAssertNil(read.workflowVersion)
+        let rewritten = try Self.write(read)
+        defer { rewritten.cleanup() }
+        XCTAssertFalse(try rewritten.json().keys.contains("workflowVersion"), "a record read without one and rewritten")
+    }
+
     // MARK: Open file formats and roles
 
     /// A newly written record at `schemaVersion`, with one more input descriptor naming a format

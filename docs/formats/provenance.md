@@ -23,7 +23,7 @@ LGE writes every new record as an envelope. The encoder sorts the keys, writes d
 | `id` | The run's UUID |
 | `createdAt` | When the run started |
 | `status` | How the run ended, one of `running`, `completed`, `failed` or `cancelled` |
-| `workflowName`, `workflowVersion` | The operation and the LGE version that ran it |
+| `workflowName`, `workflowVersion` | The operation and the LGE version that ran it. A record that holds no workflow version leaves the key out |
 | `toolName`, `toolVersion`, `tool` | The tool the run reports as its own |
 | `argv`, `durableReplayArgv`, `reproducibleCommand` | The command as words, as replayable words when the run used scratch files, and as one shell line |
 | `options` | `explicit`, `defaults` and `resolvedDefaults`, each a map of typed values |

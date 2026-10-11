@@ -920,7 +920,7 @@ struct ProvenanceEnvelopeTests {
 
         // A version or runtime fact the record never held stays not recorded, never the reading
         // Mac's (plan decision S4). The tool versions keep their recorded "unknown".
-        #expect(json["workflowVersion"] is NSNull)
+        #expect(json["workflowVersion"] == nil, "a record without a workflow version is written without the key")
         #expect((json["toolVersion"] as? String)?.isEmpty == false)
         #expect((tool["version"] as? String)?.isEmpty == false)
         #expect((firstStep["toolVersion"] as? String)?.isEmpty == false)

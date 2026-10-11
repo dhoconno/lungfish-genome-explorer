@@ -251,7 +251,8 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(status.rawValue, forKey: .status)
         try container.encode(workflowName, forKey: .workflowName)
-        try container.encode(workflowVersion, forKey: .workflowVersion)
+        // A record that holds no workflow version is written without the key, never with null.
+        try container.encodeIfPresent(workflowVersion, forKey: .workflowVersion)
         try container.encode(toolName, forKey: .toolName)
         try container.encode(toolVersion, forKey: .toolVersion)
         try container.encodeIfPresent(githubReleaseVersion, forKey: .githubReleaseVersion)
