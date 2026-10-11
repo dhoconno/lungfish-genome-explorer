@@ -44,7 +44,7 @@ public enum MetagenomicsSampleGrouper {
         let grouped = Dictionary(grouping: candidates, by: \.sampleKey)
         var samples: [MetagenomicsSampleInput] = []
 
-        for (sampleKey, entries) in grouped.sorted(by: { $0.key.localizedCaseInsensitiveCompare($1.key) == .orderedAscending }) {
+        for (sampleKey, entries) in grouped.sorted(by: { isOrderedBefore($0.key, $1.key) }) {
             let read1 = entries
                 .filter { $0.role == .read1 }
                 .map(\.url)
@@ -103,9 +103,7 @@ public enum MetagenomicsSampleGrouper {
             }
         }
 
-        return samples.sorted {
-            $0.sampleId.localizedCaseInsensitiveCompare($1.sampleId) == .orderedAscending
-        }
+        return samples.sorted { isOrderedBefore($0.sampleId, $1.sampleId) }
     }
 
     public static func sanitizeSampleId(_ raw: String) -> String {
@@ -160,6 +158,16 @@ public enum MetagenomicsSampleGrouper {
     }
 
     private static func compareURLs(_ lhs: URL, _ rhs: URL) -> Bool {
-        lhs.lastPathComponent.localizedCaseInsensitiveCompare(rhs.lastPathComponent) == .orderedAscending
+        isOrderedBefore(lhs.lastPathComponent, rhs.lastPathComponent)
+    }
+
+    /// The locale that orders sample names and file names. It is fixed, so a batch lists its samples and
+    /// numbers the files of one stem the same way in the app and in `lungfish-cli`, whatever language the
+    /// process runs in.
+    private static let collationLocale = Locale(identifier: "en_US")
+
+    /// Whether `lhs` sorts before `rhs`, ignoring case, in the fixed collation locale.
+    private static func isOrderedBefore(_ lhs: String, _ rhs: String) -> Bool {
+        lhs.compare(rhs, options: [.caseInsensitive], range: nil, locale: collationLocale) == .orderedAscending
     }
 }

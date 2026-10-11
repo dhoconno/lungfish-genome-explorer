@@ -48,6 +48,24 @@ final class MetagenomicsSampleGrouperOrderTests: XCTestCase {
         )
     }
 
+    func testTheOrderComesFromAFixedLocaleAndNotFromTheProcessLanguage() {
+        // Swedish collation lists "\u{E4}" after "z" and English lists it beside "a". The grouper follows the
+        // English order in every process, so the CLI and the app list one batch alike.
+        let names = ["zebra", "\u{E4}rlig", "alfa"]
+        func order(in identifier: String) -> [String] {
+            names.sorted {
+                $0.compare($1, options: [.caseInsensitive], range: nil, locale: Locale(identifier: identifier))
+                    == .orderedAscending
+            }
+        }
+        XCTAssertNotEqual(order(in: "sv_SE"), order(in: "en_US"), "the fixture must tell the two languages apart")
+
+        let samples = MetagenomicsSampleGrouper.group(urls(names.map { "\($0).fastq" }))
+
+        XCTAssertEqual(samples.map(\.sampleId), order(in: "en_US"))
+        XCTAssertEqual(samples.map(\.sampleId), ["alfa", "\u{E4}rlig", "zebra"])
+    }
+
     func testPairedFilesOfOneStemNumberTheirPairsInTheOrderOfTheirFileNames() {
         let files = urls(["s1-R2.fastq", "s1_R2.fastq", "s1-R1.fastq", "s1_R1.fastq"])
 
