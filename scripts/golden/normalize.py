@@ -224,15 +224,17 @@ _KRAKEN2_RATES = re.compile(r"\((" + _NUMBER + r") Kseq(\\?/)m, (" + _NUMBER + r
 # the two shapes LGE writes ("2026.9.78" and "Lungfish 2026.9.78 (dev)").
 APP_VERSION_KEYS = ("appVersion", "toolVersion", "version", "workflowVersion")
 
-# R13: ProvenanceStderr.truncated keeps the first 2,048 and the last 8,192
-# characters of a tool's stderr and joins them with this marker. Each cut lands
-# inside a line whose position depends on the length of every masked number
-# around it, so the partial line on each side of the marker is dropped.
+# R13: ProvenanceStderr.truncated keeps the whole lines within the first 2,048
+# and the last 8,192 characters of a tool's stderr and joins them with this
+# marker. A line longer than its window is still cut at a space or at the
+# character, records written before Phase 2.7 were cut at the character, and
+# which whole line sits next to the marker depends on the length of every
+# masked value before it. So the line on each side of the marker is replaced.
 STDERR_TRUNCATION_MARKER = "\n... [truncated] ...\n"
 # Records written before Phase 2.6 by two producers (the recipe step result in
 # LungfishIO and the human scrubber command) end with this marker, because they
 # kept only the first characters of a stderr. Their partial last line is
-# dropped the same way.
+# replaced the same way.
 STDERR_HEAD_ONLY_MARKER = "\n... [truncated]"
 
 
@@ -545,11 +547,13 @@ def _without_first_line(text: str) -> str:
 
 
 def drop_truncated_partial_lines(text: str, root: Node) -> dict[tuple[int, int], str]:
-    """R13: drop the partial line on each side of the marker in a stderr value the app truncated.
+    """R13: replace the line on each side of the marker in a stderr value the app truncated.
 
-    The head loses its partial last line and the tail its partial first line.
-    A stderr that keeps only its head and ends with the older marker loses its
-    partial last line."""
+    The head's last line and the tail's first line become the token. They are
+    whole lines in a record cut at line boundaries (Phase 2.7) and partial
+    lines in a record cut at the character (earlier records, or a window with
+    no line break and no space). A stderr that keeps only its head and ends
+    with the older marker has its partial last line replaced."""
     edits = {}
     for key, node in root.walk():
         if key != "stderr" or node.kind != "string":

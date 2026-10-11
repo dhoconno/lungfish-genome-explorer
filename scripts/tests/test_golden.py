@@ -333,8 +333,8 @@ def test_hash_only_registration_keeps_the_size():
     assert result["files"][0]["sizeBytes"] == 796
 
 
-def swift_truncation(stderr: str) -> str:
-    """ProvenanceStderr.truncated: the first 2,048 and the last 8,192 characters around the marker."""
+def swift_character_truncation(stderr: str) -> str:
+    """The rule before Phase 2.7, and the 2.7 fallback for a window with no line break and no space."""
     if len(stderr) <= 10_240:
         return stderr
     return stderr[:2_048] + normalize.STDERR_TRUNCATION_MARKER + stderr[-8_192:]
@@ -375,8 +375,9 @@ def test_truncated_stderr_is_normalized_the_same_way_again():
 
 def test_two_cuts_of_the_same_log_normalize_to_the_same_text():
     # The runs differ only in the digits of two durations, one near the start and
-    # one near the end. Each cut then falls on another character of the same line
-    # in the head and in the tail, which is what R13 hides.
+    # one near the end. A cut at the character, as before Phase 2.7, then falls on
+    # another character of the same line in the head and in the tail, which is
+    # what R13 hides. The next test pins the shape of a cut at line boundaries.
     def log(long_durations: bool) -> str:
         banner = "mytool 1.2.3 starting with 8 threads\n"
         lines = [
@@ -389,7 +390,7 @@ def test_two_cuts_of_the_same_log_normalize_to_the_same_text():
     for run in runs:
         # A cut exactly between two lines leaves no partial line, which no rule can tell.
         assert run[2_047] != "\n" and run[-8_193] != "\n"
-    cuts = [swift_truncation(run) for run in runs]
+    cuts = [swift_character_truncation(run) for run in runs]
     assert cuts[0] != cuts[1]
     assert all(normalize.STDERR_TRUNCATION_MARKER in cut for cut in cuts)
 
@@ -398,6 +399,36 @@ def test_two_cuts_of_the_same_log_normalize_to_the_same_text():
     assert normalized[0].startswith("mytool 1.2.3 starting with 8 threads\n")
     assert normalized[0].endswith("ERROR: final failure, exit 1\n")
     assert normalized[0].count("<TRUNCATED-LINE>") == 2
+
+
+def test_a_stderr_cut_at_line_boundaries_replaces_the_whole_line_on_each_side_of_the_marker():
+    # The Phase 2.7 shape. Both kept ends are whole lines the tool printed. Which whole line
+    # sits next to the marker moves with the length of every masked value before it, so R13
+    # replaces that line on each side whatever it holds and keeps the rest.
+    def cut(head_duration: str, tail_duration: str) -> str:
+        head = (
+            "mytool 1.2.3 starting with 8 threads\n"
+            "Completed step_00001 in 1.5 seconds\n"
+            f"Completed step_00089 in {head_duration} seconds"
+        )
+        tail = (
+            f"Completed step_02400 in {tail_duration} seconds\n"
+            "Completed step_02499 in 2.5 seconds\n"
+            "ERROR: final failure, exit 1\n"
+        )
+        return head + normalize.STDERR_TRUNCATION_MARKER + tail
+
+    expected = (
+        "mytool 1.2.3 starting with 8 threads\nCompleted step_00001 in <DURATION> seconds\n<TRUNCATED-LINE>"
+        + normalize.STDERR_TRUNCATION_MARKER
+        + "<TRUNCATED-LINE>\nCompleted step_02499 in <DURATION> seconds\nERROR: final failure, exit 1\n"
+    )
+    for stderr in (cut("1.5", "2.5"), cut("12.25", "102.5")):
+        once = normalizer().text(json.dumps({"stderr": stderr, "other": "keep\nme"}))
+        result = json.loads(once)
+        assert result["stderr"] == expected
+        assert result["other"] == "keep\nme"
+        assert normalizer().text(once) == once
 
 
 def test_a_stderr_that_keeps_only_its_head_drops_the_partial_last_line():
