@@ -8,6 +8,7 @@
 // run, whose tool names carry the subcommand (`samtools sort`). The tests pin the sentence of each tool.
 
 import Foundation
+import LungfishTestSupport
 import Testing
 @testable import LungfishWorkflow
 
@@ -256,6 +257,46 @@ struct ProvenanceMethodsSentenceTests {
         #expect(text.contains("Processing was performed with pysam retained-read demux filter unknown (conda environment pysam). "), Comment(rawValue: text))
         #expect(!text.contains("sort sort"), Comment(rawValue: text))
         #expect(text.contains("Reads were mapped to the reference with minimap2 unknown (conda environment minimap2), with the sr preset. "), Comment(rawValue: text))
+    }
+
+    // MARK: - Records in the older shape
+
+    @Test("The MAFFT alignment record of the compatibility corpus reaches the methods text")
+    func mafftRecordReachesMethods() throws {
+        let sidecar = ProvenanceCompatCorpus.root.appendingPathComponent(
+            "cases/s4-msa-mafft-2026-05/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/.lungfish-provenance.json"
+        )
+        let envelope = try ProvenanceEnvelopeReader.decode(Data(contentsOf: sidecar))
+        let text = Self.analysis(envelope.legacyWorkflowRun(preferCanonicalSteps: true))
+        #expect(text == "Sequences were aligned with mafft v7.526.", Comment(rawValue: text))
+    }
+
+    @Test("A tree record in the older shape reaches the methods text as IQ-TREE")
+    func treeRecordReachesMethods() throws {
+        let data = Data("""
+        {
+          "schemaVersion": 1,
+          "workflowName": "phylogenetic-tree-infer-iqtree",
+          "toolName": "lungfish tree infer iqtree",
+          "toolVersion": "0.5.0-alpha6",
+          "argv": ["lungfish", "tree", "infer", "iqtree", "aligned.lungfishmsa"],
+          "input": {"path": "/project/aligned.lungfishmsa", "sha256": "\(String(repeating: "e", count: 64))", "fileSizeBytes": 100},
+          "output": {"path": "/project/tree.lungfishtree", "sha256": "\(String(repeating: "f", count: 64))", "fileSizeBytes": 200},
+          "externalTool": {
+            "toolName": "iqtree3",
+            "toolVersion": "3.1.3",
+            "argv": ["iqtree3", "-s", "input.aligned.fasta", "-m", "MFP", "-B", "1000", "--seed", "1"],
+            "reproducibleCommand": "iqtree3 -s input.aligned.fasta -m MFP -B 1000 --seed 1",
+            "exitStatus": 0,
+            "wallTimeSeconds": 3.0
+          },
+          "exitStatus": 0,
+          "wallTimeSeconds": 4.0
+        }
+        """.utf8)
+        let envelope = try ProvenanceEnvelopeReader.decode(data)
+        let text = Self.analysis(envelope.legacyWorkflowRun(preferCanonicalSteps: true))
+        #expect(text == "A phylogeny was inferred with iqtree3 v3.1.3.", Comment(rawValue: text))
     }
 
     @Test("The mapping golden, whose steps are named by program alone, reads as it did")
