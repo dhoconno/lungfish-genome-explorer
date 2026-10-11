@@ -128,6 +128,7 @@
       "Exit Status"
     ],
     "outputCount" : 1,
+    "runStatus" : "Not recorded",
     "sidecarDisplayPath" : "Analyses/assembly-output.lungfishref/assembly/provenance.json",
     "signatureCount" : 0,
     "statusLabel" : "Older record format",

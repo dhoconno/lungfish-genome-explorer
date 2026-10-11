@@ -38,7 +38,11 @@ Each test copies its record into a temporary project before anything reads it. T
 - The temporary project reads as `<project>`, any home folder as `<home>`, and a managed tool path as the tool's name. The bare run names its author's checkout in its recorded paths, which is why `<home>` appears in `bare-legacy-run.json`.
 - The size labels come from `ByteCountFormatter` in an English locale.
 
-`notRecorded` lists the Run Summary rows that read Not recorded instead of being left out. They are a date the reader invented and an exit status or wall time the record lacks.
+`runStatus` is the Run Status row of the Run Summary, which every case shows. A record that states how its run ended reads Completed, Failed, Cancelled or Not finished. A record that states none reads Not recorded, because the reader then derives a status from the exit status, and a derived Completed cannot tell a completed run from a cancelled one. The bare run, the MHC envelope, the cancelled run and the failed run state theirs. The three primitive records and the typed mapping record do not.
+
+A record at version 2 or later has no Process ID row, because the encoder drops the process ID and the row could only read Not recorded. The cancelled run, the failed run and the typed mapping record lack it. A record that does hold a process ID keeps the row, and so does every version 1 record and every primitive record. The bare run keeps its row too, because the reader builds its envelope at the current version although its bytes state none.
+
+`notRecorded` lists the Run Summary rows that read Not recorded instead of being left out. They are a date the reader invented and an exit status or wall time the record lacks. The Run Status row is not in that list, because `runStatus` holds its words.
 
 A bare run or primitive record is the Older record format. Its status is `legacy` when nothing it could hold is missing, and `incomplete` when something is, with an Older record format warning after the gaps. An envelope of any version and a typed record never are.
 

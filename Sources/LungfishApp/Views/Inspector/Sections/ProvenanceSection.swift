@@ -216,6 +216,9 @@ struct ProvenanceSection: View {
             } else if viewModel.summary.createdAtNotRecorded {
                 summaryRow("Created", value: "Not recorded")
             }
+            if let runStatus = viewModel.summary.runStatus {
+                summaryRow("Run Status", value: runStatus.label)
+            }
             if let exitStatus = viewModel.summary.exitStatus {
                 summaryRow("Exit Status", value: "\(exitStatus)")
             } else if viewModel.summary.exitStatusNotRecorded {

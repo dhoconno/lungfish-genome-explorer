@@ -130,6 +130,7 @@
     "exitStatus" : 0,
     "inputCount" : 1,
     "outputCount" : 1,
+    "runStatus" : "Completed",
     "sidecarDisplayPath" : "Imports/MN908947.3.gff3.lungfish-provenance.json",
     "signatureCount" : 0,
     "statusLabel" : "Incomplete",

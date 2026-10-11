@@ -676,6 +676,7 @@ final class ProvenanceInspectorViewModel {
             signatureCount: envelope.signatures.count
         )
         applyReading(reading, to: envelope)
+        applyRunStatus(reading, to: envelope)
         warnings = warningRows(for: audit)
             + stepWarningRows(for: envelope)
             + fastqPresentation.warningRows()
@@ -684,7 +685,7 @@ final class ProvenanceInspectorViewModel {
             + [lineageRun(for: envelope, fastqPresentation: fastqPresentation, projectURL: projectURL)]
         fileRows = Array(completeFileRows.prefix(Self.maximumDisplayedFileRows))
         optionRows = buildOptionRows(envelope.options, projectURL: projectURL)
-        runtimeRows = buildRuntimeRows(envelope.runtimeIdentity)
+        runtimeRows = Self.withoutUnrecordedProcessID(buildRuntimeRows(envelope.runtimeIdentity), in: envelope, reading: reading)
         applyRawJSON(for: envelope, fileRowCount: deduplicatedDescriptors.count, sidecarText: sidecarText)
         copyableText = buildCopyableText()
     }
@@ -994,6 +995,7 @@ final class ProvenanceInspectorViewModel {
                     ("Workflow Version", summary.workflowVersion),
                     ("Tool", summary.toolVersion.isEmpty ? summary.toolName : "\(summary.toolName) \(summary.toolVersion)"),
                     ("Created", summary.createdAt?.formatted(date: .abbreviated, time: .shortened) ?? (summary.createdAtNotRecorded ? "Not recorded" : "")),
+                    ("Run Status", summary.runStatus?.label ?? ""),
                     ("Exit Status", summary.exitStatus.map(String.init) ?? (summary.exitStatusNotRecorded ? "Not recorded" : "")),
                     ("Wall Time", summary.wallTimeSeconds.map { "\(String(format: "%.2f", $0)) s" } ?? (summary.wallTimeNotRecorded ? "Not recorded" : "")),
                     ("Steps", "\(summary.stepCount)"),

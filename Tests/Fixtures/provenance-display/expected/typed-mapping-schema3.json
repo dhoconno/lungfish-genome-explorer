@@ -195,10 +195,6 @@
       "value" : "minimap2"
     },
     {
-      "label" : "Process ID",
-      "value" : "Not recorded"
-    },
-    {
       "label" : "OS",
       "value" : "Not recorded"
     },
@@ -221,6 +217,7 @@
     "exitStatus" : 0,
     "inputCount" : 6,
     "outputCount" : 3,
+    "runStatus" : "Not recorded",
     "sidecarDisplayPath" : "Analyses/minimap2-2026-07-14T15-20-00/mapping-provenance.json",
     "signatureCount" : 0,
     "statusLabel" : "Incomplete",

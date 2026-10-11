@@ -192,8 +192,9 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
     /// A `lungfish fastq trim` run the user cancelled, written by the version 2 encoder. The record states
     /// `status` cancelled, and its last step exited 0, so nothing else in it says the output is partial.
     ///
-    /// The record holds every fact, so the tab reads Complete and shows the exit status 0. It does not
-    /// say that the run was cancelled.
+    /// The record holds every fact, so the header reads Complete and the exit status is 0. Only the Run Status
+    /// row says that the run was cancelled. A version 2 record holds no process ID, so the Runtime rows have
+    /// no Process ID row.
     func testCancelledRunEnvelopeKeepsItsRecordedDisplay() async throws {
         let model = try await assertRunEnvelopeDisplay(folder: "fastq-trim-cancelled", matching: "cancelled-run-envelope")
 
@@ -201,12 +202,14 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
         XCTAssertEqual(model.resolvedEnvelope?.exitStatus, 0)
         XCTAssertEqual(model.audit.status, .present)
         XCTAssertEqual(model.summary.statusLabel, "Complete")
+        XCTAssertEqual(model.summary.runStatus, .stated(.cancelled))
     }
 
     /// The same run ended by a failing tool, written by the version 2 encoder. The record states `status`
     /// failed, holds the tool's stderr, and the step warning already names the non-zero exit.
     ///
-    /// The record holds every fact, so the tab reads Complete. It does not say that the run failed.
+    /// The record holds every fact, so the header reads Complete. The Run Status row says that the run failed,
+    /// and the Runtime rows have no Process ID row.
     func testFailedRunEnvelopeKeepsItsRecordedDisplay() async throws {
         let model = try await assertRunEnvelopeDisplay(folder: "fastq-trim-failed", matching: "failed-run-envelope")
 
@@ -214,6 +217,7 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
         XCTAssertEqual(model.resolvedEnvelope?.exitStatus, 1)
         XCTAssertEqual(model.audit.status, .present)
         XCTAssertEqual(model.summary.statusLabel, "Complete")
+        XCTAssertEqual(model.summary.runStatus, .stated(.failed))
     }
 
     // MARK: - Harness

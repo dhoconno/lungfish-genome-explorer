@@ -94,6 +94,7 @@
       "Created"
     ],
     "outputCount" : 3,
+    "runStatus" : "Not recorded",
     "sidecarDisplayPath" : "Analyses/Tree.lungfishtree/.lungfish-provenance.json",
     "signatureCount" : 0,
     "statusLabel" : "Older record format",

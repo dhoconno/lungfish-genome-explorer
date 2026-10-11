@@ -94,6 +94,7 @@
     "exitStatus" : 0,
     "inputCount" : 2,
     "outputCount" : 2,
+    "runStatus" : "Not recorded",
     "sidecarDisplayPath" : "Analyses/Aligned.lungfishmsa/.lungfish-provenance.json",
     "signatureCount" : 0,
     "statusLabel" : "Older record format",

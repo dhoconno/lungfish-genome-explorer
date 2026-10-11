@@ -35,6 +35,8 @@ struct ProvenanceDisplaySnapshot: Codable, Equatable {
         var createdAtMilliseconds: Int64?
         /// `createdAtMilliseconds` in UTC, for a reader of the expected file.
         var createdAtUTC: String?
+        /// The Run Status row, or nil when the Run Summary shows none.
+        var runStatus: String?
         var exitStatus: Int?
         var wallTimeSeconds: Double?
         var stepCount: Int
@@ -129,6 +131,7 @@ extension ProvenanceDisplaySnapshot {
                 toolVersion: summary.toolVersion,
                 createdAtMilliseconds: summary.createdAt.map(Self.milliseconds),
                 createdAtUTC: summary.createdAt.map(Self.utcText),
+                runStatus: summary.runStatus?.label,
                 exitStatus: summary.exitStatus,
                 wallTimeSeconds: summary.wallTimeSeconds,
                 stepCount: summary.stepCount,

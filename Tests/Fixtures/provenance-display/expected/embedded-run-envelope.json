@@ -247,6 +247,7 @@
     "exitStatus" : 0,
     "inputCount" : 2,
     "outputCount" : 7,
+    "runStatus" : "Completed",
     "sidecarDisplayPath" : "Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref/.lungfish-provenance.json",
     "signatureCount" : 0,
     "statusLabel" : "Complete",
