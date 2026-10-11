@@ -116,6 +116,16 @@ def drop_at(*path):
     return mutate
 
 
+def set_versions(*versions):
+    """A mutator that gives the steps of a provenance document these tool versions, in order."""
+
+    def mutate(document):
+        for each, version in zip(document["steps"], versions):
+            each["toolVersion"] = version
+
+    return mutate
+
+
 def edit_json(name: str, mutate, dump=foundation) -> dict:
     document = copy.deepcopy(JSON_GOLDENS[name])
     mutate(document)
@@ -217,6 +227,12 @@ PERTURBATIONS = [
         MAPPED_198,
         doc(entry(COUNTS, changed=[{"path": "/mapped", "pattern": "2[0-9][0-9]"}])),
         ["wrong mapping/counts.json changed /mapped"],
+    ),
+    case(
+        "a-rule-without-a-value-does-not-excuse-a-value-that-a-narrow-rule-refuses",
+        edit_json(PROVENANCE, set_versions("2.28", "1.21", "/Users/dho/garbage")),
+        doc(entry(PROVENANCE, changed=[{"path": "/steps[*]/toolVersion", "pattern": "[0-9.]+"}, {"path": "/steps[*]/*"}])),
+        ["wrong mapping/provenance.json changed /steps[2]/toolVersion"],
     ),
     case(
         "number-is-respelled",
@@ -455,9 +471,29 @@ def test_there_are_at_least_twenty_perturbations():
 # How predictions and changes meet ---------------------------------------------------
 
 
-def test_a_broad_rule_that_accepts_a_change_spares_a_narrow_rule_its_wrong_value():
+def test_a_rule_that_gives_a_value_decides_even_when_a_rule_without_one_covers_the_change():
     prediction = doc(entry(COUNTS, changed=[{"path": "/mapped"}, {"path": "/mapped", "value": 199}]))
-    # the second rule never sees the value it predicted, so it is unfulfilled, but the change is not a wrong value
+    # the broad rule would take any value, but the narrow one refuses 198, so the change is a wrong value
+    _, _, verdict = check_trees(BASE, tree(MAPPED_198), prediction)
+    assert problems(BASE, tree(MAPPED_198), prediction) == ["wrong mapping/counts.json changed /mapped"]
+    assert verdict.wrong[0][2] == "new value is 198, predicted 199"
+
+
+def test_a_change_that_every_rule_giving_a_value_refuses_is_counted_by_no_rule():
+    prediction = doc(entry(COUNTS, changed=[{"path": "/mapped", "value": 199}, {"path": "/mapped", "count": 1}]))
+    _, _, verdict = check_trees(BASE, tree(MAPPED_198), prediction)
+    assert verdict.accepted == [0, 0]
+    assert problems(BASE, tree(MAPPED_198), prediction) == [
+        "unfulfilled mapping/counts.json changed /mapped",
+        "wrong mapping/counts.json changed /mapped",
+    ]
+
+
+def test_a_change_that_one_deciding_rule_accepts_stands_and_the_deciding_rule_that_refused_it_is_unfulfilled():
+    prediction = doc(entry(COUNTS, changed=[{"path": "/mapped", "value": 199}, {"path": "/mapped", "pattern": "19[0-9]"}, {"path": "/*"}]))
+    _, _, verdict = check_trees(BASE, tree(MAPPED_198), prediction)
+    # the pattern accepts 198 and the rule without a value goes along, but the rule that wanted 199 never saw it
+    assert verdict.accepted == [0, 1, 1] and not verdict.wrong
     assert problems(BASE, tree(MAPPED_198), prediction) == ["unfulfilled mapping/counts.json changed /mapped"]
 
 

@@ -69,7 +69,11 @@ Predictions file, one JSON object:
   number of changes a rule must account for. Without it one change is enough.
   A rule may carry its own "why".
 - A change at a place a rule names with a value the rule does not allow is a
-  wrong value. The rule counts as used, so it is not also unfulfilled.
+  wrong value, and the rule counts as used, so it is not also unfulfilled.
+  When several rules cover one change, the rules that give an `old`,
+  `oldPattern`, `value` or `pattern` decide. A change that all of them refuse
+  is a wrong value even when a rule without one covers it too, and then no
+  rule counts it.
 """
 
 from __future__ import annotations
@@ -487,6 +491,10 @@ class Rule:
                 return f"{label} {display(seen)} does not match /{pattern.pattern}/"
         return None
 
+    def decides(self) -> bool:
+        """Whether the rule gives a value or a pattern, so that it can refuse a change it covers."""
+        return self.old is not MISSING or self.value is not MISSING or self.old_pattern is not None or self.pattern is not None
+
     def label(self) -> str:
         files = " | ".join(self.globs[:2]) + (f" (+{len(self.globs) - 2} more)" if len(self.globs) > 2 else "")
         parts = [files, self.kind]
@@ -654,10 +662,13 @@ def evaluate(changes: list[Change], rules: list[Rule]) -> Verdict:
             unpredicted.append(change)
             continue
         problems = {n: rules[n].value_problem(change) for n in covering}
-        for n in covering:
-            accepted[n] += problems[n] is None
-        if all(problems.values()):
-            wrong.append((change, rules[covering[0]], problems[covering[0]]))
+        # The covering rules that give a value or a pattern decide, and when none does they all do.
+        deciders = [n for n in covering if rules[n].decides()] or covering
+        if any(problems[n] is None for n in deciders):
+            for n in covering:
+                accepted[n] += problems[n] is None
+        else:
+            wrong.append((change, rules[deciders[0]], problems[deciders[0]]))
             for n in covering:
                 touched[n] = True
     unfulfilled = [
