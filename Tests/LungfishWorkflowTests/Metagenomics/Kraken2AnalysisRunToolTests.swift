@@ -155,10 +155,21 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
         let inputs = [fixtures.singleRoot.path, fixtures.interleavedRoot.path, fixtures.mixedRoot.path]
         let argv = command(inputs + ["--batch", "--project", fixtures.projectURL.path])
         let indexer = StubKraken2Indexer()
+        // Review A8c fix 3. Each sample's record as the pipeline left it, before the unit converges it.
+        let pipeline = ClassificationPipeline(condaManager: kraken2.condaManager)
+        let written = Kraken2Captured<(folder: String, record: ProvenanceEnvelope)>()
+        let capturing: PipelineRun = { config, progress in
+            let result = try await pipeline.classify(config: config, progress: progress)
+            if let record = ProvenanceRecorder.loadEnvelope(from: config.outputDirectory) {
+                written.append((config.outputDirectory.lastPathComponent, record))
+            }
+            return result
+        }
 
-        let run = await execute(request(inputs), .project(fixtures.projectURL), batch: true, argv: argv, indexing: indexer)
+        let run = await execute(request(inputs), .project(fixtures.projectURL), batch: true, argv: argv, indexing: indexer, runPipeline: capturing)
 
         XCTAssertEqual(run.report.status, .completed, run.report.message)
+        XCTAssertEqual(written.values.count, 3, "each sample's pipeline wrote its record")
         let batchRoot = try XCTUnwrap(run.report.analysisDirectory)
         XCTAssertTrue(batchRoot.lastPathComponent.hasPrefix("kraken2-batch-"))
         XCTAssertEqual(AnalysesFolder.readAnalysisMetadata(from: batchRoot)?.isBatch, true)
@@ -177,6 +188,12 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
                 XCTAssertEqual(defaults[key], value, "\(sample.sampleId) \(key)")
             }
             XCTAssertNil(sampleRecord.options.explicit[AnalysisRootRecordOptions.readSetPlanKey], sample.sampleId)
+            // The load and rewrite lose nothing but the options they converge.
+            let before = try XCTUnwrap(written.values.first { $0.folder == sample.resultDirectory }?.record, sample.sampleId)
+            XCTAssertEqual(sampleRecord.steps, before.steps, sample.sampleId)
+            XCTAssertEqual(sampleRecord.outputs, before.outputs, sample.sampleId)
+            XCTAssertEqual(sampleRecord.files, before.files, sample.sampleId)
+            XCTAssertEqual(sampleRecord.status, before.status, sample.sampleId)
             if sample.inputFiles == [fixtures.mixedRoot.standardizedFileURL.path] {
                 XCTAssertEqual(sampleRecord.readSetPlan?.place, .resolvedDefaults, "the plan's one home (E13)")
             }

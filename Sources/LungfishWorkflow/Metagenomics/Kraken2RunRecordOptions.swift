@@ -232,13 +232,19 @@ public enum Kraken2RunRecordOptions {
     /// The steps of the pipeline's record of a run that failed after the pipeline started, when
     /// that record was written during this run.
     public static func stepsOfFailedPipeline(in directory: URL, startedAt: Date, endedAt: Date) -> [ProvenanceStep] {
+        pipelineRecordOfThisRun(in: directory, startedAt: startedAt, endedAt: endedAt)?.steps ?? []
+    }
+
+    /// The pipeline's record in `directory` when it was written between `startedAt` and `endedAt`,
+    /// a second of slack on each side, so a record an earlier run left is never read as this run's.
+    static func pipelineRecordOfThisRun(in directory: URL, startedAt: Date, endedAt: Date) -> ProvenanceEnvelope? {
         guard let envelope = ProvenanceRecorder.loadEnvelope(from: directory),
               pipelineWorkflowNames.contains(envelope.workflowName),
               envelope.createdAt >= startedAt.addingTimeInterval(-1),
               envelope.createdAt <= endedAt.addingTimeInterval(1) else {
-            return []
+            return nil
         }
-        return envelope.steps
+        return envelope
     }
 
     /// The run-level files of a one-folder result that exist, for the root record's outputs.

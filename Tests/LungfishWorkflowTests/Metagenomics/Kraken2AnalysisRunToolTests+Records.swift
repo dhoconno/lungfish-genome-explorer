@@ -171,6 +171,75 @@ extension Kraken2AnalysisRunToolTests {
         try assertCancelledInThePipeline(run)
     }
 
+    // MARK: - Batch samples that stop (review A8c fix 3)
+
+    /// A batch sample keeps the pipeline's record in its folder. When its pipeline fails, that
+    /// record converges on the root record's rules as a completed sample's does, so one result
+    /// holds one defaults table and one home of the read-set plan (E12, E13, D8).
+    func testAFailedBatchSampleKeepsTheCommandsDefaultsAndOneHomeOfThePlan() async throws {
+        let inputs = [fixtures.singleRoot.path, fixtures.mixedRoot.path]
+        let mixedName = fixtures.mixedRoot.lastPathComponent
+        let pipeline = ClassificationPipeline(condaManager: kraken2.condaManager)
+        let failedFolders = Kraken2Captured<URL>()
+        let failingMixed: PipelineRun = { config, progress in
+            guard ((config.originalInputFiles ?? []) + config.inputFiles).contains(where: { $0.path.contains(mixedName) }) else {
+                return try await pipeline.classify(config: config, progress: progress)
+            }
+            failedFolders.append(config.outputDirectory)
+            try Self.writeFailedPipelineRecord(
+                in: config.outputDirectory,
+                readSetPlan: AnalysisRootRecordOptions.readSetPlanValue(of: config.readSetPlan)
+            )
+            throw Kraken2StandInFailure(message: "kraken2 exited with status 2")
+        }
+
+        let run = await execute(
+            request(inputs), .project(fixtures.projectURL), batch: true,
+            argv: command(inputs + ["--batch", "--project", fixtures.projectURL.path]),
+            indexing: StubKraken2Indexer(), runPipeline: failingMixed
+        )
+
+        XCTAssertEqual(run.report.status, .completed, "the other sample completes: \(run.report.message)")
+        let folder = try XCTUnwrap(failedFolders.values.first, "the mixed sample ran")
+        let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: folder))
+        XCTAssertEqual(record.status, .failed)
+        XCTAssertNil(record.options.defaults["preset"], "no preset nobody gave (E12)")
+        XCTAssertEqual(record.options.defaults["confidence"], Kraken2RunRecordOptions.commandDefaults["confidence"], "the command's table (D8)")
+        XCTAssertEqual(record.options.defaults["readFormat"], Kraken2RunRecordOptions.commandDefaults["readFormat"])
+        XCTAssertNil(record.options.explicit[AnalysisRootRecordOptions.readSetPlanKey], "the plan left its legacy home")
+        XCTAssertEqual(record.readSetPlan?.place, .resolvedDefaults, "the plan's one home (E13)")
+    }
+
+    /// A cancel kills the sample's kraken2 child, which can end the pipeline with a plain error
+    /// first. The sample's own record then says cancelled, from the cancel request (E5, SWIFT X2).
+    func testACancelledBatchSampleRecordsTheCancelInItsOwnRecord() async throws {
+        let cancel = Kraken2Flag()
+        let folders = Kraken2Captured<URL>()
+        let killed: PipelineRun = { config, _ in
+            folders.append(config.outputDirectory)
+            try Self.writeFailedPipelineRecord(
+                in: config.outputDirectory,
+                readSetPlan: AnalysisRootRecordOptions.readSetPlanValue(of: config.readSetPlan)
+            )
+            cancel.set()
+            throw Kraken2StandInFailure(message: "kraken2 ended on signal 15")
+        }
+        let inputs = [fixtures.singleRoot.path]
+
+        let run = await execute(
+            request(inputs), .project(fixtures.projectURL), batch: true,
+            argv: command(inputs + ["--batch", "--project", fixtures.projectURL.path]),
+            indexing: StubKraken2Indexer(), runPipeline: killed, cancelRequested: { cancel.value }
+        )
+
+        XCTAssertEqual(run.report.status, .cancelled, run.report.message)
+        XCTAssertEqual(run.report.exitCode, AnalysisRunExitCode.cancelled)
+        let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: XCTUnwrap(folders.values.first)))
+        XCTAssertEqual(record.status, .cancelled, "never failed from the child's signal (E5)")
+        XCTAssertEqual(record.options.resolvedDefaults["profileState"], .string("cancelled"))
+        XCTAssertNil(record.options.defaults["preset"])
+    }
+
     // MARK: - Helpers
 
     /// A failed or cancelled run keeps its folder, its root record with `status`, and its run
@@ -206,21 +275,43 @@ extension Kraken2AnalysisRunToolTests {
         XCTAssertEqual(record.options.resolvedDefaults["failureStage"], .string("pipeline"), file: file, line: line)
     }
 
-    /// The pipeline's record of a run whose kraken2 step failed, as the pipeline leaves it.
-    static func writeFailedPipelineRecord(in directory: URL) throws {
+    /// The pipeline's record of a run whose kraken2 step failed, as the pipeline leaves it, with
+    /// the pipeline's own defaults (confidence 0, read format unpaired, the balanced preset) and a
+    /// read-set plan in its legacy home, the explicit options.
+    static func writeFailedPipelineRecord(in directory: URL, readSetPlan: ParameterValue? = nil) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let now = Date()
+        var explicit: [String: ParameterValue] = ["databaseName": .string("Viral")]
+        explicit[AnalysisRootRecordOptions.readSetPlanKey] = readSetPlan
         let envelope = ProvenanceEnvelope(
             workflowName: "Metagenomics Classification",
             toolName: "kraken2",
             toolVersion: "2.1.3",
+            options: ProvenanceOptions(
+                explicit: explicit,
+                defaults: ["confidence": .number(0), "readFormat": .string("unpaired"), "preset": .string("balanced")],
+                resolvedDefaults: ["profileState": .string("failed")]
+            ),
             steps: [ProvenanceStep(
                 toolName: "kraken2", toolVersion: "2.1.3", argv: ["kraken2", "--db", "viral"], exitStatus: 2,
                 wallTimeSeconds: 0, startedAt: now, completedAt: now
             )],
-            exitStatus: 2
+            exitStatus: 2,
+            status: .failed
         )
         _ = try ProvenanceWriter(signingProvider: nil).write(envelope, to: directory)
+    }
+}
+
+/// The values a stand-in pipeline keeps for the test to read after the run.
+final class Kraken2Captured<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [Value] = []
+
+    var values: [Value] { lock.withLock { stored } }
+
+    func append(_ value: Value) {
+        lock.withLock { stored.append(value) }
     }
 }
 
