@@ -459,7 +459,12 @@ extension MainSplitViewController {
         try updatedManifest.save(to: targetBundleURL)
     }
 
-    /// Shows the FASTQ dashboard for `sourceURL` from cached statistics, or computes and caches them in one pass.
+    /// Statistics computed when a dataset was viewed, for up to 32 datasets. They stay in memory for the session,
+    /// because every recorded directory digest covers `<reads>.lungfish-meta.json` and a view must not rewrite it
+    /// (Phase 2.6, lane B3). An entry holds while the payload keeps its size and date.
+    private static var sessionFASTQStatistics: [String: (stamp: String, statistics: FASTQDatasetStatistics)] = [:]
+
+    /// Shows the FASTQ dashboard for `sourceURL` from cached statistics, or computes them in one pass and keeps them in memory.
     func loadFASTQDatasetInBackground(sourceURL: URL) {
         let standardizedSourceURL = sourceURL.standardizedFileURL
         let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: standardizedSourceURL)?.standardizedFileURL
@@ -541,7 +546,13 @@ extension MainSplitViewController {
             ?? FASTQMetadataStore.load(for: fastqURL)
             ?? bundleDisplayMeta
             ?? demuxSummaryMeta
-        if let cachedStats = cachedStatisticsMeta?.computedStatistics {
+        let payloadStamp = resolvedFASTQURLs.map { url -> String in
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            return "\(url.path)|\(values?.fileSize ?? -1)|\(values?.contentModificationDate?.timeIntervalSince1970 ?? 0)"
+        }.joined(separator: "\n")
+        let sessionStatistics = statisticsCacheURL.flatMap { Self.sessionFASTQStatistics[$0.path] }
+            .flatMap { $0.stamp == payloadStamp ? $0.statistics : nil }
+        if let cachedStats = cachedStatisticsMeta?.computedStatistics ?? sessionStatistics {
             mainSplitLogger.info("loadFASTQDatasetInBackground: Using cached statistics (\(cachedStats.readCount) reads)")
             viewerController.displayFASTQDataset(
                 statistics: cachedStats,
@@ -557,7 +568,6 @@ extension MainSplitViewController {
             return
         }
 
-        let shouldWriteFASTQStatisticsCache = !projectSession.isReadOnlyRecommended
         viewerController.showProgress("Computing FASTQ statistics...")
 
         fastqLoadTask = Task.detached(priority: .userInitiated) { [weak self] in
@@ -579,26 +589,16 @@ extension MainSplitViewController {
                 let statistics = statsResult.statistics
                 try Task.checkCancellation()
 
-                // Cache the computed statistics for next time.
-                // Skip stale/deleted targets so we don't write sidecars into removed paths.
-                if let statisticsCacheURL,
-                   FileManager.default.fileExists(atPath: statisticsCacheURL.path),
-                   shouldWriteFASTQStatisticsCache {
-                    var metadata = cachedStatisticsMeta ?? displayMeta ?? PersistedFASTQMetadata()
-                    metadata.computedStatistics = statistics
-                    metadata.seqkitStats = statsResult.seqkitMetadata
-                    FASTQMetadataStore.save(metadata, for: statisticsCacheURL)
-                } else if !shouldWriteFASTQStatisticsCache {
-                    mainSplitLogger.debug("loadFASTQDatasetInBackground: Project is read-only, skipping FASTQ statistics sidecar save")
-                } else {
-                    mainSplitLogger.debug("loadFASTQDatasetInBackground: FASTQ deleted before cache write, skipping sidecar save")
-                }
-
+                // A view writes nothing into the project. The statistics are kept in memory below.
                 let sraRunInfo = displayMeta?.sraRunInfo
                 let enaReadRecord = displayMeta?.enaReadRecord
                 let ingestionMeta = displayMeta?.ingestion
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
+                        if let key = statisticsCacheURL?.path {
+                            Self.sessionFASTQStatistics[key] = (payloadStamp, statistics)
+                            if Self.sessionFASTQStatistics.count > 32, let old = Self.sessionFASTQStatistics.keys.first(where: { $0 != key }) { Self.sessionFASTQStatistics[old] = nil }
+                        }
                         guard let self = self, isCurrentRequest() else { return }
                         self.fastqLoadTask = nil
                         viewerController.hideProgress()
