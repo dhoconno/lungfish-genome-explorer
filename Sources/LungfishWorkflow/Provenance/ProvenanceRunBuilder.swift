@@ -15,6 +15,7 @@ public enum ProvenanceBuilderError: Error, LocalizedError, Sendable, Equatable {
     case localDescriptorRequiresURL(String)
     case invalidConsumedInputSnapshotDescriptor(String)
     case invalidRelocatedFileDescriptor(String)
+    case statusContradictsExitStatus(String)
 
     public var errorDescription: String? {
         switch self {
@@ -36,6 +37,8 @@ public enum ProvenanceBuilderError: Error, LocalizedError, Sendable, Equatable {
             return "Consumed-input snapshot provenance requires an absolute local path, a complete SHA-256 checksum, and file size: \(path)"
         case .invalidRelocatedFileDescriptor(let path):
             return "Relocated provenance output does not match its staged origin file: \(path)"
+        case .statusContradictsExitStatus(let workflowName):
+            return "Workflow '\(workflowName)' is recorded as completed with a non-zero exit status."
         }
     }
 }
@@ -184,14 +187,25 @@ public struct ProvenanceRunBuilder: Sendable {
         replacing(provenanceSteps: provenanceSteps + [step])
     }
 
+    /// Builds the envelope.
+    ///
+    /// `status` says how the run ended. When it is nil the record keeps the status derived as
+    /// before, from a nested legacy run or else from `exitStatus` (0 is completed, anything else
+    /// failed), and a record with exit status 0 must hold an argv, an output with checksum and size,
+    /// and a runtime identity. A given status replaces the derived one. `completed` needs exit
+    /// status 0 and the same checks. `failed`, `cancelled` and `running` claim no result, so they
+    /// skip those checks, which lets a failed or cancelled run be recorded with what it has, even
+    /// when its last step exited 0. The time range is checked for every status.
     public func complete(
         exitStatus: Int,
+        status: RunStatus? = nil,
         stderr: String? = nil,
         startedAt: Date,
         endedAt: Date
     ) throws -> ProvenanceEnvelope {
         try complete(
             exitStatus: exitStatus,
+            status: status,
             stderr: stderr,
             startedAt: startedAt,
             endedAt: endedAt,
@@ -201,6 +215,7 @@ public struct ProvenanceRunBuilder: Sendable {
 
     public func complete(
         exitStatus: Int,
+        status: RunStatus? = nil,
         stderr: String? = nil,
         startedAt: Date,
         endedAt: Date,
@@ -209,9 +224,13 @@ public struct ProvenanceRunBuilder: Sendable {
         guard endedAt >= startedAt else {
             throw ProvenanceBuilderError.invalidTimeRange(workflowName)
         }
+        if status == .completed, exitStatus != 0 {
+            throw ProvenanceBuilderError.statusContradictsExitStatus(workflowName)
+        }
         let combinedOutputs = deduplicatedOutputs()
+        let claimsResult = status.map { $0 == .completed } ?? (exitStatus == 0)
 
-        if exitStatus == 0 {
+        if claimsResult {
             guard arguments.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
                 throw ProvenanceBuilderError.missingArgv(workflowName)
             }
@@ -248,6 +267,7 @@ public struct ProvenanceRunBuilder: Sendable {
             wallTimeSeconds: endedAt.timeIntervalSince(startedAt),
             exitStatus: exitStatus,
             stderr: ProvenanceStderr.normalized(stderr),
+            status: status,
             legacyWorkflowRun: legacyWorkflowRun
         )
     }
