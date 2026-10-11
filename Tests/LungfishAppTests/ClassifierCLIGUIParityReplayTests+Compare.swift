@@ -189,10 +189,16 @@ enum ClassifierParityComparison {
             result.insert(sideRootMask, at: index)
             return result
         }
+        // analysis-metadata.json records the second each side's run made its folder. Both sides
+        // hold it since lane A8 claims a folder directly in Analyses/ with metadata (E1b), and two
+        // runs in one second would hide a declared difference, so the time is masked.
+        let createdMask = OutputEquivalence.Mask(name: "analysisMetadataCreated") { text, _ in
+            text.replacingOccurrences(of: "\"created\" : \"[^\"]*\"", with: "\"created\" : \"<CREATED>\"", options: .regularExpression)
+        }
         var policy = OutputEquivalence.MaskPolicy.standard
-        policy.provenance = inserted(policy.provenance)
-        policy.records = inserted(policy.records)
-        policy.payloads = inserted(policy.payloads)
+        policy.provenance = inserted(policy.provenance) + [createdMask]
+        policy.records = inserted(policy.records) + [createdMask]
+        policy.payloads = inserted(policy.payloads) + [createdMask]
         return policy
     }
 

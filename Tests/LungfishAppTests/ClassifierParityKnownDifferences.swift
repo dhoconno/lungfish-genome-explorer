@@ -66,9 +66,6 @@ enum ClassifierParityKnownDifferences {
     private static let layout: [ClassifierParityKnownDifference] = [
         pair([.k3: 1], "analysis: only in A: analysis-metadata.json",
              "The GUI's batch root. The row's command runs each sample alone with --output-dir in a folder below the root, which is not directly in Analyses/, so the claim writes no metadata (E1b, E8)"),
-        pair([.k1: 1, .k2: 1, .k4: 1, .k5: 1, .k6: 1], "analysis: differs: analysis-metadata.json",
-             "Both sides hold it since A8 claims a folder directly in Analyses/ with metadata (E1b), and each records the time its own run made the folder",
-             closedBy: "no lane, the created time of each run. A mask in the comparison would remove it"),
         pair([.e1: 1, .e2: 1], "analysis: only in A: analysis-metadata.json",
              "AnalysesFolder writes it for the batch folder the GUI creates. The row's command names the sample folder below it with --output, which gets none under E1b"),
         pair([.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1, .e1: 1, .e2: 1], "source manifest: only in A: *",
