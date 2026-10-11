@@ -74,6 +74,17 @@ final class ONTGenotypingVersionEvidenceTests: XCTestCase {
             XCTAssertEqual(step.toolVersionEvidence, .lockPin(version: pinned, id: ONTGenotypingPipeline.pysamID))
             XCTAssertEqual(step.toolVersion, pinned, "the value stays and the source changes")
         }
+
+        // The mapping step's version is the read-mapping pack's pin, which is the lock's pin for minimap2.
+        let minimap2ID = ManagedToolID(rawValue: "minimap2")
+        let minimap2Pin = try XCTUnwrap(ManagedToolLock.bundled.entry(id: minimap2ID)?.version)
+        let minimap2Steps = envelope.steps.filter { $0.toolName == "minimap2" }
+        XCTAssertEqual(minimap2Steps.count, 1)
+        for step in minimap2Steps {
+            XCTAssertEqual(step.managedToolID, minimap2ID)
+            XCTAssertEqual(step.toolVersionEvidence, .lockPin(version: minimap2Pin, id: minimap2ID))
+            XCTAssertEqual(step.toolVersion, minimap2Pin, "the value stays and the source changes")
+        }
     }
 
     private func makeFASTQBundle(named name: String, in root: URL) throws -> URL {

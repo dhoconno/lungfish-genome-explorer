@@ -431,6 +431,10 @@ public struct ONTGenotypingPipeline: Sendable {
             .toolRequirements
             .first { $0.id == "minimap2" }
         let minimap2Version = minimap2Requirement?.version ?? "unknown"
+        // The pack requirement is built from the lock, so the version is the lock's pin and not a measurement.
+        let minimap2ID = ManagedToolID(rawValue: "minimap2")
+        let minimap2Evidence: ToolVersionEvidence = minimap2Requirement?.version
+            .map { .lockPin(version: $0, id: minimap2ID) } ?? .unknown(.noProbe)
         let minimap2PackageSpec = minimap2Requirement?.installPackages.joined(separator: " ")
             ?? ManagedToolLock.bundled.packageSpec(forEnvironment: "minimap2") ?? "bioconda::minimap2"
         let runtime = ProvenanceRuntimeIdentity(
@@ -543,7 +547,9 @@ public struct ONTGenotypingPipeline: Sendable {
                 exitStatus: 0,
                 wallTimeSeconds: sampleResult.mappingResult.wallClockSeconds,
                 startedAt: startedAt,
-                completedAt: completedAt
+                completedAt: completedAt,
+                managedToolID: minimap2ID,
+                toolVersionEvidence: minimap2Evidence
             ))
             let filterInputs = [
                 try ProvenanceFileDescriptor.file(url: sampleResult.mappingResult.bamURL, format: .bam, role: .input),
