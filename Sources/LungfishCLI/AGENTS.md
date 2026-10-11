@@ -33,7 +33,7 @@ The command files live in Sources/LungfishCLI/Commands. Find a subcommand by its
 
 ## What each leaf writes for a machine reader
 
-Every leaf command has one row in `CLIEventContractTable`. The row says whether the leaf emits events, prints one JSON result, prints a private stream shape that a later sub-phase retires, or prints human text only. A command that is added, renamed or removed edits its row in the same commit, or `CLIEventContractCoverageTests` fails. A new private stream shape is a `.legacy` row with the sub-phase that retires it, and the test that lists the 14 shapes left fails until its list says so too. A leaf that emits events also needs a transcript under Tests/Fixtures/cli-events/commands, and docs/formats/cli-events.md describes the table.
+Every leaf command has one row in `CLIEventContractTable`. The row says whether the leaf emits events, prints one JSON result, prints a private stream shape that a later sub-phase retires, or prints human text only. A command that is added, renamed or removed edits its row in the same commit, or `CLIEventContractCoverageTests` fails. A new private stream shape is a `.legacy` row with the sub-phase that retires it, and the test that lists the shapes left fails until its list says so too. A leaf that emits events also needs a transcript under Tests/Fixtures/cli-events/commands, and docs/formats/cli-events.md describes the table.
 
 ## Contracts this module owns
 
@@ -52,7 +52,7 @@ Target LungfishCLITests in Tests/LungfishCLITests. Run only it with `swift test 
 | Trap | Evidence |
 |---|---|
 | EsViritu CLI writes no SQLite, manifest or batch provenance while the GUI does | Commands/EsVirituCommand.swift compared with Sources/LungfishApp/App/AppDelegate+Classification.swift lines 911 to 1159 (R3) |
-| 21 of the 237 leaf commands emit `CLIEvent` lines, 20 leaves print one of 14 private stream shapes, and 73 print one JSON result. `CLIEventContractTable` lists every leaf, and the 61 `.text` leaves that list `--format json` and print text anyway wait for 2.10 to 2.12 | Support/CLIEventContract.swift, Tests/LungfishCLITests/CLIEventContractCoverageTests.swift (R16) |
+| Some leaf commands still print a private stream shape or a JSON result instead of `CLIEvent` lines. `CLIEventContractTable` lists every leaf with what it writes, its `.legacy` rows count the private shapes left, and the `.text` leaves that list `--format json` and print text anyway wait for 2.10 to 2.12 | Support/CLIEventContract.swift, Tests/LungfishCLITests/CLIEventContractCoverageTests.swift (R16) |
 | Global mutable runner overrides | Commands/RunSubcommand.swift lines 32 to 36, Commands/CondaCommand.swift lines 50 to 52 (R10) |
 | The app spawns the CLI with Finder's bare PATH, so an unresolved tool exits 127 | memory file project_cli_subprocess_bare_path.md |
 | nf-core schemas reject paths with spaces, so inputs are staged | Commands/NFCoreLaunchStaging.swift (memory file project_cli_subprocess_bare_path.md) |
