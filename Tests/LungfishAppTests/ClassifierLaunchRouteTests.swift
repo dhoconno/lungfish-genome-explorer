@@ -10,6 +10,7 @@
 
 import XCTest
 @testable import LungfishApp
+@testable import LungfishCLI
 import LungfishCore
 import LungfishIO
 import LungfishKit
@@ -278,6 +279,48 @@ final class ClassifierLaunchRouteTests: XCTestCase {
             XCTAssertTrue(recorded.hasPrefix("lungfish-cli \(launch.arguments[0]) \(launch.arguments[1]) "), "\(testCase.name): D4")
             XCTAssertEqual(try RecordedCLICommand.arguments(of: recorded), launch.arguments, "\(testCase.name): the row records the argv that runs")
             XCTAssertNotEqual(recorded, today.cliCommand, "\(testCase.name): today's row records conda classify or nothing")
+        }
+    }
+
+    // MARK: - The CLI parses what the row records (E1)
+
+    /// Each EsViritu command the CLI route's row records runs through the real `esviritu detect`
+    /// parser with the launch's values, so Copy CLI Command replays the run into a new folder of
+    /// the project (E1, UX checklist 4). A batch is one command with `--batch` over every
+    /// sample's inputs in plan order, and names no sample or read format, which `--batch`
+    /// refuses. The Kraken2 half joins when lane A8's `kraken2 classify` takes `--project`,
+    /// `--batch` and `--db-digest`.
+    func testEachEsVirituCLIRouteCommandParsesThroughTheCLI() throws {
+        let routeContext = OperationRouteContext(projectURL: projectURL, windowStateScopeID: nil)
+        let samples = [
+            esVirituConfig(sample: "A", inputs: [importURL("A_R1.fastq.gz"), importURL("A_R2.fastq.gz")], plansReadSet: false),
+            esVirituConfig(sample: "B", inputs: [importURL("B.lungfishfastq")], plansReadSet: true),
+        ]
+        for configs in [[samples[0]], samples] {
+            let isBatch = configs.count > 1
+            let launch = try XCTUnwrap(ClassifierCLIRouteLaunch.esViritu(configs: configs, projectURL: projectURL))
+            let reporter = RecordingOperationReporter()
+            AppDelegate.beginClassifierCLIRouteOperation(launch, routeContext: routeContext, reporter: reporter) { _ in }
+            let recorded = try XCTUnwrap(reporter.items.first?.cliCommand)
+
+            let command = try RecordedCLICommand.parse(recorded, as: EsVirituCommand.DetectSubcommand.self)
+            XCTAssertEqual(command.project, projectURL.path, recorded)
+            XCTAssertNil(command.outputDir, "the command makes Analyses/esviritu-batch-<timestamp> itself (E1)")
+            XCTAssertEqual(command.batch, isBatch, recorded)
+            XCTAssertEqual(command.inputFiles, configs.flatMap { $0.inputFiles.map(\.path) }, "every sample's inputs in plan order")
+            XCTAssertEqual(command.databasePath, databaseURL.path)
+            XCTAssertEqual(command.globalOptions.threads, 4)
+            XCTAssertTrue(command.noQC)
+            XCTAssertEqual(command.globalOptions.outputFormat, .json)
+            let arguments = try RecordedCLICommand.arguments(of: recorded)
+            if isBatch {
+                XCTAssertNil(command.sampleName, recorded)
+                XCTAssertFalse(arguments.contains("--sample"), "--batch names each sample by its files")
+                XCTAssertFalse(arguments.contains("--read-format"), "--batch plans each sample's reads itself")
+            } else {
+                XCTAssertEqual(command.sampleName, "A")
+                XCTAssertEqual(command.readFormat, .paired)
+            }
         }
     }
 
