@@ -114,9 +114,24 @@ public struct ManagedMetagenomicsDatabaseToolRunner: MetagenomicsDatabaseToolRun
         return try await versionResolver(condaManager, name, environment, workingDirectory)
     }
 
+    /// The Bracken version a record names, the one rule the database installer and the classification
+    /// pipeline share (plan decision S20). A validated source overlay wins, because the lock installs
+    /// the conda package `bracken=1.0.0` and then overlays the v3.1 source build by SHA-256, so the
+    /// overlay's 3.1 is what runs. Without one, the conda package's version. Nothing asks the tool,
+    /// because the 3.1 build prints `Bracken v3.0.1` and the 1.0.0 wrapper prints a usage error.
+    public static func managedBrackenVersion(_ condaManager: CondaManager, environment: String) async -> String? {
+        if let version = await condaManager.validatedSourceOverlayVersion(kind: .bracken, environment: environment) {
+            return version
+        }
+        let environmentURL = await condaManager.environmentURL(named: environment)
+        guard let version = CondaMetaReader.primaryPackage(named: "bracken", inEnvironment: environmentURL)?.version,
+              !version.isEmpty else { return nil }
+        return version
+    }
+
     public static func resolveManagedToolVersion(_ condaManager: CondaManager, _ name: String, _ environment: String, _ workingDirectory: URL) async throws -> String {
         if name == "bracken-build",
-           let version = await condaManager.validatedSourceOverlayVersion(kind: .bracken, environment: environment) {
+           let version = await managedBrackenVersion(condaManager, environment: environment) {
             return version
         }
         let packageName: String

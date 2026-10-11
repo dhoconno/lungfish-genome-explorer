@@ -479,7 +479,7 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("exitCode: 1,\n                wallTime: sidecarSaveClock.elapsed,\n                stderr: sidecarError.localizedDescription"))
     }
 
-    func testAutomaticSilvaProfileUsesGenusAndBrackenVFlag() async throws {
+    func testAutomaticSilvaProfileUsesGenusAndRecordsTheOverlayVersion() async throws {
         let fixture = try FakeClassificationCondaFixture(reportRank: .genus)
         defer { fixture.cleanup() }
 
@@ -496,12 +496,14 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
         XCTAssertEqual(result.profileOutcome.resolution?.rank, .genus)
         XCTAssertEqual(result.profileOutcome.resolution?.readLength, 150)
         XCTAssertEqual(result.profileOutcome.resolution?.threshold, 10)
-        XCTAssertEqual(result.profileOutcome.toolVersion, "3.0.1")
+        // The fixture's bracken environment holds the validated v3.1 source overlay beside a stale
+        // 1.0.0 conda record, and its banner prints v3.0.1. The overlay's 3.1 is the version (S20).
+        XCTAssertEqual(result.profileOutcome.toolVersion, "3.1")
         XCTAssertEqual(result.tree.node(taxId: 561)?.brackenReads, 1)
         XCTAssertNotNil(result.brackenURL)
 
         let invocations = try fixture.toolInvocations(named: "bracken")
-        XCTAssertTrue(invocations.contains("bracken -v"))
+        XCTAssertFalse(invocations.contains("bracken -v"), "the banner is never asked")
         XCTAssertFalse(invocations.contains("bracken --version"))
         let profileCall = try XCTUnwrap(fixture.brackenProfileInvocations().only)
         XCTAssertTrue(profileCall.contains("-l G"))
@@ -517,8 +519,79 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["brackenResolvedRank"], .string("G"))
         XCTAssertEqual(envelope.options.resolvedDefaults["profileState"], .string("completed"))
         let brackenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "bracken" })
-        XCTAssertEqual(brackenStep.toolVersion, "3.0.1")
+        XCTAssertEqual(brackenStep.toolVersion, "3.1")
         XCTAssertEqual(brackenStep.runtimeIdentity?.condaEnvironment, ClassificationPipeline.brackenEnvironment)
+    }
+
+    /// One rule on both dialects (plan decision S20). A validated source overlay names the version,
+    /// then the conda package, and nothing asks the banner, because the 3.1 build prints v3.0.1 and the
+    /// 1.0.0 wrapper prints a usage error. With neither record the version is unknown.
+    func testBrackenRecordsTheValidatedSourceOverlayVersionOnBothDialects() async throws {
+        for dialect in FakeClassificationCondaFixture.BrackenDialect.allCases {
+            try await assertBrackenVersion(install: .sourceOverlay(version: "3.1"), dialect: dialect, expected: "3.1")
+        }
+    }
+
+    func testBrackenRecordsTheCondaPackageVersionWithoutAnOverlay() async throws {
+        for dialect in FakeClassificationCondaFixture.BrackenDialect.allCases {
+            try await assertBrackenVersion(install: .condaPackage(version: "1.0.0"), dialect: dialect, expected: "1.0.0")
+        }
+    }
+
+    func testBrackenRecordsUnknownWithoutAnyInstallRecord() async throws {
+        for dialect in FakeClassificationCondaFixture.BrackenDialect.allCases {
+            try await assertBrackenVersion(install: .none, dialect: dialect, expected: "unknown")
+        }
+    }
+
+    /// The database installer and the classification pipeline read the version through one function,
+    /// so they cannot disagree about which claim wins.
+    func testTheInstallerAndThePipelineShareOneBrackenVersionRule() async throws {
+        let cases: [(FakeClassificationCondaFixture.BrackenInstall, String?)] = [
+            (.sourceOverlay(version: "3.1"), "3.1"),
+            (.condaPackage(version: "1.0.0"), "1.0.0"),
+            (.none, nil),
+        ]
+        for (install, expected) in cases {
+            let fixture = try FakeClassificationCondaFixture(brackenInstall: install)
+            defer { fixture.cleanup() }
+            let rule = await ManagedMetagenomicsDatabaseToolRunner.managedBrackenVersion(
+                fixture.condaManager, environment: ClassificationPipeline.brackenEnvironment
+            )
+            XCTAssertEqual(rule, expected, "\(install)")
+            do {
+                let installed = try await ManagedMetagenomicsDatabaseToolRunner.resolveManagedToolVersion(
+                    fixture.condaManager, "bracken-build", ClassificationPipeline.brackenEnvironment, fixture.root
+                )
+                XCTAssertEqual(installed, expected, "\(install)")
+            } catch {
+                XCTAssertNil(expected, "\(install) threw \(error)")
+            }
+        }
+    }
+
+    private func assertBrackenVersion(
+        install: FakeClassificationCondaFixture.BrackenInstall,
+        dialect: FakeClassificationCondaFixture.BrackenDialect,
+        expected: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let fixture = try FakeClassificationCondaFixture(brackenInstall: install, brackenDialect: dialect)
+        defer { fixture.cleanup() }
+        let config = try fixture.makeConfig(
+            goal: .profile, catalogID: "kraken2-standard-8", profileRequest: .automaticDefault
+        )
+        let result = try await ClassificationPipeline(condaManager: fixture.condaManager).profile(config: config)
+
+        XCTAssertEqual(result.profileOutcome.state, .completed, "\(dialect) \(install)", file: file, line: line)
+        XCTAssertEqual(result.profileOutcome.toolVersion, expected, "\(dialect) \(install)", file: file, line: line)
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: config.outputDirectory), file: file, line: line)
+        let brackenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "bracken" }, file: file, line: line)
+        XCTAssertEqual(brackenStep.toolVersion, expected, "\(dialect) \(install)", file: file, line: line)
+        let invocations = try fixture.toolInvocations(named: "bracken")
+        XCTAssertFalse(invocations.contains("bracken -v"), "\(dialect) asked the banner", file: file, line: line)
+        XCTAssertFalse(invocations.contains("bracken --version"), "\(dialect) asked the banner", file: file, line: line)
     }
 
     func testRequestedReadLengthDoesNotReplaceSupported150BaseDistribution() async throws {
@@ -1225,6 +1298,32 @@ private struct FakeClassificationCondaFixture {
         case nonzero(Int32)
     }
 
+    /// What the fixture's bracken environment holds, which decides the version a run records.
+    enum BrackenInstall {
+        /// The conda package bracken 1.0.0 stays as a stale record, and the v3.1 source overlay is
+        /// installed and validated beside it, as the lock installs Bracken.
+        case sourceOverlay(version: String)
+        /// The conda package alone.
+        case condaPackage(version: String)
+        /// No record at all.
+        case none
+    }
+
+    /// The help text `bracken --help` prints, which picks the dialect the pipeline speaks.
+    enum BrackenDialect: CaseIterable {
+        case database
+        case kmerDistribution
+
+        var helpText: String {
+            switch self {
+            case .database:
+                return "Usage: bracken -d MY_DB -i INPUT.kreport -o OUTPUT.bracken -r READ_LEN -l LEVEL -t THRESHOLD"
+            case .kmerDistribution:
+                return "usage: est_abundance.py [-h] -i INPUT -o OUTPUT -k KMER_DISTR -l LEVEL -t THRESHOLD"
+            }
+        }
+    }
+
     let root: URL
     let condaManager: CondaManager
     let distributionURL: URL
@@ -1237,7 +1336,9 @@ private struct FakeClassificationCondaFixture {
         distributionState: DistributionState = .valid,
         krakenVersion: String = "2.1.3",
         krakenBehavior: KrakenBehavior = .success,
-        brackenBehavior: BrackenBehavior = .success
+        brackenBehavior: BrackenBehavior = .success,
+        brackenInstall: BrackenInstall = .sourceOverlay(version: "3.1"),
+        brackenDialect: BrackenDialect = .database
     ) throws {
         self.reportRank = reportRank
         self.distributionState = distributionState
@@ -1258,6 +1359,7 @@ private struct FakeClassificationCondaFixture {
             krakenVersion: krakenVersion,
             krakenBehavior: krakenBehavior,
             brackenBehavior: brackenBehavior,
+            brackenHelpText: brackenDialect.helpText,
             invocationLogURL: invocationLogURL
         )
             .write(to: bundledMicromamba, atomically: true, encoding: .utf8)
@@ -1268,6 +1370,67 @@ private struct FakeClassificationCondaFixture {
             bundledMicromambaProvider: { bundledMicromamba },
             bundledMicromambaVersionProvider: { "2.0.0" }
         )
+        try Self.installBracken(
+            brackenInstall, in: root.appendingPathComponent("conda/envs/bracken", isDirectory: true)
+        )
+    }
+
+    /// Writes the conda-meta records and, for an overlay, the installed files and the receipt that
+    /// `CondaManager.validatedSourceOverlayVersion` checks.
+    private static func installBracken(_ install: BrackenInstall, in environment: URL) throws {
+        let fm = FileManager.default
+        let condaMeta = environment.appendingPathComponent("conda-meta", isDirectory: true)
+        func writeCondaRecord(_ name: String, _ version: String, _ build: String) throws {
+            try fm.createDirectory(at: condaMeta, withIntermediateDirectories: true)
+            try #"{"name":"\#(name)","version":"\#(version)","build":"\#(build)","subdir":"osx-arm64"}"#.write(
+                to: condaMeta.appendingPathComponent("\(name)-\(version)-\(build).json"),
+                atomically: true, encoding: .utf8
+            )
+        }
+        switch install {
+        case .none:
+            return
+        case .condaPackage(let version):
+            try writeCondaRecord("bracken", version, "0")
+        case .sourceOverlay(let version):
+            try writeCondaRecord("bracken", "1.0.0", "0")
+            let runtimePackages = [("cxx-compiler", "1.9.0", "h1"), ("llvm-openmp", "21.1.8", "h2"), ("python", "3.11.13", "h3")]
+            for (name, packageVersion, build) in runtimePackages {
+                try writeCondaRecord(name, packageVersion, build)
+            }
+            let compiler = environment.appendingPathComponent("bin/c++")
+            let openMP = environment.appendingPathComponent("lib/libomp.dylib")
+            try fm.createDirectory(at: compiler.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fm.createDirectory(at: openMP.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "#!/bin/sh\nexit 0\n".write(to: compiler, atomically: true, encoding: .utf8)
+            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: compiler.path)
+            try Data("OpenMP runtime\n".utf8).write(to: openMP)
+            let installedFiles = try ["bin/bracken", "bin/bracken-build", "bin/src/kmer2read_distr"].map { path in
+                let url = environment.appendingPathComponent(path)
+                try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try Data("fixture \(path)\n".utf8).write(to: url)
+                let size = (try fm.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.uint64Value ?? 0
+                guard let sha256 = ManagedToolSourceInstallationRecord.sha256(of: url) else {
+                    throw CocoaError(.fileReadUnknown)
+                }
+                return ManagedToolSourceInstallationRecord.InstalledFile(relativePath: path, sha256: sha256, sizeBytes: size)
+            }
+            let record = ManagedToolSourceInstallationRecord(
+                source: PackToolSourceOverlay(
+                    kind: .bracken, version: version,
+                    sourceURL: URL(string: "https://example.test/Bracken-v\(version).tar.gz")!,
+                    sha256: String(repeating: "a", count: 64)
+                ),
+                commands: [.init(argv: ["bracken-build", "-v"], reproducibleCommand: "bracken-build -v")],
+                runtime: .init(
+                    environmentPath: environment.path, compilerPath: compiler.path, openMPRuntimePath: openMP.path,
+                    condaPackages: runtimePackages.map { .init(name: $0.0, version: $0.1, build: $0.2, subdir: "osx-arm64") }
+                ),
+                installedFiles: installedFiles,
+                startedAt: .now, completedAt: .now, wallTimeSeconds: 0, exitStatus: 0, stderr: ""
+            )
+            try record.write(to: environment.appendingPathComponent("share/lungfish/managed-tools/bracken.json"))
+        }
     }
 
     func cleanup() {
@@ -1359,6 +1522,7 @@ private struct FakeClassificationCondaFixture {
         krakenVersion: String,
         krakenBehavior: KrakenBehavior,
         brackenBehavior: BrackenBehavior,
+        brackenHelpText: String,
         invocationLogURL: URL
     ) -> String {
         let krakenFailureBody: String
@@ -1479,7 +1643,7 @@ private struct FakeClassificationCondaFixture {
             # the pipeline probes --help to choose between that and the
             # est_abundance.py passthrough CLI.
             if [ "$1" = "--help" ]; then
-              echo "Usage: bracken -d MY_DB -i INPUT.kreport -o OUTPUT.bracken -r READ_LEN -l LEVEL -t THRESHOLD"
+              echo "\(brackenHelpText)"
               exit 0
             fi
             output=""

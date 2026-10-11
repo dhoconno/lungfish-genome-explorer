@@ -1654,25 +1654,13 @@ public actor ClassificationPipeline {
     ) async throws -> BrackenExecutionResult {
         let fm = FileManager.default
         try Task.checkCancellation()
-        // `est_abundance.py` has no version flag, so `bracken -v` prints an
-        // argparse usage error whose digits would otherwise be recorded as a
-        // bogus version. Read the packaged version from conda-meta instead.
-        let brackenVersion: String
-        switch dialect {
-        case .database:
-            brackenVersion = try await detectToolVersion(
-                toolName: "bracken",
-                environment: Self.brackenEnvironment,
-                condaManager: condaManager,
-                flags: ["-v"]
-            )
-        case .kmerDistribution:
-            let envURL = await condaManager.environmentURL(named: Self.brackenEnvironment)
-            brackenVersion = CondaMetaReader.primaryPackage(
-                named: "bracken",
-                inEnvironment: envURL
-            )?.version ?? "unknown"
-        }
+        // Both dialects read the version the way the database installer does, from the
+        // validated source overlay (3.1) and then the conda package. `bracken -v` is never
+        // asked, because the 1.0.0 wrapper prints an argparse usage error and the 3.1 build
+        // prints `Bracken v3.0.1`.
+        let brackenVersion = await ManagedMetagenomicsDatabaseToolRunner.managedBrackenVersion(
+            condaManager, environment: Self.brackenEnvironment
+        ) ?? "unknown"
         logger.info("Detected bracken version: \(brackenVersion, privacy: .public)")
         try Task.checkCancellation()
 
