@@ -1,6 +1,8 @@
 import XCTest
 import Foundation
 import LungfishIO
+import LungfishKit
+import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
 
@@ -101,6 +103,59 @@ final class CLIPrimerTrimRunnerTests: XCTestCase {
         try await waitForProcessExit(pid: childPID)
     }
 
+    /// The runner finds the trimmed BAM, its index and its record by their place in
+    /// `outputs`, so a writer keeps that order whatever order it lists artifacts in.
+    func testOutputsAreReadInTheirVersion1OrderWhateverTheArtifactOrder() async throws {
+        let folder = try TestTempDirectory.make(prefix: "primer-trim-order")
+        defer { TestTempDirectory.cleanup(folder) }
+        let bam = "/work/Sample.lungfishref/alignments/primer-trimmed/aln_1.bam"
+        let bai = bam + ".bai"
+        let record = "/work/Sample.lungfishref/alignments/primer-trimmed/aln_1.primer-trim-provenance.json"
+        let complete = """
+        {"artifacts":[{"kind":"provenance","path":"\(record)","role":"provenance"},\
+        {"kind":"bai","path":"\(bai)","role":"alignment-index"},\
+        {"kind":"bam","path":"\(bam)","provenancePath":"\(record)","role":"alignment"}],\
+        "event":"complete","message":"trackID=aln_1 trackName=Sample 1 • Primer Trim","output":"\(bam)",\
+        "outputs":["\(bam)","\(bai)","\(record)"],"progress":1,"schemaVersion":2}
+        """
+        let cli = try standInCLI(in: folder, printing: [
+            #"{"event":"start","message":"Starting primer trim","progress":0,"schemaVersion":2}"#,
+            complete,
+        ])
+
+        let result = try await CLIPrimerTrimRunner(cliURLOverride: cli).run(arguments: ["bam", "primer-trim"])
+
+        XCTAssertEqual(result, CLIPrimerTrimResult(
+            trackID: "aln_1",
+            trackName: "Sample 1 • Primer Trim",
+            bamPath: bam,
+            baiPath: bai,
+            provenanceSidecarPath: record
+        ))
+    }
+
+    /// The runner gives its caller paths and never hands an output to bundle import. The
+    /// trimmed BAM is already inside the reference bundle, which the caller reloads, so
+    /// nothing reaches `onBundleReadyWithContext`.
+    @MainActor
+    func testTheRunnerHandsNoOutputToBundleImport() async throws {
+        let folder = try TestTempDirectory.make(prefix: "primer-trim-import")
+        defer { TestTempDirectory.cleanup(folder) }
+        let cli = try standInCLI(in: folder, printing: [
+            #"{"event":"start","message":"starting","progress":0}"#,
+            #"{"event":"complete","output":"/tmp/trimmed.bam","outputs":["/tmp/trimmed.bam","/tmp/trimmed.bam.bai","/tmp/trimmed.primer-trim-provenance.json"],"message":"trackID=trimmed trackName=Trimmed"}"#,
+        ])
+        let imports = ImportedBundleCapture()
+        let saved = OperationCenter.shared.onBundleReadyWithContext
+        OperationCenter.shared.onBundleReadyWithContext = { urls, _ in imports.append(urls) }
+        defer { OperationCenter.shared.onBundleReadyWithContext = saved }
+
+        let result = try await CLIPrimerTrimRunner(cliURLOverride: cli).run(arguments: ["bam", "primer-trim"])
+
+        XCTAssertEqual(result.bamPath, "/tmp/trimmed.bam")
+        XCTAssertEqual(imports.calls, [], "nothing of a primer trim run reaches bundle import")
+    }
+
     func testBuildCLIArgumentsIncludesAllRequiredFlags() {
         let arguments = CLIPrimerTrimRunner.buildCLIArguments(
             bundleURL: URL(fileURLWithPath: "/tmp/proj/Sample.lungfishref"),
@@ -122,6 +177,24 @@ final class CLIPrimerTrimRunnerTests: XCTestCase {
         XCTAssertTrue(arguments.contains("--format"))
         XCTAssertTrue(arguments.contains("json"))
     }
+}
+
+/// A shell script in place of `lungfish-cli` that prints `lines` on standard output.
+private func standInCLI(in folder: URL, printing lines: [String]) throws -> URL {
+    let transcript = folder.appendingPathComponent("events.ndjson")
+    try (lines.joined(separator: "\n") + "\n").write(to: transcript, atomically: true, encoding: .utf8)
+    let url = folder.appendingPathComponent("lungfish-cli")
+    try "#!/bin/sh\n/bin/cat '\(transcript.path)'\n".write(to: url, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    return url
+}
+
+/// What reached `onBundleReadyWithContext`, one array of paths per call.
+private final class ImportedBundleCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [[String]] = []
+    var calls: [[String]] { lock.withLock { stored } }
+    func append(_ urls: [URL]) { lock.withLock { stored.append(urls.map(\.path)) } }
 }
 
 /// Waits until the script has written the child's PID. The shell creates the
