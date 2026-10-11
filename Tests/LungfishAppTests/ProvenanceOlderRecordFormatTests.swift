@@ -259,7 +259,11 @@ final class ProvenanceOlderRecordFormatTests: XCTestCase {
         let texts = try ProvenanceSection(viewModel: model).inspect().findAll(ViewType.Text.self).compactMap { try? $0.string() }
         XCTAssertTrue(texts.contains("Created"), "\(texts)")
         let fileDateText = fileDate.formatted(date: .abbreviated, time: .shortened)
-        XCTAssertFalse(texts.contains { $0.contains("1970") || $0.contains(fileDateText) }, "No date is shown. \(texts)")
+        // The Sidecar row's help and accessibility value hold the absolute path, whose random
+        // temporary folder name can contain "1970". Look for a date in every other text.
+        let folderName = project.deletingLastPathComponent().lastPathComponent
+        let shown = texts.filter { !$0.contains(folderName) }
+        XCTAssertFalse(shown.contains { $0.contains("1970") || $0.contains(fileDateText) }, "No date is shown. \(texts)")
     }
 
     func testARecordThatHoldsItsDateShowsIt() async throws {
