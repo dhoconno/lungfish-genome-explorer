@@ -40,7 +40,8 @@ enum CrossProjectItemCopier {
 
         /// Project folder that holds saved `.lungfishflow` workflow bundles.
         static let workflowsDirectoryName = "Workflows"
-        /// Directory extension of a saved workflow bundle.
+        /// Directory extension of a saved workflow bundle. `kind(of:)` now finds that kind through
+        /// `BundleKindRegistry`, so only `BundleKindParityTests` reads this constant.
         static let workflowBundleExtension = "lungfishflow"
 
         /// Items that carry `analysis-metadata.json` are hidden by the sidebar
@@ -89,21 +90,21 @@ enum CrossProjectItemCopier {
     /// Decides whether `url` is a Lungfish item this copier handles.
     ///
     /// Projects, workflow packages and MHC reference databases keep their own
-    /// dedicated import paths and return nil here.
+    /// dedicated import paths and return nil here. `BundleKindRegistry` names
+    /// them by the copy fact of the kind that the lowercased folder extension
+    /// finds, as this copier always lowercased the extension.
     static func kind(of url: URL, fileManager: FileManager = .default) -> ItemKind? {
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
             return nil
         }
-        switch url.pathExtension.lowercased() {
-        case "lungfish", "lungfishflowpkg":
-            return nil
-        case MHCAmpliconReferenceBundle.directoryExtension:
-            return nil
-        case ItemKind.workflowBundleExtension:
-            return .workflowBundle
-        default:
-            break
+        if let descriptor = BundleKindRegistry.descriptor(forLowercasedExtensionOf: url) {
+            if case .refused = descriptor.copy {
+                return nil
+            }
+            if descriptor.id == .workflowBundle {
+                return .workflowBundle
+            }
         }
         if let classification = SidebarProjectScanner.bundleClassification(for: url, fileManager: fileManager) {
             switch classification.type {
