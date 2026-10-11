@@ -59,8 +59,12 @@ enum ClassifierParityKnownDifferences {
     // MARK: Folders
 
     private static let layout: [ClassifierParityKnownDifference] = [
-        pair(kraken2 + [.e1, .e2], "analysis: only in A: analysis-metadata.json",
-             "AnalysesFolder writes it for the folder the GUI creates. The row's command names that folder with --output-dir or --output, and a plain output folder gets none (E1, E2)"),
+        pair(kraken2, "analysis: only in A: analysis-metadata.json",
+             "AnalysesFolder writes it for the folder the GUI creates. The row's command names that folder with --output-dir, and a plain output folder gets none",
+             closedBy: "A8, whose plain one-folder output gains analysis-metadata.json (A8 M2, E1)"),
+        pair([.e1, .e2], "analysis: only in A: analysis-metadata.json",
+             "AnalysesFolder writes it for the folder the GUI creates. The row's command names that folder with --output, and a plain output folder gets none",
+             closedBy: "A9, whose plain one-folder output gains analysis-metadata.json (E1)"),
         pair(kraken2 + [.e1, .e2], "source manifest: only in A: *",
              "Only the GUI records the run in the source bundle's analyses-manifest.json"),
         pair([.k1, .k3, .k4], "analysis: only in A: *.lungfish-provenance/intermediates/classification-inputs/input-1-materialized-<UUID>.fastq",
@@ -103,20 +107,27 @@ enum ClassifierParityKnownDifferences {
 
     // MARK: Records
 
-    private static func kraken2Record(_ fact: String, _ reason: String, closedBy: String = "A8") -> ClassifierParityKnownDifference {
+    // Side A stays the legacy GUI path until 2.9 (T2) and A8 and A9 change side B only, so a
+    // record fact closes in A8 or A9 only when the CLI record gains it. A difference that comes
+    // from the GUI record's legacy shape closes when that path retires.
+
+    private static func kraken2Record(_ fact: String, _ reason: String, closedBy: String = retire) -> ClassifierParityKnownDifference {
         pair(kraken2, "record Project.lungfish/Analyses/*/.lungfish-provenance.json: \(fact)", reason, closedBy: closedBy)
     }
 
     private static let kraken2Records: [ClassifierParityKnownDifference] = [
-        kraken2Record("workflowName", "The pipeline's record (Metagenomics Classification or Profiling) against the lungfish.classify record the CLI writes in its place (BIO inventory 1.1)"),
+        kraken2Record("workflowName", "The pipeline's record (Metagenomics Classification or Profiling) against the lungfish.classify record the CLI writes in its place (BIO inventory 1.1). E15 keeps lungfish.classify on the CLI side"),
         kraken2Record("toolName", "The GUI record takes its run-level tool from its first step, the replay copy or the single-read mate staging, and the CLI record from kraken2"),
         kraken2Record("toolVersion", "As toolName, the LGE version of the copy step against kraken2's version"),
         kraken2Record("argv", "As toolName, the copy step's /bin/sh -c script against the CLI command (E11)"),
         kraken2Record("reproducibleCommand", "As argv"),
-        kraken2Record("explicitOptions.*", "The CLI record drops the pipeline's options, the database identity among them, and with them the readSetPlan of a merge bundle (D6, E13)"),
+        kraken2Record("explicitOptions.*", "The CLI record drops the pipeline's options, the database identity among them, and with them the readSetPlan of a merge bundle (D6, E13)",
+                      closedBy: "A8 (E13)"),
         kraken2Record("legacyRunParameters.*", "As explicitOptions"),
-        kraken2Record("defaultOptions.*", "The pipeline's defaults (confidence 0, read format unpaired) against the CLI's preset defaults (D7, D8, E12)"),
-        kraken2Record("resolvedDefaultOptions.*", "The CLI record drops the database identity status, its core file sizes and the effective memory mapping (E9)"),
+        kraken2Record("defaultOptions.*", "The pipeline's defaults (confidence 0, read format unpaired) against the CLI's preset defaults (D7, D8, E12)",
+                      closedBy: "A8 (E12)"),
+        kraken2Record("resolvedDefaultOptions.*", "The CLI record drops the database identity status, its core file sizes and the effective memory mapping (E9)",
+                      closedBy: "A8 (E9)"),
         kraken2Record("files[*", "D4. The GUI record names the scratch input and the replay copy, the CLI record the kept materialized input"),
         kraken2Record("outputs[*", "The GUI record lists classification-result.json and the replay copy as outputs, the CLI record does not"),
         kraken2Record("output.*", "The run's output is classification-result.json in the GUI record and the kreport in the CLI record"),
@@ -125,14 +136,15 @@ enum ClassifierParityKnownDifferences {
         kraken2Record("legacyRunSteps[*", "As steps"),
     ]
 
-    private static func esVirituRecord(_ fact: String, _ reason: String) -> ClassifierParityKnownDifference {
-        pair([.e1], "record Project.lungfish/Analyses/*/.lungfish-provenance.json: \(fact)", reason, closedBy: "A9")
+    private static func esVirituRecord(_ fact: String, _ reason: String, closedBy: String = retire) -> ClassifierParityKnownDifference {
+        pair([.e1], "record Project.lungfish/Analyses/*/.lungfish-provenance.json: \(fact)", reason, closedBy: closedBy)
     }
 
     private static let esVirituRecords: [ClassifierParityKnownDifference] = [
         esVirituRecord("argv", "D4, D5. EsViritu reads the GUI's deleted scratch file and the CLI's kept input"),
         esVirituRecord("reproducibleCommand", "As argv"),
-        esVirituRecord("explicitOptions.*", "The GUI records its input layout scan (inputReadLayout and its counts), the CLI does not"),
+        esVirituRecord("explicitOptions.*", "The GUI records its input layout scan (inputReadLayout and its counts), the CLI does not",
+                       closedBy: "A9"),
         esVirituRecord("legacyRunParameters.*", "As explicitOptions"),
         esVirituRecord("files[*", "D5. The GUI record names the deleted scratch input"),
         esVirituRecord("steps[*", "As argv, in the EsViritu step and its log"),
