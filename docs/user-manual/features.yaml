@@ -1041,6 +1041,53 @@ features:
       exits 125. The run writes one root record whose command is the one that
       ran. The command build-db esviritu prints version 2 events under --format
       json, as build-db kraken2 and build-db taxtriage do.
+  classify.kraken2-cli-route:
+    title: Run Kraken2 from the command line into a project
+    entry_points:
+      - "CLI: lungfish-cli kraken2 classify --project"
+      - "CLI: lungfish-cli kraken2 classify --batch"
+    inputs: [fastq, fasta, kraken2-database]
+    outputs: [kraken2-kreport, taxonomy-dataset, provenance-sidecar]
+    viewport_class: taxonomy
+    sources:
+      - Sources/LungfishCLI/Commands/ClassifyCommand.swift
+      - Sources/LungfishWorkflow/Metagenomics/Kraken2AnalysisRunTool.swift
+      - Sources/LungfishWorkflow/AnalysisRun/AnalysisRunExecutor.swift
+    module: [LungfishCLI, LungfishWorkflow]
+    cli:
+      - lungfish-cli kraken2 classify
+    provenance: one root record written by AnalysisRunExecutor, named lungfish.classify
+    tests:
+      - Tests/LungfishCLITests/Kraken2ClassifyCommandTests.swift
+      - Tests/LungfishWorkflowTests/Metagenomics/Kraken2AnalysisRunToolTests.swift
+      - Tests/LungfishWorkflowTests/Metagenomics/Kraken2AnalysisRunToolTests+Records.swift
+      - Tests/LungfishWorkflowTests/AnalysisRun/AnalysisRunExecutorTests.swift
+    notes: >-
+      lungfish-cli kraken2 classify runs through the analysis run executor, the
+      path the app's CLI route runs too, so the command and the app write one
+      result tree. Without --batch every input is one sample in one folder, as
+      the command has always run them, and --output-dir names that folder. The
+      --project option makes Analyses/kraken2-<timestamp>/ in the project,
+      where the app puts a Kraken2 run, and a run made there also gets the
+      viewer index, while the bundle a sample was read from records the run in
+      its analysis history. The --batch flag groups the inputs into samples by
+      their R1 and R2 names and classifies each in its own folder of one batch
+      result, which is Analyses/kraken2-batch-<timestamp>/ in a project. The
+      two options --project and --output-dir cannot be combined. A batch takes
+      no --paired, --unpaired or --read-format paired, because the names pair
+      the files. A failed sample of a batch is a warning while another sample
+      completes, and a run of one sample fails with it. The --db-digest option
+      names the SHA-256 the database's install receipt must hold. The plan
+      checks it before any folder exists, from the receipt's own digest and the
+      files it lists with no hash of the database folder, and refuses a
+      database whose receipt is missing, does not check out or holds another
+      digest. A matching digest records the database as a reference of the
+      run. With --format json standard output holds version 2 events only, and
+      in text mode the command prints what it always printed with its errors
+      and warnings on standard error. A SIGTERM cancels the run, which records
+      the status cancelled and exits 125. A Bracken profile that cannot be made
+      completes the run with a warning and exit 0. The run writes one root
+      record whose command is the one that ran.
   classify.nao-mgs:
     title: NAO-MGS metagenomic surveillance
     entry_points:
