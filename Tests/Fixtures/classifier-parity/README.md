@@ -11,7 +11,7 @@
 
 ## The negative control
 
-`negative-control.fastq` holds 40 reads of 150 bases drawn from a fixed 64-bit linear congruential generator, so its bytes do not depend on any random number library. No read matches the Kraken2 Viral database, so Kraken2 classifies none of them and Bracken finds no species to profile. The GUI then reads Completed with Warnings, which case K5 checks with the real tools.
+`negative-control.fastq` holds 40 reads of 150 bases drawn from a fixed 64-bit linear congruential generator, so its bytes do not depend on any random number library. No read matches the Kraken2 Viral database, so Kraken2 classifies none of them and its report holds only the unclassified line. Today `KreportParser` rejects that report as empty, so case K5 pins a failure on both routes. The GUI row reads Failed with the alert "Classification Failed" and "Empty Kraken2 report", and the replayed command throws the same message. `ClassifierParityKnownDifferences.swift` declares the failure as a known defect. Lane BR's parser fix lets the report parse, and lane A8 then pins K5 to a degraded Bracken profile and Completed with Warnings.
 
 It was made on 2026-10-11 with this script, run as `python3 make_negative_control.py negative-control.fastq`.
 

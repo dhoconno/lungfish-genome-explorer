@@ -50,8 +50,9 @@ extension ClassifierCLIGUIParityReplayTests {
         run: ClassifierParitySideRun
     ) throws -> [ClassifierParityDifference] {
         if case .notRun = run.terminal { return [] }
-        // Every case completes, K5 with warnings (E4). The facts of a run that did not are
-        // not read.
+        // Every case is expected to complete. K5 does not today, which
+        // ClassifierParityKnownDifferences declares. The facts of a run that did not are not
+        // read.
         guard run.terminal.succeeded else {
             return [ClassifierParityDifference(id: "fact: the run completes", detail: "\(run.side) \(run.terminal)")]
         }
@@ -198,11 +199,16 @@ extension ClassifierCLIGUIParityReplayTests {
             check("title", row.title, "\(parityCase.profiles ? "Profiling" : "Classifying") \(bundleName)")
             check("first detail", row.firstDetail, "Starting Kraken2 with Viral...")
             if parityCase == .k5 {
-                // Today Kraken2 classifies none of the 40 reads, KreportParser finds no
-                // classified row, and the run fails before Bracken runs. The fixed fact that
-                // the run completes is declared broken in ClassifierParityKnownDifferences.
+                // Today's row of a known defect (F2 bio ruling 1). Kraken2 classifies none of
+                // the 40 reads, KreportParser rejects the report of one unclassified line as
+                // empty, and the run fails before the Bracken preflight.
+                // ClassifierParityKnownDifferences declares the run's failure. Lane BR's parser
+                // fix and lane A8 move this branch to Completed with Warnings and one warning
+                // line (E4).
                 check("state", row.stateLabel, "Failed")
                 check("completion detail", row.completionDetail, "Empty Kraken2 report")
+                check("error message", row.errorMessage, nil)
+                check("log warning lines", row.logLines.filter { $0.level == "warning" }.map(\.description).joined(separator: "\n"), "")
                 check("log error lines", row.logLines.filter { $0.level == "error" }.map(\.description).joined(separator: "\n"), "[error] Failed: Empty Kraken2 report")
                 check("alert", row.alertText, "Classification Failed\nEmpty Kraken2 report")
                 return violations

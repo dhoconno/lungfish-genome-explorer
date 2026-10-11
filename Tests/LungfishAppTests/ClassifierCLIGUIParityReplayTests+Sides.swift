@@ -27,7 +27,7 @@ enum ClassifierParityCase: String, CaseIterable, Sendable {
     case k3 = "K3"
     /// The wizard's Kraken2 request on the subset bundle, a real Bracken species profile.
     case k4 = "K4"
-    /// The wizard's Kraken2 request on the negative control, where Bracken degrades.
+    /// The wizard's Kraken2 request on the negative control, with no viral hit.
     case k5 = "K5"
     /// EsViritu on the subset bundle.
     case e1 = "E1"

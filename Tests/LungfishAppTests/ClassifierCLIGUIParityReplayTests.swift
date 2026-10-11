@@ -97,7 +97,7 @@ final class ClassifierCLIGUIParityReplayTests: XCTestCase {
         try await assertParity(.k4)
     }
 
-    func testK5BrackenDegradesOnTheNegativeControl() async throws {
+    func testK5Kraken2AndBrackenOnTheNegativeControl() async throws {
         try await assertParity(.k5)
     }
 
@@ -229,7 +229,7 @@ final class ClassifierCLIGUIParityReplayTests: XCTestCase {
             report.append("side \(run.side): \(run.terminal), analysis \(run.analysisPath ?? "none")")
             if let command = run.recordedCommand { report.append("recorded command:\n\(command)") }
             if let row = run.row {
-                report.append("row: \(row.title) | \(row.firstDetail) | \(row.stateLabel) | \(row.completionDetail) | alert \(row.alertText ?? "none")")
+                report.append("row: \(row.title) | \(row.firstDetail) | \(row.stateLabel) | \(row.completionDetail) | error \(row.errorMessage ?? "none") | alert \(row.alertText ?? "none")")
                 report += row.logLines.map { "  \($0)" }
             }
             for record in ClassifierParityComparison.recordPaths(under: run.root) {
