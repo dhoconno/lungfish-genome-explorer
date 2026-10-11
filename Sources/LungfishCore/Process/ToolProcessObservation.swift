@@ -121,10 +121,22 @@ extension ToolProcessRunObservation {
     /// first ``headByteLimit`` and last ``tailByteLimit`` bytes.
     ///
     /// The limits are four bytes per character over the 2,048 and 8,192
-    /// characters of ``ProvenanceStderr``, so a recorder that decodes the
-    /// bytes and applies ``ProvenanceStderr/truncated(_:)`` keeps what it
-    /// would keep from the whole capture, and a large capture never sits in
-    /// an observation buffer.
+    /// characters of ``ProvenanceStderr``, so a large capture never sits in
+    /// an observation buffer, and a character cut at the edge of ``head`` or
+    /// ``tail`` never reaches the record.
+    ///
+    /// A recorder builds the stderr that a record keeps from the decoded
+    /// bytes in one of two ways. When ``omittedByteCount`` is 0, it applies
+    /// ``ProvenanceStderr/truncated(_:)`` to the decoded ``head``, which holds
+    /// the whole capture. Otherwise it joins the first
+    /// ``ProvenanceStderr/headLength`` characters of the decoded ``head``,
+    /// ``ProvenanceStderr/truncationMarker`` and the last
+    /// ``ProvenanceStderr/tailLength`` characters of the decoded ``tail``.
+    /// It does not apply `truncated(_:)` to the joined head and tail, because
+    /// for a capture of four-byte characters alone they hold exactly
+    /// ``ProvenanceStderr/maxLength`` characters, which `truncated(_:)` keeps
+    /// whole and without the marker. The result matches what the whole capture
+    /// gives, except for a grapheme cluster longer than four bytes.
     public struct StderrExcerpt: Sendable, Equatable {
         /// Bytes kept from the start of the capture.
         public static let headByteLimit = ProvenanceStderr.headLength * 4

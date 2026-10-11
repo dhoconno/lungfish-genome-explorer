@@ -462,6 +462,45 @@ final class ToolProcessObservationTests: XCTestCase {
         XCTAssertTrue(excerpts[1].earlierBytesDropped)
     }
 
+    /// The recipe that the `StderrExcerpt` doc comment gives a recorder.
+    private static func recorded(_ excerpt: ToolProcessRunObservation.StderrExcerpt) -> String? {
+        let head = String(decoding: excerpt.head, as: UTF8.self)
+        guard excerpt.omittedByteCount > 0 else { return ProvenanceStderr.truncated(head) }
+        let tail = String(decoding: excerpt.tail, as: UTF8.self)
+        return String(head.prefix(ProvenanceStderr.headLength))
+            + ProvenanceStderr.truncationMarker
+            + String(tail.suffix(ProvenanceStderr.tailLength))
+    }
+
+    /// The recipe gives the stderr that `ProvenanceStderr.truncated` gives for
+    /// the whole capture, at each boundary of the limits and for characters of
+    /// one, three and four bytes. Applying `truncated` to the joined head and
+    /// tail does not, because four-byte characters just over the limits join
+    /// to exactly `maxLength` characters, which it keeps whole without the
+    /// marker.
+    func testTheExcerptRecipeKeepsWhatTheWholeCaptureWouldKeep() {
+        let captures: [(name: String, text: String)] = [
+            ("ascii inside both limits", String(repeating: "a", count: 5_000)),
+            ("ascii over maxLength and inside both limits", String(repeating: "a", count: 30_000)),
+            ("ascii over both limits", String(repeating: "a", count: 100_000)),
+            ("three-byte characters over both limits", String(repeating: "\u{20AC}", count: 20_000)),
+            ("four-byte characters at both limits", String(repeating: "\u{1F600}", count: 10_240)),
+            ("four-byte characters just over both limits", String(repeating: "\u{1F600}", count: 10_241)),
+            ("four-byte characters far over both limits", String(repeating: "\u{1F600}", count: 12_000)),
+            ("mixed widths over both limits", String(repeating: "a\u{20AC}\u{1F600}", count: 9_000)),
+        ]
+        for (name, text) in captures {
+            let excerpt = ToolProcessRunObservation.StderrExcerpt(captured: Data(text.utf8), earlierBytesDropped: false)
+            XCTAssertEqual(Self.recorded(excerpt), ProvenanceStderr.truncated(text), name)
+        }
+        let justOver = String(repeating: "\u{1F600}", count: 10_241)
+        let excerpt = ToolProcessRunObservation.StderrExcerpt(captured: Data(justOver.utf8), earlierBytesDropped: false)
+        XCTAssertEqual(excerpt.omittedByteCount, 4)
+        let joined = String(decoding: excerpt.head + excerpt.tail, as: UTF8.self)
+        XCTAssertEqual(joined.count, ProvenanceStderr.maxLength)
+        XCTAssertNotEqual(ProvenanceStderr.truncated(joined), ProvenanceStderr.truncated(justOver))
+    }
+
     /// The wall clock is read through the provenance time source when the
     /// run is built, so a test pins it for the building task, and every
     /// stage's start is that time plus monotonic time.
