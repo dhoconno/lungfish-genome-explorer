@@ -62,6 +62,11 @@ public struct ToolProcessEnvironmentChange: Sendable, Equatable {
     /// a name on ``valueRecordedNames`` and sanitizing each kept value and
     /// each ``pathPrefix`` entry with `context`.
     ///
+    /// A value or entry that is a colon-separated list of absolute paths, such
+    /// as `PYTHONPATH` or `DYLD_LIBRARY_PATH`, is sanitized one path at a time.
+    /// ``PortablePath`` reads such a list as one path, so it would rewrite the
+    /// root of the first path only and leave every later path raw.
+    ///
     /// - Parameters:
     ///   - base: What the environment starts from.
     ///   - set: Every variable the adapter set, with the value it set,
@@ -82,13 +87,26 @@ public struct ToolProcessEnvironmentChange: Sendable, Equatable {
     ) {
         self.base = base
         self.set = set.sorted { $0.key < $1.key }.map { name, value in
-            Variable(
-                name: name,
-                value: Self.recordsValue(of: name) ? PortablePath.sanitize(value: value, context: context) : nil
-            )
+            let kept = Self.recordsValue(of: name)
+                ? Self.sanitizedPathList(value, context: context) ?? PortablePath.sanitize(value: value, context: context)
+                : nil
+            return Variable(name: name, value: kept)
         }
         self.unset = Array(Set(unset)).sorted()
-        self.pathPrefix = pathPrefix.map { PortablePath.sanitize(path: $0, context: context) }
+        self.pathPrefix = pathPrefix.map {
+            Self.sanitizedPathList($0, context: context) ?? PortablePath.sanitize(path: $0, context: context)
+        }
+    }
+
+    /// `value` sanitized one path at a time when it is a colon-separated list
+    /// of absolute paths, and nil when it is anything else. A list has more
+    /// than one part, and every part is empty or starts with a slash. A single
+    /// path with a colon in a folder name is not a list, because its later
+    /// part does not start with a slash.
+    private static func sanitizedPathList(_ value: String, context: PortablePath.Context) -> String? {
+        let parts = value.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count > 1, parts.allSatisfy({ $0.isEmpty || $0.hasPrefix("/") }) else { return nil }
+        return parts.map { PortablePath.sanitize(path: String($0), context: context) }.joined(separator: ":")
     }
 
     /// The names whose value a record keeps, the variables LGE's adapters and

@@ -63,6 +63,32 @@ final class ToolProcessEnvironmentChangeAllowlistTests: XCTestCase {
         XCTAssertEqual(change.pathPrefix, ["<tool-root>/envs/bbtools/bin", "<external>/bin", "/usr/bin"])
     }
 
+    /// PortablePath reads a colon-separated list as one path, which rewrites
+    /// the root of the first path only. A first path under /usr would even
+    /// keep every later path raw. The type sanitizes a list one path at a
+    /// time, in a kept value and in a path prefix entry, and a single path
+    /// with a colon in a folder name is still one path.
+    func testPathListsAreSanitizedOneEntryAtATime() {
+        let change = ToolProcessEnvironmentChange(
+            base: .inherited,
+            set: [
+                "PYTHONPATH": "/Users/someone/lungfish-tools/envs/x/lib:/Users/someone/private/py",
+                "DYLD_LIBRARY_PATH": "/usr/lib:/Users/someone/private/lib",
+                "JAVA_HOME": "/Users/someone/odd:name/jvm",
+            ],
+            pathPrefix: ["/Users/someone/lungfish-tools/envs/x/bin:/Users/someone/private/bin"],
+            sanitizing: Self.context
+        )
+        XCTAssertEqual(change.set, [
+            .init(name: "DYLD_LIBRARY_PATH", value: "/usr/lib:<external>/lib"),
+            .init(name: "JAVA_HOME", value: "<external>/jvm"),
+            .init(name: "PYTHONPATH", value: "<tool-root>/envs/x/lib:<external>/py"),
+        ])
+        XCTAssertEqual(change.pathPrefix, ["<tool-root>/envs/x/bin:<external>/bin"])
+        XCTAssertFalse(change.set.compactMap(\.value).contains { $0.contains("/Users/someone") })
+        XCTAssertFalse(change.pathPrefix.contains { $0.contains("/Users/someone") })
+    }
+
     /// The four names of decision P10 and PATH never keep a value, and every
     /// name the adapters set for their tools does.
     func testTheAllowlistAndTheNameOnlyListAreDisjoint() {
