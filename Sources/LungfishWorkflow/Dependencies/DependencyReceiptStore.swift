@@ -17,6 +17,9 @@ public struct DependencyReceiptStore: Sendable {
     /// The stored receipt, or nil when none has been written yet.
     /// Throws on a corrupt or future-schema receipt so the caller can synthesize instead.
     public func load() throws -> DependencyReceipt? {
+        // An interrupted ExFAT swap leaves the receipt under a tombstone. The storage root holds no
+        // project record, so the read restores it before a synthesized receipt can replace it.
+        _ = try? DurableReplace.recover(named: receiptURL.lastPathComponent, in: storageRoot)
         guard FileManager.default.fileExists(atPath: receiptURL.path) else { return nil }
         let data = try Data(contentsOf: receiptURL)
         let decoder = JSONDecoder()

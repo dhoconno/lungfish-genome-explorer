@@ -86,6 +86,43 @@ final class DependencyReceiptStoreDurabilityTests: XCTestCase {
         XCTAssertEqual(try names(in: real), [Self.filename])
     }
 
+    // MARK: - A read restores an interrupted swap
+
+    // The storage root holds no project record, so opening a project never
+    // restores an entry that an interrupted ExFAT swap emptied. When a read
+    // finds nothing, or an empty file, the reconciler synthesizes a receipt,
+    // and the next save would restore the real receipt only to replace it.
+
+    func testALoadRestoresAReceiptLeftUnderItsTombstone() throws {
+        let store = try makeStore()
+        let written = try store.save(Self.receipt("old"))
+        try interruptSwap(of: store, leavingReservation: false)
+
+        XCTAssertEqual(try store.load(), written)
+        XCTAssertEqual(try names(in: store.storageRoot), [Self.filename], "the tombstone gave way to the receipt")
+    }
+
+    func testALoadRestoresAReceiptBehindAnEmptyReservation() throws {
+        let store = try makeStore()
+        let written = try store.save(Self.receipt("old"))
+        try interruptSwap(of: store, leavingReservation: true)
+
+        XCTAssertEqual(try store.load(), written)
+        XCTAssertEqual(try names(in: store.storageRoot), [Self.filename], "the tombstone gave way to the receipt")
+    }
+
+    /// Leaves the folder as an ExFAT swap that ended after its first rename does. The old receipt
+    /// waits under a tombstone, and the name holds nothing, or only the empty file that the
+    /// next rename reserved it with.
+    private func interruptSwap(of store: DependencyReceiptStore, leavingReservation: Bool) throws {
+        let tombstone = store.storageRoot
+            .appendingPathComponent(".\(Self.filename)\(PortableRename.swapTombstoneInfix)\(UUID().uuidString)")
+        XCTAssertEqual(Darwin.rename(store.receiptURL.path, tombstone.path), 0)
+        if leavingReservation {
+            XCTAssertTrue(FileManager.default.createFile(atPath: store.receiptURL.path, contents: Data()))
+        }
+    }
+
     // MARK: - The fault matrix
 
     // Every event of one rewrite gets one fault, natively and as ExFAT rotates:
@@ -240,10 +277,11 @@ final class DependencyReceiptStoreDurabilityTests: XCTestCase {
     private func assertOldOrNew(_ store: DependencyReceiptStore, rotates: Bool, context: String) throws {
         let name = Self.filename
         if !rotates {
-            XCTAssertTrue(["old", "new"].contains(try? store.load()?.dependencySet), "\(context): on APFS the name holds a receipt before any recovery")
+            // A load restores an interrupted swap, so this reads the file itself.
+            XCTAssertTrue(["old", "new"].contains(Self.storedDependencySet(of: store)), "\(context): on APFS the name holds a receipt before any recovery")
         }
-        // The next save recovers an interrupted ExFAT swap before it stages.
-        try DurableReplace.recover(named: name, in: store.storageRoot)
+        // The next load restores an interrupted ExFAT swap, and so does the next save.
+        _ = try store.load()
         let loaded = try? store.load()?.dependencySet
         XCTAssertTrue(["old", "new"].contains(loaded), "\(context): \(String(describing: loaded))")
         XCTAssertEqual(try names(in: store.storageRoot), [name], "\(context): no leftover")
@@ -253,6 +291,15 @@ final class DependencyReceiptStoreDurabilityTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// The dependency set the receipt file holds, read without `load()`, or `nil` when the name
+    /// holds nothing that decodes.
+    private static func storedDependencySet(of store: DependencyReceiptStore) -> String? {
+        guard let data = try? Data(contentsOf: store.receiptURL) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode(DependencyReceipt.self, from: data))?.dependencySet
+    }
 
     private static func receipt(_ dependencySet: String) -> DependencyReceipt {
         var receipt = DependencyReceipt.empty()
