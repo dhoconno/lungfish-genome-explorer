@@ -10,19 +10,29 @@ import LungfishIO
 /// ``FASTQReadLayoutClassifier`` as ``EsVirituSampleReadPlan`` does. A bundle
 /// with separate pairs, merged or single reads gets its read set from
 /// ``KrakenReadSetPlanner`` at run time, as `conda classify` does (`readSet`).
-struct ClassificationSampleReadPlan: Equatable, Sendable {
-    let format: ClassificationConfig.ReadFormat
-    let layout: FASTQReadLayoutClassification?
-    var readSet: KrakenReadSetPreview? = nil
+public struct ClassificationSampleReadPlan: Equatable, Sendable {
+    public let format: ClassificationConfig.ReadFormat
+    public let layout: FASTQReadLayoutClassification?
+    public var readSet: KrakenReadSetPreview? = nil
 
-    var plansReadSet: Bool { readSet?.plansReadSet ?? false }
+    public init(
+        format: ClassificationConfig.ReadFormat,
+        layout: FASTQReadLayoutClassification?,
+        readSet: KrakenReadSetPreview? = nil
+    ) {
+        self.format = format
+        self.layout = layout
+        self.readSet = readSet
+    }
 
-    var label: String {
+    public var plansReadSet: Bool { readSet?.plansReadSet ?? false }
+
+    public var label: String {
         readSet?.inputLabel ?? ClassificationConfig.ReadFormat.inputLabel(format: format, layout: layout?.layout)
     }
 
     /// Compact tag for the batch sample list.
-    var shortLabel: String {
+    public var shortLabel: String {
         if plansReadSet { return readSet == .pairs(withSingleReads: false) ? "PE" : "PE + merged" }
         switch format {
         case .paired: return "PE"
@@ -31,7 +41,7 @@ struct ClassificationSampleReadPlan: Equatable, Sendable {
         }
     }
 
-    static func plan(
+    public static func plan(
         for sample: MetagenomicsSampleInput,
         classify: (URL) -> FASTQReadLayoutClassification = { FASTQReadLayoutClassifier.classify(inputURL: $0) }
     ) -> ClassificationSampleReadPlan {
@@ -43,7 +53,7 @@ struct ClassificationSampleReadPlan: Equatable, Sendable {
     }
 
     /// The plan with the bundle's read set read from its metadata.
-    static func planned(for sample: MetagenomicsSampleInput) async -> ClassificationSampleReadPlan {
+    public static func planned(for sample: MetagenomicsSampleInput) async -> ClassificationSampleReadPlan {
         var plan = plan(for: sample)
         guard let bundle = KrakenReadSetPlanner.plannableInput(sample.inputFiles) else { return plan }
         plan.readSet = await KrakenReadSetPlanner.preview(bundle: bundle)
@@ -60,16 +70,26 @@ struct ClassificationSampleReadPlan: Equatable, Sendable {
 /// with single reads or holds several files of single reads is decided by
 /// ``SamplesheetReadSetPlanner`` when the run starts, which the recorded
 /// command names with `--read-format auto` (`plansReadSet`).
-struct EsVirituSampleReadPlan: Equatable, Sendable {
-    let format: EsVirituReadFormat
-    let layout: FASTQReadLayoutClassification?
+public struct EsVirituSampleReadPlan: Equatable, Sendable {
+    public let format: EsVirituReadFormat
+    public let layout: FASTQReadLayoutClassification?
     /// What the read-set planner will do for the sample's input.
-    var readSet: SamplesheetReadSetPreview = .singleReads
+    public var readSet: SamplesheetReadSetPreview = .singleReads
+
+    public init(
+        format: EsVirituReadFormat,
+        layout: FASTQReadLayoutClassification?,
+        readSet: SamplesheetReadSetPreview = .singleReads
+    ) {
+        self.format = format
+        self.layout = layout
+        self.readSet = readSet
+    }
 
     /// Whether the recorded command must plan the input (`--read-format auto`).
-    var plansReadSet: Bool { readSet.plansReadSet }
+    public var plansReadSet: Bool { readSet.plansReadSet }
 
-    var label: String {
+    public var label: String {
         switch readSet {
         case .pairs(withSingleReads: true):
             return EsVirituReadFormat.inputLabel(format: .unpaired, layout: .mixedInterleaved)
@@ -83,7 +103,7 @@ struct EsVirituSampleReadPlan: Equatable, Sendable {
     }
 
     /// Compact tag for the batch sample list.
-    var shortLabel: String {
+    public var shortLabel: String {
         switch readSet {
         case .pairs(withSingleReads: true): return "mixed, run as SE"
         case .severalFiles: return "joined, SE"
@@ -97,7 +117,7 @@ struct EsVirituSampleReadPlan: Equatable, Sendable {
         }
     }
 
-    static func plan(
+    public static func plan(
         for sample: MetagenomicsSampleInput,
         classify: (URL) -> FASTQReadLayoutClassification = { FASTQReadLayoutClassifier.classify(inputURL: $0) }
     ) -> EsVirituSampleReadPlan {
@@ -112,7 +132,7 @@ struct EsVirituSampleReadPlan: Equatable, Sendable {
     /// sample's bundle or file. Separate R1 and R2 files in a deinterleaved
     /// bundle run `paired`. Any other input the planner decides keeps the
     /// classified format, and the planner sets the files when the run starts.
-    static func planned(
+    public static func planned(
         for sample: MetagenomicsSampleInput,
         classify: (URL) -> FASTQReadLayoutClassification = { FASTQReadLayoutClassifier.classify(inputURL: $0) },
         preview: (URL) async -> SamplesheetReadSetPreview = { await SamplesheetReadSetPlanner.preview(input: $0) }

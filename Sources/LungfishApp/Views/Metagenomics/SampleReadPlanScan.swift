@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishWorkflow
 
 /// Scans the samples of a metagenomics wizard a few at a time and reports each
 /// result as soon as it is ready, so the wizard can show progress instead of

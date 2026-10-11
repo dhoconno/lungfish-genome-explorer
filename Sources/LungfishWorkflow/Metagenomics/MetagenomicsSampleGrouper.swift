@@ -1,29 +1,35 @@
-// MetagenomicsSampleInput.swift - Shared FASTQ sample grouping utilities for metagenomics wizards
+// MetagenomicsSampleGrouper.swift - Shared FASTQ sample grouping for the metagenomics wizards and the CLI
 // Copyright (c) 2025 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
 import Foundation
 
 /// A logical metagenomics sample inferred from one or two FASTQ files.
-struct MetagenomicsSampleInput: Sendable, Equatable, Identifiable {
-    let sampleId: String
-    let fastq1: URL
-    let fastq2: URL?
+public struct MetagenomicsSampleInput: Sendable, Equatable, Identifiable {
+    public let sampleId: String
+    public let fastq1: URL
+    public let fastq2: URL?
 
-    var id: String { sampleId }
-    var inputFiles: [URL] { [fastq1] + (fastq2.map { [$0] } ?? []) }
-    var isPairedEnd: Bool { fastq2 != nil }
+    public init(sampleId: String, fastq1: URL, fastq2: URL?) {
+        self.sampleId = sampleId
+        self.fastq1 = fastq1
+        self.fastq2 = fastq2
+    }
+
+    public var id: String { sampleId }
+    public var inputFiles: [URL] { [fastq1] + (fastq2.map { [$0] } ?? []) }
+    public var isPairedEnd: Bool { fastq2 != nil }
 }
 
 /// Groups FASTQ URLs into per-sample inputs using common R1/R2 naming patterns.
-enum MetagenomicsSampleGrouper {
+public enum MetagenomicsSampleGrouper {
     private enum ReadRole {
         case read1
         case read2
         case single
     }
 
-    static func group(_ inputFiles: [URL]) -> [MetagenomicsSampleInput] {
+    public static func group(_ inputFiles: [URL]) -> [MetagenomicsSampleInput] {
         struct Candidate {
             let url: URL
             let sampleKey: String
@@ -102,7 +108,7 @@ enum MetagenomicsSampleGrouper {
         }
     }
 
-    static func sanitizeSampleId(_ raw: String) -> String {
+    public static func sanitizeSampleId(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "sample" }
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))

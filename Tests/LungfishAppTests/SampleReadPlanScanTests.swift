@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishApp
+import LungfishWorkflow
 
 private actor ScanGate {
     private(set) var running = 0

@@ -5,6 +5,7 @@
 import Foundation
 import LungfishCore
 import LungfishKit
+import LungfishWorkflow
 
 /// Finds the managed EsViritu pangenome FASTA that a result was aligned against.
 ///
