@@ -117,6 +117,24 @@ extension RoutingSafetyNetTable {
                     )
                 )
             },
+            RoutingRow(family: .containers, name: "NVD batch", type: .batchGroup) { context in
+                let (batch, samples) = try await RoutingSafetyNetFixtures.nvdResult(
+                    named: "nvd-batch-2026-01-15T15-35-00",
+                    in: context.url("Analyses", isDirectory: true)
+                )
+                try metadata("nvd", isBatch: true, in: batch)
+                let path = context.render(batch)
+                return RoutingRowFixture(
+                    item: try RoutingSafetyNetItems.scannedAnalysis(batch),
+                    expected: RoutingObservation(
+                        viewports: ["NvdResultViewController"],
+                        mode: .metagenomics,
+                        classifierContext: "\(path) samples=[\(samples.sorted().joined(separator: ","))]",
+                        inspector: ["nvd=\(nvdExperiment)"],
+                        provenance: "nvdResult \(path)"
+                    )
+                )
+            },
             RoutingRow(family: .containers, name: "minimap2 batch root", type: .batchGroup) { context in
                 let batch = try SafetyNetFiles.makeDirectory(
                     context.url("Analyses/minimap2-batch-2026-01-15T16-30-00", isDirectory: true)
