@@ -205,6 +205,8 @@ func parseToolVersion(from output: String) -> String? {
 enum ProbeVersionText {
     /// The version in the lines, outside any path. A token written `v2.31.0` is the tool naming
     /// its own version, so the first such token wins. Without one, the first dotted number wins.
+    /// A version keeps up to four numeric parts, as GATK writes `4.6.2.0`, and drops a build
+    /// suffix such as minimap2's `-r1302`.
     ///
     /// vsearch prints a zlib line (`zlib version 1.2.12`) on stdout before its banner
     /// (`vsearch v2.31.0_macos_aarch64`) on stderr, and the prefix is what tells them apart. A
@@ -219,7 +221,7 @@ enum ProbeVersionText {
     /// BBTools wrapper prints one before its banner, and it carries the install path and options
     /// such as `minratio=0.40`.
     static func version(in lines: [String], skippingCommandEcho: Bool) -> String? {
-        let number = /\d+\.\d+(?:\.\d+)?/
+        let number = /\d+\.\d+(?:\.\d+){0,2}/
         var bare: String?
         for line in lines {
             let tokens = line.split(whereSeparator: \.isWhitespace)

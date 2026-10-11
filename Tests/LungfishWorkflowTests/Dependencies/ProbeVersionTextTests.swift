@@ -47,6 +47,14 @@ final class ProbeVersionTextTests: XCTestCase {
         XCTAssertEqual(version(["tool 1.0", "built against libfoo v2.0"]), "2.0")
     }
 
+    /// A version keeps up to four numeric parts, as GATK writes 4.6.2.0 (2.6).
+    func testAVersionKeepsFourNumericParts() {
+        XCTAssertEqual(version(["The Genome Analysis Toolkit (GATK) v4.6.2.0"]), "4.6.2.0")
+        XCTAssertEqual(version(["tool 4.6.2.0"]), "4.6.2.0")
+        XCTAssertEqual(version(["tool 1.2.3.4.5"]), "1.2.3.4")
+        XCTAssertEqual(version(["tool 2.31-r1302"]), "2.31")
+    }
+
     /// The left-most dotted number wins, outside paths and echoed commands.
     func testTheFirstDottedNumberWins() {
         XCTAssertEqual(version(["samtools 1.24", "Using htslib 1.24"]), "1.24")

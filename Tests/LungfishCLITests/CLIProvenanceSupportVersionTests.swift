@@ -93,15 +93,15 @@ final class CLIProvenanceSupportVersionTests: XCTestCase {
         )
     }
 
-    /// The regex stops at three parts (2.6).
-    func testAFourPartVersionIsCutToThree() {
+    /// A version keeps four numeric parts (2.6).
+    func testAFourPartVersionIsKept() {
         // gatk --version, the head of the real output.
         let gatk = Self.lines(
             "The Genome Analysis Toolkit (GATK) v4.6.2.0",
             "HTSJDK Version: 4.2.0",
             "Picard Version: 3.4.0",
             "Using GATK jar \(Self.root)/envs/gatk-core/share/gatk4-4.6.2.0-1/gatk-package-4.6.2.0-local.jar")
-        XCTAssertEqual(CLIProvenanceSupport.parseCondaToolVersion(gatk), "4.6.2")
+        XCTAssertEqual(CLIProvenanceSupport.parseCondaToolVersion(gatk), "4.6.2.0")
     }
 
     /// The regex drops a local build suffix (2.6).

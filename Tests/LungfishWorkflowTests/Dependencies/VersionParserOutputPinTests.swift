@@ -297,6 +297,21 @@ final class VersionParserOutputPinTests: XCTestCase {
                     "https://github.com/torognes/vsearch",
                     ""),
                 native: "2.31.0", detect: "2.31.0", correct: "2.31.0"),
+        // GATK prints four parts, 4.6.2.0, and the version pattern used to stop at three (2.6). The real
+        // output from the owner's install, which the golden environment lacks. GATK echoes its own
+        // java command last, and the native parser skips it.
+        Capture(name: "gatk 4.6.2.0", exitCode: 0,
+                stdout: lines(
+                    "The Genome Analysis Toolkit (GATK) v4.6.2.0",
+                    "HTSJDK Version: 4.2.0",
+                    "Picard Version: 3.4.0"),
+                stderr: lines(
+                    "Using GATK jar \(root)/envs/gatk-core/share/gatk4-4.6.2.0-1/gatk-package-4.6.2.0-local.jar",
+                    "Running:",
+                    "    java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true "
+                        + "-Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -jar "
+                        + "\(root)/envs/gatk-core/share/gatk4-4.6.2.0-1/gatk-package-4.6.2.0-local.jar --version"),
+                native: "4.6.2.0", detect: "4.6.2.0", correct: "4.6.2.0"),
     ]
 
     // MARK: - Known defects, fixed in 2.6 and 2.7
@@ -304,11 +319,6 @@ final class VersionParserOutputPinTests: XCTestCase {
     /// Each row pins a wrong value as it is today. `correct` is what the tool reports. A row stays
     /// here until the parser change that fixes it lands, and that commit moves the row to `clean`.
     private static let knownDefects: [Capture] = [
-        // GATK 4.6.2.0 is cut to 4.6.2 by both parsers (2.6, schema version 2).
-        Capture(name: "gatk 4.6.2.0", exitCode: 0,
-                stdout: "The Genome Analysis Toolkit (GATK) v4.6.2.0\nHTSJDK Version: 4.2.0\nPicard Version: 3.4.0\n",
-                stderr: "Using GATK jar \(root)/envs/gatk-core/share/gatk4-4.6.2.0-1/gatk-package-4.6.2.0-local.jar\n",
-                native: "4.6.2", detect: "4.6.2", correct: "4.6.2.0"),
         // primalscheme3 loses its local build suffix in both parsers (2.6).
         Capture(name: "primalscheme3 +lge.5", exitCode: 0,
                 stdout: "PrimalScheme3-LGE version: 3.3.0+lge.5\n", stderr: "",
