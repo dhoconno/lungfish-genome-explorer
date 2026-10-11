@@ -44,9 +44,10 @@ Predictions file, one JSON object:
   and `**` crosses folders. "file" may be a list. An entry in "files" needs a
   "why", and the value of each key in the other three is the reason. In
   "filesAdded" and "filesRemoved" it may be {"why": "...", "count": 2} for a
-  glob that must match exactly two files. A change to a file that no entry
-  names is unpredicted, so a scientific payload nobody listed has to stay byte
-  for byte the same.
+  glob that must match exactly two files. A change to a file that no entry or
+  ignore names is unpredicted, so a scientific payload nobody listed has to
+  stay byte for byte the same. An ignore leaves a file out of the comparison,
+  and the report lists each ignored file whose bytes differ.
 - A ".json" file is compared as JSON. A path is JSON pointer style with the
   array index in brackets, `/steps[3]/argv[0]`. `[*]` is any index, `*` any
   object key and `~1` a slash inside a key. An index names the position in
@@ -512,7 +513,7 @@ class Rule:
 @dataclass
 class Predictions:
     rules: list[Rule]
-    ignore: list[re.Pattern]
+    ignore: list[tuple[re.Pattern, str]]  # the pattern of each ignore glob and the reason given for it
 
 
 def scalar_matches(pattern: re.Pattern, node: Any) -> bool:
@@ -631,7 +632,7 @@ def load_predictions(text: str) -> Predictions:
     for glob, why in mapping(doc.get("ignore"), "ignore").items():
         if not isinstance(why, str) or not why.strip():
             bad(f"ignore[{glob!r}]", "needs a non-empty why")
-        ignore.append(glob_regex(glob))
+        ignore.append((glob_regex(glob), why if isinstance(why, str) else ""))
     if problems:
         raise SpecError("the predictions file has problems\n" + "\n".join(f"  {p}" for p in problems))
     return Predictions(rules, ignore)
@@ -717,8 +718,14 @@ def group_lines(changes: list[Change], verbose: bool) -> list[str]:
     return lines
 
 
-def format_verdict(verdict: Verdict, rules: list[Rule], changes: list[Change], verbose: bool) -> list[str]:
+def format_verdict(
+    verdict: Verdict, rules: list[Rule], changes: list[Change], verbose: bool, ignored: list[tuple[str, str]] | None = None
+) -> list[str]:
+    ignored = ignored or []
     lines = []
+    if ignored:
+        lines.append(f"IGNORED ({len(ignored)} files)")
+        lines += [f"  {name}  {why}" for name, why in ignored]
     if verdict.unpredicted:
         lines.append(f"UNPREDICTED, no prediction covers these ({len(verdict.unpredicted)} changes)")
         lines += group_lines(verdict.unpredicted, verbose)
@@ -743,13 +750,24 @@ def format_verdict(verdict: Verdict, rules: list[Rule], changes: list[Change], v
     lines.append(
         f"{'OK' if verdict.ok else 'FAILED'}: {len(changes)} changes in {len({c.file for c in changes})} files, "
         f"{len(verdict.unpredicted)} unpredicted, {len(verdict.wrong)} with a wrong value, "
-        f"{len(verdict.unfulfilled)} of {len(rules)} predictions unfulfilled"
+        f"{len(verdict.unfulfilled)} of {len(rules)} predictions unfulfilled, {len(ignored)} ignored"
     )
     return lines
 
 
-def drop_ignored(tree: dict[str, bytes], ignore: list[re.Pattern]) -> dict[str, bytes]:
-    return {name: data for name, data in tree.items() if not any(p.fullmatch(name) for p in ignore)}
+def drop_ignored(tree: dict[str, bytes], ignore: list[tuple[re.Pattern, str]]) -> dict[str, bytes]:
+    return {name: data for name, data in tree.items() if not any(pattern.fullmatch(name) for pattern, _ in ignore)}
+
+
+def ignored_differences(old: dict[str, bytes], new: dict[str, bytes], ignore: list[tuple[re.Pattern, str]]) -> list[tuple[str, str]]:
+    """The files an ignore leaves out although their bytes differ between the trees, with the reason given for it."""
+    found = []
+    for name in sorted(old.keys() | new.keys()):
+        if old.get(name) != new.get(name):
+            reason = next((why for pattern, why in ignore if pattern.fullmatch(name)), None)
+            if reason is not None:
+                found.append((name, reason))
+    return found
 
 
 def run(args: argparse.Namespace) -> int:
@@ -761,6 +779,7 @@ def run(args: argparse.Namespace) -> int:
             raise SpecError(f"cannot read {args.predictions}: {error}") from None
     old_label, old = load_tree(args.old, args.root, args.repo)
     new_label, new = load_tree(args.new, args.root, args.repo)
+    ignored = ignored_differences(old, new, predictions.ignore)
     old, new = drop_ignored(old, predictions.ignore), drop_ignored(new, predictions.ignore)
     changes = compare_trees(old, new)
     print(f"golden predictions: {old_label} -> {new_label}")
@@ -769,7 +788,7 @@ def run(args: argparse.Namespace) -> int:
         print("\n".join(group_lines(changes, args.verbose)) or "  no differences")
         return 0
     verdict = evaluate(changes, predictions.rules)
-    print("\n".join(format_verdict(verdict, predictions.rules, changes, args.verbose)))
+    print("\n".join(format_verdict(verdict, predictions.rules, changes, args.verbose, ignored)))
     return 0 if verdict.ok else 1
 
 

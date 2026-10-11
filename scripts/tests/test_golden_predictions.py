@@ -583,7 +583,8 @@ def test_every_real_json_golden_reads_and_equals_itself():
 
 def report(old: dict, new: dict, prediction, verbose: bool = False) -> str:
     loaded, changes, verdict = check_trees(old, new, prediction)
-    return "\n".join(predictions.format_verdict(verdict, loaded.rules, changes, verbose))
+    ignored = predictions.ignored_differences(old, new, loaded.ignore)
+    return "\n".join(predictions.format_verdict(verdict, loaded.rules, changes, verbose, ignored))
 
 
 def test_the_report_names_the_file_and_the_path_of_every_problem():
@@ -594,7 +595,7 @@ def test_the_report_names_the_file_and_the_path_of_every_problem():
     assert "WRONG VALUE" in text and "new value is \"2.1\", predicted \"3.0\"" in text
     assert "mapping/provenance.json  changed /steps[0]/toolVersion" in text
     assert "UNFULFILLED" in text and "mapping/never.txt  file-added  (no change matched)" in text
-    assert text.splitlines()[-1] == "FAILED: 3 changes in 3 files, 2 unpredicted, 1 with a wrong value, 1 of 2 predictions unfulfilled"
+    assert text.splitlines()[-1] == "FAILED: 3 changes in 3 files, 2 unpredicted, 1 with a wrong value, 1 of 2 predictions unfulfilled, 0 ignored"
 
 
 def test_an_unfulfilled_count_says_what_was_expected_and_what_happened():
@@ -613,6 +614,33 @@ def test_verbose_lists_every_change_and_the_count_behind_every_prediction():
     assert "     3  mapping/provenance.json  removed  /steps[*]/processIdentifier" in report(BASE, tree(NO_PIDS), prediction, verbose=True)
     lines = report(BASE, tree(NO_PIDS), NOTHING, verbose=True).splitlines()
     assert sum("removed /steps[" in line for line in lines) == 3
+
+
+def test_a_changed_file_that_ignore_leaves_out_is_listed_with_its_reason():
+    text = report(BASE, tree({"README.md": b"# New text\n"}), doc(ignore={"README.md": "documentation"}))
+    lines = text.splitlines()
+    assert lines[:2] == ["IGNORED (1 files)", "  README.md  documentation"]
+    assert lines[-1] == "OK: 0 changes in 0 files, 0 unpredicted, 0 with a wrong value, 0 of 0 predictions unfulfilled, 1 ignored"
+
+
+def test_an_ignored_file_that_did_not_change_is_not_listed():
+    text = report(BASE, tree({}), doc(ignore={"README.md": "documentation"}))
+    assert "IGNORED" not in text and text.splitlines()[-1].endswith(", 0 ignored")
+
+
+def test_an_ignore_that_names_every_file_still_shows_the_files_that_changed():
+    new = tree(edit_json(PROVENANCE, set_versions("/Users/dho/x", "unknown", "unknown")))
+    text = report(BASE, new, doc(ignore={"**": "everything"}))
+    assert "IGNORED (1 files)" in text and "  mapping/provenance.json  everything" in text
+    assert text.splitlines()[-1].startswith("OK: 0 changes in 0 files") and text.splitlines()[-1].endswith(", 1 ignored")
+
+
+def test_ignored_files_that_were_added_or_removed_are_listed_in_name_order_with_the_first_reason_that_matches():
+    old = {**BASE, "docs/gone.md": b"g\n", "docs/same.md": b"s\n"}
+    new = {**BASE, "docs/same.md": b"s\n", "docs/added.md": b"a\n"}
+    loaded, changes, _ = check_trees(old, new, doc(ignore={"docs/*.md": "documentation", "docs/added.md": "not reached"}))
+    assert changes == []
+    assert predictions.ignored_differences(old, new, loaded.ignore) == [("docs/added.md", "documentation"), ("docs/gone.md", "documentation")]
 
 
 def test_a_long_run_of_changed_text_lines_is_cut_short_unless_verbose():
@@ -874,6 +902,16 @@ def test_check_exits_1_and_names_file_and_path_of_unpredicted_and_unfulfilled(re
     assert "mapping/counts.json  changed /mapped 197 -> 198" in out
     assert "mapping/extra.txt  file-added" in out
     assert "mapping/counts.json  added  /neverThere  (no change matched)" in out
+
+
+def test_check_lists_the_ignored_files_that_differ_before_the_verdict(tmp_path, capsys):
+    write_tree(tmp_path / "before", BASE)
+    write_tree(tmp_path / "after", tree({**MAPPED_198, "README.md": b"# New text\n"}))
+    prediction = write_predictions(tmp_path, doc(entry(COUNTS, changed=[{"path": "/mapped"}]), ignore={"README.md": "documentation"}))
+    status, out, _ = run_main(capsys, "check", prediction, "--old", f"dir:{tmp_path / 'before'}", "--new", f"dir:{tmp_path / 'after'}")
+    assert status == 0
+    assert "IGNORED (1 files)\n  README.md  documentation\n" in out
+    assert out.splitlines()[-1].endswith("0 of 1 predictions unfulfilled, 1 ignored")
 
 
 def test_check_exits_2_for_a_bad_predictions_file_a_missing_file_or_a_bad_revision(repo, tmp_path, capsys):
