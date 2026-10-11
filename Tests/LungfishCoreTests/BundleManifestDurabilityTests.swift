@@ -207,6 +207,7 @@ final class BundleManifestDurabilityTests: XCTestCase {
             DurableReplace.Step.allCases.allSatisfy { seen.contains($0.rawValue) },
             "a rewrite passes through every durable step, saw \(events.names)"
         )
+        XCTAssertTrue(seen.contains("rename"), "a rewrite swaps through the rename seam, saw \(events.names)")
         XCTAssertEqual(seen.contains("reservation"), simulated || volumeRotates, "only the ExFAT rotation reserves names")
         return events.names
     }

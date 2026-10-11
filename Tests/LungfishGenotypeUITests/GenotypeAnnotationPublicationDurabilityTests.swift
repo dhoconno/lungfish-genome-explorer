@@ -317,6 +317,7 @@ final class GenotypeAnnotationPublicationDurabilityTests: XCTestCase {
             DurableReplace.Step.allCases.allSatisfy { seen.contains($0.rawValue) },
             "a publication passes through every durable step, saw \(events.names)"
         )
+        XCTAssertTrue(seen.contains("rename"), "a publication swaps through the rename seam, saw \(events.names)")
         XCTAssertTrue(seen.contains("beforeProvenancePublication") && seen.contains("commitDirectorySync"), "\(events.names)")
         XCTAssertEqual(seen.contains("reservation"), simulated || volumeRotates, "only the ExFAT rotation reserves names")
         return events.names
