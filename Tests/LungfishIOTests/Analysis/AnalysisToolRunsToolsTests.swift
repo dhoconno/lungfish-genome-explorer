@@ -2,9 +2,10 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.7, lane B5. A descriptor lists the managed tools its kind's pipeline launches and records as steps.
-// The table below is the list of every kind, pinned in one place so a change to it is a decision. Workflow
-// holds the ids to the managed tool lock and the version probe table (AnalysisRunsToolsAgreementTests).
+// Phase 2.7, lane B5. A descriptor lists the managed tools its kind's pipeline launches and names in its
+// provenance record. The table below is the list of every kind, pinned in one place so a change to it is a
+// decision. Workflow holds the ids to the managed tool lock and the version probe table
+// (AnalysisRunsToolsAgreementTests).
 
 import XCTest
 @testable import LungfishIO
