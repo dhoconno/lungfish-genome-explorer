@@ -1,0 +1,320 @@
+{
+  "argv" : [
+    "EsViritu",
+    "-r",
+    "<project>/inputs/sample.fastq",
+    "-s",
+    "sample",
+    "-o",
+    "<project>/Analyses/esviritu-batch/sample",
+    "-p",
+    "unpaired",
+    "-t",
+    "4",
+    "-q",
+    "True",
+    "--db",
+    "<project>/esviritu-db",
+    "--keep",
+    "True"
+  ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "EsViritu",
+        "-r",
+        "<project>/inputs/sample.fastq",
+        "-s",
+        "sample",
+        "-o",
+        "<project>/Analyses/esviritu-batch/sample",
+        "-p",
+        "unpaired",
+        "-t",
+        "4",
+        "-q",
+        "True",
+        "--db",
+        "<project>/esviritu-db",
+        "--keep",
+        "True"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "EsViritu",
+      "toolVersion" : "1.3.3"
+    },
+    {
+      "command" : [
+        "LungfishWorkflow",
+        "EsVirituResult.save",
+        "<project>/Analyses/esviritu-batch/sample/esviritu-result.json"
+      ],
+      "dependsOn" : [
+        0
+      ],
+      "exitCode" : 0,
+      "toolName" : "Lungfish EsViritu Result Sidecar",
+      "toolVersion" : "<app-version>"
+    }
+  ],
+  "decodedBy" : "envelope",
+  "defaultOptions" : {
+
+  },
+  "exitStatus" : 0,
+  "explicitOptions" : {
+    "extraArgs" : {
+      "type" : "string",
+      "value" : ""
+    },
+    "github_release_version" : {
+      "type" : "string",
+      "value" : "v1.3.3"
+    },
+    "pairedEnd" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "qualityFilter" : {
+      "type" : "boolean",
+      "value" : true
+    },
+    "readFormat" : {
+      "type" : "string",
+      "value" : "unpaired"
+    },
+    "sample" : {
+      "type" : "string",
+      "value" : "sample"
+    },
+    "threads" : {
+      "type" : "integer",
+      "value" : 4
+    }
+  },
+  "factsVersion" : 2,
+  "files" : [
+    {
+      "format" : "fastq",
+      "path" : "<project>/inputs/sample.fastq",
+      "role" : "input",
+      "sha256" : "c3520c9401cdc9f35b6bc864babb5b4a8bce9b639ef3063208f82d2266e8119a",
+      "size" : 34
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/esviritu-batch/sample/sample.detected_virus.info.tsv",
+      "role" : "output",
+      "sha256" : "959661998742cb35ea4c71e687d4034743a73aec10b27732bae8e559825159ba",
+      "size" : 223
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/Analyses/esviritu-batch/sample/esviritu-result.json",
+      "role" : "output"
+    }
+  ],
+  "legacyRunParameters" : {
+    "extraArgs" : {
+      "type" : "string",
+      "value" : ""
+    },
+    "github_release_version" : {
+      "type" : "string",
+      "value" : "v1.3.3"
+    },
+    "pairedEnd" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "qualityFilter" : {
+      "type" : "boolean",
+      "value" : true
+    },
+    "readFormat" : {
+      "type" : "string",
+      "value" : "unpaired"
+    },
+    "sample" : {
+      "type" : "string",
+      "value" : "sample"
+    },
+    "threads" : {
+      "type" : "integer",
+      "value" : 4
+    }
+  },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "EsViritu",
+        "-r",
+        "<project>/inputs/sample.fastq",
+        "-s",
+        "sample",
+        "-o",
+        "<project>/Analyses/esviritu-batch/sample",
+        "-p",
+        "unpaired",
+        "-t",
+        "4",
+        "-q",
+        "True",
+        "--db",
+        "<project>/esviritu-db",
+        "--keep",
+        "True"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "toolName" : "EsViritu",
+      "toolVersion" : "1.3.3"
+    },
+    {
+      "command" : [
+        "LungfishWorkflow",
+        "EsVirituResult.save",
+        "<project>/Analyses/esviritu-batch/sample/esviritu-result.json"
+      ],
+      "dependsOn" : [
+        0
+      ],
+      "exitCode" : 0,
+      "toolName" : "Lungfish EsViritu Result Sidecar",
+      "toolVersion" : "<app-version>"
+    }
+  ],
+  "opsStats" : {
+    "completedRunCount" : 1,
+    "decodesAsWorkflowRun" : false,
+    "totalWallTimeSeconds" : 0
+  },
+  "output" : {
+    "format" : "json",
+    "path" : "<project>/Analyses/esviritu-batch/sample/esviritu-result.json",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/esviritu-batch/sample/sample.detected_virus.info.tsv",
+      "role" : "output",
+      "sha256" : "959661998742cb35ea4c71e687d4034743a73aec10b27732bae8e559825159ba",
+      "size" : 223
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/Analyses/esviritu-batch/sample/esviritu-result.json",
+      "role" : "output"
+    }
+  ],
+  "readStatus" : "completed",
+  "recorded" : {
+
+  },
+  "reproducibleCommand" : "EsViritu -r <project>/inputs/sample.fastq -s sample -o <project>/Analyses/esviritu-batch/sample -p unpaired -t 4 -q True --db <project>/esviritu-db --keep True",
+  "resolvedDefaultOptions" : {
+
+  },
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "EsViritu",
+        "-r",
+        "<project>/inputs/sample.fastq",
+        "-s",
+        "sample",
+        "-o",
+        "<project>/Analyses/esviritu-batch/sample",
+        "-p",
+        "unpaired",
+        "-t",
+        "4",
+        "-q",
+        "True",
+        "--db",
+        "<project>/esviritu-db",
+        "--keep",
+        "True"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "fastq",
+          "path" : "<project>/inputs/sample.fastq",
+          "role" : "input",
+          "sha256" : "c3520c9401cdc9f35b6bc864babb5b4a8bce9b639ef3063208f82d2266e8119a",
+          "size" : 34
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/esviritu-batch/sample/sample.detected_virus.info.tsv",
+          "role" : "output",
+          "sha256" : "959661998742cb35ea4c71e687d4034743a73aec10b27732bae8e559825159ba",
+          "size" : 223
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "EsViritu -r <project>/inputs/sample.fastq -s sample -o <project>/Analyses/esviritu-batch/sample -p unpaired -t 4 -q True --db <project>/esviritu-db --keep True",
+      "resolvedOptions" : {
+
+      },
+      "stderr" : "EsViritu stand-in finished\n",
+      "toolName" : "EsViritu",
+      "toolVersion" : "1.3.3"
+    },
+    {
+      "argv" : [
+        "LungfishWorkflow",
+        "EsVirituResult.save",
+        "<project>/Analyses/esviritu-batch/sample/esviritu-result.json"
+      ],
+      "dependsOn" : [
+        0
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/esviritu-batch/sample/sample.detected_virus.info.tsv",
+          "role" : "output",
+          "sha256" : "959661998742cb35ea4c71e687d4034743a73aec10b27732bae8e559825159ba",
+          "size" : 223
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "json",
+          "path" : "<project>/Analyses/esviritu-batch/sample/esviritu-result.json",
+          "role" : "output"
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "LungfishWorkflow EsVirituResult.save <project>/Analyses/esviritu-batch/sample/esviritu-result.json",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "Lungfish EsViritu Result Sidecar",
+      "toolVersion" : "<app-version>"
+    }
+  ],
+  "strictAccepts" : true,
+  "toolName" : "EsViritu",
+  "toolVersion" : "1.3.3",
+  "workflowName" : "Viral Metagenomics Detection"
+}

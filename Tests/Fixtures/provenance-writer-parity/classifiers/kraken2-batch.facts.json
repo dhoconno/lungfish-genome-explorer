@@ -1,0 +1,2303 @@
+{
+  "argv" : [
+    "/bin/sh",
+    "-c",
+    "set -e\n/bin/test -d <project>/kraken-db; /bin/test -f <project>/kraken-db/.lungfish-provenance.json; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.payloadAggregateSHA256.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = sha256:fixture-db; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.intendedFinalPath.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = <project>/kraken-db; /bin/test \"$(/usr/bin/plutil -extract exitStatus raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = 0; /bin/test \"$(lungfish-cli conda db info --no-color FixtureDB | /usr/bin/sed -n 's/^Location[[:space:]]*:[[:space:]]*//p')\" = <project>/kraken-db; lungfish-cli conda classify --db FixtureDB --output-dir <project>/Analyses/kraken2-batch/SampleA --confidence 0.0 --min-hit-groups 2 --threads 4 --read-format unpaired --profile --bracken-read-length 150 --bracken-threshold 10 <project>/reads.fastq\n/bin/test -d <project>/kraken-db; /bin/test -f <project>/kraken-db/.lungfish-provenance.json; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.payloadAggregateSHA256.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = sha256:fixture-db; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.intendedFinalPath.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = <project>/kraken-db; /bin/test \"$(/usr/bin/plutil -extract exitStatus raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = 0; /bin/test \"$(lungfish-cli conda db info --no-color FixtureDB | /usr/bin/sed -n 's/^Location[[:space:]]*:[[:space:]]*//p')\" = <project>/kraken-db; lungfish-cli conda classify --db FixtureDB --output-dir <project>/Analyses/kraken2-batch/SampleB --confidence 0.0 --min-hit-groups 2 --threads 4 --read-format unpaired --profile --bracken-read-length 150 --bracken-threshold 10 <project>/reads-b.fastq"
+  ],
+  "canonicalRunSteps" : [
+    {
+      "command" : [
+        "kraken2",
+        "--db",
+        "<project>/kraken-db",
+        "--threads",
+        "4",
+        "--confidence",
+        "0.0",
+        "--minimum-hit-groups",
+        "2",
+        "--output",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kraken",
+        "--report",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
+        "--report-minimizer-data",
+        "<project>/reads.fastq"
+      ],
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "kraken2",
+        "--db",
+        "<project>/kraken-db",
+        "--threads",
+        "4",
+        "--confidence",
+        "0.0",
+        "--minimum-hit-groups",
+        "2",
+        "--output",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kraken",
+        "--report",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
+        "--report-minimizer-data",
+        "<project>/reads.fastq"
+      ],
+      "exitCode" : 0,
+      "toolName" : "kraken2",
+      "toolVersion" : "2.1.3"
+    },
+    {
+      "command" : [
+        "LungfishWorkflow",
+        "BrackenPreflight",
+        "--kreport",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
+        "--database",
+        "<project>/kraken-db",
+        "--distribution",
+        "<project>/kraken-db/database150mers.kmer_distrib",
+        "--requested-rank",
+        "automatic",
+        "--resolved-rank",
+        "S",
+        "--read-length",
+        "150",
+        "--threshold",
+        "10"
+      ],
+      "dependsOn" : [
+        0
+      ],
+      "exitCode" : 0,
+      "toolName" : "Lungfish Bracken Preflight",
+      "toolVersion" : "<app-version>"
+    },
+    {
+      "command" : [
+        "bracken",
+        "-d",
+        "<project>/kraken-db",
+        "-i",
+        "<tmp>/lungfish-bracken-<uuid>/classification.kreport",
+        "-o",
+        "<tmp>/lungfish-bracken-<uuid>/classification.bracken",
+        "-w",
+        "<tmp>/lungfish-bracken-<uuid>/classification.bracken.kreport",
+        "-r",
+        "150",
+        "-l",
+        "S",
+        "-t",
+        "10"
+      ],
+      "dependsOn" : [
+        1
+      ],
+      "exitCode" : 0,
+      "toolName" : "bracken",
+      "toolVersion" : "3.1"
+    },
+    {
+      "command" : [
+        "lungfish-cli",
+        "internal",
+        "kraken2-index",
+        "--classified-only",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kraken",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kraken.gz.idx.sqlite"
+      ],
+      "dependsOn" : [
+        0
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish-kraken2-index",
+      "toolVersion" : "<app-version>"
+    },
+    {
+      "command" : [
+        "/bin/sh",
+        "-c",
+        "/usr/bin/gzip -c <project>/Analyses/kraken2-batch/SampleA/classification.kraken > <project>/Analyses/kraken2-batch/SampleA/classification.kraken.gz"
+      ],
+      "dependsOn" : [
+        0
+      ],
+      "exitCode" : 0,
+      "toolName" : "gzip",
+      "toolVersion" : "system"
+    },
+    {
+      "command" : [
+        "LungfishWorkflow",
+        "ClassificationResult.save",
+        "<project>/Analyses/kraken2-batch/SampleA/classification-result.json"
+      ],
+      "dependsOn" : [
+        2
+      ],
+      "exitCode" : 0,
+      "toolName" : "Lungfish Classification Result Sidecar",
+      "toolVersion" : "<app-version>"
+    },
+    {
+      "command" : [
+        "kraken2",
+        "--db",
+        "<project>/kraken-db",
+        "--threads",
+        "4",
+        "--confidence",
+        "0.0",
+        "--minimum-hit-groups",
+        "2",
+        "--output",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kraken",
+        "--report",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
+        "--report-minimizer-data",
+        "<project>/reads-b.fastq"
+      ],
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "kraken2",
+        "--db",
+        "<project>/kraken-db",
+        "--threads",
+        "4",
+        "--confidence",
+        "0.0",
+        "--minimum-hit-groups",
+        "2",
+        "--output",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kraken",
+        "--report",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
+        "--report-minimizer-data",
+        "<project>/reads-b.fastq"
+      ],
+      "exitCode" : 0,
+      "toolName" : "kraken2",
+      "toolVersion" : "2.1.3"
+    },
+    {
+      "command" : [
+        "LungfishWorkflow",
+        "BrackenPreflight",
+        "--kreport",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
+        "--database",
+        "<project>/kraken-db",
+        "--distribution",
+        "<project>/kraken-db/database150mers.kmer_distrib",
+        "--requested-rank",
+        "automatic",
+        "--resolved-rank",
+        "S",
+        "--read-length",
+        "150",
+        "--threshold",
+        "10"
+      ],
+      "dependsOn" : [
+        6
+      ],
+      "exitCode" : 0,
+      "toolName" : "Lungfish Bracken Preflight",
+      "toolVersion" : "<app-version>"
+    },
+    {
+      "command" : [
+        "bracken",
+        "-d",
+        "<project>/kraken-db",
+        "-i",
+        "<tmp>/lungfish-bracken-<uuid>/classification.kreport",
+        "-o",
+        "<tmp>/lungfish-bracken-<uuid>/classification.bracken",
+        "-w",
+        "<tmp>/lungfish-bracken-<uuid>/classification.bracken.kreport",
+        "-r",
+        "150",
+        "-l",
+        "S",
+        "-t",
+        "10"
+      ],
+      "dependsOn" : [
+        7
+      ],
+      "exitCode" : 0,
+      "toolName" : "bracken",
+      "toolVersion" : "3.1"
+    },
+    {
+      "command" : [
+        "lungfish-cli",
+        "internal",
+        "kraken2-index",
+        "--classified-only",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kraken",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kraken.gz.idx.sqlite"
+      ],
+      "dependsOn" : [
+        6
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish-kraken2-index",
+      "toolVersion" : "<app-version>"
+    },
+    {
+      "command" : [
+        "/bin/sh",
+        "-c",
+        "/usr/bin/gzip -c <project>/Analyses/kraken2-batch/SampleB/classification.kraken > <project>/Analyses/kraken2-batch/SampleB/classification.kraken.gz"
+      ],
+      "dependsOn" : [
+        6
+      ],
+      "exitCode" : 0,
+      "toolName" : "gzip",
+      "toolVersion" : "system"
+    },
+    {
+      "command" : [
+        "LungfishWorkflow",
+        "ClassificationResult.save",
+        "<project>/Analyses/kraken2-batch/SampleB/classification-result.json"
+      ],
+      "dependsOn" : [
+        8
+      ],
+      "exitCode" : 0,
+      "toolName" : "Lungfish Classification Result Sidecar",
+      "toolVersion" : "<app-version>"
+    },
+    {
+      "command" : [
+        "/bin/sh",
+        "-c",
+        "set -e\n/bin/test -d <project>/kraken-db; /bin/test -f <project>/kraken-db/.lungfish-provenance.json; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.payloadAggregateSHA256.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = sha256:fixture-db; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.intendedFinalPath.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = <project>/kraken-db; /bin/test \"$(/usr/bin/plutil -extract exitStatus raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = 0; /bin/test \"$(lungfish-cli conda db info --no-color FixtureDB | /usr/bin/sed -n 's/^Location[[:space:]]*:[[:space:]]*//p')\" = <project>/kraken-db; lungfish-cli conda classify --db FixtureDB --output-dir <project>/Analyses/kraken2-batch/SampleA --confidence 0.0 --min-hit-groups 2 --threads 4 --read-format unpaired --profile --bracken-read-length 150 --bracken-threshold 10 <project>/reads.fastq\n/bin/test -d <project>/kraken-db; /bin/test -f <project>/kraken-db/.lungfish-provenance.json; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.payloadAggregateSHA256.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = sha256:fixture-db; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.intendedFinalPath.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = <project>/kraken-db; /bin/test \"$(/usr/bin/plutil -extract exitStatus raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = 0; /bin/test \"$(lungfish-cli conda db info --no-color FixtureDB | /usr/bin/sed -n 's/^Location[[:space:]]*:[[:space:]]*//p')\" = <project>/kraken-db; lungfish-cli conda classify --db FixtureDB --output-dir <project>/Analyses/kraken2-batch/SampleB --confidence 0.0 --min-hit-groups 2 --threads 4 --read-format unpaired --profile --bracken-read-length 150 --bracken-threshold 10 <project>/reads-b.fastq"
+      ],
+      "dependsOn" : [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "exitCode" : 0,
+      "toolName" : "Lungfish Classification Batch",
+      "toolVersion" : "<app-version>"
+    }
+  ],
+  "decodedBy" : "envelope",
+  "defaultOptions" : {
+    "brackenRankRequest" : {
+      "type" : "string",
+      "value" : "automatic"
+    },
+    "brackenReadLength" : {
+      "type" : "integer",
+      "value" : 150
+    },
+    "brackenThreshold" : {
+      "type" : "integer",
+      "value" : 10
+    },
+    "manifestFilename" : {
+      "type" : "string",
+      "value" : "classification-batch-result.json"
+    },
+    "sqliteFilename" : {
+      "type" : "string",
+      "value" : "kraken2.sqlite"
+    },
+    "summaryFilename" : {
+      "type" : "string",
+      "value" : "classification-batch-summary.tsv"
+    }
+  },
+  "exitStatus" : 0,
+  "explicitOptions" : {
+    "brackenRankRequest" : {
+      "type" : "string",
+      "value" : "automatic"
+    },
+    "brackenRequestedReadLength" : {
+      "type" : "integer",
+      "value" : 150
+    },
+    "brackenRequestedThreshold" : {
+      "type" : "integer",
+      "value" : 10
+    },
+    "completedCount" : {
+      "type" : "integer",
+      "value" : 2
+    },
+    "confidence" : {
+      "type" : "number",
+      "value" : 0
+    },
+    "configurationCount" : {
+      "type" : "integer",
+      "value" : 2
+    },
+    "databaseCatalogID" : {
+      "type" : "null"
+    },
+    "databaseDigest" : {
+      "type" : "string",
+      "value" : "sha256:fixture-db"
+    },
+    "databaseInstallationRecipe" : {
+      "type" : "null"
+    },
+    "databaseName" : {
+      "type" : "string",
+      "value" : "FixtureDB"
+    },
+    "databasePath" : {
+      "type" : "file",
+      "value" : "<project>/kraken-db"
+    },
+    "databaseVersion" : {
+      "type" : "string",
+      "value" : "fixture-v1"
+    },
+    "degradedCount" : {
+      "type" : "integer",
+      "value" : 0
+    },
+    "extraArgs" : {
+      "type" : "string",
+      "value" : ""
+    },
+    "failedCount" : {
+      "type" : "integer",
+      "value" : 0
+    },
+    "goal" : {
+      "type" : "string",
+      "value" : "profile"
+    },
+    "manifestSummaryTSV" : {
+      "type" : "string",
+      "value" : "classification-batch-summary.tsv"
+    },
+    "memoryMapping" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "minimumHitGroups" : {
+      "type" : "integer",
+      "value" : 2
+    },
+    "pairedEnd" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "pairedEndSamples" : {
+      "type" : "integer",
+      "value" : 0
+    },
+    "quickMode" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "returnedSampleCount" : {
+      "type" : "integer",
+      "value" : 2
+    },
+    "sampleCount" : {
+      "type" : "integer",
+      "value" : 2
+    },
+    "threads" : {
+      "type" : "integer",
+      "value" : 4
+    }
+  },
+  "factsVersion" : 2,
+  "files" : [
+    {
+      "format" : "fastq",
+      "path" : "<project>/reads.fastq",
+      "role" : "input",
+      "sha256" : "9895357bfb83ab797025d9d53c8d8aad263a9c305c8d3026e5bffd3648924889",
+      "size" : 19
+    },
+    {
+      "format" : "fastq",
+      "path" : "<project>/reads-b.fastq",
+      "role" : "input",
+      "sha256" : "8e90610ee19b01ccd12826d7974188ec220d47e915ea9ad7b710c4e3ff3fa6c1",
+      "size" : 19
+    },
+    {
+      "format" : "unknown",
+      "path" : "<project>/kraken-db",
+      "role" : "reference",
+      "sha256" : "fixture-db",
+      "size" : 24
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
+      "role" : "report",
+      "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
+      "size" : 56
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
+      "role" : "input",
+      "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
+      "size" : 56
+    },
+    {
+      "format" : "unknown",
+      "path" : "<project>/kraken-db/database150mers.kmer_distrib",
+      "role" : "reference",
+      "sha256" : "d89539377919e7300dc17eb15bac2b1bae5fed853c57218379398a1fc2b4a84f",
+      "size" : 31
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.bracken",
+      "role" : "output",
+      "sha256" : "8e9cb9a5666835b7f54c4ef5140d4a663de30e6f87c69ecbf73fb3e1d159c352",
+      "size" : 132
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.bracken.kreport",
+      "role" : "report",
+      "sha256" : "db3445bb2a76ea674b1dca4840358f1c79e5832cac71b9f974cd1c8c87b1f4cd",
+      "size" : 20
+    },
+    {
+      "format" : "unknown",
+      "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kraken.gz.idx.sqlite",
+      "role" : "index"
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kraken.gz",
+      "role" : "output"
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/Analyses/kraken2-batch/SampleA/classification-result.json",
+      "role" : "output"
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
+      "role" : "report",
+      "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
+      "size" : 56
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
+      "role" : "input",
+      "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
+      "size" : 56
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.bracken",
+      "role" : "output",
+      "sha256" : "8e9cb9a5666835b7f54c4ef5140d4a663de30e6f87c69ecbf73fb3e1d159c352",
+      "size" : 132
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.bracken.kreport",
+      "role" : "report",
+      "sha256" : "db3445bb2a76ea674b1dca4840358f1c79e5832cac71b9f974cd1c8c87b1f4cd",
+      "size" : 20
+    },
+    {
+      "format" : "unknown",
+      "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kraken.gz.idx.sqlite",
+      "role" : "index"
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kraken.gz",
+      "role" : "output"
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/Analyses/kraken2-batch/SampleB/classification-result.json",
+      "role" : "output"
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/classification-batch-summary.tsv",
+      "role" : "report",
+      "sha256" : "5a72d0e0195804eb72a1abe9a5e4497b3417e8522e84143e5b332a91d0409dbd",
+      "size" : 270
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/Analyses/kraken2-batch/classification-batch-result.json",
+      "role" : "output"
+    },
+    {
+      "format" : "unknown",
+      "path" : "<project>/Analyses/kraken2-batch/kraken2.sqlite",
+      "role" : "output",
+      "sha256" : "41d14327d62fb255bd8a67796ef05aa2e4ac869d2a2b88ebfdad6da5f45778b2",
+      "size" : 32
+    }
+  ],
+  "legacyRunParameters" : {
+    "brackenRankRequest" : {
+      "type" : "string",
+      "value" : "automatic"
+    },
+    "brackenRequestedReadLength" : {
+      "type" : "integer",
+      "value" : 150
+    },
+    "brackenRequestedThreshold" : {
+      "type" : "integer",
+      "value" : 10
+    },
+    "completedCount" : {
+      "type" : "integer",
+      "value" : 2
+    },
+    "confidence" : {
+      "type" : "number",
+      "value" : 0
+    },
+    "configurationCount" : {
+      "type" : "integer",
+      "value" : 2
+    },
+    "databaseCatalogID" : {
+      "type" : "null"
+    },
+    "databaseDigest" : {
+      "type" : "string",
+      "value" : "sha256:fixture-db"
+    },
+    "databaseInstallationRecipe" : {
+      "type" : "null"
+    },
+    "databaseName" : {
+      "type" : "string",
+      "value" : "FixtureDB"
+    },
+    "databasePath" : {
+      "type" : "file",
+      "value" : "<project>/kraken-db"
+    },
+    "databaseVersion" : {
+      "type" : "string",
+      "value" : "fixture-v1"
+    },
+    "degradedCount" : {
+      "type" : "integer",
+      "value" : 0
+    },
+    "extraArgs" : {
+      "type" : "string",
+      "value" : ""
+    },
+    "failedCount" : {
+      "type" : "integer",
+      "value" : 0
+    },
+    "goal" : {
+      "type" : "string",
+      "value" : "profile"
+    },
+    "manifestSummaryTSV" : {
+      "type" : "string",
+      "value" : "classification-batch-summary.tsv"
+    },
+    "memoryMapping" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "minimumHitGroups" : {
+      "type" : "integer",
+      "value" : 2
+    },
+    "pairedEnd" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "pairedEndSamples" : {
+      "type" : "integer",
+      "value" : 0
+    },
+    "quickMode" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "returnedSampleCount" : {
+      "type" : "integer",
+      "value" : 2
+    },
+    "sampleCount" : {
+      "type" : "integer",
+      "value" : 2
+    },
+    "threads" : {
+      "type" : "integer",
+      "value" : 4
+    }
+  },
+  "legacyRunSteps" : [
+    {
+      "command" : [
+        "kraken2",
+        "--db",
+        "<project>/kraken-db",
+        "--threads",
+        "4",
+        "--confidence",
+        "0.0",
+        "--minimum-hit-groups",
+        "2",
+        "--output",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kraken",
+        "--report",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
+        "--report-minimizer-data",
+        "<project>/reads.fastq"
+      ],
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "kraken2",
+        "--db",
+        "<project>/kraken-db",
+        "--threads",
+        "4",
+        "--confidence",
+        "0.0",
+        "--minimum-hit-groups",
+        "2",
+        "--output",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kraken",
+        "--report",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
+        "--report-minimizer-data",
+        "<project>/reads.fastq"
+      ],
+      "exitCode" : 0,
+      "toolName" : "kraken2",
+      "toolVersion" : "2.1.3"
+    },
+    {
+      "command" : [
+        "LungfishWorkflow",
+        "BrackenPreflight",
+        "--kreport",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
+        "--database",
+        "<project>/kraken-db",
+        "--distribution",
+        "<project>/kraken-db/database150mers.kmer_distrib",
+        "--requested-rank",
+        "automatic",
+        "--resolved-rank",
+        "S",
+        "--read-length",
+        "150",
+        "--threshold",
+        "10"
+      ],
+      "dependsOn" : [
+        0
+      ],
+      "exitCode" : 0,
+      "toolName" : "Lungfish Bracken Preflight",
+      "toolVersion" : "<app-version>"
+    },
+    {
+      "command" : [
+        "bracken",
+        "-d",
+        "<project>/kraken-db",
+        "-i",
+        "<tmp>/lungfish-bracken-<uuid>/classification.kreport",
+        "-o",
+        "<tmp>/lungfish-bracken-<uuid>/classification.bracken",
+        "-w",
+        "<tmp>/lungfish-bracken-<uuid>/classification.bracken.kreport",
+        "-r",
+        "150",
+        "-l",
+        "S",
+        "-t",
+        "10"
+      ],
+      "dependsOn" : [
+        1
+      ],
+      "exitCode" : 0,
+      "toolName" : "bracken",
+      "toolVersion" : "3.1"
+    },
+    {
+      "command" : [
+        "lungfish-cli",
+        "internal",
+        "kraken2-index",
+        "--classified-only",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kraken",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kraken.gz.idx.sqlite"
+      ],
+      "dependsOn" : [
+        0
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish-kraken2-index",
+      "toolVersion" : "<app-version>"
+    },
+    {
+      "command" : [
+        "/bin/sh",
+        "-c",
+        "/usr/bin/gzip -c <project>/Analyses/kraken2-batch/SampleA/classification.kraken > <project>/Analyses/kraken2-batch/SampleA/classification.kraken.gz"
+      ],
+      "dependsOn" : [
+        0
+      ],
+      "exitCode" : 0,
+      "toolName" : "gzip",
+      "toolVersion" : "system"
+    },
+    {
+      "command" : [
+        "LungfishWorkflow",
+        "ClassificationResult.save",
+        "<project>/Analyses/kraken2-batch/SampleA/classification-result.json"
+      ],
+      "dependsOn" : [
+        2
+      ],
+      "exitCode" : 0,
+      "toolName" : "Lungfish Classification Result Sidecar",
+      "toolVersion" : "<app-version>"
+    },
+    {
+      "command" : [
+        "kraken2",
+        "--db",
+        "<project>/kraken-db",
+        "--threads",
+        "4",
+        "--confidence",
+        "0.0",
+        "--minimum-hit-groups",
+        "2",
+        "--output",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kraken",
+        "--report",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
+        "--report-minimizer-data",
+        "<project>/reads-b.fastq"
+      ],
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "kraken2",
+        "--db",
+        "<project>/kraken-db",
+        "--threads",
+        "4",
+        "--confidence",
+        "0.0",
+        "--minimum-hit-groups",
+        "2",
+        "--output",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kraken",
+        "--report",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
+        "--report-minimizer-data",
+        "<project>/reads-b.fastq"
+      ],
+      "exitCode" : 0,
+      "toolName" : "kraken2",
+      "toolVersion" : "2.1.3"
+    },
+    {
+      "command" : [
+        "LungfishWorkflow",
+        "BrackenPreflight",
+        "--kreport",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
+        "--database",
+        "<project>/kraken-db",
+        "--distribution",
+        "<project>/kraken-db/database150mers.kmer_distrib",
+        "--requested-rank",
+        "automatic",
+        "--resolved-rank",
+        "S",
+        "--read-length",
+        "150",
+        "--threshold",
+        "10"
+      ],
+      "dependsOn" : [
+        6
+      ],
+      "exitCode" : 0,
+      "toolName" : "Lungfish Bracken Preflight",
+      "toolVersion" : "<app-version>"
+    },
+    {
+      "command" : [
+        "bracken",
+        "-d",
+        "<project>/kraken-db",
+        "-i",
+        "<tmp>/lungfish-bracken-<uuid>/classification.kreport",
+        "-o",
+        "<tmp>/lungfish-bracken-<uuid>/classification.bracken",
+        "-w",
+        "<tmp>/lungfish-bracken-<uuid>/classification.bracken.kreport",
+        "-r",
+        "150",
+        "-l",
+        "S",
+        "-t",
+        "10"
+      ],
+      "dependsOn" : [
+        7
+      ],
+      "exitCode" : 0,
+      "toolName" : "bracken",
+      "toolVersion" : "3.1"
+    },
+    {
+      "command" : [
+        "lungfish-cli",
+        "internal",
+        "kraken2-index",
+        "--classified-only",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kraken",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kraken.gz.idx.sqlite"
+      ],
+      "dependsOn" : [
+        6
+      ],
+      "exitCode" : 0,
+      "toolName" : "lungfish-kraken2-index",
+      "toolVersion" : "<app-version>"
+    },
+    {
+      "command" : [
+        "/bin/sh",
+        "-c",
+        "/usr/bin/gzip -c <project>/Analyses/kraken2-batch/SampleB/classification.kraken > <project>/Analyses/kraken2-batch/SampleB/classification.kraken.gz"
+      ],
+      "dependsOn" : [
+        6
+      ],
+      "exitCode" : 0,
+      "toolName" : "gzip",
+      "toolVersion" : "system"
+    },
+    {
+      "command" : [
+        "LungfishWorkflow",
+        "ClassificationResult.save",
+        "<project>/Analyses/kraken2-batch/SampleB/classification-result.json"
+      ],
+      "dependsOn" : [
+        8
+      ],
+      "exitCode" : 0,
+      "toolName" : "Lungfish Classification Result Sidecar",
+      "toolVersion" : "<app-version>"
+    },
+    {
+      "command" : [
+        "/bin/sh",
+        "-c",
+        "set -e\n/bin/test -d <project>/kraken-db; /bin/test -f <project>/kraken-db/.lungfish-provenance.json; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.payloadAggregateSHA256.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = sha256:fixture-db; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.intendedFinalPath.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = <project>/kraken-db; /bin/test \"$(/usr/bin/plutil -extract exitStatus raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = 0; /bin/test \"$(lungfish-cli conda db info --no-color FixtureDB | /usr/bin/sed -n 's/^Location[[:space:]]*:[[:space:]]*//p')\" = <project>/kraken-db; lungfish-cli conda classify --db FixtureDB --output-dir <project>/Analyses/kraken2-batch/SampleA --confidence 0.0 --min-hit-groups 2 --threads 4 --read-format unpaired --profile --bracken-read-length 150 --bracken-threshold 10 <project>/reads.fastq\n/bin/test -d <project>/kraken-db; /bin/test -f <project>/kraken-db/.lungfish-provenance.json; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.payloadAggregateSHA256.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = sha256:fixture-db; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.intendedFinalPath.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = <project>/kraken-db; /bin/test \"$(/usr/bin/plutil -extract exitStatus raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = 0; /bin/test \"$(lungfish-cli conda db info --no-color FixtureDB | /usr/bin/sed -n 's/^Location[[:space:]]*:[[:space:]]*//p')\" = <project>/kraken-db; lungfish-cli conda classify --db FixtureDB --output-dir <project>/Analyses/kraken2-batch/SampleB --confidence 0.0 --min-hit-groups 2 --threads 4 --read-format unpaired --profile --bracken-read-length 150 --bracken-threshold 10 <project>/reads-b.fastq"
+      ],
+      "dependsOn" : [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "exitCode" : 0,
+      "toolName" : "Lungfish Classification Batch",
+      "toolVersion" : "<app-version>"
+    }
+  ],
+  "opsStats" : {
+    "completedRunCount" : 1,
+    "decodesAsWorkflowRun" : false,
+    "totalWallTimeSeconds" : 0
+  },
+  "output" : {
+    "format" : "text",
+    "path" : "<project>/Analyses/kraken2-batch/classification-batch-summary.tsv",
+    "role" : "output",
+    "sha256" : "5a72d0e0195804eb72a1abe9a5e4497b3417e8522e84143e5b332a91d0409dbd",
+    "size" : 270
+  },
+  "outputs" : [
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/classification-batch-summary.tsv",
+      "role" : "report",
+      "sha256" : "5a72d0e0195804eb72a1abe9a5e4497b3417e8522e84143e5b332a91d0409dbd",
+      "size" : 270
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/Analyses/kraken2-batch/classification-batch-result.json",
+      "role" : "output"
+    },
+    {
+      "format" : "unknown",
+      "path" : "<project>/Analyses/kraken2-batch/kraken2.sqlite",
+      "role" : "output",
+      "sha256" : "41d14327d62fb255bd8a67796ef05aa2e4ac869d2a2b88ebfdad6da5f45778b2",
+      "size" : 32
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
+      "role" : "report",
+      "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
+      "size" : 56
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.bracken",
+      "role" : "output",
+      "sha256" : "8e9cb9a5666835b7f54c4ef5140d4a663de30e6f87c69ecbf73fb3e1d159c352",
+      "size" : 132
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.bracken.kreport",
+      "role" : "report",
+      "sha256" : "db3445bb2a76ea674b1dca4840358f1c79e5832cac71b9f974cd1c8c87b1f4cd",
+      "size" : 20
+    },
+    {
+      "format" : "unknown",
+      "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kraken.gz.idx.sqlite",
+      "role" : "index"
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kraken.gz",
+      "role" : "output"
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/Analyses/kraken2-batch/SampleA/classification-result.json",
+      "role" : "output"
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
+      "role" : "report",
+      "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
+      "size" : 56
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.bracken",
+      "role" : "output",
+      "sha256" : "8e9cb9a5666835b7f54c4ef5140d4a663de30e6f87c69ecbf73fb3e1d159c352",
+      "size" : 132
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.bracken.kreport",
+      "role" : "report",
+      "sha256" : "db3445bb2a76ea674b1dca4840358f1c79e5832cac71b9f974cd1c8c87b1f4cd",
+      "size" : 20
+    },
+    {
+      "format" : "unknown",
+      "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kraken.gz.idx.sqlite",
+      "role" : "index"
+    },
+    {
+      "format" : "text",
+      "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kraken.gz",
+      "role" : "output"
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/Analyses/kraken2-batch/SampleB/classification-result.json",
+      "role" : "output"
+    }
+  ],
+  "readStatus" : "completed",
+  "recorded" : {
+
+  },
+  "reproducibleCommand" : "/bin/sh -c 'set -e\n/bin/test -d <project>/kraken-db; /bin/test -f <project>/kraken-db/.lungfish-provenance.json; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.payloadAggregateSHA256.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = sha256:fixture-db; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.intendedFinalPath.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = <project>/kraken-db; /bin/test \"$(/usr/bin/plutil -extract exitStatus raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = 0; /bin/test \"$(lungfish-cli conda db info --no-color FixtureDB | /usr/bin/sed -n '\\''s/^Location[[:space:]]*:[[:space:]]*//p'\\'')\" = <project>/kraken-db; lungfish-cli conda classify --db FixtureDB --output-dir <project>/Analyses/kraken2-batch/SampleA --confidence 0.0 --min-hit-groups 2 --threads 4 --read-format unpaired --profile --bracken-read-length 150 --bracken-threshold 10 <project>/reads.fastq\n/bin/test -d <project>/kraken-db; /bin/test -f <project>/kraken-db/.lungfish-provenance.json; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.payloadAggregateSHA256.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = sha256:fixture-db; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.intendedFinalPath.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = <project>/kraken-db; /bin/test \"$(/usr/bin/plutil -extract exitStatus raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = 0; /bin/test \"$(lungfish-cli conda db info --no-color FixtureDB | /usr/bin/sed -n '\\''s/^Location[[:space:]]*:[[:space:]]*//p'\\'')\" = <project>/kraken-db; lungfish-cli conda classify --db FixtureDB --output-dir <project>/Analyses/kraken2-batch/SampleB --confidence 0.0 --min-hit-groups 2 --threads 4 --read-format unpaired --profile --bracken-read-length 150 --bracken-threshold 10 <project>/reads-b.fastq'",
+  "resolvedDefaultOptions" : {
+    "brackenReadLength" : {
+      "type" : "integer",
+      "value" : 150
+    },
+    "brackenResolutionSource" : {
+      "type" : "string",
+      "value" : "compatibilityDefault"
+    },
+    "brackenResolvedRank" : {
+      "type" : "string",
+      "value" : "S"
+    },
+    "brackenThreshold" : {
+      "type" : "integer",
+      "value" : 10
+    },
+    "completedCount" : {
+      "type" : "integer",
+      "value" : 2
+    },
+    "databaseDigests" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "string",
+          "value" : "sha256:fixture-db"
+        }
+      ]
+    },
+    "databaseName" : {
+      "type" : "string",
+      "value" : "FixtureDB"
+    },
+    "databaseVersion" : {
+      "type" : "string",
+      "value" : "fixture-v1"
+    },
+    "degradedCount" : {
+      "type" : "integer",
+      "value" : 0
+    },
+    "effectiveMemoryMapping" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "failedCount" : {
+      "type" : "integer",
+      "value" : 0
+    },
+    "goal" : {
+      "type" : "string",
+      "value" : "profile"
+    },
+    "manifestPath" : {
+      "type" : "string",
+      "value" : "<project>/Analyses/kraken2-batch/classification-batch-result.json"
+    },
+    "resolvedProfileRanks" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "string",
+          "value" : "S"
+        }
+      ]
+    },
+    "sqlitePath" : {
+      "type" : "string",
+      "value" : "<project>/Analyses/kraken2-batch/kraken2.sqlite"
+    },
+    "summaryTSV" : {
+      "type" : "string",
+      "value" : "<project>/Analyses/kraken2-batch/classification-batch-summary.tsv"
+    }
+  },
+  "status" : "completed",
+  "stderr" : "processed 1 sequence",
+  "steps" : [
+    {
+      "argv" : [
+        "kraken2",
+        "--db",
+        "<project>/kraken-db",
+        "--threads",
+        "4",
+        "--confidence",
+        "0.0",
+        "--minimum-hit-groups",
+        "2",
+        "--output",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kraken",
+        "--report",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
+        "--report-minimizer-data",
+        "<project>/reads.fastq"
+      ],
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "kraken2",
+        "--db",
+        "<project>/kraken-db",
+        "--threads",
+        "4",
+        "--confidence",
+        "0.0",
+        "--minimum-hit-groups",
+        "2",
+        "--output",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kraken",
+        "--report",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
+        "--report-minimizer-data",
+        "<project>/reads.fastq"
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "fastq",
+          "path" : "<project>/reads.fastq",
+          "role" : "input",
+          "sha256" : "9895357bfb83ab797025d9d53c8d8aad263a9c305c8d3026e5bffd3648924889",
+          "size" : 19
+        },
+        {
+          "format" : "unknown",
+          "path" : "<project>/kraken-db",
+          "role" : "reference",
+          "sha256" : "fixture-db",
+          "size" : 24
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
+          "role" : "report",
+          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
+          "size" : 56
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kraken",
+          "role" : "output",
+          "sha256" : "aa0e8e991bbada7f2dc4af2b2f85307ea52ec3a41e76b3fcc80203dcf6220158",
+          "size" : 18
+        }
+      ],
+      "recorded" : {
+        "condaEnvironment" : "kraken2"
+      },
+      "reproducibleCommand" : "kraken2 --db <project>/kraken-db --threads 4 --confidence 0.0 --minimum-hit-groups 2 --output <project>/Analyses/kraken2-batch/SampleA/classification.kraken --report <project>/Analyses/kraken2-batch/SampleA/classification.kreport --report-minimizer-data <project>/reads.fastq",
+      "resolvedOptions" : {
+        "confidence" : {
+          "type" : "number",
+          "value" : 0
+        },
+        "databaseCoreFileSizes" : {
+          "type" : "dictionary",
+          "value" : {
+            "hash.k2d" : {
+              "type" : "integer",
+              "value" : 8
+            },
+            "opts.k2d" : {
+              "type" : "integer",
+              "value" : 8
+            },
+            "taxo.k2d" : {
+              "type" : "integer",
+              "value" : 8
+            }
+          }
+        },
+        "databaseDigest" : {
+          "type" : "string",
+          "value" : "sha256:fixture-db"
+        },
+        "databaseIdentityStatus" : {
+          "type" : "string",
+          "value" : "provided-aggregate-digest"
+        },
+        "databasePath" : {
+          "type" : "string",
+          "value" : "<project>/kraken-db"
+        },
+        "extraArgs" : {
+          "type" : "string",
+          "value" : ""
+        },
+        "inputFormat" : {
+          "type" : "string",
+          "value" : "fastq"
+        },
+        "memoryMapping" : {
+          "type" : "boolean",
+          "value" : false
+        },
+        "minimumHitGroups" : {
+          "type" : "integer",
+          "value" : 2
+        },
+        "pairedEnd" : {
+          "type" : "boolean",
+          "value" : false
+        },
+        "quickMode" : {
+          "type" : "boolean",
+          "value" : false
+        },
+        "readFormat" : {
+          "type" : "string",
+          "value" : "unpaired"
+        },
+        "reportMinimizerData" : {
+          "type" : "boolean",
+          "value" : true
+        },
+        "threads" : {
+          "type" : "integer",
+          "value" : 4
+        }
+      },
+      "stderr" : "processed 1 sequence\n",
+      "toolName" : "kraken2",
+      "toolVersion" : "2.1.3"
+    },
+    {
+      "argv" : [
+        "LungfishWorkflow",
+        "BrackenPreflight",
+        "--kreport",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
+        "--database",
+        "<project>/kraken-db",
+        "--distribution",
+        "<project>/kraken-db/database150mers.kmer_distrib",
+        "--requested-rank",
+        "automatic",
+        "--resolved-rank",
+        "S",
+        "--read-length",
+        "150",
+        "--threshold",
+        "10"
+      ],
+      "dependsOn" : [
+        0
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
+          "role" : "input",
+          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
+          "size" : 56
+        },
+        {
+          "format" : "unknown",
+          "path" : "<project>/kraken-db/database150mers.kmer_distrib",
+          "role" : "reference",
+          "sha256" : "d89539377919e7300dc17eb15bac2b1bae5fed853c57218379398a1fc2b4a84f",
+          "size" : 31
+        }
+      ],
+      "outputs" : [
+
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "LungfishWorkflow BrackenPreflight --kreport <project>/Analyses/kraken2-batch/SampleA/classification.kreport --database <project>/kraken-db --distribution <project>/kraken-db/database150mers.kmer_distrib --requested-rank automatic --resolved-rank S --read-length 150 --threshold 10",
+      "resolvedOptions" : {
+        "brackenCLIDialect" : {
+          "type" : "string",
+          "value" : "database"
+        },
+        "distributionPath" : {
+          "type" : "string",
+          "value" : "<project>/kraken-db/database150mers.kmer_distrib"
+        },
+        "effectiveArgv" : {
+          "type" : "string",
+          "value" : "LungfishWorkflow BrackenPreflight --kreport <project>/Analyses/kraken2-batch/SampleA/classification.kreport --database <project>/kraken-db --distribution <project>/kraken-db/database150mers.kmer_distrib --requested-rank automatic --resolved-rank S --read-length 150 --threshold 10"
+        },
+        "readLength" : {
+          "type" : "integer",
+          "value" : 150
+        },
+        "requestedRank" : {
+          "type" : "string",
+          "value" : "automatic"
+        },
+        "resolutionSource" : {
+          "type" : "string",
+          "value" : "compatibilityDefault"
+        },
+        "resolvedRank" : {
+          "type" : "string",
+          "value" : "S"
+        },
+        "threshold" : {
+          "type" : "integer",
+          "value" : 10
+        }
+      },
+      "toolName" : "Lungfish Bracken Preflight",
+      "toolVersion" : "<app-version>"
+    },
+    {
+      "argv" : [
+        "bracken",
+        "-d",
+        "<project>/kraken-db",
+        "-i",
+        "<tmp>/lungfish-bracken-<uuid>/classification.kreport",
+        "-o",
+        "<tmp>/lungfish-bracken-<uuid>/classification.bracken",
+        "-w",
+        "<tmp>/lungfish-bracken-<uuid>/classification.bracken.kreport",
+        "-r",
+        "150",
+        "-l",
+        "S",
+        "-t",
+        "10"
+      ],
+      "dependsOn" : [
+        1
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
+          "role" : "input",
+          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
+          "size" : 56
+        },
+        {
+          "format" : "unknown",
+          "path" : "<project>/kraken-db/database150mers.kmer_distrib",
+          "role" : "reference",
+          "sha256" : "d89539377919e7300dc17eb15bac2b1bae5fed853c57218379398a1fc2b4a84f",
+          "size" : 31
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.bracken",
+          "role" : "output",
+          "sha256" : "8e9cb9a5666835b7f54c4ef5140d4a663de30e6f87c69ecbf73fb3e1d159c352",
+          "size" : 132
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.bracken.kreport",
+          "role" : "report",
+          "sha256" : "db3445bb2a76ea674b1dca4840358f1c79e5832cac71b9f974cd1c8c87b1f4cd",
+          "size" : 20
+        }
+      ],
+      "recorded" : {
+        "condaEnvironment" : "bracken"
+      },
+      "reproducibleCommand" : "bracken -d <project>/kraken-db -i <tmp>/lungfish-bracken-<uuid>/classification.kreport -o <tmp>/lungfish-bracken-<uuid>/classification.bracken -w <tmp>/lungfish-bracken-<uuid>/classification.bracken.kreport -r 150 -l S -t 10",
+      "resolvedOptions" : {
+        "brackenCLIDialect" : {
+          "type" : "string",
+          "value" : "database"
+        },
+        "distributionPath" : {
+          "type" : "string",
+          "value" : "<project>/kraken-db/database150mers.kmer_distrib"
+        },
+        "durableArgv" : {
+          "type" : "string",
+          "value" : "bracken -d <project>/kraken-db -i <project>/Analyses/kraken2-batch/SampleA/classification.kreport -o <project>/Analyses/kraken2-batch/SampleA/classification.bracken -w <project>/Analyses/kraken2-batch/SampleA/classification.bracken.kreport -r 150 -l S -t 10"
+        },
+        "effectiveArgv" : {
+          "type" : "string",
+          "value" : "bracken -d <project>/kraken-db -i <tmp>/lungfish-bracken-<uuid>/classification.kreport -o <tmp>/lungfish-bracken-<uuid>/classification.bracken -w <tmp>/lungfish-bracken-<uuid>/classification.bracken.kreport -r 150 -l S -t 10"
+        },
+        "readLength" : {
+          "type" : "integer",
+          "value" : 150
+        },
+        "requestedRank" : {
+          "type" : "string",
+          "value" : "automatic"
+        },
+        "resolutionSource" : {
+          "type" : "string",
+          "value" : "compatibilityDefault"
+        },
+        "resolvedRank" : {
+          "type" : "string",
+          "value" : "S"
+        },
+        "scratchDirectory" : {
+          "type" : "string",
+          "value" : "<tmp>/lungfish-bracken-<uuid>"
+        },
+        "threshold" : {
+          "type" : "integer",
+          "value" : 10
+        }
+      },
+      "stderr" : "",
+      "toolName" : "bracken",
+      "toolVersion" : "3.1"
+    },
+    {
+      "argv" : [
+        "lungfish-cli",
+        "internal",
+        "kraken2-index",
+        "--classified-only",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kraken",
+        "<project>/Analyses/kraken2-batch/SampleA/classification.kraken.gz.idx.sqlite"
+      ],
+      "dependsOn" : [
+        0
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kraken",
+          "role" : "input",
+          "sha256" : "aa0e8e991bbada7f2dc4af2b2f85307ea52ec3a41e76b3fcc80203dcf6220158",
+          "size" : 18
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "unknown",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kraken.gz.idx.sqlite",
+          "role" : "index"
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lungfish-cli internal kraken2-index --classified-only <project>/Analyses/kraken2-batch/SampleA/classification.kraken <project>/Analyses/kraken2-batch/SampleA/classification.kraken.gz.idx.sqlite",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "lungfish-kraken2-index",
+      "toolVersion" : "<app-version>"
+    },
+    {
+      "argv" : [
+        "/bin/sh",
+        "-c",
+        "/usr/bin/gzip -c <project>/Analyses/kraken2-batch/SampleA/classification.kraken > <project>/Analyses/kraken2-batch/SampleA/classification.kraken.gz"
+      ],
+      "dependsOn" : [
+        0
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kraken",
+          "role" : "input",
+          "sha256" : "aa0e8e991bbada7f2dc4af2b2f85307ea52ec3a41e76b3fcc80203dcf6220158",
+          "size" : 18
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kraken.gz",
+          "role" : "output"
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "/bin/sh -c '/usr/bin/gzip -c <project>/Analyses/kraken2-batch/SampleA/classification.kraken > <project>/Analyses/kraken2-batch/SampleA/classification.kraken.gz'",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "gzip",
+      "toolVersion" : "system"
+    },
+    {
+      "argv" : [
+        "LungfishWorkflow",
+        "ClassificationResult.save",
+        "<project>/Analyses/kraken2-batch/SampleA/classification-result.json"
+      ],
+      "dependsOn" : [
+        2
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
+          "role" : "report",
+          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
+          "size" : 56
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kraken.gz",
+          "role" : "output"
+        },
+        {
+          "format" : "unknown",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kraken.gz.idx.sqlite",
+          "role" : "index"
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.bracken",
+          "role" : "output",
+          "sha256" : "8e9cb9a5666835b7f54c4ef5140d4a663de30e6f87c69ecbf73fb3e1d159c352",
+          "size" : 132
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.bracken.kreport",
+          "role" : "report",
+          "sha256" : "db3445bb2a76ea674b1dca4840358f1c79e5832cac71b9f974cd1c8c87b1f4cd",
+          "size" : 20
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "json",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification-result.json",
+          "role" : "output"
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "LungfishWorkflow ClassificationResult.save <project>/Analyses/kraken2-batch/SampleA/classification-result.json",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "Lungfish Classification Result Sidecar",
+      "toolVersion" : "<app-version>"
+    },
+    {
+      "argv" : [
+        "kraken2",
+        "--db",
+        "<project>/kraken-db",
+        "--threads",
+        "4",
+        "--confidence",
+        "0.0",
+        "--minimum-hit-groups",
+        "2",
+        "--output",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kraken",
+        "--report",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
+        "--report-minimizer-data",
+        "<project>/reads-b.fastq"
+      ],
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "kraken2",
+        "--db",
+        "<project>/kraken-db",
+        "--threads",
+        "4",
+        "--confidence",
+        "0.0",
+        "--minimum-hit-groups",
+        "2",
+        "--output",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kraken",
+        "--report",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
+        "--report-minimizer-data",
+        "<project>/reads-b.fastq"
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "fastq",
+          "path" : "<project>/reads-b.fastq",
+          "role" : "input",
+          "sha256" : "8e90610ee19b01ccd12826d7974188ec220d47e915ea9ad7b710c4e3ff3fa6c1",
+          "size" : 19
+        },
+        {
+          "format" : "unknown",
+          "path" : "<project>/kraken-db",
+          "role" : "reference",
+          "sha256" : "fixture-db",
+          "size" : 24
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
+          "role" : "report",
+          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
+          "size" : 56
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kraken",
+          "role" : "output",
+          "sha256" : "aa0e8e991bbada7f2dc4af2b2f85307ea52ec3a41e76b3fcc80203dcf6220158",
+          "size" : 18
+        }
+      ],
+      "recorded" : {
+        "condaEnvironment" : "kraken2"
+      },
+      "reproducibleCommand" : "kraken2 --db <project>/kraken-db --threads 4 --confidence 0.0 --minimum-hit-groups 2 --output <project>/Analyses/kraken2-batch/SampleB/classification.kraken --report <project>/Analyses/kraken2-batch/SampleB/classification.kreport --report-minimizer-data <project>/reads-b.fastq",
+      "resolvedOptions" : {
+        "confidence" : {
+          "type" : "number",
+          "value" : 0
+        },
+        "databaseCoreFileSizes" : {
+          "type" : "dictionary",
+          "value" : {
+            "hash.k2d" : {
+              "type" : "integer",
+              "value" : 8
+            },
+            "opts.k2d" : {
+              "type" : "integer",
+              "value" : 8
+            },
+            "taxo.k2d" : {
+              "type" : "integer",
+              "value" : 8
+            }
+          }
+        },
+        "databaseDigest" : {
+          "type" : "string",
+          "value" : "sha256:fixture-db"
+        },
+        "databaseIdentityStatus" : {
+          "type" : "string",
+          "value" : "provided-aggregate-digest"
+        },
+        "databasePath" : {
+          "type" : "string",
+          "value" : "<project>/kraken-db"
+        },
+        "extraArgs" : {
+          "type" : "string",
+          "value" : ""
+        },
+        "inputFormat" : {
+          "type" : "string",
+          "value" : "fastq"
+        },
+        "memoryMapping" : {
+          "type" : "boolean",
+          "value" : false
+        },
+        "minimumHitGroups" : {
+          "type" : "integer",
+          "value" : 2
+        },
+        "pairedEnd" : {
+          "type" : "boolean",
+          "value" : false
+        },
+        "quickMode" : {
+          "type" : "boolean",
+          "value" : false
+        },
+        "readFormat" : {
+          "type" : "string",
+          "value" : "unpaired"
+        },
+        "reportMinimizerData" : {
+          "type" : "boolean",
+          "value" : true
+        },
+        "threads" : {
+          "type" : "integer",
+          "value" : 4
+        }
+      },
+      "stderr" : "processed 1 sequence\n",
+      "toolName" : "kraken2",
+      "toolVersion" : "2.1.3"
+    },
+    {
+      "argv" : [
+        "LungfishWorkflow",
+        "BrackenPreflight",
+        "--kreport",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
+        "--database",
+        "<project>/kraken-db",
+        "--distribution",
+        "<project>/kraken-db/database150mers.kmer_distrib",
+        "--requested-rank",
+        "automatic",
+        "--resolved-rank",
+        "S",
+        "--read-length",
+        "150",
+        "--threshold",
+        "10"
+      ],
+      "dependsOn" : [
+        6
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
+          "role" : "input",
+          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
+          "size" : 56
+        },
+        {
+          "format" : "unknown",
+          "path" : "<project>/kraken-db/database150mers.kmer_distrib",
+          "role" : "reference",
+          "sha256" : "d89539377919e7300dc17eb15bac2b1bae5fed853c57218379398a1fc2b4a84f",
+          "size" : 31
+        }
+      ],
+      "outputs" : [
+
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "LungfishWorkflow BrackenPreflight --kreport <project>/Analyses/kraken2-batch/SampleB/classification.kreport --database <project>/kraken-db --distribution <project>/kraken-db/database150mers.kmer_distrib --requested-rank automatic --resolved-rank S --read-length 150 --threshold 10",
+      "resolvedOptions" : {
+        "brackenCLIDialect" : {
+          "type" : "string",
+          "value" : "database"
+        },
+        "distributionPath" : {
+          "type" : "string",
+          "value" : "<project>/kraken-db/database150mers.kmer_distrib"
+        },
+        "effectiveArgv" : {
+          "type" : "string",
+          "value" : "LungfishWorkflow BrackenPreflight --kreport <project>/Analyses/kraken2-batch/SampleB/classification.kreport --database <project>/kraken-db --distribution <project>/kraken-db/database150mers.kmer_distrib --requested-rank automatic --resolved-rank S --read-length 150 --threshold 10"
+        },
+        "readLength" : {
+          "type" : "integer",
+          "value" : 150
+        },
+        "requestedRank" : {
+          "type" : "string",
+          "value" : "automatic"
+        },
+        "resolutionSource" : {
+          "type" : "string",
+          "value" : "compatibilityDefault"
+        },
+        "resolvedRank" : {
+          "type" : "string",
+          "value" : "S"
+        },
+        "threshold" : {
+          "type" : "integer",
+          "value" : 10
+        }
+      },
+      "toolName" : "Lungfish Bracken Preflight",
+      "toolVersion" : "<app-version>"
+    },
+    {
+      "argv" : [
+        "bracken",
+        "-d",
+        "<project>/kraken-db",
+        "-i",
+        "<tmp>/lungfish-bracken-<uuid>/classification.kreport",
+        "-o",
+        "<tmp>/lungfish-bracken-<uuid>/classification.bracken",
+        "-w",
+        "<tmp>/lungfish-bracken-<uuid>/classification.bracken.kreport",
+        "-r",
+        "150",
+        "-l",
+        "S",
+        "-t",
+        "10"
+      ],
+      "dependsOn" : [
+        7
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
+          "role" : "input",
+          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
+          "size" : 56
+        },
+        {
+          "format" : "unknown",
+          "path" : "<project>/kraken-db/database150mers.kmer_distrib",
+          "role" : "reference",
+          "sha256" : "d89539377919e7300dc17eb15bac2b1bae5fed853c57218379398a1fc2b4a84f",
+          "size" : 31
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.bracken",
+          "role" : "output",
+          "sha256" : "8e9cb9a5666835b7f54c4ef5140d4a663de30e6f87c69ecbf73fb3e1d159c352",
+          "size" : 132
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.bracken.kreport",
+          "role" : "report",
+          "sha256" : "db3445bb2a76ea674b1dca4840358f1c79e5832cac71b9f974cd1c8c87b1f4cd",
+          "size" : 20
+        }
+      ],
+      "recorded" : {
+        "condaEnvironment" : "bracken"
+      },
+      "reproducibleCommand" : "bracken -d <project>/kraken-db -i <tmp>/lungfish-bracken-<uuid>/classification.kreport -o <tmp>/lungfish-bracken-<uuid>/classification.bracken -w <tmp>/lungfish-bracken-<uuid>/classification.bracken.kreport -r 150 -l S -t 10",
+      "resolvedOptions" : {
+        "brackenCLIDialect" : {
+          "type" : "string",
+          "value" : "database"
+        },
+        "distributionPath" : {
+          "type" : "string",
+          "value" : "<project>/kraken-db/database150mers.kmer_distrib"
+        },
+        "durableArgv" : {
+          "type" : "string",
+          "value" : "bracken -d <project>/kraken-db -i <project>/Analyses/kraken2-batch/SampleB/classification.kreport -o <project>/Analyses/kraken2-batch/SampleB/classification.bracken -w <project>/Analyses/kraken2-batch/SampleB/classification.bracken.kreport -r 150 -l S -t 10"
+        },
+        "effectiveArgv" : {
+          "type" : "string",
+          "value" : "bracken -d <project>/kraken-db -i <tmp>/lungfish-bracken-<uuid>/classification.kreport -o <tmp>/lungfish-bracken-<uuid>/classification.bracken -w <tmp>/lungfish-bracken-<uuid>/classification.bracken.kreport -r 150 -l S -t 10"
+        },
+        "readLength" : {
+          "type" : "integer",
+          "value" : 150
+        },
+        "requestedRank" : {
+          "type" : "string",
+          "value" : "automatic"
+        },
+        "resolutionSource" : {
+          "type" : "string",
+          "value" : "compatibilityDefault"
+        },
+        "resolvedRank" : {
+          "type" : "string",
+          "value" : "S"
+        },
+        "scratchDirectory" : {
+          "type" : "string",
+          "value" : "<tmp>/lungfish-bracken-<uuid>"
+        },
+        "threshold" : {
+          "type" : "integer",
+          "value" : 10
+        }
+      },
+      "stderr" : "",
+      "toolName" : "bracken",
+      "toolVersion" : "3.1"
+    },
+    {
+      "argv" : [
+        "lungfish-cli",
+        "internal",
+        "kraken2-index",
+        "--classified-only",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kraken",
+        "<project>/Analyses/kraken2-batch/SampleB/classification.kraken.gz.idx.sqlite"
+      ],
+      "dependsOn" : [
+        6
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kraken",
+          "role" : "input",
+          "sha256" : "aa0e8e991bbada7f2dc4af2b2f85307ea52ec3a41e76b3fcc80203dcf6220158",
+          "size" : 18
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "unknown",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kraken.gz.idx.sqlite",
+          "role" : "index"
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "lungfish-cli internal kraken2-index --classified-only <project>/Analyses/kraken2-batch/SampleB/classification.kraken <project>/Analyses/kraken2-batch/SampleB/classification.kraken.gz.idx.sqlite",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "lungfish-kraken2-index",
+      "toolVersion" : "<app-version>"
+    },
+    {
+      "argv" : [
+        "/bin/sh",
+        "-c",
+        "/usr/bin/gzip -c <project>/Analyses/kraken2-batch/SampleB/classification.kraken > <project>/Analyses/kraken2-batch/SampleB/classification.kraken.gz"
+      ],
+      "dependsOn" : [
+        6
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kraken",
+          "role" : "input",
+          "sha256" : "aa0e8e991bbada7f2dc4af2b2f85307ea52ec3a41e76b3fcc80203dcf6220158",
+          "size" : 18
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kraken.gz",
+          "role" : "output"
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "/bin/sh -c '/usr/bin/gzip -c <project>/Analyses/kraken2-batch/SampleB/classification.kraken > <project>/Analyses/kraken2-batch/SampleB/classification.kraken.gz'",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "gzip",
+      "toolVersion" : "system"
+    },
+    {
+      "argv" : [
+        "LungfishWorkflow",
+        "ClassificationResult.save",
+        "<project>/Analyses/kraken2-batch/SampleB/classification-result.json"
+      ],
+      "dependsOn" : [
+        8
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
+          "role" : "report",
+          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
+          "size" : 56
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kraken.gz",
+          "role" : "output"
+        },
+        {
+          "format" : "unknown",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kraken.gz.idx.sqlite",
+          "role" : "index"
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.bracken",
+          "role" : "output",
+          "sha256" : "8e9cb9a5666835b7f54c4ef5140d4a663de30e6f87c69ecbf73fb3e1d159c352",
+          "size" : 132
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.bracken.kreport",
+          "role" : "report",
+          "sha256" : "db3445bb2a76ea674b1dca4840358f1c79e5832cac71b9f974cd1c8c87b1f4cd",
+          "size" : 20
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "json",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification-result.json",
+          "role" : "output"
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "LungfishWorkflow ClassificationResult.save <project>/Analyses/kraken2-batch/SampleB/classification-result.json",
+      "resolvedOptions" : {
+
+      },
+      "toolName" : "Lungfish Classification Result Sidecar",
+      "toolVersion" : "<app-version>"
+    },
+    {
+      "argv" : [
+        "/bin/sh",
+        "-c",
+        "set -e\n/bin/test -d <project>/kraken-db; /bin/test -f <project>/kraken-db/.lungfish-provenance.json; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.payloadAggregateSHA256.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = sha256:fixture-db; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.intendedFinalPath.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = <project>/kraken-db; /bin/test \"$(/usr/bin/plutil -extract exitStatus raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = 0; /bin/test \"$(lungfish-cli conda db info --no-color FixtureDB | /usr/bin/sed -n 's/^Location[[:space:]]*:[[:space:]]*//p')\" = <project>/kraken-db; lungfish-cli conda classify --db FixtureDB --output-dir <project>/Analyses/kraken2-batch/SampleA --confidence 0.0 --min-hit-groups 2 --threads 4 --read-format unpaired --profile --bracken-read-length 150 --bracken-threshold 10 <project>/reads.fastq\n/bin/test -d <project>/kraken-db; /bin/test -f <project>/kraken-db/.lungfish-provenance.json; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.payloadAggregateSHA256.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = sha256:fixture-db; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.intendedFinalPath.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = <project>/kraken-db; /bin/test \"$(/usr/bin/plutil -extract exitStatus raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = 0; /bin/test \"$(lungfish-cli conda db info --no-color FixtureDB | /usr/bin/sed -n 's/^Location[[:space:]]*:[[:space:]]*//p')\" = <project>/kraken-db; lungfish-cli conda classify --db FixtureDB --output-dir <project>/Analyses/kraken2-batch/SampleB --confidence 0.0 --min-hit-groups 2 --threads 4 --read-format unpaired --profile --bracken-read-length 150 --bracken-threshold 10 <project>/reads-b.fastq"
+      ],
+      "dependsOn" : [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "fastq",
+          "path" : "<project>/reads.fastq",
+          "role" : "input",
+          "sha256" : "9895357bfb83ab797025d9d53c8d8aad263a9c305c8d3026e5bffd3648924889",
+          "size" : 19
+        },
+        {
+          "format" : "fastq",
+          "path" : "<project>/reads-b.fastq",
+          "role" : "input",
+          "sha256" : "8e90610ee19b01ccd12826d7974188ec220d47e915ea9ad7b710c4e3ff3fa6c1",
+          "size" : 19
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
+          "role" : "report",
+          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
+          "size" : 56
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.bracken",
+          "role" : "output",
+          "sha256" : "8e9cb9a5666835b7f54c4ef5140d4a663de30e6f87c69ecbf73fb3e1d159c352",
+          "size" : 132
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.bracken.kreport",
+          "role" : "report",
+          "sha256" : "db3445bb2a76ea674b1dca4840358f1c79e5832cac71b9f974cd1c8c87b1f4cd",
+          "size" : 20
+        },
+        {
+          "format" : "unknown",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kraken.gz.idx.sqlite",
+          "role" : "index"
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kraken.gz",
+          "role" : "output"
+        },
+        {
+          "format" : "json",
+          "path" : "<project>/Analyses/kraken2-batch/SampleA/classification-result.json",
+          "role" : "output"
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
+          "role" : "report",
+          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
+          "size" : 56
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.bracken",
+          "role" : "output",
+          "sha256" : "8e9cb9a5666835b7f54c4ef5140d4a663de30e6f87c69ecbf73fb3e1d159c352",
+          "size" : 132
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.bracken.kreport",
+          "role" : "report",
+          "sha256" : "db3445bb2a76ea674b1dca4840358f1c79e5832cac71b9f974cd1c8c87b1f4cd",
+          "size" : 20
+        },
+        {
+          "format" : "unknown",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kraken.gz.idx.sqlite",
+          "role" : "index"
+        },
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kraken.gz",
+          "role" : "output"
+        },
+        {
+          "format" : "json",
+          "path" : "<project>/Analyses/kraken2-batch/SampleB/classification-result.json",
+          "role" : "output"
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/Analyses/kraken2-batch/classification-batch-summary.tsv",
+          "role" : "report",
+          "sha256" : "5a72d0e0195804eb72a1abe9a5e4497b3417e8522e84143e5b332a91d0409dbd",
+          "size" : 270
+        },
+        {
+          "format" : "json",
+          "path" : "<project>/Analyses/kraken2-batch/classification-batch-result.json",
+          "role" : "output"
+        },
+        {
+          "format" : "unknown",
+          "path" : "<project>/Analyses/kraken2-batch/kraken2.sqlite",
+          "role" : "output",
+          "sha256" : "41d14327d62fb255bd8a67796ef05aa2e4ac869d2a2b88ebfdad6da5f45778b2",
+          "size" : 32
+        }
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "/bin/sh -c 'set -e\n/bin/test -d <project>/kraken-db; /bin/test -f <project>/kraken-db/.lungfish-provenance.json; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.payloadAggregateSHA256.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = sha256:fixture-db; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.intendedFinalPath.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = <project>/kraken-db; /bin/test \"$(/usr/bin/plutil -extract exitStatus raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = 0; /bin/test \"$(lungfish-cli conda db info --no-color FixtureDB | /usr/bin/sed -n '\\''s/^Location[[:space:]]*:[[:space:]]*//p'\\'')\" = <project>/kraken-db; lungfish-cli conda classify --db FixtureDB --output-dir <project>/Analyses/kraken2-batch/SampleA --confidence 0.0 --min-hit-groups 2 --threads 4 --read-format unpaired --profile --bracken-read-length 150 --bracken-threshold 10 <project>/reads.fastq\n/bin/test -d <project>/kraken-db; /bin/test -f <project>/kraken-db/.lungfish-provenance.json; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.payloadAggregateSHA256.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = sha256:fixture-db; /bin/test \"$(/usr/bin/plutil -extract options.resolvedDefaults.intendedFinalPath.value raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = <project>/kraken-db; /bin/test \"$(/usr/bin/plutil -extract exitStatus raw -o - <project>/kraken-db/.lungfish-provenance.json)\" = 0; /bin/test \"$(lungfish-cli conda db info --no-color FixtureDB | /usr/bin/sed -n '\\''s/^Location[[:space:]]*:[[:space:]]*//p'\\'')\" = <project>/kraken-db; lungfish-cli conda classify --db FixtureDB --output-dir <project>/Analyses/kraken2-batch/SampleB --confidence 0.0 --min-hit-groups 2 --threads 4 --read-format unpaired --profile --bracken-read-length 150 --bracken-threshold 10 <project>/reads-b.fastq'",
+      "resolvedOptions" : {
+        "brackenReadLength" : {
+          "type" : "integer",
+          "value" : 150
+        },
+        "brackenResolutionSource" : {
+          "type" : "string",
+          "value" : "compatibilityDefault"
+        },
+        "brackenResolvedRank" : {
+          "type" : "string",
+          "value" : "S"
+        },
+        "brackenThreshold" : {
+          "type" : "integer",
+          "value" : 10
+        },
+        "completedCount" : {
+          "type" : "integer",
+          "value" : 2
+        },
+        "databaseDigests" : {
+          "type" : "array",
+          "value" : [
+            {
+              "type" : "string",
+              "value" : "sha256:fixture-db"
+            }
+          ]
+        },
+        "databaseName" : {
+          "type" : "string",
+          "value" : "FixtureDB"
+        },
+        "databaseVersion" : {
+          "type" : "string",
+          "value" : "fixture-v1"
+        },
+        "degradedCount" : {
+          "type" : "integer",
+          "value" : 0
+        },
+        "effectiveMemoryMapping" : {
+          "type" : "boolean",
+          "value" : false
+        },
+        "failedCount" : {
+          "type" : "integer",
+          "value" : 0
+        },
+        "goal" : {
+          "type" : "string",
+          "value" : "profile"
+        },
+        "resolvedProfileRanks" : {
+          "type" : "array",
+          "value" : [
+            {
+              "type" : "string",
+              "value" : "S"
+            }
+          ]
+        }
+      },
+      "stderr" : "processed 1 sequence",
+      "toolName" : "Lungfish Classification Batch",
+      "toolVersion" : "<app-version>"
+    }
+  ],
+  "strictAccepts" : true,
+  "toolName" : "Lungfish Classification Batch",
+  "toolVersion" : "<app-version>",
+  "workflowName" : "Classification Batch"
+}
