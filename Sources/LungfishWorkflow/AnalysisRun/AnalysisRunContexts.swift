@@ -39,6 +39,7 @@ public struct AnalysisRunUnitContext: Sendable {
     private let stepRecorder: @Sendable (ProvenanceStep) -> Void
     private let optionsRecorder: @Sendable (AnalysisRootRecordOptions) -> Void
     private let replayRecorder: @Sendable ([String]) -> Void
+    private let failureDetailRecorder: @Sendable (String) -> Void
 
     public init(
         rootDirectory: URL,
@@ -48,7 +49,8 @@ public struct AnalysisRunUnitContext: Sendable {
         recordInput: @escaping @Sendable (ProvenanceFileDescriptor) -> Void = { _ in },
         recordStep: @escaping @Sendable (ProvenanceStep) -> Void = { _ in },
         recordOptions: @escaping @Sendable (AnalysisRootRecordOptions) -> Void = { _ in },
-        recordDurableReplayArgv: @escaping @Sendable ([String]) -> Void = { _ in }
+        recordDurableReplayArgv: @escaping @Sendable ([String]) -> Void = { _ in },
+        recordFailureDetail: @escaping @Sendable (String) -> Void = { _ in }
     ) {
         self.rootDirectory = rootDirectory
         self.projectURL = projectURL
@@ -58,6 +60,7 @@ public struct AnalysisRunUnitContext: Sendable {
         self.stepRecorder = recordStep
         self.optionsRecorder = recordOptions
         self.replayRecorder = recordDurableReplayArgv
+        self.failureDetailRecorder = recordFailureDetail
     }
 
     /// Reports how far the unit is, `fraction` from 0 to 1. The executor maps it onto the run as
@@ -71,6 +74,21 @@ public struct AnalysisRunUnitContext: Sendable {
     /// ``AnalysisUnitOutcome/completedWithWarning(_:reason:)`` instead of logging it too.
     public func log(_ level: CLIEventLogLevel, _ message: String) {
         logHandler(level, message)
+    }
+
+    /// Hands the executor the text that says why this unit failed, such as the last lines of its
+    /// tool's log, for the `detail` of the run's `failed` line (UX D11). Record it before the unit
+    /// returns ``AnalysisUnitOutcome/failed(reason:)`` or throws. The last value recorded wins.
+    ///
+    /// The executor sends it only when the run fails from its units and this unit is the one that
+    /// failed, a run of one unit or a batch whose policy stops at the first failed unit, so the
+    /// detail always belongs to the reason in the line's `error`. A cancel, a refused plan, a folder
+    /// that could not be prepared, a failed finalize, a completed run and a batch where several
+    /// units failed send none. The executor bounds and cleans the text first (the last 20 lines of
+    /// at most 400 characters, at most 4 KB, no colour codes or other control characters but tabs)
+    /// and writes it into no record.
+    public func recordFailureDetail(_ text: String) {
+        failureDetailRecorder(text)
     }
 
     /// Adds an input to the root record, as a descriptor the tool has already taken, such as the

@@ -23,6 +23,8 @@ final class AnalysisRunJournal: Sendable {
         var options = AnalysisRootRecordOptions()
         /// The replay argv a unit recorded, which replaces the request's.
         var durableReplayArgv: [String]?
+        /// The failure detail each unit recorded, by the unit's index, the last one it recorded.
+        var failureDetails: [Int: String] = [:]
         /// Set once the last line went out. Every later line is dropped.
         var sealed = false
     }
@@ -87,6 +89,17 @@ final class AnalysisRunJournal: Sendable {
         state.withLock { $0.durableReplayArgv = argv }
     }
 
+    /// Keeps the failure detail of unit `index` as the unit handed it over. The executor bounds it
+    /// only when it sends it.
+    func recordFailureDetail(_ text: String, unit index: Int) {
+        state.withLock { $0.failureDetails[index] = text }
+    }
+
+    /// The failure detail unit `index` recorded last, unbounded, or nil.
+    func failureDetail(unit index: Int) -> String? {
+        state.withLock { $0.failureDetails[index] }
+    }
+
     var warnings: [String] {
         state.withLock { $0.warnings }
     }
@@ -127,7 +140,8 @@ final class AnalysisRunJournal: Sendable {
             recordInput: { descriptor in self.recordInput(descriptor) },
             recordStep: { step in self.recordStep(step) },
             recordOptions: { options in self.recordOptions(options) },
-            recordDurableReplayArgv: { argv in self.recordDurableReplayArgv(argv) }
+            recordDurableReplayArgv: { argv in self.recordDurableReplayArgv(argv) },
+            recordFailureDetail: { text in self.recordFailureDetail(text, unit: index) }
         )
     }
 

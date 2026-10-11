@@ -299,6 +299,48 @@ final class EsVirituDetectExecutorTests: XCTestCase {
         ])
     }
 
+    /// A8d review fix 1 (UX D11). A sample whose EsViritu wrote no detection table ends the run in
+    /// `failed` with the last lines of EsViritu's output as the line's `detail`, which the executor
+    /// bounds, and the tail is no `error` log line headed `EsViritu log (last lines):` any more. The
+    /// stand-in's tables do not exist, so it exits 0 after its copies fail on standard error.
+    func testAFailedSampleSendsItsLogTailAsTheFailedLinesDetail() async throws {
+        let esviritu = try StandInEsViritu(
+            root: root.appendingPathComponent("tool"),
+            tables: root.appendingPathComponent("no-tables/sample")
+        )
+        let output = root.appendingPathComponent("out", isDirectory: true)
+        let lines = LineSink()
+        let tool = EsVirituAnalysisRunTool(
+            options: EsVirituAnalysisRunOptions(sampleName: "S1", databasePath: esviritu.databaseURL, threads: 2),
+            groupsSamples: false,
+            pipeline: EsVirituPipeline(condaManager: esviritu.condaManager),
+            materializer: FASTQCLIMaterializer(runner: .shared),
+            installedDatabase: { [databaseURL = esviritu.databaseURL] in databaseURL }
+        )
+        let report = await AnalysisRunExecutor(services: AnalysisRunServices(indexing: EsVirituResultIndexing())).execute(
+            tool,
+            AnalysisRunRequest(
+                inputs: [try reads("S1")],
+                destination: .directory(output),
+                commandLine: ["lungfish-cli", "esviritu", "detect"]
+            ),
+            events: AnalysisRunEvents { lines.append($0) }
+        )
+
+        XCTAssertEqual(report.exitCode, AnalysisRunExitCode.workflowError)
+        let events = lines.all.compactMap(\.event)
+        guard case .failed(let message, let detail)? = events.last else { return XCTFail("no failed line: \(events)") }
+        XCTAssertEqual(message, report.message)
+        XCTAssertTrue(message.hasPrefix("EsViritu did not produce a detection output at "), message)
+        let tail = try XCTUnwrap(detail, "the failed line carries EsViritu's tail")
+        XCTAssertTrue(tail.hasSuffix("EsViritu stand-in finished"), tail)
+        XCTAssertTrue(tail.contains("No such file or directory"), tail)
+        XCTAssertFalse(events.contains { event in
+            if case .log(_, let text) = event { return text.hasPrefix("EsViritu log (last lines):") }
+            return false
+        }, "the tail is not logged")
+    }
+
     // MARK: - Helpers
 
     private final class LineSink: @unchecked Sendable {

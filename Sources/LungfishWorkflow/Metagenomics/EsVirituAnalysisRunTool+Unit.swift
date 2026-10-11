@@ -90,9 +90,11 @@ extension EsVirituAnalysisRunTool {
                 context.progress(fraction, message)
             }
         } catch let error as EsVirituPipelineError {
-            // EsViritu's own reason and the last lines of its log, as the app logs them.
+            // EsViritu's own reason, and the last lines of its log as the failure's detail, which
+            // the executor bounds and sends on the run's `failed` line when this sample's failure
+            // fails the run (UX D11). The words the app puts in front of it are the app's.
             if let logTail = error.logTail {
-                context.log(.error, "EsViritu log (last lines):\n\(logTail)")
+                context.recordFailureDetail(logTail)
             }
             return .failed(reason: error.localizedDescription)
         }

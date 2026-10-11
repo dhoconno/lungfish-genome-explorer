@@ -170,6 +170,9 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
     var finalizeOutputs = true
     /// Options each unit records right after its input, before it fails or completes.
     var unitOptions: AnalysisRootRecordOptions?
+    /// The failure detail the unit of each label records right after its input, before it fails,
+    /// throws or completes.
+    var failureDetails: [String: String] = [:]
     /// Options the finalization adds.
     var finalizeOptions: AnalysisRootRecordOptions?
     /// A plan that cancels its own run, then throws or returns its plan.
@@ -247,6 +250,9 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
         context.recordInput(inputDescriptor)
         if let unitOptions {
             context.recordOptions(unitOptions)
+        }
+        if let detail = failureDetails[unit.label] {
+            context.recordFailureDetail(detail)
         }
 
         switch unit.value {

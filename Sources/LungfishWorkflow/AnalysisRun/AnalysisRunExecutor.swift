@@ -147,12 +147,14 @@ public struct AnalysisRunExecutor: Sendable {
         // P3. The finalize runs only for a run its units leave completed.
         var ending: AnalysisRunEnding
         var finalization: AnalysisRunFinalization?
+        var failureDetail: String?
         if units.cancelled {
             ending = .cancelled
         } else {
             switch tool.terminalPolicy.outcome(for: units.reports, unitCount: plan.units.count) {
             case .failed(let reason):
                 ending = .failed(reason: reason, exitCode: AnalysisRunExitCode.workflowError)
+                failureDetail = Self.failureDetail(of: units.reports, journal: journal)
             case .completed:
                 (ending, finalization) = await finalize(
                     tool,
@@ -165,6 +167,7 @@ public struct AnalysisRunExecutor: Sendable {
         }
 
         // P4. The root record, written last so no record written during the run wins.
+        let unitsEnding = ending
         let record = writeRootRecord(
             RootRecordInput(
                 identity: identity,
@@ -187,15 +190,33 @@ public struct AnalysisRunExecutor: Sendable {
         // P6. Settle the run record.
         folder.settle(ending)
 
-        // P7. The last event and the exit code.
+        // P7. The last event and the exit code. The detail belongs to the units' failure, so a run
+        // whose record changed how it ends sends none.
         return report(
             ending,
             identity: identity,
             folder: folder,
             recordURL: record.url,
             finalization: finalization,
+            failureDetail: ending == unitsEnding ? failureDetail : nil,
             journal: journal
         )
+    }
+
+    /// The bounded failure detail of the one unit whose failure fails the run, or nil when that
+    /// unit recorded none or several units failed, so the detail always belongs to the reason of
+    /// the `failed` line (2.7 A8d review, UX D11). A run of one unit and a batch whose policy stops
+    /// at its first failed unit have one failed unit, and a batch whose every unit failed has
+    /// several.
+    static func failureDetail<Result>(
+        of reports: [AnalysisUnitReport<Result>],
+        journal: AnalysisRunJournal
+    ) -> String? {
+        let failed = reports.filter { !$0.outcome.completed }
+        guard failed.count == 1, let text = journal.failureDetail(unit: failed[0].index) else {
+            return nil
+        }
+        return AnalysisRunFailureDetail.bounded(text)
     }
 
     // MARK: - P3
@@ -265,6 +286,7 @@ public struct AnalysisRunExecutor: Sendable {
         folder: AnalysisRunFolder?,
         recordURL: URL?,
         finalization: AnalysisRunFinalization?,
+        failureDetail: String? = nil,
         journal: AnalysisRunJournal
     ) -> AnalysisRunReport {
         // The last line seals the stream, and the report takes the warnings as they stand then,
@@ -284,7 +306,10 @@ public struct AnalysisRunExecutor: Sendable {
                 .complete(outputs: folder.map { [$0.root.path] } ?? [], message: message),
                 artifacts: artifacts
             )
-        case .failed, .cancelled:
+        case .failed:
+            message = ending.message(displayName: identity.displayName) ?? ""
+            warnings = journal.finish(.failed(message: message, detail: failureDetail))
+        case .cancelled:
             message = ending.message(displayName: identity.displayName) ?? ""
             warnings = journal.finish(.failed(message: message, detail: nil))
         }

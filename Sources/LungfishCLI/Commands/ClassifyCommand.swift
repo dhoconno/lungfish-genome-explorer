@@ -227,8 +227,9 @@ struct ClassifyCommand: AsyncParsableCommand {
     // MARK: - Text
 
     /// Text mode prints the log lines a person reads, with warnings and the failure on standard
-    /// error (UX D11). The progress of the pipeline and the configuration come from the tool's
-    /// presentation, so they print as they always have.
+    /// error (UX D11), and a failure's detail on the lines after it, as `esviritu detect` prints
+    /// it. The progress of the pipeline and the configuration come from the tool's presentation,
+    /// so they print as they always have.
     static func textEvents(useColors: Bool, quiet: Bool) -> AnalysisRunEvents {
         AnalysisRunEvents { line in
             let formatter = TerminalFormatter(useColors: useColors)
@@ -237,8 +238,11 @@ struct ClassifyCommand: AsyncParsableCommand {
                 if !quiet { print(formatter.info(message)) }
             case .log(.warning, let message)?:
                 if !quiet { printStatusLine(formatter.warning(message)) }
-            case .log(.error, let message)?, .failed(let message, _)?:
+            case .log(.error, let message)?:
                 printStatusLine(formatter.error(message))
+            case .failed(let message, let detail)?:
+                printStatusLine(formatter.error(message))
+                if let detail { printStatusLine(detail) }
             default:
                 break
             }

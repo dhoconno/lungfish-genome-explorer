@@ -18,9 +18,14 @@ import Synchronization
 ///    warnings, and a completed run with a warning reads Completed with Warnings.
 /// 4. Exactly one last line. `complete` names the result folder in `outputs`, carries the
 ///    finalization's artifacts and the root record with the role `provenance`, and has the
-///    completion detail as its message. `failed` has the report's message. A cancelled run ends
-///    with `failed` and exit 125. Nothing follows the last line, so a line a tool writes after its
-///    run ended, from a `ToolProcess` queue or a context it kept, is dropped.
+///    completion detail as its message. `failed` has the report's message. Its `detail` is the
+///    text the failing unit handed over with `AnalysisRunUnitContext.recordFailureDetail(_:)`,
+///    bounded by the executor, and only when the run failed from its units and exactly one unit
+///    failed, a run of one unit or a batch that stops at its first failed unit. A cancelled run
+///    ends with `failed`, exit 125 and no `detail`, and so do a refused plan, a folder that could
+///    not be prepared, a failed finalize and a batch where several units failed. Nothing follows
+///    the last line, so a line a tool writes after its run ended, from a `ToolProcess` queue or a
+///    context it kept, is dropped.
 ///
 /// Tools emit from `ToolProcess` queues while the executor emits from its own task, so every
 /// delivery runs under one lock. A line is handed on whole and in the order the lock was taken,
