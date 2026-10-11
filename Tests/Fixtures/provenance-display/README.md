@@ -31,10 +31,12 @@ Each test copies its record into a temporary project before anything reads it. T
 - `createdAtMilliseconds` is the instant the Run Summary dates the record. The Created text follows the Mac's time zone and locale, so the test compares the instant.
 - The tree record has no `createdAt`. The reader dates it by the sidecar's modification date and reports that it invented the date, so the Run Summary reads Created Not recorded and the expected file holds no instant. The test sets that date itself, 1777777776 seconds since 1970, after it writes the file, to show that the tab does not use it.
 - Every Runtime row is pinned. A fact the record never held reads Not recorded, because since 2.6 no reader fills one from the Mac it runs on. The Dependency Set row is the one exception, and it is left out when the record holds none. The workflow version of a record that carries none reads Not recorded the same way.
-- `notRecorded` lists the Run Summary rows that read Not recorded instead of being left out. They are a date the reader invented and an exit status a primitive record never held.
-- A bare run or primitive record is the Older record format. Its status is `legacy` when nothing it could hold is missing, and `incomplete` when something is, with an Older record format warning after the gaps. An envelope of any version and a typed record never are.
 - The temporary project reads as `<project>`, any home folder as `<home>`, and a managed tool path as the tool's name. The bare run names its author's checkout in its recorded paths, which is why `<home>` appears in `bare-legacy-run.json`.
 - The size labels come from `ByteCountFormatter` in an English locale.
+
+`notRecorded` lists the Run Summary rows that read Not recorded instead of being left out. They are a date the reader invented and an exit status a primitive record never held.
+
+A bare run or primitive record is the Older record format. Its status is `legacy` when nothing it could hold is missing, and `incomplete` when something is, with an Older record format warning after the gaps. An envelope of any version and a typed record never are.
 
 ## Reviewing a difference
 
