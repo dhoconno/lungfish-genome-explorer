@@ -167,6 +167,71 @@ final class FastqPlatformCommandTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: sidecar), unreadable)
     }
 
+    /// Phase 2.6 lane C6, review of lane C4 ruling 3. A change that throws after its `start` line, here
+    /// because the folder is not a bundle, ended the event stream with no terminal event, and an app
+    /// that reads events saw a run that never finished. It now ends in one `failed` line that carries
+    /// the message, and the command still fails with the same error.
+    func testAFolderThatIsNotABundleEndsTheEventStreamInOneFailedLine() async throws {
+        let folder = root.appendingPathComponent("Plain", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let command = try FastqPlatformSubcommand.parse([folder.path, "--set", "ont", "--format", "json"])
+
+        var thrown: Error?
+        let lines = try await standardOutputLines {
+            do { try await command.run() } catch { thrown = error }
+        }
+
+        XCTAssertEqual(try XCTUnwrap(thrown).localizedDescription, "Not a .lungfishfastq bundle: \(folder.path)")
+        let decoder = CLIEventLineDecoder()
+        let events = try lines.map { try XCTUnwrap(try decoder.decode(line: $0), $0) }
+        XCTAssertEqual(events.first, .start(message: "Recording the sequencing platform of 1 FASTQ bundle(s)"))
+        XCTAssertEqual(events.last, .failed(message: "Not a .lungfishfastq bundle: \(folder.path)", detail: nil))
+        XCTAssertEqual(
+            events.filter { if case .failed = $0 { return true } else { return false } }.count, 1,
+            "One failed line"
+        )
+        XCTAssertEqual(events.count, 2, "Nothing sits between the start and the failure: \(lines)")
+    }
+
+    /// The same failure with events off prints no event line, and the message is the one the
+    /// command always gave.
+    func testAFolderThatIsNotABundleWithEventsOffPrintsNoEventLine() async throws {
+        let folder = root.appendingPathComponent("PlainText", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let command = try FastqPlatformSubcommand.parse([folder.path, "--set", "ont"])
+
+        var thrown: Error?
+        let lines = try await standardOutputLines {
+            do { try await command.run() } catch { thrown = error }
+        }
+
+        XCTAssertEqual(try XCTUnwrap(thrown).localizedDescription, "Not a .lungfishfastq bundle: \(folder.path)")
+        XCTAssertFalse(lines.contains { $0.hasPrefix("{") }, "No event line with events off: \(lines)")
+    }
+
+    /// The standard output of a run, redirected to a file for its length, as the lines it printed.
+    private func standardOutputLines(_ body: () async throws -> Void) async throws -> [String] {
+        let file = root.appendingPathComponent("standard-output-\(UUID().uuidString).capture")
+        fflush(stdout)
+        let saved = dup(STDOUT_FILENO)
+        let descriptor = open(file.path, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
+        guard saved >= 0, descriptor >= 0 else { throw CocoaError(.fileWriteUnknown) }
+        dup2(descriptor, STDOUT_FILENO)
+        close(descriptor)
+        var failure: Error?
+        do {
+            try await body()
+        } catch {
+            failure = error
+        }
+        fflush(stdout)
+        dup2(saved, STDOUT_FILENO)
+        close(saved)
+        if let failure { throw failure }
+        return try String(contentsOf: file, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+    }
+
     func testValidation() {
         XCTAssertThrowsError(try FastqPlatformSubcommand.parse(["a.lungfishfastq", "--set", "sanger"]))
         XCTAssertThrowsError(try FastqPlatformSubcommand.parse(["a.lungfishfastq", "--set", "ont", "--confirm"]))

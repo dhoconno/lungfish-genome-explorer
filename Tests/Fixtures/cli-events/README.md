@@ -72,7 +72,7 @@ The leaves that need no external tool ran in process on a small fixture, as the 
 
 `CLIEventTranscriptCoverageTests` runs the same captures again and fails when a line differs from its file. After a deliberate change to an emitter, run that suite with `LUNGFISH_RECAPTURE_CLI_EVENTS=1`, which writes the files instead of comparing them, and review the diff.
 
-A failed run is kept only when Lungfish wrote its message. A Foundation message changes with the system language and the macOS release, so `msa export` and `fastq platform` have no failed run.
+A failed run is kept only when Lungfish wrote its message. A Foundation message changes with the system language and the macOS release, so `msa export` has no failed run.
 
 | Folder | Files | Command and fixture |
 | --- | --- | --- |
@@ -93,7 +93,7 @@ A failed run is kept only when Lungfish wrote its message. A Foundation message 
 | `tree-relabel` | `complete` | `tree relabel` from a metadata column |
 | `fastq-ont-fluidigm-samples` | `complete`, `failed` | `fastq ont-fluidigm-samples` on two reads that carry both Fluidigm primers and one barcode, then on an output folder that already exists |
 | `fastq-ont-pacbio-barcode-demux` | `complete`, `failed` | `fastq ont-pacbio-barcode-demux` on two reads between one barcode pair, then on an output folder that already exists |
-| `fastq-platform` | `complete` | `fastq platform --set ont` on a bundle recorded as Illumina |
+| `fastq-platform` | `complete`, `failed` | `fastq platform --set ont` on a bundle recorded as Illumina, then on a folder that is not a bundle |
 | `import-msa` | `complete`, `complete-with-warning`, `failed` | `import msa` of a two-row CLUSTAL alignment, then of an alignment whose rows share a name, then of a file that does not exist |
 | `import-tree` | `complete`, `complete-with-warning`, `failed` | `import tree` of a tree with numeric support values, then of a tree with no branch lengths, then of a file that does not exist |
 | `import-geneious` | `complete`, `complete-with-warning`, `failed` | `import geneious --no-import-references` of a folder that scans as a Geneious export, then the same with `--preserve-unsupported`, then of a file that does not exist |

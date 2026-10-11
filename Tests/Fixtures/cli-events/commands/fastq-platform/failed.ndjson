@@ -1,0 +1,2 @@
+{"event":"start","message":"Recording the sequencing platform of 1 FASTQ bundle(s)","progress":0,"schemaVersion":2}
+{"error":"Not a .lungfishfastq bundle: \/work\/Plain","event":"failed","schemaVersion":2}

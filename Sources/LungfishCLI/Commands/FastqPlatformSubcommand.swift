@@ -166,16 +166,26 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
             }
         }
 
-        let sidecars = try targets.map { try FASTQMetadataStore.metadataURL(for: FASTQPlatformLabelService.labelledFASTQURL(forBundle: $0)) }
+        let sidecars: [URL]
+        let snapshot: ProvenancePublicationSnapshot
+        do {
+            sidecars = try targets.map { try FASTQMetadataStore.metadataURL(for: FASTQPlatformLabelService.labelledFASTQURL(forBundle: $0)) }
+            snapshot = try ProvenancePublicationSnapshot(
+                urls: sidecars.flatMap { sidecar in
+                    [sidecar] + ProvenancePublicationArtifacts.fileSidecarArtifacts(for: sidecar)
+                },
+                backupNamePrefix: "lungfish-fastq-platform"
+            )
+        } catch {
+            // The run began, so a throw before the first change ends the stream with one failed
+            // line too, such as a folder that is not a bundle. The command fails with the same
+            // error, which the app reads from the exit status (review of lane C4, ruling 3).
+            events.emitFailed(error.localizedDescription)
+            throw error
+        }
+        defer { snapshot.discard() }
         let inputRecords = sidecars.filter { FileManager.default.fileExists(atPath: $0.path) }
             .map { ProvenanceRecorder.fileRecord(url: $0, format: .json, role: .input) }
-        let snapshot = try ProvenancePublicationSnapshot(
-            urls: sidecars.flatMap { sidecar in
-                [sidecar] + ProvenancePublicationArtifacts.fileSidecarArtifacts(for: sidecar)
-            },
-            backupNamePrefix: "lungfish-fastq-platform"
-        )
-        defer { snapshot.discard() }
 
         var changes: [FASTQPlatformLabelService.Change] = []
         do {

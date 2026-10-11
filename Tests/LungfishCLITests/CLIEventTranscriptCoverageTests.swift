@@ -558,6 +558,13 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
                 let command = try FastqPlatformSubcommand.parse([bundle.path, "--set", "ont", "--format", "json"])
                 return try await Self.standardOutputLines(in: scratch) { try await command.run() }
             },
+            // A folder that is not a bundle throws after the start line. The message is the command's own.
+            Capture(leaf: "fastq platform", name: "failed") { scratch in
+                let folder = scratch.root.appendingPathComponent("Plain", isDirectory: true)
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                let command = try FastqPlatformSubcommand.parse([folder.path, "--set", "ont", "--format", "json"])
+                return try await Self.standardOutputLines(in: scratch, expectingFailure: true) { try await command.run() }
+            },
         ]
     }
 
@@ -691,6 +698,7 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
     /// The standard output of a run that has no sink, redirected to a file for its length.
     private static func standardOutputLines(
         in scratch: Scratch,
+        expectingFailure: Bool = false,
         _ run: () async throws -> Void
     ) async throws -> [String] {
         let file = scratch.root.appendingPathComponent("standard-output.capture")
@@ -709,7 +717,11 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         fflush(stdout)
         dup2(saved, STDOUT_FILENO)
         close(saved)
-        if let failure { throw failure }
+        if expectingFailure {
+            if failure == nil { throw NoFailure() }
+        } else if let failure {
+            throw failure
+        }
         let text = try String(contentsOf: file, encoding: .utf8)
         return text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
     }
