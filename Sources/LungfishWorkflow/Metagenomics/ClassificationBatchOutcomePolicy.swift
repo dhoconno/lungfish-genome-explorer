@@ -6,42 +6,42 @@ import Foundation
 import LungfishIO
 
 /// One stable row in the human-readable classification batch summary.
-struct ClassificationBatchSummaryRow: Sendable, Equatable {
-    let sampleId: String
-    let status: String
-    let profileState: String
-    let requestedRank: String
-    let resolvedRank: String
-    let totalReads: String
-    let classifiedReads: String
-    let classifiedPercentage: String
-    let speciesCount: String
-    let dominantSpecies: String
-    let message: String
+public struct ClassificationBatchSummaryRow: Sendable, Equatable {
+    public let sampleId: String
+    public let status: String
+    public let profileState: String
+    public let requestedRank: String
+    public let resolvedRank: String
+    public let totalReads: String
+    public let classifiedReads: String
+    public let classifiedPercentage: String
+    public let speciesCount: String
+    public let dominantSpecies: String
+    public let message: String
 }
 
 /// Aggregate terminal-state decision for a classification batch.
-struct ClassificationBatchOutcomeEvaluation: Sendable, Equatable {
-    let completedCount: Int
-    let degradedCount: Int
-    let failedCount: Int
-    let requiresWarningCompletion: Bool
-    let warningMessage: String
+public struct ClassificationBatchOutcomeEvaluation: Sendable, Equatable {
+    public let completedCount: Int
+    public let degradedCount: Int
+    public let failedCount: Int
+    public let requiresWarningCompletion: Bool
+    public let warningMessage: String
 }
 
 /// User-facing and analysis-manifest metadata for one valid Kraken2 result.
-struct ClassificationSingleOutcomeMetadata: Sendable, Equatable {
-    let requiresWarningCompletion: Bool
-    let completionDetail: String
-    let analysisSummary: String
-    let analysisParameters: [String: AnalysisParameterValue]
+public struct ClassificationSingleOutcomeMetadata: Sendable, Equatable {
+    public let requiresWarningCompletion: Bool
+    public let completionDetail: String
+    public let analysisSummary: String
+    public let analysisParameters: [String: AnalysisParameterValue]
 }
 
 /// Pure formatting and terminal-state policy shared by app execution and tests.
-enum ClassificationBatchOutcomePolicy {
-    static let summaryHeader = "sample_id\tstatus\tprofile_state\trequested_rank\tresolved_rank\ttotal_reads\tclassified_reads\tclassified_pct\tspecies_count\tdominant_species\tmessage"
+public enum ClassificationBatchOutcomePolicy {
+    public static let summaryHeader = "sample_id\tstatus\tprofile_state\trequested_rank\tresolved_rank\ttotal_reads\tclassified_reads\tclassified_pct\tspecies_count\tdominant_species\tmessage"
 
-    static func row(sampleId: String, result: ClassificationResult) -> ClassificationBatchSummaryRow {
+    public static func row(sampleId: String, result: ClassificationResult) -> ClassificationBatchSummaryRow {
         let outcome = result.profileOutcome
         let resolution = outcome.resolution
         let requestedRank = resolution?.request.provenanceValue
@@ -66,7 +66,7 @@ enum ClassificationBatchOutcomePolicy {
         )
     }
 
-    static func failedRow(sampleId: String, message: String) -> ClassificationBatchSummaryRow {
+    public static func failedRow(sampleId: String, message: String) -> ClassificationBatchSummaryRow {
         ClassificationBatchSummaryRow(
             sampleId: sampleId,
             status: "failed",
@@ -82,7 +82,7 @@ enum ClassificationBatchOutcomePolicy {
         )
     }
 
-    static func summaryTSV(rows: [ClassificationBatchSummaryRow]) -> String {
+    public static func summaryTSV(rows: [ClassificationBatchSummaryRow]) -> String {
         let lines = rows.map { row in
             [
                 row.sampleId,
@@ -97,13 +97,23 @@ enum ClassificationBatchOutcomePolicy {
                 row.dominantSpecies,
                 row.message,
             ]
-            .map(appTSVField)
+            .map(Self.tsvField)
             .joined(separator: "\t")
         }
         return ([summaryHeader] + lines).joined(separator: "\n")
     }
 
-    static func evaluate(
+    /// Escapes one value for the batch summary. A value with a tab, a line feed or a double quote
+    /// is wrapped in double quotes and its quotes are doubled. The app's `appTSVField` follows the
+    /// same rule for the other tables its launches write.
+    public static func tsvField(_ value: String) -> String {
+        if value.contains("\t") || value.contains("\n") || value.contains("\"") {
+            return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+        }
+        return value
+    }
+
+    public static func evaluate(
         rows: [ClassificationBatchSummaryRow],
         sqliteWarning: String?
     ) -> ClassificationBatchOutcomeEvaluation {
@@ -129,7 +139,7 @@ enum ClassificationBatchOutcomePolicy {
         )
     }
 
-    static func singleResultMetadata(
+    public static func singleResultMetadata(
         for result: ClassificationResult
     ) -> ClassificationSingleOutcomeMetadata {
         let tree = result.tree
