@@ -16,13 +16,18 @@ public enum ProvenanceEnvelopeReader {
         case primitive
     }
 
-    /// What the tolerant reader made of a record, and what it filled in itself.
+    /// What the tolerant reader made of a record, and what it filled in itself. Only the bare run
+    /// and primitive shapes are the Older record format, never an envelope of any version.
     public struct Reading: Sendable, Equatable {
         public let envelope: ProvenanceEnvelope
         public let shape: RecordShape
         /// Whether the record states how its run ended. When it does not, `envelope.status` is
         /// derived from the exit status, which cannot tell a completed run from a cancelled one.
         public let statusWasRecorded: Bool
+        /// Whether the reader dated the record itself, because it holds no date. Only the primitive
+        /// adapter does, with the file's modification time or 1970. `envelope.createdAt`, and every
+        /// step date taken from it, then read Not recorded.
+        public let createdAtWasInvented: Bool
     }
 
     public static func load(from directory: URL) throws -> ProvenanceEnvelope? {
@@ -87,28 +92,33 @@ public enum ProvenanceEnvelopeReader {
     }
 
     /// The envelope, then a bare `WorkflowRun`, then the primitive adapter, which accepts any
-    /// JSON object.
+    /// JSON object. An envelope requires `createdAt` and a run requires `startTime`, so only the
+    /// adapter can invent a date.
     private static func shaped(
         _ data: Data,
         sourceURL: URL?,
         fallbackCreatedAt: Date?
-    ) throws -> (envelope: ProvenanceEnvelope, shape: RecordShape) {
+    ) throws -> (envelope: ProvenanceEnvelope, shape: RecordShape, createdAtWasInvented: Bool) {
         if let envelope = try? ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: data) {
-            return (envelope, .envelope)
+            return (envelope, .envelope, false)
         }
         if let legacy = try? ProvenanceJSON.decoder.decode(WorkflowRun.self, from: data) {
-            return (legacy.recordedEnvelope(), .workflowRun)
+            return (legacy.recordedEnvelope(), .workflowRun, false)
         }
-        let envelope = try PrimitiveProvenanceEnvelopeAdapter.decode(
+        let adapted = try PrimitiveProvenanceEnvelopeAdapter.decode(
             data,
             sourceURL: sourceURL,
             fallbackCreatedAt: fallbackCreatedAt
         )
-        return (envelope, .primitive)
+        return (adapted.envelope, .primitive, adapted.createdAtWasInvented)
     }
 
     private static func reading(_ data: Data, sourceURL: URL?, fallbackCreatedAt: Date?) throws -> Reading {
-        let (envelope, shape) = try shaped(data, sourceURL: sourceURL, fallbackCreatedAt: fallbackCreatedAt)
+        let (envelope, shape, createdAtWasInvented) = try shaped(
+            data,
+            sourceURL: sourceURL,
+            fallbackCreatedAt: fallbackCreatedAt
+        )
         let statusWasRecorded: Bool
         switch shape {
         case .envelope:
@@ -121,7 +131,12 @@ public enum ProvenanceEnvelopeReader {
             // The adapter reads no status key, so the status is always derived.
             statusWasRecorded = false
         }
-        return Reading(envelope: envelope, shape: shape, statusWasRecorded: statusWasRecorded)
+        return Reading(
+            envelope: envelope,
+            shape: shape,
+            statusWasRecorded: statusWasRecorded,
+            createdAtWasInvented: createdAtWasInvented
+        )
     }
 
     /// The top-level `status` key, read on its own so a word that names no status reads as absent.

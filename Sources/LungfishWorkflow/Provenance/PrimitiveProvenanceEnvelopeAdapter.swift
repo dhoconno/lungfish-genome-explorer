@@ -5,7 +5,14 @@
 import Foundation
 
 enum PrimitiveProvenanceEnvelopeAdapter {
-    static func decode(_ data: Data, sourceURL: URL?, fallbackCreatedAt: Date? = nil) throws -> ProvenanceEnvelope {
+    /// The envelope, and whether its date was invented. A record that holds no date is dated by
+    /// `fallbackCreatedAt`, the file's modification time, or by 1970 without one, and a display
+    /// then shows the date as Not recorded (plan decision V6).
+    static func decode(
+        _ data: Data,
+        sourceURL: URL?,
+        fallbackCreatedAt: Date? = nil
+    ) throws -> (envelope: ProvenanceEnvelope, createdAtWasInvented: Bool) {
         let object = try JSONSerialization.jsonObject(with: data)
         guard let json = object as? [String: Any] else {
             throw DecodingError.dataCorrupted(
@@ -17,7 +24,7 @@ enum PrimitiveProvenanceEnvelopeAdapter {
         }
 
         let provenanceJSON = latestLogEntry(in: json) ?? json
-        let createdAt = date(provenanceJSON, keys: [
+        let recordedCreatedAt = date(provenanceJSON, keys: [
             "createdAt",
             "created_at",
             "timestamp",
@@ -30,7 +37,8 @@ enum PrimitiveProvenanceEnvelopeAdapter {
             "extraction_date",
             "recordedAt",
             "recorded_at",
-        ]) ?? fallbackCreatedAt ?? Date(timeIntervalSince1970: 0)
+        ])
+        let createdAt = recordedCreatedAt ?? fallbackCreatedAt ?? Date(timeIntervalSince1970: 0)
         let runtime = runtimeIdentity(provenanceJSON)
         let inputs = inputDescriptors(provenanceJSON)
         var outputs = outputDescriptors(provenanceJSON)
@@ -68,7 +76,7 @@ enum PrimitiveProvenanceEnvelopeAdapter {
             createdAt: createdAt
         )
 
-        return ProvenanceEnvelope(
+        let envelope = ProvenanceEnvelope(
             schemaVersion: int(json, keys: ["schemaVersion", "schema_version"]) ?? 1,
             createdAt: createdAt,
             workflowName: workflowName,
@@ -87,6 +95,7 @@ enum PrimitiveProvenanceEnvelopeAdapter {
             exitStatus: int(provenanceJSON, keys: ["exitStatus", "exit_status", "exitCode"]),
             stderr: string(provenanceJSON, keys: ["stderr"])
         )
+        return (envelope, recordedCreatedAt == nil)
     }
 
     private static func latestLogEntry(in json: [String: Any]) -> [String: Any]? {
