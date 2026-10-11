@@ -1,7 +1,7 @@
 {
   "argv" : [
     "lungfish-cli",
-    "conda",
+    "kraken2",
     "classify",
     "--db",
     "FixtureDB",
@@ -195,10 +195,6 @@
       "type" : "boolean",
       "value" : false
     },
-    "preset" : {
-      "type" : "string",
-      "value" : "balanced"
-    },
     "profile" : {
       "type" : "boolean",
       "value" : false
@@ -300,6 +296,18 @@
       "role" : "report"
     },
     {
+      "format" : "text",
+      "path" : "<project>/output/classification.bracken.kreport",
+      "role" : "report",
+      "sha256" : "db3445bb2a76ea674b1dca4840358f1c79e5832cac71b9f974cd1c8c87b1f4cd",
+      "size" : 20
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/output/classification-result.json",
+      "role" : "output"
+    },
+    {
       "format" : "fastq",
       "path" : "<project>/reads.fastq",
       "role" : "input",
@@ -314,18 +322,18 @@
       "size" : 24
     },
     {
+      "format" : "text",
+      "path" : "<project>/output/classification.kreport",
+      "role" : "input",
+      "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
+      "size" : 56
+    },
+    {
       "format" : "unknown",
       "path" : "<project>/kraken-db/database150mers.kmer_distrib",
       "role" : "reference",
       "sha256" : "d89539377919e7300dc17eb15bac2b1bae5fed853c57218379398a1fc2b4a84f",
       "size" : 31
-    },
-    {
-      "format" : "text",
-      "path" : "<project>/output/classification.bracken.kreport",
-      "role" : "report",
-      "sha256" : "db3445bb2a76ea674b1dca4840358f1c79e5832cac71b9f974cd1c8c87b1f4cd",
-      "size" : 20
     }
   ],
   "legacyRunParameters" : {
@@ -560,13 +568,18 @@
       "role" : "report",
       "sha256" : "db3445bb2a76ea674b1dca4840358f1c79e5832cac71b9f974cd1c8c87b1f4cd",
       "size" : 20
+    },
+    {
+      "format" : "json",
+      "path" : "<project>/output/classification-result.json",
+      "role" : "output"
     }
   ],
   "readStatus" : "completed",
   "recorded" : {
 
   },
-  "reproducibleCommand" : "lungfish-cli conda classify --db FixtureDB --output-dir <project>/output --confidence 0.0 --min-hit-groups 2 --threads 4 --read-format unpaired --profile --bracken-read-length 150 --bracken-threshold 10 <project>/reads.fastq",
+  "reproducibleCommand" : "lungfish-cli kraken2 classify --db FixtureDB --output-dir <project>/output --confidence 0.0 --min-hit-groups 2 --threads 4 --read-format unpaired --profile --bracken-read-length 150 --bracken-threshold 10 <project>/reads.fastq",
   "resolvedDefaultOptions" : {
     "brackenRankRequest" : {
       "type" : "string",
@@ -673,10 +686,6 @@
     "pairedEnd" : {
       "type" : "boolean",
       "value" : false
-    },
-    "preset" : {
-      "type" : "string",
-      "value" : "balanced"
     },
     "profile" : {
       "type" : "boolean",
@@ -1185,7 +1194,7 @@
     }
   ],
   "strictAccepts" : true,
-  "toolName" : "kraken2",
-  "toolVersion" : "2.1.3",
+  "toolName" : "lungfish-cli",
+  "toolVersion" : "<cli-version>",
   "workflowName" : "lungfish.classify"
 }
