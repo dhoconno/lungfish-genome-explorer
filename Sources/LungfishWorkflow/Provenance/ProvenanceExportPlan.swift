@@ -388,17 +388,21 @@ struct ProvenanceExportPlan {
     }
 
     /// Files the external tools read that no step produced (by path or by
-    /// checksum), once each: the run's true inputs.
+    /// checksum), once each: the run's true inputs. A sub-step also reads scratch files of its CLI
+    /// step's workspace, which no command of the script reads, so only the inputs its CLI step lists
+    /// too count.
     var primaryInputs: [FileRecord] {
         let produced = Set(steps.flatMap { $0.outputs.map(\.path) })
         var producedEarlierChecksums = Set<String>()
         var seen = Set<String>()
         var inputs: [FileRecord] = []
         for step in steps {
+            let parentInputs = step.ranUnder.flatMap { n in steps.first { $0.numbers.contains(n) } }.map { Set($0.inputs.map(\.path)) }
             if step.kind == .tool {
                 for record in step.inputs where !record.path.hasPrefix("pipe:")
                     && !produced.contains(record.path)
                     && !(record.sha256.map(producedEarlierChecksums.contains) ?? false)
+                    && (parentInputs?.contains(record.path) ?? true)
                     && seen.insert("\(record.path)\u{0}\(record.sha256 ?? "")").inserted {
                     inputs.append(record)
                 }

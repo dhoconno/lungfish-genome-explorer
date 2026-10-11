@@ -29,9 +29,12 @@ final class ProvenanceStepParentTests: XCTestCase {
         argv: [String],
         durable: [String]? = nil,
         inputs: [String] = [],
-        outputs: [String] = []
+        outputs: [String] = [],
+        id: UUID = UUID(),
+        parent: UUID? = nil
     ) -> StepExecution {
         StepExecution(
+            id: id,
             toolName: tool,
             toolVersion: version,
             command: argv,
@@ -39,7 +42,8 @@ final class ProvenanceStepParentTests: XCTestCase {
             inputs: inputs.map { FileRecord(path: $0, role: .input) },
             outputs: outputs.map { FileRecord(path: $0, role: .output) },
             exitCode: 0,
-            wallTime: 1
+            wallTime: 1,
+            parentStepID: parent
         )
     }
 
@@ -200,6 +204,56 @@ final class ProvenanceStepParentTests: XCTestCase {
         XCTAssertEqual(outcome.status, 0, outcome.stderr)
         XCTAssertEqual(outcome.calls.count, 1, "bash ran \(outcome.calls)")
         XCTAssertTrue(outcome.calls.first?.hasPrefix("lungfish-cli import fasta") == true, "\(outcome.calls)")
+    }
+
+    // MARK: - The inputs a script lists
+
+    /// The steps of a fresh VSP2 import, as the importer records them with the import step as the
+    /// parent of the others. Fastp reads the two reads and writes into the workspace, deacon reads a
+    /// workspace file that no step records as an output, and clumpify reads deacon's output.
+    private func freshVSP2Import() -> [StepExecution] {
+        let reads = ["/data/vsp2_R1.fastq", "/data/vsp2_R2.fastq"]
+        let workspace = "\(project)/.tmp/fastq-import-22ABEAC9-A86E-446A-A518-B731F78963BF"
+        let bundle = "\(project)/Imports/vsp2.lungfishfastq"
+        let importID = UUID()
+        let importArgv = ["lungfish-cli", "import", "fastq"] + reads + ["--project", project, "--recipe", "vsp2"]
+        return [
+            step("fastp", "1.0.1", argv: ["fastp", "-i", reads[0], "-I", reads[1]], inputs: reads, parent: importID),
+            step(
+                "deacon", "0.9.0", argv: ["deacon", "filter", "\(workspace)/vsp2_mixed.fastq"],
+                inputs: ["\(workspace)/vsp2_mixed.fastq"], outputs: ["\(workspace)/vsp2_clean.fastq"], parent: importID
+            ),
+            step(
+                "clumpify.sh", "40.02", argv: ["clumpify.sh", "in=\(workspace)/vsp2_clean.fastq", "out=\(bundle)/vsp2.fastq.gz"],
+                inputs: ["\(workspace)/vsp2_clean.fastq"], outputs: ["\(bundle)/vsp2.fastq.gz"], parent: importID
+            ),
+            step(
+                "lungfish import fastq", "Lungfish 2026.9.58 (5822)", argv: importArgv, durable: importArgv,
+                inputs: reads, outputs: ["\(bundle)/vsp2.fastq.gz", "\(bundle)/vsp2.fastq.gz.lungfish-meta.json"], id: importID
+            ),
+            step(
+                "seqkit", "2.13.0", argv: ["seqkit", "stats", "\(bundle)/vsp2.fastq.gz"],
+                inputs: ["\(bundle)/vsp2.fastq.gz"], outputs: ["\(bundle)/vsp2.fastq.gz.lungfish-meta.json"], parent: importID
+            ),
+        ]
+    }
+
+    func testAParentedVSP2ShapedRecordNamesOnlyItsTwoReads() {
+        let steps = freshVSP2Import()
+        XCTAssertEqual(plan(steps).primaryInputs.map(\.path), ["/data/vsp2_R1.fastq", "/data/vsp2_R2.fastq"])
+        let inputLines = shell(steps).split(separator: "\n").filter { $0.hasPrefix("INPUT_") }
+        XCTAssertEqual(inputLines.count, 2, "\(inputLines)")
+        XCTAssertFalse(shell(steps).contains(".tmp/fastq-import-"), "the script names no file of the deleted workspace")
+    }
+
+    func testAReleasedImportKeepsTheSourceFileItsToolStepReads() {
+        XCTAssertEqual(plan(releasedFASTAImport("Ref")).primaryInputs.map(\.path), ["/data/Ref.gb"])
+        XCTAssertEqual(plan(releasedFASTQImport("S1")).primaryInputs.map(\.path), ["/data/S1.fastq"])
+    }
+
+    func testAnIndependentToolStepKeepsEveryInputItReads() {
+        let steps = [step("fastp", "1.0.1", argv: ["fastp", "-i", "/data/raw.fastq"], inputs: ["/data/raw.fastq", "/data/adapters.fa"])]
+        XCTAssertEqual(plan(steps).primaryInputs.map(\.path), ["/data/raw.fastq", "/data/adapters.fa"])
     }
 
     // MARK: - An independent step is never skipped
