@@ -168,12 +168,6 @@ enum ClassifierParityKnownDifferences {
             closedBy: "A8 (E13)"
         ),
         ClassifierParityKnownDifference(
-            counts: [.k5: 1], scope: .side(.a),
-            id: "fact: the run completes",
-            reason: "A known defect (F2 bio ruling 1). Kraken2 classifies none of the 40 reads and reports them in one unclassified line. KreportParser rejects that report as Empty Kraken2 report, so the run fails before the Bracken preflight, which would degrade the profile with rankAbsentFromReport and complete with warnings (E4)",
-            closedBy: "BR's kreport parser fix. BR leaves this test to A8, which deletes this entry and pins the new row, Completed with Warnings and one warning line (A8 M0, E4)"
-        ),
-        ClassifierParityKnownDifference(
             counts: [.k5: 1], scope: .side(.b),
             id: "fact: the run completes",
             reason: "As on side A, the replay throws Empty Kraken2 report. After BR's parser fix the replay still exits 64 with a failed record (F2 bio ruling 1)",
