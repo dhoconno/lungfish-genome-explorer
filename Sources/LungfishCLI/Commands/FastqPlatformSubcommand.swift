@@ -202,16 +202,18 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
                 try await recordProvenance(change: change, inputs: inputRecords, runClock: runClock)
             }
         } catch {
+            // The failure is reported before the restore, so a restore that throws
+            // still leaves the stream with its one terminal event.
+            if globalOptions.outputFormat == .json {
+                events.emitFailed(error.localizedDescription)
+            } else {
+                print(formatter.error(error.localizedDescription))
+            }
             // When the first change fails nothing was written, since each
             // metadata file is replaced atomically. Restoring would only
             // rewrite the same files, and a locked one would hide the reason.
             if !changes.isEmpty {
                 try snapshot.restore()
-            }
-            if globalOptions.outputFormat == .json {
-                events.emitFailed(error.localizedDescription)
-            } else {
-                print(formatter.error(error.localizedDescription))
             }
             throw CLIExitCode.outputError.exitCode
         }

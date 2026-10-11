@@ -209,6 +209,44 @@ final class FastqPlatformCommandTests: XCTestCase {
         XCTAssertFalse(lines.contains { $0.hasPrefix("{") }, "No event line with events off: \(lines)")
     }
 
+    /// Review of lane C6, defect 1. When a later bundle fails after an earlier one was written, the
+    /// apply catch restores the snapshot, and the restore can throw, here because the failed bundle's
+    /// metadata file is locked and the restore replaces every file it covers. The failure was
+    /// reported after the restore, so a restore that threw left the stream with no terminal event.
+    /// The failure is reported first now, and the command still fails with the restore's error.
+    func testAFailedApplyIsReportedBeforeARestoreThatThrows() async throws {
+        let first = try makeLegacyMislabelledBundle(named: "First")
+        let second = try makeLegacyMislabelledBundle(named: "Second")
+        let secondFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: second))
+        let secondSidecar = FASTQMetadataStore.metadataURL(for: secondFASTQ)
+        let temporary = FileManager.default.temporaryDirectory
+        let existingBackups = Set((try? FileManager.default.contentsOfDirectory(atPath: temporary.path)) ?? [])
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: secondSidecar.path)
+        defer {
+            try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: secondSidecar.path)
+            removeLockedSnapshotBackups(in: temporary, except: existingBackups)
+        }
+        let command = try FastqPlatformSubcommand.parse([first.path, second.path, "--set", "ont", "--format", "json"])
+
+        var thrown: Error?
+        let lines = try await standardOutputLines {
+            do { try await command.run() } catch { thrown = error }
+        }
+
+        XCTAssertNotNil(thrown, "The command fails, with the error of the restore")
+        let decoder = CLIEventLineDecoder()
+        let events = try lines.map { try XCTUnwrap(try decoder.decode(line: $0), $0) }
+        XCTAssertEqual(events.first, .start(message: "Recording the sequencing platform of 2 FASTQ bundle(s)"))
+        XCTAssertEqual(
+            events.filter { if case .failed = $0 { return true } else { return false } }.count, 1,
+            "One failed line, even though the restore threw: \(lines)"
+        )
+        guard case let .failed(message, _)? = events.last else {
+            return XCTFail("The stream ends in a failed line: \(lines)")
+        }
+        XCTAssertTrue(message.contains("could not be written"), message)
+    }
+
     /// The standard output of a run, redirected to a file for its length, as the lines it printed.
     private func standardOutputLines(_ body: () async throws -> Void) async throws -> [String] {
         let file = root.appendingPathComponent("standard-output-\(UUID().uuidString).capture")
