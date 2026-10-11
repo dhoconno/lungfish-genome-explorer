@@ -983,6 +983,44 @@ features:
     notes: >-
       Runs multi-level TaxTriage clinical triage and shows a confidence view,
       batch overview, and strain comparison across samples.
+  classify.esviritu-cli-route:
+    title: Run EsViritu from the command line into a project
+    entry_points:
+      - "CLI: lungfish-cli esviritu detect --project"
+      - "CLI: lungfish-cli esviritu detect --batch"
+      - "CLI: lungfish-cli build-db esviritu"
+    inputs: [fastq, esviritu-database]
+    outputs: [esviritu-report, taxonomy-dataset, provenance-sidecar]
+    viewport_class: taxonomy
+    sources:
+      - Sources/LungfishCLI/Commands/EsVirituCommand.swift
+      - Sources/LungfishCLI/Commands/EsVirituCommand+Index.swift
+      - Sources/LungfishCLI/Commands/BuildDbCommand.swift
+      - Sources/LungfishCLI/Commands/BuildDbCommand+Events.swift
+      - Sources/LungfishWorkflow/AnalysisRun/AnalysisRunExecutor.swift
+      - Sources/LungfishWorkflow/Metagenomics/EsVirituAnalysisRunTool.swift
+    module: [LungfishCLI, LungfishWorkflow]
+    cli:
+      - lungfish-cli esviritu detect
+      - lungfish-cli build-db esviritu
+    provenance: one root record written by AnalysisRunExecutor, named lungfish.esviritu.detect
+    tests:
+      - Tests/LungfishCLITests/EsVirituDetectExecutorTests.swift
+      - Tests/LungfishCLITests/BuildDbEventStreamTests.swift
+      - Tests/LungfishWorkflowTests/AnalysisRun/AnalysisRunExecutorTests.swift
+    notes: >-
+      lungfish-cli esviritu detect runs through the analysis run executor, so the
+      command and the app write one result tree. A plain --output keeps the one
+      folder the command always wrote. The --project option makes
+      Analyses/esviritu-batch-<timestamp>/ in the project with a folder per
+      sample, where the app puts an EsViritu batch, and the --batch flag groups
+      the inputs into samples as the EsViritu dialog does. With --format json
+      standard output holds version 2 events only, and in text mode the command
+      prints what it always printed with its errors and warnings on standard
+      error. A SIGTERM cancels the run, which records the status cancelled and
+      exits 125. The run writes one root record whose command is the one that
+      ran. The commands build-db esviritu, build-db kraken2 and build-db taxtriage
+      print version 2 events under --format json.
   classify.nao-mgs:
     title: NAO-MGS metagenomic surveillance
     entry_points:
@@ -1750,6 +1788,8 @@ features:
       - Sources/LungfishApp/Views/Inspector/Sections/ProvenanceSection.swift
       - Sources/LungfishApp/Views/Inspector/Sections/ProvenancePathCaption.swift
       - Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift
+      - Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel+RunStatus.swift
+      - Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel+RecordShape.swift
       - Sources/LungfishApp/Views/Inspector/InspectorSupportingTypes.swift
       - Sources/LungfishApp/Views/Inspector/InspectorViewModel.swift
       - Sources/LungfishApp/Views/Inspector/InspectorViewController+Notifications.swift
@@ -1764,6 +1804,7 @@ features:
       - Tests/LungfishAppTests/ProvenanceSectionAccessibilityTests.swift
       - Tests/LungfishAppTests/ProvenanceSectionSourceTests.swift
       - Tests/LungfishAppTests/ProvenanceLegacyDisplayTests.swift
+      - Tests/LungfishAppTests/ProvenanceRunStatusDisplayTests.swift
     notes: >-
       View > Provenance Inspector (Option-Command-V) shows the Inspector on
       its Provenance tab. InspectorViewModel.availableTabs offers the tab in
@@ -1775,7 +1816,18 @@ features:
       Options, Runtime and Raw JSON, a Warnings group when there are any, a
       Source picker when the selection has several records, a Copy button
       and an Export menu of the six File > Export > Provenance formats. A
-      result with no record reads Missing provenance.
+      result with no record reads Missing provenance. The status line under the
+      section title audits the record and not the run. It reads Complete record,
+      Incomplete record, Older record format, Missing provenance or No provenance
+      required. Run Summary includes a Run Status row between Created and Exit
+      Status. It reads the record's own status as Completed, Failed, Cancelled or
+      Not finished, and reads Not recorded when the record states none and the
+      reader derived one. A record whose format never holds a process ID shows no
+      Process ID row. That covers an envelope at version 2 or later, a typed record
+      such as mapping-provenance.json, and a version 1 envelope that states its
+      status and holds no process ID. A record that holds a process ID keeps the
+      row, and a bare run or primitive record in the Older record format that lacks
+      one reads Not recorded.
   provenance.result-popovers:
     title: Show a result viewer's pipeline information popover
     entry_points:
