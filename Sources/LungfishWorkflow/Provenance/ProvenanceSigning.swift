@@ -144,8 +144,10 @@ public struct LocalProvenanceSigningProvider:
     /// a plain atomic write can leave the name empty. One full flush covers both files, or joins
     /// the transaction of a caller that already runs one, as the provenance writer does around a
     /// whole write. The bytes are the ones the transactional overload hands its publisher.
-    /// A failure after the signature took its name leaves a whole signature and no key, which
-    /// verification reports as a missing key, and the next signing repairs the pair.
+    /// A failure after the signature took its name leaves the new signature beside the old key
+    /// file, or beside no key file on a first signing. A key from the same private key has the same
+    /// bytes, so the pair still verifies. Otherwise verification fails until the next signing
+    /// repairs the pair.
     public func sign(provenanceURL: URL) throws -> ProvenanceSignatureArtifact {
         try DurableReplace.transaction {
             try sign(provenanceURL: provenanceURL) { data, destinationURL in
