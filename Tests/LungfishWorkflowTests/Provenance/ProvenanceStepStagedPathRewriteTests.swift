@@ -47,7 +47,11 @@ final class ProvenanceStepStagedPathRewriteTests: XCTestCase {
             completedAt: Date(timeIntervalSince1970: 1_790_000_002),
             parentStepID: UUID(),
             managedToolID: ManagedToolID(rawValue: "seqkit"),
-            toolVersionEvidence: .observed(version: "2.13.0", reportedLine: nil)
+            toolVersionEvidence: .observed(version: "2.13.0", reportedLine: nil),
+            observation: ProvenanceStepObservation(
+                termination: .exited(code: 0), stop: nil, outputComplete: true, environment: nil,
+                stage: .init(index: 0, count: 1)
+            )
         )
     }
 

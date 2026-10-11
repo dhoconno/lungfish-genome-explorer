@@ -118,6 +118,7 @@ final class ProvenanceStepFieldRecordingTests: XCTestCase {
             "id", "toolName", "toolVersion", "githubReleaseVersion", "argv", "durableReplayArgv", "reproducibleCommand",
             "resolvedOptions", "runtimeIdentity", "inputs", "outputs", "exitStatus", "wallTimeSeconds", "peakMemoryBytes",
             "stderr", "dependsOn", "startedAt", "completedAt", "parentStepID", "managedToolID", "toolVersionEvidence",
+            "observation",
         ], "ProvenanceStep gained or lost a field. Carry it through StepExecution, recordStep, ProvenanceStep.init(stepExecution:) and legacyWorkflowRun, then list it here.")
     }
 }

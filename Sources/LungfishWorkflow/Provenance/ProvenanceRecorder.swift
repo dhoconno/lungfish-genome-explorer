@@ -284,6 +284,7 @@ public actor ProvenanceRecorder {
         guard let run = findRun(runID) else {
             throw ProvenanceError.runNotFound(runID)
         }
+        logDeclarationsWithoutObservation(of: run)
         let canonical = run.canonicalEnvelope()
         var envelope = canonical
         if let options {
@@ -395,6 +396,8 @@ extension ProvenanceRecorder {
         var endedAt: Date?
         /// Where the run's latest `completeRun` falls among all of them, or nil while it records.
         var completion: UInt64?
+        /// The declared steps whose observation is not recorded yet (`ProvenanceRecorder+Observation.swift`).
+        var openDeclarations: Set<UUID> = []
 
         init(name: String, parameters: [String: ParameterValue], clock: ProvenanceRunClock) {
             id = UUID()

@@ -38,6 +38,11 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
     /// record holding evidence this build cannot read keeps the rest of the step and reads it as
     /// not recorded.
     public var toolVersionEvidence: ToolVersionEvidence?
+    /// What ToolProcess observed about the step's launch, when the writer declared the step around it:
+    /// how it ended, why ToolProcess stopped it, whether its output was complete, the environment its
+    /// adapter changed and its place in the run. Nil for a step nobody observed, and a record holding an
+    /// observation this build cannot read keeps the rest of the step.
+    public var observation: ProvenanceStepObservation?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -66,6 +71,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         case parentStepID
         case managedToolID
         case toolVersionEvidence
+        case observation
     }
 
     public init(
@@ -89,7 +95,8 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         completedAt: Date? = nil,
         parentStepID: UUID? = nil,
         managedToolID: ManagedToolID? = nil,
-        toolVersionEvidence: ToolVersionEvidence? = nil
+        toolVersionEvidence: ToolVersionEvidence? = nil,
+        observation: ProvenanceStepObservation? = nil
     ) {
         self.id = id
         self.toolName = ProvenanceName.required(toolName)
@@ -112,6 +119,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         self.parentStepID = parentStepID
         self.managedToolID = managedToolID
         self.toolVersionEvidence = toolVersionEvidence
+        self.observation = observation
     }
 
     public init(from decoder: Decoder) throws {
@@ -145,6 +153,8 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         managedToolID = try container.decodeIfPresent(ManagedToolID.self, forKey: .managedToolID)
         // A later build may record a kind of evidence this one does not know. The step still reads.
         toolVersionEvidence = try? container.decodeIfPresent(ToolVersionEvidence.self, forKey: .toolVersionEvidence)
+        // So may an observation in a shape this build does not know. It reads as not observed.
+        observation = try? container.decodeIfPresent(ProvenanceStepObservation.self, forKey: .observation)
     }
 
     /// Writes each fact under its canonical key only (schema version 2). The decoder keeps reading
@@ -172,6 +182,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         try container.encodeIfPresent(parentStepID, forKey: .parentStepID)
         try container.encodeIfPresent(managedToolID, forKey: .managedToolID)
         try container.encodeIfPresent(toolVersionEvidence, forKey: .toolVersionEvidence)
+        try container.encodeIfPresent(observation, forKey: .observation)
     }
 
     /// A copy of this step with `change` applied, keeping every field `change` leaves alone, the fields
