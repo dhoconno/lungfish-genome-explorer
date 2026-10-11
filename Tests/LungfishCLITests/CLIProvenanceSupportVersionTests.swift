@@ -14,8 +14,8 @@ import XCTest
 /// install under `~/.lungfish/conda` on 2026-10-11, with the root written as `/Users/test/.lungfish/conda`.
 /// The golden environment holds neither tool.
 ///
-/// All three call sites read through `ProbeVersionText.reading(exitCode:stdout:stderr:)` since Phase
-/// 2.7, so the rules below are the Workflow's. This file keeps them from drifting at the CLI.
+/// All three call sites read through `ProbeVersionText.reading(exitCode:stdout:stderr:storageRoot:)`
+/// since Phase 2.7, so the rules below are the Workflow's. This file keeps them from drifting at the CLI.
 final class CLIProvenanceSupportVersionTests: XCTestCase {
     private static let root = "/Users/test/.lungfish/conda"
 

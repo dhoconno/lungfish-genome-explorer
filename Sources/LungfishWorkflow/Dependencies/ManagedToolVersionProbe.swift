@@ -8,9 +8,9 @@ import LungfishIO
 /// How to ask a managed tool for its version, one entry per lock id.
 ///
 /// The table holds only the probe executable, its arguments and the dialect. It parses
-/// nothing. `ProbeVersionText.reading(exitCode:stdout:stderr:)` is the one parser that reads
-/// the output of every probe, and `VersionParserOutputPinTests` pins its result on real
-/// output. Every executable is one the lock declares for that entry, and a test holds
+/// nothing. `ProbeVersionText.reading(exitCode:stdout:stderr:storageRoot:)` is the one parser
+/// that reads the output of every probe, and `VersionParserOutputPinTests` pins its result on
+/// real output. Every executable is one the lock declares for that entry, and a test holds
 /// the table to the lock ids, so a new lock entry cannot ship without a probe.
 ///
 /// Sibling executables of one package (the BBTools wrappers, tabix, prefetch and

@@ -186,14 +186,14 @@ func detectToolVersion(
 
 /// Extracts a version from a tool's `--version` style output.
 ///
-/// This is the detect call site of `ProbeVersionText.reading(exitCode:stdout:stderr:)`, which holds
-/// every rule. `output` is the probe's stdout, and `storageRoot` is the conda root the tool ran
-/// under. The result is the first semver-like pattern (e.g. `2.1.3`) outside any file path, with a
-/// token written `v2.31.0` preferred, else the first stdout line when the probe exited 0 and the
-/// line does not read as an error, else `nil`. bwa-mem2's `ERROR: unknown command '--version'` and
-/// micromamba's `critical libmamba ...` are error lines and give no version. EsViritu prints
-/// `.../lib/python3.14/site-packages/EsViritu` then `1.3.3`, and the path is skipped so Python's
-/// `3.14` is not read as EsViritu's version.
+/// This is the detect call site of `ProbeVersionText.reading(exitCode:stdout:stderr:storageRoot:)`,
+/// which holds every rule. `output` is the probe's stdout, and `storageRoot` is the conda root the
+/// tool ran under. The result is the first semver-like pattern (e.g. `2.1.3`) outside any file
+/// path, with a token written `v2.31.0` preferred, else the first stdout line when the probe
+/// exited 0 and the line does not read as an error, else `nil`. bwa-mem2's `ERROR: unknown command
+/// '--version'` and micromamba's `critical libmamba ...` are error lines and give no version.
+/// EsViritu prints `.../lib/python3.14/site-packages/EsViritu` then `1.3.3`, and the path is
+/// skipped so Python's `3.14` is not read as EsViritu's version.
 func parseToolVersion(
     from output: String, stderr: String = "", exitCode: Int32 = 0, storageRoot: URL? = nil
 ) -> String? {
@@ -216,7 +216,7 @@ public struct ProbeVersionReading: Sendable, Hashable {
 
 /// The one rule that reads a tool version out of a version probe's output.
 ///
-/// Every call site reads a probe through `reading(exitCode:stdout:stderr:)`. They are
+/// Every call site reads a probe through `reading(exitCode:stdout:stderr:storageRoot:)`. They are
 /// `detectToolVersion` (by way of `parseToolVersion(from:)`), `NativeToolRunner.parseVersionProbe`
 /// and the CLI's `CLIProvenanceSupport.detectCondaToolVersion`. A table of real probe output,
 /// `VersionParserOutputPinTests`, pins the result for every tool they probe.

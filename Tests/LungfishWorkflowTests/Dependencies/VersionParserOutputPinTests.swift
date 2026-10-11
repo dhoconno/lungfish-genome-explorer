@@ -8,8 +8,8 @@ import LungfishIO
 
 /// Pins the value the one version parser returns on captured real probe output.
 ///
-/// `ProbeVersionText.reading(exitCode:stdout:stderr:)` is the only parser, and three entry points
-/// call it. `NativeToolRunner.parseVersionProbe` serves `getToolVersion`. `parseToolVersion(from:)`
+/// `ProbeVersionText.reading(exitCode:stdout:stderr:storageRoot:)` is the only parser, and three
+/// entry points call it. `NativeToolRunner.parseVersionProbe` serves `getToolVersion`. `parseToolVersion(from:)`
 /// serves `detectToolVersion`, which `ManagedMappingPipeline` and `ManagedAssemblyPipeline` call.
 /// `CLIProvenanceSupport.parseCondaToolVersion` serves `detectCondaToolVersion`, which lives in the
 /// CLI target inside a function that runs a process, so `CLIProvenanceSupportVersionTests` pins its
