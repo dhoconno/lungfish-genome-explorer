@@ -13,10 +13,15 @@
 // version. The methods text still lists its tool, because the tool did run.
 //
 // A step is a sub-step of a CLI step when
-// - it records a `parentStepID` that names that step, which every record written from Phase 2.6 on
-//   does, or
+// - it records a `parentStepID` that names that step, which the FASTQ importer and the native
+//   bundle builder do from Phase 2.6 on, or
 // - it records no parent, it lies in a hidden staging folder, and a CLI step lists one of its
 //   outputs as its own. That is the rule for the released records, which have no such field.
+//
+// A parent the record holds decides alone. A step whose parent is not a CLI step stays in the script,
+// and so does a step whose chain of parents loops. A parent the record does not hold counts as none,
+// so the second rule reads the step. A CLI step that ran under another one keeps its own sub-steps
+// under the outermost step, which is the one the script prints.
 //
 // A hidden staging folder is the `.<name>.building-<id>` folder an import fills before it
 // publishes its bundle, or the `.tmp/fastq-import-<id>` workspace of a FASTQ import. Both are gone
@@ -45,17 +50,41 @@ extension ProvenanceExportPlan {
         }
         let cliSteps = numbered.filter { isCLIStep($0.step) }
         guard !cliSteps.isEmpty else { return [:] }
+        let cliNumberByID = Dictionary(cliSteps.map { ($0.step.id, $0.number) }, uniquingKeysWith: { first, _ in first })
+        let recordedIDs = Set(numbered.map(\.step.id))
 
-        var parents: [Int: Int] = [:]
-        for (number, step) in numbered where !isCLIStep(step) && isInsideStagingFolder(step) {
+        var direct: [Int: Int] = [:]
+        for (number, step) in numbered {
+            if let parentID = step.parentStepID, recordedIDs.contains(parentID) {
+                // A parent the record holds decides. A CLI step makes this a sub-step, and any other
+                // step leaves it in the script, so the staging folder is never read for it.
+                if let parent = cliNumberByID[parentID], parent != number { direct[number] = parent }
+                continue
+            }
+            // No parent, or one the record does not hold, as when a command took the tool steps of a
+            // builder over into a CLI step of its own. The staging folder decides.
+            guard !isCLIStep(step), isInsideStagingFolder(step) else { continue }
             let written = Set(step.outputs.map(\.path).filter { !$0.hasPrefix("pipe:") })
             guard !written.isEmpty else { continue }
             // The CLI step that lists one of this step's outputs, the nearest one when a chain of
             // records holds several imports.
             let claimants = cliSteps.filter { cli in cli.step.outputs.contains { written.contains($0.path) } }
             if let parent = claimants.min(by: { abs($0.number - number) < abs($1.number - number) }) {
-                parents[number] = parent.number
+                direct[number] = parent.number
             }
+        }
+
+        // A CLI step that ran another keeps its own sub-steps under the outermost one, which is the
+        // step the script prints. A chain that loops names no outermost step, so its steps stay.
+        var parents: [Int: Int] = [:]
+        for number in direct.keys {
+            var outermost = number
+            var seen: Set<Int> = [number]
+            while let next = direct[outermost] {
+                guard seen.insert(next).inserted else { outermost = number; break }
+                outermost = next
+            }
+            if outermost != number { parents[number] = outermost }
         }
         return parents
     }
