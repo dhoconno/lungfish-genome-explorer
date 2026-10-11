@@ -105,7 +105,7 @@ public struct AnalysisRunExecutor: Sendable {
             let reason = "The analysis folder could not be prepared: \(Self.reason(for: error))"
             return report(.failed(reason: reason), identity: identity, folder: nil, recordURL: nil, finalization: nil, journal: journal)
         }
-        journal.emit(.output(path: folder.root.path, role: AnalysisRunEvents.Role.analysisDirectory))
+        journal.emit(.output(path: folder.root.path, role: CLIEventArtifact.Role.analysisDirectory))
         plan.recordInputs.forEach(journal.recordInput)
 
         // P2. Serial units with a cancellation check between them.

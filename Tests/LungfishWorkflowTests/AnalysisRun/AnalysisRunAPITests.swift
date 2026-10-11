@@ -133,7 +133,7 @@ struct AnalysisRunAPITests {
         let recording = AnalysisRunEvents { line in artifactLines.withLock { $0.append(line) } }
 
         events.emit(.start(message: "Starting"))
-        events.emit(.output(path: "/p/Analyses/kraken2-1", role: AnalysisRunEvents.Role.analysisDirectory))
+        events.emit(.output(path: "/p/Analyses/kraken2-1", role: CLIEventArtifact.Role.analysisDirectory))
         events.emit(.progress(fraction: 0.5, message: "half"))
         events.emit(.complete(outputs: ["/p/Analyses/kraken2-1"], message: nil))
         recording.emit(

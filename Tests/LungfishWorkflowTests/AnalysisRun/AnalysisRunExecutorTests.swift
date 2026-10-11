@@ -77,7 +77,7 @@ struct AnalysisRunExecutorTests {
         let folder = try #require(report.analysisDirectory)
         #expect(recorder.names == ["start", "output", "progress", "progress", "complete"])
         let lines = recorder.snapshot
-        #expect(lines[1].event == .output(path: folder.path, role: AnalysisRunEvents.Role.analysisDirectory))
+        #expect(lines[1].event == .output(path: folder.path, role: CLIEventArtifact.Role.analysisDirectory))
         #expect(lines.last?.event == .complete(outputs: [folder.path], message: "1 of 1 samples classified"))
         #expect(lines.last?.artifacts.map(\.role) == ["summary", CLIEventArtifact.Role.provenance])
         #expect(lines.last?.artifacts.last?.path == report.recordURL?.path)

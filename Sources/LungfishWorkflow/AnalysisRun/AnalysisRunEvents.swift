@@ -5,19 +5,28 @@
 import Foundation
 import Synchronization
 
-/// Where an analysis run's events go.
+/// Where an analysis run's events go, and the stream the executor writes to it.
+///
+/// The stream, in this order.
+///
+/// 1. One `start` line.
+/// 2. One `output` line with the role `CLIEventArtifact.Role.analysisDirectory` and the result
+///    folder's absolute path, written once the folder exists (phase P1) and before any unit runs.
+///    A run that ends in its plan writes none.
+/// 3. `progress` lines, whose fraction stays from 0 to 1 as `(index + fraction) / count` for unit
+///    `index` of `count`, and `log` lines. Each `log` line at level `warning` is one of the run's
+///    warnings, and a completed run with a warning reads Completed with Warnings.
+/// 4. Exactly one last line. `complete` names the result folder in `outputs`, carries the
+///    finalization's artifacts and the root record with the role `provenance`, and has the
+///    completion detail as its message. `failed` has the report's message. A cancelled run ends
+///    with `failed` and exit 125.
 ///
 /// Tools emit from `ToolProcess` queues while the executor emits from its own task, so every
 /// delivery runs under one lock. A line is handed on whole and in the order the lock was taken,
 /// and the next line waits until the delivery returns, so a delivery that writes and flushes
-/// never interleaves with another.
+/// never interleaves with another. The lock is not recursive, so a delivery must never emit on the
+/// sink that called it.
 public struct AnalysisRunEvents: Sendable {
-    /// Roles of the lines an analysis run writes.
-    public enum Role {
-        /// The early `output` line that names the result folder, written once the folder exists.
-        public static let analysisDirectory = "analysis-directory"
-    }
-
     private let channel: Channel
 
     /// A sink that hands each line to `deliver`, one at a time.
@@ -63,4 +72,9 @@ public struct AnalysisRunEvents: Sendable {
             }
         }
     }
+}
+
+extension CLIEventArtifact.Role {
+    /// The result folder of an analysis run, named by the early `output` line of its stream.
+    public static let analysisDirectory = "analysis-directory"
 }
