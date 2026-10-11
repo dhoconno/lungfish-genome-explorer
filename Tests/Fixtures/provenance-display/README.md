@@ -30,7 +30,7 @@ Each test copies its record into a temporary project before anything reads it. T
 
 - `createdAtMilliseconds` is the instant the Run Summary dates the record. The Created text follows the Mac's time zone and locale, so the test compares the instant.
 - The tree record has no `createdAt`, so the reader dates it by the sidecar's modification date. The test sets that date itself, 1777777776 seconds since 1970, after it writes the file, so the value does not come from the Mac that runs the test.
-- Runtime rows appear only for fields the record's bytes carry. For a record that omits Executable, Process ID, Architecture or Dependency Set, the reader fills them in from the Mac it runs on, so the file leaves them out. The same holds for the workflow version of a record that carries none.
+- Runtime rows appear only for fields the record's bytes carry. For a record that omits Executable, Process ID, Architecture or Dependency Set, readers before 2.6 filled them in from the Mac they ran on, so the file leaves them out. The same holds for the workflow version of a record that carries none.
 - The temporary project reads as `<project>`, any home folder as `<home>`, and a managed tool path as the tool's name. The bare run names its author's checkout in its recorded paths, which is why `<home>` appears in `bare-legacy-run.json`.
 - The size labels come from `ByteCountFormatter` in an English locale.
 

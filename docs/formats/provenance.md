@@ -41,11 +41,11 @@ Older LGE builds and early scripts wrote other shapes, and released projects sti
 
 | Shape | What it accepts | Who wrote it |
 | --- | --- | --- |
-| Envelope | Any object with `createdAt` and `runtimeIdentity`, at any `schemaVersion` | LGE since the envelope began, and some scripts |
+| Envelope | An object with `createdAt` and `runtimeIdentity` whose known keys hold the types and values on this page | LGE since the envelope began, and some scripts |
 | Bare run | A `WorkflowRun` with `id`, `name`, `startTime`, `status`, `appVersion`, `hostOS`, `steps` and `parameters` | LGE before Phase 2.4 |
 | Primitive | Any other JSON object, read by the primitive adapter | Early writers, such as the first alignment and tree commands |
 
-The strict reader (`ProvenanceEnvelopeReader.loadCanonical` and `decodeCanonical`) accepts only the envelope, and a writer's test checks its record with it. `ProvenanceEnvelopeReader.read(fromSidecar:)` returns what the tolerant reader decoded together with the shape, whether the record states its status and whether its date was invented. `load(fromSidecar:)` returns the envelope alone, as before.
+The strict reader (`ProvenanceEnvelopeReader.loadCanonical` and `decodeCanonical`) accepts only the envelope, and a writer's test checks its record with it. `ProvenanceEnvelopeReader.read(fromSidecar:)` returns what the tolerant reader decoded together with the shape, whether the record states its status and whether its date was invented. `load(fromSidecar:)` returns the envelope alone, as before. `ProvenanceRecorder.findProvenanceReading(for:)` returns the same for the record the finder picks, where a typed mapping record reads as a typed record.
 
 ## The version rule
 
@@ -53,13 +53,13 @@ The strict reader (`ProvenanceEnvelopeReader.loadCanonical` and `decodeCanonical
 
 Additions never change the number. A new key, a new step field, a new descriptor field and a new runtime fact are all additions, and each is optional, so an older record simply lacks it. A new number means a removal or a change of meaning, such as dropping a key or giving a key another type.
 
-Readers accept any version. A reader ignores keys it does not know, reads the keys it knows at any version and never refuses a record because of its version number. LGE writes version 1 today. Lane P3b of Phase 2.6 moves the encoder to version 2.
+Readers accept any version. A reader ignores keys it does not know, reads the keys it knows at any version and never refuses a record because of its version number. LGE writes version 1 today, and the next encoder writes version 2.
 
 A new value of a key whose values form a fixed set is not yet a safe addition. Today's decoder refuses a file `role` or a file `format` it does not know, even `csv`, and the whole envelope then falls to the primitive adapter, which loses facts and changes what a signature covers. Until readers keep an unknown value, a writer records a new kind of file with an existing role and format and says what it is under a new key.
 
 ## What version 2 removes
 
-Version 1 writes 14 keys twice, once under the canonical name and once under the name an older reader of the bare run expects. Version 2 drops the second spelling (plan decision S3). Readers keep reading every alias, so a version 1 record reads as before.
+Version 1 writes 14 keys twice, once under the canonical name and once under the name an older reader of the bare run expects. Version 2 drops the second spelling. Readers keep reading every alias, so a version 1 record reads as before.
 
 | Version 1 alias | Canonical key |
 | --- | --- |
@@ -71,15 +71,15 @@ Version 1 writes 14 keys twice, once under the canonical name and once under the
 | Step `startTime`, `endTime` | Step `startedAt`, `completedAt` |
 | Descriptor `sha256`, `sizeBytes` | Descriptor `checksumSHA256`, `fileSize` |
 
-`status` stays, because it is the canonical status key. Version 2 also writes slashes without escapes (plan decision S5). A signature survives that change, because signing covers the parsed object reserialized, not the raw bytes. A version 1 record keeps its whole-second `startTime` and `endTime`, and `lungfish-cli ops stats` uses them for its wall time when they are there. A version 2 record gives the same span from its canonical fields, within a second.
+`status` stays, because it is the canonical status key. Version 2 also writes slashes without escapes. A signature survives that change, because signing covers the parsed object reserialized, not the raw bytes. A version 1 record keeps its whole-second `startTime` and `endTime`, and `lungfish-cli ops stats` uses them for its wall time when they are there. A version 2 record gives the same span from its canonical fields, within a second.
 
 ## Older record format
 
-A record that decodes as a bare run or through the primitive adapter is in the Older record format (plan decision V6). A version 1 envelope never is. Such a record still shows every fact it holds. It is never exported as a script, and the Provenance tab labels it, which lane P7b adds. Its date may be invented. The primitive adapter dates a record that holds no date by the file's modification time, or by 1970 when it has none, and the reader then reports that date as invented, so a display shows it as Not recorded.
+A record that decodes as a bare run or through the primitive adapter is in the Older record format. A version 1 envelope never is, and neither is a typed record such as `mapping-provenance.json`. Such a record still shows every fact it holds. A display labels it Older record format, and it is never exported as a script. Its date may be invented. The primitive adapter dates a record that holds no date by the file's modification time, or by 1970 when it has none, and the reader then reports that date as invented, so a display shows it as Not recorded.
 
 ## Not recorded
 
-A fact a record never held is shown as Not recorded. A reader never fills it with a value from the Mac that reads the record, and never with a stand-in word (plan decision S4). This covers the app version, the executable path, the process ID, the operating system, the architecture, the dependency set and the workflow version, each of which the readers once took from the reading process. A writer still records its own process for each of them, so a record written today holds them all.
+A fact a record never held is shown as Not recorded. A reader never fills it with a value from the Mac that reads the record, and never with a stand-in word. This covers the app version, the executable path, the process ID, the operating system, the architecture, the dependency set and the workflow version, each of which the readers once took from the reading process. A writer still records its own process for each of them, so a record written today holds them all.
 
 The legacy `WorkflowRun` view of a record needs text for its app version and operating system, and it shows the empty string when the record holds none. A record that states no status gets one derived from its exit status, and the reader reports that the status was derived. `ops stats` counts a run as completed only when its record states it, because a cancelled run can end on a step that exited 0.
 

@@ -18,9 +18,9 @@ import LungfishTestSupport
 ///
 /// The project holds only the record, so a file the record lists inside the project is
 /// absent and reads `intermediate file, not kept`. Runtime rows are compared only for
-/// the fields a record's bytes carry. For a record that omits them, the reader fills
-/// Executable, Process ID, Architecture and Dependency Set from the Mac it runs on, so a
-/// bare run, which carries only an app version and an OS, is compared on those two.
+/// the fields a record's bytes carry. For a record that omits them, readers before 2.6
+/// filled Executable, Process ID, Architecture and Dependency Set from the Mac they ran on,
+/// so a bare run, which carries only an app version and an OS, is compared on those two.
 ///
 /// To review a changed display, run `diff` between the expected file and the actual
 /// file the failure names. The actual file is written under the temporary directory.

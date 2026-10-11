@@ -8,7 +8,7 @@ The folder belongs to Phase 2.4, lane W1A. Write-side lanes never edit it.
 
 - A case is never edited. MANIFEST.tsv pins every file by SHA-256, and `ProvenanceCompatCorpus.verifyManifest()` fails when a byte moves.
 - Production code never reads a tracked file in place. `ProvenanceCompatCorpus.materialize(_:)` copies a case into a fresh temporary `.lungfish` project and the tests read the copy, because some readers write.
-- Expectations are facts, not whole decoded envelopes. Decoding fills values from the reading Mac, so the facts keep only what the bytes say (see Facts below).
+- Expectations are facts, not whole decoded envelopes. Readers before 2.6 filled values from the reading Mac, so the facts keep only what the bytes say (see Facts below).
 - No file here holds an account home path, a macOS per-user cache path, a system temporary path or an account name. The capture helper refuses to freeze bytes that do, and `ProvenanceCompatHygieneTests` scans every file in this folder, this README included, and fails when one does.
 - A recapture of any expectation is its own reviewed commit, made after the change that caused it.
 
@@ -67,7 +67,7 @@ The tracked alpha.11 fetch record cannot be edited here, and it still holds the 
 
 Each step records its argv, durable replay argv, reproducible command, the step graph as positions, exit status, wall time, peak memory, resolved options and the container image, container digest and conda environment its own bytes hold. The facts also record the steps as `legacyWorkflowRun()` shows them, once as the readers get them (`legacyRunSteps`) and once rebuilt from the envelope's own steps (`canonicalRunSteps`, the view the exporters read), each with its container image and digest. The envelope step drops a step's container identity unless the step has a runtime identity of its own, so these views are where a bare run's container identity shows.
 
-The projection leaves out every value a reader fills from the reading machine, which are the executable path, process id, architecture, dependency set, app version, operating system, workflow version and creation date. Such a key appears under `recorded` only when the source bytes hold it. Paths are rewritten to `<project>`, `<tool-root>`, `<storage-root>`, `<tmp>` and `<home>`. A file option recorded as a relative path keeps its relative form, so the facts do not depend on the working directory.
+The projection leaves out every value a reader before 2.6 filled from the reading machine, which are the executable path, process id, architecture, dependency set, app version, operating system, workflow version and creation date. Such a key appears under `recorded` only when the source bytes hold it. Paths are rewritten to `<project>`, `<tool-root>`, `<storage-root>`, `<tmp>` and `<home>`. A file option recorded as a relative path keeps its relative form, so the facts do not depend on the working directory.
 
 Each expected facts file is written once, with `LUNGFISH_CAPTURE_PROVENANCE_FACTS=1`, on unchanged code. A reviewer reads it against the source bytes. Afterwards `ProvenanceCompatReaderTests` compares the live facts with it byte for byte. The gate never sets the variable.
 

@@ -70,9 +70,9 @@ A test that builds a writer passes `signingProvider: nil`, because a default wri
 |---|---|
 | Read a record file with `ProvenanceEnvelopeReader.load(fromSidecar:)` or `read(fromSidecar:)`, and never decode a `WorkflowRun` from one | A version 2 record has no `WorkflowRun` keys, and the tolerant reader takes every released shape. `ops stats` dropped every version 2 record and every genotype record whose steps hold no start date until it moved |
 | Use the strict reader, `loadCanonical` or `decodeCanonical`, only to check what a writer just wrote | Released records in the bare run and primitive shapes must keep reading |
-| Keep every alias, read any `schemaVersion` and ignore unknown keys | Old records keep their meaning and newer records stay readable (S3) |
-| Leave a fact the record never held empty and show it as Not recorded | The readers once filled the app version, executable, process ID, OS, architecture, dependency set and workflow version from the reading Mac (S4) |
-| Take the shape, a derived status and an invented date from `read(fromSidecar:)` | Only a bare run or a primitive record is the Older record format, and an invented date reads Not recorded (V6) |
+| Keep every alias, read any `schemaVersion` and ignore unknown keys | Old records keep their meaning and newer records stay readable |
+| Leave a fact the record never held empty and show it as Not recorded | The readers once filled the app version, executable, process ID, OS, architecture, dependency set and workflow version from the reading Mac |
+| Take the shape, a derived status and an invented date from `read(fromSidecar:)`, or from `ProvenanceRecorder.findProvenanceReading(for:)` for the record the finder picks | Only a bare run or a primitive record is the Older record format, never a typed record such as `mapping-provenance.json`, and an invented date reads Not recorded |
 
 `ops stats` counts files named exactly `.lungfish-provenance.json`, and counts a run as completed only when its record decodes as an envelope or a bare run and states that it completed. A recorded file value, such as `<workspace>/reads.fastq`, reads back as written, never with the reading folder or the reading user's home in front of it. The finder falls back to any root `*-provenance.json` only for a folder that never had a record. When the folder's own record is empty, unreadable, or missing beside its own `.lungfish-swap-` tombstone, `.lungfish-stage-` copy or `.provenance-displaced-` aside, another operation's record never stands in, and the read runs no recovery.
 
