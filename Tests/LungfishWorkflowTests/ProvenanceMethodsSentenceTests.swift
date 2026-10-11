@@ -88,8 +88,9 @@ struct ProvenanceMethodsSentenceTests {
     @Test("Steps named samtools sort, merge and index share the samtools sentence and its version row")
     func samtoolsSubcommandNamesShareOneSentence() {
         let run = Self.genotypeMappingRun()
+        // The record sorts, merges and indexes. Its filter is a separate pysam step, so "filtered" is not said.
         #expect(Self.analysis(run) == """
-            Alignments were filtered, sorted and indexed with samtools v1.24 (bioconda::samtools=1.24=h36b3a25_1; conda environment samtools), \
+            Alignments were sorted, merged and indexed with samtools v1.24 (bioconda::samtools=1.24=h36b3a25_1; conda environment samtools), \
             using samtools sort, samtools merge and samtools index.
             """)
         #expect(Self.toolRows(run) == [
@@ -111,11 +112,33 @@ struct ProvenanceMethodsSentenceTests {
                 inputs: ["pipe:stdout:view-sort"], outputs: ["/data/sorted.bam"]
             ),
         ])
+        // No index step ran, so "indexed" is not said.
         #expect(Self.analysis(run) == """
-            Alignments were filtered, sorted and indexed with samtools v1.24 (bioconda::samtools=1.24=h36b3a25_1; conda environment samtools), \
+            Alignments were filtered and sorted with samtools v1.24 (bioconda::samtools=1.24=h36b3a25_1; conda environment samtools), \
             using samtools view and samtools sort, with secondary alignments (flag 256) excluded.
             """)
         #expect(Self.toolRows(run).count == 1)
+    }
+
+    @Test("The samtools sentence names only the subcommands that ran, in pipeline order")
+    func samtoolsSentenceNamesTheSubcommandsThatRan() {
+        /// The subject of the sentence for a run that ran `verbs` in the order given.
+        func subject(_ verbs: [String]) -> String {
+            let steps = verbs.map { Self.step("samtools \($0)", version: "1.0", ["samtools", $0, "x.bam"]) }
+            return Self.analysis(Self.run("Alignments", steps)).components(separatedBy: " with samtools ")[0]
+        }
+        #expect(subject(["view"]) == "Alignments were filtered")
+        #expect(subject(["sort"]) == "Alignments were sorted")
+        #expect(subject(["merge"]) == "Alignments were merged")
+        #expect(subject(["index"]) == "Alignments were indexed")
+        #expect(subject(["sort", "index"]) == "Alignments were sorted and indexed")
+        #expect(subject(["view", "sort", "index", "flagstat"]) == "Alignments were filtered, sorted and indexed")
+        #expect(subject(["sort", "merge", "index"]) == "Alignments were sorted, merged and indexed")
+        // The order is the pipeline's, whatever order the steps were recorded in.
+        #expect(subject(["index", "merge", "sort", "view"]) == "Alignments were filtered, sorted, merged and indexed")
+        // A subcommand that neither filters, sorts, merges nor indexes alignments adds no verb.
+        #expect(subject(["flagstat"]) == "Alignments were processed")
+        #expect(subject(["faidx"]) == "The reference was indexed")
     }
 
     @Test("A descriptive tool name keeps its own sentence and version row")
@@ -251,7 +274,7 @@ struct ProvenanceMethodsSentenceTests {
     func genotypeGoldenMethods() throws {
         let text = try Self.goldenMethods("genotype/bundle/lungfish-provenance.json")
         #expect(
-            text.contains("Alignments were filtered, sorted and indexed with samtools unknown (conda environment samtools), using samtools sort, samtools merge and samtools index. "),
+            text.contains("Alignments were sorted, merged and indexed with samtools unknown (conda environment samtools), using samtools sort, samtools merge and samtools index. "),
             Comment(rawValue: text)
         )
         #expect(text.contains("Processing was performed with pysam retained-read demux filter unknown (conda environment pysam). "), Comment(rawValue: text))

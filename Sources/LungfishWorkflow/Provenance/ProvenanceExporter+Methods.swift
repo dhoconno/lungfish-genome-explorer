@@ -28,7 +28,13 @@ extension ProvenanceExporter {
             }
             return "Variant files were processed"
         case "samtools":
-            if verbs.contains("sort") || verbs.contains("index") { return "Alignments were filtered, sorted and indexed" }
+            // One word for each subcommand that ran, in pipeline order.
+            let done = [("view", "filtered"), ("sort", "sorted"), ("merge", "merged"), ("index", "indexed")]
+                .filter { verbs.contains($0.0) }.map { $0.1 }
+            if let last = done.last {
+                let leading = done.dropLast().joined(separator: ", ")
+                return "Alignments were " + (leading.isEmpty ? last : "\(leading) and \(last)")
+            }
             if verbs.contains("faidx") { return "The reference was indexed" }
             return "Alignments were processed"
         case "lofreq":
