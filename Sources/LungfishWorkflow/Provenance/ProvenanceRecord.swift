@@ -454,6 +454,54 @@ extension ProvenanceEnvelope {
     }
 }
 
+extension ProvenanceEnvelope {
+    /// This record as a reader shows it when the record's own format holds no host facts: the
+    /// given runtime identity, no workflow version, and an embedded run, when there is one, with the
+    /// empty string for its app version and operating system and no account. A typed record's
+    /// reader uses it on the writer's conversion, so the reading Mac lends the record nothing.
+    func readingWithoutHostFacts(runtimeIdentity: ProvenanceRuntimeIdentity) -> ProvenanceEnvelope {
+        ProvenanceEnvelope(
+            schemaVersion: schemaVersion,
+            id: id,
+            createdAt: createdAt,
+            workflowName: workflowName,
+            workflowVersion: nil,
+            toolName: toolName,
+            toolVersion: toolVersion,
+            githubReleaseVersion: githubReleaseVersion,
+            tool: tool,
+            argv: argv,
+            durableReplayArgv: durableReplayArgv,
+            reproducibleCommand: reproducibleCommand,
+            options: options,
+            runtimeIdentity: runtimeIdentity,
+            files: files,
+            output: output,
+            outputs: outputs,
+            steps: steps,
+            wallTimeSeconds: wallTimeSeconds,
+            exitStatus: exitStatus,
+            stderr: stderr,
+            signatures: signatures,
+            status: status,
+            legacyWorkflowRun: legacyRun.map { run in
+                WorkflowRun(
+                    id: run.id,
+                    name: run.name,
+                    startTime: run.startTime,
+                    endTime: run.endTime,
+                    status: run.status,
+                    appVersion: "",
+                    hostOS: "",
+                    runtime: WorkflowRuntime(appVersion: "", hostOS: "", user: nil),
+                    steps: run.steps,
+                    parameters: run.parameters
+                )
+            }
+        )
+    }
+}
+
 private extension Array where Element == StepExecution {
     mutating func mergeFallbackOutputsIntoFinalStep(_ fallbackOutputs: [ProvenanceFileDescriptor]) {
         guard !isEmpty, !fallbackOutputs.isEmpty else { return }

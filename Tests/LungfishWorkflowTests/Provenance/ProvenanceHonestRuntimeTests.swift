@@ -91,6 +91,48 @@ final class ProvenanceHonestRuntimeTests: XCTestCase {
         XCTAssertEqual(run.runtime.hostOS, "")
     }
 
+    // MARK: Typed mapping records
+
+    /// A `mapping-provenance.json` holds the mapper's executable and conda environment, and no app
+    /// version, OS, process ID, architecture, dependency set, account or workflow version. The
+    /// finder reads a mapping folder without its `.lungfish-provenance.json` through it.
+    func testTheFinderReadsASavedMappingRecordWithoutTheReadingMacsFacts() throws {
+        let mapping = try saveMappingRecord()
+        defer { mapping.cleanup() }
+        let found = try XCTUnwrap(ProvenanceRecorder.findProvenanceEnvelope(for: mapping.folder))
+        XCTAssertEqual(found.sidecarURL.lastPathComponent, MappingProvenance.filename)
+        assertHoldsOnlyTheMappingRecordsFacts(found.envelope)
+    }
+
+    /// Lineage finds the mapping record as the producer of a consumer's input by its checksum.
+    func testLineageReadsASavedMappingRecordWithoutTheReadingMacsFacts() throws {
+        let mapping = try saveMappingRecord()
+        defer { mapping.cleanup() }
+        let consumer = ProvenanceEnvelope(
+            createdAt: mapping.recordedAt.addingTimeInterval(60),
+            workflowName: "variants call",
+            toolName: "bcftools",
+            argv: ["bcftools", "mpileup"],
+            files: [
+                ProvenanceFileDescriptor(
+                    path: "<workspace>/sample.sorted.bam",
+                    checksumSHA256: mapping.bam.sha256,
+                    fileSize: mapping.bam.sizeBytes,
+                    format: .bam,
+                    role: .input
+                ),
+            ],
+            exitStatus: 0,
+            status: .completed
+        )
+        let runs = ProvenanceLineageResolver().resolve(
+            envelope: consumer,
+            sidecarURL: mapping.project.appendingPathComponent("Analyses/variants/.lungfish-provenance.json")
+        )
+        let upstream = try XCTUnwrap(runs.first { $0.sidecarURL?.lastPathComponent == MappingProvenance.filename })
+        assertHoldsOnlyTheMappingRecordsFacts(upstream.envelope)
+    }
+
     // MARK: Writers
 
     /// A writer records its own process, so the memberwise defaults fill every field as before,
@@ -130,6 +172,91 @@ final class ProvenanceHonestRuntimeTests: XCTestCase {
     }
 
     // MARK: Helpers
+
+    private struct SavedMapping {
+        let temporaryRoot: URL
+        let project: URL
+        let folder: URL
+        let recordedAt: Date
+        let bam: FileRecord
+
+        func cleanup() {
+            try? FileManager.default.removeItem(at: temporaryRoot)
+        }
+    }
+
+    /// A mapping folder in a project, holding its `mapping-provenance.json` and no
+    /// `.lungfish-provenance.json`.
+    private func saveMappingRecord() throws -> SavedMapping {
+        let temporaryRoot = try TestTempDirectory.make(prefix: "provenance-mapping-reading")
+        let project = temporaryRoot
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent("Mapping.lungfish", isDirectory: true)
+        let folder = project.appendingPathComponent("Analyses/minimap2-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let reads = folder.appendingPathComponent("reads.fastq")
+        try Data("@r1\nACGT\n+\nIIII\n".utf8).write(to: reads)
+        let reference = folder.appendingPathComponent("reference.fa")
+        try Data(">ref\nACGTACGT\n".utf8).write(to: reference)
+        let bamURL = folder.appendingPathComponent("sample.sorted.bam")
+        try Data("mapped reads".utf8).write(to: bamURL)
+        let bam = ProvenanceRecorder.fileRecord(url: bamURL, format: .bam, role: .output)
+        let recordedAt = Date(timeIntervalSince1970: 1_790_000_000)
+        let mapperArgv = ["minimap2", "-a", reference.path, reads.path]
+        let provenance = MappingProvenance(
+            mapper: .minimap2,
+            modeID: "sr",
+            sampleName: "sample",
+            pairedEnd: false,
+            threads: 2,
+            minimumMappingQuality: 0,
+            includeSecondary: false,
+            includeSupplementary: true,
+            advancedArguments: [],
+            inputFASTQURLs: [reads],
+            referenceFASTAURL: reference,
+            mapperInvocation: MappingCommandInvocation(label: "minimap2", argv: mapperArgv),
+            normalizationInvocations: [],
+            mapperVersion: "2.30",
+            samtoolsVersion: "1.22",
+            wallClockSeconds: 3,
+            recordedAt: recordedAt,
+            outputFiles: [bam],
+            steps: [
+                StepExecution(
+                    toolName: "minimap2",
+                    toolVersion: "2.30",
+                    command: mapperArgv,
+                    inputs: [ProvenanceRecorder.fileRecord(url: reads, format: .fastq, role: .input)],
+                    outputs: [bam],
+                    exitCode: 0,
+                    wallTime: 3
+                ),
+            ],
+            exitStatus: 0
+        )
+        try provenance.save(to: folder)
+        return SavedMapping(temporaryRoot: temporaryRoot, project: project, folder: folder, recordedAt: recordedAt, bam: bam)
+    }
+
+    private func assertHoldsOnlyTheMappingRecordsFacts(
+        _ envelope: ProvenanceEnvelope,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertNil(envelope.workflowVersion, file: file, line: line)
+        XCTAssertNil(envelope.runtimeIdentity.appVersion, file: file, line: line)
+        XCTAssertNil(envelope.runtimeIdentity.processIdentifier, file: file, line: line)
+        XCTAssertNil(envelope.runtimeIdentity.operatingSystemVersion, file: file, line: line)
+        XCTAssertNil(envelope.runtimeIdentity.architecture, file: file, line: line)
+        XCTAssertNil(envelope.runtimeIdentity.dependencySet, file: file, line: line)
+        XCTAssertNil(envelope.runtimeIdentity.user, file: file, line: line)
+        XCTAssertEqual(envelope.runtimeIdentity.executablePath, "minimap2", file: file, line: line)
+        XCTAssertEqual(envelope.runtimeIdentity.condaEnvironment, "minimap2", file: file, line: line)
+        XCTAssertEqual(envelope.legacyRun?.appVersion, "", file: file, line: line)
+        XCTAssertEqual(envelope.legacyRun?.hostOS, "", file: file, line: line)
+        XCTAssertNil(envelope.legacyRun?.runtime.user, file: file, line: line)
+    }
 
     private func load(_ caseID: String) throws -> ProvenanceEnvelope {
         let materialized = try ProvenanceCompatCorpus.materialize(caseID)

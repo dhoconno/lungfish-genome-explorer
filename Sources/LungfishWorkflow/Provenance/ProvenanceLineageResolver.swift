@@ -422,7 +422,7 @@ public struct ProvenanceLineageResolver: Sendable {
         private static func load(_ url: URL) -> ProvenanceEnvelope? {
             if url.lastPathComponent == MappingProvenance.filename {
                 let directory = url.deletingLastPathComponent()
-                return MappingProvenance.load(from: directory)?.canonicalEnvelope(sourceDirectory: directory)
+                return MappingProvenance.load(from: directory)?.recordedEnvelope(sourceDirectory: directory)
             }
             return ProvenanceRecorder.loadEnvelope(fromSidecar: url)
         }

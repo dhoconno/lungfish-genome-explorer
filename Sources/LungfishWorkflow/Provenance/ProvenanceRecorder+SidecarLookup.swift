@@ -165,7 +165,7 @@ extension ProvenanceRecorder {
               let provenance = MappingProvenance.load(from: directory) else {
             return nil
         }
-        return (sidecarURL, provenance.canonicalEnvelope(sourceDirectory: directory))
+        return (sidecarURL, provenance.recordedEnvelope(sourceDirectory: directory))
     }
 
     /// The folder's own record and roll-ups first, then root files named like a record, then the
