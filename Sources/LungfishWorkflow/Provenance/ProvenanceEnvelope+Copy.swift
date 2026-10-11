@@ -19,6 +19,13 @@ extension ProvenanceEnvelope {
     ///   in the nested run survives (plan decisions P5 and E13). `ProvenanceOptions.mergingRunParameters` holds the rule.
     /// - The nested run is dropped.
     ///
+    /// Because the merge runs after `change`, two kinds of change also touch the nested run. An envelope
+    /// built by `canonicalEnvelope()` or `recordedEnvelope()` holds its own run as the nested run, so a
+    /// change that narrows the options sets `legacyRun` too, to nil or to the nested run of the record it
+    /// copies. Otherwise the run's other parameters come back as resolved defaults. A change that rewrites
+    /// paths in the options rewrites `legacyRun?.parameters` with the same map, or a merged file value
+    /// names the old place.
+    ///
     /// `schemaVersion`, `id`, `toolName`, `toolVersion` and `tool` name the record and stay `let`, because no
     /// copy site changes them.
     public func with(_ change: (inout ProvenanceEnvelope) throws -> Void) rethrows -> ProvenanceEnvelope {

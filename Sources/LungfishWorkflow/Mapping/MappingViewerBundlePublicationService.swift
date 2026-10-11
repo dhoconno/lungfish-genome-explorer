@@ -1381,6 +1381,7 @@ public enum MappingViewerBundlePublicationService {
                 defaults: remapOptions(envelope.options.defaults),
                 resolvedDefaults: remapOptions(envelope.options.resolvedDefaults)
             )
+            $0.legacyRun?.parameters = remapOptions(envelope.legacyRun?.parameters ?? [:])
             $0.files = try envelope.files.map(remapDescriptor)
             $0.output = try envelope.output.map(remapDescriptor)
             $0.outputs = try envelope.outputs.map(remapDescriptor)

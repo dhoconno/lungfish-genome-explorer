@@ -56,8 +56,13 @@ public enum EnvelopeCopySources {
         case notAJSONObject
     }
 
-    /// The record bytes of `kind`, made from the bytes of a completed record.
-    public static func recordBytes(_ kind: Kind, from bytes: Data) throws -> Data {
+    /// The record bytes of `kind`, made from the bytes of a completed record. A `.preTwoFourNestedPlan`
+    /// source also holds `extraNestedParameters` in its nested run, for a site that rewrites paths.
+    public static func recordBytes(
+        _ kind: Kind,
+        from bytes: Data,
+        extraNestedParameters: [String: ParameterValue] = [:]
+    ) throws -> Data {
         guard var object = try JSONSerialization.jsonObject(with: bytes) as? [String: Any] else {
             throw SourceError.notAJSONObject
         }
@@ -72,6 +77,7 @@ public enum EnvelopeCopySources {
                 .legacyWorkflowRun(preferCanonicalSteps: true)
             nested.status = .completed
             nested.parameters = ["readSetPlan": readSetPlan, "copyPinNestedOnly": nestedOnlyParameter]
+                .merging(extraNestedParameters) { given, _ in given }
             let nestedBytes = try ProvenanceJSON.encoder.encode(nested)
             object["legacyWorkflowRun"] = try JSONSerialization.jsonObject(with: nestedBytes)
         }
@@ -82,8 +88,13 @@ public enum EnvelopeCopySources {
     }
 
     /// Rewrites a sidecar a writer just wrote so that it is a record of `kind`.
-    public static func rewriteSidecar(at url: URL, as kind: Kind) throws {
-        try recordBytes(kind, from: Data(contentsOf: url)).write(to: url, options: .atomic)
+    public static func rewriteSidecar(
+        at url: URL,
+        as kind: Kind,
+        extraNestedParameters: [String: ParameterValue] = [:]
+    ) throws {
+        try recordBytes(kind, from: Data(contentsOf: url), extraNestedParameters: extraNestedParameters)
+            .write(to: url, options: .atomic)
     }
 
     /// Rewrites every envelope record below `folder`. A bundle writer also writes a record per output,

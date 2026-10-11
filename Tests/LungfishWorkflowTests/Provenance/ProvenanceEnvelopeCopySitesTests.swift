@@ -218,7 +218,9 @@ final class ProvenanceEnvelopeCopySitesTests: XCTestCase {
     // MARK: MappingViewerBundlePublicationService, line 1393
 
     /// The viewer bundle's import records are remapped from the candidate bundle's paths to the final
-    /// bundle's paths when the bundle is published.
+    /// bundle's paths when the bundle is published. A pre-2.4 source's nested run also names a file in the
+    /// candidate bundle, and the helper merges the nested run's parameters after the change, so the site
+    /// has to remap them too or the published record names the deleted candidate (S4a review, fix 1).
     func testMappingPublicationRemapCopiesEachSourceFaithfully() throws {
         for kind in CopySources.Kind.allCases {
             let project = try ProvenanceCompatScenarios.makeProject()
@@ -237,7 +239,9 @@ final class ProvenanceEnvelopeCopySitesTests: XCTestCase {
             let base = try CopySources.baseEnvelope(workflowName: "BAM import", output: candidateBAM)
             let sidecar = candidateAlignments.appendingPathComponent("viewer.import.lungfish-provenance.json")
             try ProvenanceWriter(signingProvider: nil).write(base, toSidecar: sidecar)
-            try CopySources.rewriteSidecar(at: sidecar, as: kind)
+            try CopySources.rewriteSidecar(
+                at: sidecar, as: kind, extraNestedParameters: ["copyPinNestedFile": .file(candidateBAM)]
+            )
             let source = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
 
             var copy: ProvenanceEnvelope?
@@ -263,6 +267,16 @@ final class ProvenanceEnvelopeCopySitesTests: XCTestCase {
                 finalBundle.appendingPathComponent("alignments/viewer.bam").path,
                 "the remap moved the paths, which is its purpose"
             )
+            let nestedFile = published.options.resolvedDefaults["copyPinNestedFile"]
+            if kind == .preTwoFourNestedPlan {
+                XCTAssertEqual(
+                    nestedFile?.fileValue?.path,
+                    finalBundle.appendingPathComponent("alignments/viewer.bam").path,
+                    "the nested run's file value names the final bundle, never the candidate"
+                )
+            } else {
+                XCTAssertNil(nestedFile, "only the pre-2.4 source holds a nested run")
+            }
         }
     }
 
