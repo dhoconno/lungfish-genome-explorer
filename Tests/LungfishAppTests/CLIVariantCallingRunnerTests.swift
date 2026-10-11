@@ -72,6 +72,52 @@ final class CLIVariantCallingRunnerTests: XCTestCase {
         XCTAssertEqual(result.databasePath, "/tmp/variants.db")
         XCTAssertEqual(result.vcfPath, "/tmp/variants.vcf.gz")
         XCTAssertEqual(result.tbiPath, "/tmp/variants.vcf.gz.tbi")
+        XCTAssertNil(result.provenancePath, "A version 1 CLI names no record")
+    }
+
+    /// Phase 2.6 lane C6. A version 2 completion types its three files and names the record on
+    /// each. The runner reads every file by its role, so the order of the artifacts does not
+    /// matter, and `outputs` keeps the version 1 order beside them.
+    func testRunReadsTheTypedFilesAndTheRecordOfAVersion2Completion() async throws {
+        let record = "/work/v/vc-1.lungfish-provenance.json"
+        let artifacts = [
+            ("tbi", "/work/v/vc-1.vcf.gz.tbi", "variants-index"),
+            ("vcf", "/work/v/vc-1.vcf.gz", "variants"),
+            ("variant-database", "/work/v/vc-1.db", "variants-database"),
+        ].map { #"{"kind":"\#($0.0)","path":"\#($0.1)","role":"\#($0.2)","provenancePath":"\#(record)"}"# }
+        let result = try await runStandIn(printing: """
+        {"schemaVersion":2,"event":"complete","output":"/work/v/vc-1.db","outputs":["/work/v/vc-1.db","/work/v/vc-1.vcf.gz","/work/v/vc-1.vcf.gz.tbi"],"message":"trackID=vc-1 trackName=Sample 1 \u{2022} LoFreq","progress":1,"artifacts":[\(artifacts.joined(separator: ","))]}
+        """)
+
+        XCTAssertEqual(result.trackID, "vc-1")
+        XCTAssertEqual(result.trackName, "Sample 1 \u{2022} LoFreq")
+        XCTAssertEqual(result.databasePath, "/work/v/vc-1.db")
+        XCTAssertEqual(result.vcfPath, "/work/v/vc-1.vcf.gz")
+        XCTAssertEqual(result.tbiPath, "/work/v/vc-1.vcf.gz.tbi")
+        XCTAssertEqual(result.provenancePath, record)
+    }
+
+    /// A typed artifact wins over the place in `outputs`, which is only the fallback for a CLI that
+    /// types nothing. A role the CLI did not type falls back on its own.
+    func testRunPrefersATypedFileToItsPlaceAndFallsBackForARoleThatIsNotTyped() async throws {
+        let result = try await runStandIn(printing: """
+        {"schemaVersion":2,"event":"complete","outputs":["/a/one.db","/a/one.vcf.gz","/a/one.vcf.gz.tbi"],"message":"trackID=vc-2 trackName=Two","artifacts":[{"kind":"vcf","path":"/typed/two.vcf.gz","role":"variants"}]}
+        """)
+
+        XCTAssertEqual(result.vcfPath, "/typed/two.vcf.gz")
+        XCTAssertEqual(result.databasePath, "/a/one.db")
+        XCTAssertEqual(result.tbiPath, "/a/one.vcf.gz.tbi")
+        XCTAssertNil(result.provenancePath, "The typed VCF names no record")
+    }
+
+    private func runStandIn(printing line: String) async throws -> CLIVariantCallingResult {
+        let tempDir = try makeTemporaryDirectory()
+        let lines = tempDir.appendingPathComponent("lines.ndjson")
+        try (line.trimmingCharacters(in: .whitespacesAndNewlines) + "\n").write(to: lines, atomically: true, encoding: .utf8)
+        let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")
+        try "#!/bin/sh\n/bin/cat \(shellQuote(lines.path))\n".write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
+        return try await CLIVariantCallingRunner(cliURLOverride: fakeCLI).run(arguments: [])
     }
 
     func testRunThrowsRunFailedMessage() async throws {

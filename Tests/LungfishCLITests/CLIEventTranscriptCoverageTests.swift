@@ -218,6 +218,32 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
             ["alignment", "alignment-index", "provenance"],
             "The version 2 primer trim run types its three outputs"
         )
+
+        // Phase 2.6 lane C6. `variants call` types its three files in the order of `outputs` and each
+        // names the one record of the run, and `align mafft` types its bundle, its one output.
+        let variants = try XCTUnwrap(all.first { $0.leaf == "variants call" && $0.name == "complete" })
+        let variantsEnvelope = try XCTUnwrap(try decoder.decodeLine(XCTUnwrap(variants.lines.last)))
+        XCTAssertEqual(
+            variantsEnvelope.artifacts.map(\.role),
+            ["variants-database", "variants", "variants-index"],
+            "The real run of variants call types its three files"
+        )
+        XCTAssertEqual(variantsEnvelope.artifacts.map(\.kind), ["variant-database", "vcf", "tbi"])
+        let records = Set(variantsEnvelope.artifacts.compactMap(\.provenancePath))
+        XCTAssertEqual(records.count, 1, "The three files name one record")
+        XCTAssertTrue(try XCTUnwrap(records.first).hasSuffix(".lungfish-provenance.json"))
+
+        let align = try XCTUnwrap(all.first { $0.leaf == "align mafft" && $0.name == "complete" })
+        let alignEnvelope = try XCTUnwrap(try decoder.decodeLine(XCTUnwrap(align.lines.last)))
+        guard case let .complete(alignOutputs, _)? = alignEnvelope.event else {
+            return XCTFail("align mafft does not end in complete")
+        }
+        XCTAssertEqual(alignOutputs.count, 1, "The bundle is the one output, which a version 1 runner reads by place")
+        XCTAssertTrue(try XCTUnwrap(alignOutputs.first).hasSuffix(".lungfishmsa"))
+        XCTAssertEqual(alignEnvelope.artifacts.map(\.role), ["alignment"])
+        XCTAssertEqual(alignEnvelope.artifacts.map(\.kind), ["multiple-sequence-alignment"])
+        XCTAssertEqual(alignEnvelope.artifacts.map(\.path), alignOutputs)
+        XCTAssertEqual(alignEnvelope.artifacts.first?.bundleKind, .multipleSequenceAlignment)
     }
 
     func testNoTranscriptNamesAPathOutsideTheScratchFolder() throws {

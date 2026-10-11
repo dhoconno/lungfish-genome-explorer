@@ -197,6 +197,49 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
         }
     }
 
+    /// A version 2 completion types the bundle, and the runner reads it by role, even when it is
+    /// not the first output. A completion with no artifact falls back on the first output.
+    func testRunReadsTheTypedBundleByRoleAndFallsBackOnTheFirstOutput() async throws {
+        let cases: [(name: String, line: String, bundle: String)] = [
+            (
+                "typed",
+                #"{"schemaVersion":2,"event":"complete","outputs":["/work/log.txt","/work/Aligned.lungfishmsa"],"message":"rows=3 alignedLength=40","artifacts":[{"kind":"multiple-sequence-alignment","path":"/work/Aligned.lungfishmsa","role":"alignment"}]}"#,
+                "/work/Aligned.lungfishmsa"
+            ),
+            (
+                "untyped",
+                #"{"event":"complete","outputs":["/work/First.lungfishmsa","/work/log.txt"],"message":"rows=3 alignedLength=40"}"#,
+                "/work/First.lungfishmsa"
+            ),
+        ]
+        for testCase in cases {
+            let tempDir = try makeTemporaryDirectory()
+            let text = tempDir.appendingPathComponent("lines.ndjson")
+            try (testCase.line + "\n").write(to: text, atomically: true, encoding: .utf8)
+            let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")
+            try "#!/bin/sh\n/bin/cat '\(text.path)'\n".write(to: fakeCLI, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
+            let opID = await MainActor.run {
+                OperationCenter.shared.begin(
+                    title: "MAFFT Alignment",
+                    detail: "Launching...",
+                    operationType: .multipleSequenceAlignmentGeneration,
+                    cliCommand: nil
+                ).rowID
+            }
+
+            let result = try await CLIMSAAlignmentRunner(cliURLOverride: fakeCLI).run(arguments: [], operationID: opID)
+
+            XCTAssertEqual(result.bundleURL.path, testCase.bundle, testCase.name)
+            XCTAssertEqual(result.rowCount, 3, testCase.name)
+            XCTAssertEqual(result.alignedLength, 40, testCase.name)
+            await MainActor.run {
+                _ = OperationCenter.shared.complete(id: opID, detail: "Test complete")
+                OperationCenter.shared.clearItem(id: opID)
+            }
+        }
+    }
+
     func testCancelTerminatesRunningMAFFTProcessTree() async throws {
         let tempDir = try makeTemporaryDirectory()
         let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")

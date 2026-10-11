@@ -117,6 +117,7 @@ struct VariantsCommand: AsyncParsableCommand {
         let tbiPath: String?
         let databasePath: String?
         let importedVariantCount: Int?
+        var provenancePath: String? = nil
     }
 
     private static func requiredTools(for caller: ViralVariantCaller) -> [NativeTool] {
@@ -867,11 +868,8 @@ extension VariantsCommand {
         func run() async throws {
             let emitter: (VariantsCommand.VariantCallingEvent) -> Void
             if globalOptions.outputFormat == .json {
-                emitter = { event in
-                    if let line = encode(event: event) {
-                        printEventLine(line)
-                    }
-                }
+                let events = CLIEventEmitter(enabled: true) { printEventLine($0) }
+                emitter = { events.emit(Self.cliEvent(from: $0), artifacts: Self.artifacts(from: $0)) }
             } else {
                 emitter = { event in
                     guard !globalOptions.quiet else { return }
@@ -934,11 +932,8 @@ extension VariantsCommand {
             runtime: VariantsCommand.Runtime = .live(),
             emit: @escaping (String) -> Void
         ) async throws -> BundleVariantTrackAttachmentResult {
-            try await execute(runtime: runtime) { event in
-                if let line = encode(event: event) {
-                    emit(line)
-                }
-            }
+            let events = CLIEventEmitter(enabled: true, emit: emit)
+            return try await execute(runtime: runtime) { events.emit(Self.cliEvent(from: $0), artifacts: Self.artifacts(from: $0)) }
         }
 
         private func execute(
@@ -1158,7 +1153,8 @@ extension VariantsCommand {
                         vcfPath: attachmentResult.finalVCFGZURL.path,
                         tbiPath: attachmentResult.finalTabixURL.path,
                         databasePath: attachmentResult.finalDatabaseURL.path,
-                        importedVariantCount: attachmentResult.trackInfo.variantCount
+                        importedVariantCount: attachmentResult.trackInfo.variantCount,
+                        provenancePath: attachmentResult.provenanceURL?.path
                     )
                 )
                 return attachmentResult
@@ -1366,21 +1362,9 @@ extension VariantsCommand {
             )
         }
 
-        /// Encodes over the shared `CLIEvent` wire schema
-        /// instead of `VariantCallingEvent`'s own ad hoc JSON shape. The rich
-        /// completion fields (`variantTrackID`, `vcfPath`, `tbiPath`,
-        /// `databasePath`) that GUI callers never read are folded into
-        /// `complete`'s `outputs` (in the fixed order `[databasePath, vcfPath,
-        /// tbiPath]`) and a `"trackID=… trackName=…"` message,
-        /// matching the pattern `AlignCommand` uses for MAFFT's row/column
-        /// counts.
-        private func encode(event: VariantsCommand.VariantCallingEvent) -> String? {
-            guard let data = try? JSONEncoder().encode(Self.cliEvent(from: event)) else {
-                return nil
-            }
-            return String(data: data, encoding: .utf8)
-        }
-
+        /// Maps a step onto the shared `CLIEvent` schema. The completion folds the files into `outputs`
+        /// in the fixed order `[databasePath, vcfPath, tbiPath]`, which a version 1 runner reads by
+        /// place, and the track into a `"trackID=… trackName=…"` message.
         private static func cliEvent(from event: VariantsCommand.VariantCallingEvent) -> CLIEvent {
             switch event.event {
             case "runStart":
@@ -1394,11 +1378,7 @@ extension VariantsCommand {
                 let trackName = event.variantTrackName ?? ""
                 return .log(level: .info, message: "trackID=\(trackID) trackName=\(trackName): \(event.message)")
             case "runComplete":
-                let outputs = [
-                    event.databasePath,
-                    event.vcfPath,
-                    event.tbiPath,
-                ].compactMap { $0 }
+                let outputs = [event.databasePath, event.vcfPath, event.tbiPath].compactMap { $0 }
                 let trackID = event.variantTrackID ?? ""
                 let trackName = event.variantTrackName ?? ""
                 return .complete(outputs: outputs, message: "trackID=\(trackID) trackName=\(trackName)")
@@ -1410,6 +1390,21 @@ extension VariantsCommand {
                 // attachStart) is a plain progress narration line.
                 return .log(level: .info, message: event.message)
             }
+        }
+
+        /// The typed artifacts of the completion, in the order of `outputs`, which a version 2 runner reads
+        /// by role. Each names the record of the run. Every other step carries none.
+        private static func artifacts(from event: VariantsCommand.VariantCallingEvent) -> [CLIEventArtifact] {
+            guard event.event == "runComplete",
+                  let database = event.databasePath, let vcf = event.vcfPath, let tbi = event.tbiPath else {
+                return []
+            }
+            let record = event.provenancePath
+            return [
+                CLIEventArtifact(kind: "variant-database", path: database, role: CLIEventArtifact.Role.variantsDatabase, provenancePath: record),
+                CLIEventArtifact(kind: FormatIdentifier.vcf.id, path: vcf, role: CLIEventArtifact.Role.variants, provenancePath: record),
+                CLIEventArtifact(kind: FormatIdentifier.tbi.id, path: tbi, role: CLIEventArtifact.Role.variantsIndex, provenancePath: record),
+            ]
         }
     }
 }

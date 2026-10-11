@@ -65,4 +65,4 @@
 {"event":"progress","message":"","progress":0.5,"schemaVersion":2}
 {"event":"progress","message":"Creating native MSA bundle...","progress":0.82,"schemaVersion":2}
 {"event":"progress","message":"MAFFT alignment complete.","progress":1,"schemaVersion":2}
-{"event":"complete","message":"rows=5 alignedLength=29834","output":"\/work\/Project.lungfish\/Analyses\/Multiple Sequence Alignments\/sars-cov-2-genomes.lungfishmsa","outputs":["\/work\/Project.lungfish\/Analyses\/Multiple Sequence Alignments\/sars-cov-2-genomes.lungfishmsa"],"progress":1,"schemaVersion":2}
+{"artifacts":[{"kind":"multiple-sequence-alignment","path":"\/work\/Project.lungfish\/Analyses\/Multiple Sequence Alignments\/sars-cov-2-genomes.lungfishmsa","role":"alignment"}],"event":"complete","message":"rows=5 alignedLength=29834","output":"\/work\/Project.lungfish\/Analyses\/Multiple Sequence Alignments\/sars-cov-2-genomes.lungfishmsa","outputs":["\/work\/Project.lungfish\/Analyses\/Multiple Sequence Alignments\/sars-cov-2-genomes.lungfishmsa"],"progress":1,"schemaVersion":2}

@@ -803,7 +803,8 @@ final class VariantsCommandTests: XCTestCase {
         _ = try await command.executeForTesting(runtime: runtime) { lines.append($0) }
 
         let decoder = CLIEventLineDecoder()
-        guard case let .complete(outputs, message)? = try lines.last.flatMap({ try decoder.decode(line: $0) }) else {
+        let completion = try XCTUnwrap(try lines.last.flatMap { try decoder.decodeLine($0) })
+        guard case let .complete(outputs, message)? = completion.event else {
             return XCTFail("Expected a terminal complete event")
         }
         let trackID = try XCTUnwrap(
@@ -835,6 +836,32 @@ final class VariantsCommandTests: XCTestCase {
             found.envelope.steps.flatMap(\.outputs).contains { $0.path == vcfURL.path },
             "The record names the VCF in the bundle as an output"
         )
+
+        // The completion types the same three files in the same order, and each names the record.
+        XCTAssertEqual(completion.artifacts.map(\.path), outputs)
+        XCTAssertEqual(completion.artifacts.map(\.role), ["variants-database", "variants", "variants-index"])
+        XCTAssertEqual(completion.artifacts.map(\.kind), ["variant-database", "vcf", "tbi"])
+        XCTAssertEqual(
+            completion.artifacts.map(\.provenancePath),
+            Array(repeating: found.sidecarURL.path, count: 3),
+            "Each artifact names the record that the lookup from the VCF finds"
+        )
+    }
+
+    /// Only the completion carries artifacts. Every other line of a call is a plain event.
+    func testOnlyTheCompletionOfACallCarriesArtifacts() async throws {
+        let command = try VariantsCommand.CallSubcommand.parse([
+            "call", "--bundle", callBundleURL.path, "--alignment-track", "aln-1", "--caller", "lofreq", "--format", "json",
+        ])
+        var lines: [String] = []
+
+        _ = try await command.executeForTesting(runtime: try makeRuntime()) { lines.append($0) }
+
+        let decoder = CLIEventLineDecoder()
+        let envelopes = try lines.map { try XCTUnwrap(try decoder.decodeLine($0), $0) }
+        XCTAssertTrue(envelopes.dropLast().allSatisfy { $0.artifacts.isEmpty })
+        XCTAssertEqual(envelopes.last?.artifacts.count, 3)
+        XCTAssertTrue(envelopes.allSatisfy { $0.schemaVersion == 2 }, "Every line carries the schema version")
     }
 
     private func makeAttachableBundle() throws -> URL {

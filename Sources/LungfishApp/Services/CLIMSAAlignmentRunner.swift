@@ -95,7 +95,10 @@ struct CLIMSAAlignmentRunner {
                 isCancelled: { await OperationCenterCLIBridge.isOperationCancelled(operationID) },
                 onEvent: OperationCenterCLIBridge.onEvent(operationID: operationID)
             )
-            guard let bundlePath = result.outputs.first,
+            // A version 2 CLI types the bundle, and the runner reads it by role. A version 1 CLI wrote
+            // no artifacts, so the bundle is the first output, which a version 2 CLI keeps too.
+            let typedBundle = result.artifacts.first { $0.role == CLIEventArtifact.Role.alignment }?.path
+            guard let bundlePath = typedBundle ?? result.outputs.first,
                   !bundlePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw RunError.underlying("lungfish-cli finished without reporting an alignment bundle.")
             }

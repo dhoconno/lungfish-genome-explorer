@@ -13,13 +13,16 @@ import LungfishWorkflow
 /// `VariantsCommand` folds its rich completion fields
 /// (`variantTrackID`, `vcfPath`, `tbiPath`, `databasePath`) into
 /// `CLIEvent.complete`'s `outputs` (`[databasePath, vcfPath, tbiPath]`) and a
-/// `"trackID=… trackName=…"` message; this type parses them back out.
+/// `"trackID=… trackName=…"` message, and from version 2 on types each file as
+/// an artifact with a role; this type holds them read back out. The record of
+/// the run is known only from a version 2 CLI, which names it on each artifact.
 struct CLIVariantCallingResult: Sendable, Equatable {
     let trackID: String?
     let trackName: String?
     let databasePath: String?
     let vcfPath: String?
     let tbiPath: String?
+    let provenancePath: String?
 }
 
 enum CLIVariantCallingRunnerError: Error, LocalizedError, Equatable {
@@ -139,7 +142,7 @@ struct CLIVariantCallingRunner {
                 isCancelled: { [cancellationRequested] in cancellationRequested.value },
                 onEvent: onEvent
             )
-            return Self.parseCompletion(outputs: result.outputs, message: result.message)
+            return Self.parseCompletion(outputs: result.outputs, message: result.message, artifacts: result.artifacts)
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as CLISubprocessTransport.RunError {
@@ -165,10 +168,18 @@ struct CLIVariantCallingRunner {
         transport.cancel()
     }
 
-    /// Parses the `"trackID=… trackName=…"` message and `[databasePath,
-    /// vcfPath, tbiPath]` outputs `VariantsCommand` encodes into
-    /// `CLIEvent.complete` for a successful run.
-    private static func parseCompletion(outputs: [String], message: String?) -> CLIVariantCallingResult {
+    /// Parses the `"trackID=… trackName=…"` message and the three files
+    /// `VariantsCommand` reports in `CLIEvent.complete` for a successful run.
+    ///
+    /// A version 2 CLI types each file as an artifact, and the runner reads it
+    /// by role. A version 1 CLI writes no artifacts, so each file falls back to
+    /// its place in `outputs`, `[databasePath, vcfPath, tbiPath]`, which a
+    /// version 2 CLI keeps too, as `docs/formats/cli-events.md` requires.
+    private static func parseCompletion(
+        outputs: [String],
+        message: String?,
+        artifacts: [CLIEventArtifact]
+    ) -> CLIVariantCallingResult {
         var trackID: String?
         var trackName: String?
         if let message {
@@ -183,12 +194,19 @@ struct CLIVariantCallingRunner {
                 }
             }
         }
+        func typed(_ role: String) -> CLIEventArtifact? {
+            artifacts.first { $0.role == role }
+        }
+        func positional(_ index: Int) -> String? {
+            outputs.indices.contains(index) ? outputs[index] : nil
+        }
         return CLIVariantCallingResult(
             trackID: trackID,
             trackName: trackName,
-            databasePath: outputs.indices.contains(0) ? outputs[0] : nil,
-            vcfPath: outputs.indices.contains(1) ? outputs[1] : nil,
-            tbiPath: outputs.indices.contains(2) ? outputs[2] : nil
+            databasePath: typed(CLIEventArtifact.Role.variantsDatabase)?.path ?? positional(0),
+            vcfPath: typed(CLIEventArtifact.Role.variants)?.path ?? positional(1),
+            tbiPath: typed(CLIEventArtifact.Role.variantsIndex)?.path ?? positional(2),
+            provenancePath: typed(CLIEventArtifact.Role.variants)?.provenancePath
         )
     }
 

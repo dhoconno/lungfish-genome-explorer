@@ -97,6 +97,14 @@ final class AlignCommandTests: XCTestCase {
             .log(level: .warning, message: "Duplicate row names were rewritten."),
             .complete(outputs: [output.path], message: "rows=2 alignedLength=6"),
         ])
+
+        // The completion also types the bundle, for a runner that reads it by role. No other line does.
+        let envelopes = try recorder.lines().map { try XCTUnwrap(try decoder.decodeLine($0), $0) }
+        XCTAssertTrue(envelopes.dropLast().allSatisfy { $0.artifacts.isEmpty })
+        XCTAssertEqual(envelopes.last?.artifacts, [
+            CLIEventArtifact(kind: "multiple-sequence-alignment", path: output.path, role: "alignment"),
+        ])
+        XCTAssertTrue(envelopes.allSatisfy { $0.schemaVersion == 2 }, "Every line carries the schema version")
     }
 
     func testMAFFTCommandUsesAutoStrategyByDefault() throws {

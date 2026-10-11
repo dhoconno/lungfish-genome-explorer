@@ -60,6 +60,12 @@ extension CLIEventArtifact {
         public static let alignmentIndex = "alignment-index"
         /// The provenance record of the run.
         public static let provenance = "provenance"
+        /// The called variants of `variants call`, a compressed VCF.
+        public static let variants = "variants"
+        /// The tabix index of those variants.
+        public static let variantsIndex = "variants-index"
+        /// The SQLite database of the track, which the viewer queries.
+        public static let variantsDatabase = "variants-database"
     }
 
     /// The bundle kind that ``kind`` names, looked up in `BundleKindRegistry`.

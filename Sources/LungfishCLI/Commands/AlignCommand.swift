@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 
 struct AlignCommand: AsyncParsableCommand {
@@ -168,8 +169,15 @@ extension AlignCommand {
                     }
                 }
                 if outputFormat == .json {
+                    // `outputs` is the bundle alone, which a version 1 runner reads by place. The
+                    // artifact types it for a version 2 runner, which reads it by role.
                     emitter.emitComplete(
-                        output: result.bundleURL.path,
+                        outputs: [result.bundleURL.path],
+                        artifacts: [CLIEventArtifact(
+                            kind: BundleKindID.multipleSequenceAlignment.rawValue,
+                            path: result.bundleURL.path,
+                            role: CLIEventArtifact.Role.alignment
+                        )],
                         message: "rows=\(result.rowCount) alignedLength=\(result.alignedLength)"
                     )
                 } else if !quiet {
