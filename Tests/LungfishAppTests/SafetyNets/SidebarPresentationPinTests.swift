@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: MIT
 //
 // Pins SidebarProjectScanner.classifierBatchBadge (T5) and analysisIcon (T7) for the
-// 23 known analysis ids and an unknown id. The Inspector icon table (T9) is a private
-// method of the AnalysesSection view and no behaviour exposes it, so it is not pinned here.
+// 23 known analysis ids and an unknown id. The Inspector icon table (T9) is pinned in
+// InspectorAnalysesIconPinTests, which records the symbol from this table beside each of
+// its rows so the two surfaces can be read side by side.
 
 import XCTest
 @testable import LungfishApp
