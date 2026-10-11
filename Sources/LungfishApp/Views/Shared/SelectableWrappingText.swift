@@ -42,7 +42,9 @@ struct SelectableWrappingText: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.heightTracksTextView = false
         textView.isHorizontallyResizable = false
-        textView.isVerticallyResizable = true
+        // SwiftUI sizes this view. A text view that resized itself would change its frame while it
+        // measures, and the container follows the frame.
+        textView.isVerticallyResizable = false
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)

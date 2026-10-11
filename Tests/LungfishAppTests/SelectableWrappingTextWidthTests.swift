@@ -106,13 +106,27 @@ final class SelectableWrappingTextWidthTests: XCTestCase {
 
     // MARK: - The measurements SwiftUI makes
 
+    /// A measurement at a width other than the view's own answers the height the text needs there, which
+    /// is more than at the view's width for a narrower one and less for a wider one, and it leaves the
+    /// view's frame alone because SwiftUI sizes the view.
     func testAMeasurementAtAnotherWidthLeavesTheTextWrappedAtTheViewsWidth() throws {
         for width in inspectorWidths {
             let mounted = try mount(width: width)
             let textView = mounted.textView
+            let heightAtWidth = try XCTUnwrap(textView.fittingSize(forProposedWidth: width)).height
+            let frame = textView.frame
             for probe in [width * 4, width / 2, width * 1.5, width] {
                 let size = try XCTUnwrap(textView.fittingSize(forProposedWidth: probe))
                 XCTAssertEqual(size.width, probe, "a measurement at a finite width is answered at that width")
+                XCTAssertGreaterThan(size.height, 0, "\(Int(probe)) pt in a \(Int(width)) pt view answers a height")
+                if probe < width {
+                    XCTAssertGreaterThan(size.height, heightAtWidth, "\(Int(probe)) pt wraps onto more lines than \(Int(width)) pt")
+                } else if probe > width {
+                    XCTAssertLessThan(size.height, heightAtWidth, "\(Int(probe)) pt wraps onto fewer lines than \(Int(width)) pt")
+                } else {
+                    XCTAssertEqual(size.height, heightAtWidth, "the view's own width answers the same height again")
+                }
+                XCTAssertEqual(textView.frame, frame, "measuring at \(Int(probe)) pt never resizes the \(Int(width)) pt view")
                 try assertNoGrowth(textView, width: width, "after measuring at \(Int(probe)) pt in a \(Int(width)) pt view")
             }
         }
