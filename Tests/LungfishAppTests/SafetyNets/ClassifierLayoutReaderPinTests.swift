@@ -123,6 +123,9 @@ final class ClassifierLayoutReaderPinTests: XCTestCase {
         (Name.executorKraken2Batch, "kraken2 batch=true", "kraken2 database=yes result=Analyses/kraken2-batch-2026-02-11T10-00-00 sample=-"),
         (Name.executorEsVirituBatch, "esviritu batch=true", "esviritu database=yes result=Analyses/esviritu-batch-2026-02-11T11-00-00 sample=-"),
         (Name.claimedKraken2, "kraken2 batch=false", "kraken2 database=no result=Analyses/Sample A kraken2 sample=-"),
+        // The same files as cliEsVirituFreeName, which routes nil, but with the metadata the executor
+        // writes into a claimed folder. The route is the lazy build-db esviritu on a one-folder root.
+        (Name.claimedEsViritu, "esviritu batch=false", "esviritu database=no result=Analyses/HG002 esviritu claimed sample=-"),
     ]
 
     func testAnalysesFolderIdentifiesEveryLayout() async throws {

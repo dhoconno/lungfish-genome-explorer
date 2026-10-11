@@ -6,6 +6,7 @@ folder | Analyses | symbol flask | - | Analyses | accessibilityIdentifier=sideba
   batchGroup | esviritu-batch-2026-02-11T11-00-00 | text ES | 1 samples · 2026-02-11T11-00-00 | Analyses/esviritu-batch-2026-02-11T11-00-00 | -
   esvirituResult | esviritu-golden | text ES | Viral Detection (1 viruses) | Analyses/esviritu-golden | analysisTool=esviritu
   esvirituResult | esviritu-HG002_import | text ES | Viral Detection (3 viruses) | Analyses/esviritu-HG002_import | analysisTool=esviritu
+  esvirituResult | HG002 esviritu claimed | text ES | Viral Detection (1 viruses) | Analyses/HG002 esviritu claimed | analysisTool=esviritu
   esvirituResult | HG002 viral detection | text ES | Viral Detection (1 viruses) | Analyses/HG002 viral detection | analysisTool=esviritu
   classificationResult | kraken2-2026-02-09T09-00-00 | text K2 | Classification (Viral) | Analyses/kraken2-2026-02-09T09-00-00 | analysisTool=kraken2
   classificationResult | kraken2-2026-02-11T09-00-00 | text K2 | Classification (Viral) | Analyses/kraken2-2026-02-11T09-00-00 | analysisTool=kraken2

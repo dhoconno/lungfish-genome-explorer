@@ -78,6 +78,7 @@ enum ClassifierLayoutFixtures {
         static let executorKraken2Batch = "kraken2-batch-2026-02-11T10-00-00"
         static let executorEsVirituBatch = "esviritu-batch-2026-02-11T11-00-00"
         static let claimedKraken2 = "Sample A kraken2"
+        static let claimedEsViritu = "HG002 esviritu claimed"
         static let renamedExecutorKraken2 = "HG002 kraken2 renamed"
         static let failedKraken2 = "kraken2-2026-02-11T12-00-00"
         static let cancelledEsVirituBatch = "esviritu-batch-2026-02-11T13-00-00"
@@ -242,6 +243,18 @@ enum ClassifierLayoutFixtures {
         return folder
     }
 
+    /// `esviritu detect --output D` under the executor, when D is a folder the user named directly
+    /// under a project's Analyses folder (decision E1b). The executor claims D through the same
+    /// path as a Kraken2 `--output-dir`, so D gets the metadata (`esviritu`, not a batch) beside the
+    /// command line set of files, and no index. The same files route as nothing today, as
+    /// `cliEsVirituFreeName` does, and route to the lazy `build-db esviritu` once they carry metadata.
+    @discardableResult
+    static func claimedEsViritu(named name: String, timestamp: String, in analyses: URL) throws -> URL {
+        let folder = try cliEsViritu(named: name, in: analyses)
+        try writeMetadata(tool: "esviritu", isBatch: false, timestamp: timestamp, to: folder)
+        return folder
+    }
+
     /// A run the executor started under `--project`, in the state it leaves. The folder comes
     /// from `createAnalysisDirectory`, which writes metadata and the run record naming the command.
     /// A nil outcome is a run still going, `.failed` and `.cancelled` are runs that ended. The
@@ -318,6 +331,7 @@ enum ClassifierLayoutFixtures {
             samples: [sample]
         )
         try claimedKraken2(named: Name.claimedKraken2, timestamp: "2026-02-11T11-30-00", in: analyses)
+        try claimedEsViritu(named: Name.claimedEsViritu, timestamp: "2026-02-11T11-35-00", in: analyses)
 
         let imports = try SafetyNetFiles.makeDirectory(project.appendingPathComponent("Imports", isDirectory: true))
         try cliKraken2(named: Name.outsideCLIOutput, in: imports)
