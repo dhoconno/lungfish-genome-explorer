@@ -62,15 +62,15 @@ The runs were made in process at program commit `1171aef68`, each on a small fix
 
 ## commands
 
-The contract table `CLIEventContractTable` names 21 leaf commands that emit events. Each has a folder here, named by its path with hyphens, such as `msa-annotate-add`. A file in it is one run that ends one way. `complete` ends in a `complete` line, `complete-with-warning` is such a run that also logs a warning, and `failed` ends in a `failed` line. Every line is a version 2 line, and every line is captured output.
+The contract table `CLIEventContractTable` names 25 leaf commands that emit events. Each has a folder here, named by its path with hyphens, such as `msa-annotate-add`. A file in it is one run that ends one way. `complete` ends in a `complete` line, `complete-with-warning` is such a run that also logs a warning, and `failed` ends in a `failed` line. Every line is a version 2 line, and every line is captured output.
 
 `CLIEventTranscriptCoverageTests` decodes each line with the current reader and with the frozen version 1 reader and expects the same events from both. It also checks that each run starts with `start`, ends with one terminal event, holds no line a reader skips as chatter, and carries no text that a system message wrote.
 
 ### Captured in process
 
-Sixteen leaves need no external tool, so they ran in process on a small fixture, as the version 1 captures did. A command with a test seam handed its lines to a capturing sink. `fastq platform` has none, so its standard output was redirected for the length of the run. The scratch folder is rewritten to `/work` in its plain and slash-escaped spellings, and nothing else is edited.
+Twenty leaves need no external tool, so they ran in process on a small fixture, as the version 1 captures did. A command with a test seam handed its lines to a capturing sink. `fastq platform` and the four import commands have none, so their standard output was redirected for the length of the run, and `ImportStreamCapture` builds the fixtures of the four import commands. The scratch folder is rewritten to `/work` in its plain and slash-escaped spellings, and nothing else is edited.
 
-`CLIEventTranscriptCoverageTests` runs the same 20 captures again and fails when a line differs from its file. After a deliberate change to an emitter, run that suite with `LUNGFISH_RECAPTURE_CLI_EVENTS=1`, which writes the files instead of comparing them, and review the diff.
+`CLIEventTranscriptCoverageTests` runs the same captures again and fails when a line differs from its file. After a deliberate change to an emitter, run that suite with `LUNGFISH_RECAPTURE_CLI_EVENTS=1`, which writes the files instead of comparing them, and review the diff.
 
 A failed run is kept only when Lungfish wrote its message. A Foundation message changes with the system language and the macOS release, so `msa export` and `fastq platform` have no failed run.
 
@@ -92,6 +92,10 @@ A failed run is kept only when Lungfish wrote its message. A Foundation message 
 | `tree-extract-subtree` | `complete`, `failed` | `tree extract-subtree` by node, then by a node that does not exist |
 | `tree-relabel` | `complete` | `tree relabel` from a metadata column |
 | `fastq-platform` | `complete` | `fastq platform --set ont` on a bundle recorded as Illumina |
+| `import-msa` | `complete`, `complete-with-warning`, `failed` | `import msa` of a two-row CLUSTAL alignment, then of an alignment whose rows share a name, then of a file that does not exist |
+| `import-tree` | `complete`, `complete-with-warning`, `failed` | `import tree` of a tree with numeric support values, then of a tree with no branch lengths, then of a file that does not exist |
+| `import-geneious` | `complete`, `complete-with-warning`, `failed` | `import geneious --no-import-references` of a folder that scans as a Geneious export, then the same with `--preserve-unsupported`, then of a file that does not exist |
+| `import-application-export` | `complete`, `complete-with-warning`, `failed` | `import application-export alignment-tree --no-import-references` of a folder with one alignment and one tree, then of the same folder with a report file the card does not import, then of a folder that does not exist |
 
 ### Captured from the built CLI
 

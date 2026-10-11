@@ -1,0 +1,2 @@
+{"event":"start","message":"Started multiple-sequence-alignment import via lungfish-cli","progress":0,"schemaVersion":2}
+{"error":"Input file not found: \/work\/inputs\/missing.aln","event":"failed","schemaVersion":2}

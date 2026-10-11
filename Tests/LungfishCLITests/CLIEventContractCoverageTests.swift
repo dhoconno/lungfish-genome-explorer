@@ -140,8 +140,6 @@ final class CLIEventContractCoverageTests: XCTestCase {
     /// all six leaves.
     private static let shapesLeft: [String: (removeBy: String, leaves: [String])] = [
         "s1-import-fastq": ("2.7", ["import fastq", "import-fastq"]),
-        "s2-native-bundle-import": ("2.6", ["import msa", "import tree"]),
-        "s3-application-export-import": ("2.6", ["import application-export", "import geneious"]),
         "s8-ont-fluidigm-progress": ("2.6", ["fastq ont-fluidigm-samples"]),
         "s9-ont-pacbio-demux-progress": ("2.6", ["fastq ont-pacbio-barcode-demux"]),
         "s10-bam-filter": ("2.9", ["bam filter"]),
@@ -180,9 +178,9 @@ final class CLIEventContractCoverageTests: XCTestCase {
             if case .legacy = $0 { return true }
             return false
         }
-        XCTAssertEqual(found.count, 14, "Fourteen private shapes are left")
+        XCTAssertEqual(found.count, 12, "Twelve private shapes are left")
         XCTAssertEqual(legacyRows.count, Self.shapesLeft.values.map(\.leaves.count).reduce(0, +))
-        XCTAssertEqual(legacyRows.count, 20, "Twenty leaves still print one of them")
+        XCTAssertEqual(legacyRows.count, 16, "Sixteen leaves still print one of them")
     }
 
     func testEveryLegacyRowNamesAFutureSubPhase() {
@@ -230,8 +228,8 @@ final class CLIEventContractCoverageTests: XCTestCase {
             case .text: counts["text", default: 0] += 1
             }
         }
-        XCTAssertEqual(counts["events"], 21)
-        XCTAssertEqual(counts["legacy"], 20)
+        XCTAssertEqual(counts["events"], 25)
+        XCTAssertEqual(counts["legacy"], 16)
         XCTAssertEqual(counts.values.reduce(0, +), CLIEventContractTable.entries.count)
     }
 

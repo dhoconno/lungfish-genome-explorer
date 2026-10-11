@@ -1,0 +1,6 @@
+{"event":"start","message":"Started phylogenetic-tree import via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Preparing tree bundle destination...","progress":0.12,"schemaVersion":2}
+{"event":"progress","message":"Parsing and indexing bare.nwk...","progress":0.35,"schemaVersion":2}
+{"event":"log","level":"warning","message":"Tree contains one or more edges without branch lengths.","schemaVersion":2}
+{"event":"progress","message":"Writing tree provenance...","progress":0.92,"schemaVersion":2}
+{"artifacts":[{"kind":"phylogenetic-tree","path":"\/work\/Project.lungfish\/Phylogenetic Trees\/bare.lungfishtree","provenancePath":"\/work\/Project.lungfish\/Phylogenetic Trees\/bare.lungfishtree\/.lungfish-provenance.json","role":"bundle"}],"event":"complete","output":"\/work\/Project.lungfish\/Phylogenetic Trees\/bare.lungfishtree","outputs":["\/work\/Project.lungfish\/Phylogenetic Trees\/bare.lungfishtree"],"progress":1,"schemaVersion":2}

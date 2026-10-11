@@ -13,17 +13,18 @@ import XCTest
 
 /// Check A3 of the contract table (plan decision S18, QA correction 8).
 ///
-/// Each of the 21 leaves that emit events has a folder under `Tests/Fixtures/cli-events/commands`.
-/// Sixteen of them were captured in process, and the five that run an external tool were captured
-/// from real runs of the built `lungfish-cli`. The checks decode every line under version 2, expect
-/// one terminal event last, read each run with the frozen version 1 reader to the same outcome and
-/// outputs, and pin the order of `outputs` for `variants call` and `bam primer-trim`. The capture
-/// tests run the 16 in-process leaves again and fail when a line differs from its transcript, so a
-/// transcript cannot go stale while the emitters change.
+/// Each leaf that emits events has a folder under `Tests/Fixtures/cli-events/commands`. Most were
+/// captured in process, and the five that run an external tool were captured from real runs of the
+/// built `lungfish-cli`. The checks decode every line under version 2, expect one terminal event last,
+/// read each run with the frozen version 1 reader to the same outcome and outputs, and pin the order
+/// of `outputs` for `variants call` and `bam primer-trim`. The capture tests run the in-process leaves
+/// again and fail when a line differs from its transcript, so a transcript cannot go stale while the
+/// emitters change.
 ///
 /// The in-process captures run each command on a small fixture. A command with a test seam hands its
-/// lines to a capturing sink. `fastq platform` has none, because it writes through the flushing
-/// standard output helper, so its standard output is redirected for the length of the run. The scratch
+/// lines to a capturing sink. `fastq platform` and the four import commands have none, because they
+/// write through the flushing standard output helper, so their standard output is redirected for the
+/// length of the run, and `ImportStreamCapture` builds the fixtures of the import commands. The scratch
 /// folder of each run is rewritten to `/work`, in its plain and its slash-escaped spelling, and nothing
 /// else is edited. Set `LUNGFISH_RECAPTURE_CLI_EVENTS=1` to write the transcripts instead of comparing
 /// them, and review the diff. `Tests/Fixtures/cli-events/README.md` describes the five real runs.
@@ -298,6 +299,19 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
     /// Every capture, with the leaf and the case it records.
     private static func captures() -> [Capture] {
         annotationCaptures() + exportCaptures() + derivedCaptures() + treeCaptures() + platformCaptures()
+            + importCaptures()
+    }
+
+    /// The four import commands, run by `ImportStreamCapture`, which builds each fixture and a scratch
+    /// folder of its own and returns the standard output already rewritten to `/work`.
+    private static func importCaptures() -> [Capture] {
+        ImportStreamCapture.cases().map { testCase in
+            Capture(leaf: testCase.leaf, name: testCase.name) { _ in
+                let scratch = try ImportStreamCapture.Scratch()
+                defer { scratch.remove() }
+                return try await testCase.run(scratch).standardOutput
+            }
+        }
     }
 
     private static func annotationCaptures() -> [Capture] {

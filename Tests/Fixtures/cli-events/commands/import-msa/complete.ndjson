@@ -1,0 +1,5 @@
+{"event":"start","message":"Started multiple-sequence-alignment import via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Preparing MSA bundle destination...","progress":0.12,"schemaVersion":2}
+{"event":"progress","message":"Parsing and indexing mhc.aln...","progress":0.35,"schemaVersion":2}
+{"event":"progress","message":"Writing MSA provenance...","progress":0.92,"schemaVersion":2}
+{"artifacts":[{"kind":"multiple-sequence-alignment","path":"\/work\/Project.lungfish\/Multiple Sequence Alignments\/mhc.lungfishmsa","provenancePath":"\/work\/Project.lungfish\/Multiple Sequence Alignments\/mhc.lungfishmsa\/.lungfish-provenance.json","role":"bundle"}],"event":"complete","output":"\/work\/Project.lungfish\/Multiple Sequence Alignments\/mhc.lungfishmsa","outputs":["\/work\/Project.lungfish\/Multiple Sequence Alignments\/mhc.lungfishmsa"],"progress":1,"schemaVersion":2}

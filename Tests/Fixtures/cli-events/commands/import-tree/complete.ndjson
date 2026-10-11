@@ -1,0 +1,5 @@
+{"event":"start","message":"Started phylogenetic-tree import via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Preparing tree bundle destination...","progress":0.12,"schemaVersion":2}
+{"event":"progress","message":"Parsing and indexing mhc.nwk...","progress":0.35,"schemaVersion":2}
+{"event":"progress","message":"Writing tree provenance...","progress":0.92,"schemaVersion":2}
+{"artifacts":[{"kind":"phylogenetic-tree","path":"\/work\/Project.lungfish\/Phylogenetic Trees\/mhc.lungfishtree","provenancePath":"\/work\/Project.lungfish\/Phylogenetic Trees\/mhc.lungfishtree\/.lungfish-provenance.json","role":"bundle"}],"event":"complete","output":"\/work\/Project.lungfish\/Phylogenetic Trees\/mhc.lungfishtree","outputs":["\/work\/Project.lungfish\/Phylogenetic Trees\/mhc.lungfishtree"],"progress":1,"schemaVersion":2}

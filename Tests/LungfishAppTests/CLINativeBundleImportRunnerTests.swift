@@ -453,6 +453,30 @@ final class CLINativeBundleImportRunnerTests: XCTestCase {
         }
     }
 
+    /// The same check on the real thing. The transcripts of `import msa` and `import tree` that
+    /// `CLIEventTranscriptCoverageTests` captures from the commands in process give the runner the
+    /// same row, label and import as the checked-in streams that an older CLI printed for the same runs.
+    func testTheCheckedInVersion2TranscriptsGiveWhatTheOlderStreamsGave() async throws {
+        let runs: [(leaf: String, name: String, older: String, title: String, exitCode: Int32)] = [
+            ("import-msa", "complete", "import-msa", "MSA Import", 0),
+            ("import-msa", "complete-with-warning", "import-msa-with-warning", "MSA Import", 0),
+            ("import-msa", "failed", "import-msa-failed", "MSA Import", 3),
+            ("import-tree", "complete", "import-tree", "Tree Import", 0),
+            ("import-tree", "complete-with-warning", "import-tree-with-warning", "Tree Import", 0),
+            ("import-tree", "failed", "import-tree-failed", "Tree Import", 3),
+        ]
+        for run in runs {
+            let older = try await replay(run.older, title: run.title, exitCode: run.exitCode)
+            let version2 = try await replay(
+                transcript: ImportRunnerReplay.commandTranscript(leaf: run.leaf, name: run.name),
+                title: run.title,
+                exitCode: run.exitCode
+            )
+
+            XCTAssertEqual(version2, older, "\(run.leaf) \(run.name)")
+        }
+    }
+
     /// Plain standard error stays in the operation log at info level, whatever it says, so a tool's
     /// warning text never makes an import read Completed with Warnings (decision S16).
     func testStandardErrorTextIsLoggedAtInfoAndNeverMakesTheRunCompletedWithWarnings() async throws {
@@ -579,6 +603,15 @@ enum ImportRunnerReplay {
             return String(data: try encoder.encode(CLIEventLine(event: event, artifacts: old.artifacts)), encoding: .utf8)
         }
         return try writeTranscript(lines, in: directory)
+    }
+
+    /// The version 2 transcript that `CLIEventTranscriptCoverageTests` keeps for one run of one leaf.
+    /// `leaf` is the leaf's path with hyphens, such as `import-msa`, and `name` is `complete`,
+    /// `complete-with-warning` or `failed`.
+    static func commandTranscript(leaf: String, name: String) -> URL {
+        legacyFolder
+            .deletingLastPathComponent()
+            .appendingPathComponent("commands/\(leaf)/\(name).ndjson")
     }
 
     /// A transcript made of `lines`, for a stream no real run produces.

@@ -114,9 +114,11 @@ The artifact of an old `complete` line has the role `bundle` and the kind that t
 
 A current `lungfish-cli` prints the four import commands as version 2 events. Each run is one `start` line, a `progress` line for each step, a `log` line at level `warning` for each warning, and one `complete` line, or one `failed` line when the import does not finish. The `complete` line names the bundle or collection in `outputs` and describes it with one artifact. The artifact has the kind and role that an old `complete` line reads to, and it names the record that the import wrote in `provenancePath`. A run decodes to the same events as the old stream of the same run. The summary that the command prints, such as `Imported` and the path, goes to standard error while `--format json` is on.
 
+The app reads the stream of each import command through `CLISubprocessTransport`, in `CLINativeBundleImportRunner` and `CLIApplicationExportImportRunner`. A current CLI and an older CLI therefore give the same operation log, the same label and the same imported bundle or collection. The runner takes that path from `outputs` only, and it counts the warning lines to decide the label.
+
 The two ONT FASTQ commands need no row. `progress` is a name of version 1, and the decoder ignores the `operation` key, so their lines already read as `progress` events.
 
-`CLIEventLegacyNamesTests` decodes each transcript in `Tests/Fixtures/cli-events/legacy` and compares every line with a frozen copy of how the two import runners read it. The table is dated 2026-10-11. It is deleted as a unit, with its tests and those transcripts, when the `.legacy` rows expire. The contract table below lists each of these commands as a `.legacy` row until its sub-phase retires the shape.
+`CLIEventLegacyNamesTests` decodes each transcript in `Tests/Fixtures/cli-events/legacy` and compares every line with a frozen copy of how the two import runners read it. The table is dated 2026-10-11. It is deleted as a unit, with its tests and those transcripts, when the `.legacy` rows expire. The contract table below lists the four import commands as `.events` rows, because they print version 2 events now, and the two ONT FASTQ commands as `.legacy` rows until their sub-phase retires the shape.
 
 ## The contract table
 

@@ -1,0 +1,11 @@
+{"event":"start","message":"Started alignment-tree import via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Scanning Alignment Tree export...","progress":0.02,"schemaVersion":2}
+{"event":"progress","message":"Processing alignments\/example.aln...","progress":0.18,"schemaVersion":2}
+{"event":"progress","message":"Processing reports\/summary.tsv...","progress":0.3933333333333333,"schemaVersion":2}
+{"event":"progress","message":"Processing trees\/example.nwk...","progress":0.6066666666666667,"schemaVersion":2}
+{"event":"progress","message":"Writing Alignment Tree inventory...","progress":0.86,"schemaVersion":2}
+{"event":"progress","message":"Writing Alignment Tree import report...","progress":0.9,"schemaVersion":2}
+{"event":"progress","message":"Writing Alignment Tree import provenance...","progress":0.94,"schemaVersion":2}
+{"event":"progress","message":"Alignment Tree import complete.","progress":1,"schemaVersion":2}
+{"event":"log","level":"warning","message":"reports\/summary.tsv is recognized as report but is not imported by this native-only operation.","schemaVersion":2}
+{"artifacts":[{"kind":"import-collection","path":"\/work\/Project.lungfish\/Application Exports\/Alignment Tree Export Alignment Tree Import","provenancePath":"\/work\/Project.lungfish\/Application Exports\/Alignment Tree Export Alignment Tree Import\/.lungfish-provenance.json","role":"collection"}],"event":"complete","output":"\/work\/Project.lungfish\/Application Exports\/Alignment Tree Export Alignment Tree Import","outputs":["\/work\/Project.lungfish\/Application Exports\/Alignment Tree Export Alignment Tree Import"],"progress":1,"schemaVersion":2}

@@ -426,6 +426,30 @@ final class CLIApplicationExportImportRunnerTests: XCTestCase {
         }
     }
 
+    /// The same check on the real thing. The transcripts of `import geneious` and
+    /// `import application-export` that `CLIEventTranscriptCoverageTests` captures from the commands in
+    /// process give the runner the same row, label and import as the checked-in streams that an older
+    /// CLI printed for the same runs.
+    func testTheCheckedInVersion2TranscriptsGiveWhatTheOlderStreamsGave() async throws {
+        let runs: [(leaf: String, name: String, older: String, exitCode: Int32)] = [
+            ("import-geneious", "complete", "import-geneious", 0),
+            ("import-geneious", "complete-with-warning", "import-geneious-with-warning", 0),
+            ("import-geneious", "failed", "import-geneious-failed", 3),
+            ("import-application-export", "complete", "import-application-export", 0),
+            ("import-application-export", "complete-with-warning", "import-application-export-with-warning", 0),
+            ("import-application-export", "failed", "import-application-export-failed", 3),
+        ]
+        for run in runs {
+            let older = try await replay(run.older, exitCode: run.exitCode)
+            let version2 = try await replay(
+                transcript: ImportRunnerReplay.commandTranscript(leaf: run.leaf, name: run.name),
+                exitCode: run.exitCode
+            )
+
+            XCTAssertEqual(version2, older, "\(run.leaf) \(run.name)")
+        }
+    }
+
     /// Plain standard error stays in the operation log at info level, whatever it says, so a tool's
     /// warning text never makes an import read Completed with Warnings (decision S16).
     func testStandardErrorTextIsLoggedAtInfoAndNeverMakesTheRunCompletedWithWarnings() async throws {

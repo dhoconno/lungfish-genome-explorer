@@ -1,0 +1,17 @@
+{"event":"start","message":"Started geneious-export import via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Scanning Geneious export...","progress":0.02,"schemaVersion":2}
+{"event":"progress","message":"Decoding Geneious sequence payloads...","progress":0.16,"schemaVersion":2}
+{"event":"progress","message":"Processing document.geneious...","progress":0.28,"schemaVersion":2}
+{"event":"progress","message":"Processing fileData.1...","progress":0.41500000000000004,"schemaVersion":2}
+{"event":"progress","message":"Processing refs\/reference.fa...","progress":0.55,"schemaVersion":2}
+{"event":"progress","message":"Processing reports\/summary.tsv...","progress":0.685,"schemaVersion":2}
+{"event":"progress","message":"Writing Geneious inventory...","progress":0.86,"schemaVersion":2}
+{"event":"progress","message":"Writing Geneious import report...","progress":0.9,"schemaVersion":2}
+{"event":"progress","message":"Writing Geneious import provenance...","progress":0.94,"schemaVersion":2}
+{"event":"progress","message":"Geneious import complete.","progress":1,"schemaVersion":2}
+{"event":"log","level":"warning","message":"Native Geneious data is preserved but not decoded in the no-Geneious baseline.","schemaVersion":2}
+{"event":"log","level":"warning","message":"document.geneious contains native Geneious data that is preserved but not decoded in the no-Geneious baseline.","schemaVersion":2}
+{"event":"log","level":"warning","message":"fileData.1 contains native Geneious data that is preserved but not decoded in the no-Geneious baseline.","schemaVersion":2}
+{"event":"log","level":"warning","message":"refs\/reference.fa is a standalone reference sequence but reference import was disabled; preserved as a binary artifact.","schemaVersion":2}
+{"event":"log","level":"warning","message":"reports\/summary.tsv is recognized as report but is not auto-routed in the no-Geneious baseline; preserved as a binary artifact.","schemaVersion":2}
+{"artifacts":[{"kind":"import-collection","path":"\/work\/Project.lungfish\/Geneious Imports\/Representative Geneious Import","provenancePath":"\/work\/Project.lungfish\/Geneious Imports\/Representative Geneious Import\/.lungfish-provenance.json","role":"collection"}],"event":"complete","output":"\/work\/Project.lungfish\/Geneious Imports\/Representative Geneious Import","outputs":["\/work\/Project.lungfish\/Geneious Imports\/Representative Geneious Import"],"progress":1,"schemaVersion":2}
