@@ -13,6 +13,7 @@
 import XCTest
 import AppKit
 import SQLite3
+import LungfishTestSupport
 @testable import LungfishApp
 @testable import LungfishIO
 @testable import LungfishKit
@@ -182,6 +183,39 @@ final class RenamedClassifierBatchRoutingTests: XCTestCase {
 
         XCTAssertNotNil(controller.viewerController.taxTriageViewController,
                          "Renamed TaxTriage batch must still route to the TaxTriage viewer")
+    }
+
+    // MARK: - Amplicon genotyping results
+
+    /// An amplicon genotyping run records `illumina-amplicon-genotyping` or
+    /// `ont-sample-bundle-genotyping` in the analysis-metadata.json of its result bundle, never
+    /// `ont-genotyping`. The sidebar knows the bundle by its `.lungfishgenotype` extension, so a
+    /// selection of either opens the genotype viewer.
+    func testAmpliconGenotypingResultsOpenTheGenotypeViewer() async throws {
+        for tool in ["illumina-amplicon-genotyping", "ont-sample-bundle-genotyping"] {
+            let root = try makeTempRoot()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let analyses = root.appendingPathComponent("Analyses/Amplicon genotyping results", isDirectory: true)
+            try FileManager.default.createDirectory(at: analyses, withIntermediateDirectories: true)
+            let bundle = try RoutingSafetyNetFixtures.genotypeResultBundle(in: analyses, withCalls: true)
+            try AnalysesFolder.writeAnalysisMetadata(
+                AnalysesFolder.AnalysisMetadata(tool: tool, isBatch: false),
+                to: bundle
+            )
+            XCTAssertEqual(AnalysesFolder.analysisInfo(for: bundle)?.tool, tool, tool)
+
+            let item = RoutingSafetyNetItems.scanned(bundle)
+            XCTAssertEqual(item.type, .genotypeResultBundle, tool)
+
+            let (controller, window) = makeController()
+            defer { window.contentViewController = nil }
+            controller.displayContent(for: item)
+
+            let opened = await waitUntil(timeout: .seconds(60)) {
+                controller.viewerController.genotypeResultViewController != nil
+            }
+            XCTAssertTrue(opened, "\(tool) must open the genotype viewer")
+        }
     }
 
     // MARK: - Sidebar selection path (mirrors user interaction)
