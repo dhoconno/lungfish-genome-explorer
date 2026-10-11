@@ -89,6 +89,25 @@ final class ToolProcessEnvironmentChangeAllowlistTests: XCTestCase {
         XCTAssertFalse(change.pathPrefix.contains { $0.contains("/Users/someone") })
     }
 
+    /// A hermetic base inherits nothing, so it has nothing to remove, whatever
+    /// names the adapter passes. An inherited base keeps them, sorted.
+    func testAHermeticBaseKeepsNoUnsetNames() {
+        let hermetic = ToolProcessEnvironmentChange(
+            base: .hermetic,
+            set: ["PATH": "/usr/bin:/bin"],
+            unset: ["PYTHONHOME", "CONDA_PREFIX"],
+            pathPrefix: ["/usr/bin", "/bin"],
+            sanitizing: Self.context
+        )
+        XCTAssertEqual(hermetic.unset, [])
+        let inherited = ToolProcessEnvironmentChange(
+            base: .inherited,
+            unset: ["PYTHONHOME", "CONDA_PREFIX"],
+            sanitizing: Self.context
+        )
+        XCTAssertEqual(inherited.unset, ["CONDA_PREFIX", "PYTHONHOME"])
+    }
+
     /// The four names of decision P10 and PATH never keep a value, and every
     /// name the adapters set for their tools does.
     func testTheAllowlistAndTheNameOnlyListAreDisjoint() {

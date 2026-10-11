@@ -71,7 +71,8 @@ public struct ToolProcessEnvironmentChange: Sendable, Equatable {
     ///   - base: What the environment starts from.
     ///   - set: Every variable the adapter set, with the value it set,
     ///     including `PATH` when the adapter set it.
-    ///   - unset: The names the adapter removed from an inherited base.
+    ///   - unset: The names the adapter removed from an inherited base. A
+    ///     hermetic base inherits nothing to remove, so it keeps none.
     ///   - pathPrefix: The PATH entries the adapter put before the base PATH,
     ///     or the whole PATH it set for a hermetic base.
     ///   - context: The sanitizing context. Give it the managed tool and
@@ -92,7 +93,7 @@ public struct ToolProcessEnvironmentChange: Sendable, Equatable {
                 : nil
             return Variable(name: name, value: kept)
         }
-        self.unset = Array(Set(unset)).sorted()
+        self.unset = base == .hermetic ? [] : Array(Set(unset)).sorted()
         self.pathPrefix = pathPrefix.map {
             Self.sanitizedPathList($0, context: context) ?? PortablePath.sanitize(path: $0, context: context)
         }
