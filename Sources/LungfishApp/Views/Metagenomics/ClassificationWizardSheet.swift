@@ -7,52 +7,6 @@ import LungfishIO
 import LungfishWorkflow
 import LungfishKit
 
-/// The Kraken2 read format chosen for one grouped sample. Separate R1/R2
-/// files run `paired`. A single file or bundle is classified by
-/// ``FASTQReadLayoutClassifier`` as ``EsVirituSampleReadPlan`` does. A bundle
-/// with separate pairs, merged or single reads gets its read set from
-/// ``KrakenReadSetPlanner`` at run time, as `conda classify` does (`readSet`).
-struct ClassificationSampleReadPlan: Equatable, Sendable {
-    let format: ClassificationConfig.ReadFormat
-    let layout: FASTQReadLayoutClassification?
-    var readSet: KrakenReadSetPreview? = nil
-
-    var plansReadSet: Bool { readSet?.plansReadSet ?? false }
-
-    var label: String {
-        readSet?.inputLabel ?? ClassificationConfig.ReadFormat.inputLabel(format: format, layout: layout?.layout)
-    }
-
-    /// Compact tag for the batch sample list.
-    var shortLabel: String {
-        if plansReadSet { return readSet == .pairs(withSingleReads: false) ? "PE" : "PE + merged" }
-        switch format {
-        case .paired: return "PE"
-        case .interleaved: return "interleaved PE"
-        case .unpaired: return layout?.layout == .mixedInterleaved ? "mixed, run as SE" : "SE"
-        }
-    }
-
-    static func plan(
-        for sample: MetagenomicsSampleInput,
-        classify: (URL) -> FASTQReadLayoutClassification = { FASTQReadLayoutClassifier.classify(inputURL: $0) }
-    ) -> ClassificationSampleReadPlan {
-        if sample.isPairedEnd {
-            return ClassificationSampleReadPlan(format: .paired, layout: nil)
-        }
-        let layout = classify(sample.fastq1)
-        return ClassificationSampleReadPlan(format: .forSingleFile(layout.layout), layout: layout)
-    }
-
-    /// The plan with the bundle's read set read from its metadata.
-    static func planned(for sample: MetagenomicsSampleInput) async -> ClassificationSampleReadPlan {
-        var plan = plan(for: sample)
-        guard let bundle = KrakenReadSetPlanner.plannableInput(sample.inputFiles) else { return plan }
-        plan.readSet = await KrakenReadSetPlanner.preview(bundle: bundle)
-        return plan
-    }
-}
-
 // MARK: - ClassificationWizardSheet
 
 /// A SwiftUI sheet for configuring and launching a Kraken2 classification run.
