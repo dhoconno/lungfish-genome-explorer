@@ -49,13 +49,13 @@ enum CLIProvenanceSupport {
 
     /// The version in a probe's combined stdout and stderr, or nil when the output is empty.
     ///
-    /// The first dotted number anywhere in the text, up to four numeric parts, else the first
-    /// line. This is the CLI's own parser. `NativeToolRunner.parseVersionProbe` and
+    /// The first dotted number anywhere in the text, up to four numeric parts and a local build
+    /// suffix such as `+lge.5`, else the first line. This is the CLI's own parser. `NativeToolRunner.parseVersionProbe` and
     /// `parseToolVersion(from:)` are the other two, and sub-phase 2.7 merges the three.
     static func parseCondaToolVersion(_ output: String) -> String? {
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
         if let range = trimmed.range(
-            of: #"\d+\.\d+(\.\d+){0,2}"#,
+            of: #"\d+\.\d+(\.\d+){0,2}(\+[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?"#,
             options: .regularExpression
         ) {
             return String(trimmed[range])

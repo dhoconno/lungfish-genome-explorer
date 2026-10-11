@@ -55,6 +55,15 @@ final class ProbeVersionTextTests: XCTestCase {
         XCTAssertEqual(version(["tool 2.31-r1302"]), "2.31")
     }
 
+    /// A local build suffix after a plus sign belongs to the version, as in 3.3.0+lge.5 (2.6). A bare
+    /// trailing plus does not, as blastn writes 2.16.0+.
+    func testALocalBuildSuffixIsPartOfTheVersion() {
+        XCTAssertEqual(version(["PrimalScheme3-LGE version: 3.3.0+lge.5"]), "3.3.0+lge.5")
+        XCTAssertEqual(version(["tool 1.2+build7, built today"]), "1.2+build7")
+        XCTAssertEqual(version(["blastn: 2.16.0+"]), "2.16.0")
+        XCTAssertEqual(version(["tool 2.5.1+ (beta)"]), "2.5.1")
+    }
+
     /// The left-most dotted number wins, outside paths and echoed commands.
     func testTheFirstDottedNumberWins() {
         XCTAssertEqual(version(["samtools 1.24", "Using htslib 1.24"]), "1.24")

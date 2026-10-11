@@ -312,6 +312,12 @@ final class VersionParserOutputPinTests: XCTestCase {
                         + "-Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -jar "
                         + "\(root)/envs/gatk-core/share/gatk4-4.6.2.0-1/gatk-package-4.6.2.0-local.jar --version"),
                 native: "4.6.2.0", detect: "4.6.2.0", correct: "4.6.2.0"),
+        // primalscheme3 prints "PrimalScheme3-LGE version: 3.3.0+lge.5", and the pattern used to drop the
+        // local build suffix (2.6). The real output from the owner's install, which the golden
+        // environment lacks.
+        Capture(name: "primalscheme3 +lge.5", exitCode: 0,
+                stdout: "PrimalScheme3-LGE version: 3.3.0+lge.5\n", stderr: "",
+                native: "3.3.0+lge.5", detect: "3.3.0+lge.5", correct: "3.3.0+lge.5"),
     ]
 
     // MARK: - Known defects, fixed in 2.6 and 2.7
@@ -319,10 +325,6 @@ final class VersionParserOutputPinTests: XCTestCase {
     /// Each row pins a wrong value as it is today. `correct` is what the tool reports. A row stays
     /// here until the parser change that fixes it lands, and that commit moves the row to `clean`.
     private static let knownDefects: [Capture] = [
-        // primalscheme3 loses its local build suffix in both parsers (2.6).
-        Capture(name: "primalscheme3 +lge.5", exitCode: 0,
-                stdout: "PrimalScheme3-LGE version: 3.3.0+lge.5\n", stderr: "",
-                native: "3.3.0", detect: "3.3.0", correct: "3.3.0+lge.5"),
         // The detect parser reads minratio=0.40 from the echoed command line (2.7). The native parser
         // skips that line, as it skips every echoed java command, so it reads the banner. This is the
         // real golden output.

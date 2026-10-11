@@ -104,11 +104,12 @@ final class CLIProvenanceSupportVersionTests: XCTestCase {
         XCTAssertEqual(CLIProvenanceSupport.parseCondaToolVersion(gatk), "4.6.2.0")
     }
 
-    /// The regex drops a local build suffix (2.6).
-    func testALocalBuildSuffixIsDropped() {
+    /// A local build suffix belongs to the version (2.6).
+    func testALocalBuildSuffixIsKept() {
         XCTAssertEqual(
             CLIProvenanceSupport.parseCondaToolVersion("PrimalScheme3-LGE version: 3.3.0+lge.5\n"),
-            "3.3.0"
+            "3.3.0+lge.5"
         )
+        XCTAssertEqual(CLIProvenanceSupport.parseCondaToolVersion("blastn: 2.16.0+\n"), "2.16.0")
     }
 }
