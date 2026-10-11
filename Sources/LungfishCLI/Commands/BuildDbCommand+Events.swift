@@ -48,12 +48,12 @@ struct BuildDbCLIEvents: Sendable {
     }
 
     /// Runs one leaf between its `start` line and its terminal line. `body` builds the database file
-    /// `database` and returns the sentence the `complete` line carries.
-    func report(database: URL, _ body: (BuildDbEventSink) async throws -> String) async throws {
+    /// `database`, and the `complete` line names it with the run's summary.
+    func report(database: URL, _ body: (BuildDbEventSink) async throws -> BuildDbRunResult) async throws {
         events.emitStart("Building \(database.lastPathComponent) in \(database.deletingLastPathComponent().path)")
         do {
-            let summary = try await body(sink)
-            events.emitComplete(outputs: [database.path], message: summary)
+            let result = try await body(sink)
+            events.emitComplete(outputs: [result.databaseURL.path], message: result.summary)
         } catch {
             events.emitFailed(Self.failureMessage(error))
             throw error

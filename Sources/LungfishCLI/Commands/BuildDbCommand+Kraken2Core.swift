@@ -43,23 +43,36 @@ extension BuildDbCommand {
 
         func run() async throws {
             let resultURL = URL(fileURLWithPath: resultDir)
+            let options = BuildDbRunOptions(
+                force: force,
+                noCleanup: noCleanup,
+                sampleDirectories: sampleDirs.map { URL(fileURLWithPath: $0) },
+                globalOptions: globalOptions
+            )
             try await BuildDbCLIEvents(globalOptions: globalOptions).report(
                 database: resultURL.appendingPathComponent("kraken2.sqlite")
             ) { events in
-                try await build(resultURL: resultURL, events: events)
+                try await Self.buildDatabase(in: resultURL, options: options, events: events)
             }
         }
 
-        /// Builds `kraken2.sqlite` in the result folder and returns the sentence that ends the run.
-        private func build(resultURL: URL, events: BuildDbEventSink) async throws -> String {
+        /// The `build-db kraken2` core. Builds `kraken2.sqlite` in `resultURL` from the Kraken 2 report of each
+        /// sample folder, or of the folder itself when it holds one run, compacts the per-read output unless
+        /// `options.noCleanup`, records the run beside the database and returns what it built. A database that
+        /// exists is kept unless `options.force`.
+        static func buildDatabase(
+            in resultURL: URL,
+            options: BuildDbRunOptions,
+            events: BuildDbEventSink
+        ) async throws -> BuildDbRunResult {
             let runClock = ProvenanceRunClock()
             let dbURL = resultURL.appendingPathComponent("kraken2.sqlite")
-            let requestedSampleDirectories = sampleDirs.map { URL(fileURLWithPath: $0).standardizedFileURL }
+            let requestedSampleDirectories = options.sampleDirectories.map(\.standardizedFileURL)
 
             // Skip if exists (unless --force)
-            if !force && FileManager.default.fileExists(atPath: dbURL.path) {
-                let existing = "Database already exists at \(dbURL.path). Use --force to rebuild."
-                events.text(existing)
+            if !options.force && FileManager.default.fileExists(atPath: dbURL.path) {
+                let existing = BuildDbRunResult(databaseURL: dbURL, rowCount: nil, record: nil)
+                events.text(existing.summary)
                 return existing
             }
 
@@ -93,26 +106,25 @@ extension BuildDbCommand {
 
                 try Kraken2Database.create(at: dbURL, rows: rows, metadata: metadata, progress: events.progress)
 
-                let built = "Built database at \(dbURL.path) with \(rows.count) rows"
-                events.text(built)
+                events.text(BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: nil).summary)
 
-                if !noCleanup {
+                if !options.noCleanup {
                     performCleanup(resultURL: resultURL, sampleDirectories: explicitSampleDirectories, events: events)
                 }
 
-                try await BuildDbCommand.recordBuildDbProvenance(
+                let record = try await BuildDbCommand.recordBuildDbProvenance(
                     tool: .kraken2,
                     resultURL: resultURL,
                     dbURL: dbURL,
-                    force: force,
-                    noCleanup: noCleanup,
-                    globalOptions: globalOptions,
+                    force: options.force,
+                    noCleanup: options.noCleanup,
+                    globalOptions: options.globalOptions,
                     runClock: runClock,
                     inputRecords: provenanceInputs,
                     sampleDirectories: explicitSampleDirectories
                 )
                 try databaseSnapshot.discard()
-                return built
+                return BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: record)
             } catch {
                 do {
                     try databaseSnapshot.restore()
@@ -123,9 +135,9 @@ extension BuildDbCommand {
                     tool: .kraken2,
                     resultURL: resultURL,
                     dbURL: dbURL,
-                    force: force,
-                    noCleanup: noCleanup,
-                    globalOptions: globalOptions,
+                    force: options.force,
+                    noCleanup: options.noCleanup,
+                    globalOptions: options.globalOptions,
                     runClock: runClock,
                     inputRecords: provenanceInputs,
                     error: error,
@@ -141,7 +153,7 @@ extension BuildDbCommand {
         /// Enumerates sample subdirectories under `resultURL` and parses kreport files.
         ///
         /// Returns classification rows and per-sample metadata for tree reconstruction.
-        func parseSampleDirectories(
+        static func parseSampleDirectories(
             resultURL: URL,
             sampleDirectories: [URL] = []
         ) throws -> (rows: [Kraken2ClassificationRow], sampleMetadata: [String: String]) {
@@ -238,7 +250,7 @@ extension BuildDbCommand {
             return (allRows, sampleMetadata)
         }
 
-        private func validatedExplicitSampleDirectories(_ sampleDirectories: [URL]) throws -> [URL] {
+        private static func validatedExplicitSampleDirectories(_ sampleDirectories: [URL]) throws -> [URL] {
             var seenPaths = Set<String>()
             var seenSampleIds = Set<String>()
             var validated: [URL] = []
@@ -268,7 +280,7 @@ extension BuildDbCommand {
         /// Flattens the taxonomy tree produced by `KreportParser`, excluding
         /// only the unclassified pseudo-node. The root node (taxId 1) is included
         /// so that ``Kraken2Database/fetchTree(sample:)`` can reconstruct the tree.
-        func parseKreport(
+        static func parseKreport(
             at kreportURL: URL,
             sampleId: String
         ) throws -> ([Kraken2ClassificationRow], TaxonTree) {
@@ -276,7 +288,7 @@ extension BuildDbCommand {
         }
 
         /// Flattens a parsed (and optionally Bracken-merged) tree into rows.
-        func flattenTree(
+        static func flattenTree(
             _ tree: TaxonTree,
             sampleId: String
         ) -> ([Kraken2ClassificationRow], TaxonTree) {
@@ -388,7 +400,7 @@ extension BuildDbCommand {
         /// Keeps: `classification.kraken.gz`,
         /// `classification.kraken.gz.idx.sqlite`, `classification.kreport`,
         /// `classification-result.json`, `kraken2.sqlite`.
-        private func performCleanup(resultURL: URL, sampleDirectories: [URL] = [], events: BuildDbEventSink) {
+        private static func performCleanup(resultURL: URL, sampleDirectories: [URL] = [], events: BuildDbEventSink) {
             let fm = FileManager.default
             var freedBytes: Int64 = 0
 
@@ -450,13 +462,13 @@ extension BuildDbCommand {
             events.text("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
         }
 
-        private func fileSize(_ url: URL) -> Int64? {
+        private static func fileSize(_ url: URL) -> Int64? {
             guard FileManager.default.fileExists(atPath: url.path) else { return nil }
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             return Int64(size)
         }
 
-        private func updateClassificationResultSidecar(in directory: URL, outputURL: URL, events: BuildDbEventSink) {
+        private static func updateClassificationResultSidecar(in directory: URL, outputURL: URL, events: BuildDbEventSink) {
             guard ClassificationResult.exists(in: directory) else { return }
 
             do {

@@ -35,6 +35,9 @@ extension BuildDbCommand {
         return records
     }
 
+    /// Records one build-db run in the result folder when no other workflow's record is there, and beside
+    /// each output. Returns the run's record.
+    @discardableResult
     static func recordBuildDbProvenance(
         tool: BuildDbProvenanceTool,
         resultURL: URL,
@@ -49,7 +52,7 @@ extension BuildDbCommand {
         sampleDirectories: [URL] = [],
         additionalSteps: [ProvenanceStep] = [],
         includeOutputRecords: Bool = true
-    ) async throws {
+    ) async throws -> ProvenanceEnvelope {
         let startedAt = runClock.startedAt
         let completedAt = runClock.now
         let outputRecords = includeOutputRecords
@@ -146,6 +149,7 @@ extension BuildDbCommand {
                 try writer.write(focused, toSidecar: sidecarURL)
             }
         }
+        return envelope
     }
 
     /// Whether build-db may write over `existing`: only when there is none or

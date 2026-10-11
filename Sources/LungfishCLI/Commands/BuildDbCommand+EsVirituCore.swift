@@ -36,22 +36,30 @@ extension BuildDbCommand {
 
         func run() async throws {
             let resultURL = URL(fileURLWithPath: resultDir)
+            let options = BuildDbRunOptions(force: force, noCleanup: noCleanup, globalOptions: globalOptions)
             try await BuildDbCLIEvents(globalOptions: globalOptions).report(
                 database: resultURL.appendingPathComponent("esviritu.sqlite")
             ) { events in
-                try await build(resultURL: resultURL, events: events)
+                try await Self.buildDatabase(in: resultURL, options: options, events: events)
             }
         }
 
-        /// Builds `esviritu.sqlite` in the result folder and returns the sentence that ends the run.
-        private func build(resultURL: URL, events: BuildDbEventSink) async throws -> String {
+        /// The `build-db esviritu` core. Builds `esviritu.sqlite` in `resultURL` from the detection and coverage
+        /// tables of each sample folder, moves each sample's BAMs from `<sample>_temp` to `bams`, counts their
+        /// reads with samtools, runs the cleanup unless `options.noCleanup`, records the run beside the database
+        /// and returns what it built. A database that exists is kept unless `options.force`.
+        static func buildDatabase(
+            in resultURL: URL,
+            options: BuildDbRunOptions,
+            events: BuildDbEventSink
+        ) async throws -> BuildDbRunResult {
             let runClock = ProvenanceRunClock()
             let dbURL = resultURL.appendingPathComponent("esviritu.sqlite")
 
             // Skip if exists (unless --force)
-            if !force && FileManager.default.fileExists(atPath: dbURL.path) {
-                let existing = "Database already exists at \(dbURL.path). Use --force to rebuild."
-                events.text(existing)
+            if !options.force && FileManager.default.fileExists(atPath: dbURL.path) {
+                let existing = BuildDbRunResult(databaseURL: dbURL, rowCount: nil, record: nil)
+                events.text(existing.summary)
                 return existing
             }
 
@@ -104,8 +112,7 @@ extension BuildDbCommand {
                     at: dbURL, rows: rows, coverageWindows: allWindows, metadata: metadata, progress: events.progress
                 )
 
-                let built = "Built database at \(dbURL.path) with \(rows.count) rows"
-                events.text(built)
+                events.text(BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: nil).summary)
 
                 // 4. Relocate BAMs from <sample>/<sample>_temp/ to <sample>/bams/ so the
                 // resolver in updateUniqueReadsInDB and post-cleanup VC can both find them.
@@ -129,23 +136,23 @@ extension BuildDbCommand {
                     provenance: samtoolsProvenance
                 )
 
-                if !noCleanup {
+                if !options.noCleanup {
                     performCleanup(resultURL: resultURL, events: events)
                 }
 
-                try await BuildDbCommand.recordBuildDbProvenance(
+                let record = try await BuildDbCommand.recordBuildDbProvenance(
                     tool: .esViritu,
                     resultURL: resultURL,
                     dbURL: dbURL,
-                    force: force,
-                    noCleanup: noCleanup,
-                    globalOptions: globalOptions,
+                    force: options.force,
+                    noCleanup: options.noCleanup,
+                    globalOptions: options.globalOptions,
                     runClock: runClock,
                     inputRecords: provenanceInputs,
                     additionalSteps: samtoolsProvenance.steps
                 )
                 try databaseSnapshot.discard()
-                return built
+                return BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: record)
             } catch {
                 do {
                     try databaseSnapshot.restore()
@@ -156,9 +163,9 @@ extension BuildDbCommand {
                     tool: .esViritu,
                     resultURL: resultURL,
                     dbURL: dbURL,
-                    force: force,
-                    noCleanup: noCleanup,
-                    globalOptions: globalOptions,
+                    force: options.force,
+                    noCleanup: options.noCleanup,
+                    globalOptions: options.globalOptions,
                     runClock: runClock,
                     inputRecords: provenanceInputs,
                     error: error,
@@ -172,7 +179,7 @@ extension BuildDbCommand {
         // MARK: - Sample Directory Enumeration & Parsing
 
         /// Enumerates sample subdirectories under `resultURL` and parses detection TSVs.
-        func parseSampleDirectories(resultURL: URL) throws -> [EsVirituDetectionRow] {
+        static func parseSampleDirectories(resultURL: URL) throws -> [EsVirituDetectionRow] {
             let fm = FileManager.default
             let contents = try fm.contentsOfDirectory(
                 at: resultURL,
@@ -201,7 +208,7 @@ extension BuildDbCommand {
         }
 
         /// Parses a single EsViritu `detected_virus.info.tsv` file into detection rows.
-        func parseDetectionTSV(
+        static func parseDetectionTSV(
             at url: URL,
             sampleName: String,
             sampleDir: URL
@@ -321,7 +328,7 @@ extension BuildDbCommand {
         /// Moves `*.third.filt.sorted.bam{,.bai,.csi}` from each sample's `_temp/`
         /// directory into a sibling `bams/` directory so post-build cleanup can
         /// remove `_temp/` without breaking DB-referenced BAM paths.
-        private func relocateEsVirituBAMs(resultURL: URL) {
+        private static func relocateEsVirituBAMs(resultURL: URL) {
             let fm = FileManager.default
             guard let sampleDirs = try? fm.contentsOfDirectory(
                 at: resultURL, includingPropertiesForKeys: [.isDirectoryKey]
@@ -365,7 +372,7 @@ extension BuildDbCommand {
         /// Removes: `*_temp/` directories, `*.virus_coverage_windows.tsv`,
         /// `*.detected_virus.assembly_summary.tsv`.
         /// Keeps: `*.detected_virus.info.tsv`, `esviritu.sqlite`.
-        private func performCleanup(resultURL: URL, events: BuildDbEventSink) {
+        private static func performCleanup(resultURL: URL, events: BuildDbEventSink) {
             let fm = FileManager.default
             var freedBytes: Int64 = 0
 
@@ -414,7 +421,7 @@ extension BuildDbCommand {
             events.text("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
         }
 
-        private func directorySize(_ url: URL) -> Int64? {
+        private static func directorySize(_ url: URL) -> Int64? {
             let fm = FileManager.default
             guard fm.fileExists(atPath: url.path) else { return nil }
             guard let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey]) else { return nil }
@@ -426,7 +433,7 @@ extension BuildDbCommand {
             return total
         }
 
-        private func fileSize(_ url: URL) -> Int64? {
+        private static func fileSize(_ url: URL) -> Int64? {
             guard FileManager.default.fileExists(atPath: url.path) else { return nil }
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             return Int64(size)
@@ -434,7 +441,7 @@ extension BuildDbCommand {
 
         // MARK: - Column Index Builder
 
-        private func buildColumnIndex(from header: [String]) -> [String: Int] {
+        private static func buildColumnIndex(from header: [String]) -> [String: Int] {
             var index: [String: Int] = [:]
             for (i, name) in header.enumerated() {
                 index[name.lowercased().trimmingCharacters(in: .whitespaces)] = i
@@ -444,31 +451,31 @@ extension BuildDbCommand {
 
         // MARK: - Field Accessors
 
-        private func field(_ fields: [String], _ index: Int?) -> String {
+        private static func field(_ fields: [String], _ index: Int?) -> String {
             guard let i = index, i < fields.count else { return "" }
             return fields[i]
         }
 
-        private func optionalField(_ fields: [String], _ index: Int?) -> String? {
+        private static func optionalField(_ fields: [String], _ index: Int?) -> String? {
             guard let i = index, i < fields.count else { return nil }
             let val = fields[i]
             return val.isEmpty ? nil : val
         }
 
         /// Returns nil for empty strings and "NA" values.
-        private func naAwareOptionalField(_ fields: [String], _ index: Int?) -> String? {
+        private static func naAwareOptionalField(_ fields: [String], _ index: Int?) -> String? {
             guard let i = index, i < fields.count else { return nil }
             let val = fields[i].trimmingCharacters(in: .whitespaces)
             if val.isEmpty || val == "NA" || val == "na" { return nil }
             return val
         }
 
-        private func parseDouble(_ fields: [String], _ index: Int?) -> Double? {
+        private static func parseDouble(_ fields: [String], _ index: Int?) -> Double? {
             guard let i = index, i < fields.count else { return nil }
             return Double(fields[i])
         }
 
-        private func parseInt(_ fields: [String], _ index: Int?) -> Int? {
+        private static func parseInt(_ fields: [String], _ index: Int?) -> Int? {
             guard let i = index, i < fields.count else { return nil }
             if let intVal = Int(fields[i]) {
                 return intVal

@@ -368,15 +368,15 @@ extension BuildDbCommand {
             }
         }
 
-        /// Builds `taxtriage.sqlite` in the result folder and returns the sentence that ends the run.
-        private func build(resultURL: URL, events: BuildDbEventSink) async throws -> String {
+        /// Builds `taxtriage.sqlite` in the result folder and returns what it built.
+        private func build(resultURL: URL, events: BuildDbEventSink) async throws -> BuildDbRunResult {
             let runClock = ProvenanceRunClock()
             let dbURL = resultURL.appendingPathComponent("taxtriage.sqlite")
 
             // Skip if exists (unless --force)
             if !force && FileManager.default.fileExists(atPath: dbURL.path) {
-                let existing = "Database already exists at \(dbURL.path). Use --force to rebuild."
-                events.text(existing)
+                let existing = BuildDbRunResult(databaseURL: dbURL, rowCount: nil, record: nil)
+                events.text(existing.summary)
                 return existing
             }
 
@@ -407,8 +407,7 @@ extension BuildDbCommand {
                     at: dbURL, rows: rows, accessionMap: accessionMap, metadata: metadata, progress: events.progress
                 )
 
-                let built = "Built database at \(dbURL.path) with \(rows.count) rows"
-                events.text(built)
+                events.text(BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: nil).summary)
 
                 // 4. Compute unique reads from BAMs and update DB
                 try await updateUniqueReadsInDB(
@@ -432,7 +431,7 @@ extension BuildDbCommand {
                     performCleanup(resultURL: resultURL, events: events)
                 }
 
-                try await BuildDbCommand.recordBuildDbProvenance(
+                let record = try await BuildDbCommand.recordBuildDbProvenance(
                     tool: .taxTriage,
                     resultURL: resultURL,
                     dbURL: dbURL,
@@ -444,7 +443,7 @@ extension BuildDbCommand {
                     additionalSteps: samtoolsProvenance.steps
                 )
                 try databaseSnapshot.discard()
-                return built
+                return BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: record)
             } catch {
                 do {
                     try databaseSnapshot.restore()
