@@ -1,0 +1,14 @@
+{"event":"start","message":"Starting Kraken2.","progress":0,"schemaVersion":2}
+{"event":"output","path":"\/work\/out\/kraken2-test","role":"analysis-directory","schemaVersion":2}
+{"event":"progress","message":"Running test_1.fastq.","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Validating configuration...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Detecting tool versions...","progress":0.1,"schemaVersion":2}
+{"event":"progress","message":"Running kraken2...","progress":0.3,"schemaVersion":2}
+{"event":"progress","message":"Classifying: 100 sequences processed...","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"Parsing classification report...","progress":0.8,"schemaVersion":2}
+{"event":"progress","message":"Recording provenance...","progress":0.9,"schemaVersion":2}
+{"event":"progress","message":"Compacting Kraken2 output...","progress":0.95,"schemaVersion":2}
+{"event":"progress","message":"Saving result metadata...","progress":0.97,"schemaVersion":2}
+{"event":"progress","message":"Saving provenance...","progress":0.98,"schemaVersion":2}
+{"event":"progress","message":"Classification complete","progress":1,"schemaVersion":2}
+{"artifacts":[{"kind":"kreport","path":"\/work\/out\/kraken2-test\/classification.kreport","role":"classification-report"},{"kind":"kraken","path":"\/work\/out\/kraken2-test\/classification.kraken.gz","role":"classification-output"},{"kind":"json","path":"\/work\/out\/kraken2-test\/classification-result.json","role":"classification-result"},{"kind":"provenance","path":"\/work\/out\/kraken2-test\/.lungfish-provenance.json","role":"provenance"}],"event":"complete","message":"98 of 100 reads classified","output":"\/work\/out\/kraken2-test","outputs":["\/work\/out\/kraken2-test"],"progress":1,"schemaVersion":2}

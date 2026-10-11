@@ -232,7 +232,7 @@ final class CLIEventContractCoverageTests: XCTestCase {
             case .text: counts["text", default: 0] += 1
             }
         }
-        XCTAssertEqual(counts["events"], 31)
+        XCTAssertEqual(counts["events"], 33)
         XCTAssertEqual(counts["legacy"], 11)
         XCTAssertEqual(counts.values.reduce(0, +), CLIEventContractTable.entries.count)
     }

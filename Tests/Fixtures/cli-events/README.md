@@ -130,6 +130,21 @@ Lane A9 of Phase 2.7 ran `esviritu-detect` the same way with the CLI built from 
 
 The inputs are `Tests/Fixtures/sarscov2/test_1.fastq.gz` and `test_2.fastq.gz`.
 
+Lane A8 of Phase 2.7 ran `kraken2-classify` and `conda-classify` the same way with the CLI built from its branch. `LUNGFISH_STORAGE_ROOT` named the stable storage at `~/.lungfish-stable`, whose `kraken2` and `bracken` environments ran, and its `Viral` database was read in place. A listing of the database folder and of the database registry taken before and after the runs was the same. The command lines and the paths the lines name are rewritten to `/work`. The files are in `kraken2-classify` unless the table names the folder.
+
+| File | Command |
+| --- | --- |
+| `complete` | `kraken2 classify /work/inputs/test_1.fastq.gz --output-dir /work/out/kraken2-test --db Viral --threads 2 --format json`, a plain folder outside a project |
+| `complete-project` | `kraken2 classify /work/inputs/test_1.fastq.gz --project /work/Project.lungfish --db Viral --threads 2 --format json`, which also builds `kraken2.sqlite` in the new folder |
+| `complete-batch` | `kraken2 classify /work/inputs/test_1.fastq.gz /work/inputs/test_2.fastq.gz --batch --project /work/Project.lungfish --db Viral --threads 2 --format json`, which groups the two files into the one paired sample `test` |
+| `complete-profile` | `kraken2 classify /work/inputs/test_1.fastq.gz --profile --project /work/Project.lungfish --db Viral --threads 2 --format json`, whose artifacts include the Bracken profile |
+| `complete-with-warning` | `kraken2 classify /work/inputs/negative-control.fastq --profile --project /work/Project.lungfish --db Viral --threads 2 --format json`. The Bracken preflight finds no species row, so the profile degrades and the run logs one warning before `complete` (decision E4) |
+| `failed` | `kraken2 classify /work/inputs/test_1.fastq.gz --project /work/Project.lungfish --db Missing --threads 2 --format json`, which the plan refuses before any folder exists |
+| `failed-cancelled` | `kraken2 classify /work/inputs/large.fastq --project /work/Project.lungfish --db Viral --threads 2 --format json`. Half a second after the `Running kraken2...` line the CLI and its descendants got SIGTERM, as the app's transport sends it. The CLI exited 125 within a second, and no kraken2 process outlived it |
+| `conda-classify/complete` | `conda classify /work/inputs/test_1.fastq.gz --output-dir /work/out/conda-classify-test --db Viral --threads 2 --format json`, the same command under its older spelling |
+
+The inputs are `test_1.fastq.gz` and `test_2.fastq.gz` of `Tests/Fixtures/sarscov2`, `Tests/Fixtures/classifier-parity/negative-control.fastq`, and `large.fastq`, which holds the reads of `test_1.fastq.gz` 10,000 times over, one million reads in all.
+
 ## results
 
 `results` holds the document that a leaf prints when the contract table marks it `.result`, one file for each of 13 schemas. Each file is the standard output of one real run of the built `lungfish-cli` on a repository fixture, run the way the commands above were. The scratch folder is `/work` in the file, and nothing else is edited. `CLIEventContractCoverageTests` decodes each file with the Swift type that reads it, adds one key that no reader knows, and expects the same value back.

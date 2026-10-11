@@ -74,7 +74,7 @@ public enum CLIEventContractTable {
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
-    // MARK: Leaves that emit events (31)
+    // MARK: Leaves that emit events (33)
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
@@ -83,6 +83,7 @@ public enum CLIEventContractTable {
         "build-db esviritu": .events(flag: formatJSON, channel: .standardOutput),
         "build-db kraken2": .events(flag: formatJSON, channel: .standardOutput),
         "build-db taxtriage": .events(flag: formatJSON, channel: .standardOutput),
+        "conda classify": .events(flag: formatJSON, channel: .standardOutput),
         "esviritu detect": .events(flag: formatJSON, channel: .standardOutput),
         "fastq ont-fluidigm-samples": .events(flag: alwaysOn, channel: .standardError),
         "fastq ont-pacbio-barcode-demux": .events(flag: alwaysOn, channel: .standardError),
@@ -91,6 +92,7 @@ public enum CLIEventContractTable {
         "import geneious": .events(flag: formatJSON, channel: .standardOutput),
         "import msa": .events(flag: formatJSON, channel: .standardOutput),
         "import tree": .events(flag: formatJSON, channel: .standardOutput),
+        "kraken2 classify": .events(flag: formatJSON, channel: .standardOutput),
         "msa annotate add": .events(flag: formatJSON, channel: .standardOutput),
         "msa annotate delete": .events(flag: formatJSON, channel: .standardOutput),
         "msa annotate edit": .events(flag: formatJSON, channel: .standardOutput),
@@ -207,14 +209,12 @@ public enum CLIEventContractTable {
         "import-fastq": .legacy(schemaID: "s1-import-fastq", removeBy: "2.7"),
     ]
 
-    // MARK: Leaves with human text only (122)
+    // MARK: Leaves with human text only (120)
 
     private static let text: [String: CLIEventContract] = [
         "bam adopt-mapping": .text(reason: ignoresFormat),
         "bundle export": .text(reason: humanTextOnly),
         "bundle extract-annotations": .text(reason: ignoresFormat),
-        "conda classify": .text(reason: ignoresFormat),
-        "kraken2 classify": .text(reason: ignoresFormat),
         "conda db download": .text(reason: ignoresFormat),
         "conda db info": .text(reason: ignoresFormat),
         "conda db install-managed": .text(reason: ignoresFormat),

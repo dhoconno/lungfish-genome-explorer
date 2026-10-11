@@ -1,0 +1,18 @@
+{"event":"start","message":"Starting Kraken2.","progress":0,"schemaVersion":2}
+{"event":"output","path":"\/work\/Project.lungfish\/Analyses\/kraken2-2026-10-11T14-26-15","role":"analysis-directory","schemaVersion":2}
+{"event":"progress","message":"Running test_1.fastq.","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Validating configuration...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Detecting tool versions...","progress":0.1,"schemaVersion":2}
+{"event":"progress","message":"Running kraken2...","progress":0.3,"schemaVersion":2}
+{"event":"progress","message":"Classifying: 100 sequences processed...","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"Parsing classification report...","progress":0.8,"schemaVersion":2}
+{"event":"progress","message":"Preflighting Bracken profiling...","progress":0.9,"schemaVersion":2}
+{"event":"progress","message":"Running Bracken profiling...","progress":0.92,"schemaVersion":2}
+{"event":"progress","message":"Compacting Kraken2 output...","progress":0.95,"schemaVersion":2}
+{"event":"progress","message":"Saving result metadata...","progress":0.97,"schemaVersion":2}
+{"event":"progress","message":"Saving provenance...","progress":0.98,"schemaVersion":2}
+{"event":"progress","message":"Profiling complete","progress":1,"schemaVersion":2}
+{"event":"log","level":"info","message":"Parsed 14 classification rows from Kraken2 results","schemaVersion":2}
+{"event":"log","level":"info","message":"Built database at \/work\/Project.lungfish\/Analyses\/kraken2-2026-10-11T14-26-15\/kraken2.sqlite with 14 rows","schemaVersion":2}
+{"event":"log","level":"info","message":"Cleanup complete. Freed Zero KB","schemaVersion":2}
+{"artifacts":[{"kind":"kreport","path":"\/work\/Project.lungfish\/Analyses\/kraken2-2026-10-11T14-26-15\/classification.kreport","role":"classification-report"},{"kind":"kraken","path":"\/work\/Project.lungfish\/Analyses\/kraken2-2026-10-11T14-26-15\/classification.kraken.gz","role":"classification-output"},{"kind":"bracken","path":"\/work\/Project.lungfish\/Analyses\/kraken2-2026-10-11T14-26-15\/classification.bracken","role":"bracken-profile"},{"kind":"json","path":"\/work\/Project.lungfish\/Analyses\/kraken2-2026-10-11T14-26-15\/classification-result.json","role":"classification-result"},{"kind":"sqlite","path":"\/work\/Project.lungfish\/Analyses\/kraken2-2026-10-11T14-26-15\/kraken2.sqlite","role":"classification-database"},{"kind":"provenance","path":"\/work\/Project.lungfish\/Analyses\/kraken2-2026-10-11T14-26-15\/.lungfish-provenance.json","role":"provenance"}],"event":"complete","message":"98 of 100 reads classified","output":"\/work\/Project.lungfish\/Analyses\/kraken2-2026-10-11T14-26-15","outputs":["\/work\/Project.lungfish\/Analyses\/kraken2-2026-10-11T14-26-15"],"progress":1,"schemaVersion":2}

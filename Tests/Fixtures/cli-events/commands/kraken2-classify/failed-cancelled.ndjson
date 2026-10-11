@@ -1,0 +1,7 @@
+{"event":"start","message":"Starting Kraken2.","progress":0,"schemaVersion":2}
+{"event":"output","path":"\/work\/Project.lungfish\/Analyses\/kraken2-2026-10-11T14-26-20","role":"analysis-directory","schemaVersion":2}
+{"event":"progress","message":"Running large.","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Validating configuration...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Detecting tool versions...","progress":0.1,"schemaVersion":2}
+{"event":"progress","message":"Running kraken2...","progress":0.3,"schemaVersion":2}
+{"error":"Kraken2 was cancelled.","event":"failed","schemaVersion":2}

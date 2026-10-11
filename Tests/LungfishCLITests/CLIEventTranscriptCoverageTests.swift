@@ -28,7 +28,7 @@ import XCTest
 /// builds the fixtures of the import commands. The scratch
 /// folder of each run is rewritten to `/work`, in its plain and its slash-escaped spelling, and nothing
 /// else is edited. Set `LUNGFISH_RECAPTURE_CLI_EVENTS=1` to write the transcripts instead of comparing
-/// them, and review the diff. `Tests/Fixtures/cli-events/README.md` describes the five real runs.
+/// them, and review the diff. `Tests/Fixtures/cli-events/README.md` describes the real runs.
 final class CLIEventTranscriptCoverageTests: XCTestCase {
     // MARK: Transcript locations
 
@@ -36,6 +36,7 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
     /// transcripts come from real runs of the built `lungfish-cli`, which the fixtures README describes.
     static let toolLeaves: Set<String> = [
         "tree infer iqtree", "align mafft", "assemble", "variants call", "bam primer-trim", "esviritu detect",
+        "kraken2 classify", "conda classify",
     ]
 
     static var transcriptsFolder: URL {
@@ -272,8 +273,6 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
             }
         }
     }
-
-
 
     // MARK: Fixtures
 

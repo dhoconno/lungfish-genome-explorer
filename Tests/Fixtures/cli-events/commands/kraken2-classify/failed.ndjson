@@ -1,0 +1,2 @@
+{"event":"start","message":"Starting Kraken2.","progress":0,"schemaVersion":2}
+{"error":"Database 'Missing' not found in registry. Available databases: NCBI Taxonomy [ready], Viral [ready].","event":"failed","schemaVersion":2}
