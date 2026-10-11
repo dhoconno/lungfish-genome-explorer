@@ -60,6 +60,7 @@ fi
             "config/release-contract.json",
             "scripts/release/release.py",
             "scripts/release/release_profiles.py",
+            "scripts/release/developer_id.py",
             "scripts/release/release_identity.py",
             "scripts/release/bounded_process.py",
             "scripts/testing/catalog.py",

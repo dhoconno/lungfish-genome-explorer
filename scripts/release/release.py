@@ -30,7 +30,9 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from release_identity import prepare_identity_plist, identity_plist, fork_contract, PublicIdentity
 from bounded_process import run_bounded
-from release_profiles import ReleaseProfile, ProfileError, load_release_profile as _load_profile, write_release_profile
+from release_profiles import (ReleaseProfile, ProfileError, CERTIFICATE_POLICIES, default_profile_path,
+                              load_release_profile as _load_profile, write_release_profile)
+from developer_id import SigningIdentityError, select_from_keychain  # noqa: E402
 from release_contract import load_contract  # noqa: E402
 from release_version import ReleaseVersionError, release_version  # noqa: E402
 from sparkle_yank import (  # noqa: E402
@@ -131,6 +133,10 @@ class UnitTierRed(ReleaseError):
     """The newest canonical unit-tier run on the candidate's code failed."""
 
 
+class SigningSelectionError(ReleaseError):
+    """The release profile does not pick exactly one usable Developer ID identity."""
+
+
 def load_release_profile(path: Path) -> ReleaseProfile:
     try:
         return _load_profile(path)
@@ -181,6 +187,7 @@ class ReleaseRequest:
     sparkle_account: str = "ed25519"
     setup_receipt: Path | None = None
     credential_probe_mode: str = "unattended"
+    certificate_policy: str | None = None
 
 
 @dataclass(frozen=True)
@@ -506,13 +513,7 @@ def _head_commit(root: Path, environment: dict[str, str]) -> str:
 
 
 def _default_profile_path(repository: str | None = None) -> Path:
-    base = Path.home() / ".config" / "lungfish"
-    if repository:
-        key = hashlib.sha256(repository.lower().encode()).hexdigest()[:24]
-        named = base / "releases" / f"{key}.json"
-        if named.exists():
-            return named
-    return base / "release.json"
+    return default_profile_path(repository)
 
 
 def _profile_request(request: ReleaseRequest, profile: ReleaseProfile, path: Path) -> ReleaseRequest:
@@ -520,7 +521,7 @@ def _profile_request(request: ReleaseRequest, profile: ReleaseProfile, path: Pat
                    notary_profile=profile.notary_profile, signing_keychain=profile.signing_keychain,
                    certificate_sha1=profile.certificate_sha1, notary_keychain=profile.notary_keychain,
                    sparkle_account=profile.sparkle_account, setup_receipt=path.with_suffix(".setup.json"),
-                   github_repository=profile.repository)
+                   github_repository=profile.repository, certificate_policy=profile.certificate_policy)
 
 
 def _credential_arguments(request: ReleaseRequest) -> list[str]:
@@ -699,7 +700,7 @@ def run_publish(root: Path, channel: str, profile_path: Path | None) -> int:
         profile.repository,
         credential_environment,
     )
-    active = replace(_profile_request(request, profile, selected_profile_path),
+    active = replace(operations.select_signing_certificate(_profile_request(request, profile, selected_profile_path)),
                      sparkle_generate_appcast=sparkle)
     result = ReleaseCoordinator(operations).publish_verified(active, identity)
     print(
@@ -758,8 +759,13 @@ def run_doctor(root: Path, profile_path: Path | None) -> int:
             credential_environment,
         )
         credential_operations.doctor_credentials(
-            _profile_request(request, profile, selected_profile_path)
+            credential_operations.select_signing_certificate(
+                _profile_request(request, profile, selected_profile_path)
+            )
         )
+    except SigningSelectionError as error:
+        print(f"Publish readiness: NOT READY ({error})")
+        return 1
     except ReleaseError:
         print("Publish readiness: NOT READY (credential readiness checks failed)")
         return 1
@@ -888,9 +894,13 @@ def run_configure_machine(root: Path, args) -> int:
                              str(args.signing_keychain) if args.signing_keychain else None,
                              args.certificate_sha1,
                              str(args.notary_keychain) if args.notary_keychain else None,
-                             args.sparkle_account, 2)
-    write_release_profile(path, profile)
-    print(f"Private machine selectors created: {path}. No credentials were imported or probed.")
+                             args.sparkle_account, 2, getattr(args, "certificate_policy", None))
+    replacing = bool(getattr(args, "replace", False))
+    write_release_profile(path, profile, replace=replacing)
+    print(f"Private machine selectors {'replaced' if replacing else 'created'}: {path}. "
+          "No credentials were imported or probed.")
+    if replacing:
+        print("Run release.py setup again before the next publish, because the setup proof binds these selectors.")
     return 0
 
 
@@ -905,6 +915,7 @@ def run_setup(root: Path, profile_path: Path | None) -> int:
     request = _profile_request(_base_request(root, "preview", _head_commit(root, environment),
                                              github_repository=repository), profile, path)
     operations = LocalReleaseOperations(root, repository, environment)
+    request = operations.select_signing_certificate(request)
     operations.doctor_credentials(replace(request, credential_probe_mode="setup"))
     print(f"Credential setup proof created: {request.setup_receipt}")
     return 0
@@ -1707,6 +1718,24 @@ class LocalReleaseOperations:
         if ancestor.returncode != 0:
             raise ReleaseError("release checkout is not current with remote main")
 
+    def select_signing_certificate(self, request: ReleaseRequest) -> ReleaseRequest:
+        """Turn the profile's certificate choice into one SHA-1 before any doctor or builder runs.
+
+        Signing by SHA-1 stays unambiguous while an old and a G2 certificate share one name, and the
+        doctor, the setup proof and the builder all check and use the same certificate. Read-only.
+        """
+        try:
+            selection = select_from_keychain(
+                lambda argv: self.runner.run(argv, capture=True, check=False),
+                name=request.signing_identity,
+                certificate_sha1=request.certificate_sha1,
+                policy=request.certificate_policy,
+                keychain=str(request.signing_keychain) if request.signing_keychain else None,
+            )
+        except SigningIdentityError as error:
+            raise SigningSelectionError(str(error)) from error
+        return replace(request, certificate_sha1=selection.identity.sha1)
+
     def doctor_credentials(self, request: ReleaseRequest) -> None:
         command = [
             sys.executable,
@@ -2460,7 +2489,12 @@ def _parser() -> argparse.ArgumentParser:
     machine.add_argument("--profile", type=Path)
     machine.add_argument("--signing-keychain", type=Path)
     machine.add_argument("--notary-keychain", type=Path)
-    machine.add_argument("--certificate-sha1")
+    certificate = machine.add_mutually_exclusive_group()
+    certificate.add_argument("--certificate-sha1", help="sign with this Developer ID certificate")
+    certificate.add_argument("--certificate-policy", choices=CERTIFICATE_POLICIES,
+                             help="sign with the newest valid G2 identity of the signing identity's name")
+    machine.add_argument("--replace", action="store_true",
+                         help="replace an existing private profile instead of refusing")
     machine.add_argument("--sparkle-account", default="ed25519")
     machine.add_argument("--repo", type=Path, default=PROJECT_ROOT)
     return parser

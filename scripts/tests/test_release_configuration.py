@@ -1,11 +1,15 @@
 """Public configuration must be reviewable without touching credential services."""
 import argparse
 import base64
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
+from scripts.tests.developer_id_fixtures import G1, NAME, TEAM, certificate_der, find_identity_output, pem, sha1
 from scripts.tests.test_release_frontdoor import load_module, ROOT
 
 
@@ -69,13 +73,88 @@ class ReleaseConfigurationTests(unittest.TestCase):
         with mock.patch.object(self.release, 'load_release_profile', return_value=profile), \
              mock.patch.object(self.release, '_head_commit', return_value='a' * 40), \
              mock.patch.object(self.release, 'LocalReleaseOperations') as operations:
+            operations.return_value.select_signing_certificate.side_effect = lambda request: request
             self.assertEqual(self.release.run_setup(self.root, self.root / 'private/profile.json'), 0)
         request = operations.return_value.doctor_credentials.call_args.args[0]
         self.assertEqual(request.credential_probe_mode, 'setup')
+        self.assertEqual([call[0] for call in operations.return_value.method_calls],
+                         ['select_signing_certificate', 'doctor_credentials'])
         operations.return_value.doctor_package.assert_not_called()
         operations.return_value.run_local_gates.assert_not_called()
         operations.return_value.start_package_build.assert_not_called()
         operations.return_value.finish_package_build.assert_not_called()
+
+    def test_private_configuration_replaces_only_on_request_and_records_the_certificate_choice(self):
+        self.configure()
+        path = self.root / 'private/profile.json'
+        args = argparse.Namespace(profile=path, signing_identity=NAME, team_id=TEAM, notary_profile='example-notary',
+                                  signing_keychain=None, certificate_sha1=None, certificate_policy=None,
+                                  notary_keychain=None, sparkle_account='example-fish', replace=False)
+        with mock.patch.object(self.release, 'SubprocessRunner', side_effect=AssertionError('no credential commands')):
+            self.assertEqual(self.release.run_configure_machine(self.root, args), 0)
+            args.certificate_policy = 'newest-g2'
+            with self.assertRaises(ValueError):
+                self.release.run_configure_machine(self.root, args)
+            args.replace = True
+            self.assertEqual(self.release.run_configure_machine(self.root, args), 0)
+            self.assertEqual(self.release.load_release_profile(path).certificate_policy, 'newest-g2')
+            args.certificate_policy, args.certificate_sha1 = None, 'c' * 40
+            self.assertEqual(self.release.run_configure_machine(self.root, args), 0)
+        profile = self.release.load_release_profile(path)
+        self.assertEqual((profile.certificate_sha1, profile.certificate_policy), ('C' * 40, None))
+
+    def test_configure_machine_accepts_a_sha1_or_a_policy_but_not_both(self):
+        base = ['configure-machine', '--signing-identity', NAME, '--team-id', TEAM, '--notary-profile', 'example-notary']
+        parsed = self.release._parser().parse_args(base + ['--certificate-policy', 'newest-g2', '--replace'])
+        self.assertEqual((parsed.certificate_policy, parsed.replace, parsed.certificate_sha1), ('newest-g2', True, None))
+        with self.assertRaises(SystemExit), mock.patch('sys.stderr'):
+            self.release._parser().parse_args(base + ['--certificate-policy', 'newest-g2', '--certificate-sha1', 'A' * 40])
+
+    def test_the_profile_choice_becomes_one_sha1_before_any_doctor_or_builder_runs(self):
+        now = datetime.now(timezone.utc)
+        old_der = certificate_der(issuer=G1, not_before=now - timedelta(days=200), not_after=now + timedelta(days=90))
+        new_der = certificate_der(not_before=now - timedelta(days=1), not_after=now + timedelta(days=364), serial=2)
+        listing = find_identity_output([(sha1(old_der), NAME, None), (sha1(new_der), NAME, None)])
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append((argv, kwargs))
+            output = listing if argv[1] == 'find-identity' else pem(old_der) + pem(new_der)
+            return subprocess.CompletedProcess(argv, 0, output, '')
+
+        operations = object.__new__(self.release.LocalReleaseOperations)
+        operations.runner = mock.Mock(run=run)
+        base = replace(self.release._base_request(self.root, 'preview', 'a' * 40, github_repository='example/fish'),
+                       signing_identity=NAME, team_id=TEAM)
+        resolved = operations.select_signing_certificate(replace(base, certificate_policy='newest-g2'))
+        self.assertEqual(resolved.certificate_sha1, sha1(new_der))
+        arguments = self.release._credential_arguments(resolved)
+        self.assertEqual(arguments[arguments.index('--certificate-sha1') + 1], sha1(new_der))
+        self.assertEqual(operations.select_signing_certificate(replace(base, certificate_sha1=sha1(old_der).lower())).certificate_sha1,
+                         sha1(old_der))
+        self.assertEqual({argv[1] for argv, _ in calls}, {'find-identity', 'find-certificate'})
+        self.assertTrue(all(kwargs == {'capture': True, 'check': False} for _, kwargs in calls))
+        with self.assertRaises(self.release.SigningSelectionError) as raised:
+            operations.select_signing_certificate(base)
+        self.assertIn(sha1(old_der), str(raised.exception))
+        self.assertIn(sha1(new_der), str(raised.exception))
+
+    def test_doctor_reports_an_unresolved_identity_as_not_ready_with_the_candidates(self):
+        self.configure()
+        profile = self.release.ReleaseProfile('example/fish', NAME, TEAM, 'example-notary')
+        package = mock.Mock(runner=mock.Mock(environment={'DEVELOPER_DIR': '/Applications/Xcode.app'}))
+        credentials = mock.Mock()
+        message = '2 valid identities are named it, so signing by name is ambiguous: AAAA (G1); BBBB (G2)'
+        credentials.select_signing_certificate.side_effect = self.release.SigningSelectionError(message)
+        output = []
+        with mock.patch.object(self.release, '_head_commit', return_value='a' * 40), \
+             mock.patch.object(self.release, 'load_release_profile', return_value=profile), \
+             mock.patch.object(self.release, '_resolve_sparkle_generate_appcast'), \
+             mock.patch.object(self.release, 'LocalReleaseOperations', side_effect=[package, credentials]), \
+             mock.patch('builtins.print', side_effect=lambda value: output.append(value)):
+            self.assertEqual(self.release.run_doctor(self.root, self.root / 'private/profile.json'), 1)
+        self.assertIn(f'Publish readiness: NOT READY ({message})', output)
+        credentials.doctor_credentials.assert_not_called()
 
     def test_fork_sparkle_floors_allow_initial_feeds_without_legacy_bridge(self):
         self.configure()
