@@ -64,8 +64,8 @@ final class ClassifierLayoutReaderPinTests: XCTestCase {
     // MARK: - Sidebar
 
     /// The whole scan of the layout project against its committed snapshot. Every visible
-    /// layout is a row, and the failed, cancelled and running runs and the claimed folder
-    /// outside Analyses are absent.
+    /// layout is a row, and the failed, cancelled and running runs and the copy of an Analyses
+    /// result outside Analyses are absent.
     func testSidebarSnapshot() async throws {
         let built = try await buildProject()
         let layouts = SidebarScanSafetyNetProjects.classifierLayoutProject
@@ -95,6 +95,8 @@ final class ClassifierLayoutReaderPinTests: XCTestCase {
 
     /// What `AnalysesFolder.analysisInfo` and `ClassifierDatabaseRouter.route` make of each layout.
     /// A database of `no` is the lazy index build, and `nil` is a selection that ends silently.
+    /// An entry marked as a known defect pins a wrong value as it is today. It stays until the
+    /// change its comment names lands, and that commit moves the entry to the right value.
     private let expectedLayouts: [(name: String, info: String, route: String)] = [
         // Writers of today.
         (Name.cliKraken2, "kraken2 batch=false", "kraken2 database=no result=Analyses/kraken2-golden sample=-"),
@@ -102,10 +104,16 @@ final class ClassifierLayoutReaderPinTests: XCTestCase {
         (Name.windowKraken2Batch, "kraken2 batch=true", "kraken2 database=yes result=Analyses/kraken2-batch-2026-02-09T10-00-00 sample=-"),
         (Name.windowKraken2BatchWithoutIndex, "kraken2 batch=true", "kraken2 database=no result=Analyses/kraken2-batch-2026-02-09T11-00-00 sample=-"),
         (Name.cliEsViritu, "esviritu batch=false", "esviritu database=no result=Analyses/esviritu-golden sample=-"),
+        // Known defect, left for 2.9. The sidebar lists this folder and no route places it. The right
+        // route is "esviritu database=no result=Analyses/HG002 viral detection sample=-", and the router
+        // change of 2.9 that takes the tool from AnalysesFolder.analysisInfo moves it.
         (Name.cliEsVirituFreeName, "esviritu batch=false", "nil"),
         (Name.importedEsViritu, "esviritu batch=false", "esviritu database=no result=Analyses/esviritu-HG002_import sample=-"),
         (Name.windowEsVirituBatchOfOne, "esviritu batch=true", "esviritu database=yes result=Analyses/esviritu-batch-2026-02-09T12-00-00 sample=-"),
         (Name.windowEsVirituBatchOfOneWithoutIndex, "esviritu batch=true", "esviritu database=no result=Analyses/esviritu-batch-2026-02-09T12-10-00 sample=-"),
+        // Known defect, left for 2.9. The sidebar lists this folder and no route places it. The right
+        // route is "kraken2 database=no result=Analyses/Sample run 12 sample=-", and the router
+        // change of 2.9 that takes the tool from AnalysesFolder.analysisInfo moves it.
         (Name.probeOnlyKraken2, "kraken2 batch=false", "nil"),
         // The executor.
         (Name.executorKraken2Single, "kraken2 batch=false", "kraken2 database=yes result=Analyses/kraken2-2026-02-11T09-00-00 sample=-"),
@@ -236,21 +244,31 @@ final class ClassifierLayoutReaderPinTests: XCTestCase {
         }
     }
 
-    // MARK: - Claimed folders (risk R11)
+    // MARK: - Known defects, left for 2.9
 
-    /// The command line writes no metadata. A `--output-dir` outside Analyses is therefore an
-    /// ordinary folder of files today. The executor claims it with metadata, and the generic
-    /// scan hides every folder that carries metadata, so the claimed folder leaves the sidebar.
-    func testMetadataOfAClaimedFolderOutsideAnalysesHidesIt() async throws {
+    /// Known defect, risk R11. Any folder with `analysis-metadata.json` outside Analyses leaves the
+    /// sidebar. `SidebarProjectScanner.isMetagenomicsResultDirectory` hides every folder that
+    /// carries metadata, while only the children of Analyses get a dedicated row. A copy of an
+    /// Analyses result placed in another project folder is hidden the same way today. The executor
+    /// does not meet it, because a `--output-dir` it claims gets the metadata only when it sits
+    /// directly under a project's Analyses folder (decision E1b). Anywhere else the folder keeps the
+    /// command line set of files and lists as a plain folder, like the command line output here.
+    /// The scanner change of 2.9 that limits the metadata check to the children of Analyses lists
+    /// the copy as well, and that commit moves the first assertion.
+    func testKnownDefectR11AFolderWithMetadataOutsideAnalysesLeavesTheSidebar() async throws {
         let built = try await buildProject()
         let imports = try XCTUnwrap(SidebarProjectScanner.scanRootNodes(from: built.project).first { $0.title == "Imports" })
-        XCTAssertEqual(imports.children.map(\.title), [Name.outsideCLIOutput])
+        XCTAssertEqual(
+            imports.children.map(\.title),
+            [Name.outsideCLIOutput],
+            "Known defect R11. The scan hides \(Name.outsideAnalysesCopy) because it carries metadata"
+        )
         XCTAssertEqual(
             imports.children.first?.children.map(\.title),
             ["classification.kreport"],
             "the sidecar and the hidden files of the command line output stay out of the folder row"
         )
-        XCTAssertNotNil(AnalysesFolder.readAnalysisMetadata(from: built.imports.appendingPathComponent(Name.outsideClaimedOutput)))
+        XCTAssertNotNil(AnalysesFolder.readAnalysisMetadata(from: built.imports.appendingPathComponent(Name.outsideAnalysesCopy)))
         XCTAssertNil(AnalysesFolder.readAnalysisMetadata(from: built.imports.appendingPathComponent(Name.outsideCLIOutput)))
     }
 

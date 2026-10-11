@@ -19,9 +19,11 @@
 //     root with a sample folder, a summary, a manifest and an index.
 //   - Import output, from MetagenomicsImportService.importEsViritu. A tool-prefixed folder
 //     with metadata and the copied files at its root.
-//   - Executor output, from the Phase 2.7 plan (decisions E1, E2, E3 and E5). Metadata, the
+//   - Executor output, from the Phase 2.7 plan (decisions E1, E1b, E2, E3 and E5). Metadata, the
 //     index built in process, a hidden inputs folder at the root, and a failed or cancelled
-//     run kept hidden by its run record.
+//     run kept hidden by its run record. A `--output-dir` the executor claims gets the metadata
+//     only when it sits directly under a project's Analyses folder (E1b). Anywhere else it keeps
+//     the command line set of files.
 //
 // Sidecars hold only the keys a reader uses, plus the file set a writer leaves.
 
@@ -67,9 +69,10 @@ enum ClassifierLayoutFixtures {
         static let failedKraken2 = "kraken2-2026-02-11T12-00-00"
         static let cancelledEsVirituBatch = "esviritu-batch-2026-02-11T13-00-00"
         static let runningKraken2 = "kraken2-2026-02-11T14-00-00"
-        // Outside Analyses.
+        // Outside Analyses. The command line output is also what the executor leaves in a claimed
+        // folder there (E1b), and the copy is a result of Analyses that kept its metadata.
         static let outsideCLIOutput = "Kraken2 CLI output"
-        static let outsideClaimedOutput = "Kraken2 claimed output"
+        static let outsideAnalysesCopy = "Kraken2 result copied out of Analyses"
     }
 
     /// The timestamp a folder name ends with, which is the one the scanner parses from the name.
@@ -214,11 +217,13 @@ enum ClassifierLayoutFixtures {
         return batch
     }
 
-    /// `--output-dir D` under the executor claims D, writes the same metadata and keeps the
-    /// command line set of files. D is a folder the user named, so only the metadata identifies it.
+    /// `--output-dir D` under the executor, when D is a folder the user named directly under a
+    /// project's Analyses folder (decision E1b). The executor claims D, writes the same metadata
+    /// and keeps the command line set of files, so only the metadata identifies it. Anywhere else
+    /// a claimed D gets no metadata and is `cliKraken2`.
     @discardableResult
-    static func claimedKraken2(named name: String, timestamp: String, in parent: URL) throws -> URL {
-        let folder = try cliKraken2(named: name, in: parent)
+    static func claimedKraken2(named name: String, timestamp: String, in analyses: URL) throws -> URL {
+        let folder = try cliKraken2(named: name, in: analyses)
         try writeMetadata(tool: "kraken2", isBatch: false, timestamp: timestamp, to: folder)
         return folder
     }
@@ -302,7 +307,7 @@ enum ClassifierLayoutFixtures {
 
         let imports = try SafetyNetFiles.makeDirectory(project.appendingPathComponent("Imports", isDirectory: true))
         try cliKraken2(named: Name.outsideCLIOutput, in: imports)
-        try claimedKraken2(named: Name.outsideClaimedOutput, timestamp: "2026-02-11T11-40-00", in: imports)
+        try windowKraken2Single(named: Name.outsideAnalysesCopy, timestamp: "2026-02-11T11-40-00", in: imports)
 
         try interruptedRun(tool: "kraken2", isBatch: false, timestamp: "2026-02-11T12-00-00", outcome: .failed, in: project)
         try interruptedRun(tool: "esviritu", isBatch: true, timestamp: "2026-02-11T13-00-00", outcome: .cancelled, in: project)
