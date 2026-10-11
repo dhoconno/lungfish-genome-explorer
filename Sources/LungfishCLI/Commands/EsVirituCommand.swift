@@ -106,7 +106,7 @@ extension EsVirituCommand {
         @Option(
             name: .customLong("project"),
             help: ArgumentHelp(
-                "The .lungfish project the run belongs to: the result lands in its Analyses/esviritu-batch-<timestamp>/ folder, one folder per sample, where the app's EsViritu runs put it",
+                "The .lungfish project the run belongs to. The result lands in its Analyses/esviritu-batch-<timestamp>/ folder with one folder per sample, where the app's EsViritu runs put it",
                 discussion: "Each sample folder is named after the sample, made safe for a folder name, and EsViritu names its tables after that folder. The result gets the batch summary, the batch manifest and esviritu.sqlite, and each source bundle records the run. Not with --output."
             )
         )
