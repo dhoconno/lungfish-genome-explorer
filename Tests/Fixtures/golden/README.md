@@ -126,6 +126,16 @@ The owner ruled on these on 2026-10-08, when a second Mac became a release Mac. 
 
 The architecture and the rest of each value stay compared. An export folder's `stdout.json` holds Python's `platform`, so R10 masks its digest and size where they are recorded.
 
+### Lock rule
+
+Records written since Phase 2.6 name the managed tool lock they were written with. The `runtimeIdentity` of a record, and of each step that holds one, carries `managedToolLockSHA256` beside the `dependencySet`. It is the SHA-256 of the bytes of `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`. The lock lists more tools than the golden environment holds, so an edit that touches no golden tool still changes the hash.
+
+| Rule | What it masks | Why it varies |
+|---|---|---|
+| L1 | The value of `managedToolLockSHA256` as `<LOCK-SHA256>`, only where it equals the SHA-256 of this checkout's lock file | Any edit of the lock changes it |
+
+The rule reads the lock of the checkout that holds `scripts/golden/normalize.py`. The same hash under another key keeps its value, and so does any other value under this key. A `lungfish-cli` built from a different lock, or a record with an edited hash, therefore shows in the diff. A file that holds the hash counts as holding a masked field, so R10 masks its digest where a record names it. `scripts/tests/test_golden.py` covers the matching hash, the foreign hash and the key.
+
 ### What stays unmasked
 
 Some fields would differ with another environment or after an update. They stay unmasked, so the goldens are bound to the locked golden environment. They are the conda and database paths under `/Users/Shared/lungfish-golden/storage`, the tool versions, the `dependencySet`, the database fingerprints in `classifiers/environment.json`, and the `(dev)` build label of a SwiftPM build. A golden that records the home folder fails the run's portability check, because the home folder differs between users. A CLI inside a Preview or Stable app runs in place, resolves another channel's storage and records another version label, so its goldens differ from these.

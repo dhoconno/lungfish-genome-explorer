@@ -1,6 +1,6 @@
 """Normalization rules for the Phase 1 golden fixtures.
 
-Rules come in four classes. Tests/Fixtures/golden/README.md lists every rule.
+Rules come in five classes. Tests/Fixtures/golden/README.md lists every rule.
 
 - Binding rules come from the lane brief. They mask wall-clock timestamps,
   wall-clock durations and per-run identifiers, and replace the scratch root
@@ -13,6 +13,8 @@ Rules come in four classes. Tests/Fixtures/golden/README.md lists every rule.
   leaves them out to show what they hide.
 - The owner approved H1 and H2 on 2026-10-08. They mask the macOS version and
   build and the active core count, so the goldens pass on every Mac.
+- Phase 2.6 added L1, which masks the managed tool lock's hash only where it
+  equals the SHA-256 of this checkout's lock file.
 
 Every rule works on the raw text, so formatting, key order and escaping of
 everything a rule does not touch are still compared byte for byte.
@@ -27,6 +29,7 @@ import json
 import re
 import zipfile
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Iterable
 
 RUN_ROOT_TOKEN = "<RUN_ROOT>"
@@ -299,6 +302,42 @@ _ACTIVE_CORES_DEFAULT = re.compile(r"(\(default: active cores\)\s+\(default: )([
 
 def mask_active_cores(text: str) -> str:
     return _ACTIVE_CORES_DEFAULT.sub(lambda m: m.group(1) + ACTIVE_CORES_TOKEN + m.group(3), text)
+
+
+# ---------------------------------------------------------------------------
+# Lock rule (Phase 2.6)
+
+# L1: the identity of the managed tool lock a writer read. A record's
+# runtimeIdentity holds managedToolLockSHA256, the SHA-256 of the bundled
+# third-party-tools-lock.json bytes, beside its dependencySet. Any edit of the
+# lock changes the hash, including a pin for a tool no golden runs, so the
+# goldens hold LOCK_SHA256_TOKEN instead. The mask is narrow on purpose. It
+# applies only under that key and only where the value equals the SHA-256 of
+# this checkout's lock file, so a record that holds any other hash (a CLI built
+# from another lock, a truncated or hand-edited value) shows in the diff.
+LOCK_SHA256_TOKEN = "<LOCK-SHA256>"
+LOCK_SHA256_KEY = "managedToolLockSHA256"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+MANAGED_TOOL_LOCK = REPO_ROOT / "Sources" / "LungfishWorkflow" / "Resources" / "ManagedTools" / "third-party-tools-lock.json"
+
+_LOCK_HASH_VALUE = re.compile(r'("' + LOCK_SHA256_KEY + r'"\s*:\s*")([0-9a-f]{64})(")')
+
+
+def checkout_lock_sha256() -> str | None:
+    """The SHA-256 of this checkout's bundled tool lock, or None when the file is missing."""
+    try:
+        return sha256_hex(MANAGED_TOOL_LOCK.read_bytes())
+    except OSError:
+        return None
+
+
+def mask_lock_identity(text: str, lock_sha256: str | None) -> str:
+    """L1: the lock hash under managedToolLockSHA256, only where it equals lock_sha256."""
+    if lock_sha256 is None:
+        return text
+    return _LOCK_HASH_VALUE.sub(
+        lambda m: m.group(1) + LOCK_SHA256_TOKEN + m.group(3) if m.group(2) == lock_sha256 else m.group(0), text
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -685,6 +724,9 @@ class Normalizer:
     # like any other, but a file whose only masked fields are these values (or
     # the app version) has the same bytes in every run, so its digest stays.
     stable_values: set[str] = field(default_factory=set)
+    # L1: the SHA-256 of this checkout's managed tool lock. A test passes its
+    # own value, and None switches the rule off.
+    lock_sha256: str | None = field(default_factory=checkout_lock_sha256)
 
     def add_stable_values(self, text: str) -> None:
         self.stable_values.update(_ISO_TIMESTAMP.findall(text))
@@ -698,7 +740,7 @@ class Normalizer:
         for index, value in enumerate(sorted(self.stable_values, key=len, reverse=True)):
             protected = protected.replace(value, f"STABLE-VALUE-{index}-")
         probe = Normalizer(run_root=self.run_root, app_version=None, strict=self.strict,
-                           path_rules=self.path_rules, digests=self.digests)
+                           path_rules=self.path_rules, digests=self.digests, lock_sha256=self.lock_sha256)
         return probe.text(protected) != replace_run_root(protected, self.run_root)
 
     def register(self, entry: VolatileDigest) -> bool:
@@ -736,6 +778,8 @@ class Normalizer:
         # Host rules.
         text = mask_host_os(text)
         text = mask_active_cores(text)
+        # Lock rule.
+        text = mask_lock_identity(text, self.lock_sha256)
         root = parse_json(text)
         if root is not None:
             edits = drop_truncated_partial_lines(text, root)

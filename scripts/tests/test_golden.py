@@ -189,6 +189,93 @@ def test_a_file_that_records_the_host_os_has_a_host_dependent_digest():
     assert normalizer().holds_run_dependent_field('{"platform": "macOS-26.6.2-arm64-arm-64bit"}')
 
 
+# Lock rule ---------------------------------------------------------------------
+
+LOCK_BYTES = b'{"dependencySet" : "2026.2", "tools" : []}\n'
+LOCK_SHA256 = hashlib.sha256(LOCK_BYTES).hexdigest()
+FOREIGN_SHA256 = hashlib.sha256(LOCK_BYTES + b"edited").hexdigest()
+
+
+def lock_normalizer(**kwargs) -> normalize.Normalizer:
+    return normalizer(lock_sha256=LOCK_SHA256, **kwargs)
+
+
+def identity(digest: str, key: str = "managedToolLockSHA256") -> str:
+    return f'{{"dependencySet" : "2026.2", "{key}" : "{digest}"}}'
+
+
+def test_l1_masks_the_lock_hash_where_it_equals_the_checkouts_lock():
+    record = json.dumps({"runtimeIdentity": json.loads(identity(LOCK_SHA256)),
+                         "steps": [{"runtimeIdentity": json.loads(identity(LOCK_SHA256))}]}, indent=2, sort_keys=True)
+    masked = lock_normalizer().text(record)
+    assert LOCK_SHA256 not in masked
+    assert masked.count('"managedToolLockSHA256": "<LOCK-SHA256>"') == 2
+    assert masked == record.replace(LOCK_SHA256, "<LOCK-SHA256>")
+    # The same record written by Foundation, with a space before the colon.
+    assert lock_normalizer().text(identity(LOCK_SHA256)) == identity("<LOCK-SHA256>")
+
+
+def test_l1_leaves_a_foreign_lock_hash_unmasked():
+    # A CLI built from another lock, an edited value and a lookalike all show in the diff.
+    for foreign in (FOREIGN_SHA256, LOCK_SHA256[:-1] + ("0" if LOCK_SHA256[-1] != "0" else "1"),
+                    LOCK_SHA256[:-1], LOCK_SHA256.upper(), "0" * 64, LOCK_SHA256 + "0"):
+        text = identity(foreign)
+        assert lock_normalizer().text(text) == text, foreign
+    assert lock_normalizer().text(identity(FOREIGN_SHA256)) != lock_normalizer().text(identity(LOCK_SHA256))
+
+
+def test_l1_masks_only_under_its_key():
+    for key in ("checksumSHA256", "sha256", "dependencySetSHA256", "managedToolLockSHA256Copy"):
+        text = identity(LOCK_SHA256, key)
+        assert lock_normalizer().text(text) == text, key
+
+
+def test_l1_is_off_when_no_lock_hash_is_known():
+    text = identity(LOCK_SHA256)
+    assert lock_normalizer().text(text) != text
+    assert normalizer(lock_sha256=None).text(text) == text
+
+
+def test_l1_is_idempotent_and_leaves_every_other_byte_alone():
+    text = '{\n  "a" : "x\\/y",\n  "managedToolLockSHA256" : "' + LOCK_SHA256 + '",\n  "b" : [ 1, 2 ]\n}\n'
+    once = lock_normalizer().text(text)
+    assert once == text.replace(LOCK_SHA256, "<LOCK-SHA256>")
+    assert lock_normalizer().text(once) == once
+
+
+def test_the_default_lock_is_the_checkouts_own_lock_file():
+    # golden.py builds its Normalizer without a lock hash, so the default decides what compare masks.
+    lock = ROOT / "Sources" / "LungfishWorkflow" / "Resources" / "ManagedTools" / "third-party-tools-lock.json"
+    expected = hashlib.sha256(lock.read_bytes()).hexdigest()
+    assert normalize.checkout_lock_sha256() == expected
+    n = normalize.Normalizer(run_root=RUN_ROOT, app_version="2026.9.78", strict=False)
+    assert n.lock_sha256 == expected
+    assert n.text(identity(expected)) == identity("<LOCK-SHA256>")
+    assert n.text(identity(FOREIGN_SHA256)) == identity(FOREIGN_SHA256)
+
+
+def test_a_file_that_records_the_lock_hash_has_a_lock_dependent_digest():
+    # Any edit of the lock moves the hash, so the digest of a file that holds it is masked
+    # wherever recorded (R10), and a file that holds a foreign hash keeps its digest.
+    assert lock_normalizer().holds_run_dependent_field(identity(LOCK_SHA256))
+    assert not lock_normalizer().holds_run_dependent_field(identity(FOREIGN_SHA256))
+
+
+def test_l1_masks_the_lock_hash_in_the_record_copies_of_a_request():
+    # The export request.json files carry the run's record as a base64 input (R16).
+    matching = '{\n  "createdAt" : "2026-10-02T13:12:35Z",\n  "managedToolLockSHA256" : "' + LOCK_SHA256 + '"\n}\n'
+    foreign = matching.replace(LOCK_SHA256, FOREIGN_SHA256)
+    request = json.dumps({"inputs": [
+        {"data": base64.b64encode(matching.encode()).decode(), "path": f"{RUN_ROOT}/x/.lungfish-provenance.json"},
+        {"data": base64.b64encode(foreign.encode()).decode(), "path": f"{RUN_ROOT}/y/.lungfish-provenance.json"},
+    ]}, indent=2, sort_keys=True).replace("/", "\\/")
+    result = json.loads(lock_normalizer().request(request))
+    assert base64.b64decode(result["inputs"][0]["data"]).decode() == matching.replace(
+        "2026-10-02T13:12:35Z", "<TIMESTAMP>").replace(LOCK_SHA256, "<LOCK-SHA256>")
+    assert base64.b64decode(result["inputs"][1]["data"]).decode() == foreign.replace(
+        "2026-10-02T13:12:35Z", "<TIMESTAMP>")
+
+
 def record(path: str, digest: str, size: int) -> dict:
     return {"checksumSHA256": digest, "fileSize": size, "path": path, "sha256": digest, "sizeBytes": size}
 
