@@ -18,6 +18,9 @@ extension ProvenanceCompatFacts {
         case opsStats
         /// Only `opsStats.totalWallTimeSeconds`, which is derived from whole-second dates.
         case opsStatsTotalWallTimeSeconds
+        /// Only `opsStats.decodesAsWorkflowRun`, whether the bytes still decode as a bare run. It is part
+        /// of ``schemaVersion2``, with `opsStatsTotalWallTimeSeconds`.
+        case opsStatsDecodesAsWorkflowRun
         case status
         case embeddedRunStatus
         case readStatus
@@ -89,6 +92,14 @@ extension ProvenanceCompatFacts {
         .decodedBy, .strictAccepts, .embeddedRunStatus, .filesDuplicates,
     ]
 
+    /// What the schema version 2 encoder changes in the facts of a record that a writer wrote at
+    /// version 1. Version 2 writes no bare-run alias, so the bytes no longer decode as a
+    /// `WorkflowRun`, and `ops stats` takes its wall time from the canonical fields instead of the
+    /// whole-second `startTime` and `endTime` aliases, which moves its total by less than a second.
+    /// What `ops stats` counts, the run's and each step's wall time and every other fact still
+    /// compare.
+    public static let schemaVersion2: Set<Field> = [.opsStatsDecodesAsWorkflowRun, .opsStatsTotalWallTimeSeconds]
+
     /// One line per way these facts differ from `expected`, each starting with the path of the field,
     /// such as `steps[1].durableReplayArgv: expected [...], found null`. An empty list means they agree.
     ///
@@ -145,6 +156,11 @@ extension ProvenanceCompatFacts {
         case .opsStatsTotalWallTimeSeconds:
             if case .object(var members)? = tree["opsStats"] {
                 members["totalWallTimeSeconds"] = nil
+                tree["opsStats"] = .object(members)
+            }
+        case .opsStatsDecodesAsWorkflowRun:
+            if case .object(var members)? = tree["opsStats"] {
+                members["decodesAsWorkflowRun"] = nil
                 tree["opsStats"] = .object(members)
             }
         case .stepWallTimeSeconds:

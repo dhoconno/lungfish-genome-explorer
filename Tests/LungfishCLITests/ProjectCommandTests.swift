@@ -435,9 +435,11 @@ final class ProjectCommandTests: XCTestCase {
         XCTAssertEqual(try BareRunWriterParity.strictFindings(sidecar: migrationProvenanceURL), [])
 
         let provenance = try jsonObject(at: migrationProvenanceURL)
-        XCTAssertEqual(provenance["name"] as? String, "lungfish project migrate browser-summary")
+        // Schema version 2 keys: `workflowName`, `options.explicit`, step `exitStatus`,
+        // `wallTimeSeconds` and `argv`, descriptor `checksumSHA256` and `fileSize`.
+        XCTAssertEqual(provenance["workflowName"] as? String, "lungfish project migrate browser-summary")
         XCTAssertEqual(provenance["status"] as? String, "completed")
-        let parameters = try XCTUnwrap(provenance["parameters"] as? [String: Any])
+        let parameters = try XCTUnwrap((provenance["options"] as? [String: Any])?["explicit"] as? [String: Any])
         XCTAssertEqual((parameters["dryRun"] as? [String: Any])?["value"] as? Bool, false)
         XCTAssertEqual((parameters["sourceManifest"] as? [String: Any])?["value"] as? String, manifestURL.path)
         XCTAssertEqual((parameters["targetManifest"] as? [String: Any])?["value"] as? String, manifestURL.path)
@@ -445,19 +447,19 @@ final class ProjectCommandTests: XCTestCase {
         let steps = try XCTUnwrap(provenance["steps"] as? [[String: Any]])
         let step = try XCTUnwrap(steps.first)
         XCTAssertEqual(step["toolName"] as? String, "lungfish project migrate")
-        XCTAssertEqual(step["exitCode"] as? Int, 0)
-        XCTAssertGreaterThan(step["wallTime"] as? Double ?? -1, 0)
-        XCTAssertEqual(step["command"] as? [String], ["lungfish-cli", "project", "migrate", projectURL.path])
+        XCTAssertEqual(step["exitStatus"] as? Int, 0)
+        XCTAssertGreaterThan(step["wallTimeSeconds"] as? Double ?? -1, 0)
+        XCTAssertEqual(step["argv"] as? [String], ["lungfish-cli", "project", "migrate", projectURL.path])
 
         let inputs = try XCTUnwrap(step["inputs"] as? [[String: Any]])
-        XCTAssertTrue(inputs.contains { $0["path"] as? String == manifestURL.path && $0["sha256"] != nil && $0["sizeBytes"] != nil })
+        XCTAssertTrue(inputs.contains { $0["path"] as? String == manifestURL.path && $0["checksumSHA256"] != nil && $0["fileSize"] != nil })
         let outputs = try XCTUnwrap(step["outputs"] as? [[String: Any]])
-        XCTAssertTrue(outputs.contains { $0["path"] as? String == manifestURL.path && $0["sha256"] != nil && $0["sizeBytes"] != nil })
+        XCTAssertTrue(outputs.contains { $0["path"] as? String == manifestURL.path && $0["checksumSHA256"] != nil && $0["fileSize"] != nil })
         XCTAssertTrue(outputs.contains {
             guard let path = $0["path"] as? String else { return false }
             return URL(fileURLWithPath: path).standardizedFileURL == backupURL.standardizedFileURL
-                && $0["sha256"] != nil
-                && $0["sizeBytes"] != nil
+                && $0["checksumSHA256"] != nil
+                && $0["fileSize"] != nil
         })
     }
 

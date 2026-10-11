@@ -121,6 +121,8 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
             ?? container.decodeIfPresent(Date.self, forKey: .endTime)
     }
 
+    /// Writes each fact under its canonical key only (schema version 2). The decoder keeps reading
+    /// the version 1 aliases `command`, `exitCode`, `wallTime`, `startTime` and `endTime`.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
@@ -128,7 +130,6 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         try container.encode(toolVersion, forKey: .toolVersion)
         try container.encodeIfPresent(githubReleaseVersion, forKey: .githubReleaseVersion)
         try container.encode(argv, forKey: .argv)
-        try container.encode(argv, forKey: .command)
         try container.encodeIfPresent(durableReplayArgv, forKey: .durableReplayArgv)
         try container.encode(reproducibleCommand, forKey: .reproducibleCommand)
         try container.encode(resolvedOptions, forKey: .resolvedOptions)
@@ -136,15 +137,11 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         try container.encode(inputs, forKey: .inputs)
         try container.encode(outputs, forKey: .outputs)
         try container.encodeIfPresent(exitStatus, forKey: .exitStatus)
-        try container.encodeIfPresent(exitStatus, forKey: .exitCode)
         try container.encodeIfPresent(wallTimeSeconds, forKey: .wallTimeSeconds)
-        try container.encodeIfPresent(wallTimeSeconds, forKey: .wallTime)
         try container.encodeIfPresent(peakMemoryBytes, forKey: .peakMemoryBytes)
         try container.encodeIfPresent(stderr, forKey: .stderr)
         try container.encode(dependsOn, forKey: .dependsOn)
         try container.encodeIfPresent(startedAt, forKey: .startedAt)
         try container.encodeIfPresent(completedAt, forKey: .completedAt)
-        try container.encodeIfPresent(startedAt, forKey: .startTime)
-        try container.encodeIfPresent(completedAt, forKey: .endTime)
     }
 }

@@ -396,9 +396,9 @@ struct ProvenanceEnvelopeStatusTests {
 
     // MARK: New records hold no nested run
 
-    /// The sidecar holds no `legacyWorkflowRun` key, says `status` under its own key, reads back
-    /// with that status from the envelope alone, and still decodes as a `WorkflowRun` through the
-    /// compat keys, which stay until schema version 2.
+    /// The sidecar holds no `legacyWorkflowRun` key, says `status` under its own key and reads back
+    /// with that status from the envelope alone. It is schema version 2, so it holds no compat key
+    /// and no longer decodes as a `WorkflowRun`.
     private static func expectEnvelopeOnly(at sidecar: URL, status: RunStatus, label: String) throws {
         let bytes = try Data(contentsOf: sidecar)
         let object = try #require(JSONSerialization.jsonObject(with: bytes) as? [String: Any], "\(label)")
@@ -408,8 +408,8 @@ struct ProvenanceEnvelopeStatusTests {
         #expect(envelope.legacyRun == nil, "\(label)")
         #expect(envelope.status == status, "\(label)")
         #expect(envelope.legacyWorkflowRun().status == status, "\(label)")
-        let legacy = try ProvenanceJSON.decoder.decode(WorkflowRun.self, from: bytes)
-        #expect(legacy.status == status, "\(label) still decodes as a WorkflowRun")
+        #expect(BareRunWriterParity.schemaVersion2Findings(in: bytes).isEmpty, "\(label) is schema version 2")
+        #expect((try? ProvenanceJSON.decoder.decode(WorkflowRun.self, from: bytes)) == nil, "\(label) is not a bare run")
     }
 
     @Test("a recorder save and a canonical envelope write hold no nested run and read back with their status")

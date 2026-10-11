@@ -76,9 +76,7 @@ struct BAMAdoptMappingIntegrationTests {
         let provenanceText = try String(contentsOf: adoptProvenanceURL, encoding: .utf8)
         #expect(provenanceText.contains("lungfish bam adopt-mapping"))
         #expect(provenanceText.contains("mapping-provenance.json"))
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenanceRun = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: adoptProvenanceURL))
+        let provenanceRun = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: adoptProvenanceURL)).legacyWorkflowRun()
         #expect(provenanceRun.allOutputFiles.contains { $0.path == adoptedBAMURL.path })
         #expect(try BareRunWriterParity.strictFindings(sidecar: adoptProvenanceURL) == [])
 
@@ -140,9 +138,7 @@ struct BAMAdoptMappingIntegrationTests {
         let adoptProvenanceURL = adoptedBAMURL
             .deletingPathExtension()
             .appendingPathExtension("adopt-mapping-provenance.json")
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenanceRun = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: adoptProvenanceURL))
+        let provenanceRun = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: adoptProvenanceURL)).legacyWorkflowRun()
 
         #expect(provenanceRun.primaryInputFiles.contains { $0.path == stagedBAM.path })
         #expect(provenanceRun.primaryInputFiles.contains { $0.path == stagedBAI.path })

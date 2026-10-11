@@ -111,13 +111,11 @@ final class BundleVariantTrackAttachmentServiceTests: XCTestCase {
         let provenanceURL = try XCTUnwrap(result.provenanceURL)
         XCTAssertEqual(provenanceURL, bundleURL.appendingPathComponent("variants/variant-track-1.lungfish-provenance.json"))
         let provenanceText = try String(contentsOf: provenanceURL, encoding: .utf8)
-        XCTAssertTrue(provenanceText.contains("\"name\" : \"lungfish variants call\""))
+        XCTAssertTrue(provenanceText.contains("\"workflowName\" : \"lungfish variants call\""))
         XCTAssertTrue(provenanceText.contains("\"toolName\" : \"lofreq\""))
         XCTAssertTrue(provenanceText.contains("\"toolName\" : \"lungfish-cli\""))
         XCTAssertEqual(try BareRunWriterParity.strictFindings(sidecar: provenanceURL), [])
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenanceRun = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: provenanceURL))
+        let provenanceRun = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: provenanceURL)).legacyWorkflowRun()
         XCTAssertEqual(provenanceRun.endTime, Date(timeIntervalSince1970: 1_713_549_600))
         XCTAssertTrue(
             provenanceRun.allOutputFiles.contains {

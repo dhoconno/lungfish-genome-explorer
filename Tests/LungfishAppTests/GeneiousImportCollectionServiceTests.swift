@@ -51,9 +51,7 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
         XCTAssertTrue(report.contains("Preserved artifacts"))
 
         let provenanceData = PortablePath.resolveJSON(try Data(contentsOf: result.provenanceURL), forFileAt: result.provenanceURL)
-        let provenanceDecoder = JSONDecoder()
-        provenanceDecoder.dateDecodingStrategy = .iso8601
-        let provenance = try provenanceDecoder.decode(WorkflowRun.self, from: provenanceData)
+        let provenance = try ProvenanceEnvelopeReader.decodeCanonical(provenanceData).legacyWorkflowRun()
         XCTAssertEqual(provenance.name, "Geneious Import")
         XCTAssertEqual(provenance.status, .completed)
         XCTAssertGreaterThanOrEqual(provenance.steps.count, 3)
@@ -115,9 +113,7 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
         )
 
         let provenanceData = PortablePath.resolveJSON(try Data(contentsOf: result.provenanceURL), forFileAt: result.provenanceURL)
-        let provenanceDecoder = JSONDecoder()
-        provenanceDecoder.dateDecodingStrategy = .iso8601
-        let provenance = try provenanceDecoder.decode(WorkflowRun.self, from: provenanceData)
+        let provenance = try ProvenanceEnvelopeReader.decodeCanonical(provenanceData).legacyWorkflowRun()
         XCTAssertEqual(
             provenance.steps.first?.command,
             [

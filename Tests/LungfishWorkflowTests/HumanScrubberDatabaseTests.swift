@@ -609,9 +609,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
     }
 
     private func decodeWorkflowRun(at url: URL) throws -> WorkflowRun {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(WorkflowRun.self, from: Data(contentsOf: url))
+        return try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: url)).legacyWorkflowRun()
     }
 
     private static func md5Hex(_ data: Data) -> String {

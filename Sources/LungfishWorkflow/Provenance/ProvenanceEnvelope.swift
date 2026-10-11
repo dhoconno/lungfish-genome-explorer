@@ -14,6 +14,13 @@ private struct RawProvenanceToolIdentity: Decodable {
 // MARK: - ProvenanceEnvelope
 
 public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
+    /// The schema version this encoder writes. Version 2 dropped the 14 keys version 1 wrote twice,
+    /// and `docs/formats/provenance.md` holds the version rule.
+    public static let currentSchemaVersion = 2
+
+    /// The version of the record this envelope was read from, or the one a writer builds it at. The
+    /// encoder ignores it and writes ``currentSchemaVersion``, because a site that rebuilds an
+    /// envelope copies the version it read and the bytes it writes are always this encoder's.
     public let schemaVersion: Int
     public let id: UUID
     public let createdAt: Date
@@ -51,8 +58,9 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         case schemaVersion
         case id
         case createdAt
+        case status
+        // The version 1 aliases, read from older records and no longer written.
         case legacyName = "name"
-        case legacyStatus = "status"
         case startTime
         case endTime
         case appVersion
@@ -87,7 +95,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
     }
 
     public init(
-        schemaVersion: Int = 1,
+        schemaVersion: Int = ProvenanceEnvelope.currentSchemaVersion,
         id: UUID = UUID(),
         createdAt: Date = Date(),
         workflowName: String,
@@ -216,20 +224,14 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         status = Self.decodedStatus(from: container) ?? legacyRun?.status ?? Self.derivedStatus(exitStatus: exitStatus)
     }
 
+    /// Writes schema version 2, which holds each fact under its canonical key only. The decoder
+    /// keeps reading the version 1 aliases.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(Self.currentSchemaVersion, forKey: .schemaVersion)
         try container.encode(id, forKey: .id)
         try container.encode(createdAt, forKey: .createdAt)
-        try container.encode(workflowName, forKey: .legacyName)
-        try container.encode(status.rawValue, forKey: .legacyStatus)
-        let compatibilityRun = legacyWorkflowRun()
-        try container.encode(compatibilityRun.startTime, forKey: .startTime)
-        try container.encodeIfPresent(compatibilityRun.endTime, forKey: .endTime)
-        try container.encode(compatibilityRun.appVersion, forKey: .appVersion)
-        try container.encode(compatibilityRun.hostOS, forKey: .hostOS)
-        try container.encode(compatibilityRun.runtime, forKey: .runtime)
-        try container.encode(compatibilityRun.parameters, forKey: .parameters)
+        try container.encode(status.rawValue, forKey: .status)
         try container.encode(workflowName, forKey: .workflowName)
         try container.encode(workflowVersion, forKey: .workflowVersion)
         try container.encode(toolName, forKey: .toolName)
@@ -424,7 +426,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
     /// a string or names no `RunStatus`. Decoding never throws here, so a file
     /// that decoded before this key was read still decodes the same way.
     private static func decodedStatus(from container: KeyedDecodingContainer<CodingKeys>) -> RunStatus? {
-        guard let word = try? container.decodeIfPresent(String.self, forKey: .legacyStatus) else {
+        guard let word = try? container.decodeIfPresent(String.self, forKey: .status) else {
             return nil
         }
         return RunStatus(rawValue: word)
@@ -506,13 +508,13 @@ public struct ProvenanceFileDescriptor: Codable, Sendable, Equatable {
             && lhs.sourceProvenancePath == rhs.sourceProvenancePath
     }
 
+    /// Writes the digest and size under `checksumSHA256` and `fileSize` only (schema version 2). The
+    /// decoder keeps reading the version 1 aliases `sha256` and `sizeBytes`.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(path, forKey: .path)
         try container.encodeIfPresent(checksumSHA256, forKey: .checksumSHA256)
-        try container.encodeIfPresent(checksumSHA256, forKey: .sha256)
         try container.encodeIfPresent(fileSize, forKey: .fileSize)
-        try container.encodeIfPresent(fileSize, forKey: .sizeBytes)
         try container.encodeIfPresent(format, forKey: .format)
         try container.encode(role, forKey: .role)
         try container.encodeIfPresent(originPath, forKey: .originPath)

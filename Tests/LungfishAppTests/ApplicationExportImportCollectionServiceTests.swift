@@ -51,9 +51,7 @@ final class ApplicationExportImportCollectionServiceTests: XCTestCase {
         XCTAssertTrue(report.contains("Preserved artifacts"))
 
         let provenanceData = PortablePath.resolveJSON(try Data(contentsOf: result.provenanceURL), forFileAt: result.provenanceURL)
-        let provenanceDecoder = JSONDecoder()
-        provenanceDecoder.dateDecodingStrategy = .iso8601
-        let provenance = try provenanceDecoder.decode(WorkflowRun.self, from: provenanceData)
+        let provenance = try ProvenanceEnvelopeReader.decodeCanonical(provenanceData).legacyWorkflowRun()
         XCTAssertEqual(provenance.name, "Application Export Import")
         XCTAssertEqual(provenance.status, .completed)
         XCTAssertEqual(provenance.parameters["applicationExportKind"]?.stringValue, "clc-workbench-export")
@@ -119,9 +117,7 @@ final class ApplicationExportImportCollectionServiceTests: XCTestCase {
         )
 
         let provenanceData = PortablePath.resolveJSON(try Data(contentsOf: result.provenanceURL), forFileAt: result.provenanceURL)
-        let provenanceDecoder = JSONDecoder()
-        provenanceDecoder.dateDecodingStrategy = .iso8601
-        let provenance = try provenanceDecoder.decode(WorkflowRun.self, from: provenanceData)
+        let provenance = try ProvenanceEnvelopeReader.decodeCanonical(provenanceData).legacyWorkflowRun()
         XCTAssertEqual(
             provenance.steps.first?.command,
             [
@@ -279,9 +275,7 @@ final class ApplicationExportImportCollectionServiceTests: XCTestCase {
             XCTAssertTrue(fileManager.fileExists(atPath: provenanceURL.path))
 
             let workflowData = PortablePath.resolveJSON(try Data(contentsOf: provenanceURL), forFileAt: provenanceURL)
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let workflow = try decoder.decode(WorkflowRun.self, from: workflowData)
+            let workflow = try ProvenanceEnvelopeReader.decodeCanonical(workflowData).legacyWorkflowRun()
             XCTAssertEqual(workflow.status, .failed)
             XCTAssertEqual(workflow.steps.last?.exitCode, 1)
             XCTAssertTrue(workflow.steps.last?.stderr?.contains("parser unavailable") == true)

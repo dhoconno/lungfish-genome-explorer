@@ -89,7 +89,5 @@ private func write(_ name: String, contents: String, in directory: URL) throws -
 }
 
 private func decodeProvenance(at url: URL) throws -> WorkflowRun {
-    let decoder = JSONDecoder()
-    decoder.dateDecodingStrategy = .iso8601
-    return try decoder.decode(WorkflowRun.self, from: Data(contentsOf: url))
+    return try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: url)).legacyWorkflowRun()
 }

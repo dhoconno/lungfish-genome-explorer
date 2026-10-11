@@ -38,10 +38,13 @@ struct ProvenanceCompatScenarioTests {
         #expect(liveExplicit["readSetPlan"] == plan, "the explicit options carry the plan the run recorded")
 
         // S2: the encoder no longer writes the nested run, so the embedded run's status is absent.
+        // Schema version 2 writes no bare-run alias, so the bytes no longer decode as a run.
         // Everything else is compared exactly.
         let differences = live.differences(
             from: expected,
-            ignoring: ProvenanceCompatFacts.runSpecific.union([.embeddedRunStatus])
+            ignoring: ProvenanceCompatFacts.runSpecific
+                .union([.embeddedRunStatus])
+                .union(ProvenanceCompatFacts.schemaVersion2)
         )
         #expect(differences.isEmpty, "scenario for s1-recorder-readsetplan drifted: \(differences)")
     }
@@ -54,12 +57,13 @@ struct ProvenanceCompatScenarioTests {
         let run = try ProvenanceCompatScenarios.variantsPhaseRun(project: project.root, analysis: analysis)
         try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), to: analysis)
         // S2: the encoder no longer writes the nested run, so the embedded run's status is absent.
+        // Schema version 2 writes no bare-run alias, so the bytes no longer decode as a run.
         // Everything else is compared exactly.
         try Self.expectFacts(
             of: analysis.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
             in: project,
             equalToCase: "s1-canonical-envelope-run",
-            additionallyIgnoring: [.embeddedRunStatus]
+            additionallyIgnoring: ProvenanceCompatFacts.schemaVersion2.union([.embeddedRunStatus])
         )
     }
 
@@ -86,8 +90,10 @@ struct ProvenanceCompatScenarioTests {
         // strict acceptance, the embedded run's status, repeated files and the container keys of
         // each step's own bytes. It leaves both legacy step views compared exactly, because that is
         // where a per-step container image or digest that a writer loses or changes still shows.
+        // The executor writes schema version 2, whose bytes no longer decode as a bare run.
         let ignored = ProvenanceCompatFacts.runSpecific
             .union(ProvenanceCompatFacts.shapeChange)
+            .union(ProvenanceCompatFacts.schemaVersion2)
             .union([.stepRecordedContainer])
         let (live, frozen) = try Self.liveAndFrozenFacts(of: sidecar, in: project, forCase: "s3-gatk-container-bare-run")
         let differences = live.differences(from: frozen, ignoring: ignored)

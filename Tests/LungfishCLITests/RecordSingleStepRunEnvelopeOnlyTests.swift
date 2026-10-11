@@ -36,8 +36,9 @@ final class RecordSingleStepRunEnvelopeOnlyTests: XCTestCase {
         XCTAssertEqual(rebuilt.parameters["minQuality"], .integer(20))
         XCTAssertEqual(rebuilt.parameters["limit"], .integer(10))
 
-        // The compat keys stay, so an older reader that decodes a WorkflowRun still can.
-        let legacy = try ProvenanceJSON.decoder.decode(WorkflowRun.self, from: bytes)
-        XCTAssertEqual(legacy.status, .cancelled)
+        // Schema version 2 writes each fact once, so the canonical `status` key alone says cancelled
+        // and a reader that decodes the file as a bare run finds none of the aliases it needs.
+        XCTAssertEqual(BareRunWriterParity.schemaVersion2Findings(in: bytes), [])
+        XCTAssertNil(try? ProvenanceJSON.decoder.decode(WorkflowRun.self, from: bytes))
     }
 }

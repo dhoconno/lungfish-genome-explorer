@@ -175,7 +175,7 @@ struct ProvenanceEnvelopeTests {
         #expect(legacy.steps.first?.resolvedOptions == resolvedOptions)
     }
 
-    @Test("canonical envelope encodes documented top-level fields and compatibility aliases")
+    @Test("canonical envelope encodes documented top-level fields and no compatibility alias")
     func canonicalEncodingIncludesDocumentedFields() throws {
         let envelope = ProvenanceEnvelope.fixture(
             workflowName: "fastq.trim.fastp",
@@ -189,17 +189,14 @@ struct ProvenanceEnvelopeTests {
         let data = try ProvenanceJSON.encoder.encode(envelope)
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
-        #expect(json["schemaVersion"] as? Int == 1)
+        #expect(json["schemaVersion"] as? Int == 2)
         #expect(json["id"] as? String == envelope.id.uuidString)
         #expect(json["createdAt"] as? String == "1970-01-01T00:00:00Z")
-        #expect(json["name"] as? String == "fastq.trim.fastp")
         #expect(json["status"] as? String == "completed")
-        #expect(json["startTime"] as? String == "1970-01-01T00:00:00Z")
-        #expect(json["endTime"] as? String == "1970-01-01T00:00:01Z")
-        #expect(json["appVersion"] as? String == "Lungfish fixture")
-        #expect(json["hostOS"] as? String == "macOS fixture")
-        #expect(json["runtime"] is [String: Any])
-        #expect(json["parameters"] is [String: Any])
+        // Schema version 2 writes each fact once, under its canonical key.
+        for alias in ["name", "startTime", "endTime", "appVersion", "hostOS", "runtime", "parameters"] {
+            #expect(json[alias] == nil, "version 2 writes no \(alias)")
+        }
         #expect(json["workflowName"] as? String == "fastq.trim.fastp")
         #expect(json["workflowVersion"] as? String == "fixture-workflow-version")
         #expect(json["toolName"] as? String == "fastp")
@@ -228,21 +225,24 @@ struct ProvenanceEnvelopeTests {
         #expect(json["legacyWorkflowRun"] == nil)
 
         let firstStep = try #require((json["steps"] as? [[String: Any]])?.first)
-        #expect(firstStep["command"] as? [String] == ["fastp", "-i", "reads.fastq", "-o", "trimmed.fastq"])
-        #expect(firstStep["exitCode"] as? Int == 0)
-        #expect(firstStep["wallTime"] as? Double == 1.25)
-        #expect(firstStep["startTime"] as? String == "1970-01-01T00:00:00Z")
-        #expect(firstStep["endTime"] as? String == "1970-01-01T00:00:01Z")
+        #expect(firstStep["argv"] as? [String] == ["fastp", "-i", "reads.fastq", "-o", "trimmed.fastq"])
+        #expect(firstStep["exitStatus"] as? Int == 0)
+        #expect(firstStep["wallTimeSeconds"] as? Double == 1.25)
+        #expect(firstStep["startedAt"] as? String == "1970-01-01T00:00:00Z")
+        #expect(firstStep["completedAt"] as? String == "1970-01-01T00:00:01Z")
+        for alias in ["command", "exitCode", "wallTime", "startTime", "endTime"] {
+            #expect(firstStep[alias] == nil, "version 2 writes no step \(alias)")
+        }
 
         let output = try #require(json["output"] as? [String: Any])
         #expect(output["checksumSHA256"] as? String == String(repeating: "b", count: 64))
-        #expect(output["sha256"] as? String == String(repeating: "b", count: 64))
         #expect(output["fileSize"] as? Int == 22)
-        #expect(output["sizeBytes"] as? Int == 22)
+        #expect(output["sha256"] == nil, "version 2 writes no descriptor sha256")
+        #expect(output["sizeBytes"] == nil, "version 2 writes no descriptor sizeBytes")
     }
 
-    @Test("canonical envelope JSON decodes directly as legacy WorkflowRun")
-    func canonicalEnvelopeDecodesDirectlyAsWorkflowRun() throws {
+    @Test("canonical envelope JSON reads back as its legacy run and no longer decodes as a bare run")
+    func canonicalEnvelopeReadsBackAsItsLegacyRun() throws {
         let input = ProvenanceFileDescriptor(
             path: "reads.fastq",
             checksumSHA256: String(repeating: "a", count: 64),
@@ -287,10 +287,10 @@ struct ProvenanceEnvelopeTests {
             exitStatus: 0
         )
 
-        let legacy = try ProvenanceJSON.decoder.decode(
-            WorkflowRun.self,
-            from: try ProvenanceJSON.encoder.encode(envelope)
-        )
+        // Schema version 2 holds no bare-run alias, so a reader takes the run from the envelope.
+        let encoded = try ProvenanceJSON.encoder.encode(envelope)
+        #expect((try? ProvenanceJSON.decoder.decode(WorkflowRun.self, from: encoded)) == nil)
+        let legacy = try ProvenanceEnvelopeReader.decodeCanonical(encoded).legacyWorkflowRun()
 
         #expect(legacy.name == "fastq.trim.fastp")
         #expect(legacy.status == .completed)
@@ -933,7 +933,11 @@ struct ProvenanceEnvelopeTests {
         #expect(runtimeIdentity["processIdentifier"] == nil)
         #expect(runtimeIdentity["operatingSystemVersion"] == nil)
         #expect(runtimeIdentity["architecture"] == nil)
-        #expect(try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: encoded) == envelope)
+        // The encoder writes its own schema version, so the record reads back at version 2 and
+        // encodes to the same bytes again, gaining no fact on the way.
+        let decodedAgain = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: encoded)
+        #expect(decodedAgain.schemaVersion == 2)
+        #expect(try ProvenanceJSON.encoder.encode(decodedAgain) == encoded)
     }
 
     @Test("malformed canonical JSON reconciles top-level tool version from tool identity")

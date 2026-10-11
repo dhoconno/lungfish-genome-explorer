@@ -92,9 +92,8 @@ final class BundleContainerExportTests: XCTestCase {
             ),
             []
         )
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(WorkflowRun.self, from: provenanceData)
+        // Schema version 2 holds no bare-run alias, so the run is read as the envelope's legacy view.
+        let provenance = try ProvenanceEnvelopeReader.decodeCanonical(provenanceData).legacyWorkflowRun()
         XCTAssertEqual(provenance.name, "Bundle Container Export")
         XCTAssertEqual(provenance.parameters["format"]?.stringValue, "container")
         XCTAssertEqual(provenance.parameters["bundlePath"]?.stringValue, bundle.standardizedFileURL.path)

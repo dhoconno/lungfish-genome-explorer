@@ -519,9 +519,7 @@ final class GATKPipelineExecutorTests: XCTestCase {
     private func decodeProvenance(at url: URL) throws -> WorkflowRun {
         // Every record the executor writes, success or failure, is an envelope the strict reader accepts and is complete.
         XCTAssertEqual(try BareRunWriterParity.strictFindings(sidecar: url), [])
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: url))
+        return try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: url)).legacyWorkflowRun()
     }
 }
 

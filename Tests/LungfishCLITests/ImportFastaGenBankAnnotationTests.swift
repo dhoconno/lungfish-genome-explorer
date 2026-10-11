@@ -71,15 +71,17 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
         let provenance = try XCTUnwrap(JSONSerialization.jsonObject(
             with: PortablePath.resolveJSON(try Data(contentsOf: provenanceURL), forFileAt: provenanceURL)
         ) as? [String: Any])
-        XCTAssertEqual(provenance["name"] as? String, "lungfish import fasta")
+        // Schema version 2 keys: `workflowName`, step `exitStatus` and `argv`, descriptor
+        // `checksumSHA256` and `fileSize`.
+        XCTAssertEqual(provenance["workflowName"] as? String, "lungfish import fasta")
         XCTAssertEqual(provenance["status"] as? String, "completed")
 
         let steps = try XCTUnwrap(provenance["steps"] as? [[String: Any]])
         let importStep: [String: Any] = try XCTUnwrap(steps.first)
         XCTAssertEqual(importStep["toolName"] as? String, "lungfish import fasta")
-        XCTAssertEqual(importStep["exitCode"] as? Int, 0)
+        XCTAssertEqual(importStep["exitStatus"] as? Int, 0)
 
-        let commandLine = try XCTUnwrap(importStep["command"] as? [String])
+        let commandLine = try XCTUnwrap(importStep["argv"] as? [String])
         XCTAssertEqual(commandLine.first, "lungfish-cli")
         XCTAssertTrue(commandLine.contains("import"))
         XCTAssertTrue(commandLine.contains("fasta"))
@@ -93,11 +95,11 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
             ($0["path"] as? String) == recordStoreURL.path
         })
         XCTAssertEqual(
-            recordStoreOutput["sha256"] as? String,
+            recordStoreOutput["checksumSHA256"] as? String,
             try ProvenanceFileHasher.sha256(of: recordStoreURL)
         )
         XCTAssertEqual(
-            (recordStoreOutput["sizeBytes"] as? NSNumber)?.uint64Value,
+            (recordStoreOutput["fileSize"] as? NSNumber)?.uint64Value,
             try ProvenanceFileHasher.fileSize(of: recordStoreURL)
         )
         XCTAssertFalse(outputs.contains {
@@ -111,7 +113,7 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
             return path.hasSuffix("genbank_records.sqlite") && path != recordStoreURL.path
         })
         XCTAssertTrue(outputs.allSatisfy {
-            $0["sha256"] != nil && $0["sizeBytes"] != nil
+            $0["checksumSHA256"] != nil && $0["fileSize"] != nil
         })
         let canonical = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
         XCTAssertNil(canonical.options.explicit["warnings"])

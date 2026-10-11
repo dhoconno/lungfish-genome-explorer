@@ -462,14 +462,17 @@ extension BareRunWriterParity {
     /// What a converted writer's facts may differ in, from the facts captured before the move.
     ///
     /// The sets are the ones `ProvenanceCompatFacts` documents. `shapeChange` is the conversion itself: the
-    /// decoder, strict acceptance, the embedded run's status and repeated files. The run-specific set is the
+    /// decoder, strict acceptance, the embedded run's status and repeated files. `schemaVersion2` is the
+    /// version 2 encoder, whose bytes no longer decode as a bare run. The run-specific set is the
     /// scenario's own clock. A scenario whose steps carry a container identity adds
     /// `stepRecordedContainer`, because an envelope step holds a container only in a runtime identity of
     /// its own, so the image and digest move to the envelope's runtime identity. That field is only safe
     /// while both legacy step views compare exactly, where a lost or changed image or digest still shows,
     /// so this function never ignores `legacyRunSteps` or `canonicalRunSteps`.
     public static func convertedIgnoredFields(of scenario: Scenario) -> Set<ProvenanceCompatFacts.Field> {
-        var fields = runSpecificFields(of: scenario).union(ProvenanceCompatFacts.shapeChange)
+        var fields = runSpecificFields(of: scenario)
+            .union(ProvenanceCompatFacts.shapeChange)
+            .union(ProvenanceCompatFacts.schemaVersion2)
         if scenario.stepsCarryContainerIdentity {
             fields.insert(.stepRecordedContainer)
         }
@@ -567,8 +570,8 @@ extension BareRunWriterParity {
     }
 
     /// What is wrong with a converted writer's sidecar as a record, apart from its facts. The bytes must
-    /// pass the strict envelope reader, still decode as a `WorkflowRun` (sixteen test files read the
-    /// compat keys that way), and carry no completeness issue other than the known gaps named here.
+    /// pass the strict envelope reader, be schema version 2 with none of the version 1 aliases a bare-run
+    /// reader needs, and carry no completeness issue other than the known gaps named here.
     ///
     /// - Parameter knownGaps: The sentences `ProvenanceCompleteness.issues(in:)` is expected to return.
     ///   Empty for a record with no gap.
@@ -581,13 +584,7 @@ extension BareRunWriterParity {
         } catch {
             findings.append("\(name): decodeCanonical rejects the bytes: \(error)")
         }
-        let runDecoder = JSONDecoder()
-        runDecoder.dateDecodingStrategy = .iso8601
-        do {
-            _ = try runDecoder.decode(WorkflowRun.self, from: bytes)
-        } catch {
-            findings.append("\(name): the bytes do not decode as a WorkflowRun: \(error)")
-        }
+        findings += schemaVersion2Findings(in: bytes).map { "\(name): \($0)" }
         do {
             guard let envelope = try ProvenanceEnvelopeReader.loadCanonical(fromSidecar: sidecar) else {
                 return findings + ["\(name): loadCanonical found no record"]
@@ -598,6 +595,33 @@ extension BareRunWriterParity {
             }
         } catch {
             findings.append("\(name): loadCanonical failed: \(error)")
+        }
+        return findings
+    }
+
+    /// Why `bytes` are not a schema version 2 record: another version, or one of the 14 keys version 1
+    /// wrote twice, at the top level, in a step or in a descriptor. Empty for a version 2 record.
+    public static func schemaVersion2Findings(in bytes: Data) -> [String] {
+        guard let record = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any] else {
+            return ["the bytes are not a JSON object"]
+        }
+        var findings: [String] = []
+        if record["schemaVersion"] as? Int != 2 {
+            findings.append("schemaVersion is \(record["schemaVersion"] ?? "missing"), not 2")
+        }
+        let topLevel = ["name", "startTime", "endTime", "appVersion", "hostOS", "runtime", "parameters"]
+        findings += topLevel.filter { record[$0] != nil }.map { "holds the version 1 alias \($0)" }
+        let steps = record["steps"] as? [[String: Any]] ?? []
+        var descriptors = (record["files"] as? [[String: Any]] ?? []) + (record["outputs"] as? [[String: Any]] ?? [])
+        if let output = record["output"] as? [String: Any] { descriptors.append(output) }
+        for (index, step) in steps.enumerated() {
+            let stepAliases = ["command", "exitCode", "wallTime", "startTime", "endTime"].filter { step[$0] != nil }
+            findings += stepAliases.map { "steps[\(index)] holds the version 1 alias \($0)" }
+            descriptors += (step["inputs"] as? [[String: Any]] ?? []) + (step["outputs"] as? [[String: Any]] ?? [])
+        }
+        for descriptor in descriptors {
+            let path = descriptor["path"] as? String ?? "?"
+            findings += ["sha256", "sizeBytes"].filter { descriptor[$0] != nil }.map { "\(path) holds the version 1 alias \($0)" }
         }
         return findings
     }

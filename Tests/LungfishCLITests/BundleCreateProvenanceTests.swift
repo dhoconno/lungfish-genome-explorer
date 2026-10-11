@@ -91,9 +91,7 @@ final class BundleCreateProvenanceTests: XCTestCase {
         let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         XCTAssertTrue(FileManager.default.fileExists(atPath: provenanceURL.path))
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let run = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: provenanceURL))
+        let run = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: provenanceURL)).legacyWorkflowRun()
 
         XCTAssertEqual(run.name, "lungfish bundle create")
         XCTAssertEqual(run.status, .completed)

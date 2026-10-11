@@ -306,10 +306,13 @@ struct ProvenanceLegacyRunEquivalenceTests {
         let sidecar = try await ProvenanceCompatScenarios.recorderRunWithReadSetPlan(in: project)
         let (live, frozen) = try Self.facts(of: sidecar, in: project, andCase: "s1-recorder-readsetplan")
 
-        // The only difference from the frozen bytes is the plan, now in the explicit options.
+        // The only difference from the frozen bytes is the plan, now in the explicit options. Schema
+        // version 2 writes no bare-run alias, so the bytes no longer decode as a run.
         let lines = live.differences(
             from: frozen,
-            ignoring: ProvenanceCompatFacts.runSpecific.union(ProvenanceCompatFacts.shapeChange)
+            ignoring: ProvenanceCompatFacts.runSpecific
+                .union(ProvenanceCompatFacts.shapeChange)
+                .union(ProvenanceCompatFacts.schemaVersion2)
         )
         #expect(lines.count == 1 && lines[0].hasPrefix("explicitOptions.readSetPlan: expected <absent>"), "\(lines)")
         // The run rebuilt from the record, with no nested run, has the plan the nested run held.
@@ -333,9 +336,12 @@ struct ProvenanceLegacyRunEquivalenceTests {
         let sidecar = analysis.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         let (live, frozen) = try Self.facts(of: sidecar, in: project, andCase: "s1-canonical-envelope-run")
 
+        // Schema version 2 writes no bare-run alias, so the bytes no longer decode as a run.
         let lines = live.differences(
             from: frozen,
-            ignoring: ProvenanceCompatFacts.runSpecific.union(ProvenanceCompatFacts.shapeChange)
+            ignoring: ProvenanceCompatFacts.runSpecific
+                .union(ProvenanceCompatFacts.shapeChange)
+                .union(ProvenanceCompatFacts.schemaVersion2)
         )
         #expect(lines.isEmpty, "\(lines)")
         #expect(live.legacyRunSteps == frozen.legacyRunSteps)
@@ -368,6 +374,7 @@ struct ProvenanceLegacyRunEquivalenceTests {
             from: frozen,
             ignoring: ProvenanceCompatFacts.runSpecific
                 .union(ProvenanceCompatFacts.shapeChange)
+                .union(ProvenanceCompatFacts.schemaVersion2)
                 .union([.stepRecordedContainer]),
             runWallTimeTolerance: 1
         )

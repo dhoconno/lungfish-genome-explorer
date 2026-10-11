@@ -53,13 +53,13 @@ The strict reader (`ProvenanceEnvelopeReader.loadCanonical` and `decodeCanonical
 
 Additions never change the number. A new key, a new step field, a new descriptor field and a new runtime fact are all additions, and each is optional, so an older record simply lacks it. A new number means a removal or a change of meaning, such as dropping a key or giving a key another type.
 
-Readers accept any version. A reader ignores keys it does not know, reads the keys it knows at any version and never refuses a record because of its version number. LGE writes version 1 today, and the next encoder writes version 2.
+Readers accept any version. A reader ignores keys it does not know, reads the keys it knows at any version and never refuses a record because of its version number. LGE writes version 2. The encoder always writes its own version, even for a record rebuilt from one it read at another version, because the bytes it writes are always in its own shape.
 
 A new value of a key whose values form a fixed set is not yet a safe addition. Today's decoder refuses a file `role` or a file `format` it does not know, even `csv`, and the whole envelope then falls to the primitive adapter, which loses facts and changes what a signature covers. Until readers keep an unknown value, a writer records a new kind of file with an existing role and format and says what it is under a new key.
 
 ## What version 2 removes
 
-Version 1 writes 14 keys twice, once under the canonical name and once under the name an older reader of the bare run expects. Version 2 drops the second spelling. Readers keep reading every alias, so a version 1 record reads as before.
+Version 1 wrote 14 keys twice, once under the canonical name and once under the name an older reader of the bare run expects. Version 2 drops the second spelling. Readers keep reading every alias, so a version 1 record reads as before. A reader that decodes a record file as a bare run finds none of the keys it needs in a version 2 record, which is why every reader goes through the tolerant reader.
 
 | Version 1 alias | Canonical key |
 | --- | --- |

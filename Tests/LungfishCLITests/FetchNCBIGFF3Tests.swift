@@ -119,8 +119,6 @@ final class FetchNCBIGFF3Tests: XCTestCase {
 
     private func decodeProvenance(for outputURL: URL) throws -> WorkflowRun {
         let provenanceURL = NCBISubcommand.provenanceSidecarURL(for: outputURL)
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: provenanceURL))
+        return try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: provenanceURL)).legacyWorkflowRun()
     }
 }

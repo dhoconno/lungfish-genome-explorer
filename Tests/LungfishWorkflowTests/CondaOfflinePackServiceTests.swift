@@ -91,10 +91,7 @@ final class CondaOfflinePackServiceTests: XCTestCase {
         XCTAssertNotNil(manifest.files.first?.sha256)
         XCTAssertEqual(manifest.files.first?.sizeBytes, UInt64(Data("samtools binary\n".utf8).count))
 
-        let provenance = try decoder.decode(
-            WorkflowRun.self,
-            from: Data(contentsOf: provenanceURL)
-        )
+        let provenance = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: provenanceURL)).legacyWorkflowRun()
         XCTAssertEqual(provenance.name, "Conda Offline Pack Export")
         XCTAssertEqual(provenance.parameters["packID"], .string("read-mapping"))
         XCTAssertEqual(provenance.parameters["packVersion"], .string(WorkflowRun.currentAppVersion))
@@ -150,9 +147,7 @@ final class CondaOfflinePackServiceTests: XCTestCase {
         ))
         XCTAssertTrue(FileManager.default.fileExists(atPath: install.provenanceURL.path))
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: install.provenanceURL))
+        let provenance = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: install.provenanceURL)).legacyWorkflowRun()
         XCTAssertEqual(provenance.parameters["destinationCondaRoot"], .string(destinationCondaRoot.path))
         XCTAssertEqual(provenance.parameters["packID"], .string("read-mapping"))
         XCTAssertEqual(provenance.parameters["packVersion"], .string(WorkflowRun.currentAppVersion))
@@ -223,9 +218,7 @@ final class CondaOfflinePackServiceTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: knownGood, encoding: .utf8), "known good\n")
         let provenanceURL = destinationRoot.appendingPathComponent(
             CondaOfflinePackService.installFailureProvenanceFilename)
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
+        let provenance = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: provenanceURL)).legacyWorkflowRun()
         XCTAssertEqual(provenance.status, .failed)
         XCTAssertEqual(provenance.steps.first?.exitCode, 1)
         XCTAssertTrue(provenance.steps.first?.outputs.allSatisfy {
@@ -280,10 +273,7 @@ final class CondaOfflinePackServiceTests: XCTestCase {
         XCTAssertNoThrow(try PrimerToolPortableLauncher.validate(
             toolID: "varvamp", environmentURL: destinationEnvironment))
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(
-            WorkflowRun.self, from: Data(contentsOf: installed.provenanceURL))
+        let provenance = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: installed.provenanceURL)).legacyWorkflowRun()
         let records = try XCTUnwrap(
             provenance.parameters["portableLauncherImports"]?.arrayValue)
         let record = try XCTUnwrap(records.first?.dictionaryValue)
@@ -308,8 +298,7 @@ final class CondaOfflinePackServiceTests: XCTestCase {
             overwrite: false,
             commandLine: ["lungfish-cli", "conda", "offline-install", exported.packDirectory.path]
         )
-        let directoryProvenance = try decoder.decode(
-            WorkflowRun.self, from: Data(contentsOf: directoryInstalled.provenanceURL))
+        let directoryProvenance = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: directoryInstalled.provenanceURL)).legacyWorkflowRun()
         let directoryRecord = try XCTUnwrap(
             directoryProvenance.parameters["portableLauncherImports"]?
                 .arrayValue?.first?.dictionaryValue)
@@ -399,10 +388,7 @@ final class CondaOfflinePackServiceTests: XCTestCase {
             exportedCorruptBytes,
             "Migration must use the receipt-tracked original executable, not the untracked extra file.")
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(
-            WorkflowRun.self, from: Data(contentsOf: installed.provenanceURL))
+        let provenance = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: installed.provenanceURL)).legacyWorkflowRun()
         let migrations = try XCTUnwrap(
             provenance.parameters["portableLauncherImports"]?.arrayValue)
         let migration = try XCTUnwrap(migrations.first?.dictionaryValue)
@@ -476,9 +462,7 @@ final class CondaOfflinePackServiceTests: XCTestCase {
 
         let failureProvenanceURL = destinationCondaRoot
             .appendingPathComponent(CondaOfflinePackService.installFailureProvenanceFilename)
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: failureProvenanceURL))
+        let provenance = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: failureProvenanceURL)).legacyWorkflowRun()
         let step = try XCTUnwrap(provenance.steps.first)
         XCTAssertEqual(step.exitCode, 1)
         XCTAssertEqual(provenance.status, .failed)
@@ -537,9 +521,7 @@ final class CondaOfflinePackServiceTests: XCTestCase {
             FileManager.default.fileExists(atPath: destinationEnvironment.appendingPathComponent("known-good").path)
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: install.provenanceURL.path))
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: install.provenanceURL))
+        let provenance = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: install.provenanceURL)).legacyWorkflowRun()
         XCTAssertEqual(provenance.status, .completed)
     }
 
@@ -767,9 +749,7 @@ final class CondaOfflinePackServiceTests: XCTestCase {
             return XCTFail("A failed offline import must write a durable failure provenance receipt.")
         }
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: failureProvenanceURL))
+        let provenance = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: failureProvenanceURL)).legacyWorkflowRun()
         XCTAssertEqual(provenance.name, "Conda Offline Pack Install")
         XCTAssertEqual(provenance.status, .failed)
         XCTAssertFalse(provenance.hostOS.isEmpty)
@@ -850,9 +830,7 @@ final class CondaOfflinePackServiceTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: destinationPayload, encoding: .utf8), "known-good destination\n")
         let failureProvenanceURL = destinationCondaRoot
             .appendingPathComponent(CondaOfflinePackService.installFailureProvenanceFilename)
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: failureProvenanceURL))
+        let provenance = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: failureProvenanceURL)).legacyWorkflowRun()
         XCTAssertEqual(provenance.status, .failed)
         let step = try XCTUnwrap(provenance.steps.first)
         XCTAssertEqual(step.exitCode, 1)

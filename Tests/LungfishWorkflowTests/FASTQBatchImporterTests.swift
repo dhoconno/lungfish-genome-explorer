@@ -738,7 +738,7 @@ final class FASTQBatchImporterTests: XCTestCase {
         let provenanceSidecarURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         let provenanceData = PortablePath.resolveJSON(try Data(contentsOf: provenanceSidecarURL), forFileAt: provenanceSidecarURL)
         let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: provenanceData)
-        let legacyRun = try ProvenanceJSON.decoder.decode(WorkflowRun.self, from: provenanceData)
+        let legacyRun = try ProvenanceEnvelopeReader.decodeCanonical(provenanceData).legacyWorkflowRun()
         XCTAssertEqual(legacyRun.name, "lungfish import fastq")
         XCTAssertEqual(legacyRun.status, .completed)
         XCTAssertEqual(envelope.workflowName, "lungfish import fastq")

@@ -78,7 +78,7 @@ final class GATKBundleVariantAttachmentServiceTests: XCTestCase {
 
         XCTAssertEqual(try BareRunWriterParity.strictFindings(sidecar: result.provenanceURL), [])
         let provenanceData = try Data(contentsOf: result.provenanceURL)
-        let provenance = try JSONDecoder.workflowRunDecoder.decode(WorkflowRun.self, from: provenanceData)
+        let provenance = try ProvenanceEnvelopeReader.decodeCanonical(provenanceData).legacyWorkflowRun()
         XCTAssertEqual(provenance.name, "GATK HaplotypeCaller bundle attachment")
         XCTAssertEqual(provenance.status, .completed)
         XCTAssertEqual(provenance.parameters["importSemantics"]?.stringValue, VCFImportSemantics.standard.rawValue)
@@ -279,13 +279,5 @@ private func XCTAssertThrowsErrorAsync(
         _ = try await expression()
         XCTFail("Expected error to be thrown", file: file, line: line)
     } catch {
-    }
-}
-
-private extension JSONDecoder {
-    static var workflowRunDecoder: JSONDecoder {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return decoder
     }
 }

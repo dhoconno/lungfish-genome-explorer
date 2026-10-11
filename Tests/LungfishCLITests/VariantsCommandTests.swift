@@ -54,9 +54,7 @@ final class VariantsCommandTests: XCTestCase {
         XCTAssertTrue(vcf.contains("rs300"))
 
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let run = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
+        let run = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: provenanceURL)).legacyWorkflowRun()
         XCTAssertEqual(try BareRunWriterParity.strictFindings(sidecar: provenanceURL), [])
         XCTAssertEqual(run.name, "lungfish variants extract-sample")
         XCTAssertEqual(run.steps.first?.toolName, "lungfish variants extract-sample")
@@ -91,9 +89,7 @@ final class VariantsCommandTests: XCTestCase {
         XCTAssertTrue(vcf.contains("rs300"))
 
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let run = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
+        let run = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: provenanceURL)).legacyWorkflowRun()
         XCTAssertEqual(try BareRunWriterParity.strictFindings(sidecar: provenanceURL), [])
         XCTAssertEqual(run.name, "lungfish variants query")
         XCTAssertEqual(run.steps.first?.toolName, "lungfish variants query")
@@ -1105,9 +1101,7 @@ private func argument(after flag: String, in arguments: [String]) -> String? {
 }
 
 private func decodeProvenance(at url: URL) throws -> WorkflowRun {
-    let decoder = JSONDecoder()
-    decoder.dateDecodingStrategy = .iso8601
-    return try decoder.decode(WorkflowRun.self, from: Data(contentsOf: url))
+    return try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: url)).legacyWorkflowRun()
 }
 
 private func XCTAssertThrowsErrorAsync(

@@ -64,6 +64,28 @@ struct ProvenanceCompatDifferencesTests {
         #expect(remaining.contains { $0.hasPrefix("steps[1].exitStatus:") })
     }
 
+    @Test("the schema version 2 set hides only the bare-run decode and the ops stats wall time it derived")
+    func schemaVersion2SetHidesOnlyTheBareRunDecode() throws {
+        let original = try Self.frozenFacts("s1-canonical-envelope-run")
+        #expect(original.opsStats.decodesAsWorkflowRun, "a version 1 envelope carries the bare-run aliases")
+        var version2 = original
+        version2.opsStats.decodesAsWorkflowRun = false
+        version2.opsStats.totalWallTimeSeconds += 0.5
+
+        let all = version2.differences(from: original)
+        #expect(all.count == 2, "\(all)")
+        #expect(all.contains("opsStats.decodesAsWorkflowRun: expected true, found false"))
+        #expect(all.contains { $0.hasPrefix("opsStats.totalWallTimeSeconds:") })
+        #expect(version2.differences(from: original, ignoring: ProvenanceCompatFacts.schemaVersion2).isEmpty)
+
+        version2.opsStats.completedRunCount += 1
+        version2.wallTimeSeconds = (original.wallTimeSeconds ?? 0) + 1
+        let remaining = version2.differences(from: original, ignoring: ProvenanceCompatFacts.schemaVersion2)
+        #expect(remaining.count == 2, "\(remaining)")
+        #expect(remaining.contains { $0.hasPrefix("opsStats.completedRunCount:") })
+        #expect(remaining.contains { $0.hasPrefix("wallTimeSeconds:") })
+    }
+
     @Test("a scenario re-run compares step wall times exactly, in the steps and in both legacy views")
     func runSpecificSetComparesStepWallTimesExactly() throws {
         #expect(!ProvenanceCompatFacts.runSpecific.contains(.stepWallTimeSeconds))
@@ -222,7 +244,8 @@ struct ProvenanceCompatDifferencesTests {
             try JSONSerialization.jsonObject(with: facts.canonicalJSON()) as? [String: Any]
         )
         let partialFields: Set<ProvenanceCompatFacts.Field> = [
-            .opsStatsTotalWallTimeSeconds, .filesDuplicates, .stepWallTimeSeconds, .stepRecordedContainer,
+            .opsStatsTotalWallTimeSeconds, .opsStatsDecodesAsWorkflowRun, .filesDuplicates, .stepWallTimeSeconds,
+            .stepRecordedContainer,
         ]
         for field in ProvenanceCompatFacts.Field.allCases where !partialFields.contains(field) {
             #expect(json[field.rawValue] != nil, "Field.\(field.rawValue) is not a key of the facts")

@@ -127,7 +127,7 @@ final class ProvenanceExportCommandTests: XCTestCase {
             ProvenanceEnvelope.self,
             from: try Data(contentsOf: exportSidecarURL)
         )
-        XCTAssertEqual(exportEnvelope.schemaVersion, 1)
+        XCTAssertEqual(exportEnvelope.schemaVersion, 2)
         XCTAssertEqual(exportEnvelope.workflowName, "provenance.export.shell")
         XCTAssertEqual(exportEnvelope.toolName, "lungfish provenance export")
         XCTAssertEqual(exportEnvelope.argv, [
@@ -797,7 +797,7 @@ final class ProvenanceExportCommandTests: XCTestCase {
             ProvenanceEnvelope.self,
             from: try Data(contentsOf: exportSidecarURL)
         )
-        XCTAssertEqual(exportEnvelope.schemaVersion, 1)
+        XCTAssertEqual(exportEnvelope.schemaVersion, 2)
         XCTAssertEqual(exportEnvelope.workflowName, "provenance.export.json")
         XCTAssertEqual(exportEnvelope.toolName, "lungfish provenance export")
 
@@ -818,8 +818,9 @@ final class ProvenanceExportCommandTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: preservedSourceURL), try Data(contentsOf: sidecarURL))
 
         let object = try JSONSerialization.jsonObject(with: try Data(contentsOf: exportSidecarURL)) as? [String: Any]
-        XCTAssertNotNil(object?["schemaVersion"])
-        XCTAssertEqual(object?["name"] as? String, "provenance.export.json")
+        XCTAssertEqual(object?["schemaVersion"] as? Int, 2)
+        XCTAssertEqual(object?["workflowName"] as? String, "provenance.export.json")
+        XCTAssertNil(object?["name"], "schema version 2 writes no bare-run alias")
         XCTAssertEqual(object?["status"] as? String, "completed")
     }
 
