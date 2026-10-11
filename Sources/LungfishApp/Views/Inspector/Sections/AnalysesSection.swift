@@ -28,6 +28,28 @@ struct AnalysesSection: View {
         absoluteFormatter.string(from: date)
     }
 
+    // MARK: - Tool Icon Mapping
+
+    /// The row's SF Symbol for an analysis tool, matched on the lowercased tool name.
+    ///
+    /// Internal and static so a test can pin it. The row type is file-private.
+    static func iconName(for tool: String) -> String {
+        switch tool.lowercased() {
+        case "kraken2": return "k.circle.fill"
+        case "esviritu": return "e.circle.fill"
+        case "taxtriage": return "t.circle.fill"
+        case "naomgs": return "n.circle.fill"
+        case "spades", "megahit", "skesa", "flye", "hifiasm": return "s.circle.fill"
+        case "minimap2", "bwa-mem2", "bowtie2", "bbmap": return "m.circle.fill"
+        default: return "gearshape.fill"
+        }
+    }
+
+    /// The row's icon color for an analysis tool.
+    static func iconColor(for tool: String) -> Color {
+        .lungfishOrangeFallback
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if analyses.isEmpty {
@@ -96,9 +118,9 @@ private struct AnalysisRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             // Tool icon
-            Image(systemName: iconName(for: entry.tool))
+            Image(systemName: AnalysesSection.iconName(for: entry.tool))
                 .font(.title3)
-                .foregroundStyle(iconColor(for: entry.tool))
+                .foregroundStyle(AnalysesSection.iconColor(for: entry.tool))
                 .frame(width: 24, height: 24, alignment: .center)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -150,24 +172,6 @@ private struct AnalysisRow: View {
             }
         }
         .padding(.vertical, 4)
-    }
-
-    // MARK: - Tool Icon Mapping
-
-    private func iconName(for tool: String) -> String {
-        switch tool.lowercased() {
-        case "kraken2": return "k.circle.fill"
-        case "esviritu": return "e.circle.fill"
-        case "taxtriage": return "t.circle.fill"
-        case "naomgs": return "n.circle.fill"
-        case "spades", "megahit", "skesa", "flye", "hifiasm": return "s.circle.fill"
-        case "minimap2", "bwa-mem2", "bowtie2", "bbmap": return "m.circle.fill"
-        default: return "gearshape.fill"
-        }
-    }
-
-    private func iconColor(for tool: String) -> Color {
-        .lungfishOrangeFallback
     }
 
     // MARK: - Timestamp Formatting
