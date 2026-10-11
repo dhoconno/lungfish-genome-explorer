@@ -1,0 +1,19 @@
+FASTQ Import
+
+ℹ Detected 1 sample(s):
+    1. Solo  [single-end]
+        R1: Solo.fastq
+
+ℹ Using installed Human Read Removal Data.
+ℹ Starting import with 20 thread(s)…
+
+
+Import Summary
+
+Completed: 0
+Skipped  : 0
+Failed   : 1
+Duration : 0.0s
+
+⚠ Failed samples:
+✗   Solo: Recipe 'VSP2 Target Enrichment' cannot be applied to sample 'Solo': requires paired-end reads (R1 and R2), but only R1 was detected.

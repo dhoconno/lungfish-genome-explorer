@@ -37,6 +37,8 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
     static let toolLeaves: Set<String> = [
         "tree infer iqtree", "align mafft", "assemble", "variants call", "bam primer-trim", "esviritu detect",
         "kraken2 classify", "conda classify",
+        // The two spellings of the FASTQ import share the folder `import-fastq` (lane Q4 of Phase 2.7).
+        "import fastq", "import-fastq",
     ]
 
     static var transcriptsFolder: URL {

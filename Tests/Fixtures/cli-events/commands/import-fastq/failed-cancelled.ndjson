@@ -1,0 +1,8 @@
+{"event":"start","message":"Starting FASTQ import","progress":0,"schemaVersion":2}
+{"event":"log","level":"info","message":"Sample1: Platform: Element Biosciences, Illumina short reads (given with --platform).","schemaVersion":2}
+{"event":"log","level":"warning","message":"Sample1 — --platform element was given, but the reads look like Illumina. Illumina read names in 32 of 32 sampled reads. The given platform is used.","schemaVersion":2}
+{"event":"progress","message":"Importing Sample1 (1\/1)","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Sample1: Remove PCR duplicates + Adapter + quality trim","progress":0.13333333333333333,"schemaVersion":2}
+{"event":"log","level":"info","message":"Sample1 — step 1\/6: Remove PCR duplicates + Adapter + quality trim","schemaVersion":2}
+{"event":"log","level":"info","message":"Import complete — 0 done, 0 skipped, 0 failed (0.3s)","schemaVersion":2}
+{"error":"Import cancelled","event":"failed","schemaVersion":2}

@@ -1,0 +1,6 @@
+{"event":"start","message":"Starting FASTQ import","progress":0,"schemaVersion":2}
+{"event":"log","level":"info","message":"Solo: Platform: Illumina, Illumina short reads (given with --platform).","schemaVersion":2}
+{"event":"progress","message":"Importing Solo (1\/1)","progress":0,"schemaVersion":2}
+{"event":"log","level":"error","message":"Solo failed: Recipe 'VSP2 Target Enrichment' cannot be applied to sample 'Solo': requires paired-end reads (R1 and R2), but only R1 was detected.","schemaVersion":2}
+{"event":"log","level":"info","message":"Import complete — 0 done, 0 skipped, 1 failed (0.0s)","schemaVersion":2}
+{"error":"Solo: Recipe 'VSP2 Target Enrichment' cannot be applied to sample 'Solo': requires paired-end reads (R1 and R2), but only R1 was detected.","event":"failed","schemaVersion":2}

@@ -145,6 +145,18 @@ Lane A8 of Phase 2.7 ran `kraken2-classify` and `conda-classify` the same way wi
 
 The inputs are `test_1.fastq.gz` of `Tests/Fixtures/sarscov2`, `Tests/Fixtures/classifier-parity/negative-control.fastq`, and `large.fastq`, which holds the reads of `test_1.fastq.gz` 10,000 times over, one million reads in all.
 
+Lane Q4 of Phase 2.7 ran `import-fastq`, the folder of `import fastq` and `import-fastq`, the same way with the CLI built from its branch. The storage root was the owner's managed storage at `~/.lungfish-stable`, which holds fastp, Deacon and the Deacon human index that the VSP2 recipe runs, and nothing was installed there. Each run had a scratch folder of its own, which the lines rewrite to `/work`. The inputs were written by the capture script, an Illumina-named pair of 50 read pairs of 150 random bases, ten of them copies of others, and a single-end file of 20 such reads.
+
+| File | Command |
+| --- | --- |
+| `complete-with-warning` | `import fastq /work/inputs/Sample1_R1.fastq /work/inputs/Sample1_R2.fastq --project /work/Project.lungfish --platform element --pairing paired --format json --quality-binning illumina4 --compression balanced --recipe vsp2-target-enrichment`, whose reads look like Illumina reads, so the run logs one notice |
+| `failed` | `import fastq /work/inputs/Solo.fastq --project /work/Project.lungfish --platform illumina --pairing single --format json --quality-binning illumina4 --compression balanced --recipe vsp2-target-enrichment`, whose recipe needs a pair, so the sample fails and the run exits 64 |
+| `failed-cancelled` | the run of `complete-with-warning` again, sent SIGTERM once the first step began, which exits 125 |
+
+## import-fastq-runs
+
+`import-fastq-runs` holds what lane Q4 of Phase 2.7 used to show that the Operations row of an import reads the same after the command left its private stream S1. The files that start with `s1-` are the standard output and the standard error of the three runs in the table above, made with the CLI of the base `247504866`, which printed S1. Their standard output holds the human text beside the S1 lines, as it did then. `s1-runner.json` holds what the runner of that base showed for them, each log line with its level, each progress fraction with its detail, the label, the bundle and the errors, as `CLIImportRunnerTranscriptTests` records it. The files that start with `v2-` are the standard error of the version 2 runs whose standard output is in `commands/import-fastq`. The files that start with `text-` are what text mode printed at the base for two runs that `ImportFastqTextOutputPinTests` makes in process, standard output without its JSON lines and standard error. Like the files in `v1` and `legacy`, the `s1-` files must not be captured again, because a current CLI no longer prints S1.
+
 ## results
 
 `results` holds the document that a leaf prints when the contract table marks it `.result`, one file for each of 13 schemas. Each file is the standard output of one real run of the built `lungfish-cli` on a repository fixture, run the way the commands above were. The scratch folder is `/work` in the file, and nothing else is edited. `CLIEventContractCoverageTests` decodes each file with the Swift type that reads it, adds one key that no reader knows, and expects the same value back.

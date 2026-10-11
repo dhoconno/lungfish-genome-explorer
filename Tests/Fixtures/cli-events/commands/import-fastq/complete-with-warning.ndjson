@@ -1,0 +1,26 @@
+{"event":"start","message":"Starting FASTQ import","progress":0,"schemaVersion":2}
+{"event":"log","level":"info","message":"Sample1: Platform: Element Biosciences, Illumina short reads (given with --platform).","schemaVersion":2}
+{"event":"log","level":"warning","message":"Sample1 — --platform element was given, but the reads look like Illumina. Illumina read names in 32 of 32 sampled reads. The given platform is used.","schemaVersion":2}
+{"event":"progress","message":"Importing Sample1 (1\/1)","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Sample1: Remove PCR duplicates + Adapter + quality trim","progress":0.13333333333333333,"schemaVersion":2}
+{"event":"log","level":"info","message":"Sample1 — step 1\/6: Remove PCR duplicates + Adapter + quality trim","schemaVersion":2}
+{"event":"log","level":"info","message":"Sample1 — Remove PCR duplicates + Adapter + quality trim completed (0.6s)","schemaVersion":2}
+{"event":"progress","message":"Sample1: Remove human reads","progress":0.26666666666666666,"schemaVersion":2}
+{"event":"log","level":"info","message":"Sample1 — step 2\/6: Remove human reads","schemaVersion":2}
+{"event":"log","level":"info","message":"Sample1 — Remove human reads completed (5.8s)","schemaVersion":2}
+{"event":"progress","message":"Sample1: Merge overlapping pairs","progress":0.4000000000000001,"schemaVersion":2}
+{"event":"log","level":"info","message":"Sample1 — step 3\/6: Merge overlapping pairs","schemaVersion":2}
+{"event":"log","level":"info","message":"Sample1 — Merge overlapping pairs completed (0.1s)","schemaVersion":2}
+{"event":"progress","message":"Sample1: Remove short reads","progress":0.5333333333333333,"schemaVersion":2}
+{"event":"log","level":"info","message":"Sample1 — step 4\/6: Remove short reads","schemaVersion":2}
+{"event":"log","level":"info","message":"Sample1 — Remove short reads completed (0.3s)","schemaVersion":2}
+{"event":"progress","message":"Sample1: Optimize storage + Compress","progress":0.6666666666666666,"schemaVersion":2}
+{"event":"log","level":"info","message":"Sample1 — step 5\/6: Optimize storage + Compress","schemaVersion":2}
+{"event":"log","level":"info","message":"Sample1 — Optimize storage + Compress completed (2.2s)","schemaVersion":2}
+{"event":"log","level":"info","message":"Sample1 — Human scrub removed 0.0% of reads (40 -> 40)","schemaVersion":2}
+{"event":"progress","message":"Sample1: Compute statistics","progress":0.8000000000000002,"schemaVersion":2}
+{"event":"log","level":"info","message":"Sample1 — step 6\/6: Compute statistics","schemaVersion":2}
+{"event":"log","level":"info","message":"Sample1 — Compute statistics completed (0.1s)","schemaVersion":2}
+{"event":"log","level":"info","message":"Sample1 — bundle created","schemaVersion":2}
+{"event":"log","level":"info","message":"Import complete — 1 done, 0 skipped, 0 failed (9.3s)","schemaVersion":2}
+{"artifacts":[{"kind":"fastq","path":"\/work\/Project.lungfish\/Imports\/Sample1.lungfishfastq","provenancePath":"\/work\/Project.lungfish\/Imports\/Sample1.lungfishfastq\/.lungfish-provenance.json","role":"bundle"}],"event":"complete","message":"Imported 1 sample(s)","output":"\/work\/Project.lungfish\/Imports\/Sample1.lungfishfastq","outputs":["\/work\/Project.lungfish\/Imports\/Sample1.lungfishfastq"],"progress":1,"schemaVersion":2}

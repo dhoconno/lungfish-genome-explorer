@@ -74,7 +74,7 @@ public enum CLIEventContractTable {
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
-    // MARK: Leaves that emit events (33)
+    // MARK: Leaves that emit events (35)
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
@@ -89,9 +89,11 @@ public enum CLIEventContractTable {
         "fastq ont-pacbio-barcode-demux": .events(flag: alwaysOn, channel: .standardError),
         "fastq platform": .events(flag: formatJSON, channel: .standardOutput),
         "import application-export": .events(flag: formatJSON, channel: .standardOutput),
+        "import fastq": .events(flag: formatJSON, channel: .standardOutput),
         "import geneious": .events(flag: formatJSON, channel: .standardOutput),
         "import msa": .events(flag: formatJSON, channel: .standardOutput),
         "import tree": .events(flag: formatJSON, channel: .standardOutput),
+        "import-fastq": .events(flag: formatJSON, channel: .standardOutput),
         "kraken2 classify": .events(flag: formatJSON, channel: .standardOutput),
         "msa annotate add": .events(flag: formatJSON, channel: .standardOutput),
         "msa annotate delete": .events(flag: formatJSON, channel: .standardOutput),
@@ -190,7 +192,7 @@ public enum CLIEventContractTable {
         "workflow validate": .result(schemaID: "workflow-validate"),
     ]
 
-    // MARK: Private stream shapes still in use (11 leaves)
+    // MARK: Private stream shapes still in use (9 leaves)
 
     // `fastq genotype`, `genotype-cohort`, `ont-barcode-genotype` and `full-length-ont-mhc-genotype`
     // also print R3 on standard error beside their document, so the lane that retires R3 converts
@@ -205,8 +207,6 @@ public enum CLIEventContractTable {
         "fastq 12s-reference-bundle": .legacy(schemaID: "r3-twelve-s-progress-text", removeBy: "2.8"),
         "fastq full-length-ont-mhc-genotype": .legacy(schemaID: "r2-full-length-ont-mhc", removeBy: "2.8"),
         "fastq ont-barcode-genotype": .legacy(schemaID: "r1-ont-barcode-genotyping", removeBy: "2.8"),
-        "import fastq": .legacy(schemaID: "s1-import-fastq", removeBy: "2.7"),
-        "import-fastq": .legacy(schemaID: "s1-import-fastq", removeBy: "2.7"),
     ]
 
     // MARK: Leaves with human text only (120)

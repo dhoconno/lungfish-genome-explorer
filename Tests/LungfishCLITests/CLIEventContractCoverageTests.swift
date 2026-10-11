@@ -146,7 +146,6 @@ final class CLIEventContractCoverageTests: XCTestCase {
     /// also print R3 on standard error beside their document, so the lane that retires R3 converts
     /// all six leaves.
     private static let shapesLeft: [String: (removeBy: String, leaves: [String])] = [
-        "s1-import-fastq": ("2.7", ["import fastq", "import-fastq"]),
         "s10-bam-filter": ("2.9", ["bam filter"]),
         "s11-bam-annotate": ("2.9", ["bam annotate"]),
         "s12-bam-annotate-best": ("2.9", ["bam annotate-best"]),
@@ -182,9 +181,9 @@ final class CLIEventContractCoverageTests: XCTestCase {
             if case .legacy = $0 { return true }
             return false
         }
-        XCTAssertEqual(found.count, 9, "Nine private shapes are left")
+        XCTAssertEqual(found.count, 8, "Eight private shapes are left")
         XCTAssertEqual(legacyRows.count, Self.shapesLeft.values.map(\.leaves.count).reduce(0, +))
-        XCTAssertEqual(legacyRows.count, 11, "Eleven leaves still print one of them")
+        XCTAssertEqual(legacyRows.count, 9, "Nine leaves still print one of them")
     }
 
     func testEveryLegacyRowNamesAFutureSubPhase() {
@@ -232,8 +231,8 @@ final class CLIEventContractCoverageTests: XCTestCase {
             case .text: counts["text", default: 0] += 1
             }
         }
-        XCTAssertEqual(counts["events"], 33)
-        XCTAssertEqual(counts["legacy"], 11)
+        XCTAssertEqual(counts["events"], 35)
+        XCTAssertEqual(counts["legacy"], 9)
         XCTAssertEqual(counts.values.reduce(0, +), CLIEventContractTable.entries.count)
     }
 

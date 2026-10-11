@@ -1,0 +1,19 @@
+FASTQ Import
+
+ℹ Detected 1 sample(s):
+    1. Sample1  [paired]
+        R1: Sample1_R1.fastq
+        R2: Sample1_R2.fastq
+
+ℹ Using installed Human Read Removal Data.
+ℹ Starting import with 20 thread(s)…
+
+  → Optimize storage + Compress...
+  → Optimize storage + Compress... done (2s)
+
+Import Summary
+
+Completed: 1
+Skipped  : 0
+Failed   : 0
+Duration : 9.3s
