@@ -8,7 +8,6 @@ import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishTestSupport
-import LungfishGenotypeUI
 
 /// `GenotypeAnnotationPublicationCoordinator` publishes `annotations.json` and
 /// its provenance record through `DurableReplace`, inside one transaction

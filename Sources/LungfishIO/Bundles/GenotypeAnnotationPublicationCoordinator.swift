@@ -1,6 +1,6 @@
 import Darwin
 import Foundation
-import LungfishIO
+import LungfishCore
 
 public enum GenotypeAnnotationPublicationFaultPoint: Equatable, Sendable {
     case beforeProvenancePublication
