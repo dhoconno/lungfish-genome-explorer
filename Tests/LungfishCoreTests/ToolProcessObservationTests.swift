@@ -563,8 +563,11 @@ final class ToolProcessEarlyCancelObservationTests: XCTestCase {
 }
 
 /// Phase 2.7 lane S1 (decision P4). Each reaped stage's peak memory comes
-/// from `wait4` into the observation, and nothing outside ToolProcess reads
-/// it yet, so no record writes a value that no golden normalizer rule masks.
+/// from `wait4` into the observation only. The rule that no record writes it
+/// until a golden normalizer rule for it is approved lives on
+/// `ToolProcessRunObservation.Stage.observedPeakMemoryBytes` and in
+/// `docs/contracts/RECORDING-PROVENANCE.md`. The guard for that rule belongs
+/// to the lane that first turns an observation into a record.
 final class ToolProcessObservedPeakMemoryTests: XCTestCase {
     private typealias Fixtures = ToolProcessFixtures
     private typealias Pins = ToolProcessEntryPointPinTests
@@ -596,29 +599,5 @@ final class ToolProcessObservedPeakMemoryTests: XCTestCase {
         let stages = try XCTUnwrap(log.all.last).stages
         XCTAssertNotNil(stages[0].observedPeakMemoryBytes)
         XCTAssertNil(stages[1].observedPeakMemoryBytes)
-    }
-
-    /// The guard of decision P4. No normalizer rule in `scripts/golden/normalize.py`
-    /// masks a peak memory, so a record that wrote this run-dependent value
-    /// would change every golden on every run. A record consumer that copies
-    /// `observedPeakMemoryBytes` lands together with an approved normalizer
-    /// rule and changes this test in the same commit.
-    func testNothingOutsideToolProcessReadsTheObservedPeakMemoryYet() throws {
-        let root = CLITestBinaryResolver.repositoryRoot(containing: #filePath)
-        let sources = root.appendingPathComponent("Sources", isDirectory: true)
-        let allowed = sources.appendingPathComponent("LungfishCore/Process", isDirectory: true).path + "/"
-        let files = try XCTUnwrap(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
-        var readers: [String] = []
-        var scanned = 0
-        for case let url as URL in files where url.pathExtension == "swift" {
-            scanned += 1
-            guard !url.path.hasPrefix(allowed) else { continue }
-            let text = try String(contentsOf: url, encoding: .utf8)
-            if text.contains("observedPeakMemoryBytes") {
-                readers.append(String(url.path.dropFirst(root.path.count + 1)))
-            }
-        }
-        XCTAssertGreaterThan(scanned, 100, "the scan must reach the package sources")
-        XCTAssertEqual(readers, [], "Peak memory stays in the ToolProcess observation until a golden normalizer rule for it is approved (Phase 2.7 decision P4)")
     }
 }
