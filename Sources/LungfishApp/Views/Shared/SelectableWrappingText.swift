@@ -82,8 +82,7 @@ struct SelectableWrappingText: NSViewRepresentable {
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: IntrinsicTextView, context: Context) -> CGSize? {
-        guard let width = proposal.width, width > 0 else { return nil }
-        return CGSize(width: width, height: nsView.fittingHeight(for: width))
+        nsView.fittingSize(forProposedWidth: proposal.width)
     }
 }
 
@@ -97,6 +96,8 @@ final class IntrinsicTextView: NSTextView {
 
     override func layout() {
         super.layout()
+        // Text wraps at the width the view has, whatever widths SwiftUI measured it at.
+        wrap(atWidth: bounds.width)
         let roundedWidth = bounds.width.rounded(.toNearestOrAwayFromZero)
         if abs(roundedWidth - lastIntrinsicLayoutWidth) > 0.5 {
             lastIntrinsicLayoutWidth = roundedWidth
@@ -104,12 +105,35 @@ final class IntrinsicTextView: NSTextView {
         }
     }
 
+    /// The size SwiftUI should give the view for a proposed width.
+    ///
+    /// SwiftUI also asks with no width and with an infinite one, to learn how flexible the view is.
+    /// Neither has a width to wrap at, so both mean the width the view has now. A zero or negative
+    /// width, or no width yet, has no size to answer.
+    func fittingSize(forProposedWidth proposed: CGFloat?) -> CGSize? {
+        let width = proposed.flatMap { $0.isFinite ? $0 : nil } ?? bounds.width
+        guard width > 0 else { return nil }
+        return CGSize(width: width, height: fittingHeight(for: width))
+    }
+
+    /// The height the text needs at `width`. Measuring leaves the text wrapped at the width the view has.
     func fittingHeight(for width: CGFloat) -> CGFloat {
         guard let layoutManager, let textContainer else { return 0 }
         guard width > 0 else { return ceil(font?.lineHeight ?? 0) }
-        textContainer.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        wrap(atWidth: width)
         layoutManager.ensureLayout(for: textContainer)
-        return ceil(layoutManager.usedRect(for: textContainer).height)
+        let height = ceil(layoutManager.usedRect(for: textContainer).height)
+        wrap(atWidth: bounds.width)
+        return height
+    }
+
+    /// Wraps the text at `width`, which a view that has no width yet leaves as it is.
+    private func wrap(atWidth width: CGFloat) {
+        guard let textContainer, width > 0 else { return }
+        let size = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        if textContainer.containerSize != size {
+            textContainer.containerSize = size
+        }
     }
 }
 
