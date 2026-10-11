@@ -41,13 +41,23 @@ A record that a later run rewrites, such as a provenance record, goes through `D
 
 `DurableReplace.transaction` groups many publications under one flush, so a bundle that writes 101 records flushes the drive once. `ProvenanceWriter` writes rewrites, signed writes and observed writes this way. A first write that replaces nothing keeps `DurableAtomicFileStore.create`, which never replaces a file, and joins the same flush.
 
+Five other record writers publish through `DurableReplace` too. Each file goes out in one call that names the file and its folder, so its name holds a complete old or new file at every step and no stage file stays behind.
+
+- `BundleManifest.save(to:)` in `Sources/LungfishCore/Bundles/BundleManifest.swift` publishes `manifest.json`.
+- `AnalysesFolder.writeAnalysisMetadata(_:to:)` in `Sources/LungfishIO/Bundles/AnalysesFolder.swift` publishes `analysis-metadata.json`.
+- `DependencyReceiptStore.save(_:)` in `Sources/LungfishWorkflow/Dependencies/DependencyReceiptStore.swift` publishes `dependency-receipt.json`.
+- `MappingProvenance.save(to:)` in `Sources/LungfishWorkflow/Mapping/MappingProvenance.swift` publishes `mapping-provenance.json`.
+- `GenotypeAnnotationPublicationCoordinator` in `Sources/LungfishGenotypeUI/GenotypeAnnotationPublicationCoordinator.swift` publishes `annotations.json` and its provenance record inside one transaction and rolls both back when either fails.
+
+The genotype coordinator also restores a name that an interrupted ExFAT swap emptied before it reads its snapshot, so an edit is never built from nothing. `DurableReplace` never replaces a link, so the coordinator first turns a link that the earlier generation-based annotation store left under either name into a file that holds the same bytes.
+
 Before it stages, a publication restores a name that holds nothing from its newest leftover that holds bytes. A leftover is a `.lungfish-swap-` tombstone or an aside the caller names, such as the `.<name>.provenance-displaced-<UUID>` copy that earlier releases left when a rewrite stopped halfway. An empty file under the name beside such a leftover is the reservation of a rename that never ran, and it gives way to the leftover. A caller whose observer saw the name empty passes `Recovery.none`, so the observer's receipt still holds. `DurableReplace.recover` runs the same restore on its own. Inside a project, opening the project restores an entry an empty reservation holds before anything reads it. Outside a project the next write of the record restores it, because a read runs no recovery.
 
 ## Opening a folder without following links
 
 A durable writer opens its folder with `NoFollowFileSystem.openDirectoryHierarchy` in LungfishCore. Inside a project or bundle the walk starts at the outermost `.lungfish*` folder. It follows links above that folder and refuses a link below it. Outside every project and bundle the folder itself is the anchor, so a conda root under a storage folder that moved to an external drive and was linked back still opens. A folder that is itself a link is refused in both cases, except `/tmp` and `/var`, the links macOS installs, which open through `/private`.
 
-`DurableReplace` publishes provenance records into the folder a command writes to, so it opens that folder with `NoFollowFileSystem.openDestinationFolder` instead. Inside a project or bundle the two opens agree. Outside every project and bundle the destination may itself be a link, such as an output folder the user reaches through one, and it opens as the real folder it names. The first write that keeps `DurableAtomicFileStore.create` still opens with `openDirectoryHierarchy`, so it refuses such a destination. A folder outside every project opens by its full path, so a link above it, or a record destination that is a link, may lead into a project and through that project's links. The threat model accepts both, and no LGE writer reaches a project that way.
+`DurableReplace` publishes provenance records into the folder a command writes to, so it opens that folder with `NoFollowFileSystem.openDestinationFolder` instead. The five record writers above open their folders the same way, so a link below a `.lungfish*` anchor is refused for them too, and a storage folder outside every project may be a link. Inside a project or bundle the two opens agree. Outside every project and bundle the destination may itself be a link, such as an output folder the user reaches through one, and it opens as the real folder it names. The first write that keeps `DurableAtomicFileStore.create` still opens with `openDirectoryHierarchy`, so it refuses such a destination. A folder outside every project opens by its full path, so a link above it, or a record destination that is a link, may lead into a project and through that project's links. The threat model accepts both, and no LGE writer reaches a project that way.
 
 ## What differs on ExFAT
 
@@ -89,5 +99,7 @@ bash scripts/testing/exfat-tests.sh --simulate
 This mode runs every suite that renames, on the normal disk, with `LUNGFISH_SIMULATE_UNSUPPORTED_RENAME_FLAGS=1`. A Debug build then sends every `PortableRename` call down its fallback, in every thread. A suite whose name holds `Durability` runs in this mode too, so name the tests of a writer that replaces files through `DurableReplace` that way.
 
 `ProvenanceWriterDurabilityTests` holds the fault matrix. It fails one step of a write, or ends a child test process right after it, at every step `DurableReplace` and `PortableRename` take. After each fault the record's name must hold the old or the new record, before any recovery on APFS and after recovery on ExFAT, and the sidecar finder must return that record. The same matrix runs on the disk image in the first mode.
+
+The five record writers above each have a class that counts one publication through the same seam, fails each step and each rename of a rewrite in turn, and checks the name afterwards. They are `BundleManifestDurabilityTests`, `AnalysesFolderDurabilityTests`, `DependencyReceiptStoreDurabilityTests`, `MappingProvenanceDurabilityTests` and `GenotypeAnnotationPublicationDurabilityTests`. Each one runs the matrix on the disk image too, in a test with `ExFAT` in its name.
 
 Run both before merging any change that adds or edits a call in the tables above.
