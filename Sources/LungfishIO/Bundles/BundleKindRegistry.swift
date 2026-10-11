@@ -7,7 +7,7 @@ import Foundation
 /// The known kinds of Lungfish folder, with the facts today's code applies to each.
 ///
 /// Eleven tables across the app map a folder extension to a fact about a bundle, and they
-/// disagree. This registry holds the facts once. It converts no caller yet. Every value here is
+/// disagree. This registry holds the facts once. Six of those tables read it since lane B7. Every value here is
 /// frozen by `BundleKindParityTests` in the App tests, which records what each table answers, and
 /// `BundleKindRegistryTests` checks the facts below against that record. A caller that reads the
 /// registry must keep the answer its old table gave, case rules included.
@@ -118,7 +118,7 @@ public enum BundleKindRegistry {
             appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: []
         ),
         // The 12S reference database is its own kind (plan row S10). The sidebar has no viewport for it
-        // yet, so it stays a walked document row, and FileTypeUtility calling it a genome reference is a known mismatch.
+        // yet, so it stays a walked document row, and FileTypeUtility no longer calls it a reference bundle.
         BundleKindDescriptor(
             id: .twelveSReference, role: .bundle, folderExtensions: ["lungfish12sref"],
             manifestFileName: "12s-reference.json", recognition: .extensionAndManifest, utTypeIdentifier: nil,

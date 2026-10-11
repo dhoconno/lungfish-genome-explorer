@@ -85,8 +85,7 @@ public enum FileTypeUtility {
     }()
 
     /// The UI category of each bundle kind this utility names. Every other Lungfish folder is unknown to it.
-    /// The 12S reference database is not listed. It is its own kind and not a genome reference (plan row S10),
-    /// so it is unknown here like every other kind that has no viewer of its own.
+    /// The 12S reference database is not listed, because it is its own kind and not a genome reference (plan row S10).
     private static let bundleCategories: [BundleKindID: UICategory] = [
         .reference: .referenceBundle,
         .mhcReference: .referenceBundle,

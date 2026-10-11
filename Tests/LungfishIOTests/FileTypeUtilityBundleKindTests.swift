@@ -6,9 +6,9 @@ import XCTest
 @testable import LungfishIO
 
 /// Pins what `FileTypeUtility` answers for the Lungfish folder kinds. The answers come from
-/// `BundleKindRegistry` (Phase 2.6, lane B7), and `BundleKindParityTests` in the App tests freezes the
-/// same answers through the sidebar and the import log. These tests run in the IO target alone, so a
-/// registry edit that moves a category fails here first.
+/// `BundleKindRegistry` (Phase 2.6, lane B7), and the `fileType.detect` rows of `BundleKindParityTests` in the
+/// App tests freeze the same answers. These tests run in the IO target alone, so a registry edit that moves
+/// a category fails here first.
 final class FileTypeUtilityBundleKindTests: XCTestCase {
     /// The two kinds `FileTypeUtility` calls a reference bundle. The FASTQ bundle is the only other kind it names.
     private static let referenceKinds: [BundleKindID] = [.reference, .mhcReference]
@@ -54,7 +54,7 @@ final class FileTypeUtilityBundleKindTests: XCTestCase {
     }
 
     /// The 12S reference database is its own kind and not a genome reference (plan row S10). FileTypeUtility
-    /// listed it as a reference bundle, so the import log counted it as a genomics format.
+    /// listed it as a reference bundle, so `ImportService.detectFormat` returned it as a genomics format.
     func testTwelveSReferenceIsItsOwnKindAndNotAGenomeReferenceBundle() throws {
         let ext = try folderExtension(of: .twelveSReference)
         for spelling in [ext, ext.uppercased()] {
