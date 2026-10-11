@@ -311,7 +311,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         )
 
         let url = directory.appendingPathComponent(Self.filename)
-        try PortablePath.sanitizeJSON(data, forFileAt: url, encoder: encoder).write(to: url, options: .atomic)
+        try DurableReplace.replace(PortablePath.sanitizeJSON(data, forFileAt: url, encoder: encoder), named: Self.filename, in: directory)
     }
 
     @discardableResult
