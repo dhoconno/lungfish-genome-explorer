@@ -1,4 +1,4 @@
-// ONTSampleSplitEventStreamTests.swift - The progress lines and the outputs of the two ONT sample split commands
+// ONTSampleSplitEventStreamTests.swift - The event lines and the outputs of the two ONT sample split commands
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -6,21 +6,23 @@ import CryptoKit
 import Foundation
 import XCTest
 import LungfishIO
-import LungfishTestSupport
 @testable import LungfishCLI
 @testable import LungfishWorkflow
 
 /// Plan decisions S8 and S9. `fastq ont-fluidigm-samples` and `fastq ont-pacbio-barcode-demux`
-/// print progress on standard error, and the FASTQ operation family reads it from there. Each
-/// test runs a command in process on a small fixture with both standard streams redirected to
-/// files for the length of the run, so the channel is part of what is pinned.
+/// print `CLIEvent` lines on standard error, and the FASTQ operation family reads them from there.
+/// Each test runs a command in process on a small fixture with both standard streams redirected
+/// to files for the length of the run, so the channel is part of what is pinned. The commands
+/// printed a private progress shape on that channel before lane C6 moved them to the shared
+/// emitter, and `docs/formats/cli-events.md` describes the lines that they print now.
 ///
-/// The progress lines are one pin and the outputs are another. The outputs digest names each
+/// The event lines are one pin and the outputs are another. The outputs digest names each
 /// file under the output folder, with a payload gunzipped, the scratch folder rewritten to
 /// `/work` and the values that change from run to run removed. A record sidecar holds times and
-/// ids, so only its name counts. The digest stays the same through the move to `CLIEvent`
-/// lines, which is how the lane shows that the demultiplexed reads and the manifests are the
-/// same bytes. The two commands print one result document on standard output as well.
+/// ids, so only its name counts. The digest was taken before the move to `CLIEvent` lines and
+/// has not changed since, which is how the lane shows that the demultiplexed reads and the
+/// manifests are the same bytes. The two commands print one result document on standard output
+/// as well, which has not changed either.
 final class ONTSampleSplitEventStreamTests: XCTestCase {
     private var root: URL!
 
@@ -70,49 +72,96 @@ final class ONTSampleSplitEventStreamTests: XCTestCase {
         return (streams, output)
     }
 
-    // MARK: The progress lines
+    // MARK: The event lines
 
-    func testFluidigmSamplesPrintsItsProgressOnStandardError() async throws {
+    func testFluidigmSamplesPrintsItsEventsOnStandardError() async throws {
         let run = try await fluidigmRun()
 
-        let lines = try Self.progressLines(run.streams.standardError)
-        XCTAssertEqual(lines.map(\.message), [
-            "Preparing ONT Fluidigm sample split.",
-            "Found 1 ONT FASTQ chunk.",
-            "Scanning chunk 1/1: fluidigm-reads.fastq",
-            "Scanned chunk 1/1: 2 reads.",
-            "Writing 1 sample bundle.",
-            "Writing ONT Fluidigm sample manifest.",
-            "ONT Fluidigm sample split complete.",
+        let lines = try Self.eventLines(run.streams.standardError)
+        let sample = run.output.appendingPathComponent("LF2871.lungfishfastq").path
+        let manifest = run.output.appendingPathComponent("ont-fluidigm-counted-samples-manifest.json").path
+        assertEvents(lines.compactMap(\.event), [
+            .start(message: "Starting the ONT Fluidigm sample split."),
+            .progress(fraction: 0.02, message: "Preparing ONT Fluidigm sample split."),
+            .progress(fraction: 0.08, message: "Found 1 ONT FASTQ chunk."),
+            .progress(fraction: 0.1, message: "Scanning chunk 1/1: fluidigm-reads.fastq"),
+            .progress(fraction: 0.8, message: "Scanned chunk 1/1: 2 reads."),
+            .progress(fraction: 0.84, message: "Writing 1 sample bundle."),
+            .progress(fraction: 0.92, message: "Writing ONT Fluidigm sample manifest."),
+            .progress(fraction: 1.0, message: "ONT Fluidigm sample split complete."),
+            .complete(
+                outputs: [run.output.path, manifest, sample],
+                message: "1 sample bundle(s), 2 of 2 reads assigned"
+            ),
         ])
-        assertProgress(lines.map(\.progress), [0.02, 0.08, 0.1, 0.8, 0.84, 0.92, 1.0])
-        XCTAssertEqual(Set(lines.flatMap(\.keys)), ["event", "message", "operation", "progress"])
-        XCTAssertEqual(Set(lines.map(\.operation)), ["ontFluidigmSamples"])
-        XCTAssertFalse(run.streams.standardOutput.contains(#""event""#), "Standard output holds the result document, never a progress line")
+        try assertEveryLineIsAVersion2EventLine(run.streams.standardError)
+        XCTAssertFalse(run.streams.standardOutput.contains(#""event""#), "Standard output holds the result document, never an event line")
     }
 
-    func testPacBioBarcodeDemuxPrintsItsProgressOnStandardError() async throws {
+    func testPacBioBarcodeDemuxPrintsItsEventsOnStandardError() async throws {
         let run = try await pacBioRun()
 
-        let lines = try Self.progressLines(run.streams.standardError)
-        XCTAssertEqual(lines.map(\.message), [
-            "Running exact PacBio barcode demultiplexing on 1 ONT FASTQ chunk(s)",
-            "Starting exact barcode demultiplexing...",
-            "Building results...",
-            "Demultiplexing complete.",
-            "Materializing exact PacBio sample FASTQ bundles...",
-            "Finalizing exact PacBio sample FASTQ bundles...",
-            "PacBio barcode demultiplexing complete",
+        let lines = try Self.eventLines(run.streams.standardError)
+        let sample = run.output.appendingPathComponent("32286-001_DL46.lungfishfastq").path
+        let manifest = run.output.appendingPathComponent("ont-pacbio-barcode-demux-manifest.json").path
+        assertEvents(lines.compactMap(\.event), [
+            .start(message: "Starting PacBio barcode demultiplexing."),
+            .progress(fraction: 0.02, message: "Running exact PacBio barcode demultiplexing on 1 ONT FASTQ chunk(s)"),
+            .progress(fraction: 0.02, message: "Starting exact barcode demultiplexing..."),
+            .progress(fraction: 0.666, message: "Building results..."),
+            .progress(fraction: 0.7, message: "Demultiplexing complete."),
+            .progress(fraction: 0.72, message: "Materializing exact PacBio sample FASTQ bundles..."),
+            .progress(fraction: 0.92, message: "Finalizing exact PacBio sample FASTQ bundles..."),
+            .progress(fraction: 1.0, message: "PacBio barcode demultiplexing complete"),
+            .complete(
+                outputs: [run.output.path, manifest, sample],
+                message: "1 sample bundle(s), 2 of 2 reads assigned"
+            ),
         ])
-        assertProgress(lines.map(\.progress), [0.02, 0.02, 0.666, 0.7, 0.72, 0.92, 1.0])
-        XCTAssertEqual(Set(lines.flatMap(\.keys)), ["event", "message", "operation", "progress"])
-        XCTAssertEqual(Set(lines.map(\.operation)), ["ontPacBioBarcodeDemux"])
-        XCTAssertFalse(run.streams.standardOutput.contains(#""event""#), "Standard output holds the result document, never a progress line")
+        try assertEveryLineIsAVersion2EventLine(run.streams.standardError)
+        XCTAssertFalse(run.streams.standardOutput.contains(#""event""#), "Standard output holds the result document, never an event line")
     }
 
-    /// The FASTQ operation family decodes standard error with `CLIEventLineDecoder`. The
-    /// private shape reads as `progress` events by accident, and this fixes what the dialog
-    /// is shown, whatever the shape of the lines.
+    /// A run that throws after its start ends the stream with one `failed` line, which the FASTQ
+    /// family keeps as the failure text, and the command still fails.
+    func testARunIntoAnExistingFolderEndsInOneFailedLine() async throws {
+        let read = ONTFluidigmAmpliconMaterializer.defaultForwardPrimer + "ACGTACGTACGTACGT"
+            + Self.reverseComplement(ONTFluidigmAmpliconMaterializer.defaultReversePrimer) + "CC" + "AAAACCCCGG"
+        let input = try writeFASTQ("existing-reads.fastq", reads: [read])
+        let barcodes = root.appendingPathComponent("existing-samples.csv")
+        try "sample,barcode\nLF2871,AAAACCCCGG\n".write(to: barcodes, atomically: true, encoding: .utf8)
+        let output = root.appendingPathComponent("existing", isDirectory: true)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let command = try FastqONTFluidigmSamplesSubcommand.parse(
+            [input.path, "--barcodes", barcodes.path, "--output", output.path]
+        )
+
+        var thrown: Error?
+        let streams = try await capturingStandardStreams {
+            do { try await command.run() } catch { thrown = error }
+        }
+
+        XCTAssertNotNil(thrown, "The command fails, which the app reads from the exit status")
+        let events = try Self.eventLines(streams.standardError).compactMap(\.event)
+        XCTAssertEqual(events.first, .start(message: "Starting the ONT Fluidigm sample split."))
+        XCTAssertEqual(
+            events.last,
+            .failed(message: "Output directory already exists: \(output.path). Use --force to replace it.", detail: nil)
+        )
+        XCTAssertEqual(events.filter(Self.isTerminal).count, 1, "One terminal event")
+    }
+
+    private static func isTerminal(_ event: CLIEvent) -> Bool {
+        switch event {
+        case .complete, .failed: return true
+        case .start, .progress, .log, .output: return false
+        }
+    }
+
+    /// The FASTQ operation family decodes standard error with `CLIEventLineDecoder` and shows
+    /// each `progress`, `start` and `log` event, so the dialog sees the same progress that it saw
+    /// from the private shape, with the start line in front. A `complete` line is not shown, and
+    /// a `failed` line is kept as the failure text.
     func testTheFASTQFamilyReadsTheSameProgressFromTheLines() async throws {
         let fluidigm = try await fluidigmRun()
         let decoder = CLIEventLineDecoder()
@@ -196,16 +245,23 @@ final class ONTSampleSplitEventStreamTests: XCTestCase {
         )
     }
 
-    /// The materializers compute some fractions by arithmetic, so 0.8 can arrive as 0.7999999999999999.
-    private func assertProgress(
-        _ actual: [Double],
-        _ expected: [Double],
+    /// The events in order. The materializers compute some fractions by arithmetic, so 0.8 can
+    /// arrive as 0.7999999999999999, and a progress event matches within a billionth.
+    private func assertEvents(
+        _ actual: [CLIEvent],
+        _ expected: [CLIEvent],
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
         XCTAssertEqual(actual.count, expected.count, "\(actual)", file: file, line: line)
         for (index, pair) in zip(actual, expected).enumerated() {
-            XCTAssertEqual(pair.0, pair.1, accuracy: 1e-9, "progress line \(index + 1)", file: file, line: line)
+            if case let .progress(actualFraction, actualMessage) = pair.0,
+               case let .progress(expectedFraction, expectedMessage) = pair.1 {
+                XCTAssertEqual(actualMessage, expectedMessage, "event \(index + 1)", file: file, line: line)
+                XCTAssertEqual(actualFraction, expectedFraction, accuracy: 1e-9, "event \(index + 1)", file: file, line: line)
+            } else {
+                XCTAssertEqual(pair.0, pair.1, "event \(index + 1)", file: file, line: line)
+            }
         }
     }
 
@@ -276,31 +332,40 @@ final class ONTSampleSplitEventStreamTests: XCTestCase {
 
     // MARK: Reading the streams
 
-    private struct ProgressLine {
-        let keys: [String]
-        let operation: String
-        let message: String
-        let progress: Double
-    }
-
     private static func lines(_ text: String) -> [String] {
         text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
     }
 
-    /// The lines of standard error as the private progress shape, each a JSON object.
-    private static func progressLines(_ standardError: String) throws -> [ProgressLine] {
-        try lines(standardError).map { line in
+    /// The lines of standard error, each decoded as one event line of the shared format.
+    private static func eventLines(_ standardError: String) throws -> [CLIEventLine] {
+        let decoder = CLIEventLineDecoder()
+        return try lines(standardError).map { line in
+            try XCTUnwrap(try decoder.decodeLine(line), "Not an event line: \(line)")
+        }
+    }
+
+    /// Every line is one JSON object of version 2 with the keys of its event, none carries the
+    /// `operation` key of the private shape, and the run ends in exactly one terminal event.
+    private func assertEveryLineIsAVersion2EventLine(
+        _ standardError: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        for text in Self.lines(standardError) {
             let object = try XCTUnwrap(
-                try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any], "Not a JSON object: \(line)"
+                try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
+                "Not a JSON object: \(text)", file: file, line: line
             )
-            XCTAssertEqual(object["event"] as? String, "progress", line)
-            return ProgressLine(
-                keys: object.keys.sorted(),
-                operation: object["operation"] as? String ?? "",
-                message: object["message"] as? String ?? "",
-                progress: object["progress"] as? Double ?? -1
+            XCTAssertEqual(object["schemaVersion"] as? Int, 2, text, file: file, line: line)
+            XCTAssertNil(object["operation"], "The private shape's operation key is gone: \(text)", file: file, line: line)
+            XCTAssertTrue(
+                Set(object.keys).isSubset(of: ["event", "message", "progress", "outputs", "output", "schemaVersion", "error"]),
+                text, file: file, line: line
             )
         }
+        let events = try Self.eventLines(standardError).compactMap(\.event)
+        XCTAssertEqual(events.filter(Self.isTerminal).count, 1, "One terminal event", file: file, line: line)
+        XCTAssertTrue(events.last.map(Self.isTerminal) == true, "The terminal event is last", file: file, line: line)
     }
 
     private struct Streams {

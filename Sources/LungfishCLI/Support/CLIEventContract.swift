@@ -13,8 +13,8 @@
 // How a leaf earns each case.
 //
 //   .events   The leaf prints `CLIEvent` lines (docs/formats/cli-events.md) when its
-//             switch is on. Its transcripts live in Tests/Fixtures/cli-events/commands,
-//             in a folder named by the path with hyphens.
+//             switch is on, or on every run when it has none. Its transcripts live in
+//             Tests/Fixtures/cli-events/commands, in a folder named by the path with hyphens.
 //   .result   The leaf prints one JSON document to standard output, when its JSON switch
 //             is on or on every run. The id names the shape of that document. It is the
 //             path with hyphens unless the shape is shared or an inventory id names it.
@@ -32,8 +32,9 @@
 /// What a leaf command writes for a machine reader (plan decision S18).
 public enum CLIEventContract: Sendable, Equatable {
     /// Emits `CLIEvent` lines. `flag` is the switch that turns them on
-    /// (`--format json`, or `--json-events` for `assemble`), and `channel`
-    /// is where they go.
+    /// (`--format json`, or `--json-events` for `assemble`, or
+    /// ``CLIEventContractTable/alwaysOn`` for a leaf that prints them on every run),
+    /// and `channel` is where they go.
     case events(flag: String, channel: Channel)
     /// Prints one JSON result object, named by a schema id, not a Swift type,
     /// because some decode in App (architecture correction 8).
@@ -65,17 +66,22 @@ public enum CLIEventContractTable {
 
     private static let formatJSON = "--format json"
     private static let jsonEvents = "--json-events"
+    /// The two ONT FASTQ commands print events on every run, with no switch, because the FASTQ
+    /// operation family runs them without `--format json` and reads standard error until 2.8.
+    static let alwaysOn = "no switch, every run"
     private static let ignoresFormat = "lists --format json and ignores it, 2.10 to 2.12"
     private static let humanTextOnly = "text output only, lists no machine switch"
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
-    // MARK: Leaves that emit events (25)
+    // MARK: Leaves that emit events (27)
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
         "assemble": .events(flag: jsonEvents, channel: .standardError),
         "bam primer-trim": .events(flag: formatJSON, channel: .standardOutput),
+        "fastq ont-fluidigm-samples": .events(flag: alwaysOn, channel: .standardError),
+        "fastq ont-pacbio-barcode-demux": .events(flag: alwaysOn, channel: .standardError),
         "fastq platform": .events(flag: formatJSON, channel: .standardOutput),
         "import application-export": .events(flag: formatJSON, channel: .standardOutput),
         "import geneious": .events(flag: formatJSON, channel: .standardOutput),
@@ -178,7 +184,7 @@ public enum CLIEventContractTable {
         "workflow validate": .result(schemaID: "workflow-validate"),
     ]
 
-    // MARK: Private stream shapes still in use (16 leaves)
+    // MARK: Private stream shapes still in use (14 leaves)
 
     // `fastq genotype`, `genotype-cohort`, `ont-barcode-genotype` and `full-length-ont-mhc-genotype`
     // also print R3 on standard error beside their document, so the lane that retires R3 converts
@@ -196,8 +202,6 @@ public enum CLIEventContractTable {
         "fastq 12s-reference-bundle": .legacy(schemaID: "r3-twelve-s-progress-text", removeBy: "2.8"),
         "fastq full-length-ont-mhc-genotype": .legacy(schemaID: "r2-full-length-ont-mhc", removeBy: "2.8"),
         "fastq ont-barcode-genotype": .legacy(schemaID: "r1-ont-barcode-genotyping", removeBy: "2.8"),
-        "fastq ont-fluidigm-samples": .legacy(schemaID: "s8-ont-fluidigm-progress", removeBy: "2.6"),
-        "fastq ont-pacbio-barcode-demux": .legacy(schemaID: "s9-ont-pacbio-demux-progress", removeBy: "2.6"),
         "import fastq": .legacy(schemaID: "s1-import-fastq", removeBy: "2.7"),
         "import-fastq": .legacy(schemaID: "s1-import-fastq", removeBy: "2.7"),
     ]

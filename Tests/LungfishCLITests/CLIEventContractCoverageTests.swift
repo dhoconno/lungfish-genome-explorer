@@ -76,7 +76,7 @@ final class CLIEventContractCoverageTests: XCTestCase {
     func testEveryEventsLeafHelpListsTheDeclaredSwitch() throws {
         var checked = 0
         for (path, contract) in CLIEventContractTable.entries.sorted(by: { $0.key < $1.key }) {
-            guard case let .events(flag, _) = contract else { continue }
+            guard case let .events(flag, _) = contract, flag != CLIEventContractTable.alwaysOn else { continue }
             let help = try Self.helpText(forLeaf: path)
             let options = Self.optionBlocks(in: help)
             let parts = flag.split(separator: " ").map(String.init)
@@ -93,12 +93,12 @@ final class CLIEventContractCoverageTests: XCTestCase {
             }
             checked += 1
         }
-        let eventsRows = CLIEventContractTable.entries.values.filter {
-            if case .events = $0 { return true }
+        let switchedRows = CLIEventContractTable.entries.values.filter {
+            if case let .events(flag, _) = $0 { return flag != CLIEventContractTable.alwaysOn }
             return false
         }
         XCTAssertGreaterThan(checked, 0)
-        XCTAssertEqual(checked, eventsRows.count, "Every row that emits events had its help read")
+        XCTAssertEqual(checked, switchedRows.count, "Every row that emits events behind a switch had its help read")
     }
 
     func testTheHelpCheckCanFail() throws {
@@ -117,16 +117,23 @@ final class CLIEventContractCoverageTests: XCTestCase {
     }
 
     func testEveryEventsRowDeclaresAKnownSwitchAndChannel() {
-        let known: Set<String> = ["--format json", "--json-events"]
+        let known: Set<String> = ["--format json", "--json-events", CLIEventContractTable.alwaysOn]
+        var alwaysOn: [String] = []
         for (path, contract) in CLIEventContractTable.entries {
             guard case let .events(flag, channel) = contract else { continue }
             XCTAssertTrue(known.contains(flag), "\(path) declares the unknown switch '\(flag)'")
             XCTAssertEqual(
                 channel == .standardError,
-                flag == "--json-events",
-                "Only assemble keeps its events on standard error until 2.8"
+                flag != "--format json",
+                "Only assemble and the two ONT FASTQ commands keep their events on standard error until 2.8"
             )
+            if flag == CLIEventContractTable.alwaysOn { alwaysOn.append(path) }
         }
+        XCTAssertEqual(
+            alwaysOn.sorted(),
+            ["fastq ont-fluidigm-samples", "fastq ont-pacbio-barcode-demux"],
+            "The FASTQ operation family runs these two without --format json, so they print events on every run"
+        )
     }
 
     // MARK: Legacy rows
@@ -140,8 +147,6 @@ final class CLIEventContractCoverageTests: XCTestCase {
     /// all six leaves.
     private static let shapesLeft: [String: (removeBy: String, leaves: [String])] = [
         "s1-import-fastq": ("2.7", ["import fastq", "import-fastq"]),
-        "s8-ont-fluidigm-progress": ("2.6", ["fastq ont-fluidigm-samples"]),
-        "s9-ont-pacbio-demux-progress": ("2.6", ["fastq ont-pacbio-barcode-demux"]),
         "s10-bam-filter": ("2.9", ["bam filter"]),
         "s11-bam-annotate": ("2.9", ["bam annotate"]),
         "s12-bam-annotate-best": ("2.9", ["bam annotate-best"]),
@@ -178,9 +183,9 @@ final class CLIEventContractCoverageTests: XCTestCase {
             if case .legacy = $0 { return true }
             return false
         }
-        XCTAssertEqual(found.count, 12, "Twelve private shapes are left")
+        XCTAssertEqual(found.count, 10, "Ten private shapes are left")
         XCTAssertEqual(legacyRows.count, Self.shapesLeft.values.map(\.leaves.count).reduce(0, +))
-        XCTAssertEqual(legacyRows.count, 16, "Sixteen leaves still print one of them")
+        XCTAssertEqual(legacyRows.count, 14, "Fourteen leaves still print one of them")
     }
 
     func testEveryLegacyRowNamesAFutureSubPhase() {
@@ -228,8 +233,8 @@ final class CLIEventContractCoverageTests: XCTestCase {
             case .text: counts["text", default: 0] += 1
             }
         }
-        XCTAssertEqual(counts["events"], 25)
-        XCTAssertEqual(counts["legacy"], 16)
+        XCTAssertEqual(counts["events"], 27)
+        XCTAssertEqual(counts["legacy"], 14)
         XCTAssertEqual(counts.values.reduce(0, +), CLIEventContractTable.entries.count)
     }
 

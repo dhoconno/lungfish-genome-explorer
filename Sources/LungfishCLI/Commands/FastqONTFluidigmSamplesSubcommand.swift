@@ -11,8 +11,6 @@ import LungfishWorkflow
 // MARK: - ONT Fluidigm Sample Materialization
 
 struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
-    private static let progressEmitLock = NSLock()
-
     static let configuration = CommandConfiguration(
         commandName: "ont-fluidigm-samples",
         abstract: "Materialize counted per-sample ONT Fluidigm amplicon FASTQs",
@@ -64,6 +62,25 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
             throw ValidationError("--minimum-insert-length must be positive.")
         }
 
+        try await execute(emit: printStatusLine)
+    }
+
+    /// Splits the reads and writes the events of the run through `emit`, one line each. The events go
+    /// to standard error until 2.8, because the FASTQ operation family reads that stream, and the
+    /// command prints its result document on standard output, as it always did. A throw after the
+    /// start ends the stream with one `failed` line (plan decision S8).
+    func execute(emit: @escaping (String) -> Void) async throws {
+        let events = CLIEventEmitter(enabled: true, emit: emit)
+        events.emitStart("Starting the ONT Fluidigm sample split.")
+        do {
+            try await materialize(reporting: events)
+        } catch {
+            events.emitFailed(error.localizedDescription)
+            throw error
+        }
+    }
+
+    private func materialize(reporting events: CLIEventEmitter) async throws {
         let inputURL = URL(fileURLWithPath: input)
         let barcodeURL = URL(fileURLWithPath: barcodes)
         let outputURL = URL(fileURLWithPath: output, isDirectory: true)
@@ -79,7 +96,7 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
             threads: threads
         )
         let result = try await ONTFluidigmAmpliconMaterializer().run(request) { fraction, message in
-            emitProgress(fraction, message)
+            events.emitProgress(fraction, message: message)
         }
 
         // The argv each sample bundle records, so the envelope and the
@@ -168,22 +185,10 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
         FileHandle.standardOutput.write(data)
         FileHandle.standardOutput.write(Data("\n".utf8))
-    }
 
-    private func emitProgress(_ fraction: Double, _ message: String) {
-        let payload: [String: Any] = [
-            "event": "progress",
-            "operation": "ontFluidigmSamples",
-            "progress": max(0, min(1, fraction)),
-            "message": message,
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
-            return
-        }
-        var line = data
-        line.append(Data("\n".utf8))
-        Self.progressEmitLock.lock()
-        FileHandle.standardError.write(line)
-        Self.progressEmitLock.unlock()
+        events.emitComplete(
+            outputs: [result.outputDirectory.path, result.manifestURL.path] + result.outputBundleURLs.map(\.path),
+            message: "\(result.outputBundleURLs.count) sample bundle(s), \(result.assignedReadCount) of \(result.inputReadCount) reads assigned"
+        )
     }
 }

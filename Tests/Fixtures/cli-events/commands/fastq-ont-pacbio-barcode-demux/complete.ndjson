@@ -1,0 +1,9 @@
+{"event":"start","message":"Starting PacBio barcode demultiplexing.","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Running exact PacBio barcode demultiplexing on 1 ONT FASTQ chunk(s)","progress":0.02,"schemaVersion":2}
+{"event":"progress","message":"Starting exact barcode demultiplexing...","progress":0.02,"schemaVersion":2}
+{"event":"progress","message":"Building results...","progress":0.666,"schemaVersion":2}
+{"event":"progress","message":"Demultiplexing complete.","progress":0.7000000000000001,"schemaVersion":2}
+{"event":"progress","message":"Materializing exact PacBio sample FASTQ bundles...","progress":0.72,"schemaVersion":2}
+{"event":"progress","message":"Finalizing exact PacBio sample FASTQ bundles...","progress":0.92,"schemaVersion":2}
+{"event":"progress","message":"PacBio barcode demultiplexing complete","progress":1,"schemaVersion":2}
+{"event":"complete","message":"1 sample bundle(s), 2 of 2 reads assigned","output":"\/work\/pacbio","outputs":["\/work\/pacbio","\/work\/pacbio\/ont-pacbio-barcode-demux-manifest.json","\/work\/pacbio\/32286-001_DL46.lungfishfastq"],"progress":1,"schemaVersion":2}

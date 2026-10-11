@@ -11,8 +11,6 @@ import LungfishWorkflow
 // MARK: - ONT PacBio Barcode Pair Demultiplexing
 
 struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
-    private static let progressEmitLock = NSLock()
-
     static let configuration = CommandConfiguration(
         commandName: "ont-pacbio-barcode-demux",
         abstract: "Demultiplex full-length MHC ONT amplicons with PacBio barcode pairs",
@@ -65,6 +63,25 @@ struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
             throw ValidationError("--max-bytes-per-cutadapt must be positive.")
         }
 
+        try await execute(emit: printStatusLine)
+    }
+
+    /// Demultiplexes the reads and writes the events of the run through `emit`, one line each. The
+    /// events go to standard error until 2.8, because the FASTQ operation family reads that stream,
+    /// and the command prints its result document on standard output, as it always did. A throw
+    /// after the start ends the stream with one `failed` line (plan decision S9).
+    func execute(emit: @escaping (String) -> Void) async throws {
+        let events = CLIEventEmitter(enabled: true, emit: emit)
+        events.emitStart("Starting PacBio barcode demultiplexing.")
+        do {
+            try await demultiplex(reporting: events)
+        } catch {
+            events.emitFailed(error.localizedDescription)
+            throw error
+        }
+    }
+
+    private func demultiplex(reporting events: CLIEventEmitter) async throws {
         let inputURL = URL(fileURLWithPath: input)
         let barcodeURL = URL(fileURLWithPath: barcodes)
         let outputURL = URL(fileURLWithPath: output, isDirectory: true)
@@ -80,7 +97,7 @@ struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
             maxInputBytesPerCutadapt: maxBytesPerCutadapt
         )
         let result = try await ONTPacBioBarcodeDemuxMaterializer().run(request) { fraction, message in
-            emitProgress(fraction, message)
+            events.emitProgress(fraction, message: message)
         }
 
         var cliArguments = [
@@ -170,23 +187,11 @@ struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
         FileHandle.standardOutput.write(data)
         FileHandle.standardOutput.write(Data("\n".utf8))
-    }
 
-    private func emitProgress(_ fraction: Double, _ message: String) {
-        let payload: [String: Any] = [
-            "event": "progress",
-            "operation": "ontPacBioBarcodeDemux",
-            "progress": max(0, min(1, fraction)),
-            "message": message,
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
-            return
-        }
-        var line = data
-        line.append(Data("\n".utf8))
-        Self.progressEmitLock.lock()
-        FileHandle.standardError.write(line)
-        Self.progressEmitLock.unlock()
+        events.emitComplete(
+            outputs: [result.outputDirectory.path, result.manifestURL.path] + result.outputBundleURLs.map(\.path),
+            message: "\(result.outputBundleURLs.count) sample bundle(s), \(result.assignedReadCount) of \(result.inputReadCount) reads assigned"
+        )
     }
 
     static func provenanceOutputRecords(

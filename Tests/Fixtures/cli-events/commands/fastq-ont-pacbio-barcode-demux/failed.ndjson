@@ -1,0 +1,2 @@
+{"event":"start","message":"Starting PacBio barcode demultiplexing.","progress":0,"schemaVersion":2}
+{"error":"Output directory already exists: \/work\/pacbio. Use --force to replace it.","event":"failed","schemaVersion":2}

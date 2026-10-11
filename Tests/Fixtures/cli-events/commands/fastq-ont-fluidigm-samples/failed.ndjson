@@ -1,0 +1,3 @@
+{"event":"start","message":"Starting the ONT Fluidigm sample split.","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Preparing ONT Fluidigm sample split.","progress":0.02,"schemaVersion":2}
+{"error":"Output directory already exists: \/work\/fluidigm. Use --force to replace it.","event":"failed","schemaVersion":2}

@@ -68,7 +68,7 @@ The contract table `CLIEventContractTable` names the leaf commands that emit eve
 
 ### Captured in process
 
-The leaves that need no external tool ran in process on a small fixture, as the version 1 captures did. A command with a test seam handed its lines to a capturing sink. `fastq platform` and the four import commands have none, so their standard output was redirected for the length of the run, and `ImportStreamCapture` builds the fixtures of the four import commands. The scratch folder is rewritten to `/work` in its plain and slash-escaped spellings, and nothing else is edited.
+The leaves that need no external tool ran in process on a small fixture, as the version 1 captures did. A command with a test seam handed its lines to a capturing sink. `fastq platform` and the four import commands have none, so their standard output was redirected for the length of the run, and `ImportStreamCapture` builds the fixtures of the four import commands. The two ONT split commands print their events on standard error, so their `execute(emit:)` seam handed the lines to the sink. The scratch folder is rewritten to `/work` in its plain and slash-escaped spellings, and nothing else is edited.
 
 `CLIEventTranscriptCoverageTests` runs the same captures again and fails when a line differs from its file. After a deliberate change to an emitter, run that suite with `LUNGFISH_RECAPTURE_CLI_EVENTS=1`, which writes the files instead of comparing them, and review the diff.
 
@@ -91,6 +91,8 @@ A failed run is kept only when Lungfish wrote its message. A Foundation message 
 | `tree-reroot` | `complete`, `failed` | `tree reroot` on a tip, then on a node that does not exist |
 | `tree-extract-subtree` | `complete`, `failed` | `tree extract-subtree` by node, then by a node that does not exist |
 | `tree-relabel` | `complete` | `tree relabel` from a metadata column |
+| `fastq-ont-fluidigm-samples` | `complete`, `failed` | `fastq ont-fluidigm-samples` on two reads that carry both Fluidigm primers and one barcode, then on an output folder that already exists |
+| `fastq-ont-pacbio-barcode-demux` | `complete`, `failed` | `fastq ont-pacbio-barcode-demux` on two reads between one barcode pair, then on an output folder that already exists |
 | `fastq-platform` | `complete` | `fastq platform --set ont` on a bundle recorded as Illumina |
 | `import-msa` | `complete`, `complete-with-warning`, `failed` | `import msa` of a two-row CLUSTAL alignment, then of an alignment whose rows share a name, then of a file that does not exist |
 | `import-tree` | `complete`, `complete-with-warning`, `failed` | `import tree` of a tree with numeric support values, then of a tree with no branch lengths, then of a file that does not exist |

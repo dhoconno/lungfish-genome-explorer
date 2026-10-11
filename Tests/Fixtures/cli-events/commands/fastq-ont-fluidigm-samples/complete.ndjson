@@ -1,0 +1,9 @@
+{"event":"start","message":"Starting the ONT Fluidigm sample split.","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Preparing ONT Fluidigm sample split.","progress":0.02,"schemaVersion":2}
+{"event":"progress","message":"Found 1 ONT FASTQ chunk.","progress":0.08,"schemaVersion":2}
+{"event":"progress","message":"Scanning chunk 1\/1: reads.fastq","progress":0.1,"schemaVersion":2}
+{"event":"progress","message":"Scanned chunk 1\/1: 2 reads.","progress":0.7999999999999999,"schemaVersion":2}
+{"event":"progress","message":"Writing 1 sample bundle.","progress":0.84,"schemaVersion":2}
+{"event":"progress","message":"Writing ONT Fluidigm sample manifest.","progress":0.92,"schemaVersion":2}
+{"event":"progress","message":"ONT Fluidigm sample split complete.","progress":1,"schemaVersion":2}
+{"event":"complete","message":"1 sample bundle(s), 2 of 2 reads assigned","output":"\/work\/fluidigm","outputs":["\/work\/fluidigm","\/work\/fluidigm\/ont-fluidigm-counted-samples-manifest.json","\/work\/fluidigm\/LF2871.lungfishfastq"],"progress":1,"schemaVersion":2}

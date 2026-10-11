@@ -22,9 +22,10 @@ import XCTest
 /// emitters change.
 ///
 /// The in-process captures run each command on a small fixture. A command with a test seam hands its
-/// lines to a capturing sink. `fastq platform` and the four import commands have none, because they
-/// write through the flushing standard output helper, so their standard output is redirected for the
-/// length of the run, and `ImportStreamCapture` builds the fixtures of the import commands. The scratch
+/// lines to a capturing sink, as the two ONT split commands do with `execute(emit:)`. `fastq platform`
+/// and the four import commands have none, because they write through the flushing standard output
+/// helper, so their standard output is redirected for the length of the run, and `ImportStreamCapture`
+/// builds the fixtures of the import commands. The scratch
 /// folder of each run is rewritten to `/work`, in its plain and its slash-escaped spelling, and nothing
 /// else is edited. Set `LUNGFISH_RECAPTURE_CLI_EVENTS=1` to write the transcripts instead of comparing
 /// them, and review the diff. `Tests/Fixtures/cli-events/README.md` describes the five real runs.
@@ -325,7 +326,7 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
     /// Every capture, with the leaf and the case it records.
     private static func captures() -> [Capture] {
         annotationCaptures() + exportCaptures() + derivedCaptures() + treeCaptures() + platformCaptures()
-            + importCaptures()
+            + importCaptures() + ontSplitCaptures()
     }
 
     /// The four import commands, run by `ImportStreamCapture`, which builds each fixture and a scratch
@@ -560,6 +561,74 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         ]
     }
 
+    /// The two ONT split commands on one tiny fixture each. Their events go through the `execute(emit:)`
+    /// seam, and a run into an output folder that already exists, without `--force`, ends in the
+    /// `failed` line that the materializer's own message makes.
+    private static func ontSplitCaptures() -> [Capture] {
+        func fastq(_ scratch: Scratch, _ name: String, read: String) throws -> URL {
+            let url = scratch.root.appendingPathComponent(name)
+            let record = "@read-1\n\(read)\n+\n\(String(repeating: "I", count: read.count))\n"
+            try (record + record.replacingOccurrences(of: "read-1", with: "read-2")).write(to: url, atomically: true, encoding: .utf8)
+            return url
+        }
+        func fluidigm(_ scratch: Scratch, precreatingOutput: Bool) throws -> FastqONTFluidigmSamplesSubcommand {
+            let read = ONTFluidigmAmpliconMaterializer.defaultForwardPrimer + "ACGTACGTACGTACGT"
+                + reverseComplement(ONTFluidigmAmpliconMaterializer.defaultReversePrimer) + "CC" + "AAAACCCCGG"
+            let input = try fastq(scratch, "reads.fastq", read: read)
+            let barcodes = scratch.root.appendingPathComponent("samples.csv")
+            try "sample,barcode\nLF2871,AAAACCCCGG\n".write(to: barcodes, atomically: true, encoding: .utf8)
+            let output = scratch.root.appendingPathComponent("fluidigm", isDirectory: true)
+            if precreatingOutput { try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true) }
+            return try FastqONTFluidigmSamplesSubcommand.parse(
+                [input.path, "--barcodes", barcodes.path, "--output", output.path,
+                 "--primer-mismatches", "0", "--minimum-insert-length", "8"] + (precreatingOutput ? [] : ["--force"])
+            )
+        }
+        func pacBio(_ scratch: Scratch, precreatingOutput: Bool) throws -> FastqONTPacBioBarcodeDemuxSubcommand {
+            let read = String(repeating: "T", count: 60) + "CACATATCAGAGTGCG" + String(repeating: "ACGT", count: 510)
+                + reverseComplement("CTATACATAGTGATGT") + String(repeating: "A", count: 60)
+            let input = try fastq(scratch, "reads.fastq", read: read)
+            let barcodes = scratch.root.appendingPathComponent("plate.barcodes.csv")
+            try "32286-001_DL46,BC1001,BC1021\n".write(to: barcodes, atomically: true, encoding: .utf8)
+            let output = scratch.root.appendingPathComponent("pacbio", isDirectory: true)
+            if precreatingOutput { try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true) }
+            return try FastqONTPacBioBarcodeDemuxSubcommand.parse(
+                [input.path, "--barcodes", barcodes.path, "--output", output.path,
+                 "--chunk-jobs", "1", "--max-reads-per-slice", "0"] + (precreatingOutput ? [] : ["--force"])
+            )
+        }
+        return [
+            Capture(leaf: "fastq ont-fluidigm-samples", name: "complete") { scratch in
+                let command = try fluidigm(scratch, precreatingOutput: false)
+                return try await Self.eventLines { try await command.execute(emit: $0) }
+            },
+            Capture(leaf: "fastq ont-fluidigm-samples", name: "failed") { scratch in
+                let command = try fluidigm(scratch, precreatingOutput: true)
+                return try await Self.eventLines(expectingFailure: true) { try await command.execute(emit: $0) }
+            },
+            Capture(leaf: "fastq ont-pacbio-barcode-demux", name: "complete") { scratch in
+                let command = try pacBio(scratch, precreatingOutput: false)
+                return try await Self.eventLines { try await command.execute(emit: $0) }
+            },
+            Capture(leaf: "fastq ont-pacbio-barcode-demux", name: "failed") { scratch in
+                let command = try pacBio(scratch, precreatingOutput: true)
+                return try await Self.eventLines(expectingFailure: true) { try await command.execute(emit: $0) }
+            },
+        ]
+    }
+
+    private static func reverseComplement(_ sequence: String) -> String {
+        String(sequence.reversed().map { base -> Character in
+            switch base {
+            case "A": return "T"
+            case "C": return "G"
+            case "G": return "C"
+            case "T": return "A"
+            default: return "N"
+            }
+        })
+    }
+
     // MARK: Running a capture
 
     private struct NoFailure: Error, CustomStringConvertible {
@@ -582,6 +651,41 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
             if !expectingFailure { throw error }
         }
         return captured
+    }
+
+    /// `lines` for a command whose seam is async. The sink collects under a lock, because a
+    /// materializer reports progress from its own tasks.
+    private static func eventLines(
+        expectingFailure: Bool = false,
+        _ run: (@escaping (String) -> Void) async throws -> Void
+    ) async throws -> [String] {
+        let sink = LineSink()
+        do {
+            try await run { sink.append($0) }
+            if expectingFailure { throw NoFailure() }
+        } catch is NoFailure {
+            throw NoFailure()
+        } catch {
+            if !expectingFailure { throw error }
+        }
+        return sink.all
+    }
+
+    private final class LineSink: @unchecked Sendable {
+        private let lock = NSLock()
+        private var lines: [String] = []
+
+        func append(_ line: String) {
+            lock.lock()
+            lines.append(line)
+            lock.unlock()
+        }
+
+        var all: [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return lines
+        }
     }
 
     /// The standard output of a run that has no sink, redirected to a file for its length.
