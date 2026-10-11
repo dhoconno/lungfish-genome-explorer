@@ -769,7 +769,9 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         )
         try await waitUntilLoadCompletes(viewModel)
 
-        XCTAssertEqual(viewModel.audit.status, .present)
+        // The record is written in the primitive spelling, so it reads as the Older record format and
+        // nothing it could hold is missing.
+        XCTAssertEqual(viewModel.audit.status, .legacy)
         XCTAssertEqual(viewModel.summary.inputCount, 3)
         XCTAssertTrue(viewModel.fileRows.contains { row in
             row.path == fastqBundle.path

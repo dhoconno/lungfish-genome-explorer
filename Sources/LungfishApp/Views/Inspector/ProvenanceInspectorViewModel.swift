@@ -54,6 +54,9 @@ struct ProvenanceAuditResult: Equatable {
     var requirement: ProvenanceRequirement
     var sidecarURL: URL?
     var messages: [String]
+    /// Whether the record decoded as a bare run or through the primitive adapter, which is the
+    /// Older record format. It is set whatever the status, since that format never hides Incomplete.
+    var isOlderRecordFormat = false
 
     var isBlocking: Bool {
         switch status {
@@ -109,6 +112,16 @@ struct ProvenanceCoverageMonitor {
     ///
     /// The audit only reads. A result with no record is Missing, and nothing is written to fill the gap.
     func audit(_ item: ProvenanceInspectableItem) -> ProvenanceAuditResult {
+        audit(item, resolved: item.url.flatMap { ProvenanceRecorder.findProvenanceReading(for: $0) })
+    }
+
+    /// The audit of a record the caller already found, with the shape it decoded as, so one walk of the
+    /// folders serves the audit and the lookup. A bare run or primitive record can read as the Older
+    /// record format, and never an envelope or a typed record.
+    func audit(
+        _ item: ProvenanceInspectableItem,
+        resolved: (sidecarURL: URL, reading: ProvenanceEnvelopeReader.Reading)?
+    ) -> ProvenanceAuditResult {
         let requirement = requirement(for: item)
         guard let url = item.url else {
             guard !requirement.isNotRequired else { return .notRequired }
@@ -120,7 +133,7 @@ struct ProvenanceCoverageMonitor {
             )
         }
 
-        guard let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: url) else {
+        guard let resolved else {
             guard !requirement.isNotRequired else { return .notRequired }
             return ProvenanceAuditResult(
                 status: .missing,
@@ -130,22 +143,7 @@ struct ProvenanceCoverageMonitor {
             )
         }
 
-        let completenessMessages = ProvenanceCompleteness.issues(in: resolved.envelope)
-        if !completenessMessages.isEmpty {
-            return ProvenanceAuditResult(
-                status: .incomplete,
-                requirement: requirement,
-                sidecarURL: resolved.sidecarURL,
-                messages: completenessMessages
-            )
-        }
-
-        return ProvenanceAuditResult(
-            status: .present,
-            requirement: requirement,
-            sidecarURL: resolved.sidecarURL,
-            messages: []
-        )
+        return recordAudit(resolved, requirement: requirement)
     }
 
     private func requiresProvenance(_ type: SidebarItemType) -> Bool {
@@ -227,6 +225,9 @@ struct ProvenanceRunSummary: Equatable {
     var statusLabel: String = "No provenance required"
     var exitStatus: Int?
     var wallTimeSeconds: TimeInterval?
+    /// An exit status the record's format never held reads Not recorded in its row instead of the
+    /// row being left out.
+    var exitStatusNotRecorded = false
     var stepCount: Int = 0
     var inputCount: Int = 0
     var outputCount: Int = 0
@@ -540,22 +541,25 @@ final class ProvenanceInspectorViewModel {
         loadThreadingProbe?()
         await loadFetchGate?()
         #endif
-        let audit = monitor.audit(item)
-        guard let url = item.url,
-              let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: url) else {
+        // One walk finds the record with the shape it decoded as, and the audit and the lookup share it.
+        let resolved = item.url.flatMap { ProvenanceRecorder.findProvenanceReading(for: $0) }
+        let audit = monitor.audit(item, resolved: resolved)
+        guard let url = item.url, let resolved else {
             return LookupOutcome(audit: audit, resolvedEnvelope: nil, resolvedSidecarURL: nil, upstreamRuns: [])
         }
+        let envelope = resolved.reading.envelope
         // The records that fed this one, upstream first, so the lineage
         // starts at the reads rather than at the selected result.
         let upstream = ProvenanceLineageResolver()
-            .resolve(envelope: resolved.envelope, sidecarURL: resolved.sidecarURL, sourceRootURL: url)
+            .resolve(envelope: envelope, sidecarURL: resolved.sidecarURL, sourceRootURL: url)
             .dropLast()
         return LookupOutcome(
             audit: audit,
-            resolvedEnvelope: resolved.envelope,
+            resolvedEnvelope: envelope,
             resolvedSidecarURL: resolved.sidecarURL,
             upstreamRuns: upstream.map { ProvenanceUpstreamRun(envelope: $0.envelope, sidecarURL: $0.sidecarURL) },
-            sidecarText: sidecarText(at: resolved.sidecarURL, for: resolved.envelope)
+            sidecarText: sidecarText(at: resolved.sidecarURL, for: envelope),
+            reading: resolved.reading
         )
     }
 
@@ -571,6 +575,8 @@ final class ProvenanceInspectorViewModel {
         var upstreamRuns: [ProvenanceUpstreamRun]
         /// The sidecar file's text for Raw JSON. Nil when the pane shows the encoded record.
         var sidecarText: String? = nil
+        /// What the reader made of the record: the shape that decoded it and whether it invented the date.
+        var reading: ProvenanceEnvelopeReader.Reading? = nil
     }
 
     /// Applies a completed off-main lookup's result to published state. Must only be called
@@ -590,7 +596,8 @@ final class ProvenanceInspectorViewModel {
             envelope: envelope,
             sidecarURL: sidecarURL,
             upstreamRuns: outcome.upstreamRuns,
-            sidecarText: outcome.sidecarText
+            sidecarText: outcome.sidecarText,
+            reading: outcome.reading
         )
     }
 
@@ -627,18 +634,9 @@ final class ProvenanceInspectorViewModel {
 
     private func buildMissingState(item: ProvenanceInspectableItem) {
         let title = item.displayName ?? item.url?.lastPathComponent ?? "Selection"
-        let statusLabel: String
-        switch audit.status {
-        case .missing:
-            statusLabel = "Missing provenance"
-        case .notRequired:
-            statusLabel = "No provenance required"
-        default:
-            statusLabel = audit.status.rawValue.capitalized
-        }
         summary = ProvenanceRunSummary(
             workflowName: title,
-            statusLabel: statusLabel
+            statusLabel: audit.status.displayName
         )
         warnings = warningRows(for: audit)
         if warnings.isEmpty && audit.status == .missing {
@@ -661,7 +659,8 @@ final class ProvenanceInspectorViewModel {
         envelope: ProvenanceEnvelope,
         sidecarURL: URL,
         upstreamRuns: [ProvenanceUpstreamRun] = [],
-        sidecarText: String? = nil
+        sidecarText: String? = nil,
+        reading: ProvenanceEnvelopeReader.Reading? = nil
     ) {
         // Paths are shown relative to the project the sidecar lies in; the
         // recorded path stays in the copy text, the tooltip and accessibility.
@@ -693,7 +692,7 @@ final class ProvenanceInspectorViewModel {
             runID: envelope.id,
             sidecarPath: sidecarURL.path,
             sidecarDisplayPath: ProvenancePathPresentation.present(sidecarURL.path, projectURL: projectURL).label,
-            statusLabel: audit.status == .present ? "Complete" : audit.status.rawValue.capitalized,
+            statusLabel: audit.status.displayName,
             exitStatus: envelope.exitStatus,
             wallTimeSeconds: envelope.wallTimeSeconds,
             stepCount: envelope.steps.count,
@@ -701,6 +700,7 @@ final class ProvenanceInspectorViewModel {
             outputCount: outputDescriptors(in: envelope).count,
             signatureCount: envelope.signatures.count
         )
+        applyReading(reading, to: envelope)
         warnings = warningRows(for: audit)
             + stepWarningRows(for: envelope)
             + fastqPresentation.warningRows()
@@ -762,6 +762,9 @@ final class ProvenanceInspectorViewModel {
         if message.hasPrefix("Missing checksum or size") {
             return "File metadata incomplete"
         }
+        if message == ProvenanceRecordShapeRule.olderRecordFormatMessage {
+            return ProvenanceRecordShapeRule.olderRecordFormatTitle
+        }
         switch status {
         case .missing:
             return "Missing provenance"
@@ -772,7 +775,7 @@ final class ProvenanceInspectorViewModel {
         case .stale:
             return "Stale provenance"
         case .legacy:
-            return "Legacy provenance"
+            return ProvenanceRecordShapeRule.olderRecordFormatTitle
         case .notRequired, .present:
             return "Provenance"
         }
@@ -1009,7 +1012,7 @@ final class ProvenanceInspectorViewModel {
                     ("Workflow Version", summary.workflowVersion),
                     ("Tool", summary.toolVersion.isEmpty ? summary.toolName : "\(summary.toolName) \(summary.toolVersion)"),
                     ("Created", summary.createdAt?.formatted(date: .abbreviated, time: .shortened) ?? ""),
-                    ("Exit Status", summary.exitStatus.map(String.init) ?? ""),
+                    ("Exit Status", summary.exitStatus.map(String.init) ?? (summary.exitStatusNotRecorded ? "Not recorded" : "")),
                     ("Wall Time", summary.wallTimeSeconds.map { "\(String(format: "%.2f", $0)) s" } ?? ""),
                     ("Steps", "\(summary.stepCount)"),
                     ("Inputs", "\(summary.inputCount)"),

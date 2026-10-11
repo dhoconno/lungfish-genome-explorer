@@ -1,6 +1,6 @@
 {
   "auditIsBlocking" : false,
-  "auditStatus" : "present",
+  "auditStatus" : "legacy",
   "files" : [
     {
       "checksumSHA256" : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -84,7 +84,7 @@
     "outputCount" : 2,
     "sidecarDisplayPath" : "Analyses/Aligned.lungfishmsa/.lungfish-provenance.json",
     "signatureCount" : 0,
-    "statusLabel" : "Complete",
+    "statusLabel" : "Older record format",
     "stepCount" : 1,
     "toolName" : "lungfish align mafft",
     "toolVersion" : "v0.1.0",
@@ -92,6 +92,9 @@
     "workflowName" : "multiple-sequence-alignment-mafft"
   },
   "warnings" : [
-
+    {
+      "message" : "This record was written in an older format. It shows every fact it holds, and a fact that format never recorded reads Not recorded.",
+      "title" : "Older record format"
+    }
   ]
 }

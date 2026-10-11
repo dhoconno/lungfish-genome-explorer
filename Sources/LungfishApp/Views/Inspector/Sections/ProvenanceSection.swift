@@ -216,6 +216,8 @@ struct ProvenanceSection: View {
             }
             if let exitStatus = viewModel.summary.exitStatus {
                 summaryRow("Exit Status", value: "\(exitStatus)")
+            } else if viewModel.summary.exitStatusNotRecorded {
+                summaryRow("Exit Status", value: "Not recorded")
             }
             if let wallTime = viewModel.summary.wallTimeSeconds {
                 summaryRow("Wall Time", value: formatDuration(wallTime))

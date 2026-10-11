@@ -1,6 +1,6 @@
 {
   "auditIsBlocking" : false,
-  "auditStatus" : "present",
+  "auditStatus" : "legacy",
   "files" : [
     {
       "checksumSHA256" : "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
@@ -79,7 +79,7 @@
     "outputCount" : 3,
     "sidecarDisplayPath" : "Analyses/Tree.lungfishtree/.lungfish-provenance.json",
     "signatureCount" : 0,
-    "statusLabel" : "Complete",
+    "statusLabel" : "Older record format",
     "stepCount" : 1,
     "toolName" : "lungfish tree infer iqtree",
     "toolVersion" : "v0.5.0-alpha6",
@@ -87,6 +87,9 @@
     "workflowName" : "phylogenetic-tree-infer-iqtree"
   },
   "warnings" : [
-
+    {
+      "message" : "This record was written in an older format. It shows every fact it holds, and a fact that format never recorded reads Not recorded.",
+      "title" : "Older record format"
+    }
   ]
 }

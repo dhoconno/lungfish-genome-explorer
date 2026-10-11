@@ -128,6 +128,10 @@
     {
       "message" : "Missing checksum or size for 1 file descriptor: MN908947.3?rettype=gff3.",
       "title" : "File metadata incomplete"
+    },
+    {
+      "message" : "This record was written in an older format. It shows every fact it holds, and a fact that format never recorded reads Not recorded.",
+      "title" : "Older record format"
     }
   ]
 }

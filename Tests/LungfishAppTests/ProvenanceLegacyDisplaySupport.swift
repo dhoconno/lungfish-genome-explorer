@@ -43,6 +43,9 @@ struct ProvenanceDisplaySnapshot: Codable, Equatable {
         var outputCount: Int
         var signatureCount: Int
         var sidecarDisplayPath: String?
+        /// The Run Summary rows that read Not recorded instead of being left out, because the record's
+        /// format never held the fact. Nil when there is none.
+        var notRecorded: [String]?
     }
 
     struct Warning: Codable, Equatable {
@@ -140,7 +143,8 @@ extension ProvenanceDisplaySnapshot {
                 inputCount: summary.inputCount,
                 outputCount: summary.outputCount,
                 signatureCount: summary.signatureCount,
-                sidecarDisplayPath: summary.sidecarDisplayPath.map(redaction.callAsFunction)
+                sidecarDisplayPath: summary.sidecarDisplayPath.map(redaction.callAsFunction),
+                notRecorded: summary.exitStatusNotRecorded ? ["Exit Status"] : nil
             ),
             warnings: model.warnings.map {
                 Warning(title: $0.title, message: redaction($0.message))

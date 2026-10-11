@@ -1,6 +1,6 @@
 {
-  "auditIsBlocking" : true,
-  "auditStatus" : "incomplete",
+  "auditIsBlocking" : false,
+  "auditStatus" : "legacy",
   "files" : [
     {
       "checksumSHA256" : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -112,10 +112,13 @@
     "createdAtMilliseconds" : 1778611278000,
     "createdAtUTC" : "2026-05-12T18:41:18.000Z",
     "inputCount" : 1,
+    "notRecorded" : [
+      "Exit Status"
+    ],
     "outputCount" : 1,
     "sidecarDisplayPath" : "Analyses/assembly-output.lungfishref/assembly/provenance.json",
     "signatureCount" : 0,
-    "statusLabel" : "Incomplete",
+    "statusLabel" : "Older record format",
     "stepCount" : 1,
     "toolName" : "SPAdes",
     "toolVersion" : "v4.0.0",
@@ -125,8 +128,8 @@
   },
   "warnings" : [
     {
-      "message" : "Exit status is missing.",
-      "title" : "Incomplete provenance"
+      "message" : "This record was written in an older format. It shows every fact it holds, and a fact that format never recorded reads Not recorded.",
+      "title" : "Older record format"
     }
   ]
 }
