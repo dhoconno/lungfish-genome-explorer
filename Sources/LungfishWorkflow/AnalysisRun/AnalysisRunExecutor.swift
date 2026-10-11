@@ -42,6 +42,12 @@ public struct AnalysisRunServices: Sendable {
 /// | P6 settle | executor | completes the run record, or records the outcome and keeps the folder hidden (E5) |
 /// | P7 report | executor | the `complete` or `failed` event and the exit code |
 ///
+/// A cancel is task cancellation only, such as the command's `SIGTERMCancellation` cancelling
+/// its task. The status `cancelled` and exit 125 come from that cancel request and never from
+/// how a unit or its child process ended (SWIFT X2). The cancelled path skips the finalize,
+/// records only descriptors the tool already took and hashes no partial output, so it ends well
+/// inside the grace the app's transport gives a cancelled command.
+///
 /// The executor keeps no state of its own. Each `execute` call keeps its run state in locals,
 /// so one executor can run several requests (SWIFT X3).
 public struct AnalysisRunExecutor: Sendable {
@@ -77,8 +83,12 @@ public struct AnalysisRunExecutor: Sendable {
                 throw AnalysisRunError.emptyPlan(identity.toolID)
             }
         } catch {
-            let ending = AnalysisRunEnding.failed(reason: Self.reason(for: error))
+            let ending: AnalysisRunEnding = Task.isCancelled ? .cancelled : .failed(reason: Self.reason(for: error))
             return report(ending, identity: identity, folder: nil, recordURL: nil, finalization: nil, journal: journal)
+        }
+        // A cancel during the plan leaves no folder, like a refused plan.
+        if Task.isCancelled {
+            return report(.cancelled, identity: identity, folder: nil, recordURL: nil, finalization: nil, journal: journal)
         }
 
         // P1. The folder, its metadata and the run record, then the early output event.
@@ -98,23 +108,27 @@ public struct AnalysisRunExecutor: Sendable {
         journal.emit(.output(path: folder.root.path, role: AnalysisRunEvents.Role.analysisDirectory))
         plan.recordInputs.forEach(journal.recordInput)
 
-        // P2. Serial units.
+        // P2. Serial units with a cancellation check between them.
         let units = await runUnits(tool, plan: plan, folder: folder, journal: journal)
 
         // P3. The finalize runs only for a run its units leave completed.
         var ending: AnalysisRunEnding
         var finalization: AnalysisRunFinalization?
-        switch tool.terminalPolicy.outcome(for: units.reports, unitCount: plan.units.count) {
-        case .failed(let reason):
-            ending = .failed(reason: reason)
-        case .completed:
-            (ending, finalization) = await finalize(
-                tool,
-                reports: units.reports,
-                layout: plan.layout,
-                folder: folder,
-                journal: journal
-            )
+        if units.cancelled {
+            ending = .cancelled
+        } else {
+            switch tool.terminalPolicy.outcome(for: units.reports, unitCount: plan.units.count) {
+            case .failed(let reason):
+                ending = .failed(reason: reason)
+            case .completed:
+                (ending, finalization) = await finalize(
+                    tool,
+                    reports: units.reports,
+                    layout: plan.layout,
+                    folder: folder,
+                    journal: journal
+                )
+            }
         }
 
         // P4. The root record, written last so no record written during the run wins.
@@ -171,9 +185,13 @@ public struct AnalysisRunExecutor: Sendable {
                     indexing: services.indexing
                 )
             )
+            // A cancel during the finalize drops what it wrote from the record, so nothing
+            // partial is hashed.
+            guard !Task.isCancelled else { return (.cancelled, nil) }
             finalization.warnings.forEach(journal.warn)
             return (.completed, finalization)
         } catch {
+            guard !Task.isCancelled else { return (.cancelled, nil) }
             let reason = "The \(tool.identity.displayName) results could not be finished: \(Self.reason(for: error))"
             return (.failed(reason: reason), nil)
         }
@@ -222,7 +240,7 @@ public struct AnalysisRunExecutor: Sendable {
                 )
             }
             journal.emit(.complete(outputs: folder.map { [$0.root.path] } ?? [], message: message), artifacts: artifacts)
-        case .failed:
+        case .failed, .cancelled:
             message = ending.message(displayName: identity.displayName) ?? ""
             journal.emit(.failed(message: message, detail: nil))
         }
@@ -236,10 +254,11 @@ public struct AnalysisRunExecutor: Sendable {
         )
     }
 
-    /// The text a run gives for an error, its description.
+    /// The text a run gives for an error, its description. A cancellation error without a cancel
+    /// request is a failure (SWIFT X2), and its own description says nothing useful.
     static func reason(for error: Error) -> String {
         if error is CancellationError {
-            return "It stopped before it finished."
+            return "Stopped before it finished, with no cancel request."
         }
         return error.localizedDescription
     }
@@ -249,11 +268,14 @@ public struct AnalysisRunExecutor: Sendable {
 enum AnalysisRunEnding: Sendable, Equatable {
     case completed
     case failed(reason: String)
+    /// The run's task was cancelled. Only a cancel request ends a run this way.
+    case cancelled
 
     var status: RunStatus {
         switch self {
         case .completed: return .completed
         case .failed: return .failed
+        case .cancelled: return .cancelled
         }
     }
 
@@ -266,6 +288,7 @@ enum AnalysisRunEnding: Sendable, Equatable {
         switch self {
         case .completed: return nil
         case .failed(let reason): return reason
+        case .cancelled: return "\(displayName) was cancelled."
         }
     }
 }

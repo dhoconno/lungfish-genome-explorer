@@ -5,17 +5,21 @@
 import Foundation
 import LungfishIO
 
-/// The units that ran.
+/// The units that ran, and whether a cancel request stopped the loop.
 struct AnalysisRunUnitResults<Result: Sendable>: Sendable {
     var reports: [AnalysisUnitReport<Result>]
+    var cancelled: Bool
 }
 
 extension AnalysisRunExecutor {
     /// Runs the plan's units one at a time, in plan order.
     ///
     /// A batch root gives each unit its own folder through `AnalysesFolder.batchSampleDirectory`,
-    /// the one sanitizer, and the unit's sample name is that folder's name. The tool's policy says
-    /// whether the loop goes on after a failed unit.
+    /// the one sanitizer, and the unit's sample name is that folder's name. The loop checks for a
+    /// cancel request before each unit and after it. A cancel request, and nothing else, makes the
+    /// run cancelled, so a unit that failed because its child process was signalled during a
+    /// cancel still reads cancelled, and one that failed the same way without a cancel request
+    /// reads failed (SWIFT X2). The tool's policy says whether the loop goes on after a failed unit.
     func runUnits<Tool: AnalysisRunTool>(
         _ tool: Tool,
         plan: AnalysisRunPlan<Tool.Unit>,
@@ -26,6 +30,9 @@ extension AnalysisRunExecutor {
         let policy = tool.terminalPolicy
         var reports: [AnalysisUnitReport<Tool.UnitResult>] = []
         for (index, planned) in plan.units.enumerated() {
+            guard !Task.isCancelled else {
+                return AnalysisRunUnitResults(reports: reports, cancelled: true)
+            }
             journal.emit(.progress(
                 fraction: AnalysisRunJournal.runFraction(index: index, count: count, unitFraction: 0),
                 message: count > 1 ? "Running \(planned.label) (\(index + 1) of \(count))." : "Running \(planned.label)."
@@ -58,6 +65,11 @@ extension AnalysisRunExecutor {
             } catch {
                 outcome = .failed(reason: Self.reason(for: error))
             }
+            // What the unit recorded before the cancel stays in the root record. Its outcome,
+            // whatever ended its child process, does not decide the status.
+            guard !Task.isCancelled else {
+                return AnalysisRunUnitResults(reports: reports, cancelled: true)
+            }
 
             let report = AnalysisUnitReport(
                 index: index,
@@ -72,6 +84,6 @@ extension AnalysisRunExecutor {
             }
             guard policy.continues(after: report) else { break }
         }
-        return AnalysisRunUnitResults(reports: reports)
+        return AnalysisRunUnitResults(reports: reports, cancelled: false)
     }
 }

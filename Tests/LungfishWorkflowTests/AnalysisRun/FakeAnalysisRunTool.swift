@@ -4,6 +4,7 @@
 
 import Foundation
 import Synchronization
+import LungfishCore
 import LungfishIO
 import LungfishTestSupport
 @testable import LungfishWorkflow
@@ -22,6 +23,14 @@ enum FakeUnitScript: Sendable {
     case progress([Double])
     /// Completes without writing or recording an output.
     case completeWithoutRecord
+    /// Records an input under a stand-in digest, writes a partial output that cannot be read, says
+    /// it started and waits up to 30 seconds for the cancel request.
+    case waitForCancel(digest: String)
+    /// Cancels the run's task from inside the unit, then completes, or fails for the reason given,
+    /// as a unit whose child process was signalled during the cancel would.
+    case cancelRunThen(String?)
+    /// Runs `/bin/sleep 30` through `ToolProcess`, says it started and waits for the cancel.
+    case runProcessUntilCancelled
 }
 
 struct FakeToolError: Error, LocalizedError {
@@ -36,9 +45,42 @@ final class FakeToolProbe: Sendable {
         var facts: [String: Bool] = [:]
         var finalizedOutcomes: [String] = []
         var sampleNames: [String] = []
+        var launchedProcess: Int32?
     }
 
     private let state = Mutex(State())
+    private let started = AsyncStream<Void>.makeStream()
+
+    /// Says a unit is running and waiting for the cancel.
+    func signalStarted() {
+        started.continuation.yield()
+    }
+
+    /// Whether a unit said it started within 30 seconds.
+    func waitUntilStarted() async -> Bool {
+        let stream = started.stream
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await _ in stream {
+                    return true
+                }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(30))
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+    }
+
+    func noteLaunched(_ pid: Int32) {
+        state.withLock { $0.launchedProcess = pid }
+    }
+
+    var launchedProcess: Int32? { state.withLock { $0.launchedProcess } }
 
     func note(_ phase: String) {
         state.withLock { $0.phases.append(phase) }
@@ -84,7 +126,21 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
     var finalizeError: String?
     var finalizeWarnings: [String] = []
     var finalizeOutputs = true
+    /// A plan that cancels its own run, then throws or returns its plan.
+    var planCancels: PlanCancel?
+    /// A finalize that cancels its own run, then returns what it wrote.
+    var finalizeCancels = false
     let probe: FakeToolProbe
+
+    enum PlanCancel: Sendable {
+        case cancelAndThrow
+        case cancelAndReturn
+    }
+
+    /// Cancels the task the executor runs in, as the command's SIGTERM handling does.
+    static func cancelCurrentTask() {
+        withUnsafeCurrentTask { $0?.cancel() }
+    }
 
     init(probe: FakeToolProbe) {
         self.probe = probe
@@ -99,6 +155,15 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
         }
         if let planError {
             throw FakeToolError(message: planError)
+        }
+        switch planCancels {
+        case .cancelAndThrow?:
+            Self.cancelCurrentTask()
+            throw CancellationError()
+        case .cancelAndReturn?:
+            Self.cancelCurrentTask()
+        case nil:
+            break
         }
         return AnalysisRunPlan(
             layout: layout,
@@ -137,6 +202,39 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
             }
         case .completeWithoutRecord:
             return .completed(input)
+        case .waitForCancel(let digest):
+            let materialized = unit.directory.appendingPathComponent("\(unit.sampleName).materialized.fastq")
+            try Data("@r1\nACGT\n+\nIIII\n".utf8).write(to: materialized)
+            context.recordInput(ProvenanceFileDescriptor(
+                path: materialized.path,
+                checksumSHA256: digest,
+                fileSize: 16,
+                format: .fastq,
+                role: .input
+            ))
+            let partial = unit.directory.appendingPathComponent("\(unit.sampleName).partial.kraken")
+            try Data(repeating: 0x43, count: 1 << 16).write(to: partial)
+            try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: partial.path)
+            probe.signalStarted()
+            try await Task.sleep(for: .seconds(30))
+            return .completed(partial)
+        case .cancelRunThen(let reason):
+            Self.cancelCurrentTask()
+            if let reason {
+                return .failed(reason: reason)
+            }
+        case .runProcessUntilCancelled:
+            let probe = probe
+            let spec = ToolProcessSpec(
+                executableURL: URL(fileURLWithPath: "/bin/sleep"),
+                arguments: ["30"],
+                environment: [:]
+            )
+            _ = try await ToolProcess.run(spec, onLaunch: { pid in
+                probe.noteLaunched(pid)
+                probe.signalStarted()
+            })
+            return .failed(reason: "sleep ended without a cancel request")
         case .complete, .warn:
             break
         }
@@ -159,6 +257,9 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
 
     func finalize(_ units: [AnalysisUnitReport<URL>], context: AnalysisRunFinalizeContext) async throws -> AnalysisRunFinalization {
         probe.note("finalize")
+        if finalizeCancels {
+            Self.cancelCurrentTask()
+        }
         probe.noteFinalized(units.map { "\($0.label)=\($0.outcome.completed ? "completed" : "failed")" })
         probe.observe("runRecordAtFinalize", AnalysisRunRecord.isIncomplete(context.rootDirectory))
         if let finalizeError {

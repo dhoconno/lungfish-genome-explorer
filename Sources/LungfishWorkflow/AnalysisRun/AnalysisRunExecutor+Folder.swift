@@ -78,18 +78,18 @@ struct AnalysisRunFolder: Sendable {
     }
 
     /// Phase P6. A completed run, with or without warnings, completes its run record so the
-    /// folder is listed. A failed run keeps the folder, its records and its run record, and notes
-    /// the outcome, so the folder stays hidden and is listed for review (E5). A record another
-    /// live producer holds is left to that producer.
+    /// folder is listed. A failed or cancelled run keeps the folder, its records and its run
+    /// record, and notes the outcome, so the folder stays hidden and is listed for review (E5).
+    /// A record another live producer holds is left to that producer.
     func settle(_ ending: AnalysisRunEnding) {
         switch ending {
         case .completed:
             if let claim {
                 AnalysisRunRecord.completeRun(claim, in: root)
             }
-        case .failed:
+        case .failed, .cancelled:
             guard claim == .owned else { return }
-            AnalysisRunRecord.recordOutcome(.failed, in: root)
+            AnalysisRunRecord.recordOutcome(ending == .cancelled ? .cancelled : .failed, in: root)
         }
     }
 }

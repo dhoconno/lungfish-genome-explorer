@@ -29,7 +29,8 @@ extension AnalysisRunExecutor {
     /// `resolvedDefaults` (E13), its status and exit status say how the run ended, and its stderr
     /// holds the reason a run did not complete and every warning. A completed run lists the
     /// finalize's outputs, which are hashed here once. Every other descriptor is one the tool
-    /// already took, so a failed run hashes nothing.
+    /// already took, so a failed or cancelled run hashes nothing, and a cancelled run's record is
+    /// written within the grace its command has after the cancel.
     ///
     /// A completed run whose record cannot be built or written becomes a failed run. A record of a
     /// run that did not complete is tried with what the tool recorded, then without it, so a
