@@ -42,6 +42,16 @@ struct AnalysisDirectoryPrefix: Sendable, Hashable {
 /// The known analysis kinds. The order is fixed and is the order name parsing tries them in.
 /// It is the order of the former `AnalysesFolder.knownTools` literal.
 public enum AnalysisToolRegistry {
+    /// Lock ids as typed ids, for the `runsTools` lists below.
+    private static func tools(_ ids: String...) -> [ManagedToolID] {
+        ids.map { ManagedToolID(rawValue: $0) }
+    }
+
+    /// What the amplicon genotyping pipeline launches in every mode. It maps with minimap2, sorts, merges and
+    /// indexes with samtools, filters retained reads with a script that imports pysam, and writes the workbook
+    /// with openpyxl. The Illumina mode also runs bbmerge from `bbtools` when it finds unmerged pairs.
+    private static let ampliconGenotypingTools = tools("minimap2", "samtools", "pysam", "openpyxl")
+
     public static let all: [AnalysisToolDescriptor] = [
         AnalysisToolDescriptor(
             id: .esviritu, displayName: "EsViritu", sidebarSymbolName: "e.circle",
@@ -50,22 +60,28 @@ public enum AnalysisToolRegistry {
         AnalysisToolDescriptor(
             id: .kraken2, displayName: "Kraken2", sidebarSymbolName: "k.circle",
             classifierBatchBadge: "K2", buildDatabaseToken: "kraken2", outputStem: "kraken2",
+            runsTools: tools("kraken2", "bracken"),
             provisioning: .managedTool(ManagedToolID(rawValue: "kraken2"))),
         AnalysisToolDescriptor(
             id: .taxtriage, displayName: "TaxTriage", sidebarSymbolName: "t.circle",
             classifierBatchBadge: "TT", buildDatabaseToken: "taxtriage", outputStem: "taxtriage",
+            runsTools: tools("nextflow"),
             provisioning: .lockedPipeline("taxtriage")),
         AnalysisToolDescriptor(
             id: .minimap2, displayName: "Minimap2", sidebarSymbolName: "m.circle",
+            runsTools: tools("minimap2", "samtools"),
             provisioning: .managedTool(ManagedToolID(rawValue: "minimap2"))),
         AnalysisToolDescriptor(
             id: .bwaMem2, displayName: "BWA-MEM2", sidebarSymbolName: "m.circle",
+            runsTools: tools("bwa-mem2", "samtools"),
             provisioning: .managedTool(ManagedToolID(rawValue: "bwa-mem2"))),
         AnalysisToolDescriptor(
             id: .bowtie2, displayName: "Bowtie2", sidebarSymbolName: "m.circle",
+            runsTools: tools("bowtie2", "samtools"),
             provisioning: .managedTool(ManagedToolID(rawValue: "bowtie2"))),
         AnalysisToolDescriptor(
             id: .bbmap, displayName: "BBMap", sidebarSymbolName: "m.circle",
+            runsTools: tools("bbtools", "samtools"),
             provisioning: .managedTool(ManagedToolID(rawValue: "bbtools"))),
         AnalysisToolDescriptor(
             id: .spades, displayName: "SPAdes", sidebarSymbolName: "s.circle",
@@ -96,26 +112,29 @@ public enum AnalysisToolRegistry {
             provisioning: .managedTool(ManagedToolID(rawValue: "mafft"))),
         AnalysisToolDescriptor(
             id: .ontGenotyping, displayName: "ONT Genotyping",
-            sidebarSymbolName: "tablecells.badge.ellipsis", provisioning: .builtIn),
+            sidebarSymbolName: "tablecells.badge.ellipsis",
+            runsTools: ampliconGenotypingTools, provisioning: .builtIn),
         AnalysisToolDescriptor(
             id: .viralrecon, displayName: "Viral Recon", sidebarSymbolName: "v.circle",
+            runsTools: tools("nextflow"),
             provisioning: .lockedPipeline("nf-core-viralrecon")),
         AnalysisToolDescriptor(
             id: .primerOrder, displayName: "Primer Order", sidebarSymbolName: nil,
-            provisioning: .builtIn),
+            runsTools: [], provisioning: .builtIn),
         AnalysisToolDescriptor(
             id: .pbaa, displayName: "pbAA", sidebarSymbolName: nil, provisioning: .container),
         AnalysisToolDescriptor(
             id: .savont, displayName: "Savont", sidebarSymbolName: nil,
+            runsTools: tools("savont", "blast", "minimap2", "samtools", "openpyxl"),
             provisioning: .managedTool(ManagedToolID(rawValue: "savont"))),
         // The two ids an amplicon genotyping run records in analysis-metadata.json beside ont-genotyping.
         // Each name is the capitalized id, which is what the app showed before the ids were registered.
         AnalysisToolDescriptor(
             id: .illuminaAmpliconGenotyping, displayName: "Illumina-Amplicon-Genotyping",
-            sidebarSymbolName: nil, provisioning: .builtIn),
+            sidebarSymbolName: nil, runsTools: tools("bbtools") + ampliconGenotypingTools, provisioning: .builtIn),
         AnalysisToolDescriptor(
             id: .ontSampleBundleGenotyping, displayName: "Ont-Sample-Bundle-Genotyping",
-            sidebarSymbolName: nil, provisioning: .builtIn),
+            sidebarSymbolName: nil, runsTools: ampliconGenotypingTools, provisioning: .builtIn),
     ]
 
     private static let byRawID: [String: AnalysisToolDescriptor] =

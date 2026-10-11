@@ -42,6 +42,16 @@ public struct AnalysisToolDescriptor: Sendable, Hashable {
     /// Today it is the title of the FASTQ operation tool in lowercase. Holding it as data keeps a new
     /// title from renaming the folders a project already holds.
     public let outputStem: String?
+    /// The managed tools this kind's pipeline launches and records as steps, by lock id. Empty for a kind that
+    /// imports results, runs a container or runs only built-in code. A reader can check that a record of the kind
+    /// names each of them. The ids are entries of the managed tool lock and Workflow checks them against the lock
+    /// and its version probe table, as it does for `provisioning`.
+    ///
+    /// A kind provisioned with one managed tool lists it, unless the initializer is given another list. The tools
+    /// a pipeline records beside it (samtools beside a mapper, Bracken beside Kraken2) are listed in the registry.
+    /// A tool that runs only in some runs (bbmerge in an Illumina genotyping run that finds unmerged pairs) is
+    /// listed, so the list says what the kind may run. No order is promised.
+    public let runsTools: [ManagedToolID]
     public let provisioning: AnalysisToolProvisioning
 
     public init(
@@ -52,6 +62,7 @@ public struct AnalysisToolDescriptor: Sendable, Hashable {
         classifierBatchBadge: String? = nil,
         buildDatabaseToken: String? = nil,
         outputStem: String? = nil,
+        runsTools: [ManagedToolID]? = nil,
         provisioning: AnalysisToolProvisioning
     ) {
         self.id = id
@@ -61,6 +72,13 @@ public struct AnalysisToolDescriptor: Sendable, Hashable {
         self.classifierBatchBadge = classifierBatchBadge
         self.buildDatabaseToken = buildDatabaseToken
         self.outputStem = outputStem
+        if let runsTools {
+            self.runsTools = runsTools
+        } else if case .managedTool(let tool) = provisioning {
+            self.runsTools = [tool]
+        } else {
+            self.runsTools = []
+        }
         self.provisioning = provisioning
     }
 }
