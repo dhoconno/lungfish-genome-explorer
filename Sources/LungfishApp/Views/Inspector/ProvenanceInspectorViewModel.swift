@@ -529,7 +529,7 @@ final class ProvenanceInspectorViewModel {
 
     /// The heavy, off-main portion of `load(item:)`: the coverage audit (which only reads, so
     /// selecting a result never writes to the project), the multi-level sidecar directory
-    /// walk (`ProvenanceRecorder.findProvenanceEnvelope`), and JSON decode of the resolved
+    /// walk (`ProvenanceRecorder.findProvenanceReading`), and JSON decode of the resolved
     /// envelope. Pure with respect to `self` -- takes a value-type snapshot of `item` and
     /// `monitor` and returns a value-type outcome -- so it is safe to run detached from the
     /// cooperative thread pool. `nonisolated` so it carries no actor isolation of its own;
@@ -606,7 +606,7 @@ final class ProvenanceInspectorViewModel {
     /// Test-only threading probe. Invoked once at the start of `performLookup`, inside the
     /// `Task.detached` body -- i.e. after the executor hop `load(item:)` relies on for
     /// main-thread safety, and before `ProvenanceCoverageMonitor.audit`/
-    /// `ProvenanceRecorder.findProvenanceEnvelope` run. Exists solely so
+    /// `ProvenanceRecorder.findProvenanceReading` run. Exists solely so
     /// `ProvenanceInspectorViewModelOffMainTests` can assert `!Thread.isMainThread` from
     /// inside the real call path when driven from a `@MainActor` caller. Idiom:
     /// `ReferenceBundleAnnotationImportService.threadingProbe`. Not compiled into release
