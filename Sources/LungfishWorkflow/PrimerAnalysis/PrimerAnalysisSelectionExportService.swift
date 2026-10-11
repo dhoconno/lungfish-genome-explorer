@@ -414,18 +414,26 @@ public struct PrimerAnalysisSelectionExportService: Sendable {
           }
           return mapped
         }
-        builder = builder.step(step.with { copy in
-          copy.durableReplayArgv = replay
-          copy.reproducibleCommand = replay.map(shellEscape).joined(separator: " ")
-          copy.runtimeIdentity = step.runtimeIdentity ?? runtime
-          copy.inputs = stepInputs
-          copy.outputs = stepOutputs
-          copy.peakMemoryBytes = nil  // never kept by this copy, and keeping it comes with 2.7
-        })
+        builder = builder.step(relocatedNativeStep(step, replay: replay, runtime: runtime,
+          inputs: stepInputs, outputs: stepOutputs))
       }
     }
     let envelope = try builder.complete(exitStatus: 0, startedAt: startedAt, endedAt: completedAt)
     try ProvenanceWriter(signingProvider: nil).write(envelope, to: built, bundleLayoutRoot: final)
+  }
+
+  /// A native builder step moved into the published bundle, naming the replay command and the files it
+  /// names there.
+  static func relocatedNativeStep(_ step: ProvenanceStep, replay: [String], runtime: ProvenanceRuntimeIdentity,
+    inputs: [ProvenanceFileDescriptor], outputs: [ProvenanceFileDescriptor]) -> ProvenanceStep {
+    step.with { copy in
+      copy.durableReplayArgv = replay
+      copy.reproducibleCommand = replay.map(shellEscape).joined(separator: " ")
+      copy.runtimeIdentity = step.runtimeIdentity ?? runtime
+      copy.inputs = inputs
+      copy.outputs = outputs
+      copy.peakMemoryBytes = nil  // never kept by this copy, and keeping it comes with 2.7
+    }
   }
 
   private static func verifiedSource(_ path: String, bundle: PrimerAnalysisBundle) throws -> Data {

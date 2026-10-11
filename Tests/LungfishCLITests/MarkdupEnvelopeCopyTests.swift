@@ -41,4 +41,26 @@ final class MarkdupEnvelopeCopyTests: XCTestCase {
             XCTAssertEqual(copy.steps.map(\.id), source.steps.map(\.id))
         }
     }
+
+    /// Phase 2.7 lane S4b, scope row B6. The focused record copies each step of the run's record, which
+    /// held its own facts beside the outputs the copy narrows.
+    func testFocusedMarkdupRecordStepCopy() throws {
+        let root = try TestTempDirectory.make(prefix: "MarkdupStepCopy")
+        defer { TestTempDirectory.cleanup(root) }
+        let bam = root.appendingPathComponent("Sample.markdup.bam")
+        try Data("bam".utf8).write(to: bam)
+        let output = try ProvenanceFileDescriptor.file(url: bam, format: .bam, role: .output)
+        let step = StepCopyFacts.fullStep(input: bam, outputs: [output])
+        let source = ProvenanceEnvelope(
+            workflowName: "lungfish markdup", toolName: "lungfish-cli", outputs: [output], steps: [step]
+        )
+
+        let copy = try XCTUnwrap(MarkdupCommand.markdupEnvelope(source, focusedOn: [output]).steps.first)
+
+        XCTAssertEqual(StepCopyFacts.changes(from: step, in: copy), [
+            "githubReleaseVersion": .lost, "durableReplayArgv": .lost, "resolvedOptions": .lost,
+            "runtimeIdentity": .lost, "peakMemoryBytes": .lost,
+        ])
+        XCTAssertEqual(copy.outputs, [output])
+    }
 }

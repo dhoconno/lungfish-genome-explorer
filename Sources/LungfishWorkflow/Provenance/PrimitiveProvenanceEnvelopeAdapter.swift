@@ -435,7 +435,7 @@ enum PrimitiveProvenanceEnvelopeAdapter {
         ]
     }
 
-    private static func stepsWithFallbackIO(
+    static func stepsWithFallbackIO(
         _ steps: [ProvenanceStep],
         inputs: [ProvenanceFileDescriptor],
         outputs: [ProvenanceFileDescriptor]

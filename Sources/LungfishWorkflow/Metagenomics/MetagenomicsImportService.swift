@@ -1384,7 +1384,7 @@ private func writeMetagenomicsImportProvenance(
     try ProvenanceWriter(signingProvider: nil).write(envelope, to: resultDirectory)
 }
 
-private func naoMgsMaterializationProvenanceSteps(
+func naoMgsMaterializationProvenanceSteps(
     from materializationSteps: [NaoMgsBamMaterializationStep],
     sourceURLs: [URL],
     relocatedArtifacts: [String: URL],
@@ -2009,7 +2009,7 @@ private func nvdManifest(
     )
 }
 
-private struct NvdAuxiliaryStep {
+struct NvdAuxiliaryStep {
     let toolName: String
     let toolVersion: String
     let argv: [String]
@@ -2269,7 +2269,7 @@ private func nvdCountReadsWithTelemetry(
     )
 }
 
-private func nvdAuxiliaryProvenanceSteps(
+func nvdAuxiliaryProvenanceSteps(
     from auxiliarySteps: [NvdAuxiliaryStep],
     stagingRoot: URL,
     publishedRoot: URL

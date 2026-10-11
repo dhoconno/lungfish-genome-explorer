@@ -884,7 +884,7 @@ enum ReferenceBundleMergeService {
         )
     }
 
-    private static func normalizedNestedSteps(
+    static func normalizedNestedSteps(
         from envelope: ProvenanceEnvelope?,
         inputPayloadURLs: [URL],
         outputPayloadURLs: [URL],

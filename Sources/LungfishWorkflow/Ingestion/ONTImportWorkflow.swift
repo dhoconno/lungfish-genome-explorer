@@ -529,7 +529,7 @@ public struct ONTImportWorkflow: Sendable {
         return remapped
     }
 
-    private func remapOptimizationStep(
+    func remapOptimizationStep(
         _ step: ProvenanceStep,
         from stagedBundleURL: URL,
         to finalBundleURL: URL

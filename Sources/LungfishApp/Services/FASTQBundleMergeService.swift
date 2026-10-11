@@ -497,7 +497,7 @@ enum FASTQBundleMergeService {
         )
     }
 
-    private static func normalizeTransientNativeSteps(
+    static func normalizeTransientNativeSteps(
         _ steps: [ProvenanceStep]
     ) -> [ProvenanceStep] {
         steps.map { step in
