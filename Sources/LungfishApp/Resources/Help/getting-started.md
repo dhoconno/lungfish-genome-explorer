@@ -22,8 +22,8 @@ The app is built around **genome bundles**: self-contained packages that include
 
 A project is a `.lungfish` folder, and the sidebar lists the bundles inside it, such as `.lungfishref` reference bundles and `.lungfishfastq` read bundles. If you already have a project folder:
 
-1. Choose **File > Open** (Cmd+O)
-2. Navigate to your bundle file
+1. Choose **File > Open Project Folder…** (Cmd+O)
+2. Select the `.lungfish` project folder
 3. Click **Open**
 
 The viewer loads with:
@@ -65,7 +65,7 @@ The build process:
 - Compresses the genome with bgzip and creates a `.fai` index
 - Imports GFF3 annotations into an indexed SQLite database for fast random access and search
 - Parses VCF variants into a searchable database (if included)
-- Packages everything into a single `.lungfish` bundle
+- Packages everything into one `.lungfishref` reference bundle
 - Writes provenance for downloaded inputs, resolved options, checksums, and generated bundle paths
 
 Build times vary by genome size. Typical reference builds take 5-15 minutes.
@@ -154,7 +154,7 @@ Notes:
 
 ### Keyboard Shortcuts
 
-- **Cmd+O**: Open bundle
+- **Cmd+O**: Open a project folder
 - **Cmd+Plus / Cmd+Minus**: Zoom in / out
 - **Cmd+F**: Focus search field
 - **Shift+Cmd+A**: Open AI Assistant

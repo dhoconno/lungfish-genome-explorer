@@ -8,7 +8,7 @@ to the wrong place. This check scans these docs for `*.swift` references and
 fails when one does not resolve:
 
   AGENTS.md (root), Sources/*/AGENTS.md, Tests/AGENTS.md,
-  docs/architecture/**/*.md, docs/contracts/**/*.md,
+  docs/architecture/**/*.md, docs/contracts/**/*.md, docs/formats/**/*.md,
   agents/process/**/*.md, agents/specialists/**/*.md
 
 Resolution rules for a reference token ending in `.swift`:
@@ -45,7 +45,7 @@ SKIP_DIRS = {".build", ".git", ".claude", "worktrees", "node_modules", ".swiftpm
 TOKEN = re.compile(r"[A-Za-z0-9_+./<>*{}@~-]+\.swift\b")
 PLACEHOLDER = re.compile(r"[<>*{}]|\.\.")
 URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://\S+")
-DOC_TREES = ("docs/architecture", "docs/contracts", "agents/process", "agents/specialists")
+DOC_TREES = ("docs/architecture", "docs/contracts", "docs/formats", "agents/process", "agents/specialists")
 
 
 def index_swift_files(root: Path):

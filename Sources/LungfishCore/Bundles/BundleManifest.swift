@@ -165,8 +165,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
     /// Signal tracks (BigWig) in the bundle.
     public let tracks: [SignalTrackInfo]
 
-    /// Alignment tracks (BAM/CRAM) referenced by the bundle.
-    /// Alignment files are stored externally; the bundle holds metadata and indexes.
+    /// Alignment tracks, stored inside the bundle at bundle-relative paths except in legacy manifests.
     public let alignments: [AlignmentTrackInfo]
 
     // MARK: - Extended Metadata

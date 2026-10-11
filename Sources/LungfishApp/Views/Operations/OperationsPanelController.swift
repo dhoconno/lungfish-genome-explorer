@@ -10,7 +10,7 @@ import LungfishKit
 /// A normal app window that displays all running, completed, and failed
 /// operations tracked by ``OperationCenter``.
 ///
-/// Accessed via the Operations menu (Shift-Option-Cmd-O) or programmatically.
+/// Opened by Operations > Show Operations Panel (Shift-Command-P) or programmatically.
 @MainActor
 final class OperationsPanelController: NSWindowController {
 

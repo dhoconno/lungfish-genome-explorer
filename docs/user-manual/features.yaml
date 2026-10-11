@@ -902,7 +902,7 @@ features:
     title: Kraken2 and Bracken classification
     entry_points:
       - "Tools > Classification…"
-      - "CLI: lungfish classify"
+      - "CLI: lungfish-cli kraken2 classify"
     inputs: [fastq, fasta, kraken2-database]
     outputs: [kraken2-kreport, taxonomy-dataset]
     viewport_class: taxonomy
@@ -915,6 +915,7 @@ features:
       - Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline+InputCopies.swift
     module: [LungfishApp, LungfishCLI, LungfishWorkflow]
     cli:
+      - lungfish-cli kraken2 classify
       - lungfish-cli conda classify
     operation_type: classification
     provenance: ProvenanceRecorder run saved by ClassificationPipeline
@@ -930,7 +931,8 @@ features:
       counts fragments (the Fragments and Read Pairing cards). Inputs may mix
       gzip and plain files, and a file in the other compression than the first
       is read from a staged copy recorded as Lungfish Classification Input
-      Compression Staging.
+      Compression Staging. Recorded commands keep `conda classify` until 2.7
+      (S19).
   classify.esviritu:
     title: EsViritu viral detection
     entry_points:
@@ -1296,6 +1298,29 @@ features:
     notes: >-
       Exports the analyst-reviewed genotype bundle as XLSX, CSV, or TSV, a
       samples-across pivot workbook, or LabKey-ready CSV files.
+  genotype.smart-cohorts:
+    title: Smart cohorts of a genotype result
+    entry_points:
+      - "Inspector > Bundle tab > Smart Cohorts > Restore Built-In Cohorts"
+      - "CLI: lungfish genotype list-cohorts"
+    inputs: [genotype-bundle]
+    outputs: [genotype-bundle-revision]
+    viewport_class: none
+    sources:
+      - Sources/LungfishGenotypeUI/GenotypeSmartCohortSection.swift
+      - Sources/LungfishGenotypeUI/GenotypeResultViewController+SmartCohorts.swift
+      - Sources/LungfishGenotypeUI/GenotypeAnnotationStore+BuiltInSmartCohorts.swift
+      - Sources/LungfishGenotypeUI/GenotypeAnnotationStore+CohortDismissals.swift
+      - Sources/LungfishCLI/Commands/GenotypeListCohortsSubcommand.swift
+    module: [LungfishGenotypeUI, LungfishCLI]
+    notes: >-
+      The Smart Cohorts group of the Inspector's Bundle tab lists a genotype
+      result's saved cohorts with their subject counts, marks the viewer's
+      active cohort, which a second click clears, and deletes a cohort from
+      its row. A deleted built-in cohort stays deleted, because the sidecar
+      settings record its dismissal, and Restore Built-In Cohorts brings back
+      deleted built-ins with its own recorded edit (S13). genotype
+      list-cohorts lists the cohorts in the bundle's annotation sidecar.
   genotype.haplotype-definitions:
     title: Manage haplotype definitions
     entry_points:

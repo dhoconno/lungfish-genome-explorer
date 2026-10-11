@@ -43,9 +43,9 @@ The first four keep pointers into the root bundle's reads. A materialization sta
 
 ### preview.fastq
 
-A virtual bundle holds a small `preview.fastq` so the dashboard has reads to show. Demultiplexing writes the first 1,000 reads of each barcode by default (`ExactBarcodeDemux` in `Sources/LungfishWorkflow/Demultiplex/ExactBarcodeDemux.swift`), and the ONT directory import writes the first 1,000 reads of the first chunk (`Sources/LungfishIO/Formats/FASTQ/ONTDirectoryImporter.swift`).
+A virtual bundle holds a small `preview.fastq` so the dashboard has reads to show. Demultiplexing writes the first 1,000 reads of each barcode by default (`ExactBarcodeDemux` in `Sources/LungfishWorkflow/Demultiplex/ExactBarcodeDemux.swift`).
 
-Because `preview.fastq` is then the only FASTQ file in the bundle, `resolvePrimaryFASTQURL(for:)` returns it. A classifier or mapper that took that answer would see about 1,000 reads instead of the dataset, so every run first materializes a virtual bundle with `FASTQCLIMaterializer` in `Sources/LungfishWorkflow/Extraction/FASTQCLIMaterializer.swift`. This is a binding rule of `AGENTS.md` and a trap that `Sources/LungfishIO/AGENTS.md` lists.
+Because `preview.fastq` is then the only FASTQ file in a barcode bundle, `resolvePrimaryFASTQURL(for:)` returns it. A classifier or mapper that took that answer would see about 1,000 reads instead of the dataset, so every run first materializes a virtual bundle with `FASTQCLIMaterializer` in `Sources/LungfishWorkflow/Extraction/FASTQCLIMaterializer.swift`. This is a binding rule of `AGENTS.md` and a trap that `Sources/LungfishIO/AGENTS.md` lists. An ONT directory import's `source-files.json` makes `resolvePrimaryFASTQURL(for:)` return the first chunk instead, still not the dataset (`Sources/LungfishIO/Formats/FASTQ/ONTDirectoryImporter.swift`).
 
 ### Paths inside the manifests
 
@@ -81,7 +81,7 @@ Since lane B3 the FASTQ dashboard keeps the statistics it computes on view in me
 
 An explicit action may still write the sidecar. The imports, the operations that make a bundle, bundle merging, the SRA window and read extraction call `FASTQMetadataStore.save`. The demultiplex metadata drawer saves it when the user saves the drawer (`Sources/LungfishApp/Views/Viewer/ViewerViewController+FASTQDrawer.swift`). A Quality Report rewrites it with no record until sub-phase 2.7 (`FASTQDatasetViewController.swift` in `Sources/LungfishApp/Views/Viewer`, and [RECORDING-PROVENANCE.md](../contracts/RECORDING-PROVENANCE.md)).
 
-Neither the code nor a ruling settles whether this sidecar counts as an app cache under the record name rule of [bundle-kinds.md](bundle-kinds.md). It holds facts that steer tools beside its cached statistics, and the panel has not classed it.
+`<reads>.lungfish-meta.json` is a scientific sidecar that recorded digests cover, not an app cache, so it stays an output and the writer-wide filter keeps its record ([bundle-kinds.md](bundle-kinds.md)).
 
 ## Provenance
 
