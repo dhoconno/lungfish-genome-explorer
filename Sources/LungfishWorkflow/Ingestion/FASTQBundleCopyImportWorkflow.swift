@@ -307,6 +307,7 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
             // run's partial result, so the copy keeps the status of the run it copies.
             if sourceEnvelope.status == .cancelled || sourceEnvelope.status == .failed {
                 $0.status = sourceEnvelope.status
+                $0.exitStatus = sourceEnvelope.exitStatus
             }
         }
     }

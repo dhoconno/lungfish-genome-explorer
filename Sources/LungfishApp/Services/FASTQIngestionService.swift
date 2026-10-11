@@ -910,7 +910,10 @@ public enum FASTQIngestionService {
             $0.outputs = outputs
             $0.steps = rewrittenExisting.steps + ingestionEnvelope.steps
             $0.wallTimeSeconds = combinedWallTime(rewrittenExisting.wallTimeSeconds, ingestionEnvelope.wallTimeSeconds)
-            $0.exitStatus = ingestionEnvelope.exitStatus ?? rewrittenExisting.exitStatus
+            // A failed record keeps the exit status of its failing step, as the recorder's records do.
+            $0.exitStatus = rewrittenExisting.status == .failed
+                ? rewrittenExisting.exitStatus
+                : (ingestionEnvelope.exitStatus ?? rewrittenExisting.exitStatus)
             $0.stderr = ingestionEnvelope.stderr ?? rewrittenExisting.stderr
         }
     }

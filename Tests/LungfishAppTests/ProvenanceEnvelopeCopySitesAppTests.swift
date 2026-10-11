@@ -61,7 +61,7 @@ final class ProvenanceEnvelopeCopySitesAppTests: XCTestCase {
     // MARK: FASTQIngestionService, line 922
 
     func testInPlaceIngestionMergeCopiesEachSourceFaithfully() async throws {
-        for kind in CopySources.Kind.allCases {
+        for (kind, failedExit) in CopySources.sourcesWithFailedExit {
             let project = try ProvenanceCompatScenarios.makeProject()
             defer { project.cleanup() }
             let bundle = try project.folder("Imports/Sample.lungfishfastq")
@@ -73,7 +73,7 @@ final class ProvenanceEnvelopeCopySitesAppTests: XCTestCase {
             let base = try CopySources.baseEnvelope(workflowName: "fastq import", output: recordedOutput)
             try ProvenanceWriter(signingProvider: nil).write(base, to: bundle)
             let sidecar = bundle.appendingPathComponent(ProvenanceWriter.provenanceFilename)
-            try CopySources.rewriteSidecar(at: sidecar, as: kind)
+            try CopySources.rewriteSidecar(at: sidecar, as: kind, exitStatus: failedExit)
             let source = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
 
             let optimizationStep = StepExecution(
@@ -127,13 +127,16 @@ final class ProvenanceEnvelopeCopySitesAppTests: XCTestCase {
             XCTAssertEqual(copy.workflowName, source.workflowName, "the record stays the imported run")
             XCTAssertEqual(copy.steps.prefix(source.steps.count).map(\.id), source.steps.map(\.id))
             XCTAssertGreaterThan(copy.steps.count, source.steps.count, "the ingestion's steps follow")
+            if let failedExit {
+                XCTAssertEqual(copy.exitStatus, failedExit, "a failed record keeps its exit status over the ingestion's 0")
+            }
         }
     }
 
     // MARK: SampleMetadataBundleImportService, line 363
 
     func testSampleMetadataEditCopiesEachSourceFaithfully() throws {
-        for kind in CopySources.Kind.allCases {
+        for (kind, failedExit) in CopySources.sourcesWithFailedExit {
             let root = try TestTempDirectory.make(prefix: "EnvelopeCopyPinSampleMetadata")
             defer { TestTempDirectory.cleanup(root) }
             let bundle = root.appendingPathComponent("result.lungfish", isDirectory: true)
@@ -152,7 +155,7 @@ final class ProvenanceEnvelopeCopySitesAppTests: XCTestCase {
                 bundleURL: bundle
             )
             let sidecar = bundle.appendingPathComponent(ProvenanceWriter.provenanceFilename)
-            try CopySources.rewriteSidecar(at: sidecar, as: kind)
+            try CopySources.rewriteSidecar(at: sidecar, as: kind, exitStatus: failedExit)
             let source = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
 
             try imported.store.applyEdit(sampleId: "S1", column: "cohort", newValue: "treated")
@@ -167,6 +170,9 @@ final class ProvenanceEnvelopeCopySitesAppTests: XCTestCase {
             XCTAssertEqual(copy.steps.last?.toolName, "Sample metadata edit")
             XCTAssertEqual(copy.steps.count, source.steps.count + 1)
             XCTAssertEqual(copy.options.resolvedDefaults["sampleMetadataEditCount"], .integer(1))
+            if let failedExit {
+                XCTAssertEqual(copy.exitStatus, failedExit, "a failed record keeps its exit status over the edit's 0")
+            }
         }
     }
 }

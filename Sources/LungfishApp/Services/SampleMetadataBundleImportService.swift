@@ -369,7 +369,7 @@ struct SampleMetadataEditPersistenceService {
                 copy.outputs = deduplicatedPreferringLast(existingEnvelope.outputs + [output])
                 copy.steps = existingEnvelope.steps + [step]
                 copy.wallTimeSeconds = (existingEnvelope.wallTimeSeconds ?? 0) + (step.wallTimeSeconds ?? 0)
-                copy.exitStatus = 0
+                copy.exitStatus = existingEnvelope.exitStatus ?? 0
             }
             _ = try writeProvenance(updatedEnvelope, bundleURL, tracker.observe)
         } catch {

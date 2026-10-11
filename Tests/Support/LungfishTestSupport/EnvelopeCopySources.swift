@@ -56,15 +56,26 @@ public enum EnvelopeCopySources {
         case notAJSONObject
     }
 
+    /// The three sources, then a failed source whose run-level exit status is 1, for the sites that set the
+    /// exit status of the copy. A faithful copy of the last one holds status failed and exit status 1, as
+    /// the recorder's own records do (S4a review, fix 2).
+    public static let sourcesWithFailedExit: [(kind: Kind, exitStatus: Int?)] =
+        Kind.allCases.map { ($0, nil) } + [(.failedLastStepExitedZero, 1)]
+
     /// The record bytes of `kind`, made from the bytes of a completed record. A `.preTwoFourNestedPlan`
-    /// source also holds `extraNestedParameters` in its nested run, for a site that rewrites paths.
+    /// source also holds `extraNestedParameters` in its nested run, for a site that rewrites paths, and
+    /// `exitStatus`, when given, replaces the run-level exit status.
     public static func recordBytes(
         _ kind: Kind,
         from bytes: Data,
-        extraNestedParameters: [String: ParameterValue] = [:]
+        extraNestedParameters: [String: ParameterValue] = [:],
+        exitStatus: Int? = nil
     ) throws -> Data {
         guard var object = try JSONSerialization.jsonObject(with: bytes) as? [String: Any] else {
             throw SourceError.notAJSONObject
+        }
+        if let exitStatus {
+            object["exitStatus"] = exitStatus
         }
         switch kind {
         case .cancelled, .failedLastStepExitedZero:
@@ -91,22 +102,24 @@ public enum EnvelopeCopySources {
     public static func rewriteSidecar(
         at url: URL,
         as kind: Kind,
-        extraNestedParameters: [String: ParameterValue] = [:]
+        extraNestedParameters: [String: ParameterValue] = [:],
+        exitStatus: Int? = nil
     ) throws {
-        try recordBytes(kind, from: Data(contentsOf: url), extraNestedParameters: extraNestedParameters)
-            .write(to: url, options: .atomic)
+        try recordBytes(
+            kind, from: Data(contentsOf: url), extraNestedParameters: extraNestedParameters, exitStatus: exitStatus
+        ).write(to: url, options: .atomic)
     }
 
     /// Rewrites every envelope record below `folder`. A bundle writer also writes a record per output,
     /// and a reader that looks for the record of one output reads that file and not the root.
-    public static func rewriteEveryRecord(under folder: URL, as kind: Kind) throws {
+    public static func rewriteEveryRecord(under folder: URL, as kind: Kind, exitStatus: Int? = nil) throws {
         guard let enumerator = FileManager.default.enumerator(
             at: folder, includingPropertiesForKeys: [.isRegularFileKey]
         ) else { return }
         for case let url as URL in enumerator where url.pathExtension == "json" {
             guard let object = try? JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any],
                   object["workflowName"] != nil, object["steps"] != nil else { continue }
-            try rewriteSidecar(at: url, as: kind)
+            try rewriteSidecar(at: url, as: kind, exitStatus: exitStatus)
         }
     }
 

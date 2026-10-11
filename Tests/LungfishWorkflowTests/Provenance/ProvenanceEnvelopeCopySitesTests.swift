@@ -109,7 +109,7 @@ final class ProvenanceEnvelopeCopySitesTests: XCTestCase {
     /// bundle keeps that status, because the copy step itself succeeded and says nothing about the
     /// reads it copied. The plan belongs to the source's run and is not an option of the copy run.
     func testFASTQBundleCopyImportKeepsTheStatusOfTheBundleItCopied() throws {
-        for kind in CopySources.Kind.allCases {
+        for (kind, failedExit) in CopySources.sourcesWithFailedExit {
             let project = try ProvenanceCompatScenarios.makeProject()
             defer { project.cleanup() }
             let sourceBundle = try project.folder("Imports/source.lungfishfastq")
@@ -119,7 +119,7 @@ final class ProvenanceEnvelopeCopySitesTests: XCTestCase {
             let base = try CopySources.baseEnvelope(workflowName: "source fastq import", output: reads)
             try ProvenanceWriter(signingProvider: nil).write(base, to: sourceBundle)
             // The copy reads the record of the one output it copies, which a bundle also holds.
-            try CopySources.rewriteEveryRecord(under: sourceBundle, as: kind)
+            try CopySources.rewriteEveryRecord(under: sourceBundle, as: kind, exitStatus: failedExit)
             let destination = project.root.appendingPathComponent("Imports/copied.lungfishfastq", isDirectory: true)
 
             _ = try FASTQBundleCopyImportWorkflow().importBundle(
@@ -145,6 +145,9 @@ final class ProvenanceEnvelopeCopySitesTests: XCTestCase {
             XCTAssertEqual(copy.workflowName, "test fastq bundle import", "the record is the copy run")
             XCTAssertEqual(copy.steps.first?.toolName, "samtools", "the source bundle's steps come first")
             XCTAssertEqual(copy.steps.count, base.steps.count + 1)
+            if let failedExit {
+                XCTAssertEqual(copy.exitStatus, failedExit, "a failed copy keeps the exit status of the run it copies")
+            }
         }
     }
 
