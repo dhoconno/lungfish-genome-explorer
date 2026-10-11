@@ -14,10 +14,14 @@ public enum ProvenanceEnvelopeReader {
         case workflowRun
         /// Any other JSON object, read by the primitive adapter.
         case primitive
+        /// A typed record that keeps its own schema, such as `mapping-provenance.json`, which the
+        /// finder converts through its own type. It is never the Older record format.
+        case typedRecord
     }
 
     /// What the tolerant reader made of a record, and what it filled in itself. Only the bare run
-    /// and primitive shapes are the Older record format, never an envelope of any version.
+    /// and primitive shapes are the Older record format, never an envelope of any version and
+    /// never a typed record.
     public struct Reading: Sendable, Equatable {
         public let envelope: ProvenanceEnvelope
         public let shape: RecordShape
@@ -127,8 +131,9 @@ public enum ProvenanceEnvelopeReader {
             statusWasRecorded = stated.flatMap(RunStatus.init(rawValue:)) != nil || envelope.legacyRun != nil
         case .workflowRun:
             statusWasRecorded = true
-        case .primitive:
-            // The adapter reads no status key, so the status is always derived.
+        case .primitive, .typedRecord:
+            // The adapter reads no status key, so the status is always derived. A typed record
+            // never reaches this decoder, because the finder converts it through its own type.
             statusWasRecorded = false
         }
         return Reading(

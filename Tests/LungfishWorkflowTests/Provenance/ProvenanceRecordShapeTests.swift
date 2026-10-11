@@ -71,6 +71,50 @@ final class ProvenanceRecordShapeTests: XCTestCase {
         XCTAssertFalse(dated.createdAtWasInvented)
     }
 
+    /// A typed mapping record keeps its own schema and is never the Older record format, so the
+    /// shape a consumer gets for the record the finder returns must not be a legacy shape.
+    func testTheShapeOfAFoundMappingRecordIsNotALegacyShape() throws {
+        let mapping = try ProvenanceHonestRuntimeTests.saveMappingRecord()
+        defer { mapping.cleanup() }
+        let found = try XCTUnwrap(ProvenanceRecorder.findProvenanceReading(for: mapping.folder))
+        XCTAssertEqual(found.sidecarURL.lastPathComponent, MappingProvenance.filename)
+        let shape = found.reading.shape
+        XCTAssertNotEqual(shape, .primitive, "a typed mapping record never reads Older record format")
+        XCTAssertNotEqual(shape, .workflowRun, "a typed mapping record never reads Older record format")
+        XCTAssertEqual(shape, .typedRecord)
+        XCTAssertFalse(found.reading.statusWasRecorded, "the status is derived from the exit status")
+        XCTAssertFalse(found.reading.createdAtWasInvented)
+        XCTAssertNil(found.reading.envelope.runtimeIdentity.appVersion)
+    }
+
+    /// The finder returns each corpus case for the item a user selects, with the shape its manifest
+    /// names and the envelope `findProvenanceEnvelope(for:)` returns.
+    func testTheFinderReturnsEachCorpusSelectionWithItsShape() throws {
+        let shapes: [String: ProvenanceEnvelopeReader.RecordShape] = [
+            "S1": .envelope, "S2": .envelope, "S3": .workflowRun, "S4": .primitive,
+        ]
+        var checked = 0
+        for item in try ProvenanceCompatCorpus.cases() {
+            let materialized = try ProvenanceCompatCorpus.materialize(item.id)
+            defer { materialized.cleanup() }
+            guard let selection = materialized.selection else { continue }
+            let found = try XCTUnwrap(ProvenanceRecorder.findProvenanceReading(for: selection), item.id)
+            XCTAssertEqual(found.sidecarURL.standardizedFileURL, materialized.sidecar.standardizedFileURL, item.id)
+            XCTAssertEqual(found.reading.shape, shapes[item.shape], "shape of \(item.id)")
+            let envelope = try XCTUnwrap(ProvenanceRecorder.findProvenanceEnvelope(for: selection), item.id)
+            XCTAssertEqual(envelope.sidecarURL.standardizedFileURL, found.sidecarURL.standardizedFileURL, item.id)
+            let readFacts = try ProvenanceCompatFacts.project(
+                envelope: found.reading.envelope, sidecar: found.sidecarURL, projectRoot: materialized.projectRoot
+            )
+            let envelopeFacts = try ProvenanceCompatFacts.project(
+                envelope: envelope.envelope, sidecar: envelope.sidecarURL, projectRoot: materialized.projectRoot
+            )
+            XCTAssertEqual(readFacts.differences(from: envelopeFacts), [], item.id)
+            checked += 1
+        }
+        XCTAssertEqual(checked, try ProvenanceCompatCorpus.cases().count, "every corpus case has a selection")
+    }
+
     /// A record that states no status has one derived from its exit status.
     func testTheReaderSaysWhetherTheRecordStatesItsStatus() throws {
         let stated: [String: Bool] = [

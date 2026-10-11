@@ -97,7 +97,7 @@ final class ProvenanceHonestRuntimeTests: XCTestCase {
     /// version, OS, process ID, architecture, dependency set, account or workflow version. The
     /// finder reads a mapping folder without its `.lungfish-provenance.json` through it.
     func testTheFinderReadsASavedMappingRecordWithoutTheReadingMacsFacts() throws {
-        let mapping = try saveMappingRecord()
+        let mapping = try Self.saveMappingRecord()
         defer { mapping.cleanup() }
         let found = try XCTUnwrap(ProvenanceRecorder.findProvenanceEnvelope(for: mapping.folder))
         XCTAssertEqual(found.sidecarURL.lastPathComponent, MappingProvenance.filename)
@@ -106,7 +106,7 @@ final class ProvenanceHonestRuntimeTests: XCTestCase {
 
     /// Lineage finds the mapping record as the producer of a consumer's input by its checksum.
     func testLineageReadsASavedMappingRecordWithoutTheReadingMacsFacts() throws {
-        let mapping = try saveMappingRecord()
+        let mapping = try Self.saveMappingRecord()
         defer { mapping.cleanup() }
         let consumer = ProvenanceEnvelope(
             createdAt: mapping.recordedAt.addingTimeInterval(60),
@@ -173,7 +173,7 @@ final class ProvenanceHonestRuntimeTests: XCTestCase {
 
     // MARK: Helpers
 
-    private struct SavedMapping {
+    struct SavedMapping {
         let temporaryRoot: URL
         let project: URL
         let folder: URL
@@ -187,7 +187,7 @@ final class ProvenanceHonestRuntimeTests: XCTestCase {
 
     /// A mapping folder in a project, holding its `mapping-provenance.json` and no
     /// `.lungfish-provenance.json`.
-    private func saveMappingRecord() throws -> SavedMapping {
+    static func saveMappingRecord() throws -> SavedMapping {
         let temporaryRoot = try TestTempDirectory.make(prefix: "provenance-mapping-reading")
         let project = temporaryRoot
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

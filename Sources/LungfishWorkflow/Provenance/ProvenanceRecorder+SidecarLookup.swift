@@ -53,6 +53,15 @@ extension ProvenanceRecorder {
     public static func findProvenanceEnvelope(
         for url: URL
     ) -> (sidecarURL: URL, envelope: ProvenanceEnvelope)? {
+        findProvenanceReading(for: url).map { (sidecarURL: $0.sidecarURL, envelope: $0.reading.envelope) }
+    }
+
+    /// Finds the same record as `findProvenanceEnvelope(for:)`, in the same walk, with what the
+    /// reader made of it: the shape that decoded it, whether it states its status and whether its
+    /// date was invented. A typed mapping record reads as `.typedRecord`.
+    public static func findProvenanceReading(
+        for url: URL
+    ) -> (sidecarURL: URL, reading: ProvenanceEnvelopeReader.Reading)? {
         let standardizedURL = url.standardizedFileURL
         let selectedIsDirectory = isDirectory(standardizedURL)
 
@@ -61,8 +70,8 @@ extension ProvenanceRecorder {
                 return nestedOperation
             }
             for candidate in directorySidecarCandidates(for: standardizedURL) {
-                if let envelope = loadEnvelope(fromSidecar: candidate) {
-                    return (candidate, envelope)
+                if let reading = readRecord(fromSidecar: candidate) {
+                    return (candidate, reading)
                 }
             }
             if let mappingProvenance = mappingProvenanceCandidate(for: standardizedURL) {
@@ -75,8 +84,8 @@ extension ProvenanceRecorder {
             return mappingProvenance
         } else {
             for candidate in fileSidecarCandidates(for: standardizedURL) {
-                if let envelope = loadEnvelope(fromSidecar: candidate) {
-                    return (candidate, envelope)
+                if let reading = readRecord(fromSidecar: candidate) {
+                    return (candidate, reading)
                 }
             }
         }
@@ -89,25 +98,25 @@ extension ProvenanceRecorder {
         var checkedSelectedDirectory = false
         for _ in 0..<5 {
             if let bundleSidecar = ProvenanceWriter.bundleOutputSidecarURL(for: standardizedURL, inBundle: dir),
-               let envelope = loadEnvelope(fromSidecar: bundleSidecar),
-               provenanceEnvelope(envelope, produced: standardizedURL) {
-                return (bundleSidecar, envelope)
+               let reading = readRecord(fromSidecar: bundleSidecar),
+               provenanceEnvelope(reading.envelope, produced: standardizedURL) {
+                return (bundleSidecar, reading)
             }
 
             for candidate in directorySidecarCandidates(for: dir) {
-                guard let envelope = loadEnvelope(fromSidecar: candidate) else { continue }
+                guard let reading = readRecord(fromSidecar: candidate) else { continue }
                 if selectedIsDirectory && !checkedSelectedDirectory {
-                    return (candidate, envelope)
+                    return (candidate, reading)
                 }
-                if provenanceEnvelope(envelope, produced: standardizedURL) {
-                    return (candidate, envelope)
+                if provenanceEnvelope(reading.envelope, produced: standardizedURL) {
+                    return (candidate, reading)
                 }
             }
             if let mappingProvenance = mappingProvenanceCandidate(for: dir) {
                 if selectedIsDirectory && !checkedSelectedDirectory {
                     return mappingProvenance
                 }
-                if provenanceEnvelope(mappingProvenance.envelope, produced: standardizedURL) {
+                if provenanceEnvelope(mappingProvenance.reading.envelope, produced: standardizedURL) {
                     return mappingProvenance
                 }
             }
@@ -119,12 +128,17 @@ extension ProvenanceRecorder {
         return nil
     }
 
+    /// What the tolerant reader makes of one candidate, or nil when it reads nothing there.
+    private static func readRecord(fromSidecar sidecarURL: URL) -> ProvenanceEnvelopeReader.Reading? {
+        (try? ProvenanceEnvelopeReader.read(fromSidecar: sidecarURL)) ?? nil
+    }
+
     /// A Viral Recon result folder holds the copied outputs for one sample. The
     /// run's provenance is written next to the raw pipeline results, which the
     /// folder's `viralrecon-result.json` names in `rawResultsPath`.
     private static func viralReconRunProvenanceCandidate(
         for directory: URL
-    ) -> (sidecarURL: URL, envelope: ProvenanceEnvelope)? {
+    ) -> (sidecarURL: URL, reading: ProvenanceEnvelopeReader.Reading)? {
         let resultURL = directory.appendingPathComponent("viralrecon-result.json")
         guard let data = try? Data(contentsOf: resultURL),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -136,36 +150,44 @@ extension ProvenanceRecorder {
             ? FASTQBundle.resolveBundle(relativePath: rawResultsPath, from: directory)
             : URL(fileURLWithPath: rawResultsPath).standardizedFileURL
         let sidecar = rawResults.appendingPathComponent(provenanceFilename)
-        guard let envelope = loadEnvelope(fromSidecar: sidecar) else { return nil }
-        return (sidecar, envelope)
+        guard let reading = readRecord(fromSidecar: sidecar) else { return nil }
+        return (sidecar, reading)
     }
 
     private static func singleNestedOperationProvenanceCandidate(
         for directory: URL
-    ) -> (sidecarURL: URL, envelope: ProvenanceEnvelope)? {
+    ) -> (sidecarURL: URL, reading: ProvenanceEnvelopeReader.Reading)? {
         guard ProvenanceWriter.isBundleDirectory(directory) else {
             return nil
         }
-        let candidates: [(sidecarURL: URL, envelope: ProvenanceEnvelope)] =
+        let candidates: [(sidecarURL: URL, reading: ProvenanceEnvelopeReader.Reading)] =
             nestedOperationSidecarCandidates(for: directory).compactMap { sidecarURL in
-                guard let envelope = loadEnvelope(fromSidecar: sidecarURL),
-                      provenanceEnvelopeProducedDescendant(envelope, of: directory) else {
+                guard let reading = readRecord(fromSidecar: sidecarURL),
+                      provenanceEnvelopeProducedDescendant(reading.envelope, of: directory) else {
                     return nil
                 }
-                return (sidecarURL: sidecarURL, envelope: envelope)
+                return (sidecarURL: sidecarURL, reading: reading)
             }
         return candidates.count == 1 ? candidates[0] : nil
     }
 
+    /// A saved `mapping-provenance.json` keeps its own schema and reads as a typed record, never
+    /// as the Older record format. Its status is derived from its exit status.
     private static func mappingProvenanceCandidate(
         for directory: URL
-    ) -> (sidecarURL: URL, envelope: ProvenanceEnvelope)? {
+    ) -> (sidecarURL: URL, reading: ProvenanceEnvelopeReader.Reading)? {
         let sidecarURL = directory.appendingPathComponent(MappingProvenance.filename)
         guard FileManager.default.fileExists(atPath: sidecarURL.path),
               let provenance = MappingProvenance.load(from: directory) else {
             return nil
         }
-        return (sidecarURL, provenance.recordedEnvelope(sourceDirectory: directory))
+        let reading = ProvenanceEnvelopeReader.Reading(
+            envelope: provenance.recordedEnvelope(sourceDirectory: directory),
+            shape: .typedRecord,
+            statusWasRecorded: false,
+            createdAtWasInvented: false
+        )
+        return (sidecarURL, reading)
     }
 
     /// The folder's own record and roll-ups first, then root files named like a record, then the
