@@ -15,6 +15,8 @@
 // - a `stage-reference --mode decompress-gzip` step becomes `gzip -dc`;
 // - a step writing `pipe:stdout:X` and the step reading it become one
 //   pipeline;
+// - a step that a `lungfish-cli` step ran inside is a sub-step, named in a
+//   comment and not run again (`ProvenanceExportPlan+SubSteps.swift`);
 // - `lungfish-internal` and GUI steps are in-app (recorded, not replayed);
 // - a managed executable is spelt bare and its environment kept as a pin;
 // - a path inside any `.lungfish` project is spelt relative to the project,
@@ -86,6 +88,9 @@ struct ProvenanceExportPlan {
         /// Plumbing (a decompression) that scripts keep and methods omit.
         let isPlumbing: Bool
         let sourceSteps: [StepExecution]
+        /// The recorded number of the CLI step this step ran inside, when it is a sub-step the
+        /// scripts leave out because that step runs it. See `ProvenanceExportPlan+SubSteps.swift`.
+        let ranUnder: Int?
 
         var number: Int { numbers[0] }
         var isReplayable: Bool { kind != .inApp }
@@ -192,7 +197,10 @@ struct ProvenanceExportPlan {
             var wallTime: TimeInterval?
             var isPlumbing: Bool
             var sources: [StepExecution]
+            var ranUnder: Int?
         }
+        let survivors = numbered.filter { !collapsedNumbers.contains($0.number) }
+        let subStepParents = Self.subStepParents(in: survivors, replayArguments: replayArguments)
         var drafts: [Draft] = []
         for (number, step) in numbered where !collapsedNumbers.contains(number) {
             var identity = ProvenanceToolIdentityText.parse(toolName: step.toolName, toolVersion: step.toolVersion)
@@ -240,7 +248,8 @@ struct ProvenanceExportPlan {
                 outputs: step.outputs.map { $0.replacingPath(resolveAlias($0.path)) },
                 wallTime: step.wallTime,
                 isPlumbing: isPlumbing,
-                sources: [step]
+                sources: [step],
+                ranUnder: subStepParents[number]
             ))
         }
 
@@ -264,6 +273,8 @@ struct ProvenanceExportPlan {
                 )
                 current.wallTime = [current.wallTime, reader.wallTime].compactMap { $0 }.max()
                 current.sources += reader.sources
+                // A joined pipeline is a sub-step only when both of its ends are, of the same step.
+                if current.ranUnder != reader.ranUnder { current.ranUnder = nil }
                 if current.toolName != reader.toolName {
                     current.toolName += " | " + reader.toolName
                 }
@@ -281,12 +292,13 @@ struct ProvenanceExportPlan {
 
         // 5. Pin each step's environment to a package. The plan keeps one entry for each package a
         //    tool step installed. A later package of an environment that already has one is a
-        //    variant of it, so two steps that disagree keep both specs.
+        //    variant of it, so two steps that disagree keep both specs. A sub-step is not run by the
+        //    export, so it adds no environment to create.
         func pinnedEnvironment(of draft: Draft) -> ProvenanceManagedEnvironment? {
             draft.identity.environment.map { Self.pinned($0, version: draft.identity.version, lock: lock) }
         }
         var environments: [ProvenanceManagedEnvironment] = []
-        for draft in merged where draft.kind == .tool {
+        for draft in merged where draft.kind == .tool && draft.ranUnder == nil {
             guard let pinned = pinnedEnvironment(of: draft) else { continue }
             guard !environments.contains(where: { $0.name == pinned.name && $0.packageSpec == pinned.packageSpec }) else { continue }
             let variant = (environments.filter { $0.name == pinned.name }.map(\.variant).max() ?? 0) + 1
@@ -313,7 +325,8 @@ struct ProvenanceExportPlan {
                 containerDigest: draft.sources.first?.containerDigest,
                 isSuccess: draft.sources.allSatisfy(\.isSuccess),
                 isPlumbing: draft.isPlumbing,
-                sourceSteps: draft.sources
+                sourceSteps: draft.sources,
+                ranUnder: draft.ranUnder
             )
         }
         self.collapsed = collapsed
@@ -349,11 +362,11 @@ struct ProvenanceExportPlan {
         }.joined(separator: " | ")
     }
 
-    /// Every step the executable exports run, in order.
-    var replayableSteps: [Step] { steps.filter(\.isReplayable) }
+    /// Every step the executable exports run, in order. A sub-step is not one, its CLI step runs it.
+    var replayableSteps: [Step] { steps.filter { $0.isReplayable && !$0.isSubStep } }
 
     /// Every in-app step the executable exports leave out, in order.
-    var inAppSteps: [Step] { steps.filter { !$0.isReplayable } }
+    var inAppSteps: [Step] { steps.filter { !$0.isReplayable && !$0.isSubStep } }
 
     /// Inputs of replayable steps that no earlier replayable step produced,
     /// once each by file name, in first-use order.
@@ -399,7 +412,7 @@ struct ProvenanceExportPlan {
 
     /// Recorded values still holding an `<external>` or `<workspace>` placeholder.
     var unresolvedPaths: [String] {
-        let values = steps.flatMap { $0.commands.flatMap(\.argv) + $0.inputs.map(\.path) }
+        let values = steps.filter { !$0.isSubStep }.flatMap { $0.commands.flatMap(\.argv) + $0.inputs.map(\.path) }
         return values.filter(PortablePath.containsUnresolvedPlaceholder)
     }
 
@@ -473,7 +486,7 @@ struct ProvenanceExportPlan {
         (step.durableReplayArgv ?? step.command).first == "lungfish-internal"
     }
 
-    private static func isCLI(_ argv: [String]) -> Bool {
+    static func isCLI(_ argv: [String]) -> Bool {
         guard let first = argv.first else { return false }
         return URL(fileURLWithPath: first).lastPathComponent == CLICommandIdentity.executableName
     }

@@ -775,7 +775,7 @@ public struct ProvenanceExporter: Sendable {
                 s += "# Wall time: \(formatDuration(wallTime))\n"
             }
             s += plan.commandLine(for: step, spell: shellSpelling, escape: shellToken)
-            s += "\n\n"
+            s += "\n" + subStepNote(of: step, in: plan, prefix: "# ") + "\n"
         }
 
         s += "echo \"Pipeline complete.\"\n"
@@ -804,7 +804,7 @@ public struct ProvenanceExporter: Sendable {
         return "\"\(escaped)\""
     }
 
-    private func stepNumbers(_ step: ProvenanceExportPlan.Step) -> String {
+    func stepNumbers(_ step: ProvenanceExportPlan.Step) -> String {
         step.numbers.count == 1
             ? "\(step.number)"
             : step.numbers.map(String.init).joined(separator: " and ")
@@ -874,7 +874,7 @@ public struct ProvenanceExporter: Sendable {
             if let image = step.containerImage {
                 s += " (container: \(image))"
             }
-            s += "\"\"\"\n"
+            s += "\"\"\"\n" + subStepNote(of: step, in: plan, prefix: "    # ")
             s += "    run_step(\(pythonDoubleQuoted(step.toolName)), \" \".join([\n"
             for (index, command) in step.commands.enumerated() {
                 if index > 0 {
@@ -1004,7 +1004,7 @@ public struct ProvenanceExporter: Sendable {
             if let wallTime = step.wallTime {
                 s += " * Original wall time: \(formatDuration(wallTime))\n"
             }
-            s += " */\n"
+            s += subStepNote(of: step, in: plan, prefix: " * ") + " */\n"
             s += "process \(node.nextflowProcessName) {\n"
 
             if let image = step.containerImage {
@@ -1140,7 +1140,7 @@ public struct ProvenanceExporter: Sendable {
                 s += "# Original wall time: \(formatDuration(wallTime))\n"
             }
 
-            s += "rule \(ruleName):\n"
+            s += subStepNote(of: step, in: plan, prefix: "# ") + "rule \(ruleName):\n"
 
             if !node.inAppInputPaths.isEmpty {
                 let names = node.inAppInputPaths.map { snakemakeConfigValue($0) }.joined(separator: ", ")

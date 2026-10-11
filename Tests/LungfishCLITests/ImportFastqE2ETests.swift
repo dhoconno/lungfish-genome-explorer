@@ -311,4 +311,90 @@ final class ImportFastqE2ETests: XCTestCase {
             "Final provenance output records should point at bundle payloads, not temp workspace files"
         )
     }
+
+    // MARK: - The exported script (Phase 2.6 lane P8, plan decision S6)
+
+    /// The shell script `provenance export` writes for a fresh import record runs the import once.
+    /// It runs under bash against a second project with the real CLI behind a shim that logs each
+    /// call. A seqkit shim logs the count the import already ran, so a script that repeated it
+    /// would show in the log whether or not seqkit is installed on this Mac.
+    func testShellScriptExportedFromAFreshImportRecordRunsTheImportOnce() throws {
+        guard let fixtures = fixturesDir else { throw XCTSkip("Fixtures not found") }
+        guard let cli = cliBinaryPath else {
+            throw XCTSkip("Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle")
+        }
+        let tmpInput = try stageFixturePair(fixtures)
+        defer { try? FileManager.default.removeItem(at: tmpInput) }
+        let source = try makeProject()
+        defer { try? FileManager.default.removeItem(at: source) }
+        let target = try makeProject()
+        defer { try? FileManager.default.removeItem(at: target) }
+        let work = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-export-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+
+        let (exitCode, _, stderr) = try runCLI([
+            "import", "fastq", tmpInput.appendingPathComponent("test_1.fastq.gz").path,
+            "--project", source.path,
+            "--platform", "illumina",
+            "--pairing", "single",
+            "--no-optimize-storage",
+        ])
+        XCTAssertEqual(exitCode, 0, "Import should succeed. stderr: \(stderr)")
+        let bundle = try XCTUnwrap(try bundles(in: source).first)
+        let sidecar = bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let envelope = try XCTUnwrap(try ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
+        XCTAssertGreaterThan(envelope.steps.count, 1, "the record holds the import step and the steps beside it")
+
+        let exported = try ProvenanceExporter(signingProvider: nil).exportBundle(
+            envelope,
+            format: .shell,
+            to: work.appendingPathComponent("export", isDirectory: true),
+            sourceSidecarURL: sidecar,
+            sourceRootURL: bundle
+        )
+
+        let shims = work.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: shims, withIntermediateDirectories: true)
+        let log = work.appendingPathComponent("calls.log")
+        FileManager.default.createFile(atPath: log.path, contents: Data())
+        let stubs: [(name: String, body: String)] = [
+            ("lungfish-cli", "echo \"lungfish-cli $*\" >> '\(log.path)'\nexec '\(cli.path)' \"$@\"\n"),
+            ("seqkit", "echo \"seqkit $*\" >> '\(log.path)'\n"),
+        ]
+        for shim in stubs {
+            let url = shims.appendingPathComponent(shim.name)
+            try ("#!/bin/bash\n" + shim.body).write(to: url, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        }
+
+        let bash = Process()
+        bash.executableURL = URL(fileURLWithPath: "/bin/bash")
+        bash.arguments = [exported.primaryArtifactURL.path]
+        bash.currentDirectoryURL = work
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = shims.path + ":" + (environment["PATH"] ?? "/usr/bin:/bin")
+        environment["LUNGFISH_PROJECT"] = target.path
+        bash.environment = environment
+        let errors = Pipe()
+        bash.standardError = errors
+        bash.standardOutput = Pipe()
+        try bash.run()
+        bash.waitUntilExit()
+        let bashErrors = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+
+        XCTAssertEqual(bash.terminationStatus, 0, "the exported script should run. stderr: \(bashErrors)")
+        let calls = try String(contentsOf: log, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        XCTAssertEqual(calls.count, 1, "the script ran \(calls)")
+        XCTAssertTrue(calls.first?.hasPrefix("lungfish-cli import fastq") == true, "\(calls)")
+        let rebuilt = try XCTUnwrap(try bundles(in: target).first, "the script imported the reads into the second project")
+        XCTAssertEqual(rebuilt.lastPathComponent, bundle.lastPathComponent)
+        XCTAssertEqual(
+            try FASTQPairInterleaver.countRecords(in: try bundleFASTQ(rebuilt)),
+            try FASTQPairInterleaver.countRecords(in: try bundleFASTQ(bundle)),
+            "the second import holds the same reads"
+        )
+    }
 }
