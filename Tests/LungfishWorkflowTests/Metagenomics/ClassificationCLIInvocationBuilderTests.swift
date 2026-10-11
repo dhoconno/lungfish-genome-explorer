@@ -61,7 +61,7 @@ final class ClassificationCLIInvocationBuilderTests: XCTestCase {
 
     func testDisplayStringIsShellQuotedAndPrefixedWithLungfish() {
         let invocation = ClassificationCLIInvocationBuilder.build(for: makeConfig())
-        XCTAssertTrue(invocation.displayString.hasPrefix("lungfish conda classify"))
+        XCTAssertTrue(invocation.displayString.hasPrefix("lungfish kraken2 classify"))
     }
 
     /// The same argv is what would be executed and what is recorded to

@@ -545,7 +545,7 @@ final class ClassificationBatchOutcomeTests: XCTestCase {
         let script = try XCTUnwrap(command.last)
         XCTAssertTrue(script.hasPrefix("set -e\n"))
         XCTAssertEqual(script.components(separatedBy: "\n").count, 3)
-        XCTAssertTrue(script.contains("conda classify"))
+        XCTAssertTrue(script.contains("kraken2 classify"))
         XCTAssertTrue(script.contains("--output-dir"))
         XCTAssertTrue(script.contains(shellEscape(automatic.outputDirectory.path)))
         XCTAssertTrue(script.contains(shellEscape(explicit.outputDirectory.path)))
@@ -568,7 +568,7 @@ final class ClassificationBatchOutcomeTests: XCTestCase {
         let databaseGuard = try XCTUnwrap(
             script.range(of: shellEscape(databasePath.standardizedFileURL.path))
         )
-        let firstClassification = try XCTUnwrap(script.range(of: "lungfish-cli conda classify"))
+        let firstClassification = try XCTUnwrap(script.range(of: "lungfish-cli kraken2 classify"))
         XCTAssertLessThan(
             databaseGuard.lowerBound,
             firstClassification.lowerBound,
