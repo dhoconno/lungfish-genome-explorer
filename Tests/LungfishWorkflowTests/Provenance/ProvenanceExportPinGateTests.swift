@@ -311,6 +311,72 @@ final class ProvenanceExportPinGateTests: XCTestCase {
         XCTAssertEqual(withBracken.unpinnedSteps.map(\.reason), [.unpinnableRuntime(.sourceBuild)])
     }
 
+    // MARK: - Every tool of a piped step
+
+    /// A tool as a piped step records it.
+    private struct PipedTool {
+        let name: String
+        let executable: String
+        let version: String
+        let environment: String
+        let verb: String
+    }
+
+    /// `writer | reader`, the writer's standard output read by the reader, as `samtools mpileup | ivar variants` runs.
+    private func pipedSteps(_ writer: PipedTool, into reader: PipedTool) -> [StepExecution] {
+        let pipe = "pipe:stdout:\(writer.verb)"
+        func record(_ tool: PipedTool, inputs: [FileRecord], outputs: [FileRecord], argv: [String]) -> StepExecution {
+            StepExecution(
+                toolName: tool.name,
+                toolVersion: "\(tool.version) (managed conda environment \(tool.environment); executable \(tool.executable))",
+                command: [tool.executable, tool.verb] + argv, inputs: inputs, outputs: outputs, exitCode: 0, wallTime: 1
+            )
+        }
+        return [
+            record(writer, inputs: [], outputs: [FileRecord(path: pipe, role: .output)], argv: ["aln.bam"]),
+            record(reader, inputs: [FileRecord(path: pipe, role: .input)], outputs: [], argv: ["-p", "variants"]),
+        ]
+    }
+
+    private func pipe(_ writer: PipedTool, into reader: PipedTool) -> ProvenanceExportPinGate {
+        ProvenanceExporter(signingProvider: nil).pinGate(
+            for: envelope(pipedSteps(writer, into: reader)), shape: .envelope, format: .snakemake, sourceSidecarURL: nil
+        )
+    }
+
+    func testAnOverriddenPipeNamesTheUnpinnedToolBesideTheStep() throws {
+        let samtools = PipedTool(name: "samtools mpileup", executable: "samtools", version: "1.24", environment: "samtools", verb: "mpileup")
+        let ivar = PipedTool(name: "ivar variants", executable: "ivar", version: "1.4.4", environment: "ivar", verb: "variants")
+        let directory = try temporaryDirectory("pin-gate-pipe-override")
+        let bundle = try ProvenanceExporter(signingProvider: nil).exportBundle(
+            envelope(pipedSteps(samtools, into: ivar)), format: .snakemake, to: directory, sourceSidecarURL: nil,
+            allowUnpinned: true
+        )
+        let script = try String(contentsOf: bundle.primaryArtifactURL, encoding: .utf8)
+        XCTAssertTrue(script.contains(
+            "# Not pinned (ivar variants). The script writes no environment for this tool, which ran in ivar. "
+                + "Exported with --allow-unpinned.\n"
+        ), script)
+    }
+
+    func testEveryToolOfAPipedStepIsAssessed() {
+        // Bio review fix 2. A pipe joins two recorded steps into one script step, and the script writes the
+        // environment of its first tool only.
+        let samtools = PipedTool(name: "samtools mpileup", executable: "samtools", version: "1.24", environment: "samtools", verb: "mpileup")
+        for version in ["unknown", "1.3.1", "1.4.4"] {
+            let ivar = PipedTool(name: "ivar variants", executable: "ivar", version: version, environment: "ivar", verb: "variants")
+            let result = pipe(samtools, into: ivar)
+            XCTAssertEqual(result.assessment.steps.count, 1, version)
+            XCTAssertEqual(result.unpinnedSteps.map(\.reason.code), ["environmentNotWritten"], version)
+            XCTAssertEqual(result.unpinnedSteps.map(\.toolName), ["ivar variants"], version)
+            XCTAssertEqual(result.unpinnedSteps.map(\.numbers), [[1, 2]], version)
+            XCTAssertTrue(result.requiresOverride, version)
+        }
+        let mpileup = PipedTool(name: "bcftools mpileup", executable: "bcftools", version: "1.24", environment: "bcftools", verb: "mpileup")
+        let call = PipedTool(name: "bcftools call", executable: "bcftools", version: "1.24", environment: "bcftools", verb: "call")
+        XCTAssertEqual(pipe(mpileup, into: call).unpinnedSteps, [])
+    }
+
     // MARK: - The recorded override
 
     /// Unpinned minimap2, pinned samtools and unpinned bracken.

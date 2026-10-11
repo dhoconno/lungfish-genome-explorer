@@ -153,10 +153,13 @@ struct ProvenanceExportPinNotes {
         return s
     }
 
-    /// The comment line on one step the override let through, and nothing for any other step.
+    /// The comment lines on one step the override let through, one for each unpinned tool, and nothing
+    /// for any other step. A piped step names the tool each line is about.
     func stepNote(_ step: ProvenanceExportPlan.Step, prefix: String) -> String {
-        guard let unpinned = steps.first(where: { $0.numbers == step.numbers }) else { return "" }
-        return "\(prefix)Not pinned. \(unpinned.reason.sentence) Exported with \(ProvenanceExporter.allowUnpinnedFlag).\n"
+        steps.filter { $0.numbers == step.numbers }.map { unpinned in
+            let tool = step.sourceSteps.count > 1 ? " (\(unpinned.toolName))" : ""
+            return "\(prefix)Not pinned\(tool). \(unpinned.reason.sentence) Exported with \(ProvenanceExporter.allowUnpinnedFlag).\n"
+        }.joined()
     }
 
     /// The flag after a default argv, which the export builds when its caller passes none.

@@ -177,7 +177,7 @@ public struct ProvenanceExportPinAssessment: Sendable, Hashable {
 
     /// The status of one step that recorded `candidate` as its managed environment, when the export
     /// writes `exported` as that environment's package spec.
-    private static func assess(
+    fileprivate static func assess(
         number: Int, toolName: String, recordedVersion: String, identity: ProvenanceToolIdentityText,
         managed candidate: ProvenanceManagedEnvironment?, exported: String?, lock: ManagedToolLock
     ) -> StepAssessment {
@@ -227,8 +227,28 @@ public struct ProvenanceExportPinAssessment: Sendable, Hashable {
     private static func managedEnvironment(
         of step: ProvenanceStep, identity: ProvenanceToolIdentityText
     ) -> ProvenanceManagedEnvironment? {
+        managedEnvironment(argv: step.durableReplayArgv ?? step.argv, identity: identity)
+    }
+
+    /// The environment of a tool piped after the first, found as the plan finds a step's: as above, or
+    /// the runtime identity's `condaEnvironment` when its executable is that environment's copy of the
+    /// tool's own program, as `ClassificationPipeline` records kraken2 and Bracken.
+    fileprivate static func managedEnvironment(
+        of step: StepExecution, identity: ProvenanceToolIdentityText
+    ) -> ProvenanceManagedEnvironment? {
+        let argv = step.durableReplayArgv ?? step.command
+        if let environment = managedEnvironment(argv: argv, identity: identity) { return environment }
+        guard let runtime = step.runtimeIdentity, let name = runtime.condaEnvironment,
+              let program = argv.first.map({ URL(fileURLWithPath: $0).lastPathComponent }),
+              runtime.executablePath?.hasSuffix("/envs/\(name)/bin/\(program)") == true else { return nil }
+        return ProvenanceManagedEnvironment(name: name, executable: program, packageSpec: nil)
+    }
+
+    private static func managedEnvironment(
+        argv recorded: [String], identity: ProvenanceToolIdentityText
+    ) -> ProvenanceManagedEnvironment? {
         if let environment = identity.environment { return environment }
-        var argv = step.durableReplayArgv ?? step.argv
+        var argv = recorded
         if argv.count >= 5, argv[0] == "micromamba", argv[1] == "run", argv[2] == "-n" {
             let name = argv[3]
             argv.removeFirst(4)
@@ -294,6 +314,8 @@ public struct ProvenanceExportPinGate: Sendable, Hashable {
         case unpinnableRuntime(ProvenanceExportPinAssessment.RuntimeKind)
         /// The spec the export writes does not pin the recorded version.
         case specDoesNotPinVersion(spec: String?, version: String)
+        /// A tool piped after the first ran in this environment, which the script does not write.
+        case environmentNotWritten(String)
 
         /// A short stable name for tables and tests.
         public var code: String {
@@ -303,6 +325,7 @@ public struct ProvenanceExportPinGate: Sendable, Hashable {
             case .environmentNotInLock: return "environmentNotInLock"
             case .unpinnableRuntime(let kind): return "unpinnableRuntime.\(kind.rawValue)"
             case .specDoesNotPinVersion: return "specDoesNotPinVersion"
+            case .environmentNotWritten: return "environmentNotWritten"
             }
         }
 
@@ -330,6 +353,8 @@ public struct ProvenanceExportPinGate: Sendable, Hashable {
                 return "LGE installs this tool in its own Python runtime, which a conda package spec cannot pin."
             case .specDoesNotPinVersion(let spec, let version):
                 return "The export would install \(spec ?? "no package"), which does not pin version \(version)."
+            case .environmentNotWritten(let name):
+                return "The script writes no environment for this tool, which ran in \(name)."
             }
         }
     }
@@ -341,7 +366,8 @@ public struct ProvenanceExportPinGate: Sendable, Hashable {
         public let toolName: String
         /// The step's `toolVersion` as recorded.
         public let recordedVersion: String
-        /// The environment the step runs in, as the export names it (`lge-samtools_2`).
+        /// The environment the step runs in, as the export names it (`lge-samtools_2`), and empty when
+        /// the script writes none for the step.
         public let environmentName: String
         public let reason: Reason
 
@@ -353,7 +379,8 @@ public struct ProvenanceExportPinGate: Sendable, Hashable {
         /// The step, its tool, its environment and the reason, as the CLI, the script header and the
         /// export record name it.
         public var summary: String {
-            "\(stepLabel), \(toolName) in \(environmentName). \(reason.sentence)"
+            let place = environmentName.isEmpty ? "" : " in \(environmentName)"
+            return "\(stepLabel), \(toolName)\(place). \(reason.sentence)"
         }
     }
 
@@ -420,31 +447,61 @@ public struct ProvenanceExportPinGate: Sendable, Hashable {
         ProvenanceExportPinGate(format: format, shape: shape, assessment: ProvenanceExportPinAssessment(steps: []), unpinnedSteps: [])
     }
 
-    /// The assessment of every replayable step of `plan`, and the steps among them the export cannot pin.
+    /// The assessment of every replayable step of `plan`, and the tools among them the export cannot pin.
+    ///
+    /// A pipe is one script step, and the script writes the environment of its first tool only. Each
+    /// tool piped after the first is assessed too, and one that ran in another environment is unpinned
+    /// under the step's numbers. Writing each piped tool's environment is 2.7 work.
     static func unpinnedSteps(
         in plan: ProvenanceExportPlan, lock: ManagedToolLock = .bundled
     ) -> (assessment: ProvenanceExportPinAssessment, unpinned: [UnpinnedStep]) {
         let assessment = ProvenanceExportPinAssessment.assess(plan: plan, lock: lock)
-        let unpinned = zip(plan.replayableSteps, assessment.steps).compactMap { step, assessed -> UnpinnedStep? in
-            guard let environment = step.environment, let reason = reason(for: assessed, step: step, lock: lock) else {
-                return nil
+        let unpinned = zip(plan.replayableSteps, assessment.steps).flatMap { step, assessed -> [UnpinnedStep] in
+            let written = step.environment
+            let writtenName = written.map { "lge-\($0.exportName)" } ?? ""
+            var found: [UnpinnedStep] = []
+            if written != nil, let reason = reason(for: assessed, version: step.identity.version, lock: lock) {
+                found.append(UnpinnedStep(
+                    numbers: step.numbers, toolName: step.sourceSteps.first?.toolName ?? step.toolName,
+                    recordedVersion: assessed.recordedVersion, environmentName: writtenName, reason: reason
+                ))
             }
-            return UnpinnedStep(
-                numbers: step.numbers, toolName: step.toolName, recordedVersion: assessed.recordedVersion,
-                environmentName: "lge-\(environment.exportName)", reason: reason
-            )
+            guard step.kind == .tool else { return found }
+            for piped in step.sourceSteps.dropFirst() {
+                let identity = ProvenanceToolIdentityText.parse(toolName: piped.toolName, toolVersion: piped.toolVersion)
+                guard let managed = ProvenanceExportPinAssessment.managedEnvironment(of: piped, identity: identity) else {
+                    continue
+                }
+                let reason: Reason?
+                if let written, written.name == managed.name {
+                    let tool = ProvenanceExportPinAssessment.assess(
+                        number: step.number, toolName: piped.toolName, recordedVersion: piped.toolVersion,
+                        identity: identity, managed: managed, exported: written.packageSpec, lock: lock
+                    )
+                    reason = Self.reason(for: tool, version: identity.version, lock: lock)
+                } else {
+                    reason = .environmentNotWritten(managed.name)
+                }
+                guard let reason else { continue }
+                found.append(UnpinnedStep(
+                    numbers: step.numbers, toolName: piped.toolName, recordedVersion: piped.toolVersion,
+                    environmentName: writtenName, reason: reason
+                ))
+            }
+            return found
         }
         return (assessment, unpinned)
     }
 
-    /// Why the export cannot pin `step`, or nil when it can or the script declares no environment.
+    /// Why the export cannot pin a tool recorded at `version`, or nil when it can or the script
+    /// declares no environment for it.
     ///
     /// A spec that differs from the lock's only in its channel or build is pinned when the recorded
     /// version is the lock entry's version, because that spec is what ran. The written spec must
     /// still pin the recorded version, so no environment installs another one.
     private static func reason(
         for assessed: ProvenanceExportPinAssessment.StepAssessment,
-        step: ProvenanceExportPlan.Step,
+        version: String,
         lock: ManagedToolLock
     ) -> Reason? {
         switch assessed.status {
@@ -459,7 +516,6 @@ public struct ProvenanceExportPinGate: Sendable, Hashable {
         case .unpinnableRuntime(let kind):
             return .unpinnableRuntime(kind)
         case .pinnedToLock, .packageSpecUnavailable, .recordedSpecDiffersFromLock:
-            let version = step.identity.version
             let entry = assessed.environment.flatMap { lock.entry(environment: $0) }
             let locked = entry?.version ?? assessed.lockSpec.flatMap { CondaSpec(spec: $0)?.version }
             guard locked == version else { return .versionNotInLock(recorded: version, locked: locked) }
