@@ -209,6 +209,68 @@ struct ScientificProvenancePolicyTests {
         #expect(!containsTemporaryOrStagingPath(try readRepositorySource(provenanceURL)))
     }
 
+    // MARK: - kraken2 classify and conda classify (S19)
+
+    @Test("kraken2 classify and conda classify resolve to one classify policy entry")
+    func bothClassifySpellingsResolveToOnePolicyEntry() throws {
+        let underKraken2 = try #require(ScientificProvenancePolicy.cliCommand(path: ["kraken2", "classify"]))
+        let underConda = try #require(ScientificProvenancePolicy.cliCommand(path: ["conda", "classify"]))
+        let leaf = try #require(ScientificProvenancePolicy.cliCommand("classify"))
+
+        #expect(underKraken2 == underConda)
+        #expect(underKraken2 == leaf)
+        #expect(underKraken2.id == "cli.kraken2.classify")
+        #expect(underKraken2.workflowKind == .dataWriting)
+        #expect(underKraken2.createsOrModifiesScientificData)
+        #expect(underKraken2.requiresProvenance)
+        #expect(underKraken2.outputPathExpectation == .finalStoredPayload)
+        #expect(underKraken2.writer == "ClassifyCommand/ProvenanceRunBuilder")
+    }
+
+    @Test("the kraken2 group is a data-writing top-level policy")
+    func kraken2GroupIsADataWritingTopLevelPolicy() throws {
+        let group = try #require(ScientificProvenancePolicy.cliCommand("kraken2"))
+
+        #expect(group.id == "cli.kraken2")
+        #expect(group.workflowKind == .dataWriting)
+        #expect(group.createsOrModifiesScientificData)
+        #expect(group.requiresProvenance)
+        #expect(group.outputPathExpectation == .finalStoredPayload)
+        #expect(group.writer == "ClassifyCommand/ProvenanceRunBuilder")
+        #expect(ScientificProvenancePolicy.canonicalCLICommandNames.contains { $0 == "kraken2" })
+    }
+
+    @Test("import kraken2 and build-db kraken2 keep their own command's policy")
+    func otherKraken2LeavesKeepTheirOwnCommandPolicy() throws {
+        // The last path component of both is kraken2, which is also a top-level policy key.
+        let imported = try #require(ScientificProvenancePolicy.cliCommand(path: ["import", "kraken2"]))
+        let built = try #require(ScientificProvenancePolicy.cliCommand(path: ["build-db", "kraken2"]))
+        let group = try #require(ScientificProvenancePolicy.cliCommand("kraken2"))
+
+        #expect(imported == ScientificProvenancePolicy.cliCommand("import"))
+        #expect(built == ScientificProvenancePolicy.cliCommand("build-db"))
+        #expect(imported != group)
+        #expect(built != group)
+    }
+
+    @Test("the classify entries reach no field the Kraken2 golden record holds")
+    func classifyEntriesReachNoFieldTheKraken2GoldenRecordHolds() throws {
+        let record = try readRepositorySource(
+            repositoryRoot()
+                .appendingPathComponent("Tests/Fixtures/golden/classifiers/kraken2", isDirectory: true)
+                .appendingPathComponent("lungfish-provenance.json")
+        )
+        // The golden run recorded `conda classify` and still does until 2.7.
+        #expect(record.range(of: "\"conda\"") != nil)
+        for entry in [
+            try #require(ScientificProvenancePolicy.cliCommand("classify")),
+            try #require(ScientificProvenancePolicy.cliCommand("kraken2")),
+        ] {
+            #expect(!record.contains(entry.id), "the record names the policy id \(entry.id)")
+            #expect(!record.contains(entry.writer), "the record names the policy writer \(entry.writer)")
+        }
+    }
+
     private func repositoryRoot() -> URL {
         var candidate = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         while candidate.path != "/" {

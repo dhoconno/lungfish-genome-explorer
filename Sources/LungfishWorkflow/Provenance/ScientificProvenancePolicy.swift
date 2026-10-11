@@ -144,6 +144,10 @@ public enum ScientificProvenancePolicy {
         "blast": dataWriting("cli.blast"),
         // The group's one subcommand is `classify`, which writes the record.
         "kraken2": dataWriting("cli.kraken2", writer: "ClassifyCommand/ProvenanceRunBuilder"),
+        // `kraken2 classify` and `conda classify` are one command, `ClassifyCommand`. The
+        // last-component rule of `cliCommand(path:)` gives both spellings this entry (S19). It is
+        // read by tests only, so it changes no field a run records.
+        "classify": dataWriting("cli.kraken2.classify", writer: "ClassifyCommand/ProvenanceRunBuilder"),
         "esviritu": dataWriting("cli.esviritu"),
         "taxtriage": dataWriting("cli.taxtriage"),
         "align": dataWriting("cli.align"),
@@ -200,6 +204,10 @@ public enum ScientificProvenancePolicy {
             "cli.conda.db.download",
             writer: "CanonicalMetagenomicsDatabaseInstallProvenanceWriter"
         ),
+        // `import kraken2` and `build-db kraken2` are leaves of their own commands. Without an exact
+        // entry the last-component rule would give them the `kraken2` group's entry.
+        "import kraken2": dataWriting("cli.import"),
+        "build-db kraken2": dataWriting("cli.build-db"),
         "debug fastq-ingest": dataWriting("cli.debug.fastq-ingest", writer: "FASTQIngestSubcommand"),
         "fastq pbaa-cluster": dataWriting("cli.fastq.pbaa-cluster", writer: "PBAAClusteringPipeline"),
         "fastq savont-cluster": dataWriting(
