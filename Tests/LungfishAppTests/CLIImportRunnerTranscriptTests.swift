@@ -106,12 +106,18 @@ final class CLIImportRunnerTranscriptTests: XCTestCase {
                 expected.errorDetail = nil
                 expected.log.removeAll { $0 == "error: CLI exited with status 64" }
             }
-            // 4. The human text on standard error reaches the log at info through the transport, and
-            //    the platform each sample is imported as is logged at info. Neither changes the label.
+            // 4. The human text on standard error reaches the log at info through the transport, which
+            //    drops its blank lines, and the platform each sample is imported as is logged at info.
+            //    Neither changes the label.
             let humanText = Set(try String(contentsOf: Self.runsFolder.appendingPathComponent(run.standardError), encoding: .utf8)
-                .split(separator: "\n").map { "info: " + Self.withoutDurations(String($0)) })
+                .split(separator: "\n")
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .map { "info: " + Self.withoutDurations(String($0)) })
             let added = observed.log.filter { humanText.contains($0) || ($0.hasPrefix("info: ") && $0.contains(": Platform: ")) }
-            XCTAssertTrue(added.allSatisfy { $0.hasPrefix("info: ") }, "\(run.name) adds only info lines: \(added)")
+            XCTAssertTrue(
+                humanText.isSubset(of: Set(observed.log)),
+                "\(run.name) logs its human text at info, missing \(humanText.subtracting(observed.log).sorted())"
+            )
             XCTAssertTrue(added.contains { $0.contains(": Platform: ") }, "\(run.name) logs the platform")
             var shown = observed
             shown.log.removeAll { added.contains($0) }
