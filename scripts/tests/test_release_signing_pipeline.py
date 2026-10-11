@@ -199,6 +199,22 @@ class SigningPipelineTests(unittest.TestCase):
                 self.assertLess(position(nested), framework)
         self.assertLess(framework, outer)
 
+    def test_every_signature_uses_the_sha1_and_a_secure_timestamp_and_code_keeps_the_hardened_runtime(self):
+        sparkle = self.source / 'Contents/Frameworks/Sparkle.framework/Versions/B'
+        (sparkle / 'XPCServices/Installer.xpc').mkdir(parents=True)
+        (sparkle / 'Sparkle').write_bytes(b'fake sparkle')
+        state = self.pipeline(lambda *a, **kw: {'status': 'Accepted'})
+        self.assertEqual(state['status'], 'Accepted')
+        signatures = [c for c in self.calls if Path(c[0]).name == 'codesign' and '--sign' in c]
+        self.assertGreaterEqual(len(signatures), 4)
+        for argv in signatures:
+            with self.subTest(target=argv[-1]):
+                self.assertEqual(argv[argv.index('--sign') + 1], 'A' * 40)
+                self.assertIn('--timestamp', argv)
+                runtime = argv[argv.index('--options') + 1] if '--options' in argv else None
+                self.assertEqual(runtime, None if argv[-1].endswith('.dmg') else 'runtime')
+        self.assertEqual(sum(argv[-1].endswith('.dmg') for argv in signatures), 1)
+
     def test_actual_signed_app_team_must_match_selected_profile(self):
         original = self.run_tool
         def wrong_team(argv, **kwargs):
