@@ -178,6 +178,38 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
         )
     }
 
+    // MARK: - A record a native loader verified
+
+    /// A native bundle loader (primer orders and analyses) hands the Inspector a record it has already verified,
+    /// so no lookup ran and the record has no reading. The row counts it as stating its status, because a
+    /// canonical envelope does, and the Process ID rule reads its version. This pins both through the real
+    /// `configureVerifiedSources` path, where the one other render test is skipped.
+    func testAVerifiedRecordReadsItsStatedStatusAndShowsNoProcessIDRow() throws {
+        let (_, sidecar) = try makeProject(recordBytes("fastq-trim-cancelled"))
+        let envelope = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: sidecar), sidecarURL: sidecar)
+        let model = ProvenanceInspectorViewModel()
+
+        model.configureVerifiedSources([
+            ProvenanceSource(
+                id: sidecar.path,
+                name: "Analysis",
+                item: ProvenanceInspectableItem(
+                    url: sidecar.deletingLastPathComponent(),
+                    sidebarType: .primerAnalysisBundle,
+                    contentMode: .genomics,
+                    displayName: "Analysis"
+                ),
+                verifiedRecord: VerifiedProvenanceRecord(envelope: envelope, sidecarURL: sidecar)
+            ),
+        ])
+
+        XCTAssertEqual(envelope.status, .cancelled, "The fixture record states that the run was cancelled.")
+        XCTAssertEqual(model.summary.runStatus, .stated(.cancelled))
+        XCTAssertTrue(model.copyableText.contains("Run Status: Cancelled"), model.copyableText)
+        XCTAssertFalse(model.runtimeRows.contains { $0.label == "Process ID" }, "\(model.runtimeRows)")
+        XCTAssertFalse(model.copyableText.contains("Process ID"), model.copyableText)
+    }
+
     // MARK: - The words of the row
 
     func testEachStatedStatusReadsInPlainWords() {
