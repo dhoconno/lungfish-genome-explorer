@@ -1,0 +1,93 @@
+{
+  "argv" : [
+    "lungfish-cli",
+    "import",
+    "fasta",
+    "/fixture/genome.fa"
+  ],
+  "createdAt" : "2026-10-07T00:00:00Z",
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000032",
+      "fileSize" : 64,
+      "format" : "fasta",
+      "path" : "/fixture/genome.fa",
+      "role" : "input"
+    }
+  ],
+  "id" : "<id-1>",
+  "options" : {
+    "defaults" : {
+
+    },
+    "explicit" : {
+
+    },
+    "resolvedDefaults" : {
+
+    }
+  },
+  "outputs" : [
+
+  ],
+  "reproducibleCommand" : "lungfish-cli import fasta /fixture/genome.fa",
+  "runtimeIdentity" : {
+    "appVersion" : "<app-version>",
+    "architecture" : "<architecture>",
+    "dependencySet" : "<dependency-set>",
+    "executablePath" : "<executable>",
+    "managedToolLockSHA256" : "<lock-sha256>",
+    "operatingSystemVersion" : "<operating-system>"
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "running",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "import",
+        "fasta",
+        "/fixture/genome.fa"
+      ],
+      "completedAt" : "2026-10-07T00:00:01Z",
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "id" : "<id-2>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000032",
+          "fileSize" : 64,
+          "format" : "fasta",
+          "path" : "/fixture/genome.fa",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+
+      ],
+      "reproducibleCommand" : "lungfish-cli import fasta /fixture/genome.fa",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "2026-10-07T00:00:01Z",
+      "toolName" : "lungfish import",
+      "toolVersion" : "unknown",
+      "wallTimeSeconds" : 1.5
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "lungfish import",
+    "version" : "<app-version>"
+  },
+  "toolName" : "lungfish import",
+  "toolVersion" : "<app-version>",
+  "workflowName" : "Import",
+  "workflowVersion" : "<app-version>"
+}

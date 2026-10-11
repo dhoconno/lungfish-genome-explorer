@@ -1,0 +1,189 @@
+{
+  "argv" : [
+    "bracken-build",
+    "-d",
+    "/fixture/db/viral",
+    "-l",
+    "150"
+  ],
+  "createdAt" : "2026-10-07T00:00:00Z",
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000003",
+      "fileSize" : 4096,
+      "path" : "/fixture/db/viral/hash.k2d",
+      "role" : "reference"
+    },
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000004",
+      "fileSize" : 2048,
+      "path" : "/fixture/db/viral/database150mers.kmer_distrib",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000005",
+      "fileSize" : 300,
+      "format" : "text",
+      "path" : "/fixture/classification.kreport",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000006",
+      "fileSize" : 120,
+      "format" : "text",
+      "path" : "/fixture/classification.bracken",
+      "role" : "output"
+    }
+  ],
+  "id" : "<id-1>",
+  "options" : {
+    "defaults" : {
+
+    },
+    "explicit" : {
+      "limit" : {
+        "type" : "integer",
+        "value" : 5
+      },
+      "rank" : {
+        "type" : "string",
+        "value" : "S"
+      }
+    },
+    "resolvedDefaults" : {
+
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000006",
+    "fileSize" : 120,
+    "format" : "text",
+    "path" : "/fixture/classification.bracken",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000004",
+      "fileSize" : 2048,
+      "path" : "/fixture/db/viral/database150mers.kmer_distrib",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000006",
+      "fileSize" : 120,
+      "format" : "text",
+      "path" : "/fixture/classification.bracken",
+      "role" : "output"
+    }
+  ],
+  "reproducibleCommand" : "bracken-build -d /fixture/db/viral -l 150",
+  "runtimeIdentity" : {
+    "appVersion" : "<app-version>",
+    "architecture" : "<architecture>",
+    "dependencySet" : "<dependency-set>",
+    "executablePath" : "<executable>",
+    "managedToolLockSHA256" : "<lock-sha256>",
+    "operatingSystemVersion" : "<operating-system>"
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "cancelled",
+  "stderr" : "partial profile\n",
+  "steps" : [
+    {
+      "argv" : [
+        "bracken-build",
+        "-d",
+        "/fixture/db/viral",
+        "-l",
+        "150"
+      ],
+      "completedAt" : "2026-10-07T00:00:06Z",
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "id" : "<id-2>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000003",
+          "fileSize" : 4096,
+          "path" : "/fixture/db/viral/hash.k2d",
+          "role" : "reference"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000004",
+          "fileSize" : 2048,
+          "path" : "/fixture/db/viral/database150mers.kmer_distrib",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "bracken-build -d /fixture/db/viral -l 150",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "2026-10-07T00:00:06Z",
+      "stderr" : "Generating the k-mer distribution\n",
+      "toolName" : "bracken-build",
+      "toolVersion" : "3.1",
+      "wallTimeSeconds" : 6
+    },
+    {
+      "argv" : [
+        "bracken",
+        "-d",
+        "/fixture/db/viral",
+        "-i",
+        "/fixture/classification.kreport"
+      ],
+      "completedAt" : "2026-10-07T00:00:08Z",
+      "dependsOn" : [
+        "<id-2>"
+      ],
+      "exitStatus" : 0,
+      "id" : "<id-3>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000005",
+          "fileSize" : 300,
+          "format" : "text",
+          "path" : "/fixture/classification.kreport",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000006",
+          "fileSize" : 120,
+          "format" : "text",
+          "path" : "/fixture/classification.bracken",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "bracken -d /fixture/db/viral -i /fixture/classification.kreport",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "2026-10-07T00:00:08Z",
+      "stderr" : "partial profile\n",
+      "toolName" : "bracken",
+      "toolVersion" : "3.1",
+      "wallTimeSeconds" : 2
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "bracken-build",
+    "version" : "3.1"
+  },
+  "toolName" : "bracken-build",
+  "toolVersion" : "3.1",
+  "wallTimeSeconds" : 8.5,
+  "workflowName" : "Bracken Profile",
+  "workflowVersion" : "<app-version>"
+}

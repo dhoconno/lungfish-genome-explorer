@@ -1,0 +1,281 @@
+{
+  "argv" : [
+    "/fixture/tools/kraken2",
+    "--db",
+    "/fixture/db/viral",
+    "--threads",
+    "4",
+    "--paired",
+    "<tmp>/reads_R1.fastq",
+    "<tmp>/reads_R2.fastq",
+    "--output",
+    "<tmp>/Kraken2 run/classification.kraken",
+    "--report",
+    "<tmp>/Kraken2 run/classification.kreport"
+  ],
+  "createdAt" : "2026-10-07T00:00:00Z",
+  "durableReplayArgv" : [
+    "kraken2",
+    "--db",
+    "/fixture/db/viral",
+    "--threads",
+    "4",
+    "--paired",
+    "reads_R1.fastq",
+    "reads_R2.fastq",
+    "--output",
+    "<tmp>/Kraken2 run/classification.kraken",
+    "--report",
+    "<tmp>/Kraken2 run/classification.kreport"
+  ],
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "d14fc4ab8a088d4e642888002f61d3b11d5017f09b2a0c1cf98b54b319f89b1f",
+      "fileSize" : 26,
+      "format" : "fastq",
+      "path" : "<tmp>/reads_R1.fastq",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "0f938de457c82e258fe71e41f87b2a111e704358b61c0f2390f92ebeca634a32",
+      "fileSize" : 26,
+      "format" : "fastq",
+      "path" : "<tmp>/reads_R2.fastq",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "db3445bb2a76ea674b1dca4840358f1c79e5832cac71b9f974cd1c8c87b1f4cd",
+      "fileSize" : 20,
+      "format" : "text",
+      "path" : "<tmp>/Kraken2 run/classification.kreport",
+      "role" : "report"
+    },
+    {
+      "checksumSHA256" : "db3445bb2a76ea674b1dca4840358f1c79e5832cac71b9f974cd1c8c87b1f4cd",
+      "fileSize" : 20,
+      "format" : "text",
+      "path" : "<tmp>/Kraken2 run/classification.kreport",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "a661f747d49eb0174f7b8fcf18119e3e0ea10187994e285ae69e2abb94732cfc",
+      "fileSize" : 17,
+      "format" : "text",
+      "path" : "<tmp>/Kraken2 run/classification.bracken",
+      "role" : "output"
+    }
+  ],
+  "id" : "<id-1>",
+  "options" : {
+    "defaults" : {
+      "confidence" : {
+        "type" : "number",
+        "value" : 0.1
+      },
+      "minimumHitGroups" : {
+        "type" : "integer",
+        "value" : 2
+      }
+    },
+    "explicit" : {
+      "database" : {
+        "type" : "string",
+        "value" : "Viral"
+      },
+      "threads" : {
+        "type" : "integer",
+        "value" : 4
+      }
+    },
+    "resolvedDefaults" : {
+      "confidence" : {
+        "type" : "number",
+        "value" : 0.1
+      },
+      "readFormat" : {
+        "type" : "string",
+        "value" : "fastq"
+      }
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "a661f747d49eb0174f7b8fcf18119e3e0ea10187994e285ae69e2abb94732cfc",
+    "fileSize" : 17,
+    "format" : "text",
+    "path" : "<tmp>/Kraken2 run/classification.bracken",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "db3445bb2a76ea674b1dca4840358f1c79e5832cac71b9f974cd1c8c87b1f4cd",
+      "fileSize" : 20,
+      "format" : "text",
+      "path" : "<tmp>/Kraken2 run/classification.kreport",
+      "role" : "report"
+    },
+    {
+      "checksumSHA256" : "a661f747d49eb0174f7b8fcf18119e3e0ea10187994e285ae69e2abb94732cfc",
+      "fileSize" : 17,
+      "format" : "text",
+      "path" : "<tmp>/Kraken2 run/classification.bracken",
+      "role" : "output"
+    }
+  ],
+  "reproducibleCommand" : "/fixture/tools/kraken2 --db /fixture/db/viral --threads 4 --paired <tmp>/reads_R1.fastq <tmp>/reads_R2.fastq --output '<tmp>/Kraken2 run/classification.kraken' --report '<tmp>/Kraken2 run/classification.kreport'",
+  "runtimeIdentity" : {
+    "appVersion" : "<app-version>",
+    "architecture" : "<architecture>",
+    "dependencySet" : "<dependency-set>",
+    "executablePath" : "<executable>",
+    "managedToolLockSHA256" : "<lock-sha256>",
+    "operatingSystemVersion" : "<operating-system>"
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "completed",
+  "stderr" : "",
+  "steps" : [
+    {
+      "argv" : [
+        "/fixture/tools/kraken2",
+        "--db",
+        "/fixture/db/viral",
+        "--threads",
+        "4",
+        "--paired",
+        "<tmp>/reads_R1.fastq",
+        "<tmp>/reads_R2.fastq",
+        "--output",
+        "<tmp>/Kraken2 run/classification.kraken",
+        "--report",
+        "<tmp>/Kraken2 run/classification.kreport"
+      ],
+      "completedAt" : "2026-10-07T00:00:02Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "kraken2",
+        "--db",
+        "/fixture/db/viral",
+        "--threads",
+        "4",
+        "--paired",
+        "reads_R1.fastq",
+        "reads_R2.fastq",
+        "--output",
+        "<tmp>/Kraken2 run/classification.kraken",
+        "--report",
+        "<tmp>/Kraken2 run/classification.kreport"
+      ],
+      "exitStatus" : 0,
+      "id" : "<id-2>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "d14fc4ab8a088d4e642888002f61d3b11d5017f09b2a0c1cf98b54b319f89b1f",
+          "fileSize" : 26,
+          "format" : "fastq",
+          "path" : "<tmp>/reads_R1.fastq",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "0f938de457c82e258fe71e41f87b2a111e704358b61c0f2390f92ebeca634a32",
+          "fileSize" : 26,
+          "format" : "fastq",
+          "path" : "<tmp>/reads_R2.fastq",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "daad8242272556e6d4bba16071ac3b5fa8603db8a7f5f8fc6fe9968f16d340ae",
+          "fileSize" : 21,
+          "format" : "unknown",
+          "path" : "<tmp>/Kraken2 run/classification.kraken",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "db3445bb2a76ea674b1dca4840358f1c79e5832cac71b9f974cd1c8c87b1f4cd",
+          "fileSize" : 20,
+          "format" : "text",
+          "path" : "<tmp>/Kraken2 run/classification.kreport",
+          "role" : "report"
+        }
+      ],
+      "peakMemoryBytes" : 3400000000,
+      "reproducibleCommand" : "kraken2 --db /fixture/db/viral --threads 4 --paired reads_R1.fastq reads_R2.fastq --output '<tmp>/Kraken2 run/classification.kraken' --report '<tmp>/Kraken2 run/classification.kreport'",
+      "resolvedOptions" : {
+        "confidence" : {
+          "type" : "number",
+          "value" : 0.1
+        }
+      },
+      "startedAt" : "2026-10-07T00:00:02Z",
+      "stderr" : "Loading database information... done.\n1 sequences (0.00 Mbp) processed.\n",
+      "toolName" : "kraken2",
+      "toolVersion" : "2.17.1",
+      "wallTimeSeconds" : 2.5
+    },
+    {
+      "argv" : [
+        "/fixture/tools/bracken",
+        "-d",
+        "/fixture/db/viral",
+        "-i",
+        "<tmp>/Kraken2 run/classification.kreport",
+        "-o",
+        "<tmp>/Kraken2 run/classification.bracken",
+        "-r",
+        "150",
+        "-l",
+        "S"
+      ],
+      "completedAt" : "2026-10-07T00:00:03Z",
+      "dependsOn" : [
+        "<id-2>"
+      ],
+      "exitStatus" : 0,
+      "id" : "<id-3>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "db3445bb2a76ea674b1dca4840358f1c79e5832cac71b9f974cd1c8c87b1f4cd",
+          "fileSize" : 20,
+          "format" : "text",
+          "path" : "<tmp>/Kraken2 run/classification.kreport",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "a661f747d49eb0174f7b8fcf18119e3e0ea10187994e285ae69e2abb94732cfc",
+          "fileSize" : 17,
+          "format" : "text",
+          "path" : "<tmp>/Kraken2 run/classification.bracken",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "/fixture/tools/bracken -d /fixture/db/viral -i '<tmp>/Kraken2 run/classification.kreport' -o '<tmp>/Kraken2 run/classification.bracken' -r 150 -l S",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "2026-10-07T00:00:03Z",
+      "stderr" : "",
+      "toolName" : "bracken",
+      "toolVersion" : "3.1",
+      "wallTimeSeconds" : 1
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "kraken2",
+    "version" : "2.17.1"
+  },
+  "toolName" : "kraken2",
+  "toolVersion" : "2.17.1",
+  "wallTimeSeconds" : 4,
+  "workflowName" : "Kraken2 Classification",
+  "workflowVersion" : "<app-version>"
+}

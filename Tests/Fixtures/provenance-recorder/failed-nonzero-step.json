@@ -1,0 +1,208 @@
+{
+  "argv" : [
+    "fastp",
+    "-i",
+    "/fixture/reads.fastq",
+    "-o",
+    "/fixture/trimmed.fastq"
+  ],
+  "createdAt" : "2026-10-07T00:00:00Z",
+  "exitStatus" : 3,
+  "files" : [
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000001",
+      "fileSize" : 1000,
+      "format" : "fastq",
+      "path" : "/fixture/reads.fastq",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000002",
+      "fileSize" : 900,
+      "format" : "fastq",
+      "path" : "/fixture/trimmed.fastq",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000002",
+      "fileSize" : 900,
+      "format" : "fastq",
+      "path" : "/fixture/trimmed.fastq",
+      "role" : "input"
+    },
+    {
+      "format" : "fasta",
+      "path" : "/fixture/assembly/contigs.fasta",
+      "role" : "output"
+    }
+  ],
+  "id" : "<id-1>",
+  "options" : {
+    "defaults" : {
+
+    },
+    "explicit" : {
+      "sample" : {
+        "type" : "string",
+        "value" : "S1"
+      }
+    },
+    "resolvedDefaults" : {
+
+    }
+  },
+  "output" : {
+    "format" : "fasta",
+    "path" : "/fixture/assembly/contigs.fasta",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000002",
+      "fileSize" : 900,
+      "format" : "fastq",
+      "path" : "/fixture/trimmed.fastq",
+      "role" : "output"
+    },
+    {
+      "format" : "fasta",
+      "path" : "/fixture/assembly/contigs.fasta",
+      "role" : "output"
+    }
+  ],
+  "reproducibleCommand" : "fastp -i /fixture/reads.fastq -o /fixture/trimmed.fastq",
+  "runtimeIdentity" : {
+    "appVersion" : "<app-version>",
+    "architecture" : "<architecture>",
+    "dependencySet" : "<dependency-set>",
+    "executablePath" : "<executable>",
+    "managedToolLockSHA256" : "<lock-sha256>",
+    "operatingSystemVersion" : "<operating-system>"
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "failed",
+  "stderr" : "fastp: 100 reads passed filters\n",
+  "steps" : [
+    {
+      "argv" : [
+        "fastp",
+        "-i",
+        "/fixture/reads.fastq",
+        "-o",
+        "/fixture/trimmed.fastq"
+      ],
+      "completedAt" : "2026-10-07T00:00:04Z",
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "id" : "<id-2>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000001",
+          "fileSize" : 1000,
+          "format" : "fastq",
+          "path" : "/fixture/reads.fastq",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000002",
+          "fileSize" : 900,
+          "format" : "fastq",
+          "path" : "/fixture/trimmed.fastq",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "fastp -i /fixture/reads.fastq -o /fixture/trimmed.fastq",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "2026-10-07T00:00:04Z",
+      "stderr" : "fastp: 100 reads passed filters\n",
+      "toolName" : "fastp",
+      "toolVersion" : "0.23.4",
+      "wallTimeSeconds" : 4
+    },
+    {
+      "argv" : [
+        "spades.py",
+        "-s",
+        "/fixture/trimmed.fastq",
+        "-o",
+        "/fixture/assembly"
+      ],
+      "completedAt" : "2026-10-07T00:00:34Z",
+      "dependsOn" : [
+        "<id-2>"
+      ],
+      "exitStatus" : 3,
+      "id" : "<id-3>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000002",
+          "fileSize" : 900,
+          "format" : "fastq",
+          "path" : "/fixture/trimmed.fastq",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "format" : "fasta",
+          "path" : "/fixture/assembly/contigs.fasta",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "spades.py -s /fixture/trimmed.fastq -o /fixture/assembly",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "2026-10-07T00:00:34Z",
+      "toolName" : "spades",
+      "toolVersion" : "4.0.0",
+      "wallTimeSeconds" : 30
+    },
+    {
+      "argv" : [
+        "LungfishWorkflow",
+        "AssemblyResult.save"
+      ],
+      "completedAt" : "2026-10-07T00:00:34Z",
+      "dependsOn" : [
+        "<id-3>"
+      ],
+      "exitStatus" : 0,
+      "id" : "<id-4>",
+      "inputs" : [
+
+      ],
+      "outputs" : [
+
+      ],
+      "reproducibleCommand" : "LungfishWorkflow AssemblyResult.save",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "2026-10-07T00:00:34Z",
+      "stderr" : "",
+      "toolName" : "Lungfish Assembly Sidecar",
+      "toolVersion" : "1.0",
+      "wallTimeSeconds" : 0.25
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "fastp",
+    "version" : "0.23.4"
+  },
+  "toolName" : "fastp",
+  "toolVersion" : "0.23.4",
+  "wallTimeSeconds" : 34.25,
+  "workflowName" : "Assembly",
+  "workflowVersion" : "<app-version>"
+}

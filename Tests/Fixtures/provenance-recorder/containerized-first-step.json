@@ -1,0 +1,193 @@
+{
+  "argv" : [
+    "gatk",
+    "HaplotypeCaller",
+    "-I",
+    "/fixture/sample.bam",
+    "-O",
+    "/fixture/sample.vcf"
+  ],
+  "createdAt" : "2026-10-07T00:00:00Z",
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000001f",
+      "fileSize" : 10000,
+      "format" : "bam",
+      "path" : "/fixture/sample.bam",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000020",
+      "fileSize" : 700,
+      "format" : "vcf",
+      "path" : "/fixture/sample.vcf",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000020",
+      "fileSize" : 700,
+      "format" : "vcf",
+      "path" : "/fixture/sample.vcf",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000022",
+      "fileSize" : 300,
+      "format" : "vcf",
+      "path" : "/fixture/sample.vcf.gz",
+      "role" : "output"
+    }
+  ],
+  "id" : "<id-1>",
+  "options" : {
+    "defaults" : {
+
+    },
+    "explicit" : {
+      "ploidy" : {
+        "type" : "integer",
+        "value" : 1
+      }
+    },
+    "resolvedDefaults" : {
+
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000022",
+    "fileSize" : 300,
+    "format" : "vcf",
+    "path" : "/fixture/sample.vcf.gz",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000020",
+      "fileSize" : 700,
+      "format" : "vcf",
+      "path" : "/fixture/sample.vcf",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000022",
+      "fileSize" : 300,
+      "format" : "vcf",
+      "path" : "/fixture/sample.vcf.gz",
+      "role" : "output"
+    }
+  ],
+  "reproducibleCommand" : "gatk HaplotypeCaller -I /fixture/sample.bam -O /fixture/sample.vcf",
+  "runtimeIdentity" : {
+    "appVersion" : "<app-version>",
+    "architecture" : "<architecture>",
+    "containerDigest" : "sha256:000000000000000000000000000000000000000000000000000000000000001e",
+    "containerImage" : "broadinstitute/gatk:4.6.1.0",
+    "dependencySet" : "<dependency-set>",
+    "executablePath" : "<executable>",
+    "managedToolLockSHA256" : "<lock-sha256>",
+    "operatingSystemVersion" : "<operating-system>"
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "gatk",
+        "HaplotypeCaller",
+        "-I",
+        "/fixture/sample.bam",
+        "-O",
+        "/fixture/sample.vcf"
+      ],
+      "completedAt" : "2026-10-07T00:00:12Z",
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "id" : "<id-2>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000001f",
+          "fileSize" : 10000,
+          "format" : "bam",
+          "path" : "/fixture/sample.bam",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000020",
+          "fileSize" : 700,
+          "format" : "vcf",
+          "path" : "/fixture/sample.vcf",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "gatk HaplotypeCaller -I /fixture/sample.bam -O /fixture/sample.vcf",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "2026-10-07T00:00:12Z",
+      "stderr" : "HaplotypeCaller done\n",
+      "toolName" : "gatk HaplotypeCaller",
+      "toolVersion" : "4.6.1.0",
+      "wallTimeSeconds" : 12
+    },
+    {
+      "argv" : [
+        "bcftools",
+        "view",
+        "-Oz",
+        "-o",
+        "/fixture/sample.vcf.gz",
+        "/fixture/sample.vcf"
+      ],
+      "completedAt" : "2026-10-07T00:00:13Z",
+      "dependsOn" : [
+        "<id-2>"
+      ],
+      "exitStatus" : 0,
+      "id" : "<id-3>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000020",
+          "fileSize" : 700,
+          "format" : "vcf",
+          "path" : "/fixture/sample.vcf",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000022",
+          "fileSize" : 300,
+          "format" : "vcf",
+          "path" : "/fixture/sample.vcf.gz",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "bcftools view -Oz -o /fixture/sample.vcf.gz /fixture/sample.vcf",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "2026-10-07T00:00:13Z",
+      "toolName" : "bcftools",
+      "toolVersion" : "1.21",
+      "wallTimeSeconds" : 1
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "gatk HaplotypeCaller",
+    "version" : "4.6.1.0"
+  },
+  "toolName" : "gatk HaplotypeCaller",
+  "toolVersion" : "4.6.1.0",
+  "wallTimeSeconds" : 13,
+  "workflowName" : "Variant Calling",
+  "workflowVersion" : "<app-version>"
+}

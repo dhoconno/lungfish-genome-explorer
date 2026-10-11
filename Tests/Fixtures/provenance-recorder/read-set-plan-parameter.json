@@ -1,0 +1,187 @@
+{
+  "argv" : [
+    "kraken2",
+    "--db",
+    "/fixture/db/viral",
+    "--paired",
+    "/fixture/r1.fastq",
+    "/fixture/r2.fastq"
+  ],
+  "createdAt" : "2026-10-07T00:00:00Z",
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000028",
+      "fileSize" : 100,
+      "format" : "fastq",
+      "path" : "/fixture/r1.fastq",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000029",
+      "fileSize" : 100,
+      "format" : "fastq",
+      "path" : "/fixture/r2.fastq",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000002a",
+      "fileSize" : 50,
+      "format" : "text",
+      "path" : "/fixture/classification.kreport",
+      "role" : "report"
+    }
+  ],
+  "id" : "<id-1>",
+  "options" : {
+    "defaults" : {
+      "inDefaults" : {
+        "type" : "integer",
+        "value" : 4
+      }
+    },
+    "explicit" : {
+      "clash" : {
+        "type" : "string",
+        "value" : "caller value"
+      },
+      "database" : {
+        "type" : "string",
+        "value" : "Viral"
+      },
+      "readSetPlan" : {
+        "type" : "dictionary",
+        "value" : {
+          "capability" : {
+            "type" : "string",
+            "value" : "pairsOrSinglesPerRun"
+          },
+          "mergedReads" : {
+            "type" : "null"
+          },
+          "orphanReads" : {
+            "type" : "integer",
+            "value" : 1
+          },
+          "pairedFragments" : {
+            "type" : "integer",
+            "value" : 1
+          },
+          "runs" : {
+            "type" : "integer",
+            "value" : 2
+          },
+          "singleReadReason" : {
+            "type" : "string",
+            "value" : "orphan reads run as single reads"
+          }
+        }
+      },
+      "resolvedElsewhere" : {
+        "type" : "integer",
+        "value" : 1
+      }
+    },
+    "resolvedDefaults" : {
+      "inResolved" : {
+        "type" : "string",
+        "value" : "G"
+      },
+      "resolvedElsewhere" : {
+        "type" : "integer",
+        "value" : 2
+      }
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000002a",
+    "fileSize" : 50,
+    "format" : "text",
+    "path" : "/fixture/classification.kreport",
+    "role" : "report"
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000002a",
+      "fileSize" : 50,
+      "format" : "text",
+      "path" : "/fixture/classification.kreport",
+      "role" : "report"
+    }
+  ],
+  "reproducibleCommand" : "kraken2 --db /fixture/db/viral --paired /fixture/r1.fastq /fixture/r2.fastq",
+  "runtimeIdentity" : {
+    "appVersion" : "<app-version>",
+    "architecture" : "<architecture>",
+    "dependencySet" : "<dependency-set>",
+    "executablePath" : "<executable>",
+    "managedToolLockSHA256" : "<lock-sha256>",
+    "operatingSystemVersion" : "<operating-system>"
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "kraken2",
+        "--db",
+        "/fixture/db/viral",
+        "--paired",
+        "/fixture/r1.fastq",
+        "/fixture/r2.fastq"
+      ],
+      "completedAt" : "2026-10-07T00:00:03Z",
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "id" : "<id-2>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000028",
+          "fileSize" : 100,
+          "format" : "fastq",
+          "path" : "/fixture/r1.fastq",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000029",
+          "fileSize" : 100,
+          "format" : "fastq",
+          "path" : "/fixture/r2.fastq",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000002a",
+          "fileSize" : 50,
+          "format" : "text",
+          "path" : "/fixture/classification.kreport",
+          "role" : "report"
+        }
+      ],
+      "reproducibleCommand" : "kraken2 --db /fixture/db/viral --paired /fixture/r1.fastq /fixture/r2.fastq",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "2026-10-07T00:00:03Z",
+      "toolName" : "kraken2",
+      "toolVersion" : "2.17.1",
+      "wallTimeSeconds" : 3
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "kraken2",
+    "version" : "2.17.1"
+  },
+  "toolName" : "kraken2",
+  "toolVersion" : "2.17.1",
+  "wallTimeSeconds" : 3,
+  "workflowName" : "Kraken2 Classification",
+  "workflowVersion" : "<app-version>"
+}

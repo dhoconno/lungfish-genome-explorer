@@ -1,0 +1,52 @@
+{
+  "argv" : [
+
+  ],
+  "createdAt" : "2026-10-07T00:00:00Z",
+  "exitStatus" : 1,
+  "files" : [
+
+  ],
+  "id" : "<id-1>",
+  "options" : {
+    "defaults" : {
+
+    },
+    "explicit" : {
+
+    },
+    "resolvedDefaults" : {
+
+    }
+  },
+  "outputs" : [
+
+  ],
+  "reproducibleCommand" : "",
+  "runtimeIdentity" : {
+    "appVersion" : "<app-version>",
+    "architecture" : "<architecture>",
+    "dependencySet" : "<dependency-set>",
+    "executablePath" : "<executable>",
+    "managedToolLockSHA256" : "<lock-sha256>",
+    "operatingSystemVersion" : "<operating-system>"
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "failed",
+  "steps" : [
+
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "Nothing Ran",
+    "version" : "<app-version>"
+  },
+  "toolName" : "Nothing Ran",
+  "toolVersion" : "<app-version>",
+  "wallTimeSeconds" : 0.75,
+  "workflowName" : "Nothing Ran",
+  "workflowVersion" : "<app-version>"
+}

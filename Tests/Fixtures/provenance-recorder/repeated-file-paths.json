@@ -1,0 +1,312 @@
+{
+  "argv" : [
+    "EsViritu",
+    "-r",
+    "/fixture/reads.fastq",
+    "-s",
+    "sample",
+    "-t",
+    "4",
+    "-o",
+    "/fixture/esviritu"
+  ],
+  "createdAt" : "2026-10-07T00:00:00Z",
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000009",
+      "fileSize" : 2000,
+      "format" : "fastq",
+      "path" : "/fixture/reads.fastq",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000a",
+      "fileSize" : 500,
+      "format" : "text",
+      "path" : "/fixture/esviritu/sample.detected_virus.info.tsv",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000b",
+      "fileSize" : 501,
+      "format" : "text",
+      "path" : "/fixture/esviritu/sample.detected_virus.assembly_summary.tsv",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000c",
+      "fileSize" : 502,
+      "format" : "text",
+      "path" : "/fixture/esviritu/sample.tax_profile.tsv",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000d",
+      "fileSize" : 503,
+      "format" : "text",
+      "path" : "/fixture/esviritu/sample.virus_coverage_windows.tsv",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000a",
+      "fileSize" : 500,
+      "format" : "text",
+      "path" : "/fixture/esviritu/sample.detected_virus.info.tsv",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000b",
+      "fileSize" : 501,
+      "format" : "text",
+      "path" : "/fixture/esviritu/sample.detected_virus.assembly_summary.tsv",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000c",
+      "fileSize" : 502,
+      "format" : "text",
+      "path" : "/fixture/esviritu/sample.tax_profile.tsv",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000d",
+      "fileSize" : 503,
+      "format" : "text",
+      "path" : "/fixture/esviritu/sample.virus_coverage_windows.tsv",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000014",
+      "fileSize" : 80,
+      "format" : "json",
+      "path" : "/fixture/esviritu/esviritu-result.json",
+      "role" : "output"
+    }
+  ],
+  "githubReleaseVersion" : "v1.3.3",
+  "id" : "<id-1>",
+  "options" : {
+    "defaults" : {
+
+    },
+    "explicit" : {
+      "github_release_version" : {
+        "type" : "string",
+        "value" : "v1.3.3"
+      },
+      "sample" : {
+        "type" : "string",
+        "value" : "sample"
+      },
+      "threads" : {
+        "type" : "integer",
+        "value" : 4
+      }
+    },
+    "resolvedDefaults" : {
+
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000014",
+    "fileSize" : 80,
+    "format" : "json",
+    "path" : "/fixture/esviritu/esviritu-result.json",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000a",
+      "fileSize" : 500,
+      "format" : "text",
+      "path" : "/fixture/esviritu/sample.detected_virus.info.tsv",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000b",
+      "fileSize" : 501,
+      "format" : "text",
+      "path" : "/fixture/esviritu/sample.detected_virus.assembly_summary.tsv",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000c",
+      "fileSize" : 502,
+      "format" : "text",
+      "path" : "/fixture/esviritu/sample.tax_profile.tsv",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000d",
+      "fileSize" : 503,
+      "format" : "text",
+      "path" : "/fixture/esviritu/sample.virus_coverage_windows.tsv",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000014",
+      "fileSize" : 80,
+      "format" : "json",
+      "path" : "/fixture/esviritu/esviritu-result.json",
+      "role" : "output"
+    }
+  ],
+  "reproducibleCommand" : "EsViritu -r /fixture/reads.fastq -s sample -t 4 -o /fixture/esviritu",
+  "runtimeIdentity" : {
+    "appVersion" : "<app-version>",
+    "architecture" : "<architecture>",
+    "dependencySet" : "<dependency-set>",
+    "executablePath" : "<executable>",
+    "managedToolLockSHA256" : "<lock-sha256>",
+    "operatingSystemVersion" : "<operating-system>"
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "EsViritu",
+        "-r",
+        "/fixture/reads.fastq",
+        "-s",
+        "sample",
+        "-t",
+        "4",
+        "-o",
+        "/fixture/esviritu"
+      ],
+      "completedAt" : "2026-10-07T00:00:20Z",
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "githubReleaseVersion" : "v1.3.3",
+      "id" : "<id-2>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000009",
+          "fileSize" : 2000,
+          "format" : "fastq",
+          "path" : "/fixture/reads.fastq",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000a",
+          "fileSize" : 500,
+          "format" : "text",
+          "path" : "/fixture/esviritu/sample.detected_virus.info.tsv",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000b",
+          "fileSize" : 501,
+          "format" : "text",
+          "path" : "/fixture/esviritu/sample.detected_virus.assembly_summary.tsv",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000c",
+          "fileSize" : 502,
+          "format" : "text",
+          "path" : "/fixture/esviritu/sample.tax_profile.tsv",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000d",
+          "fileSize" : 503,
+          "format" : "text",
+          "path" : "/fixture/esviritu/sample.virus_coverage_windows.tsv",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "EsViritu -r /fixture/reads.fastq -s sample -t 4 -o /fixture/esviritu",
+      "resolvedOptions" : {
+        "sample" : {
+          "type" : "string",
+          "value" : "sample"
+        }
+      },
+      "startedAt" : "2026-10-07T00:00:20Z",
+      "stderr" : "EsViritu finished\n",
+      "toolName" : "EsViritu",
+      "toolVersion" : "1.3.3",
+      "wallTimeSeconds" : 20
+    },
+    {
+      "argv" : [
+        "LungfishWorkflow",
+        "EsVirituResult.save",
+        "/fixture/esviritu/esviritu-result.json"
+      ],
+      "completedAt" : "2026-10-07T00:00:20Z",
+      "dependsOn" : [
+        "<id-2>"
+      ],
+      "exitStatus" : 0,
+      "id" : "<id-3>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000a",
+          "fileSize" : 500,
+          "format" : "text",
+          "path" : "/fixture/esviritu/sample.detected_virus.info.tsv",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000b",
+          "fileSize" : 501,
+          "format" : "text",
+          "path" : "/fixture/esviritu/sample.detected_virus.assembly_summary.tsv",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000c",
+          "fileSize" : 502,
+          "format" : "text",
+          "path" : "/fixture/esviritu/sample.tax_profile.tsv",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "000000000000000000000000000000000000000000000000000000000000000d",
+          "fileSize" : 503,
+          "format" : "text",
+          "path" : "/fixture/esviritu/sample.virus_coverage_windows.tsv",
+          "role" : "output"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "0000000000000000000000000000000000000000000000000000000000000014",
+          "fileSize" : 80,
+          "format" : "json",
+          "path" : "/fixture/esviritu/esviritu-result.json",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "LungfishWorkflow EsVirituResult.save /fixture/esviritu/esviritu-result.json",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "2026-10-07T00:00:20Z",
+      "toolName" : "Lungfish EsViritu Result Sidecar",
+      "toolVersion" : "1.0",
+      "wallTimeSeconds" : 0.5
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "EsViritu",
+    "version" : "1.3.3"
+  },
+  "toolName" : "EsViritu",
+  "toolVersion" : "1.3.3",
+  "wallTimeSeconds" : 20.5,
+  "workflowName" : "EsViritu Detection",
+  "workflowVersion" : "<app-version>"
+}
