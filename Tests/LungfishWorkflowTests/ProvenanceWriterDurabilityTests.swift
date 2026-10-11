@@ -642,6 +642,9 @@ final class ProvenanceWriterDurabilityTests: XCTestCase {
         if run.scenario != .outsideProject, found.envelope.workflowName == "old" {
             XCTAssertNoThrow(try ProvenanceSignatureVerifier.verify(provenanceURL: run.record), "\(context): the old pair verifies")
         }
+        if run.scenario != .outsideProject {
+            assertSigningFilesAreWhole(run, context: context)
+        }
         // The signature and the key publish the way the record does, so a leftover can belong to any of the three.
         let leftovers = try names(in: run.folder).filter { $0.hasPrefix(".\(name)") }
         XCTAssertLessThanOrEqual(leftovers.count, exited ? (run.rotates ? 2 : 1) : 0, "\(context): \(leftovers)")
@@ -654,6 +657,23 @@ final class ProvenanceWriterDurabilityTests: XCTestCase {
         try Self.writer(for: run.scenario == .outsideProject ? .outsideProject : .signedPair)
             .write(Self.envelope("next"), toSidecar: run.record)
         XCTAssertEqual(try workflowName(at: run.record), "next", "\(context): the next write succeeds")
+    }
+
+    /// The signature file and the key file are whole after a fault and its recovery. `prepare` writes
+    /// the old signed pair, so both names exist before every fault, and a fault leaves each of them
+    /// whole with the old or the new bytes.
+    func assertSigningFilesAreWhole(_ run: MatrixRun, context: String) {
+        let signature = (try? Data(contentsOf: ProvenanceSigningConfiguration.signatureURL(for: run.record)))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+        XCTAssertEqual(
+            signature?["provenancePath"] as? String,
+            ProvenanceWriter.provenanceFilename,
+            "\(context): the signature file parses and names the record"
+        )
+        let key = (try? Data(contentsOf: ProvenanceSigningConfiguration.publicKeyURL(for: run.record)))
+            .flatMap { String(data: $0, encoding: .utf8) }
+        XCTAssertEqual(key?.hasPrefix("lfed25519:"), true, "\(context): the key file starts with its tag")
+        XCTAssertEqual(key?.hasSuffix("\n"), true, "\(context): the key file ends with its newline")
     }
 
     static func pair(_ record: URL) -> [URL] {
