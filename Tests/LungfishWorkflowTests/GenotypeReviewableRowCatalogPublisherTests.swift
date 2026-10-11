@@ -1545,7 +1545,6 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
         let runtime = ProvenanceRuntimeIdentity(
             appVersion: "test-version",
             executablePath: "/test/lungfish",
-            processIdentifier: 42,
             operatingSystemVersion: "testOS",
             architecture: "arm64",
             user: "tester",

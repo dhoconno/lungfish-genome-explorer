@@ -1070,7 +1070,6 @@ final class ProjectStorageCleanupProvenanceTests: XCTestCase {
             runtimeIdentity: ProvenanceRuntimeIdentity(
                 appVersion: "7.2.0",
                 executablePath: "/Applications/Lungfish.app/Lungfish",
-                processIdentifier: 99,
                 operatingSystemVersion: "macOS",
                 architecture: "arm64",
                 gitRevision: "abc123",

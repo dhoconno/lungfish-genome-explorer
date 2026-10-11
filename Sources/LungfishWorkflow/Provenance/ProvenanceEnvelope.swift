@@ -645,7 +645,6 @@ extension ProvenanceRuntimeIdentity {
         ProvenanceRuntimeIdentity(
             appVersion: "Lungfish fixture",
             executablePath: executablePath,
-            processIdentifier: 12345,
             operatingSystemVersion: "macOS fixture",
             architecture: "arm64",
             user: "fixture-user",

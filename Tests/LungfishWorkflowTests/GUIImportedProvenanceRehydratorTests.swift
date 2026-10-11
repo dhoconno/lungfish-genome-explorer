@@ -40,7 +40,6 @@ final class GUIImportedProvenanceRehydratorTests: XCTestCase {
                 runtimeIdentity: ProvenanceRuntimeIdentity(
                     appVersion: "Lungfish fixture",
                     executablePath: stagingDirectory.appendingPathComponent("conda/envs/fastp/bin/fastp").path,
-                    processIdentifier: 12,
                     operatingSystemVersion: "macOS fixture",
                     architecture: "arm64",
                     user: "fixture-user",

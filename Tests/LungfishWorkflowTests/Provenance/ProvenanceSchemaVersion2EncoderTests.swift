@@ -238,4 +238,104 @@ final class ProvenanceSchemaVersion2EncoderTests: XCTestCase {
         XCTAssertEqual(try ProvenanceSigningPayload.data(forProvenanceData: escaped), payload)
         XCTAssertEqual(try ProvenanceSigningPayload.data(forProvenanceData: unescaped), payload)
     }
+
+    // MARK: V5, no process ID and the writer's executable as <external>/<file name>
+
+    /// The writer's own executable, from the default identity or passed as `argv[0]` the way the
+    /// genotype pipelines pass it, is written as `<external>/<file name>`, and no process ID is
+    /// written, inside and outside projects.
+    func testANewlyWrittenRecordHoldsNoProcessIDAndNamesItsOwnExecutableExternally() throws {
+        let ownArgumentZero = try XCTUnwrap(CommandLine.arguments.first)
+        let step = ProvenanceStep(
+            toolName: "lungfish-cli",
+            runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: ownArgumentZero),
+            exitStatus: 0
+        )
+        let envelope = ProvenanceEnvelope(
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            workflowName: "v5.own-executable",
+            toolName: "lungfish-cli",
+            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            steps: [step],
+            exitStatus: 0
+        )
+        let defaultName = URL(fileURLWithPath: ProvenanceRuntimeIdentity.currentExecutablePath).lastPathComponent
+        let argumentName = URL(fileURLWithPath: ownArgumentZero).lastPathComponent
+        for inProject in [false, true] {
+            let written = try Self.write(envelope, inProject: inProject)
+            defer { written.cleanup() }
+            let json = try written.json()
+            let runtime = try XCTUnwrap(json["runtimeIdentity"] as? [String: Any])
+            XCTAssertNil(runtime["processIdentifier"], "inProject \(inProject)")
+            XCTAssertEqual(runtime["executablePath"] as? String, "<external>/\(defaultName)", "inProject \(inProject)")
+            let steps = try XCTUnwrap(json["steps"] as? [[String: Any]])
+            let stepRuntime = try XCTUnwrap(steps.first?["runtimeIdentity"] as? [String: Any])
+            XCTAssertNil(stepRuntime["processIdentifier"], "inProject \(inProject)")
+            XCTAssertEqual(stepRuntime["executablePath"] as? String, "<external>/\(argumentName)", "inProject \(inProject)")
+            XCTAssertFalse(written.text.contains("\"processIdentifier\""), "inProject \(inProject)")
+        }
+    }
+
+    /// An executable a writer names for a tool keeps the path it gave, and the mapper's bare name
+    /// stays bare. Only the writer's own executable is replaced.
+    func testAToolExecutableAWriterNamesKeepsItsPath() {
+        XCTAssertEqual(ProvenanceRuntimeIdentity(executablePath: "/usr/bin/tar").executablePath, "/usr/bin/tar")
+        XCTAssertEqual(ProvenanceRuntimeIdentity(executablePath: "minimap2").executablePath, "minimap2")
+        XCTAssertEqual(
+            ProvenanceRuntimeIdentity(executablePath: "/opt/conda/envs/kraken2/bin/kraken2").executablePath,
+            "/opt/conda/envs/kraken2/bin/kraken2"
+        )
+    }
+
+    /// A reader keeps the process ID and the executable a record holds, and a record rewritten from
+    /// it holds no process ID.
+    func testARecordRebuiltFromOneThatHeldAProcessIDIsWrittenWithoutIt() throws {
+        let first = try Self.write(Self.completedRun())
+        defer { first.cleanup() }
+        var object = try first.json()
+        var runtime = try XCTUnwrap(object["runtimeIdentity"] as? [String: Any])
+        runtime["processIdentifier"] = 4242
+        object["runtimeIdentity"] = runtime
+        let older = try JSONSerialization.data(withJSONObject: object)
+
+        let read = try ProvenanceEnvelopeReader.decodeCanonical(older)
+        XCTAssertEqual(read.runtimeIdentity.processIdentifier, 4242, "a reader keeps the process ID a record holds")
+        let rewritten = try Self.write(read)
+        defer { rewritten.cleanup() }
+        let rewrittenRuntime = try XCTUnwrap(try rewritten.json()["runtimeIdentity"] as? [String: Any])
+        XCTAssertNil(rewrittenRuntime["processIdentifier"])
+        XCTAssertEqual(rewrittenRuntime["executablePath"] as? String, runtime["executablePath"] as? String)
+    }
+
+    /// The initializer a reader uses takes no fact from the reading process, and keeps a recorded
+    /// executable path as it is, even the running process's own.
+    func testTheReadingInitializerTakesNoFactFromTheReadingProcess() {
+        let empty = ProvenanceRuntimeIdentity(
+            appVersion: nil,
+            executablePath: nil,
+            processIdentifier: nil,
+            operatingSystemVersion: nil,
+            architecture: nil,
+            user: nil,
+            dependencySet: nil
+        )
+        XCTAssertNil(empty.appVersion)
+        XCTAssertNil(empty.executablePath)
+        XCTAssertNil(empty.operatingSystemVersion)
+        XCTAssertNil(empty.architecture)
+        XCTAssertNil(empty.dependencySet)
+
+        let recorded = ProvenanceRuntimeIdentity(
+            appVersion: " Lungfish 2026.9.58 ",
+            executablePath: CommandLine.arguments.first,
+            processIdentifier: 7,
+            operatingSystemVersion: "macOS 26.0.0 (arm64)",
+            architecture: "arm64",
+            user: nil,
+            dependencySet: "2026.2"
+        )
+        XCTAssertEqual(recorded.appVersion, "Lungfish 2026.9.58")
+        XCTAssertEqual(recorded.executablePath, CommandLine.arguments.first)
+        XCTAssertEqual(recorded.processIdentifier, 7)
+    }
 }

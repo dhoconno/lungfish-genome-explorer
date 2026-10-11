@@ -877,7 +877,6 @@ private struct Fixture {
     static let fixedRuntimeIdentity = ProvenanceRuntimeIdentity(
         appVersion: "test-app",
         executablePath: "/managed/micromamba",
-        processIdentifier: 123,
         operatingSystemVersion: "test-os",
         architecture: "arm64",
         gitRevision: "abc123",

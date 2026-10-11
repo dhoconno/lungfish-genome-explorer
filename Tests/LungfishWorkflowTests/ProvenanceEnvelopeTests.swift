@@ -46,7 +46,6 @@ struct ProvenanceEnvelopeTests {
         let runtimeIdentity = ProvenanceRuntimeIdentity(
             appVersion: "Lungfish fixture",
             executablePath: "/managed/conda/envs/fastp/bin/fastp",
-            processIdentifier: 7,
             operatingSystemVersion: "macOS fixture",
             architecture: "arm64",
             user: "fixture-user",
@@ -209,7 +208,7 @@ struct ProvenanceEnvelopeTests {
         let runtimeIdentity = try #require(json["runtimeIdentity"] as? [String: Any])
         #expect((runtimeIdentity["appVersion"] as? String)?.isEmpty == false)
         #expect((runtimeIdentity["executablePath"] as? String)?.isEmpty == false)
-        #expect(runtimeIdentity["processIdentifier"] is Int)
+        #expect(runtimeIdentity["processIdentifier"] == nil, "a writer records no process ID")
         #expect((runtimeIdentity["operatingSystemVersion"] as? String)?.isEmpty == false)
         #expect((runtimeIdentity["architecture"] as? String)?.isEmpty == false)
         #expect(json["files"] is [[String: Any]])
@@ -852,7 +851,6 @@ struct ProvenanceEnvelopeTests {
         let runtimeIdentity = ProvenanceRuntimeIdentity(
             appVersion: "  ",
             executablePath: "",
-            processIdentifier: 123,
             operatingSystemVersion: "\n",
             architecture: "\t"
         )
@@ -861,14 +859,14 @@ struct ProvenanceEnvelopeTests {
 
         #expect((json["appVersion"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
         #expect((json["executablePath"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-        #expect(json["processIdentifier"] as? Int == 123)
+        #expect(json["processIdentifier"] == nil, "a writer records no process ID")
         #expect((json["operatingSystemVersion"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
         #expect((json["architecture"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
     }
 
     @Test("fresh runtime identity includes current user")
     func freshRuntimeIdentityIncludesCurrentUser() throws {
-        let runtimeIdentity = ProvenanceRuntimeIdentity(processIdentifier: 123)
+        let runtimeIdentity = ProvenanceRuntimeIdentity()
         let data = try ProvenanceJSON.encoder.encode(runtimeIdentity)
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
 

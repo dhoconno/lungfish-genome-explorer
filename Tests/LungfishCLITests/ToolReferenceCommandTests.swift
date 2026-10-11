@@ -172,7 +172,6 @@ final class ToolReferenceCommandTests: XCTestCase {
             runtimeIdentity: ProvenanceRuntimeIdentity(
                 appVersion: "Lungfish test",
                 executablePath: "/usr/local/bin/lungfish",
-                processIdentifier: 123,
                 operatingSystemVersion: "macOS test",
                 architecture: "arm64",
                 user: "tester"

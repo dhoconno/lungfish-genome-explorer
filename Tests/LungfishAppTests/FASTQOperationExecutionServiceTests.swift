@@ -980,7 +980,6 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                     runtimeIdentity: ProvenanceRuntimeIdentity(
                         appVersion: runtime.appVersion,
                         executablePath: runtime.executablePath,
-                        processIdentifier: runtime.processIdentifier,
                         operatingSystemVersion: runtime.operatingSystemVersion,
                         architecture: runtime.architecture,
                         gitRevision: runtime.gitRevision,
@@ -1006,7 +1005,6 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                     runtimeIdentity: ProvenanceRuntimeIdentity(
                         appVersion: runtime.appVersion,
                         executablePath: "/bin/echo",
-                        processIdentifier: runtime.processIdentifier,
                         operatingSystemVersion: runtime.operatingSystemVersion,
                         architecture: runtime.architecture,
                         gitRevision: runtime.gitRevision,
@@ -5036,7 +5034,6 @@ private struct SuccessfulSavontFixtureProcessRunner: SavontProcessRunning {
     private static let runtime = ProvenanceRuntimeIdentity(
         appVersion: "test-app",
         executablePath: "/managed/conda/bin/micromamba",
-        processIdentifier: 123,
         operatingSystemVersion: "test-os",
         architecture: "arm64",
         gitRevision: "fixture",
@@ -5080,7 +5077,6 @@ private struct EmptyFallbackSavontFixtureProcessRunner: SavontProcessRunning {
             runtimeIdentity: ProvenanceRuntimeIdentity(
                 appVersion: "test-app",
                 executablePath: "/managed/conda/bin/micromamba",
-                processIdentifier: 123,
                 operatingSystemVersion: "test-os",
                 architecture: "arm64",
                 gitRevision: "fixture",

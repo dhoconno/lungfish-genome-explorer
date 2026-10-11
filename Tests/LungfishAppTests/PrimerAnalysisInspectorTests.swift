@@ -210,7 +210,7 @@ final class PrimerAnalysisInspectorTests: XCTestCase {
                 .init(sourceURL: derivedProvenance, relativePath: "execution-provenance/derived.json", role: "derivedProvenance", format: "json")
             ], destinationURL: bundleURL,
             invocation: .init(argv: ["primer-inspector-test"], callerVersion: "1", explicitOptions: [:],
-                runtimeIdentity: .init(appVersion: "test", executablePath: "/test/primer-inspector-test", processIdentifier: 1,
+                runtimeIdentity: .init(appVersion: "test", executablePath: "/test/primer-inspector-test",
                     operatingSystemVersion: "test", architecture: "arm64", user: nil, dependencySet: "test"))))
         return (root, bundleURL)
     }

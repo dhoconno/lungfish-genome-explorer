@@ -500,7 +500,6 @@ final class ONTImportWorkflowTests: XCTestCase {
             runtimeIdentity: ProvenanceRuntimeIdentity(
                 appVersion: "test-version",
                 executablePath: "/tmp/lungfish-test",
-                processIdentifier: 123,
                 operatingSystemVersion: "test-os",
                 architecture: "test-arch"
             )

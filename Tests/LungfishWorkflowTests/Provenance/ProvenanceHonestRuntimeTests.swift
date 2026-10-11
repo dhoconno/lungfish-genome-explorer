@@ -135,20 +135,23 @@ final class ProvenanceHonestRuntimeTests: XCTestCase {
 
     // MARK: Writers
 
-    /// A writer records its own process, so the memberwise defaults fill every field as before,
-    /// and a present value encodes exactly as before.
+    /// A writer records its own process, so the writer's defaults fill every field as before, except
+    /// that it records no process ID and names its own executable `<external>/<file name>`. A
+    /// present value encodes as before, without a process ID.
     func testAWriterStillRecordsItsOwnProcess() throws {
         let identity = ProvenanceRuntimeIdentity()
         XCTAssertEqual(identity.appVersion, WorkflowRun.currentAppVersion)
-        XCTAssertEqual(identity.executablePath, ProvenanceRuntimeIdentity.currentExecutablePath)
-        XCTAssertEqual(Self.text(identity.processIdentifier), "\(ProcessInfo.processInfo.processIdentifier)")
+        XCTAssertEqual(
+            identity.executablePath,
+            "<external>/" + URL(fileURLWithPath: ProvenanceRuntimeIdentity.currentExecutablePath).lastPathComponent
+        )
+        XCTAssertNil(identity.processIdentifier)
         XCTAssertEqual(identity.operatingSystemVersion, WorkflowRun.currentHostOS)
         XCTAssertEqual(identity.architecture, ProvenanceRuntimeIdentity.currentArchitecture)
 
         let written = ProvenanceRuntimeIdentity(
             appVersion: "Lungfish 2026.10.10 (fixture)",
             executablePath: "/usr/local/bin/lungfish-cli",
-            processIdentifier: 12345,
             operatingSystemVersion: "macOS 26.0.0 (arm64)",
             architecture: "arm64",
             user: nil,
@@ -164,8 +167,7 @@ final class ProvenanceHonestRuntimeTests: XCTestCase {
               "condaEnvironment" : "lungfish",
               "dependencySet" : "2026.2",
               "executablePath" : "/usr/local/bin/lungfish-cli",
-              "operatingSystemVersion" : "macOS 26.0.0 (arm64)",
-              "processIdentifier" : 12345
+              "operatingSystemVersion" : "macOS 26.0.0 (arm64)"
             }
             """
         )

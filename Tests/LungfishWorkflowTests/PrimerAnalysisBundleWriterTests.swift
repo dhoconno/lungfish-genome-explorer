@@ -48,7 +48,7 @@ final class PrimerAnalysisBundleWriterTests: XCTestCase {
         argv: ["storage-test-host", "--case", "opaque-wrap"], callerVersion: "test-host-1",
         explicitOptions: ["case": .string("opaque-wrap")],
         runtimeIdentity: ProvenanceRuntimeIdentity(
-          appVersion: "test", executablePath: "/test/storage-test-host", processIdentifier: 1,
+          appVersion: "test", executablePath: "/test/storage-test-host",
           operatingSystemVersion: "test", architecture: "arm64", user: nil, dependencySet: "test")
       )
     )

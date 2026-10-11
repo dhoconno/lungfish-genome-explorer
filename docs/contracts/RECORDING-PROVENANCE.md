@@ -17,6 +17,7 @@ A record is one `ProvenanceEnvelope` (`Sources/LungfishWorkflow/Provenance/Prove
 | Keep reading every compat key and never write one again | Records written before schema version 2 hold them, and a version 2 record holds each fact once |
 | Capture a writer's facts before changing it, and never edit a frozen or expected file to make a test pass | A fixture edited to pass proves nothing about the bytes users already have |
 | Never record the inherited environment | It holds API keys and home folders, and sidecars travel with shared projects |
+| Record the writer's own executable as `<external>/<file name>` and no process ID, inside a project and outside one | An install path names folders on one Mac and a process ID names nothing after the run, while the name and the app version say which build ran. `ProvenanceRuntimeIdentity` does both for a writer, and a reader builds the identity a record holds through the initializer that takes `processIdentifier` |
 | Never raise a ratchet count without a reviewed reason | The counts are the only thing that stops the next copy |
 
 ## What envelope-only means in 2.4

@@ -249,7 +249,7 @@ final class PrimerAnalysisViewerModelTests: XCTestCase {
           explicitOptions: ["case": .string("saved-results")],
           runtimeIdentity: ProvenanceRuntimeIdentity(
             appVersion: "test", executablePath: "/test/primer-viewer-test-host",
-            processIdentifier: 1, operatingSystemVersion: "test", architecture: "arm64",
+            operatingSystemVersion: "test", architecture: "arm64",
             user: nil, dependencySet: "test"))))
     return Fixture(
       root: root, bundleURL: destination, analysisID: analysisID, runID: runID,

@@ -27,7 +27,7 @@ LGE writes every new record as an envelope. The encoder sorts the keys, writes d
 | `toolName`, `toolVersion`, `tool` | The tool the run reports as its own |
 | `argv`, `durableReplayArgv`, `reproducibleCommand` | The command as words, as replayable words when the run used scratch files, and as one shell line |
 | `options` | `explicit`, `defaults` and `resolvedDefaults`, each a map of typed values |
-| `runtimeIdentity` | The app version, executable, process ID, operating system, architecture, dependency set and environment of the run |
+| `runtimeIdentity` | The app version, executable, operating system, architecture and dependency set of the run, with its environment. A writer names its own executable `<external>/<file name>` and records no process ID, which an older record may hold |
 | `files`, `output`, `outputs` | File descriptors with a path, a role, a format, a SHA-256 and a size |
 | `steps` | One entry for each tool the run invoked |
 | `wallTimeSeconds`, `exitStatus`, `stderr` | How long it took, the exit status and the bounded standard error |
@@ -79,7 +79,7 @@ A record that decodes as a bare run or through the primitive adapter is in the O
 
 ## Not recorded
 
-A fact a record never held is shown as Not recorded. A reader never fills it with a value from the Mac that reads the record, and never with a stand-in word. This covers the app version, the executable path, the process ID, the operating system, the architecture, the dependency set and the workflow version, each of which the readers once took from the reading process. A writer still records its own process for each of them, so a record written today holds them all.
+A fact a record never held is shown as Not recorded. A reader never fills it with a value from the Mac that reads the record, and never with a stand-in word. This covers the app version, the executable path, the process ID, the operating system, the architecture, the dependency set and the workflow version, each of which the readers once took from the reading process. A writer still records its own app version, operating system, architecture, dependency set and workflow version. It names its own executable `<external>/<file name>`, inside a project and outside one, because an install path names folders on one Mac while the name and the app version say which build ran. It records no process ID, which names nothing once the run has ended, so a record written today shows the process ID as Not recorded.
 
 The legacy `WorkflowRun` view of a record needs text for its app version and operating system, and it shows the empty string when the record holds none. A record that states no status gets one derived from its exit status, and the reader reports that the status was derived. `ops stats` counts a run as completed only when its record states it, because a cancelled run can end on a step that exited 0.
 

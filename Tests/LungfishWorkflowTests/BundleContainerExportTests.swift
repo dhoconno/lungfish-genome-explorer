@@ -92,6 +92,17 @@ final class BundleContainerExportTests: XCTestCase {
             ),
             []
         )
+        // The archive's own encoder follows the record rules: slashes as typed, no process ID, and
+        // the writer's executable as <external>/<file name>.
+        XCTAssertFalse(String(decoding: provenanceData, as: UTF8.self).contains("\\/"))
+        let entryObject = try XCTUnwrap(try JSONSerialization.jsonObject(with: provenanceData) as? [String: Any])
+        let entryRuntime = try XCTUnwrap(entryObject["runtimeIdentity"] as? [String: Any])
+        XCTAssertNil(entryRuntime["processIdentifier"])
+        XCTAssertEqual(
+            entryRuntime["executablePath"] as? String,
+            "<external>/" + URL(fileURLWithPath: ProvenanceRuntimeIdentity.currentExecutablePath).lastPathComponent
+        )
+
         // Schema version 2 holds no bare-run alias, so the run is read as the envelope's legacy view.
         let provenance = try ProvenanceEnvelopeReader.decodeCanonical(provenanceData).legacyWorkflowRun()
         XCTAssertEqual(provenance.name, "Bundle Container Export")

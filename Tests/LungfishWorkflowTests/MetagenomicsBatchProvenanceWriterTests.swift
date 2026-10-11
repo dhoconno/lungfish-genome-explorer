@@ -425,7 +425,6 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
         let classificationRuntime = ProvenanceRuntimeIdentity(
             appVersion: "Lungfish classification test",
             executablePath: "/Applications/Lungfish.app/Contents/MacOS/Lungfish",
-            processIdentifier: 101,
             operatingSystemVersion: "macOS test",
             architecture: "arm64",
             user: "scientist",
@@ -493,7 +492,6 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
         let buildDbRuntime = ProvenanceRuntimeIdentity(
             appVersion: "Lungfish CLI test",
             executablePath: "/Applications/Lungfish.app/Contents/MacOS/lungfish-cli",
-            processIdentifier: 202,
             operatingSystemVersion: "macOS test",
             architecture: "arm64",
             gitRevision: "build-db-revision",

@@ -459,7 +459,8 @@ final class MetadataCommandFunctionalTests: XCTestCase {
         XCTAssertFalse(envelope.runtimeIdentity.executablePath?.isEmpty ?? true, file: file, line: line)
         XCTAssertFalse(envelope.runtimeIdentity.operatingSystemVersion?.isEmpty ?? true, file: file, line: line)
         XCTAssertFalse(envelope.runtimeIdentity.architecture?.isEmpty ?? true, file: file, line: line)
-        XCTAssertGreaterThan(envelope.runtimeIdentity.processIdentifier ?? 0, 0, file: file, line: line)
+        // A writer records no process ID since schema version 2.
+        XCTAssertNil(envelope.runtimeIdentity.processIdentifier, file: file, line: line)
     }
 
     private func assertNoStagingOnlyOutputs(

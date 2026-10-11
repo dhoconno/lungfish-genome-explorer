@@ -686,7 +686,6 @@ final class ProjectStorageCleanupPreparationLargeTreeTests: XCTestCase {
             runtimeIdentity: .init(
                 appVersion: "9.0.0",
                 executablePath: "/Applications/Lungfish.app/Lungfish",
-                processIdentifier: 99,
                 operatingSystemVersion: "macOS",
                 architecture: "arm64",
                 gitRevision: "task9",

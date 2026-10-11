@@ -1286,7 +1286,6 @@ final class FASTQBatchImporterTests: XCTestCase {
         let runtimeIdentity = ProvenanceRuntimeIdentity(
             appVersion: "1.2.3",
             executablePath: "/managed/conda/envs/pigz/bin/pigz",
-            processIdentifier: 42,
             operatingSystemVersion: "macOS test",
             architecture: "arm64",
             user: "tester",
