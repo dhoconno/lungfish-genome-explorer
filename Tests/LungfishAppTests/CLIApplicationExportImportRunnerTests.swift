@@ -3,6 +3,7 @@ import XCTest
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
+import LungfishWorkflow
 
 final class CLIApplicationExportImportRunnerTests: XCTestCase {
     private var temporaryURLs: [URL] = []
@@ -48,32 +49,33 @@ final class CLIApplicationExportImportRunnerTests: XCTestCase {
         ])
     }
 
-    func testParseApplicationExportProgressEvent() throws {
+    /// The runner has no parser of its own. A progress line of an older CLI reads through the legacy table
+    /// to a progress event with the same fraction and message.
+    func testAnOlderCLIsProgressLineReadsToTheProgressTheRunnerShows() throws {
         let json = """
         {"event":"applicationExportProgress","progress":0.42,"message":"Processing refs/reference.fa"}
         """
 
-        let event = try XCTUnwrap(CLIApplicationExportImportRunner.parseEvent(from: json))
+        let line = try XCTUnwrap(try CLIEventLineDecoder().decodeLine(json))
 
-        guard case let .progress(progress, message) = event else {
-            return XCTFail("Expected progress event, got \(event)")
-        }
-        XCTAssertEqual(progress, 0.42, accuracy: 0.0001)
-        XCTAssertEqual(message, "Processing refs/reference.fa")
+        XCTAssertEqual(line.event, .progress(fraction: 0.42, message: "Processing refs/reference.fa"))
     }
 
-    func testParseApplicationExportCompleteEvent() throws {
+    /// A complete line of an older CLI reads to the collection the runner imports, with one typed artifact
+    /// for it. The `warningCount` key is not read, because the runner counts the warning lines in front
+    /// of the completion.
+    func testAnOlderCLIsCompleteLineReadsToTheCollectionTheRunnerImports() throws {
         let json = """
         {"event":"applicationExportImportComplete","collection":"/tmp/Project.lungfish/Application Exports/Example CLC Workbench Import","warningCount":2}
         """
 
-        let event = try XCTUnwrap(CLIApplicationExportImportRunner.parseEvent(from: json))
+        let line = try XCTUnwrap(try CLIEventLineDecoder().decodeLine(json))
 
-        guard case let .complete(collection, warningCount) = event else {
-            return XCTFail("Expected complete event, got \(event)")
-        }
-        XCTAssertEqual(collection, "/tmp/Project.lungfish/Application Exports/Example CLC Workbench Import")
-        XCTAssertEqual(warningCount, 2)
+        XCTAssertEqual(
+            line.event,
+            .complete(outputs: ["/tmp/Project.lungfish/Application Exports/Example CLC Workbench Import"], message: nil)
+        )
+        XCTAssertEqual(line.artifacts.map(\.kind), ["import-collection"])
     }
 
     func testRunStreamsProgressEventsIntoOperationCenter() async throws {
@@ -137,8 +139,20 @@ final class CLIApplicationExportImportRunnerTests: XCTestCase {
         exitCode: Int32 = 0,
         standardError: [String] = []
     ) async throws -> ImportRunnerShown {
+        try await replay(
+            transcript: ImportRunnerReplay.legacyTranscript(name),
+            exitCode: exitCode,
+            standardError: standardError
+        )
+    }
+
+    private func replay(
+        transcript: URL,
+        exitCode: Int32 = 0,
+        standardError: [String] = []
+    ) async throws -> ImportRunnerShown {
         try await ImportRunnerReplay.replay(
-            ImportRunnerReplay.legacyTranscript(name),
+            transcript,
             title: "Geneious Import",
             operationType: .applicationExportImport,
             exitCode: exitCode,
@@ -383,6 +397,95 @@ final class CLIApplicationExportImportRunnerTests: XCTestCase {
         XCTAssertEqual(item?.state, .failed)
         XCTAssertEqual(item?.displayStateLabel, "Failed")
         await MainActor.run { OperationCenter.shared.clearItem(id: opID) }
+    }
+
+    // MARK: - A version 2 CLI
+
+    /// Decision V13. A version 2 CLI and an older CLI give the same row, the same label and the same imported
+    /// collection. Each old transcript is written again as the version 2 lines of the same run, and both are
+    /// played back through the same runner.
+    func testAVersion2CLIGivesTheLogTheLabelAndTheCollectionAnOlderCLIGave() async throws {
+        let runs: [(name: String, exitCode: Int32)] = [
+            ("import-geneious", 0),
+            ("import-geneious-with-warning", 0),
+            ("import-geneious-failed", 3),
+            ("import-application-export", 0),
+            ("import-application-export-with-warning", 0),
+            ("import-application-export-failed", 3),
+        ]
+        for run in runs {
+            let older = try await replay(run.name, exitCode: run.exitCode)
+            let version2 = try ImportRunnerReplay.version2Transcript(ofLegacy: run.name, in: try makeTemporaryDirectory())
+            let version2Lines = try String(contentsOf: version2, encoding: .utf8)
+            XCTAssertTrue(version2Lines.contains("\"schemaVersion\":2"), "\(run.name) is written as version 2 lines")
+            XCTAssertFalse(version2Lines.contains("applicationExport"), "\(run.name) holds no private name")
+
+            let current = try await replay(transcript: version2, exitCode: run.exitCode)
+
+            XCTAssertEqual(current, older, run.name)
+        }
+    }
+
+    /// Plain standard error stays in the operation log at info level, whatever it says, so a tool's
+    /// warning text never makes an import read Completed with Warnings (decision S16).
+    func testStandardErrorTextIsLoggedAtInfoAndNeverMakesTheRunCompletedWithWarnings() async throws {
+        let version2 = try ImportRunnerReplay.version2Transcript(ofLegacy: "import-geneious", in: try makeTemporaryDirectory())
+
+        let shown = try await replay(
+            transcript: version2,
+            standardError: ["Imported /work/Project.lungfish/Geneious Imports/Representative Geneious Import", "warning: a file was skipped"]
+        )
+
+        XCTAssertTrue(
+            shown.log.contains("info: Imported /work/Project.lungfish/Geneious Imports/Representative Geneious Import"),
+            "\(shown.log)"
+        )
+        XCTAssertTrue(shown.log.contains("info: warning: a file was skipped"), "\(shown.log)")
+        XCTAssertEqual(shown.warningCount, 0)
+        XCTAssertFalse(shown.hasWarnings)
+        XCTAssertEqual(shown.label, "Completed")
+    }
+
+    /// `outputs` is the one list an import reads. The typed artifact describes an output and never
+    /// stands in for it, so a completion that names a different artifact imports the output, and one
+    /// that names no output imports nothing.
+    func testATypedArtifactNeverStandsInForTheOutputs() async throws {
+        let outputPath = "/work/Project.lungfish/Application Exports/a CLC Workbench Import"
+        let artifactPath = "/work/Project.lungfish/Application Exports/b CLC Workbench Import"
+        let start = #"{"event":"start","message":"Started clc-workbench import via lungfish-cli","progress":0,"schemaVersion":2}"#
+
+        let named = try ImportRunnerReplay.writeTranscript([
+            start,
+            #"{"artifacts":[{"kind":"import-collection","path":"\#(artifactPath)","role":"collection"}],"event":"complete","output":"\#(outputPath)","outputs":["\#(outputPath)"],"progress":1,"schemaVersion":2}"#,
+        ], in: try makeTemporaryDirectory())
+        let shownNamed = try await replay(transcript: named)
+        XCTAssertEqual(shownNamed.importedPath, outputPath)
+
+        let artifactsOnly = try ImportRunnerReplay.writeTranscript([
+            start,
+            #"{"artifacts":[{"kind":"import-collection","path":"\#(artifactPath)","role":"collection"}],"event":"complete","outputs":[],"progress":1,"schemaVersion":2}"#,
+        ], in: try makeTemporaryDirectory())
+        let shownArtifactsOnly = try await replay(transcript: artifactsOnly)
+        XCTAssertNil(shownArtifactsOnly.importedPath)
+        XCTAssertEqual(shownArtifactsOnly.failure, "lungfish-cli finished without reporting an imported collection.")
+    }
+
+    /// A later version adds events, keys and kinds, and none of them stops an import (S15).
+    func testALaterVersionWithNewEventsAndKeysStillImportsTheCollection() async throws {
+        let outputPath = "/work/Project.lungfish/Application Exports/c CLC Workbench Import"
+        let transcript = try ImportRunnerReplay.writeTranscript([
+            #"{"event":"start","message":"Started clc-workbench import via lungfish-cli","progress":0,"schemaVersion":3,"eta":12}"#,
+            #"{"event":"checkpoint","detail":{"step":1},"schemaVersion":3}"#,
+            #"{"event":"progress","message":"Processing refs/reference.fa...","progress":0.5,"schemaVersion":3,"phase":"scan"}"#,
+            #"{"artifacts":[{"kind":"import-collection-v2","path":"\#(outputPath)","role":"collection","size":{"bytes":4}}],"event":"complete","outputs":["\#(outputPath)"],"progress":1,"schemaVersion":3,"checksum":"abc"}"#,
+        ], in: try makeTemporaryDirectory())
+
+        let shown = try await replay(transcript: transcript)
+
+        XCTAssertEqual(shown.importedPath, outputPath)
+        XCTAssertEqual(shown.log, ["info: Started clc-workbench import via lungfish-cli"])
+        XCTAssertEqual(shown.detail, "Processing refs/reference.fa...")
+        XCTAssertEqual(shown.label, "Completed")
     }
 
     private func makeTemporaryDirectory() throws -> URL {

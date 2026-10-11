@@ -3,6 +3,7 @@ import XCTest
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
+import LungfishWorkflow
 
 final class CLINativeBundleImportRunnerTests: XCTestCase {
     private var temporaryURLs: [URL] = []
@@ -49,18 +50,21 @@ final class CLINativeBundleImportRunnerTests: XCTestCase {
         ])
     }
 
-    func testParseNativeBundleCompleteEvent() throws {
+    /// The runner has no parser of its own. A complete line of an older CLI reads through the legacy
+    /// table to the bundle the runner imports, with one typed artifact for it. The `warningCount` key is
+    /// not read, because the runner counts the warning lines in front of the completion.
+    func testAnOlderCLIsCompleteLineReadsToTheBundleTheRunnerImports() throws {
         let json = """
         {"event":"nativeBundleImportComplete","bundle":"/project/Project.lungfish/Phylogenetic Trees/tree.lungfishtree","warningCount":2}
         """
 
-        let event = try XCTUnwrap(CLINativeBundleImportRunner.parseEvent(from: json))
+        let line = try XCTUnwrap(try CLIEventLineDecoder().decodeLine(json))
 
-        guard case let .complete(bundle, warningCount) = event else {
-            return XCTFail("Expected complete event, got \(event)")
-        }
-        XCTAssertEqual(bundle, "/project/Project.lungfish/Phylogenetic Trees/tree.lungfishtree")
-        XCTAssertEqual(warningCount, 2)
+        XCTAssertEqual(
+            line.event,
+            .complete(outputs: ["/project/Project.lungfish/Phylogenetic Trees/tree.lungfishtree"], message: nil)
+        )
+        XCTAssertEqual(line.artifacts.map(\.kind), ["phylogenetic-tree"])
     }
 
     func testRunStreamsProgressEventsIntoOperationCenter() async throws {
@@ -120,6 +124,9 @@ final class CLINativeBundleImportRunnerTests: XCTestCase {
         let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")
         let script = """
         #!/bin/sh
+        printf '%s\\n' '{"event":"nativeBundleImportWarning","message":"first"}'
+        printf '%s\\n' '{"event":"nativeBundleImportWarning","message":"second"}'
+        printf '%s\\n' '{"event":"nativeBundleImportWarning","message":"third"}'
         padding=$(/usr/bin/head -c 200000 /dev/zero | /usr/bin/tr '\\0' 'p')
         printf '%s%s%s\\n' '{"event":"nativeBundleImportComplete","bundle":"\(bundle.path)","warningCount":3,"padding":"' "$padding" '"}'
         """
@@ -158,8 +165,22 @@ final class CLINativeBundleImportRunnerTests: XCTestCase {
         exitCode: Int32 = 0,
         standardError: [String] = []
     ) async throws -> ImportRunnerShown {
+        try await replay(
+            transcript: ImportRunnerReplay.legacyTranscript(name),
+            title: title,
+            exitCode: exitCode,
+            standardError: standardError
+        )
+    }
+
+    private func replay(
+        transcript: URL,
+        title: String = "MSA Import",
+        exitCode: Int32 = 0,
+        standardError: [String] = []
+    ) async throws -> ImportRunnerShown {
         try await ImportRunnerReplay.replay(
-            ImportRunnerReplay.legacyTranscript(name),
+            transcript,
             title: title,
             operationType: .multipleSequenceAlignmentImport,
             exitCode: exitCode,
@@ -405,6 +426,92 @@ final class CLINativeBundleImportRunnerTests: XCTestCase {
         await MainActor.run { OperationCenter.shared.clearItem(id: opID) }
     }
 
+    // MARK: - A version 2 CLI
+
+    /// Decision V13. A version 2 CLI and an older CLI give the same row, the same label and the same imported
+    /// bundle. Each old transcript is written again as the version 2 lines of the same run, and both are
+    /// played back through the same runner.
+    func testAVersion2CLIGivesTheLogTheLabelAndTheBundleAnOlderCLIGave() async throws {
+        let runs: [(name: String, title: String, exitCode: Int32)] = [
+            ("import-msa", "MSA Import", 0),
+            ("import-msa-with-warning", "MSA Import", 0),
+            ("import-msa-failed", "MSA Import", 3),
+            ("import-tree", "Tree Import", 0),
+            ("import-tree-with-warning", "Tree Import", 0),
+            ("import-tree-failed", "Tree Import", 3),
+        ]
+        for run in runs {
+            let older = try await replay(run.name, title: run.title, exitCode: run.exitCode)
+            let version2 = try ImportRunnerReplay.version2Transcript(ofLegacy: run.name, in: try makeTemporaryDirectory())
+            let version2Lines = try String(contentsOf: version2, encoding: .utf8)
+            XCTAssertTrue(version2Lines.contains("\"schemaVersion\":2"), "\(run.name) is written as version 2 lines")
+            XCTAssertFalse(version2Lines.contains("nativeBundleImport"), "\(run.name) holds no private name")
+
+            let current = try await replay(transcript: version2, title: run.title, exitCode: run.exitCode)
+
+            XCTAssertEqual(current, older, run.name)
+        }
+    }
+
+    /// Plain standard error stays in the operation log at info level, whatever it says, so a tool's
+    /// warning text never makes an import read Completed with Warnings (decision S16).
+    func testStandardErrorTextIsLoggedAtInfoAndNeverMakesTheRunCompletedWithWarnings() async throws {
+        let version2 = try ImportRunnerReplay.version2Transcript(ofLegacy: "import-msa", in: try makeTemporaryDirectory())
+
+        let shown = try await replay(
+            transcript: version2,
+            standardError: ["Imported /work/Project.lungfish/Multiple Sequence Alignments/mhc.lungfishmsa", "warning: the alignment has gaps"]
+        )
+
+        XCTAssertTrue(shown.log.contains("info: Imported /work/Project.lungfish/Multiple Sequence Alignments/mhc.lungfishmsa"), "\(shown.log)")
+        XCTAssertTrue(shown.log.contains("info: warning: the alignment has gaps"), "\(shown.log)")
+        XCTAssertEqual(shown.warningCount, 0)
+        XCTAssertFalse(shown.hasWarnings)
+        XCTAssertEqual(shown.label, "Completed")
+    }
+
+    /// `outputs` is the one list an import reads. The typed artifact describes an output and never
+    /// stands in for it, so a completion that names a different artifact imports the output, and one
+    /// that names no output imports nothing.
+    func testATypedArtifactNeverStandsInForTheOutputs() async throws {
+        let outputPath = "/work/Project.lungfish/Multiple Sequence Alignments/a.lungfishmsa"
+        let artifactPath = "/work/Project.lungfish/Multiple Sequence Alignments/b.lungfishmsa"
+        let start = #"{"event":"start","message":"Started multiple-sequence-alignment import via lungfish-cli","progress":0,"schemaVersion":2}"#
+
+        let named = try ImportRunnerReplay.writeTranscript([
+            start,
+            #"{"artifacts":[{"kind":"multiple-sequence-alignment","path":"\#(artifactPath)","role":"bundle"}],"event":"complete","output":"\#(outputPath)","outputs":["\#(outputPath)"],"progress":1,"schemaVersion":2}"#,
+        ], in: try makeTemporaryDirectory())
+        let shownNamed = try await replay(transcript: named)
+        XCTAssertEqual(shownNamed.importedPath, outputPath)
+
+        let artifactsOnly = try ImportRunnerReplay.writeTranscript([
+            start,
+            #"{"artifacts":[{"kind":"multiple-sequence-alignment","path":"\#(artifactPath)","role":"bundle"}],"event":"complete","outputs":[],"progress":1,"schemaVersion":2}"#,
+        ], in: try makeTemporaryDirectory())
+        let shownArtifactsOnly = try await replay(transcript: artifactsOnly)
+        XCTAssertNil(shownArtifactsOnly.importedPath)
+        XCTAssertEqual(shownArtifactsOnly.failure, "lungfish-cli finished without reporting an imported bundle.")
+    }
+
+    /// A later version adds events, keys and kinds, and none of them stops an import (S15).
+    func testALaterVersionWithNewEventsAndKeysStillImportsTheBundle() async throws {
+        let outputPath = "/work/Project.lungfish/Phylogenetic Trees/t.lungfishtree"
+        let transcript = try ImportRunnerReplay.writeTranscript([
+            #"{"event":"start","message":"Started phylogenetic-tree import via lungfish-cli","progress":0,"schemaVersion":3,"eta":12}"#,
+            #"{"event":"checkpoint","detail":{"step":1},"schemaVersion":3}"#,
+            #"{"event":"progress","message":"Parsing t.nwk...","progress":0.35,"schemaVersion":3,"phase":"parse"}"#,
+            #"{"artifacts":[{"kind":"phylogenetic-tree-v2","path":"\#(outputPath)","role":"bundle","size":{"bytes":4}}],"event":"complete","outputs":["\#(outputPath)"],"progress":1,"schemaVersion":3,"checksum":"abc"}"#,
+        ], in: try makeTemporaryDirectory())
+
+        let shown = try await replay(transcript: transcript, title: "Tree Import")
+
+        XCTAssertEqual(shown.importedPath, outputPath)
+        XCTAssertEqual(shown.log, ["info: Started phylogenetic-tree import via lungfish-cli"])
+        XCTAssertEqual(shown.detail, "Parsing t.nwk...")
+        XCTAssertEqual(shown.label, "Completed")
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = repoRoot
             .appendingPathComponent(".build", isDirectory: true)
@@ -457,6 +564,21 @@ enum ImportRunnerReplay {
     /// A transcript of the private events an older CLI printed, by file name without the extension.
     static func legacyTranscript(_ name: String) -> URL {
         legacyFolder.appendingPathComponent("\(name).ndjson")
+    }
+
+    /// The run of an older CLI's transcript as a version 2 CLI prints it. The events that each old line
+    /// decodes to through the legacy table are written again as version 2 lines, with the artifacts the
+    /// line held, so the two streams are the same run in the two shapes.
+    static func version2Transcript(ofLegacy name: String, in directory: URL) throws -> URL {
+        let decoder = CLIEventLineDecoder()
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let text = try String(contentsOf: legacyTranscript(name), encoding: .utf8)
+        let lines = try text.split(separator: "\n", omittingEmptySubsequences: true).compactMap { text -> String? in
+            guard let old = try decoder.decodeLine(String(text)), let event = old.event else { return nil }
+            return String(data: try encoder.encode(CLIEventLine(event: event, artifacts: old.artifacts)), encoding: .utf8)
+        }
+        return try writeTranscript(lines, in: directory)
     }
 
     /// A transcript made of `lines`, for a stream no real run produces.
