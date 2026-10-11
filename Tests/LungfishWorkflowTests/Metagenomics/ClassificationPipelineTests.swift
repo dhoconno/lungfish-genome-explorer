@@ -1074,9 +1074,9 @@ final class ClassificationPipelineIntegrationTests: XCTestCase {
         let tracker = ProgressTracker()
 
         // With real viral reads against the viral database, kraken2 must
-        // produce a report. emptyReport and kreportNotProduced are therefore
-        // failures here, not tolerated outcomes: they are exactly the shape a
-        // kraken2 or database regression would take.
+        // produce a report. kreportNotProduced is a failure here. A report of
+        // only the unclassified line now parses (a negative control is a
+        // result), so the classified count below catches a classify-nothing run.
         let result: ClassificationResult
         do {
             result = try await pipeline.classify(config: config) { fraction, message in
@@ -1097,8 +1097,8 @@ final class ClassificationPipelineIntegrationTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.reportURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.outputURL.path))
 
-        // Verify the tree was parsed and reads were actually classified.
-        XCTAssertGreaterThan(result.tree.totalReads, 0)
+        // Verify the tree was parsed and reads were classified, not only counted.
+        XCTAssertGreaterThan(result.tree.classifiedReads, 0, "the fixture reads must classify")
 
         // Verify provenance was recorded.
         XCTAssertNotNil(result.provenanceId)

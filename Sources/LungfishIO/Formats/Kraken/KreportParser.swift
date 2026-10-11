@@ -14,7 +14,10 @@ private let logger = Logger(subsystem: LogSubsystem.io, category: "KreportParser
 /// Errors that can occur during Kraken2 report parsing.
 public enum KreportParserError: Error, LocalizedError, Sendable {
 
-    /// The report file is empty or contains no parseable lines.
+    /// The report file is empty or contains no parseable data line.
+    ///
+    /// A report whose only data line is the unclassified one is not empty. It
+    /// belongs to a sample with nothing classified and parses to a tree.
     case emptyReport
 
     /// The report file could not be read.
@@ -74,6 +77,16 @@ public enum KreportParserError: Error, LocalizedError, Sendable {
 ///
 /// The parser reconstructs the tree hierarchy from the indentation of scientific
 /// names. Each level of indentation corresponds to one depth level in the tree.
+///
+/// ## A Sample With Nothing Classified
+///
+/// kraken2 leaves out a clade whose count is zero, so a sample with no
+/// classified read, such as an extraction blank or a no-template control, has
+/// no root line. Its whole report is the one `U` line, and that report is
+/// complete. The parser returns a tree with a zero-count root, the
+/// unclassified node and no taxon at any rank, so a clean negative control is a
+/// result. A report with no data line at all still throws
+/// ``KreportParserError/emptyReport``.
 ///
 /// ## Usage
 ///
@@ -155,12 +168,16 @@ public enum KreportParser {
             }
         }
 
-        guard !parsedNodes.isEmpty else {
+        // No data line at all is an empty report. The unclassified line alone is
+        // the complete report of a sample with nothing classified.
+        guard !parsedNodes.isEmpty || unclassifiedLine != nil else {
             throw KreportParserError.emptyReport
         }
 
         // Ensure root node is first in the list
-        if let first = parsedNodes.first, first.rank == .root || parsedNodes.count == 1 {
+        if parsedNodes.isEmpty {
+            // Nothing was classified, so buildTree supplies the zero-count root.
+        } else if let first = parsedNodes.first, first.rank == .root || parsedNodes.count == 1 {
             // Root is already first — nothing to do
         } else if let rootIdx = parsedNodes.firstIndex(where: { $0.rank == .root }) {
             // Reorder so root is first
@@ -328,7 +345,8 @@ public enum KreportParser {
     /// determines where it fits relative to the current stack of ancestors.
     ///
     /// - Parameters:
-    ///   - lines: Parsed kreport lines (excluding unclassified).
+    ///   - lines: Parsed kreport lines (excluding unclassified). An empty array
+    ///     means nothing was classified, and the tree gets a zero-count root.
     ///   - unclassifiedLine: The unclassified line, if present.
     ///   - totalReads: Total reads for fraction computation.
     /// - Returns: A fully constructed ``TaxonTree``.
@@ -337,36 +355,35 @@ public enum KreportParser {
         unclassifiedLine: ParsedLine?,
         totalReads: Int
     ) -> TaxonTree {
-        guard let firstLine = lines.first else {
-            // Shouldn't happen -- caller checks for empty
-            let emptyRoot = TaxonNode(
+        let totalDouble = Double(max(totalReads, 1))
+
+        // Create root node. A report with no classified line, the report of a
+        // negative control, gets the zero-count root that kraken2 left out.
+        let rootNode: TaxonNode
+        if let firstLine = lines.first {
+            rootNode = TaxonNode(
+                taxId: firstLine.taxId,
+                name: firstLine.name,
+                rank: firstLine.rank,
+                depth: 0,
+                readsDirect: firstLine.readsDirect,
+                readsClade: firstLine.readsClade,
+                fractionClade: Double(firstLine.readsClade) / totalDouble,
+                fractionDirect: Double(firstLine.readsDirect) / totalDouble,
+                parentTaxId: nil
+            )
+        } else {
+            rootNode = TaxonNode(
                 taxId: 1, name: "root", rank: .root, depth: 0,
                 readsDirect: 0, readsClade: 0,
                 fractionClade: 0, fractionDirect: 0, parentTaxId: nil
             )
-            return TaxonTree(root: emptyRoot, unclassifiedNode: nil, totalReads: 0)
         }
-
-        let totalDouble = Double(max(totalReads, 1))
-
-        // Create root node
-        let rootNode = TaxonNode(
-            taxId: firstLine.taxId,
-            name: firstLine.name,
-            rank: firstLine.rank,
-            depth: 0,
-            readsDirect: firstLine.readsDirect,
-            readsClade: firstLine.readsClade,
-            fractionClade: Double(firstLine.readsClade) / totalDouble,
-            fractionDirect: Double(firstLine.readsDirect) / totalDouble,
-            parentTaxId: nil
-        )
 
         // Stack tracks the ancestor chain: stack[i] is the most recent node at depth i
         var stack: [TaxonNode] = [rootNode]
 
-        for i in 1 ..< lines.count {
-            let line = lines[i]
+        for line in lines.dropFirst() {
             let node = TaxonNode(
                 taxId: line.taxId,
                 name: line.name,
