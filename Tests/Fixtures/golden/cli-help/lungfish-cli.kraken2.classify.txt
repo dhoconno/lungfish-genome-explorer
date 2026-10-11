@@ -4,7 +4,8 @@ Classify metagenomic reads or assembled sequences using Kraken2 with an
 installed database.
 Databases are managed via `lungfish-cli conda db` or downloaded from the
 built-in catalog. Results include a kreport file, per-read output,
-and an optional Bracken abundance profile.
+and an optional Bracken abundance profile. A Bracken profile that cannot
+be made leaves the classification complete with a warning and exit 0.
 
 USAGE: lungfish-cli kraken2 classify [<options>] <fastq-files> ... --db <db>
 
@@ -14,11 +15,17 @@ ARGUMENTS:
 
 OPTIONS:
   --db <db>               Database name (e.g., 'Viral', 'Standard-8')
+  --db-digest <db-digest> SHA-256 the database's install receipt must hold,
+                          checked before anything is written
   --preset <preset>       Sensitivity preset: sensitive, balanced, precise
                           (values: sensitive, balanced, precise; default:
                           balanced)
   -o, --output-dir <output-dir>
                           Output directory (default: current directory)
+  --project <project>     Project to write a new Analyses/kraken2-<timestamp>
+                          folder in, as the app does
+  --batch                 Group the inputs into samples by their R1 and R2
+                          names and classify each in its own folder
   --paired                Input files are paired-end reads
   --read-format <read-format>
                           Read layout: auto, unpaired, paired, or interleaved.

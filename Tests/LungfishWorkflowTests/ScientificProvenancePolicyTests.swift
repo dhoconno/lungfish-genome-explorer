@@ -261,8 +261,10 @@ struct ScientificProvenancePolicyTests {
                 .appendingPathComponent("Tests/Fixtures/golden/classifiers/kraken2", isDirectory: true)
                 .appendingPathComponent("lungfish-provenance.json")
         )
-        // The golden run recorded `conda classify` and still does until 2.7.
-        #expect(record.range(of: "\"conda\"") != nil)
+        // The golden run records `kraken2 classify`, the spelling the app's builder writes since 2.7 (E11).
+        let document = try #require(try JSONSerialization.jsonObject(with: Data(record.utf8)) as? [String: Any])
+        let argv = try #require(document["argv"] as? [String])
+        #expect(Array(argv.dropFirst().prefix(2)) == ["kraken2", "classify"])
         for entry in [
             try #require(ScientificProvenancePolicy.cliCommand(path: ["kraken2", "classify"])),
             try #require(ScientificProvenancePolicy.cliCommand("kraken2")),

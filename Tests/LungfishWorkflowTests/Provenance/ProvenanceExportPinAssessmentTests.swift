@@ -222,25 +222,25 @@ final class ProvenanceExportPinAssessmentRecordTests: XCTestCase {
             "5 Lungfish Classification Result Sidecar [-] noEnvironmentRecorded -",
         ],
         "genotype/bundle/lungfish-provenance.json": [
-            "1 minimap2 [minimap2] versionUnknown.legacySpelling bareName",
-            "2 samtools sort [samtools] versionUnknown.legacySpelling bareName",
-            "3 minimap2 [minimap2] versionUnknown.legacySpelling bareName",
-            "4 samtools sort [samtools] versionUnknown.legacySpelling bareName",
-            "5 samtools merge [samtools] versionUnknown.legacySpelling bareName",
-            "6 samtools index [samtools] versionUnknown.legacySpelling bareName",
-            "7 pysam retained-read demux filter [pysam] versionUnknown.legacySpelling bareName",
+            "1 minimap2 [minimap2] pinnedToLock -",
+            "2 samtools sort [samtools] pinnedToLock -",
+            "3 minimap2 [minimap2] pinnedToLock -",
+            "4 samtools sort [samtools] pinnedToLock -",
+            "5 samtools merge [samtools] pinnedToLock -",
+            "6 samtools index [samtools] pinnedToLock -",
+            "7 pysam retained-read demux filter [pysam] pinnedToLock -",
             "8 Lungfish Provisional exon 2 artifact publisher [-] noEnvironmentRecorded -",
             "9 deterministic genotype haplotype assignment [-] noEnvironmentRecorded -",
             "10 openpyxl ONT genotype workbook report [openpyxl] pinnedToLock -",
         ],
         "genotype/bundle/provenance/bundle.lungfish-provenance.json": [
-            "1 minimap2 [minimap2] versionUnknown.legacySpelling bareName",
-            "2 samtools sort [samtools] versionUnknown.legacySpelling bareName",
-            "3 minimap2 [minimap2] versionUnknown.legacySpelling bareName",
-            "4 samtools sort [samtools] versionUnknown.legacySpelling bareName",
-            "5 samtools merge [samtools] versionUnknown.legacySpelling bareName",
-            "6 samtools index [samtools] versionUnknown.legacySpelling bareName",
-            "7 pysam retained-read demux filter [pysam] versionUnknown.legacySpelling bareName",
+            "1 minimap2 [minimap2] pinnedToLock -",
+            "2 samtools sort [samtools] pinnedToLock -",
+            "3 minimap2 [minimap2] pinnedToLock -",
+            "4 samtools sort [samtools] pinnedToLock -",
+            "5 samtools merge [samtools] pinnedToLock -",
+            "6 samtools index [samtools] pinnedToLock -",
+            "7 pysam retained-read demux filter [pysam] pinnedToLock -",
             "8 Lungfish Provisional exon 2 artifact publisher [-] noEnvironmentRecorded -",
             "9 deterministic genotype haplotype assignment [-] noEnvironmentRecorded -",
             "10 openpyxl ONT genotype workbook report [openpyxl] pinnedToLock -",
@@ -334,25 +334,29 @@ final class ProvenanceExportPinAssessmentRecordTests: XCTestCase {
             counts[String(row[row.count - 2]), default: 0] += 1
         }
         // Phase 2.6 lane P5a. The six steps whose export lacked the build or the channel are pinned to the lock.
+        // Phase 2.7 lane B5. The 26 demux tool steps record the version the environment that ran them holds,
+        // so none reads as an unknown version legacy spelling any more and all 26 are pinned to the lock.
         XCTAssertEqual(counts, [
             "noEnvironmentRecorded": 52,
-            "pinnedToLock": 14,
-            "versionUnknown.legacySpelling": 26,
+            "pinnedToLock": 40,
             "versionUnknown.recordedAppVersion": 8
         ])
     }
 
-    func testTheGenotypeRecordHasSevenUnknownVersionStepsAndAPinnedWorkbookStep() throws {
+    func testTheGenotypeRecordPinsItsSevenDemuxStepsAndTheWorkbookStepToTheLock() throws {
+        // Phase 2.7 lane B5. Before it, these seven steps recorded the version `unknown`.
         let steps = try XCTUnwrap(Self.goldenAssessments()["genotype/bundle/lungfish-provenance.json"])
         XCTAssertEqual(steps.count, 10)
-        let unknown = steps.filter { $0.status.code == "versionUnknown" }
-        XCTAssertEqual(unknown.count, 7)
+        XCTAssertTrue(steps.filter { $0.status.code == "versionUnknown" }.isEmpty)
+        XCTAssertEqual(steps.filter(\.status.isUnpinned).count, 0)
+        let demux = Array(steps.prefix(7))
         XCTAssertEqual(
-            unknown.map(\.toolName),
+            demux.map(\.toolName),
             ["minimap2", "samtools sort", "minimap2", "samtools sort", "samtools merge", "samtools index", "pysam retained-read demux filter"]
         )
-        XCTAssertTrue(unknown.allSatisfy { $0.evidence == .unknown(.legacySpelling("unknown")) })
-        XCTAssertEqual(steps.filter(\.status.isUnpinned).count, 7)
+        XCTAssertEqual(demux.map(\.recordedVersion), ["2.31", "1.24", "2.31", "1.24", "1.24", "1.24", "0.24.0"])
+        XCTAssertEqual(demux.map(\.status), Array(repeating: .pinnedToLock, count: 7))
+        XCTAssertEqual(demux.map(\.exportedSpec), demux.map(\.lockSpec))
         XCTAssertEqual(steps.last?.status, .pinnedToLock)
         XCTAssertEqual(steps.last?.exportedSpec, "conda-forge::openpyxl=3.1.5=py312h2a925e6_3")
     }

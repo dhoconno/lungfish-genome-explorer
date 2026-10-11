@@ -1,22 +1,16 @@
 {
   "argv" : [
-    "EsViritu",
-    "-r",
+    "<external>/lungfish-cli",
+    "esviritu",
+    "detect",
+    "--input",
     "<external>/sarscov2-R1-len150.fastq",
-    "-s",
+    "--sample",
     "sarscov2-R1-len150",
-    "-o",
-    "@/Analyses/esviritu-golden",
-    "-p",
-    "unpaired",
-    "-t",
+    "--threads",
     "2",
-    "-q",
-    "True",
-    "--db",
-    "<storage-root>/databases/esviritu/esviritu-viral-db/v3.2.4",
-    "--keep",
-    "True"
+    "--output",
+    "@/Analyses/esviritu-golden"
   ],
   "createdAt" : "<TIMESTAMP>",
   "exitStatus" : 0,
@@ -57,34 +51,6 @@
       "role" : "output"
     },
     {
-      "checksumSHA256" : "a53cd27b64550d51aa44600c22cb62967228ba08c2f5ff450ff925673a23dfca",
-      "fileSize" : 642,
-      "format" : "text",
-      "path" : "@/Analyses/esviritu-golden/sarscov2-R1-len150.detected_virus.info.tsv",
-      "role" : "output"
-    },
-    {
-      "checksumSHA256" : "a7da75de4d86a605ebf82a80d9fb164b085ec2a9697454e57011ae2aef5575b9",
-      "fileSize" : 477,
-      "format" : "text",
-      "path" : "@/Analyses/esviritu-golden/sarscov2-R1-len150.detected_virus.assembly_summary.tsv",
-      "role" : "output"
-    },
-    {
-      "checksumSHA256" : "6369a6d5ddb849ba829c37cf4576e32e1531f0864949cdbf81e2e5192274a8d5",
-      "fileSize" : 396,
-      "format" : "text",
-      "path" : "@/Analyses/esviritu-golden/sarscov2-R1-len150.tax_profile.tsv",
-      "role" : "output"
-    },
-    {
-      "checksumSHA256" : "1ab449cdebf509f36bc3e22d0be0c85ad573e153e4663bd0028f3b04b25ffa59",
-      "fileSize" : 3752,
-      "format" : "text",
-      "path" : "@/Analyses/esviritu-golden/sarscov2-R1-len150.virus_coverage_windows.tsv",
-      "role" : "output"
-    },
-    {
       "checksumSHA256" : "<SHA256-R10>",
       "fileSize" : "<SIZE-R10>",
       "format" : "json",
@@ -92,13 +58,27 @@
       "role" : "output"
     }
   ],
-  "githubReleaseVersion" : "v1.3.3",
   "id" : "<UUID-1>",
   "options" : {
     "defaults" : {
-
+      "extraArgs" : {
+        "type" : "string",
+        "value" : ""
+      },
+      "qualityFilter" : {
+        "type" : "boolean",
+        "value" : true
+      },
+      "readFormat" : {
+        "type" : "string",
+        "value" : "auto"
+      }
     },
     "explicit" : {
+      "batch" : {
+        "type" : "boolean",
+        "value" : false
+      },
       "extraArgs" : {
         "type" : "string",
         "value" : ""
@@ -149,14 +129,62 @@
       }
     },
     "resolvedDefaults" : {
-
+      "databaseCatalogID" : {
+        "type" : "string",
+        "value" : "esviritu-viral-v3"
+      },
+      "databaseCatalogVersion" : {
+        "type" : "string",
+        "value" : "v3.2.4"
+      },
+      "databaseCoreFileSizes" : {
+        "type" : "dictionary",
+        "value" : {
+          "virus_pathogen_database.all_metadata.tsv" : {
+            "type" : "integer",
+            "value" : 8727768
+          },
+          "virus_pathogen_database.fna" : {
+            "type" : "integer",
+            "value" : 239596694
+          },
+          "virus_pathogen_database.mmi" : {
+            "type" : "integer",
+            "value" : 646318574
+          }
+        }
+      },
+      "databaseIdentityStatus" : {
+        "type" : "string",
+        "value" : "unpinned"
+      },
+      "databaseOrigin" : {
+        "type" : "string",
+        "value" : "installed"
+      },
+      "databasePath" : {
+        "type" : "string",
+        "value" : "<storage-root>/databases/esviritu/esviritu-viral-db/v3.2.4"
+      },
+      "databaseSourcePolicy" : {
+        "type" : "string",
+        "value" : "unpinnedArchive"
+      },
+      "databaseSourceURL" : {
+        "type" : "string",
+        "value" : "https://zenodo.org/records/17716199/files/esviritu_db_v3.2.4.tar.gz"
+      },
+      "sampleCount" : {
+        "type" : "integer",
+        "value" : 1
+      }
     }
   },
   "output" : {
-    "checksumSHA256" : "<SHA256-R10>",
-    "fileSize" : "<SIZE-R10>",
-    "format" : "json",
-    "path" : "@/Analyses/esviritu-golden/esviritu-result.json",
+    "checksumSHA256" : "a53cd27b64550d51aa44600c22cb62967228ba08c2f5ff450ff925673a23dfca",
+    "fileSize" : 642,
+    "format" : "text",
+    "path" : "@/Analyses/esviritu-golden/sarscov2-R1-len150.detected_virus.info.tsv",
     "role" : "output"
   },
   "outputs" : [
@@ -196,9 +224,9 @@
       "role" : "output"
     }
   ],
-  "reproducibleCommand" : "EsViritu -r <external>/sarscov2-R1-len150.fastq -s sarscov2-R1-len150 -o @/Analyses/esviritu-golden -p unpaired -t 2 -q True --db <storage-root>/databases/esviritu/esviritu-viral-db/v3.2.4 --keep True",
+  "reproducibleCommand" : "<external>/lungfish-cli esviritu detect --input <external>/sarscov2-R1-len150.fastq --sample sarscov2-R1-len150 --threads 2 --output @/Analyses/esviritu-golden",
   "runtimeIdentity" : {
-    "appVersion" : "Lungfish <APP_VERSION> (dev)",
+    "appVersion" : "<APP_VERSION>",
     "architecture" : "arm64",
     "dependencySet" : "2026.2",
     "executablePath" : "<external>/lungfish-cli",
@@ -350,12 +378,12 @@
   ],
   "tool" : {
     "kind" : "cli",
-    "name" : "EsViritu",
-    "version" : "1.3.3"
+    "name" : "lungfish-cli",
+    "version" : "<APP_VERSION>"
   },
-  "toolName" : "EsViritu",
-  "toolVersion" : "1.3.3",
+  "toolName" : "lungfish-cli",
+  "toolVersion" : "<APP_VERSION>",
   "wallTimeSeconds" : "<DURATION>",
-  "workflowName" : "Viral Metagenomics Detection",
-  "workflowVersion" : "Lungfish <APP_VERSION> (dev)"
+  "workflowName" : "lungfish.esviritu.detect",
+  "workflowVersion" : "<APP_VERSION>"
 }

@@ -595,44 +595,43 @@ final class ProvenanceExportPinGateTests: XCTestCase {
 
     /// The script export verdict of each restored golden record the gate refuses, read as the CLI
     /// reads a file it is given. A row reads `<path> | <shape> | <verdict> | <steps> <tool> <reason>...`.
-    /// Every other restored golden record exports without the override.
+    /// Every other restored golden record exports without the override. Since 2.7 the demux tool steps
+    /// record their version (lane B5) and the workbook receipts state their status (lane B6), so
+    /// those 15 records are no longer refused.
     static let goldenRefusals: [String] = [
         "genotype/bundle/SIMULATED-MHC-haplotypes.retained_demux_provenance.json | primitive | olderRecordFormat",
         "genotype/bundle/SIMULATED-MHC-haplotypes.xlsx.export/request.json | primitive | olderRecordFormat",
-        "genotype/bundle/SIMULATED-MHC-haplotypes.xlsx.provenance.json | primitive | olderRecordFormat",
-        "genotype/bundle/lungfish-provenance.json | envelope | needsOverride | 1 minimap2 versionNotRecorded.legacySpelling | 2 samtools sort versionNotRecorded.legacySpelling | 3 minimap2 versionNotRecorded.legacySpelling | 4 samtools sort versionNotRecorded.legacySpelling | 5 samtools merge versionNotRecorded.legacySpelling | 6 samtools index versionNotRecorded.legacySpelling | 7 pysam retained-read demux filter versionNotRecorded.legacySpelling",
-        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.md.sorted.bam.bai.lungfish-provenance.json | envelope | needsOverride | 1 samtools index versionNotRecorded.legacySpelling",
-        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.md.sorted.bam.lungfish-provenance.json | envelope | needsOverride | 1 samtools merge versionNotRecorded.legacySpelling",
-        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv.lungfish-provenance.json | envelope | needsOverride | 1 pysam retained-read demux filter versionNotRecorded.legacySpelling",
-        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained-demux-samples.csv.lungfish-provenance.json | envelope | needsOverride | 1 pysam retained-read demux filter versionNotRecorded.legacySpelling",
-        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained-demux-stats.json.lungfish-provenance.json | envelope | needsOverride | 1 pysam retained-read demux filter versionNotRecorded.legacySpelling",
-        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai.lungfish-provenance.json | envelope | needsOverride | 1 pysam retained-read demux filter versionNotRecorded.legacySpelling",
-        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained.demuxed.bam.lungfish-provenance.json | envelope | needsOverride | 1 pysam retained-read demux filter versionNotRecorded.legacySpelling",
-        "genotype/bundle/provenance/amplicon-genotyping/mapping/001-SIMULATED-MHC-A-pairs.sorted.bam.lungfish-provenance.json | envelope | needsOverride | 1 minimap2 versionNotRecorded.legacySpelling | 2 samtools sort versionNotRecorded.legacySpelling",
-        "genotype/bundle/provenance/amplicon-genotyping/mapping/002-SIMULATED-MHC-B-pairs.sorted.bam.lungfish-provenance.json | envelope | needsOverride | 1 minimap2 versionNotRecorded.legacySpelling | 2 samtools sort versionNotRecorded.legacySpelling",
-        "genotype/bundle/provenance/bundle.lungfish-provenance.json | envelope | needsOverride | 1 minimap2 versionNotRecorded.legacySpelling | 2 samtools sort versionNotRecorded.legacySpelling | 3 minimap2 versionNotRecorded.legacySpelling | 4 samtools sort versionNotRecorded.legacySpelling | 5 samtools merge versionNotRecorded.legacySpelling | 6 samtools index versionNotRecorded.legacySpelling | 7 pysam retained-read demux filter versionNotRecorded.legacySpelling",
-        "genotype/bundle/provenance/retained-demux-genotyping-provenance.json.lungfish-provenance.json | envelope | needsOverride | 1 pysam retained-read demux filter versionNotRecorded.legacySpelling",
         "genotype/bundle/retained-demux-genotyping-provenance.json | primitive | olderRecordFormat | 1 minimap2 versionNotRecorded.recordedAppVersion | 2 samtools sort versionNotRecorded.recordedAppVersion | 3 minimap2 versionNotRecorded.recordedAppVersion | 4 samtools sort versionNotRecorded.recordedAppVersion | 5 samtools merge versionNotRecorded.recordedAppVersion | 6 samtools index versionNotRecorded.recordedAppVersion | 7 pysam retained-read demux filter versionNotRecorded.recordedAppVersion | 10 openpyxl ONT genotype workbook report versionNotRecorded.recordedAppVersion",
         "genotype/exports/pivot.xlsx.export/request.json | primitive | olderRecordFormat",
-        "genotype/exports/pivot.xlsx.provenance.json | primitive | olderRecordFormat",
         "genotype/exports/workbook.xlsx.export/request.json | primitive | olderRecordFormat",
-        "genotype/exports/workbook.xlsx.provenance.json | primitive | olderRecordFormat",
     ]
 
-    func testEveryCommittedGoldenRecordReadsAsTheOlderRecordFormat() throws {
+    /// The workbook receipts state `status` since 2.7 (lane B6), so the committed copy reads as a typed record.
+    private static let committedTypedReceipts: Set<String> = [
+        "genotype/bundle/SIMULATED-MHC-haplotypes.xlsx.provenance.json",
+        "genotype/exports/pivot.xlsx.provenance.json", "genotype/exports/workbook.xlsx.provenance.json",
+    ]
+
+    func testEveryCommittedGoldenRecordButTheWorkbookReceiptsReadsAsTheOlderRecordFormat() throws {
         // The golden normalizer writes "<TIMESTAMP>", "<DURATION>" and "<PID>" where a record holds a
         // date or a number, so no committed golden decodes as an envelope, and the gate refuses each
-        // one as a script whatever its pins (V6). The restored copies below read as written.
+        // one as a script whatever its pins (V6). The restored copies below read as written. The
+        // workbook receipts state `status` since 2.7, so they read as typed records and pass the gate.
         let urls = try GoldenProvenanceRecords.urls()
         XCTAssertEqual(urls.count, 44)
         for (path, url) in urls {
             let reading = try XCTUnwrap(GoldenProvenanceRecords.cliReading(of: url), path)
-            XCTAssertEqual(reading.reading.shape, .primitive, path)
             let result = ProvenanceExporter(signingProvider: nil).pinGate(
                 for: reading.reading.envelope, shape: reading.reading.shape, format: .shell,
                 sourceSidecarURL: reading.sidecarURL, sourceRootURL: url
             )
-            XCTAssertTrue(result.refusesOlderRecordFormat, path)
+            if Self.committedTypedReceipts.contains(path) {
+                XCTAssertEqual(reading.reading.shape, .typedRecord, path)
+                XCTAssertFalse(result.refusesOlderRecordFormat, path)
+            } else {
+                XCTAssertEqual(reading.reading.shape, .primitive, path)
+                XCTAssertTrue(result.refusesOlderRecordFormat, path)
+            }
         }
     }
 

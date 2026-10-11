@@ -236,24 +236,9 @@ final class ProvenanceExportPinGatePresenterTests: XCTestCase {
     static let goldenRefusals: [String] = [
         "genotype/bundle/SIMULATED-MHC-haplotypes.retained_demux_provenance.json | olderRecordFormat",
         "genotype/bundle/SIMULATED-MHC-haplotypes.xlsx.export/request.json | olderRecordFormat",
-        "genotype/bundle/SIMULATED-MHC-haplotypes.xlsx.provenance.json | olderRecordFormat",
-        "genotype/bundle/lungfish-provenance.json | needsOverride | Step 1 minimap2 | Step 2 samtools sort | Step 3 minimap2 | Step 4 samtools sort | Step 5 samtools merge | Step 6 samtools index | Step 7 pysam retained-read demux filter",
-        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.md.sorted.bam.bai.lungfish-provenance.json | needsOverride | Step 1 samtools index",
-        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.md.sorted.bam.lungfish-provenance.json | needsOverride | Step 1 samtools merge",
-        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv.lungfish-provenance.json | needsOverride | Step 1 pysam retained-read demux filter",
-        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained-demux-samples.csv.lungfish-provenance.json | needsOverride | Step 1 pysam retained-read demux filter",
-        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained-demux-stats.json.lungfish-provenance.json | needsOverride | Step 1 pysam retained-read demux filter",
-        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai.lungfish-provenance.json | needsOverride | Step 1 pysam retained-read demux filter",
-        "genotype/bundle/provenance/SIMULATED-MHC-haplotypes.retained.demuxed.bam.lungfish-provenance.json | needsOverride | Step 1 pysam retained-read demux filter",
-        "genotype/bundle/provenance/amplicon-genotyping/mapping/001-SIMULATED-MHC-A-pairs.sorted.bam.lungfish-provenance.json | needsOverride | Step 1 minimap2 | Step 2 samtools sort",
-        "genotype/bundle/provenance/amplicon-genotyping/mapping/002-SIMULATED-MHC-B-pairs.sorted.bam.lungfish-provenance.json | needsOverride | Step 1 minimap2 | Step 2 samtools sort",
-        "genotype/bundle/provenance/bundle.lungfish-provenance.json | needsOverride | Step 1 minimap2 | Step 2 samtools sort | Step 3 minimap2 | Step 4 samtools sort | Step 5 samtools merge | Step 6 samtools index | Step 7 pysam retained-read demux filter",
-        "genotype/bundle/provenance/retained-demux-genotyping-provenance.json.lungfish-provenance.json | needsOverride | Step 1 pysam retained-read demux filter",
         "genotype/bundle/retained-demux-genotyping-provenance.json | olderRecordFormat | Step 1 minimap2 | Step 2 samtools sort | Step 3 minimap2 | Step 4 samtools sort | Step 5 samtools merge | Step 6 samtools index | Step 7 pysam retained-read demux filter | Step 10 openpyxl ONT genotype workbook report",
         "genotype/exports/pivot.xlsx.export/request.json | olderRecordFormat",
-        "genotype/exports/pivot.xlsx.provenance.json | olderRecordFormat",
         "genotype/exports/workbook.xlsx.export/request.json | olderRecordFormat",
-        "genotype/exports/workbook.xlsx.provenance.json | olderRecordFormat",
     ]
 
     func testTheAppAsksAboutTheSameRestoredGoldenRecordsTheCLIRefuses() throws {

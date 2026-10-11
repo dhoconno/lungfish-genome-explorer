@@ -765,6 +765,7 @@
           "role" : "reference"
         }
       ],
+      "managedToolID" : "minimap2",
       "outputs" : [
         {
           "checksumSHA256" : "81a00a975c8557c7df094d9a8bab950bf069f294222ec685d845fafe66212be0",
@@ -779,7 +780,12 @@
       },
       "stderr" : "[M::mm_idx_gen::<DURATION>*<CPU-RATIO>] collected minimizers\n[M::mm_idx_gen::<DURATION>*<CPU-RATIO>] sorted minimizers\n[M::main::<DURATION>*<CPU-RATIO>] loaded/built the index for 3 target sequence(s)\n[M::mm_mapopt_update::<DURATION>*<CPU-RATIO>] mid_occ = 1000\n[M::mm_idx_stat] kmer size: 21; skip: 11; is_hpc: 0; #seq: 3\n[M::mm_idx_stat::<DURATION>*<CPU-RATIO>] distinct minimizers: 90 (100.00% are singletons); average occurrences: 1.000; average spacing: 6.367; total length: 573\n[M::worker_pipeline::<DURATION>*<CPU-RATIO>] mapped 204 sequences\n[M::main] Version: 2.31-r1302\n[M::main] CMD: /Users/Shared/lungfish-golden/storage/conda/envs/minimap2/bin/minimap2 -a -x sr --MD -t 2 -R @RG\\tID:SIMULATED-MHC-haplotypes-1\\tSM:SIMULATED-MHC-haplotypes-1\\tLB:SIMULATED-MHC-haplotypes\\tPL:ILLUMINA\\tPU:SIMULATED-MHC-haplotypes-1 <RUN_ROOT>/genotype/MHC Genotyping.lungfish/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz -\n[M::main] Real time: <DURATION> sec; CPU: <CPU-SECONDS> sec; Peak RSS: <PEAK-RSS> GB\n",
       "toolName" : "minimap2",
-      "toolVersion" : "unknown",
+      "toolVersion" : "2.31",
+      "toolVersionEvidence" : {
+        "reportedLine" : "minimap2-2.31-h6bd33b9_0",
+        "source" : "observed",
+        "version" : "2.31"
+      },
       "wallTimeSeconds" : "<DURATION>"
     },
     {
@@ -811,6 +817,7 @@
           "role" : "reference"
         }
       ],
+      "managedToolID" : "samtools",
       "outputs" : [
         {
           "checksumSHA256" : "81a00a975c8557c7df094d9a8bab950bf069f294222ec685d845fafe66212be0",
@@ -825,7 +832,12 @@
       },
       "stderr" : "[bam_sort_core] merging from 0 files and 2 in-memory blocks...\n",
       "toolName" : "samtools sort",
-      "toolVersion" : "unknown",
+      "toolVersion" : "1.24",
+      "toolVersionEvidence" : {
+        "reportedLine" : "samtools-1.24-h36b3a25_1",
+        "source" : "observed",
+        "version" : "1.24"
+      },
       "wallTimeSeconds" : "<DURATION>"
     },
     {

@@ -1,7 +1,7 @@
 {
   "argv" : [
     "<external>/lungfish-cli",
-    "conda",
+    "kraken2",
     "classify",
     "@/Imports/sarscov2-R1.lungfishfastq/derivatives/len-150-any-00000000.lungfishfastq",
     "--db",
@@ -14,7 +14,7 @@
   "createdAt" : "<TIMESTAMP>",
   "durableReplayArgv" : [
     "<external>/lungfish-cli",
-    "conda",
+    "kraken2",
     "classify",
     "@/Analyses/kraken2-golden/.lungfish-classify-inputs/materialized-<UUID-1>.fastq",
     "--db",
@@ -61,6 +61,13 @@
       "originPath" : "@/Imports/sarscov2-R1.lungfishfastq/derivatives/len-150-any-00000000.lungfishfastq",
       "path" : "@/Analyses/kraken2-golden/.lungfish-classify-inputs/materialized-<UUID-1>.fastq",
       "role" : "input"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "@/Analyses/kraken2-golden/classification-result.json",
+      "role" : "output"
     },
     {
       "checksumSHA256" : "39afcfde59bce6c648ca86195ae49eff28e78e66cca439664993cee4f96f3bad",
@@ -136,10 +143,6 @@
       "pairedEnd" : {
         "type" : "boolean",
         "value" : false
-      },
-      "preset" : {
-        "type" : "string",
-        "value" : "balanced"
       },
       "profile" : {
         "type" : "boolean",
@@ -286,10 +289,6 @@
         "type" : "boolean",
         "value" : false
       },
-      "preset" : {
-        "type" : "string",
-        "value" : "balanced"
-      },
       "profile" : {
         "type" : "boolean",
         "value" : false
@@ -365,13 +364,19 @@
       "originPath" : "@/Imports/sarscov2-R1.lungfishfastq/derivatives/len-150-any-00000000.lungfishfastq",
       "path" : "@/Analyses/kraken2-golden/.lungfish-classify-inputs/materialized-<UUID-1>.fastq",
       "role" : "input"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "@/Analyses/kraken2-golden/classification-result.json",
+      "role" : "output"
     }
   ],
-  "reproducibleCommand" : "<external>/lungfish-cli conda classify @/Imports/sarscov2-R1.lungfishfastq/derivatives/len-150-any-00000000.lungfishfastq --db Viral --threads 2 --output-dir @/Analyses/kraken2-golden",
+  "reproducibleCommand" : "<external>/lungfish-cli kraken2 classify @/Imports/sarscov2-R1.lungfishfastq/derivatives/len-150-any-00000000.lungfishfastq --db Viral --threads 2 --output-dir @/Analyses/kraken2-golden",
   "runtimeIdentity" : {
     "appVersion" : "<APP_VERSION>",
     "architecture" : "arm64",
-    "condaEnvironment" : "kraken2",
     "dependencySet" : "2026.2",
     "executablePath" : "<external>/lungfish-cli",
     "managedToolLockSHA256" : "<LOCK-SHA256>",
@@ -763,11 +768,11 @@
   ],
   "tool" : {
     "kind" : "cli",
-    "name" : "kraken2",
-    "version" : "2.17.1"
+    "name" : "lungfish-cli",
+    "version" : "<APP_VERSION>"
   },
-  "toolName" : "kraken2",
-  "toolVersion" : "2.17.1",
+  "toolName" : "lungfish-cli",
+  "toolVersion" : "<APP_VERSION>",
   "wallTimeSeconds" : "<DURATION>",
   "workflowName" : "lungfish.classify",
   "workflowVersion" : "<APP_VERSION>"

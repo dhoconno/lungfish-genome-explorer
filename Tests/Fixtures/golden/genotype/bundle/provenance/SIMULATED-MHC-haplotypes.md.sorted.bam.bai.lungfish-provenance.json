@@ -739,6 +739,7 @@
           "role" : "output"
         }
       ],
+      "managedToolID" : "samtools",
       "outputs" : [
         {
           "checksumSHA256" : "<SHA256-N2>",
@@ -753,7 +754,12 @@
       },
       "stderr" : "",
       "toolName" : "samtools index",
-      "toolVersion" : "unknown",
+      "toolVersion" : "1.24",
+      "toolVersionEvidence" : {
+        "reportedLine" : "samtools-1.24-h36b3a25_1",
+        "source" : "observed",
+        "version" : "1.24"
+      },
       "wallTimeSeconds" : "<DURATION>"
     },
     {

@@ -1,14 +1,30 @@
 OVERVIEW: Run EsViritu viral detection on FASTQ files
 
-USAGE: lungfish-cli esviritu detect [<options>] --sample <sample>
+USAGE: lungfish-cli esviritu detect <options>
 
 OPTIONS:
   -i, --input <input>     Input FASTQ file(s) or .lungfishfastq bundle(s).
                           Provide two files for paired-end.
-  -s, --sample <sample>   Sample name for output file prefixes
+  -s, --sample <sample>   Sample name for output file prefixes (required
+                          without --batch)
   --db <db>               Path to EsViritu database directory (default:
                           auto-detect)
   -o, --output <output>   Output directory (default: current directory)
+  --project <project>     The .lungfish project the run belongs to. The result
+                          lands in its Analyses/esviritu-batch-<timestamp>/
+                          folder with one folder per sample, where the app's
+                          EsViritu runs put it
+        Each sample folder is named after the sample, made safe for a folder
+        name, and EsViritu names its tables after that folder. The result gets
+        the batch summary, the batch manifest and esviritu.sqlite, and each
+        source bundle records the run. Not with --output.
+  --batch                 Group the inputs into samples by their file names, as
+                          the app's EsViritu dialog does, and run each sample
+                          into its own folder of one batch result
+        Each sample's read layout is planned from its files, so --batch takes
+        --read-format auto and no --sample. A batch completes while one sample
+        completes, and each failed sample is a warning. Give --output or
+        --project.
   --paired                Input files are paired-end reads
   --read-format <read-format>
                           Read layout: auto, unpaired, paired, or interleaved.

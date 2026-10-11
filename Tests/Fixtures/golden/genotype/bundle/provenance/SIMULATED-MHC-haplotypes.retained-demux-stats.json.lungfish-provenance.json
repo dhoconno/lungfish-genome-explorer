@@ -788,6 +788,7 @@
           "role" : "input"
         }
       ],
+      "managedToolID" : "pysam",
       "outputs" : [
         {
           "checksumSHA256" : "<SHA256-R10>",
@@ -802,7 +803,12 @@
       },
       "stderr" : "",
       "toolName" : "pysam retained-read demux filter",
-      "toolVersion" : "unknown",
+      "toolVersion" : "0.24.0",
+      "toolVersionEvidence" : {
+        "reportedLine" : "pysam-0.24.0-py310hf7cbfa5_1",
+        "source" : "observed",
+        "version" : "0.24.0"
+      },
       "wallTimeSeconds" : "<DURATION>"
     },
     {

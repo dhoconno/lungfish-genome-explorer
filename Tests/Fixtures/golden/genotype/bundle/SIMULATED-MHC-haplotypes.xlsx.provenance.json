@@ -121,7 +121,7 @@
   "runtime" : {
     "openpyxlVersion" : "3.1.5",
     "platform" : "macOS-<HOST-OS-VERSION>-arm64-arm-64bit",
-    "pythonExecutable" : "/Users/Shared/lungfish-golden/storage/conda/envs/openpyxl/bin/python",
+    "pythonExecutable" : "<tool-root>/envs/openpyxl/bin/python",
     "pythonVersion" : "3.12.14",
     "renderer" : {
       "schemaVersion" : 3,
@@ -151,7 +151,7 @@
   },
   "runtimeContext" : {
     "condaEnvironment" : "openpyxl",
-    "condaPrefix" : "/Users/Shared/lungfish-golden/storage/conda"
+    "condaPrefix" : "<tool-root>"
   },
   "schemaVersion" : 1,
   "scientificInputWitnesses" : {
@@ -175,6 +175,7 @@
     "sizeBytes" : "<SIZE-R10>"
   },
   "startedAt" : "<TIMESTAMP>",
+  "status" : "completed",
   "stderr" : "",
   "toolName" : "lungfish genotype Excel export",
   "toolVersion" : "Lungfish <APP_VERSION> (dev)",

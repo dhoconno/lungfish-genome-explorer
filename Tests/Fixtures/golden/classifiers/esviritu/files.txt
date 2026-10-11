@@ -1,4 +1,5 @@
 .lungfish-provenance.json
+analysis-metadata.json
 esviritu-result.json
 sarscov2-R1-len150.detected_virus.assembly_summary.tsv
 sarscov2-R1-len150.detected_virus.info.tsv
