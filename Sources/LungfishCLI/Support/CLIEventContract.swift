@@ -202,13 +202,14 @@ public enum CLIEventContractTable {
         "import-fastq": .legacy(schemaID: "s1-import-fastq", removeBy: "2.7"),
     ]
 
-    // MARK: Leaves with human text only (122)
+    // MARK: Leaves with human text only (123)
 
     private static let text: [String: CLIEventContract] = [
         "bam adopt-mapping": .text(reason: ignoresFormat),
         "bundle export": .text(reason: humanTextOnly),
         "bundle extract-annotations": .text(reason: ignoresFormat),
         "conda classify": .text(reason: ignoresFormat),
+        "kraken2 classify": .text(reason: ignoresFormat),
         "conda db download": .text(reason: ignoresFormat),
         "conda db info": .text(reason: ignoresFormat),
         "conda db install-managed": .text(reason: ignoresFormat),

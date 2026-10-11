@@ -187,6 +187,21 @@ final class Kraken2ClassifyCommandTests: XCTestCase {
         XCTAssertTrue(CondaCommand.configuration.subcommands.contains { $0 == ClassifyCommand.self })
     }
 
+    /// One command writes one thing for a machine reader whatever it is called,
+    /// so both leaves carry the same row of the contract table. The `kraken2`
+    /// group is not a leaf and has no row of its own.
+    func testBothSpellingsShareOneContractRow() throws {
+        let underKraken2 = try XCTUnwrap(
+            CLIEventContractTable.entries["kraken2 classify"],
+            "the contract table has no row for kraken2 classify"
+        )
+        let underConda = try XCTUnwrap(
+            CLIEventContractTable.entries["conda classify"],
+            "the contract table has no row for conda classify"
+        )
+        XCTAssertEqual(underKraken2, underConda)
+    }
+
     // MARK: - Recorded commands
 
     /// The argv the Operations panel records and a copied command replays.
@@ -277,5 +292,16 @@ final class Kraken2ClassifyCommandTests: XCTestCase {
         )
         let statements = line.components(separatedBy: "default: balanced").count - 1
         XCTAssertEqual(statements, 1, "--preset states its default \(statements) times: \(line)")
+    }
+
+    /// `--bracken-read-length` and `--bracken-threshold` take an `Int` with a
+    /// default, so ArgumentParser appends `(default: ...)` to each. Their own help
+    /// text must not state the default a second time.
+    func testBrackenHelpStatesEachDefaultOnce() {
+        let help = ClassifyCommand.helpMessage(columns: 400)
+        for statement in ["(default: 150)", "(default: 10)"] {
+            let count = help.components(separatedBy: statement).count - 1
+            XCTAssertEqual(count, 1, "the classify help states \(statement) \(count) times")
+        }
     }
 }

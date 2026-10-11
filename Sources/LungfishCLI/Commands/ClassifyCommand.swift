@@ -125,7 +125,7 @@ struct ClassifyCommand: AsyncParsableCommand {
     @Flag(name: .customLong("quick"), help: "Use Kraken2 quick mode")
     var quickMode: Bool = false
 
-    @Option(name: .customLong("bracken-read-length"), help: "Read length for Bracken -r flag (default: 150)")
+    @Option(name: .customLong("bracken-read-length"), help: "Read length for Bracken -r flag")
     var brackenReadLength: Int = 150
 
     @Option(
@@ -134,7 +134,7 @@ struct ClassifyCommand: AsyncParsableCommand {
     )
     var brackenLevel: String?
 
-    @Option(name: .customLong("bracken-threshold"), help: "Bracken minimum read threshold (default: 10)")
+    @Option(name: .customLong("bracken-threshold"), help: "Bracken minimum read threshold")
     var brackenThreshold: Int = 10
 
     @Option(

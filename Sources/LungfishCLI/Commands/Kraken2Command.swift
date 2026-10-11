@@ -8,8 +8,8 @@ import ArgumentParser
 ///
 /// `kraken2 classify` is `ClassifyCommand`, the type that `conda` has always
 /// registered as `conda classify` (plan decision S19, vote V14). The group lists
-/// the type itself and never a wrapper, because tests and the recorded-command
-/// parser cast a parsed root to `ClassifyCommand`, and a run records the command
+/// the type itself and never a wrapper, because tests, `RecordedCLICommand` among
+/// them, cast a parsed root to `ClassifyCommand`, and a run records the command
 /// line as it was typed. Recorded commands keep `conda classify` until
 /// sub-phase 2.7, so no builder in the app changes. The group sits at the top
 /// level beside `esviritu` and `taxtriage` so the root help shows Kraken2 as the
