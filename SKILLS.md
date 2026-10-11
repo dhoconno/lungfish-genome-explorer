@@ -24,6 +24,14 @@ builders are internal. The full machine, channel, cache, verification, and
 side-by-side caveats live in `.codex/skills/releasing-lungfish/SKILL.md` and
 `docs/release/sparkle-updates.md`.
 
+## Developer ID Certificate
+
+Release signing uses one Developer ID Application certificate, selected by its
+SHA-1 in the private release profile, and `release.py doctor` prints its issuer
+and expiry. Creating, checking, copying, renewing and retiring that certificate,
+including the move to the G2 Sub-CA before the original Sub-CA expires on
+2027-02-01, follows `docs/development/developer-id.md`.
+
 ## Large Files
 
 Generated, recorded or downloaded files that must be kept but do not belong in

@@ -10,7 +10,7 @@ This contract says what each Mac that works on Lungfish Genome Explorer (LGE) is
 | The laptop (M4 Pro, 14 cores) | Development Mac | Day-to-day development, Debug builds, targeted tests, the unit tier and the golden comparison |
 | Any other Mac | Development Mac | Debug builds, targeted tests, the unit tier and, when its owner provisions the golden environment, the golden comparison |
 
-The release Mac holds the signing identity, the notary profile and the Sparkle key, and `python3 scripts/release/release.py setup` passes on it. The laptop keeps the same credentials as a standby, but it runs no `release.py package` or `release.py publish`. Making it a release Mac again takes a reviewed change to this table. The golden runner holds the golden environment and runs the GitHub Actions runner service. Neither role depends on the account name, because nothing in the goldens records a home folder.
+The release Mac holds the signing identity, the notary profile and the Sparkle key, and `python3 scripts/release/release.py setup` passes on it. The laptop keeps the same credentials as a standby, but it runs no `release.py package` or `release.py publish`. Making it a release Mac again takes a reviewed change to this table. Both Macs hold the same Developer ID Application certificate and select it by SHA-1 in their release profiles. [docs/development/developer-id.md](../development/developer-id.md) says how to create, check, copy, renew and retire it, including the move to the G2 Sub-CA before the original Sub-CA expires on 2027-02-01. The golden runner holds the golden environment and runs the GitHub Actions runner service. Neither role depends on the account name, because nothing in the goldens records a home folder.
 
 ## Builds on each Mac
 
