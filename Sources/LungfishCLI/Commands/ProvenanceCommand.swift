@@ -40,6 +40,11 @@ struct ProvenanceCommand: AsyncParsableCommand {
                 return resolved
             }
             if let reading = (try? ProvenanceEnvelopeReader.read(fromSidecar: url)) ?? nil {
+                // Any JSON object reads as a primitive record, so a data file such as
+                // `<reads>.lungfish-meta.json` gives way to the record that lists it as an output.
+                if reading.shape == .primitive, let resolved = ProvenanceRecorder.findProvenanceReading(for: url) {
+                    return resolved
+                }
                 return (url, reading)
             }
             if let resolved = ProvenanceRecorder.findProvenanceReading(for: url) {

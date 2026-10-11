@@ -1722,6 +1722,74 @@ extension ProvenanceExportCommandTests {
         XCTAssertTrue(FileManager.default.fileExists(atPath: methodsOutput.appendingPathComponent("methods.md").path))
     }
 
+    /// A FASTQ import writes `<reads>.lungfish-meta.json` into the bundle, and the import record lists
+    /// it as an output. Any JSON object reads as a primitive record, so selecting that file used to be
+    /// refused as the Older record format. The command now resolves it to the record that lists it.
+    func testAFASTQBundlesMetadataFileExportsOneImportLineThroughTheRecordThatListsIt() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("source", isDirectory: true)
+        let projectURL = directory.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let r1 = source.appendingPathComponent("Sample_R1.fastq.gz")
+        let r2 = source.appendingPathComponent("Sample_R2.fastq.gz")
+        try "@read1/1\nACGT\n+\nIIII\n".write(to: r1, atomically: true, encoding: .utf8)
+        try "@read1/2\nTGCA\n+\nIIII\n".write(to: r2, atomically: true, encoding: .utf8)
+        let config = FASTQBatchImporter.ImportConfig(
+            projectDirectory: projectURL, platform: .illumina, recipe: nil,
+            qualityBinning: QualityBinningScheme.none, optimizeStorage: false, threads: 1
+        )
+        let imported = await FASTQBatchImporter.runBatchImport(
+            pairs: [SamplePair(sampleName: "Sample", r1: r1, r2: r2)], config: config, log: nil
+        )
+        XCTAssertEqual(imported.completed, 1, "Import should succeed. Errors: \(imported.errors)")
+
+        let bundle = projectURL.appendingPathComponent("Imports/Sample.lungfishfastq", isDirectory: true)
+        let metadata = bundle.appendingPathComponent("Sample.fastq.gz.lungfish-meta.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: metadata.path))
+        let reading = try ProvenanceCommand.resolveProvenanceReading(metadata)
+        XCTAssertEqual(reading.reading.shape, .envelope, "the record that lists the file, not the file read as a record")
+        XCTAssertNotEqual(reading.sidecarURL.standardizedFileURL, metadata.standardizedFileURL)
+
+        let output = directory.appendingPathComponent("export", isDirectory: true)
+        try await ProvenanceCommand.ExportSubcommand.parse([
+            metadata.path, "--export-format", "shell", "--output", output.path,
+        ]).run()
+        let script = try String(contentsOf: output.appendingPathComponent("run.sh"), encoding: .utf8)
+        let commands = script.split(separator: "\n").filter { $0.hasPrefix("lungfish-cli") || $0.hasPrefix("seqkit") || $0.hasPrefix("bgzip") }
+        XCTAssertEqual(commands.count, 1, "\(commands)")
+        XCTAssertTrue(commands.first?.hasPrefix("lungfish-cli import fastq") == true, "\(commands)")
+    }
+
+    func testAPrimitiveSidecarGivenAsAFileStillReadsAsPrimitive() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let bundleURL = directory.appendingPathComponent("Aligned.lungfishmsa", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let sidecarURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        try Data("""
+        {
+          "schemaVersion": 1,
+          "createdAt": "2026-05-12T18:41:18Z",
+          "workflowName": "multiple-sequence-alignment-mafft",
+          "toolName": "lungfish align mafft",
+          "toolVersion": "0.5.0-alpha6",
+          "argv": ["lungfish-cli", "align", "mafft", "input.fasta", "--output", "\(bundleURL.path)"],
+          "exitStatus": 0
+        }
+        """.utf8).write(to: sidecarURL, options: .atomic)
+
+        let reading = try ProvenanceCommand.resolveProvenanceReading(sidecarURL)
+        XCTAssertEqual(reading.reading.shape, .primitive)
+        XCTAssertEqual(reading.sidecarURL.standardizedFileURL, sidecarURL.standardizedFileURL)
+
+        // A data file that no record lists keeps reading as it did, as the primitive record it is.
+        let loose = directory.appendingPathComponent("notes.json")
+        try Data(#"{"note": "no record lists this file"}"#.utf8).write(to: loose, options: .atomic)
+        XCTAssertEqual(try ProvenanceCommand.resolveProvenanceReading(loose).reading.shape, .primitive)
+    }
+
     func testATypedMappingRecordGivenAsAFileReadsAsATypedRecord() throws {
         let directory = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
