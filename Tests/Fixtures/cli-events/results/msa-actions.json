@@ -1,0 +1,821 @@
+{
+  "actions" : [
+    {
+      "accessibilityRequirement" : "Expose a slider-like overview element with visible column range and total aligned length.",
+      "category" : "navigation",
+      "createsOrModifiesScientificData" : false,
+      "id" : "msa.navigation.overview",
+      "implementationStatus" : "implemented",
+      "priority" : "P0",
+      "requiresProvenance" : false,
+      "summary" : "Show a compact alignment-wide coverage, gap, conservation, and variable-site overview.",
+      "surfaces" : [
+        "viewport",
+        "toolbar",
+        "inspector"
+      ],
+      "testRequirement" : "Graphical test asserts a nonblank overview, selected window marker, and no overlap with the matrix.",
+      "title" : "Alignment Overview",
+      "userIntent" : "Move quickly across long alignments and understand where biologically interesting regions are concentrated."
+    },
+    {
+      "accessibilityRequirement" : "Search\/go-to field reports match count and focused coordinate.",
+      "category" : "navigation",
+      "createsOrModifiesScientificData" : false,
+      "id" : "msa.navigation.goto-column",
+      "implementationStatus" : "implemented",
+      "priority" : "P0",
+      "requiresProvenance" : false,
+      "summary" : "Jump to an aligned column, ungapped coordinate, annotation, row, or named feature.",
+      "surfaces" : [
+        "toolbar",
+        "menu-bar",
+        "viewport"
+      ],
+      "testRequirement" : "XCUI enters a column and verifies selected-column inspector coordinates.",
+      "title" : "Go to Column",
+      "userIntent" : "Reach a biologically meaningful site without manual scrolling."
+    },
+    {
+      "accessibilityRequirement" : "Buttons have stable labels for previous and next variable site; selected column is exposed.",
+      "category" : "navigation",
+      "createsOrModifiesScientificData" : false,
+      "id" : "msa.navigation.variable-sites",
+      "implementationStatus" : "implemented",
+      "priority" : "P0",
+      "requiresProvenance" : false,
+      "summary" : "Navigate among variable, parsimony-informative, high-gap, or low-conservation sites.",
+      "surfaces" : [
+        "toolbar",
+        "menu-bar",
+        "viewport",
+        "inspector"
+      ],
+      "testRequirement" : "XCUI activates next\/previous variable site and asserts inspector site statistics.",
+      "title" : "Previous\/Next Variable Site",
+      "userIntent" : "Review variants and alignment quality one informative column at a time."
+    },
+    {
+      "accessibilityRequirement" : "Annotation tracks expose selectable labels with row, type, and aligned coordinate range.",
+      "category" : "navigation",
+      "createsOrModifiesScientificData" : false,
+      "id" : "msa.navigation.annotation",
+      "implementationStatus" : "implemented",
+      "priority" : "P1",
+      "requiresProvenance" : false,
+      "summary" : "Move between visible annotations and center or zoom to the selected feature.",
+      "surfaces" : [
+        "viewport",
+        "drawer",
+        "context-menu",
+        "menu-bar"
+      ],
+      "testRequirement" : "Graphical test verifies annotation lane hit testing, centering, and zoom.",
+      "title" : "Previous\/Next Annotation",
+      "userIntent" : "Treat annotations as landmarks during alignment review."
+    },
+    {
+      "accessibilityRequirement" : "Active cell is announced as row name, alignment column, ungapped coordinate, and residue.",
+      "category" : "selection",
+      "createsOrModifiesScientificData" : false,
+      "id" : "msa.selection.cell",
+      "implementationStatus" : "implemented",
+      "priority" : "P0",
+      "requiresProvenance" : false,
+      "summary" : "Select a single row and aligned column with residue, consensus, and coordinate details.",
+      "surfaces" : [
+        "viewport",
+        "inspector"
+      ],
+      "testRequirement" : "XCUI clicks a matrix cell and asserts selected-item inspector values.",
+      "title" : "Select Cell",
+      "userIntent" : "Inspect one residue in alignment, source, and consensus coordinate systems."
+    },
+    {
+      "accessibilityRequirement" : "Selection summary exposes row count, column range, base count, gap fraction, and consensus.",
+      "category" : "selection",
+      "createsOrModifiesScientificData" : false,
+      "id" : "msa.selection.block",
+      "implementationStatus" : "implemented",
+      "priority" : "P0",
+      "requiresProvenance" : false,
+      "summary" : "Select contiguous row and column ranges with mouse and keyboard extension.",
+      "surfaces" : [
+        "viewport",
+        "context-menu",
+        "inspector"
+      ],
+      "testRequirement" : "XCUI shift-selects columns and validates context-menu enablement.",
+      "title" : "Select Rectangular Block",
+      "userIntent" : "Extract, annotate, mask, or analyze a biologically meaningful alignment region."
+    },
+    {
+      "accessibilityRequirement" : "Each visible row label is keyboard-focusable and reports selected\/hidden\/pinned state.",
+      "category" : "selection",
+      "createsOrModifiesScientificData" : false,
+      "id" : "msa.selection.rows",
+      "implementationStatus" : "planned",
+      "priority" : "P0",
+      "requiresProvenance" : false,
+      "summary" : "Select one or more alignment rows from the gutter, row drawer, or search results.",
+      "surfaces" : [
+        "viewport",
+        "drawer",
+        "context-menu",
+        "inspector"
+      ],
+      "testRequirement" : "XCUI selects discontiguous rows and verifies row-selection statistics.",
+      "title" : "Select Rows",
+      "userIntent" : "Choose taxa, haplotypes, samples, or contigs for extraction or transformation."
+    },
+    {
+      "accessibilityRequirement" : "Filter sheet exposes selected annotation row, threshold, action, and result count.",
+      "category" : "selection",
+      "createsOrModifiesScientificData" : false,
+      "id" : "msa.selection.columns-by-annotation",
+      "implementationStatus" : "planned",
+      "priority" : "P1",
+      "requiresProvenance" : false,
+      "summary" : "Select or hide columns by annotation type, label, numeric threshold, or text pattern.",
+      "surfaces" : [
+        "drawer",
+        "context-menu",
+        "menu-bar",
+        "inspector"
+      ],
+      "testRequirement" : "Unit and XCUI tests cover selecting by text and numeric annotation thresholds.",
+      "title" : "Select Columns by Annotation",
+      "userIntent" : "Use annotation tracks and quantitative rows as filters for downstream analysis."
+    },
+    {
+      "accessibilityRequirement" : "Inspector exposes labels and copyable values for all selected-item statistics.",
+      "category" : "inspection",
+      "createsOrModifiesScientificData" : false,
+      "id" : "msa.inspection.selection-stats",
+      "implementationStatus" : "planned",
+      "priority" : "P0",
+      "requiresProvenance" : false,
+      "summary" : "Show row, site, block, gap, consensus, conservation, entropy, and residue-count summaries.",
+      "surfaces" : [
+        "inspector"
+      ],
+      "testRequirement" : "App tests assert statistics for single cell, row range, column range, and block selections.",
+      "title" : "Selection Statistics",
+      "userIntent" : "Decide whether a selected region is suitable for extraction, masking, primer design, or tree inference."
+    },
+    {
+      "accessibilityRequirement" : "Coordinate rows identify coordinate system and 1-based biological coordinates.",
+      "category" : "inspection",
+      "createsOrModifiesScientificData" : false,
+      "id" : "msa.inspection.coordinate-map",
+      "implementationStatus" : "planned",
+      "priority" : "P0",
+      "requiresProvenance" : false,
+      "summary" : "Display aligned columns, source ungapped coordinates, consensus coordinates, and CDS\/codon positions.",
+      "surfaces" : [
+        "inspector",
+        "viewport"
+      ],
+      "testRequirement" : "Unit tests cover gap-containing coordinate maps and segmented annotations.",
+      "title" : "Coordinate Map",
+      "userIntent" : "Avoid off-by-one errors when moving between alignment, FASTA, annotation, and consensus views."
+    },
+    {
+      "accessibilityRequirement" : "Display modes use labels and contrast, not color alone.",
+      "category" : "display",
+      "createsOrModifiesScientificData" : false,
+      "id" : "msa.display.color-scheme",
+      "implementationStatus" : "planned",
+      "priority" : "P0",
+      "requiresProvenance" : false,
+      "summary" : "Switch between residue, conservation, difference-from-consensus, difference-from-reference, codon, and no-color modes.",
+      "surfaces" : [
+        "toolbar",
+        "inspector",
+        "menu-bar"
+      ],
+      "testRequirement" : "Pixel tests assert residue and difference modes render distinct nonblank patterns.",
+      "title" : "Color Scheme",
+      "userIntent" : "Highlight the biological signal relevant to the current analysis."
+    },
+    {
+      "accessibilityRequirement" : "Consensus row and per-column metrics are keyboard-inspectable.",
+      "category" : "display",
+      "createsOrModifiesScientificData" : false,
+      "id" : "msa.display.consensus",
+      "implementationStatus" : "planned",
+      "priority" : "P0",
+      "requiresProvenance" : false,
+      "summary" : "Show consensus sequence, residue counts, conservation, entropy, and gap fraction tracks.",
+      "surfaces" : [
+        "viewport",
+        "inspector",
+        "context-menu"
+      ],
+      "testRequirement" : "Unit tests cover consensus thresholds and ambiguous IUPAC output.",
+      "title" : "Consensus Row and Track",
+      "userIntent" : "Use the consensus as a reference for variation review, search, export, and primer design."
+    },
+    {
+      "accessibilityRequirement" : "Annotation bars expose name, type, row, source and aligned\/source coordinates.",
+      "category" : "display",
+      "createsOrModifiesScientificData" : false,
+      "id" : "msa.display.annotations",
+      "implementationStatus" : "implemented",
+      "priority" : "P0",
+      "requiresProvenance" : false,
+      "summary" : "Show source, projected, and manual annotations directly in alignment rows and the bottom drawer.",
+      "surfaces" : [
+        "viewport",
+        "drawer",
+        "inspector"
+      ],
+      "testRequirement" : "Graphical test asserts annotation tracks are visible and selectable in the matrix.",
+      "title" : "Annotation Tracks",
+      "userIntent" : "See genes, domains, primers, and custom features as alignment landmarks."
+    },
+    {
+      "accessibilityRequirement" : "Rows drawer exposes sortable columns and selected visible-row count.",
+      "category" : "display",
+      "createsOrModifiesScientificData" : false,
+      "id" : "msa.display.row-metadata",
+      "implementationStatus" : "planned",
+      "priority" : "P1",
+      "requiresProvenance" : false,
+      "summary" : "Show optional row metadata columns such as organism, accession, date, host, country, gap percent, and identity.",
+      "surfaces" : [
+        "drawer",
+        "inspector",
+        "viewport"
+      ],
+      "testRequirement" : "XCUI toggles metadata columns and verifies visible row values.",
+      "title" : "Row Metadata Columns",
+      "userIntent" : "Sort and filter rows using sample metadata without losing alignment context."
+    },
+    {
+      "accessibilityRequirement" : "Pinned row state is announced in row labels and inspector.",
+      "category" : "rows",
+      "createsOrModifiesScientificData" : false,
+      "id" : "msa.rows.pin-reference",
+      "implementationStatus" : "planned",
+      "priority" : "P1",
+      "requiresProvenance" : false,
+      "summary" : "Pin a row as the reference\/anchor for coordinate display and difference highlighting.",
+      "surfaces" : [
+        "context-menu",
+        "drawer",
+        "inspector"
+      ],
+      "testRequirement" : "XCUI pins a row, changes color mode, and verifies reference-dependent labels.",
+      "title" : "Pin Reference or Anchor Row",
+      "userIntent" : "Compare samples against a biologically meaningful sequence while browsing."
+    },
+    {
+      "accessibilityRequirement" : "Hidden-row controls expose current visible and hidden counts.",
+      "category" : "rows",
+      "createsOrModifiesScientificData" : false,
+      "id" : "msa.rows.hide-sort-filter",
+      "implementationStatus" : "planned",
+      "priority" : "P1",
+      "requiresProvenance" : false,
+      "summary" : "Temporarily hide rows and sort\/filter by metadata, sequence name, gap fraction, identity, or tree order.",
+      "surfaces" : [
+        "drawer",
+        "context-menu",
+        "menu-bar"
+      ],
+      "testRequirement" : "XCUI hides rows, restores all rows, and confirms exports exclude hidden rows only when requested.",
+      "title" : "Hide, Sort, and Filter Rows",
+      "userIntent" : "Focus the viewport on relevant taxa or samples without changing the source bundle."
+    },
+    {
+      "accessibilityRequirement" : "Add sheet exposes name, type, strand, row, aligned columns, and projected source coordinates.",
+      "category" : "annotation",
+      "cli" : {
+        "command" : "lungfish-cli msa annotate add <bundle.lungfishmsa> --row <row> --columns <start-end> --name <name> --type <type> --format json",
+        "eventEnvelope" : "msaActionStart|msaActionProgress|msaActionWarning|msaActionFailed|msaActionComplete",
+        "outputContract" : "Updates metadata\/annotations.sqlite and metadata\/annotation-edit-provenance.json in the input .lungfishmsa bundle.",
+        "requiredPluginPackIDs" : [
+
+        ]
+      },
+      "createsOrModifiesScientificData" : true,
+      "id" : "msa.annotation.add",
+      "implementationStatus" : "implemented",
+      "priority" : "P0",
+      "requiresProvenance" : true,
+      "summary" : "Create an MSA annotation from selected row\/columns and persist it in the MSA SQLite annotation store.",
+      "surfaces" : [
+        "inspector",
+        "context-menu",
+        "drawer",
+        "command-line"
+      ],
+      "testRequirement" : "CLI and XCUI tests add an annotation and assert SQLite, drawer, track, and provenance updates.",
+      "title" : "Add Annotation from Selection",
+      "userIntent" : "Mark genes, domains, motifs, suspicious regions, or analysis landmarks discovered in the alignment."
+    },
+    {
+      "accessibilityRequirement" : "Annotation editor is keyboard reachable and reports validation errors inline.",
+      "category" : "annotation",
+      "cli" : {
+        "command" : "lungfish-cli msa annotate edit|delete <bundle.lungfishmsa> --annotation <id> [options] --format json",
+        "eventEnvelope" : "msaActionStart|msaActionProgress|msaActionWarning|msaActionFailed|msaActionComplete",
+        "outputContract" : "Updates MSA annotation SQLite store and writes annotation edit provenance.",
+        "requiredPluginPackIDs" : [
+
+        ]
+      },
+      "createsOrModifiesScientificData" : true,
+      "id" : "msa.annotation.edit",
+      "implementationStatus" : "implemented",
+      "priority" : "P1",
+      "requiresProvenance" : true,
+      "summary" : "Edit annotation labels, qualifiers, type, strand, intervals, visibility, or delete an annotation.",
+      "surfaces" : [
+        "drawer",
+        "inspector",
+        "context-menu",
+        "command-line"
+      ],
+      "testRequirement" : "CLI tests cover edit, delete, SQLite snapshots, events, and provenance.",
+      "title" : "Edit or Delete Annotation",
+      "userIntent" : "Curate feature tracks while preserving edit provenance."
+    },
+    {
+      "accessibilityRequirement" : "Projection review sheet lists target rows, skipped rows, warnings, and created annotations.",
+      "category" : "annotation",
+      "cli" : {
+        "command" : "lungfish-cli msa annotate project <bundle.lungfishmsa> --source-annotation <id> --target-rows <rows> --conflict-policy append --format json",
+        "eventEnvelope" : "msaActionStart|msaActionProgress|msaActionWarning|msaActionFailed|msaActionComplete",
+        "outputContract" : "Appends projected annotations with validation warnings and edit provenance.",
+        "requiredPluginPackIDs" : [
+
+        ]
+      },
+      "createsOrModifiesScientificData" : true,
+      "id" : "msa.annotation.project",
+      "implementationStatus" : "implemented",
+      "priority" : "P0",
+      "requiresProvenance" : true,
+      "summary" : "Map a source annotation through alignment columns onto one or more target rows with conflict policies.",
+      "surfaces" : [
+        "context-menu",
+        "inspector",
+        "drawer",
+        "command-line"
+      ],
+      "testRequirement" : "Fixture tests project across gaps\/indels and assert segmented intervals and warnings.",
+      "title" : "Project Annotation to Rows",
+      "userIntent" : "Transfer trusted feature landmarks from an annotated sequence to homologous aligned sequences."
+    },
+    {
+      "accessibilityRequirement" : "Import\/export dialogs expose coordinate system and lossiness warnings.",
+      "category" : "annotation",
+      "cli" : {
+        "command" : "lungfish-cli msa annotate import|export <bundle.lungfishmsa> --format gff|bed|tsv --output <path> --format json",
+        "eventEnvelope" : "msaActionStart|msaActionProgress|msaActionWarning|msaActionFailed|msaActionComplete",
+        "outputContract" : "Imports update annotation SQLite with provenance; exports write requested files plus provenance sidecar.",
+        "requiredPluginPackIDs" : [
+
+        ]
+      },
+      "createsOrModifiesScientificData" : true,
+      "id" : "msa.annotation.import-export",
+      "implementationStatus" : "planned",
+      "priority" : "P1",
+      "requiresProvenance" : true,
+      "summary" : "Import compatible GFF\/BED\/GenBank-like annotation tables and export MSA annotation tracks.",
+      "surfaces" : [
+        "command-line",
+        "drawer",
+        "menu-bar",
+        "operation-center"
+      ],
+      "testRequirement" : "CLI tests cover ID matching, coordinate conversion, and unsupported qualifier warnings.",
+      "title" : "Import and Export Annotation Tracks",
+      "userIntent" : "Move feature context in and out of LGE with explicit coordinate semantics."
+    },
+    {
+      "accessibilityRequirement" : "Extraction dialog reports selected rows, columns, output kind, and annotation handling.",
+      "category" : "transform",
+      "cli" : {
+        "command" : "lungfish-cli msa extract <bundle.lungfishmsa> --rows <rows> --columns <ranges> --output <path> --output-kind fasta|msa|reference --format json",
+        "eventEnvelope" : "msaActionStart|msaActionProgress|msaActionWarning|msaActionFailed|msaActionComplete",
+        "outputContract" : "Creates selected FASTA, derived .lungfishmsa, or native .lungfishref output with row\/column selection, lifted annotations where representable, coordinate metadata, and provenance.",
+        "requiredPluginPackIDs" : [
+
+        ]
+      },
+      "createsOrModifiesScientificData" : true,
+      "id" : "msa.transform.extract-selection",
+      "implementationStatus" : "implemented",
+      "priority" : "P0",
+      "requiresProvenance" : true,
+      "summary" : "Create FASTA or derived `.lungfishmsa` outputs from selected rows\/columns.",
+      "surfaces" : [
+        "context-menu",
+        "menu-bar",
+        "command-line",
+        "operation-center"
+      ],
+      "testRequirement" : "CLI tests assert extracted sequences, derived MSA bundle payloads, and provenance.",
+      "title" : "Extract Selected Alignment",
+      "userIntent" : "Reuse selected alignment regions in downstream sequence operations while preserving annotations where possible."
+    },
+    {
+      "accessibilityRequirement" : "Mask dialog exposes selection source, threshold, previewed column count, and output name.",
+      "category" : "transform",
+      "cli" : {
+        "command" : "lungfish-cli msa mask columns <bundle.lungfishmsa> --ranges <ranges>|--gap-threshold <value>|--conservation-below <value>|--parsimony-uninformative|--annotation <id>|--codon-position <1|2|3> --output <path> [--reason <text>] --format json",
+        "eventEnvelope" : "msaActionStart|msaActionProgress|msaActionWarning|msaActionFailed|msaActionComplete",
+        "outputContract" : "Creates a derived .lungfishmsa bundle containing column mask metadata, selector details including conservation threshold, site class, or CDS codon position when selected, lineage, and provenance.",
+        "requiredPluginPackIDs" : [
+
+        ]
+      },
+      "createsOrModifiesScientificData" : true,
+      "id" : "msa.transform.mask-columns",
+      "implementationStatus" : "implemented",
+      "priority" : "P0",
+      "requiresProvenance" : true,
+      "summary" : "Create a derived bundle with explicit, gap-threshold, low-conservation, parsimony-uninformative, annotation-driven, or CDS codon-position non-destructive column masks.",
+      "surfaces" : [
+        "context-menu",
+        "inspector",
+        "command-line",
+        "operation-center"
+      ],
+      "testRequirement" : "CLI tests assert mask metadata, derived bundle lineage, Operation Center events, and provenance.",
+      "title" : "Mask Columns",
+      "userIntent" : "Exclude unreliable or irrelevant sites before tree inference\/export without destroying original alignment data."
+    },
+    {
+      "accessibilityRequirement" : "Trim operation panel exposes thresholds, tool defaults, predicted retained columns, and warnings.",
+      "category" : "transform",
+      "cli" : {
+        "command" : "lungfish-cli msa trim columns <bundle.lungfishmsa> --gap-only|--gap-threshold <value> --output <path> --format json",
+        "eventEnvelope" : "msaActionStart|msaActionProgress|msaActionWarning|msaActionFailed|msaActionComplete",
+        "outputContract" : "Creates a derived .lungfishmsa bundle with removed-column metadata, lineage, and provenance.",
+        "requiredPluginPackIDs" : [
+
+        ]
+      },
+      "createsOrModifiesScientificData" : true,
+      "id" : "msa.transform.trim-columns",
+      "implementationStatus" : "implemented",
+      "priority" : "P0",
+      "requiresProvenance" : true,
+      "summary" : "Create derived bundles with gap-only or high-gap columns removed.",
+      "surfaces" : [
+        "command-line",
+        "operation-center",
+        "context-menu",
+        "inspector"
+      ],
+      "testRequirement" : "CLI fixture tests assert retained columns, trim metadata, provenance, and no project-external temp paths.",
+      "title" : "Trim or Strip Columns",
+      "userIntent" : "Prepare alignments for phylogenetics and reporting with reproducible trimming."
+    },
+    {
+      "accessibilityRequirement" : "Rows filter panel exposes selected row count and output row count.",
+      "category" : "transform",
+      "cli" : {
+        "command" : "lungfish-cli msa filter rows <bundle.lungfishmsa> --include <query>|--exclude <query> --project <project> --format json",
+        "eventEnvelope" : "msaActionStart|msaActionProgress|msaActionWarning|msaActionFailed|msaActionComplete",
+        "outputContract" : "Creates a derived .lungfishmsa with row lineage, preserved annotations, and provenance.",
+        "requiredPluginPackIDs" : [
+
+        ]
+      },
+      "createsOrModifiesScientificData" : true,
+      "id" : "msa.transform.filter-rows",
+      "implementationStatus" : "planned",
+      "priority" : "P1",
+      "requiresProvenance" : true,
+      "summary" : "Create a derived bundle including or excluding rows by name, selection, metadata, gap fraction, identity, or hidden state.",
+      "surfaces" : [
+        "drawer",
+        "context-menu",
+        "command-line",
+        "operation-center"
+      ],
+      "testRequirement" : "CLI tests cover include\/exclude queries, duplicate labels, and annotation preservation.",
+      "title" : "Filter Rows",
+      "userIntent" : "Build focused datasets for extraction, tree inference, or sharing."
+    },
+    {
+      "accessibilityRequirement" : "Dialog warns when rows are protein or contain incompatible symbols.",
+      "category" : "transform",
+      "cli" : {
+        "command" : "lungfish-cli msa transform reverse-complement <bundle.lungfishmsa> --rows <rows> --project <project> --format json",
+        "eventEnvelope" : "msaActionStart|msaActionProgress|msaActionWarning|msaActionFailed|msaActionComplete",
+        "outputContract" : "Creates a derived .lungfishmsa with transformed rows, updated coordinate maps, warnings, and provenance.",
+        "requiredPluginPackIDs" : [
+
+        ]
+      },
+      "createsOrModifiesScientificData" : true,
+      "id" : "msa.transform.reverse-complement",
+      "implementationStatus" : "planned",
+      "priority" : "P1",
+      "requiresProvenance" : true,
+      "summary" : "Create a derived nucleotide alignment with selected rows reverse-complemented and coordinate maps updated.",
+      "surfaces" : [
+        "context-menu",
+        "command-line",
+        "operation-center"
+      ],
+      "testRequirement" : "Unit tests assert reverse-complemented rows and annotation coordinate updates.",
+      "title" : "Reverse Complement Rows",
+      "userIntent" : "Correct strand orientation for assembled sequences before analysis."
+    },
+    {
+      "accessibilityRequirement" : "Consensus dialog exposes threshold, gap policy, row subset, and preview sequence.",
+      "category" : "transform",
+      "cli" : {
+        "command" : "lungfish-cli msa consensus <bundle.lungfishmsa> [--rows <rows>] --threshold <value> --gap-policy omit|include --output-kind fasta|reference --output <path> --format json",
+        "eventEnvelope" : "msaActionStart|msaActionProgress|msaActionWarning|msaActionFailed|msaActionComplete",
+        "outputContract" : "Writes consensus FASTA plus provenance sidecar or a native .lungfishref consensus bundle with consensus metadata and provenance.",
+        "requiredPluginPackIDs" : [
+
+        ]
+      },
+      "createsOrModifiesScientificData" : true,
+      "id" : "msa.transform.consensus",
+      "implementationStatus" : "implemented",
+      "priority" : "P0",
+      "requiresProvenance" : true,
+      "summary" : "Create a consensus FASTA from selected rows using explicit thresholds and gap policy.",
+      "surfaces" : [
+        "context-menu",
+        "command-line",
+        "operation-center",
+        "inspector"
+      ],
+      "testRequirement" : "CLI tests cover threshold, gaps, row subset, events, and provenance.",
+      "title" : "Create Consensus Sequence",
+      "userIntent" : "Use consensus output as a reference, primer target, or reporting artifact."
+    },
+    {
+      "accessibilityRequirement" : "Operation panel exposes strategy, output order, sequence type, direction, symbol policy, and advanced options.",
+      "category" : "alignment",
+      "cli" : {
+        "command" : "lungfish-cli align mafft <inputs...> --project <project> [options] --format json",
+        "eventEnvelope" : "msaActionStart|msaActionProgress|msaActionWarning|msaActionFailed|msaActionComplete",
+        "outputContract" : "Creates a .lungfishmsa bundle with input, external MAFFT, final payload, annotation, and quality-sidecar provenance.",
+        "requiredPluginPackIDs" : [
+          "multiple-sequence-alignment"
+        ]
+      },
+      "createsOrModifiesScientificData" : true,
+      "id" : "msa.alignment.mafft",
+      "implementationStatus" : "implemented",
+      "priority" : "P0",
+      "requiresProvenance" : true,
+      "summary" : "Create `.lungfishmsa` bundles from FASTA or explicit FASTQ-as-assembly inputs with MAFFT.",
+      "surfaces" : [
+        "command-line",
+        "operation-center",
+        "menu-bar"
+      ],
+      "testRequirement" : "Workflow tests assert MAFFT provenance, annotation rehydration, FASTQ warnings, and Operation Center progress.",
+      "title" : "Align with MAFFT",
+      "userIntent" : "Generate high-quality nucleotide\/protein alignments while retaining source metadata and annotations."
+    },
+    {
+      "accessibilityRequirement" : "Aligner operation panels expose tool-specific options and resolved defaults.",
+      "category" : "alignment",
+      "cli" : {
+        "command" : "lungfish-cli align muscle|clustalo|famsa <inputs...> --project <project> [options] --format json",
+        "eventEnvelope" : "msaActionStart|msaActionProgress|msaActionWarning|msaActionFailed|msaActionComplete",
+        "outputContract" : "Creates a .lungfishmsa bundle with external-tool provenance and source annotation rehydration.",
+        "requiredPluginPackIDs" : [
+          "multiple-sequence-alignment"
+        ]
+      },
+      "createsOrModifiesScientificData" : true,
+      "id" : "msa.alignment.other-aligners",
+      "implementationStatus" : "planned",
+      "priority" : "P1",
+      "requiresProvenance" : true,
+      "summary" : "Create `.lungfishmsa` bundles with alternate aligners suitable for different dataset sizes and protein\/nucleotide workloads.",
+      "surfaces" : [
+        "command-line",
+        "operation-center",
+        "menu-bar"
+      ],
+      "testRequirement" : "Fake-tool tests assert each descriptor builds expected argv\/events\/provenance.",
+      "title" : "Align with MUSCLE, Clustal Omega, or FAMSA",
+      "userIntent" : "Choose the aligner that best fits the biological dataset and reproducibility constraints."
+    },
+    {
+      "accessibilityRequirement" : "Export dialog exposes selected rows, selected columns, output path, overwrite state, and provenance sidecar path.",
+      "category" : "export",
+      "cli" : {
+        "command" : "lungfish-cli msa export <bundle.lungfishmsa> --output-format fasta --output <path> [--rows <rows>] [--columns <ranges>] --format json",
+        "eventEnvelope" : "msaActionStart|msaActionProgress|msaActionWarning|msaActionFailed|msaActionComplete",
+        "outputContract" : "Writes aligned FASTA plus <output>.lungfish-provenance.json with row\/column selection, checksums, argv, and runtime identity.",
+        "requiredPluginPackIDs" : [
+
+        ]
+      },
+      "createsOrModifiesScientificData" : true,
+      "id" : "msa.export.aligned-fasta",
+      "implementationStatus" : "implemented",
+      "priority" : "P0",
+      "requiresProvenance" : true,
+      "summary" : "Export full or selected aligned rows and columns as FASTA with a Lungfish provenance sidecar.",
+      "surfaces" : [
+        "command-line",
+        "context-menu",
+        "menu-bar",
+        "operation-center"
+      ],
+      "testRequirement" : "CLI tests export full and selected alignments and assert FASTA content plus provenance sidecar.",
+      "title" : "Export Aligned FASTA",
+      "userIntent" : "Move alignment regions into external tools while keeping row\/column selection and checksums reproducible."
+    },
+    {
+      "accessibilityRequirement" : "Export dialog exposes format lossiness, selected rows, selected columns, overwrite state, and provenance sidecar path.",
+      "category" : "export",
+      "cli" : {
+        "command" : "lungfish-cli msa export <bundle.lungfishmsa> --output-format fasta|phylip|nexus|clustal|stockholm|a2m|a3m --output <path> [selection options] --format json",
+        "eventEnvelope" : "msaActionStart|msaActionProgress|msaActionWarning|msaActionFailed|msaActionComplete",
+        "outputContract" : "Writes requested file plus provenance sidecar recording row\/column selection and checksums.",
+        "requiredPluginPackIDs" : [
+
+        ]
+      },
+      "createsOrModifiesScientificData" : true,
+      "id" : "msa.export.alignment-formats",
+      "implementationStatus" : "implemented",
+      "priority" : "P0",
+      "requiresProvenance" : true,
+      "summary" : "Export selected or full alignment as aligned FASTA, PHYLIP, NEXUS, CLUSTAL, Stockholm, or A2M\/A3M.",
+      "surfaces" : [
+        "command-line",
+        "context-menu",
+        "menu-bar",
+        "operation-center"
+      ],
+      "testRequirement" : "CLI tests cover all supported export formats and provenance sidecar contents.",
+      "title" : "Export Alignment Formats",
+      "userIntent" : "Move LGE alignments into external phylogenetic, publication, or exchange workflows."
+    },
+    {
+      "accessibilityRequirement" : "Copy menu item is enabled only when a valid selection exists and announces copied record count.",
+      "category" : "export",
+      "createsOrModifiesScientificData" : false,
+      "id" : "msa.export.copy-fasta",
+      "implementationStatus" : "implemented",
+      "priority" : "P0",
+      "requiresProvenance" : false,
+      "summary" : "Copy selected rows\/columns as FASTA to the clipboard.",
+      "surfaces" : [
+        "context-menu",
+        "menu-bar"
+      ],
+      "testRequirement" : "App tests assert selected FASTA text and disabled state with no selection.",
+      "title" : "Copy FASTA",
+      "userIntent" : "Move small regions into notes, tickets, or external tools quickly."
+    },
+    {
+      "accessibilityRequirement" : "Tree operation panel exposes input mask\/row subset, model, bootstrap, seed, and output bundle.",
+      "category" : "phylogenetics",
+      "cli" : {
+        "command" : "lungfish-cli tree infer iqtree <bundle.lungfishmsa> --project <project> --output <path.lungfishtree> [--rows <rows>] [--columns <ranges>] [--name <name>] [--model MFP] [--sequence-type <type>] [--bootstrap <n>] [--alrt <n>] [--seed <n>] [--threads <n>] [--outgroup <rows>] [--iqtree-path <path>] --format json",
+        "eventEnvelope" : "msaActionStart|msaActionProgress|msaActionWarning|msaActionFailed|msaActionComplete",
+        "outputContract" : "Creates a native .lungfishtree bundle, preserves IQ-TREE outputs under artifacts\/iqtree, and writes final .lungfish-provenance.json with wrapper argv, external IQ-TREE argv\/version, input alignment checksum, output checksums, runtime identity, exit status, wall time, and stderr.",
+        "requiredPluginPackIDs" : [
+          "phylogenetics"
+        ]
+      },
+      "createsOrModifiesScientificData" : true,
+      "id" : "msa.phylogenetics.build-tree",
+      "implementationStatus" : "implemented",
+      "priority" : "P1",
+      "requiresProvenance" : true,
+      "summary" : "Launch tree inference from a selected, visible, masked, or full alignment and create `.lungfishtree` output.",
+      "surfaces" : [
+        "command-line",
+        "operation-center",
+        "menu-bar",
+        "inspector"
+      ],
+      "testRequirement" : "Fake-tool E2E tests assert Operation Center progress, output tree bundle, and provenance.",
+      "title" : "Build Tree from Alignment",
+      "userIntent" : "Move from curated MSA to reproducible phylogenetic inference."
+    },
+    {
+      "accessibilityRequirement" : "Distances tab under the MSA viewport (View > Show Distance Matrix, Control-Command-M): model, gaps and order popups, an AX table grid with row and column headers, Copy Matrix, and Export Matrix as TSV… which runs msa distance through the Operation Center. The Inspector's Pairwise Distance section shows the focused pair. Both surfaces use MSADistanceMatrix.",
+      "category" : "phylogenetics",
+      "cli" : {
+        "command" : "lungfish-cli msa distance <bundle.lungfishmsa> --model identity|p-distance|jc69|k2p|poisson [--gaps pairwise|complete] [--order alignment|average-linkage] [selection options] --output <path> --format json",
+        "eventEnvelope" : "msaActionStart|msaActionProgress|msaActionWarning|msaActionFailed|msaActionComplete",
+        "outputContract" : "Writes matrix output plus provenance sidecar or derived analysis bundle.",
+        "requiredPluginPackIDs" : [
+
+        ]
+      },
+      "createsOrModifiesScientificData" : true,
+      "id" : "msa.phylogenetics.distance-matrix",
+      "implementationStatus" : "implemented",
+      "priority" : "P1",
+      "requiresProvenance" : true,
+      "summary" : "Compute a pairwise identity or distance matrix (identity, p-distance, jc69 or k2p for nucleotides; identity, p-distance or poisson for proteins) with pairwise or complete gap deletion, in alignment or average-linkage order.",
+      "surfaces" : [
+        "command-line",
+        "operation-center",
+        "viewport",
+        "inspector"
+      ],
+      "testRequirement" : "MSACommandTests and MultipleSequenceAlignmentDistanceMatrixTests cover every model, gap policy and order; MSADistanceMatrixGUICLIParityTests assert the Distances pane TSV equals lungfish-cli msa distance byte for byte.",
+      "title" : "Distance or Identity Matrix",
+      "userIntent" : "Assess sample relatedness and alignment quality before tree inference."
+    },
+    {
+      "accessibilityRequirement" : "MSA Inspector > Discriminating Sites: an Exclusions picker (Rows in this alignment \/ Sequences from a file), a Target \/ Exclusion \/ Skip role per row, a project reference-bundle picker with Choose File…, Template, Target mismatch tolerance, Window length (bp), Exclusions that must differ, and Find Discriminating Sites, which runs msa discriminating-sites through the Operation Center and reads its JSON report back. Results: a sortable site table (Column, Template, Target, Differing, Exclusions) whose selection centres the column in the viewport, a Candidate windows table, Highlight in viewport, Copy TSV, Export TSV…, and Export JSON… (both re-run the CLI into the chosen destination). The viewport tints the columns, marks them in the header and overview strip, prefixes gutter names with Target or Exclusion, and shows a legend naming the exclusion source.",
+      "category" : "inspection",
+      "cli" : {
+        "command" : "lungfish-cli msa discriminating-sites <bundle.lungfishmsa> --exclusions <rows> | --exclusion-sequences <fasta|lungfishref> [--targets <rows>] [--target-mismatch-tolerance <n>] [--window-length <bp>] --output <path> --format json",
+        "eventEnvelope" : "msaActionStart|msaActionProgress|msaActionWarning|msaActionFailed|msaActionComplete",
+        "outputContract" : "Writes a per-column TSV, a candidate-window TSV, and a JSON report, each with a provenance sidecar.",
+        "requiredPluginPackIDs" : [
+
+        ]
+      },
+      "createsOrModifiesScientificData" : true,
+      "id" : "msa.inspection.discriminating-sites",
+      "implementationStatus" : "implemented",
+      "priority" : "P1",
+      "requiresProvenance" : true,
+      "summary" : "Find columns where every target sequence shares a base that the exclusion sequences do not, and the windows where several such columns cluster.",
+      "surfaces" : [
+        "command-line",
+        "viewport",
+        "inspector",
+        "operation-center"
+      ],
+      "testRequirement" : "Unit tests cover column scoring, tolerance, no-call handling, and windowing on a synthetic alignment; CLI tests cover the written tables and provenance; MSADiscriminatingSitesInspectorTests cover the Inspector model, the argv it builds against the CLI's own spelling, the viewport highlight and focus, and a real run on the Primer Design demo project when it is present.",
+      "title" : "Discriminating Sites",
+      "userIntent" : "Design specificity into an assay rather than only conservation, by anchoring a primer 3' end or a probe on a column that separates the target lineage from everything it must not amplify."
+    },
+    {
+      "accessibilityRequirement" : "Linked selections announce tree node and corresponding row set.",
+      "category" : "display",
+      "createsOrModifiesScientificData" : false,
+      "id" : "msa.display.linked-tree",
+      "implementationStatus" : "deferred",
+      "priority" : "P2",
+      "requiresProvenance" : false,
+      "summary" : "Synchronize row order, selection, and clade coloring between an MSA and associated tree.",
+      "surfaces" : [
+        "viewport",
+        "inspector",
+        "menu-bar"
+      ],
+      "testRequirement" : "XCUI selects a clade and verifies linked alignment row selection.",
+      "title" : "Linked Tree and Alignment",
+      "userIntent" : "Interpret variation patterns in phylogenetic context."
+    },
+    {
+      "accessibilityRequirement" : "Edit mode announces armed state, active edit command, and undo\/redo availability.",
+      "category" : "transform",
+      "cli" : {
+        "command" : "lungfish-cli msa edit apply <bundle.lungfishmsa> --edit-script <json> --project <project> --format json",
+        "eventEnvelope" : "msaActionStart|msaActionProgress|msaActionWarning|msaActionFailed|msaActionComplete",
+        "outputContract" : "Creates a derived .lungfishmsa from an explicit edit script with complete provenance.",
+        "requiredPluginPackIDs" : [
+
+        ]
+      },
+      "createsOrModifiesScientificData" : true,
+      "id" : "msa.transform.manual-edit",
+      "implementationStatus" : "deferred",
+      "priority" : "P2",
+      "requiresProvenance" : true,
+      "summary" : "Optional locked editing mode for gap insertion\/deletion or local manual correction with undo and derived-bundle save.",
+      "surfaces" : [
+        "viewport",
+        "menu-bar",
+        "command-line"
+      ],
+      "testRequirement" : "Deferred until edit script schema and derived-bundle semantics are finalized.",
+      "title" : "Manual Edit Mode",
+      "userIntent" : "Curate alignments by hand only when reproducible automated transformations are insufficient."
+    }
+  ],
+  "count" : 36,
+  "references" : [
+    "https:\/\/manual.geneious.com\/en\/latest\/Alignments.html",
+    "https:\/\/www.jalview.org\/help\/html\/features\/annotation.html",
+    "https:\/\/www.jalview.org\/help\/html\/features\/columnFilterByAnnotation.html",
+    "https:\/\/www.jalview.org\/help\/html\/features\/hiddenRegions.html",
+    "https:\/\/ugene.net\/docs\/alignment-editor\/working-with-alignment\/",
+    "https:\/\/www.ncbi.nlm.nih.gov\/tools\/msaviewer\/tutorial1\/",
+    "https:\/\/ormbunkar.se\/aliview\/",
+    "https:\/\/resources.qiagenbioinformatics.com\/manuals\/clcgenomicsworkbench\/2600\/index.php?manual=View_alignments.html"
+  ],
+  "schemaVersion" : 1
+}

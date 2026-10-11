@@ -1,0 +1,27 @@
+{
+  "accessibilityRequirement" : "MSA Inspector > Discriminating Sites: an Exclusions picker (Rows in this alignment \/ Sequences from a file), a Target \/ Exclusion \/ Skip role per row, a project reference-bundle picker with Choose File…, Template, Target mismatch tolerance, Window length (bp), Exclusions that must differ, and Find Discriminating Sites, which runs msa discriminating-sites through the Operation Center and reads its JSON report back. Results: a sortable site table (Column, Template, Target, Differing, Exclusions) whose selection centres the column in the viewport, a Candidate windows table, Highlight in viewport, Copy TSV, Export TSV…, and Export JSON… (both re-run the CLI into the chosen destination). The viewport tints the columns, marks them in the header and overview strip, prefixes gutter names with Target or Exclusion, and shows a legend naming the exclusion source.",
+  "category" : "inspection",
+  "cli" : {
+    "command" : "lungfish-cli msa discriminating-sites <bundle.lungfishmsa> --exclusions <rows> | --exclusion-sequences <fasta|lungfishref> [--targets <rows>] [--target-mismatch-tolerance <n>] [--window-length <bp>] --output <path> --format json",
+    "eventEnvelope" : "msaActionStart|msaActionProgress|msaActionWarning|msaActionFailed|msaActionComplete",
+    "outputContract" : "Writes a per-column TSV, a candidate-window TSV, and a JSON report, each with a provenance sidecar.",
+    "requiredPluginPackIDs" : [
+
+    ]
+  },
+  "createsOrModifiesScientificData" : true,
+  "id" : "msa.inspection.discriminating-sites",
+  "implementationStatus" : "implemented",
+  "priority" : "P1",
+  "requiresProvenance" : true,
+  "summary" : "Find columns where every target sequence shares a base that the exclusion sequences do not, and the windows where several such columns cluster.",
+  "surfaces" : [
+    "command-line",
+    "viewport",
+    "inspector",
+    "operation-center"
+  ],
+  "testRequirement" : "Unit tests cover column scoring, tolerance, no-call handling, and windowing on a synthetic alignment; CLI tests cover the written tables and provenance; MSADiscriminatingSitesInspectorTests cover the Inspector model, the argv it builds against the CLI's own spelling, the viewport highlight and focus, and a real run on the Primer Design demo project when it is present.",
+  "title" : "Discriminating Sites",
+  "userIntent" : "Design specificity into an assay rather than only conservation, by anchoring a primer 3' end or a probe on a column that separates the target lineage from everything it must not amplify."
+}

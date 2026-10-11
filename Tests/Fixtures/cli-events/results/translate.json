@@ -1,0 +1,11 @@
+{
+  "codonTable" : "Standard",
+  "codonTableId" : 1,
+  "frames" : [
+    "+1"
+  ],
+  "inputFile" : "\/work\/inputs\/small.fasta",
+  "outputFile" : "\/work\/out\/protein.fasta",
+  "sequenceCount" : 1,
+  "translationCount" : 1
+}

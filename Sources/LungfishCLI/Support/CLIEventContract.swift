@@ -119,7 +119,7 @@ public enum CLIEventContractTable {
         "demo info": .result(schemaID: "demo-info"),
         "demo list": .result(schemaID: "demo-list"),
         "extract sequence": .result(schemaID: "extract-sequence"),
-        "fastq genotype": .result(schemaID: "fastq-genotype"),
+        "fastq genotype": .result(schemaID: "r5-genotype-cohort-report"),
         "fastq genotype-cohort": .result(schemaID: "r5-genotype-cohort-report"),
         "fastq ont-genotype": .result(schemaID: "fastq-ont-genotype"),
         "fastq pbaa-cluster": .result(schemaID: "fastq-pbaa-cluster"),

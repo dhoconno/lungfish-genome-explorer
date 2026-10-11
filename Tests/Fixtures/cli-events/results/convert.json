@@ -1,0 +1,8 @@
+{
+  "annotationCount" : 0,
+  "inputFile" : "\/work\/inputs\/small.fasta",
+  "inputFormat" : "fasta",
+  "outputFile" : "\/work\/out\/small-copy.fasta",
+  "outputFormat" : "fasta",
+  "sequenceCount" : 1
+}

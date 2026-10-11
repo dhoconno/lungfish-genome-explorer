@@ -1,0 +1,74 @@
+{
+  "manifest" : {
+    "alignments" : [
+
+    ],
+    "annotations" : [
+
+    ],
+    "browser_summary" : {
+      "aggregate" : {
+        "alignmentTrackCount" : 0,
+        "annotationTrackCount" : 0,
+        "variantTrackCount" : 0
+      },
+      "schemaVersion" : 1,
+      "sequences" : [
+        {
+          "aliases" : [
+
+          ],
+          "displayDescription" : "Severe acute respiratory syndrome coronavirus 2 isolate SARS-CoV-2\/human\/USA\/PC00101P\/2020, complete genome",
+          "isMitochondrial" : false,
+          "isPrimary" : true,
+          "length" : 29829,
+          "name" : "MT192765.1"
+        }
+      ]
+    },
+    "created_date" : 813386981,
+    "format_version" : "1.0",
+    "genome" : {
+      "chromosomes" : [
+        {
+          "aliases" : [
+
+          ],
+          "fasta_description" : "Severe acute respiratory syndrome coronavirus 2 isolate SARS-CoV-2\/human\/USA\/PC00101P\/2020, complete genome",
+          "is_mitochondrial" : false,
+          "is_primary" : true,
+          "length" : 29829,
+          "line_bases" : 80,
+          "line_width" : 81,
+          "name" : "MT192765.1",
+          "offset" : 120
+        }
+      ],
+      "gzip_index_path" : "genome\/sequence.fa.gz.gzi",
+      "index_path" : "genome\/sequence.fa.gz.fai",
+      "path" : "genome\/sequence.fa.gz",
+      "total_length" : 29829
+    },
+    "identifier" : "org.lungfish.cli.import.adf34d25-7413-432b-9f55-e55ab71feb7c",
+    "modified_date" : 813386981,
+    "name" : "Sample",
+    "source" : {
+      "assembly" : "Sample",
+      "database" : "Imported File",
+      "download_date" : 813386981,
+      "notes" : "Imported from genome.fasta",
+      "organism" : "Sample",
+      "source_url" : "%3Cexternal%3E\/genome.fasta"
+    },
+    "tracks" : [
+
+    ],
+    "variants" : [
+
+    ],
+    "warnings" : [
+
+    ]
+  },
+  "path" : "\/work\/Project.lungfish\/Reference Sequences\/Sample.lungfishref"
+}

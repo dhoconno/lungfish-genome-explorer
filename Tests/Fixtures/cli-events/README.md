@@ -88,6 +88,27 @@ Four of the five print their events on standard output. `assemble` prints them o
 
 These five files are not captured again by a test. A lane that changes one of these emitters runs the command again and replaces the file.
 
+## results
+
+`results` holds the document that a leaf prints when the contract table marks it `.result`, one file for each of 13 schemas. Each file is the standard output of one real run of the built `lungfish-cli` on a repository fixture, run the way the commands above were. The scratch folder is `/work` in the file, and nothing else is edited. `CLIEventContractCoverageTests` decodes each file with the Swift type that reads it, adds one key that no reader knows, and expects the same value back.
+
+Some leaves print text before their document. `convert` prints status lines unless `--quiet` is given, and `translate` and `extract sequence` print the sequences to standard output unless an output file is named. The runs used `--quiet` and an output file, so that standard output holds the document alone.
+
+| File | Command |
+| --- | --- |
+| `analyze-stats`, `analyze-composition`, `analyze-validate` | `analyze stats`, `analyze composition` and `analyze validate` on `small.fasta`, with `--format json` |
+| `convert` | `convert /work/inputs/small.fasta --to /work/out/small-copy.fasta --format json --quiet` |
+| `translate` | `translate /work/inputs/small.fasta --frame 1 -o /work/out/protein.fasta --format json --quiet` |
+| `search` | `search /work/inputs/small.fasta <twelve bases of the sequence> --format json` |
+| `extract-sequence` | `extract sequence /work/inputs/small.fasta MT192765.1:1-60 -o /work/out/region.fasta --format json --quiet` |
+| `bundle-info`, `bundle-validate`, `bundle-list` | `bundle info`, `bundle validate` and `bundle list` of the reference bundle that `import fasta` made from `Tests/Fixtures/sarscov2/genome.fasta`, with `--format json` |
+| `msa-actions`, `msa-describe` | `msa actions --format json` and `msa describe msa.inspection.discriminating-sites --format json` |
+| `r5-map-report` | `map test_1.fastq.gz test_2.fastq.gz --paired --reference genome.fasta --mapper minimap2 --preset sr --sample-name sarscov2-test --threads 1 --format json --output-dir /work/out` on the files in `Tests/Fixtures/sarscov2` |
+
+`small.fasta` is the first record of `Tests/Fixtures/sarscov2/genome.fasta`, cut after five lines of sequence.
+
+The other `.result` schemas have no file here. The test names each one with its reason. For some, no Swift type decodes the document, because the command builds it as a dictionary or its type is private or only encodes. For others, a real run needs the network, or a result bundle or model that the repository does not hold, or writes the user, the machine or a storage path into the document. The test also names the three schemas that the app decodes, which are `r1-ont-barcode-genotyping`, `r5-genotype-cohort-report` and `r2-full-length-ont-mhc`, with the decoder and the test that covers each today.
+
 ## Shapes no run produced
 
 No command writes an `output` event today, and none sets `detail` on a `failed` event. The compatibility tests cover those shapes with lines written in the test file, and they say so there.

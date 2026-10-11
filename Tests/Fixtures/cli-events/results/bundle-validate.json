@@ -1,0 +1,12 @@
+{
+  "allValid" : true,
+  "bundles" : [
+    {
+      "errors" : [
+
+      ],
+      "path" : "\/work\/Project.lungfish\/Reference Sequences\/Sample.lungfishref",
+      "valid" : true
+    }
+  ]
+}

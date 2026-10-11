@@ -1,0 +1,34 @@
+{
+  "alphabet" : "dna",
+  "baseComposition" : [
+    {
+      "count" : 96,
+      "percentage" : 0.24,
+      "residue" : "A"
+    },
+    {
+      "count" : 96,
+      "percentage" : 0.24,
+      "residue" : "C"
+    },
+    {
+      "count" : 92,
+      "percentage" : 0.23,
+      "residue" : "G"
+    },
+    {
+      "count" : 116,
+      "percentage" : 0.29,
+      "residue" : "T"
+    }
+  ],
+  "nucleotideStats" : {
+    "atSkew" : -0.09433962264150944,
+    "gcSkew" : -0.02127659574468085,
+    "purinePercent" : 0.47,
+    "purines" : 188,
+    "pyrimidinePercent" : 0.53,
+    "pyrimidines" : 212
+  },
+  "totalLength" : 400
+}

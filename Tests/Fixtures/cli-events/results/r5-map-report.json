@@ -1,0 +1,18 @@
+{
+  "bamIndex" : "\/work\/out\/sarscov2-test.sorted.bam.bai",
+  "inputFiles" : [
+    "\/work\/inputs\/test_1.fastq.gz",
+    "\/work\/inputs\/test_2.fastq.gz"
+  ],
+  "mappedReads" : 197,
+  "mapper" : "minimap2",
+  "mappingRate" : 0.985,
+  "mode" : "short-read-default",
+  "outputDirectory" : "\/work\/out",
+  "reference" : "\/work\/inputs\/genome.fasta",
+  "runtimeSeconds" : 0.7520832080000001,
+  "sampleName" : "sarscov2-test",
+  "sortedBAM" : "\/work\/out\/sarscov2-test.sorted.bam",
+  "totalReads" : 200,
+  "unmappedReads" : 3
+}

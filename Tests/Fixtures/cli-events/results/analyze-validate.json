@@ -1,0 +1,13 @@
+{
+  "allValid" : true,
+  "files" : [
+    {
+      "errors" : [
+
+      ],
+      "file" : "\/work\/inputs\/small.fasta",
+      "format" : "FASTA",
+      "valid" : true
+    }
+  ]
+}

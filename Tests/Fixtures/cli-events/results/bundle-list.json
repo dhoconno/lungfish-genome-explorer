@@ -1,0 +1,35 @@
+{
+  "files" : [
+    ".lungfish-provenance.json",
+    "annotations",
+    "genome",
+    "genome\/sequence.fa.gz",
+    "genome\/sequence.fa.gz.fai",
+    "genome\/sequence.fa.gz.gzi",
+    "manifest.json",
+    "metadata",
+    "provenance",
+    "provenance\/bundle.lungfish-provenance.json",
+    "provenance\/genome",
+    "provenance\/genome\/sequence.fa.gz.fai.lungfish-provenance.json",
+    "provenance\/genome\/sequence.fa.gz.gzi.lungfish-provenance.json",
+    "provenance\/genome\/sequence.fa.gz.lungfish-provenance.json",
+    "provenance\/manifest.json.lungfish-provenance.json",
+    "tracks",
+    "variants"
+  ],
+  "tracks" : {
+    "alignments" : [
+
+    ],
+    "annotations" : [
+
+    ],
+    "signals" : [
+
+    ],
+    "variants" : [
+
+    ]
+  }
+}

@@ -206,7 +206,7 @@ final class CLIEventContractCoverageTests: XCTestCase {
         }
         for (schemaID, paths) in resultIDs where paths.count > 1 {
             XCTAssertTrue(
-                ["markdup-summary", "haplotypes-write"].contains(schemaID),
+                ["markdup-summary", "haplotypes-write", "r5-genotype-cohort-report"].contains(schemaID),
                 "\(schemaID) is shared by \(paths.sorted()). Share an id only when one encoder writes the document"
             )
         }
@@ -384,6 +384,202 @@ final class CLIEventContractCoverageTests: XCTestCase {
             "Text mode keeps its one Warnings line: \(lines.all)"
         )
         XCTAssertFalse(lines.all.contains { $0.hasPrefix("{") }, "Text mode prints no event line")
+    }
+
+    // MARK: A4 result schemas
+
+    /// Decodes a document as `T` and writes it again with sorted keys, so that two decodes compare.
+    private static func decodedAgain<T: Codable>(_ type: T.Type) -> @Sendable (Data) throws -> Data {
+        { data in
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            return try encoder.encode(try JSONDecoder().decode(T.self, from: data))
+        }
+    }
+
+    /// The `.result` schemas that a type in CLI, Workflow, IO or Core decodes and whose document a
+    /// real run of the built `lungfish-cli` gave a fixture under `Tests/Fixtures/cli-events/results`.
+    private static let decodedFixtures: [String: @Sendable (Data) throws -> Data] = [
+        "analyze-stats": decodedAgain(SequenceStats.self),
+        "analyze-composition": decodedAgain(CompositionData.self),
+        "analyze-validate": decodedAgain(ValidationResult.self),
+        "convert": decodedAgain(ConvertResult.self),
+        "translate": decodedAgain(TranslateResult.self),
+        "search": decodedAgain(PatternSearchResult.self),
+        "extract-sequence": decodedAgain(ExtractResult.self),
+        "bundle-info": decodedAgain(BundleInfoOutput.self),
+        "bundle-validate": decodedAgain(BundleValidationOutput.self),
+        "bundle-list": decodedAgain(BundleListOutput.self),
+        "msa-actions": decodedAgain(MSACommand.ActionsPayload.self),
+        "msa-describe": decodedAgain(MultipleSequenceAlignmentActionDescriptor.self),
+        "r5-map-report": decodedAgain(MapCommand.Report.self),
+    ]
+
+    /// The schemas whose decoder lives in the app, where a CLI test cannot reach it, the decoder, and the
+    /// test that covers each today. Architecture correction 8 is why the table names a schema and not a
+    /// Swift type. All three decode through `WorkflowOperationExecutionService`, which reads the standard
+    /// output of the genotyping commands. `ONTGenotypingCLIPayload` reads the one payload that
+    /// `fastq genotype`, `fastq genotype-cohort` and the deprecated `fastq ont-barcode-genotype` print, which
+    /// the inventory counted as two schemas. The tests run the service against a stub CLI that prints the
+    /// payload, and they do not fail when a key of it goes missing, because the service falls back to the
+    /// paths of the request. No test pins the shape of the payloads, and sub-phase 2.8 moves the types into Workflow.
+    private static let schemasThatDecodeInApp: [(schemaID: String, decoder: String, test: String)] = [
+        ("r1-ont-barcode-genotyping", "ONTGenotypingCLIPayload", "testONTGenotypingRunsThroughSampleBundleCLIAndReportsWorkbookOutput"),
+        ("r5-genotype-cohort-report", "ONTGenotypingCLIPayload", "testONTGenotypingRunsThroughSampleBundleCLIAndReportsWorkbookOutput"),
+        ("r2-full-length-ont-mhc", "FullLengthONTMHCGenotypingCLIPayload", "testFullLengthONTMHCGenotypingRunsCLIWithSavontAndPrimerArguments"),
+    ]
+
+    /// The `.result` schemas that A4 does not decode here, and why. A new `.result` row has to join
+    /// one of these groups or `decodedFixtures`, so a schema is never left out without a reason.
+    private static let resultsNotDecodedHere: [(reason: String, schemas: [String])] = [
+        (
+            "No Swift type decodes the document. The CLI builds it as a dictionary, or its type is private or only encodes",
+            [
+                "blast-verify", "bundle-create", "bundle-deduplicate-alignments", "bundle-mark-duplicates",
+                "markdup-summary", "debug-fastq-ingest", "fastq-ont-genotype", "fastq-pbaa-cluster",
+                "fastq-savont-cluster", "genotype-apply-annotations", "genotype-export",
+                "genotype-export-labkey", "genotype-export-pivot-xlsx", "genotype-export-xlsx",
+                "haplotypes-bundle-create", "haplotypes-bundle-install", "haplotypes-bundle-replace-reference",
+                "haplotypes-delete", "haplotypes-export", "haplotypes-list", "haplotypes-validate",
+                "haplotypes-write", "import-sample-metadata", "metadata-import", "metadata-set",
+                "project-migrate", "project-unlock", "universal-search", "workflow-validate",
+            ]
+        ),
+        (
+            "A real run needs the network",
+            [
+                "demo-fetch", "fetch-ena-fasta", "fetch-ena-reads", "fetch-ena-search", "fetch-genome",
+                "fetch-ncbi", "fetch-search", "fetch-sra-download", "fetch-sra-info", "fetch-sra-search",
+            ]
+        ),
+        (
+            "A real run needs a result bundle or a model that the repository does not hold, or writes the user, the machine or a storage path into the document",
+            [
+                "cz-id-summary", "debug-container", "debug-env", "demo-info", "demo-list",
+                "genotype-ai-haplotyping", "metadata-export", "metadata-get", "nao-mgs-summary",
+                "nvd-summary", "primers-analysis-inspect", "project-lock", "storage-dedupe", "storage-info",
+                "tools-update",
+            ]
+        ),
+    ]
+
+    private static var resultsFolder: URL {
+        repositoryRoot.appendingPathComponent("Tests/Fixtures/cli-events/results", isDirectory: true)
+    }
+
+    private var resultSchemaIDs: Set<String> {
+        Set(CLIEventContractTable.entries.values.compactMap { contract -> String? in
+            if case let .result(schemaID) = contract { return schemaID }
+            return nil
+        })
+    }
+
+    /// The same document with one key that no reader knows, as a later version might add.
+    private static func withOneExtraKey(_ data: Data) throws -> Data {
+        var object = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            "A result fixture is one JSON object"
+        )
+        object["keyFromALaterVersion"] = "unknown"
+        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    }
+
+    func testEveryResultFixtureDecodesWithOneExtraKey() throws {
+        for (schema, decode) in Self.decodedFixtures.sorted(by: { $0.key < $1.key }) {
+            let data = try Data(contentsOf: Self.resultsFolder.appendingPathComponent("\(schema).json"))
+            let baseline = try decode(data)
+            XCTAssertEqual(
+                try decode(Self.withOneExtraKey(data)),
+                baseline,
+                "\(schema) changes when its document gains a key it does not know"
+            )
+        }
+    }
+
+    /// A reader that rejects a key it does not know, which is the fault A4 exists to catch.
+    private struct StrictDocument: Codable {
+        let name: String
+
+        private struct Key: CodingKey {
+            let stringValue: String
+            let intValue: Int? = nil
+            init?(stringValue: String) { self.stringValue = stringValue }
+            init?(intValue: Int) { return nil }
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: Key.self)
+            for key in container.allKeys where key.stringValue != "name" {
+                throw DecodingError.dataCorruptedError(forKey: key, in: container, debugDescription: "unknown key")
+            }
+            name = try container.decode(String.self, forKey: Key(stringValue: "name")!)
+        }
+    }
+
+    func testTheExtraKeyCheckCatchesAReaderThatRejectsUnknownKeys() throws {
+        let data = Data(#"{"name":"fixture"}"#.utf8)
+        let strict = Self.decodedAgain(StrictDocument.self)
+        XCTAssertNoThrow(try strict(data), "The reader accepts its own document")
+        XCTAssertThrowsError(try strict(Self.withOneExtraKey(data)), "The check must fail for a reader that rejects a new key")
+    }
+
+    func testEveryResultSchemaIsDecodedHereOrNamedWithItsReason() {
+        let decoded = Set(Self.decodedFixtures.keys)
+        let inApp = Set(Self.schemasThatDecodeInApp.map(\.schemaID))
+        let listed = Self.resultsNotDecodedHere.flatMap(\.schemas)
+        XCTAssertEqual(listed.count, Set(listed).count, "A schema is listed under two reasons")
+
+        let accounted = decoded.union(inApp).union(listed)
+        let results = resultSchemaIDs
+        XCTAssertEqual(
+            results.subtracting(accounted).sorted(),
+            [],
+            "These .result schemas have no fixture check and no reason. Add a fixture or name the reason"
+        )
+        // The app-decoded ids may be legacy rows, and every other listed id must still be a result row.
+        XCTAssertEqual(
+            decoded.union(listed).subtracting(results).sorted(),
+            [],
+            "These names are not .result schemas of the table any more"
+        )
+        XCTAssertTrue(decoded.isDisjoint(with: Set(listed)))
+        XCTAssertTrue(decoded.isDisjoint(with: inApp))
+        XCTAssertTrue(inApp.isDisjoint(with: Set(listed)))
+        XCTAssertEqual(decoded.count, 13)
+    }
+
+    func testResultFixturesAreTheFilesOfTheDecodedSchemasAndHoldNoPersonalPath() throws {
+        let files = try FileManager.default.contentsOfDirectory(atPath: Self.resultsFolder.path)
+            .filter { $0.hasSuffix(".json") }
+        XCTAssertEqual(
+            Set(files),
+            Set(Self.decodedFixtures.keys.map { "\($0).json" }),
+            "The results folder holds one fixture for each decoded schema and nothing else"
+        )
+        for file in files {
+            let text = try String(contentsOf: Self.resultsFolder.appendingPathComponent(file), encoding: .utf8)
+                .replacingOccurrences(of: "\\/", with: "/")
+            for marker in ["/Users/", "/private/", "/var/folders", "/Volumes/"] {
+                XCTAssertFalse(text.contains(marker), "\(file) names a path outside /work ('\(marker)')")
+            }
+        }
+    }
+
+    func testTheSchemasThatDecodeInAppAreRowsOfTheTable() {
+        // The decoder and the covering test are named by hand. Reading the app sources to check them
+        // would make this a source-text test, which the source-text-assertions ratchet counts, so a
+        // lane that renames either one updates this list.
+        for entry in Self.schemasThatDecodeInApp {
+            let isRow = CLIEventContractTable.entries.values.contains { contract in
+                switch contract {
+                case let .result(schemaID), let .legacy(schemaID, _): return schemaID == entry.schemaID
+                case .events, .text: return false
+                }
+            }
+            XCTAssertTrue(isRow, "\(entry.schemaID) is no row of the table")
+            XCTAssertFalse(entry.decoder.isEmpty)
+            XCTAssertTrue(entry.test.hasPrefix("test"), "\(entry.test) names a test method")
+        }
     }
 
     // MARK: Help golden helpers
