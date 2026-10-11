@@ -55,6 +55,17 @@ final class ProvenanceStepStagedPathRewriteTests: XCTestCase {
         assertEveryPropertyIsSet(in: fullStep())
     }
 
+    /// A rebuilt envelope passes the source's status, since a status it derives from the exit status
+    /// cannot tell a cancelled run from a completed one.
+    func testTheStagedPathRewriteKeepsTheRecordsStatus() {
+        let record = ProvenanceEnvelope(
+            workflowName: "lungfish import fastq", toolName: "lungfish-cli", exitStatus: 0, status: .cancelled
+        )
+        XCTAssertEqual(record.status, .cancelled)
+        let rewritten = FASTQBatchImporter.rewriteStagedBundlePaths(in: record, stagingBundleURL: staging, publishedBundleURL: published)
+        XCTAssertEqual(rewritten.status, .cancelled)
+    }
+
     func testTheStagedPathRewriteKeepsEveryPropertyItDoesNotRewrite() throws {
         let original = fullStep()
         let record = ProvenanceEnvelope(workflowName: "lungfish import fastq", toolName: "lungfish-cli", steps: [original])

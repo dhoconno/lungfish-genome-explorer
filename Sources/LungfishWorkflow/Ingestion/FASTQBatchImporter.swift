@@ -1403,30 +1403,14 @@ public enum FASTQBatchImporter {
             resolvedDefaults: envelope.options.resolvedDefaults.mapValues(value)
         )
         let steps = envelope.steps.map { step in
-            let replayArgv = arguments(step.durableReplayArgv ?? step.argv)
-            return ProvenanceStep(
-                id: step.id,
-                toolName: step.toolName,
-                toolVersion: step.toolVersion,
-                githubReleaseVersion: step.githubReleaseVersion,
-                argv: step.argv,
-                durableReplayArgv: replayArgv,
-                reproducibleCommand: replayArgv.map(shellEscape).joined(separator: " "),
-                resolvedOptions: step.resolvedOptions.mapValues(value),
-                runtimeIdentity: step.runtimeIdentity,
-                inputs: step.inputs.map(descriptor),
-                outputs: step.outputs.map(descriptor),
-                exitStatus: step.exitStatus,
-                wallTimeSeconds: step.wallTimeSeconds,
-                peakMemoryBytes: step.peakMemoryBytes,
-                stderr: step.stderr,
-                dependsOn: step.dependsOn,
-                startedAt: step.startedAt,
-                completedAt: step.completedAt,
-                parentStepID: step.parentStepID,
-                managedToolID: step.managedToolID,
-                toolVersionEvidence: step.toolVersionEvidence
-            )
+            step.with {
+                let replayArgv = arguments(step.durableReplayArgv ?? step.argv)
+                $0.durableReplayArgv = replayArgv
+                $0.reproducibleCommand = replayArgv.map(shellEscape).joined(separator: " ")
+                $0.resolvedOptions = step.resolvedOptions.mapValues(value)
+                $0.inputs = step.inputs.map(descriptor)
+                $0.outputs = step.outputs.map(descriptor)
+            }
         }
 
         let durableReplayArgv = arguments(envelope.durableReplayArgv ?? envelope.argv)
@@ -1455,6 +1439,7 @@ public enum FASTQBatchImporter {
             exitStatus: envelope.exitStatus,
             stderr: envelope.stderr,
             signatures: [],
+            status: envelope.status,
             legacyWorkflowRun: nil
         )
     }
