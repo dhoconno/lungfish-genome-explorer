@@ -128,7 +128,10 @@ final class ProvenanceEnvelopeCopySitesAppTests: XCTestCase {
             XCTAssertEqual(copy.steps.prefix(source.steps.count).map(\.id), source.steps.map(\.id))
             XCTAssertGreaterThan(copy.steps.count, source.steps.count, "the ingestion's steps follow")
             if let failedExit {
-                XCTAssertEqual(copy.exitStatus, failedExit, "a failed record keeps its exit status over the ingestion's 0")
+                XCTAssertEqual(
+                    copy.exitStatus, failedExit,
+                    "a \(kind.rawValue) record keeps its exit status over the ingestion's 0"
+                )
             }
         }
     }
@@ -171,7 +174,10 @@ final class ProvenanceEnvelopeCopySitesAppTests: XCTestCase {
             XCTAssertEqual(copy.steps.count, source.steps.count + 1)
             XCTAssertEqual(copy.options.resolvedDefaults["sampleMetadataEditCount"], .integer(1))
             if let failedExit {
-                XCTAssertEqual(copy.exitStatus, failedExit, "a failed record keeps its exit status over the edit's 0")
+                XCTAssertEqual(
+                    copy.exitStatus, failedExit,
+                    "a \(kind.rawValue) record keeps its exit status over the edit's 0"
+                )
             }
         }
     }

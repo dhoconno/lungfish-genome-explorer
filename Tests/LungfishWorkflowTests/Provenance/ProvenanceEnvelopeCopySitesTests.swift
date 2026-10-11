@@ -146,7 +146,10 @@ final class ProvenanceEnvelopeCopySitesTests: XCTestCase {
             XCTAssertEqual(copy.steps.first?.toolName, "samtools", "the source bundle's steps come first")
             XCTAssertEqual(copy.steps.count, base.steps.count + 1)
             if let failedExit {
-                XCTAssertEqual(copy.exitStatus, failedExit, "a failed copy keeps the exit status of the run it copies")
+                XCTAssertEqual(
+                    copy.exitStatus, failedExit,
+                    "a copy of a \(kind.rawValue) bundle keeps the exit status of the run it copies"
+                )
             }
         }
     }

@@ -56,11 +56,13 @@ public enum EnvelopeCopySources {
         case notAJSONObject
     }
 
-    /// The three sources, then a failed source whose run-level exit status is 1, for the sites that set the
-    /// exit status of the copy. A faithful copy of the last one holds status failed and exit status 1, as
-    /// the recorder's own records do (S4a review, fix 2).
+    /// The three sources, then a failed source whose run-level exit status is 1 and a cancelled source
+    /// whose run-level exit status is 125, for the sites that set the exit status of the copy. A faithful
+    /// copy of either holds its source's status and exit status, as the recorder's own records do. The
+    /// failed source is S4a review fix 2 and the cancelled one is S4b review fix 3, because a cancelled
+    /// run takes the exit code of its outcome step and never a fixed 0.
     public static let sourcesWithFailedExit: [(kind: Kind, exitStatus: Int?)] =
-        Kind.allCases.map { ($0, nil) } + [(.failedLastStepExitedZero, 1)]
+        Kind.allCases.map { ($0, nil) } + [(.failedLastStepExitedZero, 1), (.cancelled, 125)]
 
     /// The record bytes of `kind`, made from the bytes of a completed record. A `.preTwoFourNestedPlan`
     /// source also holds `extraNestedParameters` in its nested run, for a site that rewrites paths, and
