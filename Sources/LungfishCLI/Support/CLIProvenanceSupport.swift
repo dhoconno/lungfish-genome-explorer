@@ -37,22 +37,30 @@ enum CLIProvenanceSupport {
                     environment: environment,
                     timeout: 30
                 )
-                let trimmed = (result.stdout + result.stderr)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if let range = trimmed.range(
-                    of: #"\d+\.\d+(\.\d+)?"#,
-                    options: .regularExpression
-                ) {
-                    return String(trimmed[range])
-                }
-                if let firstLine = trimmed.split(whereSeparator: \.isNewline).first {
-                    return String(firstLine)
+                if let version = parseCondaToolVersion(result.stdout + result.stderr) {
+                    return version
                 }
             } catch {
                 continue
             }
         }
         return fallback
+    }
+
+    /// The version in a probe's combined stdout and stderr, or nil when the output is empty.
+    ///
+    /// The first dotted number anywhere in the text, else the first line. This is the CLI's own
+    /// parser. `NativeToolRunner.parseVersionProbe` and `parseToolVersion(from:)` are the other two,
+    /// and sub-phase 2.7 merges the three.
+    static func parseCondaToolVersion(_ output: String) -> String? {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let range = trimmed.range(
+            of: #"\d+\.\d+(\.\d+)?"#,
+            options: .regularExpression
+        ) {
+            return String(trimmed[range])
+        }
+        return trimmed.split(whereSeparator: \.isNewline).first.map(String.init)
     }
 
     static func bundlePayloadURLs(in bundleURL: URL) -> [URL] {
