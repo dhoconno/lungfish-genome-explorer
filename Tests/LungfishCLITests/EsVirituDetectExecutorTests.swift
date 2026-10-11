@@ -54,6 +54,7 @@ final class EsVirituDetectExecutorTests: XCTestCase {
         XCTAssertEqual(record.steps.map(\.toolName), ["EsViritu", "Lungfish EsViritu Result Sidecar"])
         XCTAssertEqual(record.options.explicit["sample"], .string("S1"), "the pipeline's run parameters")
         XCTAssertEqual(record.options.resolvedDefaults["databaseIdentityStatus"], .string("unpinned"))
+        XCTAssertEqual(record.options.resolvedDefaults["databaseOrigin"], .string("installed"), "--db names the installed database")
         XCTAssertEqual(record.options.resolvedDefaults["databaseCatalogID"], .string("esviritu-viral-v3"))
         XCTAssertEqual(record.options.resolvedDefaults["databaseCoreFileSizes"], .dictionary([:]), "the stand-in database holds no core file")
         XCTAssertEqual(record.outputs.map { URL(fileURLWithPath: $0.path).lastPathComponent }.sorted(), [
@@ -134,6 +135,44 @@ final class EsVirituDetectExecutorTests: XCTestCase {
         XCTAssertNil(record.options.explicit["sample"], "a batch root keeps each sample's facts in the sample's record")
     }
 
+    /// E9. Only the database the app installed records the catalog entry it came from, also when
+    /// `--db` reaches it through a link. A folder the app did not install, such as an older
+    /// release or a custom build, records its origin, its core file sizes and the unpinned status,
+    /// and no catalog entry, which would not describe it.
+    func testOnlyTheInstalledDatabaseRecordsItsCatalogEntry() async throws {
+        let esviritu = try StandInEsViritu(root: root.appendingPathComponent("tool"), tables: Self.fixtureTables)
+        try "ACGT\n".write(to: esviritu.databaseURL.appendingPathComponent("viral_refs.fna"), atomically: true, encoding: .utf8)
+        let link = root.appendingPathComponent("installed-link", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: esviritu.databaseURL)
+        let elsewhere = root.appendingPathComponent("installed-elsewhere", isDirectory: true)
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        let catalogKeys = ["databaseCatalogID", "databaseCatalogVersion", "databaseSourceURL", "databaseSourcePolicy"]
+
+        let linked = root.appendingPathComponent("linked", isDirectory: true)
+        let linkedCode = try await detect(
+            ["--input", try reads("S1").path, "--sample", "S1", "--output", linked.path], esviritu, installed: { _ in link }
+        )
+        XCTAssertEqual(linkedCode, 0)
+        let installed = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: linked)).options.resolvedDefaults
+        XCTAssertEqual(installed["databaseOrigin"], .string("installed"))
+        for key in catalogKeys {
+            XCTAssertNotNil(installed[key], key)
+        }
+
+        let given = root.appendingPathComponent("given", isDirectory: true)
+        let givenCode = try await detect(
+            ["--input", try reads("S1").path, "--sample", "S1", "--output", given.path], esviritu, installed: { _ in elsewhere }
+        )
+        XCTAssertEqual(givenCode, 0)
+        let options = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: given)).options.resolvedDefaults
+        XCTAssertEqual(options["databaseOrigin"], .string("given"))
+        XCTAssertEqual(options["databaseIdentityStatus"], .string("unpinned"))
+        XCTAssertEqual(options["databaseCoreFileSizes"], .dictionary(["viral_refs.fna": .integer(5)]))
+        for key in catalogKeys {
+            XCTAssertNil(options[key], "\(key) would name the catalog entry of another database")
+        }
+    }
+
     // MARK: - Refusals, failures and cancels
 
     /// Every refusal sits in the plan, so no folder is made, and each keeps its exit code.
@@ -156,7 +195,8 @@ final class EsVirituDetectExecutorTests: XCTestCase {
         let missingDatabase = try await detect(
             ["--input", input, "--sample", "S1", "--output", output.path],
             esviritu,
-            database: false
+            database: false,
+            installed: { _ in nil }
         )
         XCTAssertEqual(missingDatabase, 126)
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
@@ -197,6 +237,7 @@ final class EsVirituDetectExecutorTests: XCTestCase {
             await command.detect(
                 pipeline: EsVirituPipeline(condaManager: esviritu.condaManager),
                 materializer: FASTQCLIMaterializer(runner: .shared),
+                installedDatabase: { [databaseURL = esviritu.databaseURL] in databaseURL },
                 cancelRequested: { cancel.isSet }
             )
         }
@@ -228,7 +269,8 @@ final class EsVirituDetectExecutorTests: XCTestCase {
             options: EsVirituAnalysisRunOptions(sampleName: "S1", databasePath: esviritu.databaseURL, threads: 2),
             groupsSamples: false,
             pipeline: EsVirituPipeline(condaManager: esviritu.condaManager),
-            materializer: FASTQCLIMaterializer(runner: .shared)
+            materializer: FASTQCLIMaterializer(runner: .shared),
+            installedDatabase: { [databaseURL = esviritu.databaseURL] in databaseURL }
         )
         let report = await AnalysisRunExecutor(services: AnalysisRunServices(indexing: EsVirituResultIndexing())).execute(
             tool,
@@ -302,14 +344,21 @@ final class EsVirituDetectExecutorTests: XCTestCase {
         return try XCTUnwrap(parsed as? EsVirituCommand.DetectSubcommand)
     }
 
-    /// Runs the command with the stand-in and returns its exit code.
-    private func detect(_ arguments: [String], _ esviritu: StandInEsViritu, database: Bool = true) async throws -> Int32 {
+    /// Runs the command with the stand-in and returns its exit code. `installed` names the database
+    /// the app installed, by default the stand-in's, so the record holds its catalog entry (E9).
+    private func detect(
+        _ arguments: [String],
+        _ esviritu: StandInEsViritu,
+        database: Bool = true,
+        installed: (StandInEsViritu) -> URL? = { $0.databaseURL }
+    ) async throws -> Int32 {
         let command = try parse(arguments, esviritu, database: database)
+        let installedURL = installed(esviritu)
         do {
             try await command.execute(
                 pipeline: EsVirituPipeline(condaManager: esviritu.condaManager),
                 materializer: FASTQCLIMaterializer(runner: .shared),
-                installedDatabase: { nil }
+                installedDatabase: { installedURL }
             )
             return 0
         } catch let exit as ExitCode {

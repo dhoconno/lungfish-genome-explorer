@@ -29,6 +29,13 @@ public struct EsVirituAnalysisRunTool: AnalysisRunTool {
     /// The database identity status of every EsViritu run. The catalog pins no digest and nothing
     /// hashes the database folder per run (E9, SWIFT X4).
     public static let databaseIdentityStatus = "unpinned"
+    /// Where the database of a run came from, recorded as `databaseOrigin` (E9).
+    enum DatabaseOrigin {
+        /// The database the app installed, used without `--db` or named by it.
+        static let installed = "installed"
+        /// Another folder `--db` names, which the bundled catalog does not describe.
+        static let given = "given"
+    }
 
     /// The roles of the typed artifacts on the `complete` line.
     public enum ArtifactRole {
@@ -130,9 +137,9 @@ public struct EsVirituAnalysisRunTool: AnalysisRunTool {
         let units = try request.groupsSamples
             ? batchUnits(inputURLs)
             : [oneSampleUnit(inputURLs)]
-        let databasePath = try await resolveDatabase()
+        let database = try await resolveDatabase()
         let settings = EsVirituRunSettings(
-            databasePath: databasePath,
+            databasePath: database.url,
             threads: options.threads,
             qualityFilter: options.qualityFilter,
             extraArguments: extraArguments
@@ -158,7 +165,7 @@ public struct EsVirituAnalysisRunTool: AnalysisRunTool {
                     )
                 )
             },
-            options: runOptions(settings: settings, sampleCount: units.count)
+            options: runOptions(settings: settings, databaseIsInstalled: database.isInstalled, sampleCount: units.count)
         )
     }
 
@@ -212,19 +219,29 @@ public struct EsVirituAnalysisRunTool: AnalysisRunTool {
         }
     }
 
-    private func resolveDatabase() async throws -> URL {
+    /// The database folder of the run, and whether it is the one the app installed. That is so
+    /// without `--db`, and when the folder `--db` names and the installed one are the same folder
+    /// once symlinks are resolved and the paths standardized.
+    private func resolveDatabase() async throws -> (url: URL, isInstalled: Bool) {
         if let path = options.databasePath {
             guard FileManager.default.fileExists(atPath: path.path) else {
                 throw EsVirituAnalysisRunRefusal.input("Database directory not found: \(path.path)")
             }
-            return path
+            let installed = await installedDatabase()
+            return (path, installed.map { Self.namesSameFolder($0, path) } ?? false)
         }
         guard let installed = await installedDatabase() else {
             throw EsVirituAnalysisRunRefusal.dependency(
                 "EsViritu database not found. Download it first: lungfish-cli esviritu download-db"
             )
         }
-        return installed
+        return (installed, true)
+    }
+
+    /// Whether two paths name one folder, with symlinks resolved and the paths standardized.
+    static func namesSameFolder(_ first: URL, _ second: URL) -> Bool {
+        first.resolvingSymlinksInPath().standardizedFileURL.path
+            == second.resolvingSymlinksInPath().standardizedFileURL.path
     }
 
     // MARK: - Read formats
@@ -267,17 +284,24 @@ public struct EsVirituAnalysisRunTool: AnalysisRunTool {
     // MARK: - Root record options
 
     /// The run-level options of the root record. Each sample's own facts stay in its unit record,
-    /// and a one-folder run adds them in its unit. The database identity follows E9: the catalog
-    /// entry the build expects, the sizes of the database's core files, and a status that says no
-    /// digest pins it.
-    private func runOptions(settings: EsVirituRunSettings, sampleCount: Int) -> AnalysisRootRecordOptions {
+    /// and a one-folder run adds them in its unit. The database identity follows E9. Every run
+    /// records where its database came from (`databaseOrigin`), the sizes of the database's core
+    /// files and a status that says no digest pins it. Only the database the app installed also
+    /// records the catalog entry it came from. Another folder `--db` names, such as an older
+    /// release or a custom build, records no catalog entry, which would not describe it.
+    private func runOptions(
+        settings: EsVirituRunSettings,
+        databaseIsInstalled: Bool,
+        sampleCount: Int
+    ) -> AnalysisRootRecordOptions {
         var resolved: [String: ParameterValue] = [
             "databasePath": .string(settings.databasePath.path),
+            "databaseOrigin": .string(databaseIsInstalled ? Self.DatabaseOrigin.installed : Self.DatabaseOrigin.given),
             "databaseIdentityStatus": .string(Self.databaseIdentityStatus),
             "databaseCoreFileSizes": .dictionary(Self.databaseCoreFileSizes(at: settings.databasePath).mapValues { .integer($0) }),
             "sampleCount": .integer(sampleCount),
         ]
-        if let catalog = ManagedToolLock.bundled.database(id: EsVirituDatabaseManager.catalogID) {
+        if databaseIsInstalled, let catalog = ManagedToolLock.bundled.database(id: EsVirituDatabaseManager.catalogID) {
             resolved["databaseCatalogID"] = .string(catalog.id)
             resolved["databaseCatalogVersion"] = .string(catalog.version)
             resolved["databaseSourceURL"] = catalog.url.map(ParameterValue.string) ?? .null
