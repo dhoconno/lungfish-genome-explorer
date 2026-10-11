@@ -134,7 +134,10 @@ final class ToolProcessExecution: Sendable {
 
     func run() async throws(ToolProcessError) -> ToolPipelineResult {
         if Task.isCancelled {
-            throw .cancelled(results: [])
+            // Stopped before the launch, so no stage launches. The run still
+            // completes through the normal stop path and delivers its
+            // observation, and outcome() throws cancelled with no results.
+            requestStop(.cancelled)
         }
         await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in

@@ -474,3 +474,90 @@ final class ToolProcessObservationTests: XCTestCase {
         XCTAssertEqual(ordered.map { $0.stages.map(\.label) }, [["slow"], ["quick"]])
     }
 }
+
+/// Phase 2.7 lane S1 (B1). A task cancelled before the launch launches
+/// nothing and still throws `cancelled(results: [])`, and the run goes
+/// through the normal stop path, so it delivers an observation whose entries
+/// read never launched.
+final class ToolProcessEarlyCancelObservationTests: XCTestCase {
+    private typealias Fixtures = ToolProcessFixtures
+    private typealias Pins = ToolProcessEntryPointPinTests
+
+    func testARunCancelledBeforeLaunchDeliversAnObservationOfNothingLaunched() async throws {
+        let log = ToolProcessObservationLog()
+        let launched = ToolProcessTestBox(false)
+        let task = Task { () async throws -> ToolProcessResult in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await ToolProcessObservation.$observer.withValue(log.observer) {
+                try await ToolProcess.run(
+                    Fixtures.shell("true", label: "never"),
+                    onLaunch: { _ in launched.withLock { $0 = true } }
+                )
+            }
+        }
+        switch await task.result {
+        case .failure(ToolProcessError.cancelled(let results)):
+            XCTAssertTrue(results.isEmpty)
+        default:
+            XCTFail("Expected cancelled with no results")
+        }
+        XCTAssertFalse(launched.withLock { $0 })
+        let observations = log.all
+        XCTAssertEqual(observations.count, 1)
+        let observation = try XCTUnwrap(observations.first)
+        XCTAssertEqual(observation.stop, .cancelled)
+        XCTAssertEqual(observation.stages.map(\.label), ["never"])
+        XCTAssertEqual(observation.stages.map(\.ending), [.notLaunched])
+        XCTAssertEqual(observation.stages.map(\.failedOnItsOwn), [false])
+        XCTAssertEqual(observation.stages.map(\.stop), [nil])
+    }
+
+    func testAPipelineCancelledBeforeLaunchDeliversAnEntryForEveryStage() async throws {
+        let log = ToolProcessObservationLog()
+        let launched = ToolProcessTestBox<[Int]>([])
+        let task = Task { () async throws -> ToolPipelineResult in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await ToolProcessObservation.$observer.withValue(log.observer) {
+                try await ToolProcess.runPipeline(
+                    [Fixtures.shell("true", label: "first"), Pins.tool("/bin/cat", label: "second")],
+                    timeout: .seconds(30),
+                    onLaunch: { stage, _ in launched.withLock { $0.append(stage) } }
+                )
+            }
+        }
+        switch await task.result {
+        case .failure(ToolProcessError.cancelled(let results)):
+            XCTAssertTrue(results.isEmpty)
+        default:
+            XCTFail("Expected cancelled with no results")
+        }
+        XCTAssertEqual(launched.withLock { $0 }, [])
+        let observations = log.all
+        XCTAssertEqual(observations.count, 1)
+        let observation = try XCTUnwrap(observations.first)
+        XCTAssertEqual(observation.stop, .cancelled)
+        XCTAssertEqual(observation.stages.map(\.label), ["first", "second"])
+        XCTAssertEqual(observation.stages.map(\.ending), [.notLaunched, .notLaunched])
+    }
+
+    /// runBlocking with a cancellation that came first already went through
+    /// the run, and it delivers the same observation.
+    func testABlockingRunWhoseCancellationCameFirstDeliversToo() async throws {
+        let log = ToolProcessObservationLog()
+        let cancellation = ToolProcessCancellation()
+        cancellation.cancel()
+        do {
+            _ = try await ToolProcessObservation.$observer.withValue(log.observer) {
+                try ToolProcess.runBlocking(Fixtures.shell("true", label: "never"), cancellation: cancellation)
+            }
+            XCTFail("Expected a cancellation")
+        } catch ToolProcessError.cancelled(let results) {
+            XCTAssertTrue(results.isEmpty)
+        } catch {
+            XCTFail("Unexpected error \(error)")
+        }
+        let observation = try XCTUnwrap(log.all.first)
+        XCTAssertEqual(observation.stop, .cancelled)
+        XCTAssertEqual(observation.stages.map(\.ending), [.notLaunched])
+    }
+}

@@ -80,7 +80,11 @@ public enum ToolProcess {
         try refuseStream(spec, in: "run")
         let run = ToolProcessRun(try singleExecution(spec, onEvent: onEvent, onLaunch: onLaunch))
         if Task.isCancelled {
-            throw .cancelled(results: [])
+            // Stopped before the launch, so nothing launches. The run still
+            // completes through the normal stop path, so its provenance
+            // observation is delivered, and the error is cancelled with no
+            // results.
+            run.cancel()
         }
         run.begin()
         // result() forwards the cancellation of this task to the run.
