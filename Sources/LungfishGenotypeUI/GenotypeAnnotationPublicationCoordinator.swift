@@ -44,6 +44,14 @@ private enum GenotypeAnnotationPublicationCoordinatorError: Error, LocalizedErro
     }
 }
 
+/// Publishes `annotations.json` and its provenance record as one unit.
+///
+/// Each file goes through ``DurableReplace`` inside one ``DurableReplace/transaction(_:)``, so a name
+/// holds a complete old or new file at every step, both files and the folder are synced, and one
+/// full flush follows the pair (plan decisions S1, V1 and V2). A failure after either publication
+/// puts back every file that no longer holds what the snapshot read. The bundle opens the way
+/// `DurableReplace` opens a folder, anchored at the outermost `.lungfish*` component, so a link
+/// below that anchor is refused (V3).
 struct GenotypeAnnotationPublicationCoordinator {
     let bundleURL: URL
     let annotationFilename: String
@@ -56,13 +64,15 @@ struct GenotypeAnnotationPublicationCoordinator {
         let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(for: bundleURL)
         defer { publicationLock.release() }
 
-        let directoryFD = bundleURL.path.withCString {
-            Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
-        }
-        guard directoryFD >= 0 else {
-            throw systemError("open bundle directory without following links", bundleURL.path)
-        }
+        let directoryFD = try openBundleDirectory()
         defer { Darwin.close(directoryFD) }
+
+        // An ExFAT swap that stopped halfway leaves its old file under a tombstone and nothing under
+        // the name. Restore it first, or the snapshot would see nothing and an edit built from
+        // nothing would replace it.
+        for filename in [annotationFilename, provenanceFilename] {
+            try DurableReplace.recover(named: filename, in: bundleURL)
+        }
 
         let snapshot = GenotypeAnnotationPublicationSnapshot(
             annotationData: try readRegularFile(annotationFilename, directoryFD: directoryFD),
@@ -70,23 +80,38 @@ struct GenotypeAnnotationPublicationCoordinator {
         )
         guard let payload = try prepare(snapshot) else { return nil }
 
-        var publicationStarted = false
         do {
-            try atomicWrite(payload.annotationData, filename: annotationFilename, directoryFD: directoryFD)
-            publicationStarted = true
-            if let error = faultInjector?(.beforeProvenancePublication) { throw error }
-            try atomicWrite(payload.provenanceData, filename: provenanceFilename, directoryFD: directoryFD)
-            if let error = faultInjector?(.commitDirectorySync) { throw error }
-            guard Darwin.fsync(directoryFD) == 0 else {
-                throw systemError("synchronize annotation publication directory", bundleURL.path)
+            try DurableReplace.transaction {
+                try publish(payload.annotationData, filename: annotationFilename, directoryFD: directoryFD)
+                if let error = faultInjector?(.beforeProvenancePublication) { throw error }
+                try publish(payload.provenanceData, filename: provenanceFilename, directoryFD: directoryFD)
+                if let error = faultInjector?(.commitDirectorySync) { throw error }
+                guard Darwin.fsync(directoryFD) == 0 else {
+                    throw systemError("synchronize annotation publication directory", bundleURL.path)
+                }
             }
             return payload
         } catch {
-            guard publicationStarted else { throw error }
-            let rollbackError = rollback(snapshot, directoryFD: directoryFD)
+            // Nothing may have changed yet, so only a restored or failed file wraps the error.
+            let outcome = rollBack(snapshot, directoryFD: directoryFD)
+            guard outcome.restored || outcome.error != nil else { throw error }
             throw GenotypeAnnotationPublicationTransactionError(
                 primaryError: error,
-                rollbackError: rollbackError
+                rollbackError: outcome.error
+            )
+        }
+    }
+
+    /// Opens the bundle the way ``DurableReplace`` opens its folder, so the descriptor and every
+    /// publication agree on which folder the bundle is.
+    private func openBundleDirectory() throws -> Int32 {
+        do {
+            return try NoFollowFileSystem.openDestinationFolder(bundleURL)
+        } catch {
+            throw GenotypeAnnotationPublicationCoordinatorError.systemFailure(
+                operation: "open bundle directory without following links below its anchor",
+                path: bundleURL.path,
+                code: (error as? POSIXError)?.code.rawValue ?? EIO
             )
         }
     }
@@ -99,8 +124,28 @@ struct GenotypeAnnotationPublicationCoordinator {
         )
     }
 
-    private func atomicWrite(_ data: Data, filename: String, directoryFD: Int32) throws {
-        try validateExistingRegularFile(filename, directoryFD: directoryFD)
+    /// Publishes `data` as `filename` through ``DurableReplace``. It replaces regular files only, so
+    /// a link that the earlier generation-based store left under the name first becomes a file
+    /// that holds the bytes the link shows.
+    private func publish(_ data: Data, filename: String, directoryFD: Int32) throws {
+        if try entryKind(filename, directoryFD: directoryFD) == .trustedGenerationLink,
+           let shown = try readRegularFile(filename, directoryFD: directoryFD) {
+            try replaceLink(named: filename, with: shown, directoryFD: directoryFD)
+        }
+        try DurableReplace.replace(data, named: filename, in: bundleURL)
+    }
+
+    private func entryKind(_ filename: String, directoryFD: Int32) throws -> GenotypeAnnotationPublicationEntryKind {
+        try GenotypeAnnotationPublicationFileAccess.entryKind(
+            named: filename,
+            inBundleAt: bundleURL,
+            openedBundleDirectoryFD: directoryFD
+        )
+    }
+
+    /// Replaces a trusted generation link with a regular file in one atomic rename, so the name
+    /// reads the same bytes before and after. The generation folder keeps its copy.
+    private func replaceLink(named filename: String, with data: Data, directoryFD: Int32) throws {
         let temporaryName = ".\(filename).\(UUID().uuidString).tmp"
         let temporaryURL = bundleURL.appendingPathComponent(temporaryName)
         let descriptor = temporaryName.withCString {
@@ -147,47 +192,62 @@ struct GenotypeAnnotationPublicationCoordinator {
             }
         }
         guard result == 0 else {
-            throw systemError("atomically publish file", bundleURL.appendingPathComponent(filename).path)
+            throw systemError("replace linked file", bundleURL.appendingPathComponent(filename).path)
         }
         removeTemporary = false
     }
 
-    private func validateExistingRegularFile(_ filename: String, directoryFD: Int32) throws {
-        _ = try GenotypeAnnotationPublicationFileAccess.entryKind(
-            named: filename,
-            inBundleAt: bundleURL,
-            openedBundleDirectoryFD: directoryFD
-        )
-    }
-
-    private func rollback(
+    /// Puts back every file that no longer holds what the snapshot read, in one transaction, and
+    /// syncs the folder. `restored` says whether any file had to change.
+    private func rollBack(
         _ snapshot: GenotypeAnnotationPublicationSnapshot,
         directoryFD: Int32
-    ) -> Error? {
+    ) -> (restored: Bool, error: Error?) {
         var errors: [Error] = []
-        for (filename, data) in [
-            (annotationFilename, snapshot.annotationData),
-            (provenanceFilename, snapshot.provenanceData),
-        ] {
-            do {
-                if let data {
-                    try atomicWrite(data, filename: filename, directoryFD: directoryFD)
-                } else {
-                    try removeRegularFileIfPresent(filename, directoryFD: directoryFD)
+        var restored = false
+        do {
+            try DurableReplace.transaction {
+                for (filename, data) in [
+                    (annotationFilename, snapshot.annotationData),
+                    (provenanceFilename, snapshot.provenanceData),
+                ] {
+                    do {
+                        if try restore(data, as: filename, directoryFD: directoryFD) { restored = true }
+                    } catch {
+                        errors.append(error)
+                    }
                 }
-            } catch {
-                errors.append(error)
             }
+        } catch {
+            errors.append(error)
         }
         if Darwin.fsync(directoryFD) != 0 {
             errors.append(systemError("synchronize rollback directory", bundleURL.path))
         }
-        guard !errors.isEmpty else { return nil }
-        return NSError(
+        guard !errors.isEmpty else { return (restored, nil) }
+        return (restored, NSError(
             domain: "GenotypeAnnotationPublicationRollback",
             code: 1,
             userInfo: [NSLocalizedDescriptionKey: errors.map(\.localizedDescription).joined(separator: "; ")]
-        )
+        ))
+    }
+
+    /// Returns whether `filename` had to change to hold `data` again, or to be absent when `data`
+    /// is `nil`. A name that cannot be read counts as changed, and the restore reports why.
+    private func restore(_ data: Data?, as filename: String, directoryFD: Int32) throws -> Bool {
+        let matches: Bool
+        do {
+            matches = try readRegularFile(filename, directoryFD: directoryFD) == data
+        } catch {
+            matches = false
+        }
+        if matches { return false }
+        if let data {
+            try publish(data, filename: filename, directoryFD: directoryFD)
+        } else {
+            try removeRegularFileIfPresent(filename, directoryFD: directoryFD)
+        }
+        return true
     }
 
     private func removeRegularFileIfPresent(_ filename: String, directoryFD: Int32) throws {
