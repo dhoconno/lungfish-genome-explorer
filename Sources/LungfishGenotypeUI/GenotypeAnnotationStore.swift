@@ -38,7 +38,7 @@ public final class GenotypeAnnotationStore {
 
     /// The built-in smart cohorts `sidecar` shows and the file does not hold.
     @ObservationIgnored
-    private var unsavedBuiltInSmartCohorts: [GenotypeCohortSmartFilter] = []
+    private(set) var unsavedBuiltInSmartCohorts: [GenotypeCohortSmartFilter] = []
 
     @ObservationIgnored
     private(set) var lastMatrixBulkMutationDiagnostics = GenotypeMatrixBulkMutationDiagnostics()
@@ -99,16 +99,13 @@ public final class GenotypeAnnotationStore {
         }
     }
 
-    /// Shows the built-in smart cohorts the sidecar lacks, in memory only, so
-    /// opening a bundle writes nothing. `lastPersistedSidecar` keeps equal to
-    /// the file, and the first edit that publishes the whole sidecar writes the
-    /// cohorts with itself. A cohort whose name the sidecar holds is skipped,
-    /// so an analyst's own version is never replaced. One the analyst deleted
-    /// comes back on the next open, because the sidecar keeps no record of a
-    /// deletion, and a read never writes it back.
+    /// Shows the built-in smart cohorts the sidecar lacks, in memory only, so opening a bundle
+    /// writes nothing. `lastPersistedSidecar` keeps equal to the file, and the first edit that
+    /// publishes the whole sidecar writes the cohorts with itself. A name the sidecar holds or
+    /// dismissed (plan decision S13) is skipped, so a deleted one stays deleted and an analyst's
+    /// own version is never replaced.
     private func seedBuiltInSmartCohortsInMemory() {
-        let existing = Set(sidecar.smartCohorts.map(\.name))
-        unsavedBuiltInSmartCohorts = Self.builtInSmartCohorts.filter { !existing.contains($0.name) }
+        unsavedBuiltInSmartCohorts = Self.builtInSmartCohortsToSeed(into: sidecar)
         sidecar.smartCohorts.append(contentsOf: unsavedBuiltInSmartCohorts)
     }
 
@@ -136,7 +133,13 @@ public final class GenotypeAnnotationStore {
         try persist(action: unsavedBuiltInSmartCohorts.isEmpty ? "publishViewedSidecar" : "seedBuiltInSmartCohorts")
     }
 
-    private func now() -> String { isoFormatter.string(from: Date()) }
+    /// Applies `edit` to the sidecar the analyst sees and publishes it whole, naming `options` in its record.
+    func publishWholeSidecar(action: String, options: [String: ParameterValue], _ edit: (inout GenotypeAnnotationSidecar) -> Void) throws {
+        edit(&sidecar)
+        try persist(action: action, editContext: options.isEmpty ? nil : ProvenanceEditContext(explicitOptions: options))
+    }
+
+    func now() -> String { isoFormatter.string(from: Date()) }
 
     func applyOverride(sample: String, locus: String, slot: HaplotypeSlot,
                        originalCall: String, overrideCall: String,
@@ -927,10 +930,7 @@ public final class GenotypeAnnotationStore {
         }
     }
 
-    func saveSmartCohort(
-        _ cohort: GenotypeCohortSmartFilter,
-        author editAuthor: String? = nil
-    ) throws {
+    func saveSmartCohort(_ cohort: GenotypeCohortSmartFilter, author editAuthor: String? = nil) throws {
         let author = editAuthor ?? self.author
         let existing = sidecar.smartCohorts.first { $0.name == cohort.name && $0.scope == cohort.scope }
         sidecar.smartCohorts.removeAll { $0.name == cohort.name && $0.scope == cohort.scope }
@@ -946,15 +946,13 @@ public final class GenotypeAnnotationStore {
         try persist(action: "saveSmartCohort")
     }
 
-    func deleteSmartCohort(
-        name: String,
-        scope: String,
-        author editAuthor: String? = nil
-    ) throws {
+    /// Deleting a built-in cohort records its dismissal, so it stays deleted after reopen (plan decision S13).
+    func deleteSmartCohort(name: String, scope: String, author editAuthor: String? = nil) throws {
         let author = editAuthor ?? self.author
         let existing = sidecar.smartCohorts.first { $0.name == name && $0.scope == scope }
         sidecar.smartCohorts.removeAll { $0.name == name && $0.scope == scope }
         guard let existing else { return }
+        Self.recordDismissal(of: existing, in: &sidecar.settings)
         let timestamp = now()
         sidecar.append(audit: .init(
             action: "deleteSmartCohort", sample: "bundle", locus: nil, slot: nil,
@@ -2170,6 +2168,7 @@ public final class GenotypeAnnotationStore {
         if let editContext {
             explicitOptions.merge(editContext.explicitOptions) { _, payload in payload }
         }
+        explicitOptions.merge(seededBuiltInSmartCohortOptions(publishing: sidecar)) { current, _ in current }
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
         let durableReplayArgv: [String]?
         if editContext?.callOverrideReplayPayload != nil {

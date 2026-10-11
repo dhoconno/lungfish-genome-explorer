@@ -769,6 +769,9 @@ public extension GenotypeAnnotationSidecar {
         public var mhcCandidateDisplay: ONTMHCCandidateDisplaySettings
         /// Analyst override for genotype row ordering; nil uses the reference/result default.
         public var genotypeLocusDisplayOrder: [String]?
+        /// Names of the built-in smart cohorts the analyst deleted, so opening never shows them again
+        /// (plan decision S13). nil, which every older sidecar decodes as, means none.
+        public var dismissedBuiltInSmartCohorts: [String]?
 
         public static let `default` = Settings(
             viewMode: "outline",
@@ -810,19 +813,11 @@ public extension GenotypeAnnotationSidecar {
         }
 
         private enum CodingKeys: String, CodingKey {
-            case viewMode
-            case panelLayout
-            case cardDensity
-            case cardDensityThreshold
-            case dropoutAbsolute
-            case dropoutSampleFraction
-            case dropoutLocusFraction
-            case locusFractionOverrides
-            case activeHaplotypeDefinitionSetID
-            case activeHaplotypeAssayID
-            case preferredSummaryViewMode
-            case mhcCandidateDisplay
-            case genotypeLocusDisplayOrder
+            case viewMode, panelLayout, cardDensity, cardDensityThreshold
+            case dropoutAbsolute, dropoutSampleFraction, dropoutLocusFraction, locusFractionOverrides
+            case activeHaplotypeDefinitionSetID, activeHaplotypeAssayID
+            case preferredSummaryViewMode, mhcCandidateDisplay, genotypeLocusDisplayOrder
+            case dismissedBuiltInSmartCohorts
         }
 
         public init(from decoder: Decoder) throws {
@@ -846,6 +841,7 @@ public extension GenotypeAnnotationSidecar {
             activeHaplotypeAssayID = try container.decodeIfPresent(String.self, forKey: .activeHaplotypeAssayID)
             preferredSummaryViewMode = try container.decodeIfPresent(String.self, forKey: .preferredSummaryViewMode)
             genotypeLocusDisplayOrder = try container.decodeIfPresent([String].self, forKey: .genotypeLocusDisplayOrder)
+            dismissedBuiltInSmartCohorts = try container.decodeIfPresent([String].self, forKey: .dismissedBuiltInSmartCohorts)
             mhcCandidateDisplay = try container.decodeIfPresent(
                 ONTMHCCandidateDisplaySettings.self,
                 forKey: .mhcCandidateDisplay

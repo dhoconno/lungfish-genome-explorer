@@ -4,8 +4,10 @@ extension GenotypeAnnotationStore {
     /// The smart cohorts every haplotyped bundle shows from its first open.
     /// The store adds the ones a sidecar lacks to its in-memory copy and writes
     /// them with the first edit that publishes the whole sidecar, so a read
-    /// never writes them (walk finding F9). The command line holds no copy of
-    /// this list, and `lungfish-cli genotype list-cohorts` reads the file only.
+    /// never writes them (walk finding F9). One the analyst deleted is recorded
+    /// as dismissed and not shown again until Restore Built-In Cohorts (plan
+    /// decision S13). The command line holds no copy of this list, and
+    /// `lungfish-cli genotype list-cohorts` reads the file only.
     static let builtInSmartCohorts: [GenotypeCohortSmartFilter] = [
         GenotypeCohortSmartFilter(
             name: "Incomplete haplotypes",

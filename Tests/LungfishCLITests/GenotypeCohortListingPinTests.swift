@@ -51,6 +51,57 @@ final class GenotypeCohortListingPinTests: XCTestCase {
         XCTAssertEqual(csv, Self.noDismissalSmartCohortsCSV)
     }
 
+    // MARK: - A dismissed built-in (S13)
+
+    /// The sidecar the app writes when the analyst deletes the built-in
+    /// Homozygous cohort. The cohort leaves `smartCohorts` and its name is
+    /// recorded as a dismissal.
+    static func makeBundleWithDismissedHomozygous(in root: URL) throws -> URL {
+        var settings = GenotypeAnnotationSidecar.Settings.default
+        settings.dismissedBuiltInSmartCohorts = ["Homozygous"]
+        return try makeBundle(
+            in: root,
+            smartCohorts: (builtInCohorts + [analystCohort]).filter { $0.name != "Homozygous" },
+            settings: settings
+        )
+    }
+
+    func testListCohortsOfABundleWithADismissedBuiltInDiffersOnlyByThatCohort() async throws {
+        let root = try TestTempDirectory.make(prefix: "cohort-listing-dismissed")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundle = try Self.makeBundleWithDismissedHomozygous(in: root)
+
+        let listing = try await Self.listCohorts(bundle)
+
+        let expected = Self.noDismissalListing
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.hasPrefix("-\tHomozygous\t") }
+            .joined(separator: "\n")
+        XCTAssertEqual(listing, expected)
+    }
+
+    /// `cohort_id` is the row's position, so the rows after the dismissed one
+    /// renumber, as they do for any cohort deleted from the file. Every other
+    /// column of every other row is unchanged.
+    func testExportLabKeyOfABundleWithADismissedBuiltInDiffersOnlyByThatCohort() async throws {
+        let root = try TestTempDirectory.make(prefix: "cohort-labkey-dismissed")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundle = try Self.makeBundleWithDismissedHomozygous(in: root)
+
+        let csv = try await Self.exportLabKeySmartCohorts(bundle, root: root)
+
+        let baseRows = Self.noDismissalSmartCohortsCSV.split(separator: "\n").dropFirst()
+            .filter { !$0.contains(",Homozygous,") }
+        let rows = csv.split(separator: "\n")
+        XCTAssertEqual(rows.first, Self.noDismissalSmartCohortsCSV.split(separator: "\n").first)
+        XCTAssertEqual(rows.count, baseRows.count + 1)
+        for (offset, pair) in zip(rows.dropFirst(), baseRows).enumerated() {
+            let (row, baseRow) = pair
+            XCTAssertEqual(row.split(separator: ",", maxSplits: 1).first, Substring(String(offset + 1)))
+            XCTAssertEqual(row.split(separator: ",", maxSplits: 1).last, baseRow.split(separator: ",", maxSplits: 1).last)
+        }
+    }
+
     // MARK: - Fixture
 
     /// The built-in smart cohorts exactly as the app writes them with a

@@ -258,7 +258,9 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
 
     // MARK: - A deleted built-in
 
-    func testADeletedBuiltInIsNotWrittenBackByOpeningAndReturnsOnlyInMemory() throws {
+    /// Since plan decision S13 the deletion is recorded as a dismissal, so the
+    /// cohort does not come back from memory on the next open either.
+    func testADeletedBuiltInIsNotWrittenBackByOpeningAndStaysDeleted() throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let first = try openLikeTheController(layout)
@@ -270,9 +272,10 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
         let reopened = try openLikeTheController(layout)
 
         XCTAssertEqual(try GenotypeBundleTreeSnapshot.entries(of: layout.root), before, "a read must not write the cohort back")
-        XCTAssertTrue(reopened.sidecar.smartCohorts.map(\.name).contains("Homozygous"))
+        XCTAssertFalse(reopened.sidecar.smartCohorts.map(\.name).contains("Homozygous"))
         let onDisk = try GenotypeAnnotationSidecar.decode(Data(contentsOf: layout.annotationURL))
         XCTAssertFalse(onDisk.smartCohorts.map(\.name).contains("Homozygous"))
+        XCTAssertEqual(onDisk.settings.dismissedBuiltInSmartCohorts, ["Homozygous"])
     }
 
     // MARK: - Edits that publish exactly their replayed result
