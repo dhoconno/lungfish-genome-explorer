@@ -71,9 +71,10 @@ public enum NoFollowFileSystem {
             throw POSIXError(.EINVAL)
         }
         // O_NOFOLLOW applies only to the final component here: ancestors of
-        // the anchor (including /var and /tmp) are resolved normally.
+        // the anchor are resolved normally, and an anchor that is `/var` or
+        // `/tmp` itself opens through its platform alias.
         let anchorDescriptor = Darwin.open(
-            anchorURL.path,
+            resolvingPlatformAliases(anchorURL.path),
             O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
         )
         guard anchorDescriptor >= 0 else {
@@ -108,19 +109,21 @@ public enum NoFollowFileSystem {
         return nil
     }
 
-    private static func openFullHierarchy(_ requested: URL) throws -> Int32 {
-        // `/var` and `/tmp` are immutable compatibility links installed by
-        // macOS itself. Canonicalize only these two platform aliases before
-        // performing descriptor-relative no-follow traversal; arbitrary
-        // caller-controlled symbolic links remain rejected.
-        let traversalPath: String
-        if requested.path == "/var" || requested.path.hasPrefix("/var/") {
-            traversalPath = "/private" + requested.path
-        } else if requested.path == "/tmp" || requested.path.hasPrefix("/tmp/") {
-            traversalPath = "/private" + requested.path
-        } else {
-            traversalPath = requested.path
+    /// `/var` and `/tmp` are immutable compatibility links installed by macOS
+    /// itself. Only these two platform aliases are canonicalized before a
+    /// no-follow open, whether the walk starts at `/` or at an anchor.
+    /// `standardizedFileURL` spells `/private/tmp` as `/tmp`, so without this
+    /// an anchor at either would be refused as a link. Arbitrary
+    /// caller-controlled symbolic links remain rejected.
+    private static func resolvingPlatformAliases(_ path: String) -> String {
+        for alias in ["/var", "/tmp"] where path == alias || path.hasPrefix(alias + "/") {
+            return "/private" + path
         }
+        return path
+    }
+
+    private static func openFullHierarchy(_ requested: URL) throws -> Int32 {
+        let traversalPath = resolvingPlatformAliases(requested.path)
         let descriptor = Darwin.open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         return try walk(

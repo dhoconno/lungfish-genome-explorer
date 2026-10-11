@@ -87,6 +87,19 @@ final class NoFollowFileSystemAnchorTests: XCTestCase {
         try assertDescriptor(descriptor, isSameDirectoryAs: real)
     }
 
+    /// `/tmp` and `/var` are links macOS installs to `/private`, and
+    /// `standardizedFileURL` spells `/private/tmp` as `/tmp`. A folder
+    /// anchored at either opens through that platform alias.
+    func testTmpAndPrivateTmpOpenAsPrivateTmp() throws {
+        for path in ["/tmp", "/private/tmp"] {
+            let descriptor = try NoFollowFileSystem.openDirectoryHierarchy(
+                URL(fileURLWithPath: path, isDirectory: true)
+            )
+            defer { Darwin.close(descriptor) }
+            try assertDescriptor(descriptor, isSameDirectoryAs: URL(fileURLWithPath: "/private/tmp", isDirectory: true))
+        }
+    }
+
     func testDestinationThatIsItselfASymlinkIsRejectedWithoutProject() throws {
         let real = root.appendingPathComponent("real", isDirectory: true)
         try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
