@@ -637,7 +637,7 @@ extension AppDelegate {
                             guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
 
                             let alert = NSAlert()
-                            alert.messageText = "Classification Failed"
+                            alert.messageText = Self.classificationFailedAlertTitle
                             alert.informativeText = error.localizedDescription
                             alert.alertStyle = .warning
                             alert.addButton(withTitle: "OK")
@@ -879,7 +879,7 @@ extension AppDelegate {
                                 OperationCenter.shared.log(
                                     id: opID,
                                     level: .warning,
-                                    message: "Database build failed: \(dbError) — batch will rebuild lazily on open"
+                                    message: Self.classificationDatabaseBuildWarning(dbError)
                                 )
                             }
                             guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
@@ -902,9 +902,10 @@ extension AppDelegate {
                                 do { try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
                             }
 
-                            let completionDetail = capturedResult.detections.isEmpty
-                                ? "No viral hits detected"
-                                : "\(capturedResult.detections.count) viruses detected in \(capturedResult.detectedFamilyCount) families"
+                            let completionDetail = ClassificationCompletionDetail.esVirituDetection(
+                                virusCount: capturedResult.detections.count,
+                                familyCount: capturedResult.detectedFamilyCount
+                            )
                             guard OperationCenter.shared.complete(
                                 id: opID,
                                 detail: completionDetail
@@ -936,7 +937,7 @@ extension AppDelegate {
                             ) else { return }
 
                             let alert = NSAlert()
-                            alert.messageText = "EsViritu Failed"
+                            alert.messageText = Self.esVirituFailedAlertTitle
                             alert.informativeText = errorDesc
                             alert.alertStyle = .warning
                             alert.addButton(withTitle: "OK")
@@ -1064,7 +1065,7 @@ extension AppDelegate {
                     }
 
                     let sampleID = sampleIDs[index]
-                    let samplePrefix = "Sample \(index + 1)/\(sampleCount) (\(sampleID))"
+                    let samplePrefix = Self.classificationBatchSamplePrefix(index: index, sampleCount: sampleCount, sampleID: sampleID)
 
                     let progressCallback: @Sendable (Double, String) -> Void = { sampleProgress, message in
                         let bounded = max(0, min(1, sampleProgress))
@@ -1309,7 +1310,7 @@ extension AppDelegate {
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             viewerController.hideProgress()
-                            guard OperationCenter.shared.fail(id: opID, detail: "Batch cancelled") else { return }
+                            guard OperationCenter.shared.fail(id: opID, detail: ClassificationCompletionDetail.batchCancelled) else { return }
                             self.targetMainWindowController(routeContext: routeContext)?
                                 .mainSplitViewController?
                                 .sidebarController.requestReloadFromFilesystem()
@@ -1332,14 +1333,14 @@ extension AppDelegate {
                         let successCount = successfulResults.count
 
                         if successCount == 0 {
-                            let detail = failedResults.first?.error ?? "All samples failed"
+                            let detail = ClassificationCompletionDetail.allSamplesFailed(firstError: failedResults.first?.error)
                             guard OperationCenter.shared.fail(id: opID, detail: detail) else { return }
                             self.targetMainWindowController(routeContext: routeContext)?
                                 .mainSplitViewController?
                                 .sidebarController.requestReloadFromFilesystem()
 
                             let alert = NSAlert()
-                            alert.messageText = "Classification Batch Failed"
+                            alert.messageText = Self.classificationBatchFailedAlertTitle
                             alert.informativeText = detail
                             alert.alertStyle = .warning
                             alert.addButton(withTitle: "OK")
@@ -1353,7 +1354,7 @@ extension AppDelegate {
                             OperationCenter.shared.log(
                                 id: opID,
                                 level: .warning,
-                                message: "Database build failed: \(dbError) — batch will rebuild lazily on open"
+                                message: Self.classificationDatabaseBuildWarning(dbError)
                             )
                         }
 
@@ -1383,16 +1384,20 @@ extension AppDelegate {
                             }
                         }
 
-                        let completionBase = "\(successCount) of \(sampleCount) samples returned valid Kraken2 classifications"
+                        let completionDetail = ClassificationCompletionDetail.kraken2Batch(
+                            successCount: successCount,
+                            sampleCount: sampleCount,
+                            evaluation: finalEvaluation
+                        )
                         if finalEvaluation.requiresWarningCompletion {
                             guard OperationCenter.shared.completeWithWarning(
                                 id: opID,
-                                detail: "\(completionBase); \(finalEvaluation.warningMessage)"
+                                detail: completionDetail
                             ) else { return }
                         } else {
                             guard OperationCenter.shared.complete(
                                 id: opID,
-                                detail: completionBase
+                                detail: completionDetail
                             ) else { return }
                         }
 
@@ -1477,7 +1482,7 @@ extension AppDelegate {
                     }
 
                     let sampleID = MetagenomicsSampleGrouper.sanitizeSampleId(config.sampleName)
-                    let samplePrefix = "Sample \(index + 1)/\(sampleCount) (\(sampleID))"
+                    let samplePrefix = Self.classificationBatchSamplePrefix(index: index, sampleCount: sampleCount, sampleID: sampleID)
 
                     do {
                         let resolvedConfig = try await self.resolvedEsVirituConfig(
@@ -1684,7 +1689,7 @@ extension AppDelegate {
                         viewerController.hideProgress()
 
                         if wasCancelled {
-                            guard OperationCenter.shared.fail(id: opID, detail: "Batch cancelled") else { return }
+                            guard OperationCenter.shared.fail(id: opID, detail: ClassificationCompletionDetail.batchCancelled) else { return }
                             return
                         }
 
@@ -1692,11 +1697,11 @@ extension AppDelegate {
                         let failureCount = failedResults.count
 
                         if successCount == 0 {
-                            let detail = failedResults.first?.error ?? "All samples failed"
+                            let detail = ClassificationCompletionDetail.allSamplesFailed(firstError: failedResults.first?.error)
                             guard OperationCenter.shared.fail(id: opID, detail: detail) else { return }
 
                             let alert = NSAlert()
-                            alert.messageText = "EsViritu Batch Failed"
+                            alert.messageText = Self.esVirituBatchFailedAlertTitle
                             alert.informativeText = detail
                             alert.alertStyle = .warning
                             alert.addButton(withTitle: "OK")
@@ -1710,7 +1715,7 @@ extension AppDelegate {
                             OperationCenter.shared.log(
                                 id: opID,
                                 level: .warning,
-                                message: "Database build failed: \(dbError) — batch will rebuild lazily on open"
+                                message: Self.classificationDatabaseBuildWarning(dbError)
                             )
                         }
 
@@ -1737,17 +1742,14 @@ extension AppDelegate {
                             }
                         }
 
-                        if failureCount == 0 {
-                            guard OperationCenter.shared.complete(
-                                id: opID,
-                                detail: "\(successCount) of \(sampleCount) samples completed"
-                            ) else { return }
-                        } else {
-                            guard OperationCenter.shared.complete(
-                                id: opID,
-                                detail: "\(successCount) completed, \(failureCount) failed"
-                            ) else { return }
-                        }
+                        guard OperationCenter.shared.complete(
+                            id: opID,
+                            detail: ClassificationCompletionDetail.esVirituBatch(
+                                successCount: successCount,
+                                failureCount: failureCount,
+                                sampleCount: sampleCount
+                            )
+                        ) else { return }
 
                         // Reload sidebar so the new batch result appears.
                         // User clicks the new result to view it (batch-only display path).
@@ -1875,7 +1877,7 @@ extension AppDelegate {
                                 OperationCenter.shared.log(
                                     id: opID,
                                     level: .warning,
-                                    message: "Database build failed: \(dbError) — batch will rebuild lazily on open"
+                                    message: Self.classificationDatabaseBuildWarning(dbError)
                                 )
                             }
                             Self.writeTaxTriageCrossRefSidecars(result: capturedResult, config: capturedConfig)
