@@ -119,10 +119,24 @@ enum ToolProcessSpawner {
         }
     }
 
-    /// Reaps `pid`, which must be a zombie this run spawned.
-    static func reap(_ pid: pid_t) {
+    /// Reaps `pid`, which must be a zombie this run spawned, and returns the
+    /// peak resident memory in bytes that `wait4` reports for it, which
+    /// covers the descendants it waited for, or nil when it was not reaped
+    /// here. Darwin reports `ru_maxrss` in bytes.
+    @discardableResult
+    static func reap(_ pid: pid_t) -> UInt64? {
         var status: Int32 = 0
-        while waitpid(pid, &status, WNOHANG) == -1 && errno == EINTR {}
+        var usage = rusage()
+        while true {
+            let reaped = wait4(pid, &status, WNOHANG, &usage)
+            if reaped == pid {
+                return usage.ru_maxrss > 0 ? UInt64(usage.ru_maxrss) : nil
+            }
+            if reaped == -1 && errno == EINTR {
+                continue
+            }
+            return nil
+        }
     }
 
     /// Members of process group `pgid` other than its leader that are still

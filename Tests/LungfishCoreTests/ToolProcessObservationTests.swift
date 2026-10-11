@@ -561,3 +561,64 @@ final class ToolProcessEarlyCancelObservationTests: XCTestCase {
         XCTAssertEqual(observation.stages.map(\.ending), [.notLaunched])
     }
 }
+
+/// Phase 2.7 lane S1 (decision P4). Each reaped stage's peak memory comes
+/// from `wait4` into the observation, and nothing outside ToolProcess reads
+/// it yet, so no record writes a value that no golden normalizer rule masks.
+final class ToolProcessObservedPeakMemoryTests: XCTestCase {
+    private typealias Fixtures = ToolProcessFixtures
+    private typealias Pins = ToolProcessEntryPointPinTests
+
+    /// The shell holds a 16 MB string, so its peak resident memory is at
+    /// least that, in bytes as Darwin reports it. A stage that never
+    /// launched has none.
+    func testEachReapedStageCarriesThePeakMemoryWait4Reports() async throws {
+        let log = ToolProcessObservationLog()
+        let result = try await ToolProcessObservation.$observer.withValue(log.observer) {
+            try await ToolProcess.run(Fixtures.shell("x=$(head -c 16000000 /dev/zero | tr '\\000' a); echo ${#x}"))
+        }
+        XCTAssertEqual(result.stdoutText, "16000000\n")
+        let peak = try XCTUnwrap(log.all.first?.stages.first?.observedPeakMemoryBytes)
+        XCTAssertGreaterThanOrEqual(peak, 16_000_000)
+        XCTAssertLessThan(peak, 4_000_000_000, "a value this large would mean the units are wrong")
+        do {
+            _ = try await ToolProcessObservation.$observer.withValue(log.observer) {
+                try await ToolProcess.runPipeline(
+                    [Fixtures.shell("true", label: "first"), Pins.missingTool(label: "ghost")],
+                    timeout: .seconds(30)
+                )
+            }
+            XCTFail("Expected launchFailed")
+        } catch ToolProcessError.launchFailed {
+        } catch {
+            XCTFail("Unexpected error \(error)")
+        }
+        let stages = try XCTUnwrap(log.all.last).stages
+        XCTAssertNotNil(stages[0].observedPeakMemoryBytes)
+        XCTAssertNil(stages[1].observedPeakMemoryBytes)
+    }
+
+    /// The guard of decision P4. No normalizer rule in `scripts/golden/normalize.py`
+    /// masks a peak memory, so a record that wrote this run-dependent value
+    /// would change every golden on every run. A record consumer that copies
+    /// `observedPeakMemoryBytes` lands together with an approved normalizer
+    /// rule and changes this test in the same commit.
+    func testNothingOutsideToolProcessReadsTheObservedPeakMemoryYet() throws {
+        let root = CLITestBinaryResolver.repositoryRoot(containing: #filePath)
+        let sources = root.appendingPathComponent("Sources", isDirectory: true)
+        let allowed = sources.appendingPathComponent("LungfishCore/Process", isDirectory: true).path + "/"
+        let files = try XCTUnwrap(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
+        var readers: [String] = []
+        var scanned = 0
+        for case let url as URL in files where url.pathExtension == "swift" {
+            scanned += 1
+            guard !url.path.hasPrefix(allowed) else { continue }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            if text.contains("observedPeakMemoryBytes") {
+                readers.append(String(url.path.dropFirst(root.path.count + 1)))
+            }
+        }
+        XCTAssertGreaterThan(scanned, 100, "the scan must reach the package sources")
+        XCTAssertEqual(readers, [], "Peak memory stays in the ToolProcess observation until a golden normalizer rule for it is approved (Phase 2.7 decision P4)")
+    }
+}

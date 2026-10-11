@@ -34,16 +34,17 @@ extension ToolProcessExecution {
     /// was built, and does nothing without one. Runs on `queue` once the run
     /// is over and before `onComplete` wakes anything waiting on the run. It
     /// holds no lock, because the lock is not recursive and an observer may
-    /// read the run's handle.
-    func deliverObservation() {
+    /// read the run's handle. `peakMemory` holds what `wait4` reported for
+    /// each reaped stage, by pid.
+    func deliverObservation(peakMemory: [pid_t: UInt64]) {
         guard let observer, let anchor = observationAnchor else { return }
-        observer.deliver(observation(anchor: anchor))
+        observer.deliver(observation(anchor: anchor, peakMemory: peakMemory))
     }
 
     /// Builds the observation of the finished run. Launched stages come from
     /// ``launchedStageResults(_:)``, the helper ``outcome()`` reads, so the
     /// observation and the result or error never disagree.
-    func observation(anchor: ObservationAnchor) -> ToolProcessRunObservation {
+    func observation(anchor: ObservationAnchor, peakMemory: [pid_t: UInt64]) -> ToolProcessRunObservation {
         let run = state.withLock { $0 }
         let launched = launchedStageResults(run)
         var resultsByStage: [Int: ToolProcessResult] = [:]
@@ -100,7 +101,9 @@ extension ToolProcessExecution {
                     : nil,
                 environmentChange: spec.environmentChange,
                 identityHint: spec.identityHint,
-                observedPeakMemoryBytes: nil
+                // Kept out of every record until a golden normalizer rule
+                // for it is approved (decision P4).
+                observedPeakMemoryBytes: peakMemory[record.pid]
             )
         }
         return ToolProcessRunObservation(

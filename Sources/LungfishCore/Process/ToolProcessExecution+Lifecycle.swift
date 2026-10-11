@@ -174,7 +174,12 @@ extension ToolProcessExecution {
             // groups, then reap. Reaping last keeps every pid and group ID
             // reserved until nothing can send a signal to it any more.
             unregister.forEach { NativeProcessRegistry.shared.unregister(processGroupLeader: $0) }
-            reap.forEach(ToolProcessSpawner.reap)
+            // wait4 reports each stage's peak memory, which only the
+            // provenance observation carries (decision P4).
+            var peakMemory: [pid_t: UInt64] = [:]
+            for pid in reap {
+                peakMemory[pid] = ToolProcessSpawner.reap(pid)
+            }
             // A reader of a streamed stdout stops waiting once nothing is
             // left in the pipe, even if a process outside the run holds it.
             stdoutChannel.runEnded()
@@ -182,8 +187,8 @@ extension ToolProcessExecution {
             // are not captured still delivers its started events first. The
             // provenance observation goes first, outside the lock, so it lands
             // before anything waiting on the run wakes.
-            queue.async { [self] in
-                deliverObservation()
+            queue.async { [self, peakMemory] in
+                deliverObservation(peakMemory: peakMemory)
                 onComplete?()
             }
         }
