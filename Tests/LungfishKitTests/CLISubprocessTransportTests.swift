@@ -77,7 +77,11 @@ final class CLISubprocessTransportTests: XCTestCase {
         let result = try outcome.get()
         XCTAssertEqual(result.outputs, ["/tmp/result"])
         XCTAssertEqual(result.message, "done")
-        XCTAssertEqual(events.values, [.progress(fraction: 0.5, message: "halfway")])
+        // The two streams are read side by side, so their lines may interleave
+        // either way. Standard error arrives as an info log line.
+        XCTAssertEqual(events.values.count, 2)
+        XCTAssertTrue(events.values.contains(.progress(fraction: 0.5, message: "halfway")))
+        XCTAssertTrue(events.values.contains(.log(level: .info, message: String(repeating: "e", count: 300_000))))
     }
 
     /// The failure message carries the whole of a stderr over 64 KB.
@@ -243,6 +247,34 @@ final class CLISubprocessTransportTests: XCTestCase {
         ]), events: events).get()
 
         XCTAssertEqual(events.values, [.progress(fraction: 0.5, message: "halfway")])
+        XCTAssertEqual(result.outputs, ["/work/a.fa"])
+    }
+
+    /// Plain standard error is human text. Each line that is not blank reaches
+    /// `onEvent` as an info log line, in its own order, so the operation log keeps it
+    /// at info level even when it says "warning".
+    func testPlainStandardErrorArrivesAsInfoLogLines() async throws {
+        let stdoutLines = folder.appendingPathComponent("stdout.ndjson")
+        let stderrLines = folder.appendingPathComponent("stderr.txt")
+        try """
+        {"event":"progress","message":"halfway","progress":0.5,"schemaVersion":2}
+        {"event":"complete","outputs":["/work/a.fa"],"schemaVersion":2}
+
+        """.write(to: stdoutLines, atomically: true, encoding: .utf8)
+        try "Reading the input bundle.\n\n   \nwarning: this text is not a warning event\n"
+            .write(to: stderrLines, atomically: true, encoding: .utf8)
+        let cli = try fakeCLI("#!/bin/sh\n/bin/cat '\(stderrLines.path)' >&2\n/bin/cat '\(stdoutLines.path)'\n")
+
+        let events = EventLog()
+        let result = try await run(cli, events: events).get()
+
+        let logLines = events.values.filter { if case .log = $0 { return true } else { return false } }
+        XCTAssertEqual(logLines, [
+            .log(level: .info, message: "Reading the input bundle."),
+            .log(level: .info, message: "warning: this text is not a warning event"),
+        ])
+        XCTAssertTrue(events.values.contains(.progress(fraction: 0.5, message: "halfway")))
+        XCTAssertEqual(events.values.count, 3)
         XCTAssertEqual(result.outputs, ["/work/a.fa"])
     }
 

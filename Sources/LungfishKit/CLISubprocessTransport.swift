@@ -107,7 +107,9 @@ public actor CLISubprocessTransport {
     ///   - onEvent: Invoked off the main actor, one event at a time and in
     ///     order, for every decoded event except `.complete`, which is folded
     ///     into the return value. A `.failed` event is delivered and also
-    ///     thrown, so callers cannot forget to check it. The bridge hops each
+    ///     thrown, so callers cannot forget to check it. Each line of plain
+    ///     standard error that is not blank arrives as an info `.log` event,
+    ///     so the operation log keeps it at info level. The bridge hops each
     ///     event to the main actor itself.
     public func run(
         arguments: [String],
@@ -161,11 +163,29 @@ public actor CLISubprocessTransport {
             }
         }
 
-        let outcome = await CLIProcessLauncher.run(
-            CLIProcessLauncher.spec(executableURL: binaryURL, arguments: arguments),
-            cancellation: cancellation,
-            onStdoutLine: handleLine
-        )
+        // Standard error carries human text, never events (S15). Each line that is
+        // not blank reaches the caller as an info log line, so it stays in the
+        // operation log at info level and never makes a run Completed with
+        // Warnings, whatever it says (decision S16 of Phase 2.6).
+        @Sendable func handleStandardErrorLine(_ line: String) {
+            guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return
+            }
+            onEvent(.log(level: .info, message: line))
+        }
+
+        // The one spec and the one outcome mapping of `CLIProcessLauncher`, with
+        // both streams delivered line by line.
+        let launch = await cancellation.run(
+            CLIProcessLauncher.spec(executableURL: binaryURL, arguments: arguments)
+        ) { processEvent in
+            guard case let .output(stream, line) = processEvent else { return }
+            switch stream {
+            case .stdout: handleLine(line)
+            case .stderr: handleStandardErrorLine(line)
+            }
+        }
+        let outcome = CLIProcessLauncher.map(launch.result, cancelRequested: launch.cancelRequested)
 
         let exit: CLIProcessExit
         switch outcome {

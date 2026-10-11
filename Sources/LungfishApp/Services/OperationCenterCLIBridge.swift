@@ -17,6 +17,16 @@ import LungfishWorkflow
 /// transport folds those into its return value / thrown error so the caller
 /// (which knows what the outputs mean — a tree bundle, an import manifest,
 /// …) records completion itself via `OperationCenter.shared.complete(...)`.
+/// The caller completes with paths from `outputs` only. Typed artifacts
+/// describe them and are never imported on their own.
+///
+/// Plain standard error stays in the operation log at info level. The
+/// transport hands each line over as an info `.log` event, so text such as
+/// "warning: ..." on standard error never makes a run Completed with
+/// Warnings. Under today's rules only a `log` event at level
+/// `warning` or a producer's `completeWithWarning` does (S16).
+/// `OperationCenterCLIBridgeTests` holds one test for each label a run can
+/// end on.
 enum OperationCenterCLIBridge {
     /// Suitable as the `onEvent` closure passed to `CLISubprocessTransport.run`.
     static func onEvent(operationID: UUID) -> @Sendable (CLIEvent) -> Void {
@@ -30,6 +40,8 @@ enum OperationCenterCLIBridge {
                     case let .progress(fraction, message):
                         _ = OperationCenter.shared.update(id: operationID, progress: fraction, detail: message)
                     case let .log(level, message):
+                        // A log event at its own level, or a line of plain
+                        // standard error at info.
                         OperationCenter.shared.log(id: operationID, level: level.operationLogLevel, message: message)
                     case .output:
                         break
