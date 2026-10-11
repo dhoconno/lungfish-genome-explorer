@@ -71,15 +71,28 @@ public enum FileTypeUtility {
             map[ext] = .compressed
         }
 
-        // Reference bundle
-        map["lungfishref"] = .referenceBundle
-        map[TwelveSReferenceBundle.directoryExtension] = .referenceBundle
-        map[MHCAmpliconReferenceBundle.directoryExtension] = .referenceBundle
-        // FASTQ package bundle
-        map[FASTQBundle.directoryExtension] = .sequence
+        // Bundle kinds. The extensions come from BundleKindRegistry, which spells them in lowercase,
+        // and detect(url:) lowercases the extension it looks up.
+        for descriptor in BundleKindRegistry.all {
+            if let category = bundleCategories[descriptor.id] {
+                for ext in descriptor.folderExtensions {
+                    map[ext] = category
+                }
+            }
+        }
 
         return map
     }()
+
+    /// The UI category of each bundle kind this utility names. Every other Lungfish folder is unknown to it.
+    /// The 12S reference database is listed as a reference bundle, which is a known mismatch (plan row S10)
+    /// that a later commit of Phase 2.6 lane B7 corrects.
+    private static let bundleCategories: [BundleKindID: UICategory] = [
+        .reference: .referenceBundle,
+        .mhcReference: .referenceBundle,
+        .twelveSReference: .referenceBundle,
+        .fastq: .sequence,
+    ]
 
     /// Maps file extensions to custom icon names (overrides category defaults)
     private static let extensionToIcon: [String: String] = [
