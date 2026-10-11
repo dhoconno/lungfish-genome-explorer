@@ -489,7 +489,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     /// surrounding project root in `configure(result:)`.
     private var haplotypeDefinitionStore = HaplotypeDefinitionStore(projectRoot: nil)
     private var cachedHaplotypeDefinitionContext: HaplotypeDefinitionContext?
-    private var presentationPolicy: GenotypeResultPresentationPolicy?
+    private(set) var presentationPolicy: GenotypeResultPresentationPolicy?
     private(set) var selectedLens: Lens = .summary
     private(set) var displayState = GenotypeResultDisplayState()
     private var currentSharedCall: ONTGenotypeSharedCall?
@@ -1058,7 +1058,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     }
 
     private func initialSummaryViewMode(for result: ONTGenotypeResultBundleData) -> GenotypeSummaryViewMode {
-        if let rawValue = annotationStore?.sidecar.settings.preferredSummaryViewMode,
+        if let rawValue = annotationStore?.startingViewState.preferredSummaryViewMode,
            let mode = GenotypeSummaryViewMode(rawValue: rawValue) {
             var state = GenotypeResultDisplayState(
                 viewportLens: .summary,
@@ -1605,7 +1605,9 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             persistCandidateDisplaySettings(requestedSettings, requestedState: state)
             return
         }
+        let previousViewMode = displayState.summaryViewMode
         applyDisplayStateImmediately(state)
+        recordSummaryViewChoice(from: previousViewMode, to: displayState.summaryViewMode)
     }
 
     private func applyDisplayStateImmediately(_ state: GenotypeResultDisplayState) {
@@ -1653,10 +1655,6 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             || cohortFlagOnlyChange
             || isHaplotypedMiSeqPresentationOnlyChange
         displayState = state
-        persistSummaryViewPreferenceIfNeeded(
-            previousViewMode: previousViewMode,
-            nextViewMode: state.summaryViewMode
-        )
         if lensChanged {
             showLens(state.viewportLens)
         } else {
@@ -1861,26 +1859,6 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
                 sample: currentSelectedSample,
                 matrixTargets: currentSelectionState?.matrixTargets ?? []
             )
-        }
-    }
-
-    private func persistSummaryViewPreferenceIfNeeded(
-        previousViewMode: GenotypeSummaryViewMode,
-        nextViewMode: GenotypeSummaryViewMode
-    ) {
-        guard previousViewMode != nextViewMode,
-              presentationPolicy?.persistencePolicy != .preserveStoredPreference,
-              presentationPolicy?.persistencePolicy != .sessionOnly,
-              let store = annotationStore,
-              !store.isReadOnly else { return }
-        let author = annotationAuthorProvider()
-        do {
-            try store.updateSettings(author: author) { settings in
-                settings.preferredSummaryViewMode = nextViewMode.rawValue
-            }
-            onAnnotationSidecarChanged?(store.sidecar)
-        } catch {
-            presentSheetAlert(error: error)
         }
     }
 

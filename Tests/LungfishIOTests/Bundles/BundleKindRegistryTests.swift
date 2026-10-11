@@ -176,12 +176,19 @@ final class BundleKindRegistryTests: XCTestCase {
         XCTAssertEqual(try folder(.multipleSequenceAlignment), "\(AnalysesFolder.directoryName)/Multiple Sequence Alignments")
     }
 
-    func testAppStateNamesAreTheViewStateFileOfTheReferenceOnly() throws {
+    func testAppStateNamesAreTheViewStateFilesOfTheReferenceAndTheGenotypeResultOnly() throws {
         // The alignment and tree .viewstate.json sits inside the manifest checksums, so it is not declared app state (S11).
+        let expected: [BundleKindID: [String]] = [
+            .reference: [BundleViewState.filename],
+            .genotypeResult: [GenotypeResultViewState.filename],
+        ]
         for id in BundleKindRegistry.all.map(\.id) {
             let names = try descriptor(id).appStateFileNames
-            XCTAssertEqual(names, id == .reference ? [BundleViewState.filename] : [], "\(id)")
+            XCTAssertEqual(names, expected[id] ?? [], "\(id)")
         }
+        // A hidden name keeps the file out of every directory digest.
+        XCTAssertTrue(GenotypeResultViewState.filename.hasPrefix("."))
+        XCTAssertNotEqual(GenotypeResultViewState.filename, BundleViewState.filename, "the reference viewer must never decode it")
     }
 
     func testOnlyTheAlignmentTreePrimerAndPrimerAnalysisFormatsKeepTheirOwnRecordNames() {

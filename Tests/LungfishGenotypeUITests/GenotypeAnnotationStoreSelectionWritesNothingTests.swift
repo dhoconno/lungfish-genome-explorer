@@ -68,10 +68,11 @@ final class GenotypeAnnotationStoreSelectionWritesNothingTests: GenotypeResultVi
         )
     }
 
-    /// The Haplotype Calls and Genotype Matrix switch still saves its choice
-    /// (finding F10, scheduled later). That write publishes the sidecar the
-    /// analyst sees, so it carries the built-ins and raises no alert.
-    func testTheViewSwitchWriteCarriesTheBuiltInsOfAFreshBundle() throws {
+    /// The Haplotype Calls and Genotype Matrix switch saves its choice as app
+    /// state (plan decision S11, walk finding F10). It writes no sidecar, no
+    /// record and no lock, so the built-ins of a fresh bundle stay in memory
+    /// until the first edit.
+    func testTheViewSwitchWritesOnlyTheAppStateAndKeepsTheBuiltInsInMemory() throws {
         let fixture = try makeFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = makeMatrixAnnotationGuardedController()
@@ -83,10 +84,15 @@ final class GenotypeAnnotationStoreSelectionWritesNothingTests: GenotypeResultVi
         state.summaryViewMode = .matrix
         controller.applyDisplayState(state)
 
-        let written = try GenotypeAnnotationSidecar.decode(Data(contentsOf: fixture.annotationURL))
-        XCTAssertEqual(written.settings.preferredSummaryViewMode, GenotypeSummaryViewMode.matrix.rawValue)
-        XCTAssertEqual(written.smartCohorts.map(\.name), Self.builtInNames)
-        XCTAssertEqual(written, controller.annotationStore?.sidecar)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.annotationURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: ONTGenotypeBundlePublicationLock.lockURL(for: fixture.bundleURL).path
+        ))
+        XCTAssertEqual(
+            GenotypeResultViewState.load(fromBundleAt: fixture.bundleURL)?.preferredSummaryViewMode,
+            GenotypeSummaryViewMode.matrix.rawValue
+        )
+        XCTAssertEqual(controller.annotationStore?.sidecar.smartCohorts.map(\.name), Self.builtInNames)
     }
 
     /// A candidate display change publishes its own sidecar transaction, which

@@ -217,9 +217,10 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
         try assertFreshRecord(layout, action: "saveSmartCohort")
     }
 
-    /// The Haplotype Calls and Genotype Matrix switch saves the choice through
-    /// `updateSettings` (walk finding F10, not changed here). It is a real
-    /// write, so it carries the built-ins and must not trip the revision guard.
+    /// Choosing a haplotype definition set saves it through `updateSettings`.
+    /// The Haplotype Calls and Genotype Matrix switch no longer does, because
+    /// it is app state (plan decision S11). A settings write is a real write,
+    /// so it carries the built-ins and must not trip the revision guard.
     func testASettingWriteCarriesTheBuiltInsAndKeepsTheRevisionGuardQuiet() throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
@@ -231,12 +232,12 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
             publicationFaultInjector: counter.inject
         )
 
-        try store.updateSettings { $0.preferredSummaryViewMode = "matrix" }
+        try store.updateSettings { $0.activeHaplotypeDefinitionSetID = "analyst-definitions" }
 
         XCTAssertEqual(counter.count, 1)
         let written = try GenotypeAnnotationSidecar.decode(Data(contentsOf: layout.annotationURL))
         XCTAssertEqual(written.smartCohorts.map(\.name), Self.builtInNames)
-        XCTAssertEqual(written.settings.preferredSummaryViewMode, "matrix")
+        XCTAssertEqual(written.settings.activeHaplotypeDefinitionSetID, "analyst-definitions")
         XCTAssertEqual(written.auditLog.map(\.action), ["updateSettings"])
         XCTAssertEqual(written, store.sidecar)
         try assertFreshRecord(layout, action: "updateSettings")

@@ -2386,10 +2386,9 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
         XCTAssertEqual(controller.testingSummaryViewMode, .outline)
 
         controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix))
-        let sidecar = try GenotypeAnnotationSidecar.decode(Data(
-            contentsOf: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
-        ))
-        XCTAssertEqual(sidecar.settings.preferredSummaryViewMode, GenotypeSummaryViewMode.matrix.rawValue)
+        // The choice is app state since plan decision S11, so annotations.json stays unwritten.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename).path))
+        XCTAssertEqual(GenotypeResultViewState.load(fromBundleAt: bundleURL)?.preferredSummaryViewMode, GenotypeSummaryViewMode.matrix.rawValue)
 
         let restored = makeMatrixAnnotationGuardedController()
         _ = restored.view

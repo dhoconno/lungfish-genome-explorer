@@ -107,7 +107,7 @@ public enum BundleKindRegistry {
             sidebarSymbolName: "tablecells.badge.ellipsis", presentation: .atomicPackage,
             deletion: .init(isOpaqueProjectObject: true),
             copy: .copied(toFolder: "Analyses", requiresAnalysesFolder: true),
-            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: [.ontGenotyping]
+            appStateFileNames: [GenotypeResultViewState.filename], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: [.ontGenotyping]
         ),
         BundleKindDescriptor(
             id: .twelveSResult, role: .bundle, folderExtensions: ["lungfish12s"],

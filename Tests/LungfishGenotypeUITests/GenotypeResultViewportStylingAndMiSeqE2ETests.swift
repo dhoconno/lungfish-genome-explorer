@@ -2291,12 +2291,13 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         var state = controller.testingDisplayState
         state.summaryViewMode = .matrix
         controller.applyDisplayState(state)
+        // The choice is app state since plan decision S11, never the sidecar.
         XCTAssertEqual(
             try GenotypeAnnotationStore(
                 bundleURL: secondURL,
                 author: "test",
                 seedBuiltInSmartCohorts: true
-            ).sidecar.settings.preferredSummaryViewMode,
+            ).startingViewState.preferredSummaryViewMode,
             GenotypeSummaryViewMode.matrix.rawValue
         )
 
@@ -5092,6 +5093,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         state.summaryViewMode = .matrix
         state.manualHaplotypeBandExpanded = true
         controller.testingApplyDisplayState(state)
+        // The view switch writes only app state since plan decision S11, so publish the sidecar the edit reads.
+        try XCTUnwrap(controller.annotationStore).publishUnsavedBuiltInSmartCohorts()
         let matrix = try XCTUnwrap(
             controller.view.firstDescendant(
                 ofType: GenotypeComparisonMatrixView.self
@@ -5185,6 +5188,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         state.summaryViewMode = .matrix
         state.manualHaplotypeBandExpanded = true
         controller.testingApplyDisplayState(state)
+        // The view switch writes only app state since plan decision S11, so publish the sidecar the edit reads.
+        try XCTUnwrap(controller.annotationStore).publishUnsavedBuiltInSmartCohorts()
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o555],
             ofItemAtPath: fixture.bundleURL.path
