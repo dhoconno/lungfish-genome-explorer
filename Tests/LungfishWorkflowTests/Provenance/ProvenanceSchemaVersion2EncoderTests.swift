@@ -557,4 +557,94 @@ final class ProvenanceSchemaVersion2EncoderTests: XCTestCase {
         XCTAssertEqual(read.steps.last, child)
         XCTAssertEqual(read.tool.managedToolID, ManagedToolID(rawValue: "samtools"))
     }
+
+    // MARK: Open file formats and roles
+
+    /// A newly written record at `schemaVersion`, with one more input descriptor naming a format
+    /// and a role this build does not know.
+    static func recordWithSampleSheet(schemaVersion: Int) throws -> Data {
+        let written = try write(completedRun())
+        defer { written.cleanup() }
+        var object = try written.json()
+        var files = try XCTUnwrap(object["files"] as? [[String: Any]])
+        files.append(["path": "/data/samples.csv", "format": "csv", "role": "sampleSheet"])
+        object["files"] = files
+        object["schemaVersion"] = schemaVersion
+        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    }
+
+    /// From version 2 a format or role this build does not know decodes, and a write keeps it.
+    func testAVersion2RecordKeepsAFileFormatAndRoleThisBuildDoesNotKnow() throws {
+        let read = try ProvenanceEnvelopeReader.read(try Self.recordWithSampleSheet(schemaVersion: 2))
+        XCTAssertEqual(read.shape, .envelope)
+        let sheet = try XCTUnwrap(read.envelope.files.first { $0.path == "/data/samples.csv" })
+        XCTAssertEqual(sheet.format?.rawValue, "csv")
+        XCTAssertEqual(sheet.role.rawValue, "sampleSheet")
+
+        let rewritten = try Self.write(read.envelope)
+        defer { rewritten.cleanup() }
+        let files = try XCTUnwrap(try rewritten.json()["files"] as? [[String: Any]])
+        let written = try XCTUnwrap(files.first { $0["path"] as? String == "/data/samples.csv" })
+        XCTAssertEqual(written["format"] as? String, "csv")
+        XCTAssertEqual(written["role"] as? String, "sampleSheet")
+    }
+
+    /// Below version 2 an unknown role keeps failing the envelope decoder, so the record still
+    /// falls to the primitive adapter and a signature over it still covers its raw bytes.
+    func testAVersion1RecordWithAnUnknownRoleKeepsTodaysOutcome() throws {
+        let data = try Self.recordWithSampleSheet(schemaVersion: 1)
+        XCTAssertThrowsError(try ProvenanceEnvelopeReader.decodeCanonical(data))
+        let read = try ProvenanceEnvelopeReader.read(data)
+        XCTAssertEqual(read.shape, .primitive)
+        XCTAssertEqual(try ProvenanceSigningPayload.data(forProvenanceData: data), data)
+    }
+
+    /// A site that rebuilds an envelope copies the version it read. A rebuilt version 1 record that
+    /// gains a new format is written at version 2, so it reads back with the format.
+    func testARebuiltVersion1EnvelopeWithANewFormatReadsBackWithIt() throws {
+        let base = Self.completedRun(schemaVersion: 1)
+        let sheet = ProvenanceFileDescriptor(path: "/data/samples.csv", format: FileFormat(rawValue: "csv"), role: .input)
+        let rebuilt = ProvenanceEnvelope(
+            schemaVersion: base.schemaVersion,
+            id: base.id,
+            createdAt: base.createdAt,
+            workflowName: base.workflowName,
+            workflowVersion: base.workflowVersion,
+            toolName: base.toolName,
+            toolVersion: base.toolVersion,
+            argv: base.argv,
+            options: base.options,
+            runtimeIdentity: base.runtimeIdentity,
+            files: base.files + [sheet],
+            output: base.output,
+            outputs: base.outputs,
+            steps: base.steps,
+            wallTimeSeconds: base.wallTimeSeconds,
+            exitStatus: base.exitStatus,
+            status: base.status
+        )
+        let written = try Self.write(rebuilt)
+        defer { written.cleanup() }
+        let read = try ProvenanceEnvelopeReader.read(written.data)
+        XCTAssertEqual(read.envelope.schemaVersion, 2)
+        XCTAssertEqual(read.shape, .envelope)
+        XCTAssertEqual(read.envelope.files.first { $0.path == "/data/samples.csv" }?.format?.rawValue, "csv")
+    }
+
+    /// The set of typed value kinds stays closed at version 2. A value of a kind this build does not
+    /// know reads as a plain object, as it always did, never as a value of a new kind.
+    func testATypedValueOfAnUnknownKindStillReadsAsAPlainObject() throws {
+        let written = try Self.write(Self.completedRun())
+        defer { written.cleanup() }
+        var object = try written.json()
+        var options = try XCTUnwrap(object["options"] as? [String: Any])
+        options["explicit"] = ["threads": ["type": "futureKind", "value": 2]]
+        object["options"] = options
+        let read = try ProvenanceEnvelopeReader.read(try JSONSerialization.data(withJSONObject: object))
+        XCTAssertEqual(read.shape, .envelope)
+        XCTAssertEqual(
+            read.envelope.options.explicit["threads"],
+            .dictionary(["type": .string("futureKind"), "value": .integer(2)])
+        )
+    }
 }

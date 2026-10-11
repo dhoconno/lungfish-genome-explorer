@@ -52,7 +52,8 @@ final class ProvenanceSchemaVersion2Tests: XCTestCase {
         }
 
         /// A version 2 record at `schemaVersion` 3 with a key no reader knows at the top level, in
-        /// every step and in every descriptor.
+        /// every step and in every descriptor, and one more file whose format and role, `csv` and
+        /// `sampleSheet`, no version 1 reader knows.
         static func version3(fromVersion2 data: Data) throws -> Data {
             var record = try object(data)
             record["schemaVersion"] = 3
@@ -70,6 +71,9 @@ final class ProvenanceSchemaVersion2Tests: XCTestCase {
             if let output = record["output"] as? [String: Any] {
                 record["output"] = addingDescriptorKey(output)
             }
+            var files = record["files"] as? [[String: Any]] ?? []
+            files.append(["path": "/data/samples.csv", "format": "csv", "role": "sampleSheet"])
+            record["files"] = files
             if let steps = record["steps"] as? [[String: Any]] {
                 record["steps"] = steps.map { step -> [String: Any] in
                     var step = step
@@ -345,10 +349,41 @@ final class ProvenanceSchemaVersion2Tests: XCTestCase {
             XCTAssertEqual(strict.schemaVersion, 3, source.name)
             XCTAssertNotNil(ProvenanceRecorder.findProvenanceEnvelope(for: placed.selection), source.name)
 
-            let version3Facts = try ProvenanceCompatFacts.project(sidecar: placed.sidecar, projectRoot: placed.projectRoot)
+            var version3Facts = try ProvenanceCompatFacts.project(sidecar: placed.sidecar, projectRoot: placed.projectRoot)
             XCTAssertEqual(version3Facts.decodedBy, .envelope, "version 3 of \(source.name) decodes as an envelope")
+            // The sample sheet keeps the format and role it was written with, and every other fact
+            // is the version 2 record's.
+            let sheet = try XCTUnwrap(version3Facts.files.last, source.name)
+            XCTAssertEqual(sheet.format, "csv", source.name)
+            XCTAssertEqual(sheet.role, "sampleSheet", source.name)
+            version3Facts.files.removeLast()
             XCTAssertEqual(version3Facts.differences(from: version2Facts), [], "version 3 of \(source.name)")
         }
+    }
+
+    // MARK: Below version 2 a file value stays closed
+
+    /// The retained-demux record of the genotype golden holds no `schemaVersion` and roles no
+    /// version 1 reader knows, such as `report-replay`. It reads as it always did. The envelope
+    /// decoder refuses it, the primitive adapter reads it and maps each unknown role, and a signature
+    /// over it covers its raw bytes.
+    func testTheRetainedDemuxGoldenRecordReadsAsItAlwaysDid() throws {
+        let url = ProvenanceCompatCorpus.repositoryRoot
+            .appendingPathComponent("Tests/Fixtures/golden/genotype/bundle/retained-demux-genotyping-provenance.json")
+        let record = try XCTUnwrap(Self.unmasked(try SchemaVersion2.object(Data(contentsOf: url))) as? [String: Any])
+        XCTAssertNil(record["schemaVersion"])
+        let data = try SchemaVersion2.serialized(record)
+        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("\"report-replay\""))
+
+        XCTAssertThrowsError(try ProvenanceEnvelopeReader.decodeCanonical(data))
+        let read = try ProvenanceEnvelopeReader.read(data)
+        XCTAssertEqual(read.shape, .primitive)
+        let known: Set<String> = ["input", "output", "reference", "index", "log", "report"]
+        let descriptors = read.envelope.files + read.envelope.outputs
+            + read.envelope.steps.flatMap { $0.inputs + $0.outputs }
+        XCTAssertFalse(descriptors.isEmpty)
+        XCTAssertTrue(Set(descriptors.map(\.role.rawValue)).isSubset(of: known), "the adapter maps each unknown role")
+        XCTAssertEqual(try ProvenanceSigningPayload.data(forProvenanceData: data), data)
     }
 
     func testOpsStatsCountsACompletedVersion3Record() throws {

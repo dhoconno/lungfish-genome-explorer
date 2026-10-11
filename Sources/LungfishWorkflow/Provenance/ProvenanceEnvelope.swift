@@ -153,9 +153,19 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         self.legacyRun = legacyWorkflowRun
     }
 
+    /// A record of schema version 2 or later may name a file format or role this build does not
+    /// know, and it decodes unchanged. Below version 2 such a value fails as it always did, so the
+    /// record falls to the primitive adapter and keeps the shape and signing payload it has.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        let schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        self = try ProvenanceFileValueDecoding.$acceptsUnknownValues.withValue(schemaVersion >= 2) {
+            try ProvenanceEnvelope(decodingFieldsOf: container, schemaVersion: schemaVersion)
+        }
+    }
+
+    private init(decodingFieldsOf container: KeyedDecodingContainer<CodingKeys>, schemaVersion: Int) throws {
+        self.schemaVersion = schemaVersion
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         workflowName = ProvenanceName.required(

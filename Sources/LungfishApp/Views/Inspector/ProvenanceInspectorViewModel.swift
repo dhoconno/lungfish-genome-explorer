@@ -1334,7 +1334,7 @@ private extension FileRole {
         case .reference: return "Reference"
         case .index: return "Index"
         case .log: return "Log"
-        case .report: return "Report"
+        default: return self == .report ? "Report" : rawValue
         }
     }
 }

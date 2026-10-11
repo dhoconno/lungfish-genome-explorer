@@ -351,7 +351,7 @@ public struct PrimerAnalysisBundleWriter: Sendable {
   }
 
   private func fileFormat(_ format: String) -> FileFormat {
-    FileFormat(rawValue: format) ?? .unknown
+    FileFormat(knownRawValue: format) ?? .unknown
   }
 
   private func openSafeExistingDirectory(_ url: URL) throws -> Int32 {

@@ -319,8 +319,8 @@ enum PrimitiveProvenanceEnvelopeAdapter {
         guard let json = dictionary(value) else { return nil }
         let path = string(json, keys: ["path", "originalPath", "original_path", "filename"]) ?? fallbackPath
         guard let path, !path.isEmpty else { return nil }
-        let decodedRole = string(json, keys: ["role"]).flatMap(FileRole.init(rawValue:)) ?? role
-        let format = string(json, keys: ["format"]).flatMap(FileFormat.init(rawValue:))
+        let decodedRole = string(json, keys: ["role"]).flatMap(FileRole.init(knownRawValue:)) ?? role
+        let format = string(json, keys: ["format"]).flatMap(FileFormat.init(knownRawValue:))
         return ProvenanceFileDescriptor(
             path: path,
             checksumSHA256: string(json, keys: ["checksumSHA256", "sha256", "checksum"]),
