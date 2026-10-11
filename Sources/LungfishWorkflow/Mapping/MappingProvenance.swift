@@ -829,23 +829,6 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         URL(fileURLWithPath: path).standardizedFileURL.path
     }
 
-    private func canonicalParameters() -> [String: ParameterValue] {
-        [
-            "mapper": .string(mapper.rawValue),
-            "modeID": .string(modeID),
-            "sampleName": .string(sampleName),
-            "pairedEnd": .boolean(pairedEnd),
-            "threads": .integer(threads),
-            "minimumMappingQuality": .integer(minimumMappingQuality),
-            "includeSecondary": .boolean(includeSecondary),
-            "includeSupplementary": .boolean(includeSupplementary),
-            "advancedArguments": .array(advancedArguments.map(ParameterValue.string)),
-            "readClassHints": .array(readClassHints.map(ParameterValue.string)),
-            "mapperRuntime": .string(runtimeIdentity["mapper"] ?? ""),
-            "samtoolsRuntime": .string(runtimeIdentity["samtools"] ?? "")
-        ]
-    }
-
     private static func resolvedRecord(_ record: FileRecord, relativeTo directory: URL) -> FileRecord {
         FileRecord(
             path: resolvedPath(for: record.path, relativeTo: directory),
