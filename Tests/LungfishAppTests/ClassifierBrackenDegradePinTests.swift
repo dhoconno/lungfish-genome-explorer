@@ -7,8 +7,11 @@
 // reads, so the profile degrades. Today the GUI ends the row Completed with
 // Warnings over a `completed` pipeline record, while `conda classify` exits 64
 // and writes a `failed` wrapper record (D1 of the 2.7 inventory). Lane A8
-// flips the CLI side to exit 0 and `completed` (E4). A Bracken that completes
-// is the negative control.
+// flips the CLI side to exit 0 and `completed` (E4). Both records also name
+// why the profile degraded, in `profileReason` and `profileMessage`, and the
+// GUI's warning line carries the message, so a lane that drops or rewords
+// any of them shows here. A Bracken that completes is the negative control,
+// and its GUI record holds neither key.
 
 import Foundation
 import XCTest
@@ -27,10 +30,17 @@ final class ClassifierBrackenDegradePinTests: XCTestCase {
         let gui = try await guiRun(fixture)
         XCTAssertEqual(gui.result.profileOutcome.state, .degraded)
         XCTAssertTrue(gui.metadata.requiresWarningCompletion, "the row ends Completed with Warnings")
-        XCTAssertTrue(gui.metadata.completionDetail.contains("Bracken profiling degraded"), gui.metadata.completionDetail)
+        // The warning line names the reason, which the fake Bracken wrote to stderr. Lanes A8 and A10 keep it.
+        XCTAssertEqual(
+            gui.metadata.completionDetail,
+            "1 of 1 reads classified; Bracken profiling degraded at resolved rank S: synthetic bracken failure"
+        )
         XCTAssertEqual(gui.record.status, .completed)
         XCTAssertEqual(gui.record.exitStatus, 0)
-        XCTAssertEqual(gui.record.options.resolvedDefaults["profileState"], .string("degraded"))
+        let guiResolved = gui.record.options.resolvedDefaults
+        XCTAssertEqual(guiResolved["profileState"], .string("degraded"))
+        XCTAssertEqual(guiResolved["profileReason"], .string("toolFailed"))
+        XCTAssertEqual(guiResolved["profileMessage"], .string("synthetic bracken failure"))
 
         // Lane A8 flips these to exit 0 and `completed` (E4).
         let cli = try await cliRun(fixture)
@@ -39,7 +49,16 @@ final class ClassifierBrackenDegradePinTests: XCTestCase {
         XCTAssertEqual(cli.terminalPolicy.exitCode, 64)
         XCTAssertEqual(cli.wrapperEnvelope.exitStatus, 64)
         XCTAssertEqual(cli.wrapperEnvelope.status, .failed)
-        XCTAssertEqual(cli.wrapperEnvelope.options.resolvedDefaults["profileState"], .string("degraded"))
+        // The wrapper record already names the reason and the message as the pipeline record does, in
+        // `resolvedDefaults` and nowhere else. Lane A8 keeps both when it flips the status and the exit code (E4).
+        let cliOptions = cli.wrapperEnvelope.options
+        XCTAssertEqual(cliOptions.resolvedDefaults["profileState"], .string("degraded"))
+        XCTAssertEqual(cliOptions.resolvedDefaults["profileReason"], .string("toolFailed"))
+        XCTAssertEqual(cliOptions.resolvedDefaults["profileMessage"], .string("synthetic bracken failure"))
+        for key in ["profileReason", "profileMessage"] {
+            XCTAssertNil(cliOptions.explicit[key], "\(key) is not an explicit option")
+            XCTAssertNil(cliOptions.defaults[key], "\(key) is not a default")
+        }
     }
 
     /// The negative control. Both routes end completed and the row ends without warnings.
@@ -52,6 +71,8 @@ final class ClassifierBrackenDegradePinTests: XCTestCase {
         XCTAssertFalse(gui.metadata.requiresWarningCompletion)
         XCTAssertEqual(gui.record.status, .completed)
         XCTAssertEqual(gui.record.options.resolvedDefaults["profileState"], .string("completed"))
+        XCTAssertNil(gui.record.options.resolvedDefaults["profileReason"], "a completed profile has no reason")
+        XCTAssertNil(gui.record.options.resolvedDefaults["profileMessage"], "a completed profile has no message")
 
         let cli = try await cliRun(fixture)
         XCTAssertTrue(cli.terminalPolicy.isSuccess)
