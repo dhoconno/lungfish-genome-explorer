@@ -164,10 +164,21 @@ public enum MetagenomicsSampleGrouper {
     /// The locale that orders sample names and file names. It is fixed, so a batch lists its samples and
     /// numbers the files of one stem the same way in the app and in `lungfish-cli`, whatever language the
     /// process runs in.
-    private static let collationLocale = Locale(identifier: "en_US")
+    static let collationLocale = Locale(identifier: "en_US")
 
-    /// Whether `lhs` sorts before `rhs`, ignoring case, in the fixed collation locale.
-    private static func isOrderedBefore(_ lhs: String, _ rhs: String) -> Bool {
-        lhs.compare(rhs, options: [.caseInsensitive], range: nil, locale: collationLocale) == .orderedAscending
+    /// Whether `lhs` sorts before `rhs` in the collation of `locale`, ignoring case. Names that differ only
+    /// in case tie in that collation, so a tie falls to the Unicode scalars of the two names, which lists
+    /// upper case first. That makes the order total. A tie left to the sorts would keep the iteration order
+    /// of `Dictionary(grouping:)`, which changes with the hash seed of each process, and the app and
+    /// `lungfish-cli` could then list `Sample` and `sample` in different orders.
+    static func isOrderedBefore(_ lhs: String, _ rhs: String, locale: Locale = collationLocale) -> Bool {
+        switch lhs.compare(rhs, options: [.caseInsensitive], range: nil, locale: locale) {
+        case .orderedAscending:
+            return true
+        case .orderedDescending:
+            return false
+        case .orderedSame:
+            return lhs.unicodeScalars.lexicographicallyPrecedes(rhs.unicodeScalars)
+        }
     }
 }

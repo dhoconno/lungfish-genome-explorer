@@ -48,21 +48,51 @@ final class MetagenomicsSampleGrouperOrderTests: XCTestCase {
         )
     }
 
-    func testTheOrderComesFromAFixedLocaleAndNotFromTheProcessLanguage() {
-        // Swedish collation lists "\u{E4}" after "z" and English lists it beside "a". The grouper follows the
-        // English order in every process, so the CLI and the app list one batch alike.
-        let names = ["zebra", "\u{E4}rlig", "alfa"]
-        func order(in identifier: String) -> [String] {
-            names.sorted {
-                $0.compare($1, options: [.caseInsensitive], range: nil, locale: Locale(identifier: identifier))
-                    == .orderedAscending
-            }
+    func testNamesThatDifferOnlyInCaseHaveOneOrderWhateverTheInputOrder() {
+        // The collation ignores case, so "Sample" and "sample" tie. The grouper breaks the tie on the Unicode
+        // scalars of the two names, which lists upper case first. Without that the sorts keep the iteration
+        // order of `Dictionary(grouping:)`, which changes with the hash seed of each process.
+        XCTAssertTrue(MetagenomicsSampleGrouper.isOrderedBefore("Sample", "sample"))
+        XCTAssertFalse(MetagenomicsSampleGrouper.isOrderedBefore("sample", "Sample"))
+        XCTAssertFalse(MetagenomicsSampleGrouper.isOrderedBefore("sample", "sample"))
+
+        let lower = URL(fileURLWithPath: "/data/a/sample.fastq")
+        let upper = URL(fileURLWithPath: "/data/b/Sample.fastq")
+        XCTAssertEqual(MetagenomicsSampleGrouper.group([lower, upper]).map(\.sampleId), ["Sample", "sample"])
+        XCTAssertEqual(MetagenomicsSampleGrouper.group([upper, lower]).map(\.sampleId), ["Sample", "sample"])
+    }
+
+    func testFilesOfOneStemThatDifferOnlyInCaseNumberInOneOrderWhateverTheInputOrder() {
+        // `s.fastq` and `s.FASTQ` share the stem `s`, so they number as `s_1` and `s_2`. Their names tie in the
+        // collation, so the name with upper case takes the first number in either input order.
+        let lower = URL(fileURLWithPath: "/data/a/s.fastq")
+        let upper = URL(fileURLWithPath: "/data/b/s.FASTQ")
+        for files in [[lower, upper], [upper, lower]] {
+            let samples = MetagenomicsSampleGrouper.group(files)
+
+            XCTAssertEqual(
+                samples.map { [$0.sampleId, $0.fastq1.lastPathComponent] },
+                [["s_1", "s.FASTQ"], ["s_2", "s.fastq"]]
+            )
         }
-        XCTAssertNotEqual(order(in: "sv_SE"), order(in: "en_US"), "the fixture must tell the two languages apart")
+    }
 
-        let samples = MetagenomicsSampleGrouper.group(urls(names.map { "\($0).fastq" }))
+    func testTheGrouperSortsInItsOwnLocaleAndNotInSwedish() {
+        // Swedish collation lists "\u{E4}" after "z" and English lists it beside "a". `isOrderedBefore` takes the
+        // locale as a parameter, so the first assertion needs the locale it is given and fails if the comparison
+        // reads the language of the process instead. The second assertion pins the grouper's own locale, so the
+        // CLI and the app list one batch alike.
+        XCTAssertTrue(
+            MetagenomicsSampleGrouper.isOrderedBefore("zebra", "\u{E4}rlig", locale: Locale(identifier: "sv_SE")),
+            "Swedish collation lists \u{E4} after z"
+        )
+        XCTAssertFalse(
+            MetagenomicsSampleGrouper.isOrderedBefore("zebra", "\u{E4}rlig"),
+            "the grouper's own collation lists \u{E4} beside a"
+        )
 
-        XCTAssertEqual(samples.map(\.sampleId), order(in: "en_US"))
+        let samples = MetagenomicsSampleGrouper.group(urls(["zebra", "\u{E4}rlig", "alfa"].map { "\($0).fastq" }))
+
         XCTAssertEqual(samples.map(\.sampleId), ["alfa", "\u{E4}rlig", "zebra"])
     }
 
