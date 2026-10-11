@@ -4,15 +4,15 @@ import LungfishTestSupport
 @testable import LungfishWorkflow
 
 /// Pins what `lungfish-cli ops stats` makes of every case of the provenance compatibility
-/// corpus, as the command behaves today.
+/// corpus.
 ///
-/// `ops stats` looks only at files named exactly `.lungfish-provenance.json`, decodes each
-/// one with a plain ISO 8601 decoder as a `WorkflowRun`, and drops what does not decode
-/// without a word. So a run-bearing envelope or a bare run is counted, an envelope without
-/// the eight compat keys or a primitive record is dropped, and a file sidecar such as
-/// `<file>.lungfish-provenance.json` is never seen. A later lane that removes the compat
-/// keys, or moves `ops stats` to the envelope reader, changes these numbers on purpose and
-/// updates the pins in the same commit.
+/// `ops stats` looks only at files named exactly `.lungfish-provenance.json` and reads each
+/// through `ProvenanceEnvelopeReader`. A record counts as a completed run when it decodes as an
+/// envelope or a bare run and states that its run completed. So a run-bearing envelope or a bare
+/// run is counted, an envelope that states no status and a primitive record are seen but not
+/// counted, and a file sidecar such as `<file>.lungfish-provenance.json` is never seen. Phase 2.6
+/// moved the command off its `WorkflowRun` decoder with every pin unchanged, and a record
+/// without the compat keys of version 1 counts as its version 1 source does.
 final class ProvenanceCompatCLITests: XCTestCase {
     struct Pin {
         /// The "Provenance sidecars" line.
@@ -25,11 +25,12 @@ final class ProvenanceCompatCLITests: XCTestCase {
     static let pins: [String: Pin] = [
         // Counted, but the run is cancelled, so it is not a completed run.
         "s1-cancelled-single-step": Pin(sidecars: 1, completed: 0),
-        // Counted, because the encoder writes the eight compat keys.
+        // Counted, because the record states that its run completed.
         "s1-canonical-envelope-run": Pin(sidecars: 1, completed: 1),
         "s1-db-receipt-kraken2-viral": Pin(sidecars: 1, completed: 1),
         "s1-recorder-readsetplan": Pin(sidecars: 1, completed: 1),
-        // Seen but dropped, because an envelope without the compat keys does not decode as a run.
+        // Seen but not counted, because the envelope states no status, and an exit status of 0
+        // alone does not tell a completed run from a cancelled one.
         "s2-analysis-kraken2-fixture": Pin(sidecars: 1, completed: 0),
         // A bare run counts when it has the directory sidecar name.
         "s3-gatk-container-bare-run": Pin(sidecars: 1, completed: 1),
@@ -37,7 +38,7 @@ final class ProvenanceCompatCLITests: XCTestCase {
         "s3-ncbi-fetch-alpha11": Pin(sidecars: 0, completed: 0),
         // A bare run counts when it has the directory sidecar name.
         "s3-write-sidecar-bare-run": Pin(sidecars: 1, completed: 1),
-        // Seen but dropped, because a primitive record does not decode as a run.
+        // Seen but not counted, because only the primitive adapter reads it and it states no status.
         "s4-mcm-mhcref-shipped": Pin(sidecars: 1, completed: 0),
         "s4-msa-mafft-2026-05": Pin(sidecars: 1, completed: 0),
     ]
@@ -121,6 +122,44 @@ final class ProvenanceCompatCLITests: XCTestCase {
         XCTAssertEqual(underDirectoryName.sidecars, 1)
         XCTAssertEqual(underDirectoryName.completed, 1)
         XCTAssertTrue(underDirectoryName.text.contains("ncbi-sequence-fetch"))
+    }
+
+    /// Version 2 drops the 14 alias keys (plan decision S3). The command counts each envelope case
+    /// without them exactly as its pin says.
+    func testOpsStatsCountsTheVersion2FormOfEveryEnvelopeCaseAsItsPin() async throws {
+        for item in try ProvenanceCompatCorpus.cases() where item.shape == "S1" {
+            let pin = try XCTUnwrap(Self.pins[item.id])
+            let materialized = try ProvenanceCompatCorpus.materialize(item.id)
+            defer { materialized.cleanup() }
+            try Self.version2(of: Data(contentsOf: materialized.sidecar)).write(to: materialized.sidecar)
+
+            let report = try await runOpsStats(on: materialized.projectRoot)
+            XCTAssertEqual(report.sidecars, pin.sidecars, "Provenance sidecars for version 2 of \(item.id)")
+            XCTAssertEqual(report.completed, pin.completed, "Completed runs for version 2 of \(item.id)")
+        }
+    }
+
+    /// The record without the top-level, step and descriptor alias keys, at `schemaVersion` 2.
+    private static func version2(of data: Data) throws -> Data {
+        var record = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        func stripped(_ object: [String: Any], _ keys: [String]) -> [String: Any] {
+            object.filter { !keys.contains($0.key) }
+        }
+        let descriptorAliases = ["sha256", "sizeBytes"]
+        record = stripped(record, ["name", "startTime", "endTime", "appVersion", "hostOS", "runtime", "parameters"])
+        for key in ["files", "outputs"] {
+            record[key] = (record[key] as? [[String: Any]])?.map { stripped($0, descriptorAliases) }
+        }
+        record["output"] = (record["output"] as? [String: Any]).map { stripped($0, descriptorAliases) }
+        record["steps"] = (record["steps"] as? [[String: Any]])?.map { step -> [String: Any] in
+            var step = stripped(step, ["command", "exitCode", "wallTime", "startTime", "endTime"])
+            for key in ["inputs", "outputs"] {
+                step[key] = (step[key] as? [[String: Any]])?.map { stripped($0, descriptorAliases) }
+            }
+            return step
+        }
+        record["schemaVersion"] = 2
+        return try JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys])
     }
 
     // MARK: Running the command

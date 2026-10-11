@@ -296,29 +296,18 @@ final class ProvenanceSchemaVersion2Tests: XCTestCase {
         for source in try Self.allSources() {
             let version1Facts = try Self.facts(of: source.version1, at: source.layout)
             let version2Facts = try Self.facts(of: SchemaVersion2.derive(fromVersion1: source.version1), at: source.layout)
-            let compare = {
-                XCTAssertEqual(
-                    version2Facts.opsStats.completedRunCount,
-                    version1Facts.opsStats.completedRunCount,
-                    "completed runs of version 2 of \(source.name)"
-                )
-                XCTAssertEqual(version2Facts.opsStats.peakMemoryBytes, version1Facts.opsStats.peakMemoryBytes, source.name)
-                XCTAssertEqual(
-                    version2Facts.opsStats.totalWallTimeSeconds,
-                    version1Facts.opsStats.totalWallTimeSeconds,
-                    accuracy: 1,
-                    "total wall time of version 2 of \(source.name)"
-                )
-            }
-            // At the base, ops stats counts a source that decodes as a WorkflowRun and drops its version 2.
-            if version1Facts.opsStats.decodesAsWorkflowRun, version1Facts.opsStats.completedRunCount > 0 {
-                XCTExpectFailure(
-                    "ops stats decodes each record as a WorkflowRun and drops version 2 until it reads through ProvenanceEnvelopeReader (step 3)",
-                    failingBlock: compare
-                )
-            } else {
-                compare()
-            }
+            XCTAssertEqual(
+                version2Facts.opsStats.completedRunCount,
+                version1Facts.opsStats.completedRunCount,
+                "completed runs of version 2 of \(source.name)"
+            )
+            XCTAssertEqual(version2Facts.opsStats.peakMemoryBytes, version1Facts.opsStats.peakMemoryBytes, source.name)
+            XCTAssertEqual(
+                version2Facts.opsStats.totalWallTimeSeconds,
+                version1Facts.opsStats.totalWallTimeSeconds,
+                accuracy: 1,
+                "total wall time of version 2 of \(source.name)"
+            )
         }
     }
 
@@ -354,8 +343,7 @@ final class ProvenanceSchemaVersion2Tests: XCTestCase {
         defer { placed.cleanup() }
         let report = try OperationStatsAggregator().summarize(projectURL: placed.projectRoot)
         XCTAssertEqual(report.sidecarCount, 1)
-        XCTExpectFailure("ops stats decodes each record as a WorkflowRun and drops version 3 until step 3") {
-            XCTAssertEqual(report.completedRunCount, 1, "ops stats counts the completed version 3 record")
-        }
+        XCTAssertEqual(report.completedRunCount, 1, "ops stats counts the completed version 3 record")
+        XCTAssertEqual(report.operations.map(\.name), ["metagenomics.database.install"])
     }
 }
