@@ -229,13 +229,13 @@ extension ProvenanceExporter {
                 BrackenInvocation.readLength(fromDistributionFilename: URL(fileURLWithPath: $0).lastPathComponent)
             }
         if let readLength {
-            params.append("a read length of \(readLength)")
+            params.append("a read length of \(readLength) bp")
         }
         if let code = methodsFlagValue(["-l"], in: argv)?.uppercased() {
             params.append(brackenLevels[code].map { "the \(code) (\($0)) level" } ?? "the \(code) level")
         }
         if let threshold = methodsFlagValue(["-t"], in: argv), let count = Int(threshold) {
-            params.append("a minimum of \(threshold) read\(count == 1 ? "" : "s")")
+            params.append("a minimum of \(threshold) read\(count == 1 ? "" : "s") per taxon")
         }
         return params
     }

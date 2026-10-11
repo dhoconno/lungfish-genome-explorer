@@ -41,7 +41,7 @@ struct ProvenanceMethodsSentenceTests {
             Reads were classified taxonomically with kraken2 v2.17.1 (bioconda::kraken2=2.17.1=pl5321h158e17b_0; conda environment kraken2), \
             with a confidence threshold of 0.2, a minimum of 2 hit groups and paired-end mode. \
             Taxon abundances were re-estimated with bracken v1.0.0 (bioconda::bracken=1.0.0=1; conda environment bracken), \
-            with a read length of 150, the S (species) level and a minimum of 10 reads.
+            with a read length of 150 bp, the S (species) level and a minimum of 10 reads per taxon.
             """)
         #expect(Self.toolRows(run) == [
             "| kraken2 | 2.17.1 | bioconda::kraken2=2.17.1=pl5321h158e17b_0 | conda environment kraken2 |",
@@ -196,10 +196,10 @@ struct ProvenanceMethodsSentenceTests {
     @Test("Bracken reports its read length, level and minimum reads, and its flags are no other tool's")
     func brackenParameters() {
         #expect(Self.sentence("bracken", ["bracken", "-d", "/db", "-i", "in.kreport", "-o", "out", "-r", "100", "-l", "G", "-t", "1"])
-            == "Taxon abundances were re-estimated with bracken v1.0, with a read length of 100, the G (genus) level and a minimum of 1 read.")
+            == "Taxon abundances were re-estimated with bracken v1.0, with a read length of 100 bp, the G (genus) level and a minimum of 1 read per taxon.")
         // The inner script has no -r, and the name of its distribution file holds the read length.
         #expect(Self.sentence("bracken", ["bracken", "-i", "in.kreport", "-k", "/db/database75mers.kmer_distrib", "-l", "S", "-t", "10"])
-            == "Taxon abundances were re-estimated with bracken v1.0, with a read length of 75, the S (species) level and a minimum of 10 reads.")
+            == "Taxon abundances were re-estimated with bracken v1.0, with a read length of 75 bp, the S (species) level and a minimum of 10 reads per taxon.")
         // A level code outside the table is reported as given, and -l is a level, never a length.
         #expect(Self.sentence("bracken", ["bracken", "-l", "S1"]) == "Taxon abundances were re-estimated with bracken v1.0, with the S1 level.")
         #expect(Self.sentence("bracken", ["bracken", "-l", "S", "-q", "20"]) == "Taxon abundances were re-estimated with bracken v1.0, with the S (species) level.")
