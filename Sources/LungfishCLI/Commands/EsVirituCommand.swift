@@ -218,12 +218,15 @@ extension EsVirituCommand {
             ))
         }
 
-        /// Runs the request through the executor and returns the exit code of its report.
+        /// Runs the request through the executor and returns the exit code of its report. Given
+        /// `events`, the executor's events go there in place of the lines this command writes, so a
+        /// test can read each one, such as the reason on a refusal's `failed` event.
         func detect(
             pipeline: EsVirituPipeline,
             materializer: any CLISequenceInputMaterializing & Sendable,
             installedDatabase: @escaping @Sendable () async -> URL? = EsVirituAnalysisRunTool.installedDatabase,
-            cancelRequested: @escaping @Sendable () -> Bool
+            cancelRequested: @escaping @Sendable () -> Bool,
+            events eventsOverride: AnalysisRunEvents? = nil
         ) async -> Int32 {
             let eventsOn = globalOptions.outputFormat == .json
             let (destination, conflict) = resultDestination()
@@ -254,13 +257,13 @@ extension EsVirituCommand {
                 groupsSamples: batch,
                 commandLine: Self.recordedCommandLine(CommandLine.arguments, fallback: canonicalArguments())
             )
-            let events = eventsOn
+            let events = eventsOverride ?? (eventsOn
                 ? AnalysisRunEvents.jsonLines { printEventLine($0) }
                 : EsVirituTextReporter.events(
                     useColors: globalOptions.useColors,
                     quiet: globalOptions.quiet,
                     namesResultFolder: batch || project != nil
-                )
+                ))
             let services = AnalysisRunServices(indexing: EsVirituResultIndexing(), cancelRequested: cancelRequested)
             return await AnalysisRunExecutor(services: services).execute(tool, request, events: events).exitCode
         }

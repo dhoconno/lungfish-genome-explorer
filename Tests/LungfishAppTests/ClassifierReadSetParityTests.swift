@@ -14,9 +14,13 @@
 // - `cli` records the command the Operations panel shows for that config,
 //   parses it with the shipped parser and runs the read-set code of
 //   `conda classify` and `esviritu detect`.
+// - `executor` runs that recorded command whole through `esviritu detect`,
+//   which lane A9 put on the analysis run executor, with a stand-in EsViritu
+//   that keeps the argv it got, and reads the plan from the root record.
+//   Lane A8 adds its Kraken2 half.
 //
-// Every route must give the row's frozen value. The executor of lanes A8 and
-// A9 joins as a third `Route` case and must give the same values, so any
+// Every route must give the row's frozen value, the executor in the terms of
+// a command run (`ClassifierReadSetParityTable.executorValue(of:)`), so any
 // change it makes shows here against this base. A row whose routes differ
 // today names the difference and the lane that removes it in `knownDifferences`.
 
@@ -83,14 +87,15 @@ final class ClassifierReadSetParityTests: XCTestCase {
     private func assertTable(_ tool: Tool, file: StaticString = #filePath, line: UInt = #line) async throws {
         for row in rows {
             let expected = ClassifierReadSetParityTable.frozen[tool]?[row.name]
-            for route in Route.allCases {
+            for route in Route.routes(for: tool) {
                 let actual = await handoff(of: row, to: tool, through: route)
                 let difference = ClassifierReadSetParityTable.knownDifferences.first {
                     $0.tool == tool && $0.row == row.name && $0.route == route.rawValue
                 }
+                let wanted = route == .executor ? expected.map(ClassifierReadSetParityTable.executorValue(of:)) : expected
                 XCTAssertEqual(
                     actual,
-                    difference?.value ?? expected,
+                    difference?.value ?? wanted,
                     "\(tool) \(row.name) through \(route)",
                     file: file,
                     line: line
@@ -146,10 +151,16 @@ final class ClassifierReadSetParityTests: XCTestCase {
         case esviritu
     }
 
-    /// The columns. The executor joins as a third case.
+    /// The columns. The executor runs EsViritu since lane A9, and lane A8 adds its Kraken2 half.
     enum Route: String, CaseIterable {
         case gui
         case cli
+        case executor
+
+        /// The routes that hand `tool` its reads today.
+        static func routes(for tool: Tool) -> [Route] {
+            tool == .esviritu ? allCases : [.gui, .cli]
+        }
     }
 
     private var databaseURL: URL { root.appendingPathComponent("db", isDirectory: true) }
@@ -175,6 +186,10 @@ final class ClassifierReadSetParityTests: XCTestCase {
                 return try render(esviritu: try await guiEsViritu(sample, row: row, run: run), mask: mask)
             case (.esviritu, .cli):
                 return try render(esviritu: try await cliEsViritu(sample, row: row, run: run), mask: mask)
+            case (.esviritu, .executor):
+                return try await executorEsViritu(sample, row: row, run: run, mask: mask)
+            case (.kraken2, .executor):
+                return "no executor route for Kraken2 before lane A8"
             }
         } catch {
             return "refused: \(String(describing: type(of: error))) \(mask(error.localizedDescription))"
@@ -324,6 +339,49 @@ final class ClassifierReadSetParityTests: XCTestCase {
         return config
     }
 
+    /// The command the Operations panel records, parsed by the shipped parser and run whole by
+    /// `EsVirituCommand.DetectSubcommand.detect` on the analysis run executor (lane A9), with a
+    /// stand-in EsViritu that keeps the argv it got. Renders that argv, the reads of each file after
+    /// `-r` and the read-set plan of the root record, read through the one reader from its one
+    /// home (E13). A refused command renders the reason its `failed` event gives.
+    private func executorEsViritu(_ sample: MetagenomicsSampleInput, row: Row, run: URL, mask: PathMask) async throws -> String {
+        let reporter = RecordingOperationReporter()
+        AppDelegate.beginEsVirituOperation(
+            config: await esVirituWizardConfig(sample, run: run), routeContext: nil, reporter: reporter
+        ) { _ in }
+        let arguments = try RecordedCLICommand.arguments(of: reporter.items.first?.cliCommand) + ["--quiet"]
+        let command = try XCTUnwrap(
+            try LungfishCLI.parseAsRoot(LungfishCLI.normalizedArgumentsForParsing(arguments)) as? EsVirituCommand.DetectSubcommand
+        )
+        let esviritu = try ArgvKeepingEsViritu(root: run.appendingPathComponent("tool", isDirectory: true))
+        let failure = FailureReason()
+        let code = await command.detect(
+            pipeline: EsVirituPipeline(condaManager: esviritu.condaManager),
+            materializer: materializer(for: row),
+            installedDatabase: { nil },
+            cancelRequested: { false },
+            events: AnalysisRunEvents { line in
+                if case .failed(let message, _)? = line.event { failure.set(message) }
+            }
+        )
+        guard code == 0 else {
+            return "\(code == 3 ? "refused" : "exit \(code)"): \(mask(failure.value ?? "no reason"))"
+        }
+        let argv = try esviritu.argv()
+        let start = (argv.firstIndex(of: "-r") ?? argv.endIndex - 1) + 1
+        let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: run.appendingPathComponent("out", isDirectory: true)))
+        let planText: String
+        switch record.readSetPlan {
+        case nil:
+            planText = "none"
+        case let plan? where plan.place == .resolvedDefaults:
+            planText = Self.render(.dictionary([RecordedReadSetPlan.key: .dictionary(plan.fields)]), mask: mask)
+        case let plan?:
+            planText = "outside resolvedDefaults, in \(plan.place)"
+        }
+        return try render(argv: argv, inputs: Array(argv[start...].prefix { !$0.hasPrefix("-") }), planText: planText, mask: mask)
+    }
+
     // MARK: - Rendering
 
     /// kraken2's argv, then the reads of each input after `--report-minimizer-data`, then the plan.
@@ -341,16 +399,20 @@ final class ClassifierReadSetParityTests: XCTestCase {
     }
 
     private func render(argv: [String], inputs: [String], plan: ReadSetPlan?, mask: PathMask) throws -> String {
-        let reads = try inputs.map { path -> String in
-            guard FileManager.default.fileExists(atPath: path) else { return "absent" }
-            return try Self.recordNames(in: URL(fileURLWithPath: path)).joined(separator: " ")
-        }
         let planText: String
         if let plan {
             let parameters = plan.provenanceParameters
             planText = parameters.isEmpty ? "records nothing" : Self.render(.dictionary(parameters), mask: mask)
         } else {
             planText = "none"
+        }
+        return try render(argv: argv, inputs: inputs, planText: planText, mask: mask)
+    }
+
+    private func render(argv: [String], inputs: [String], planText: String, mask: PathMask) throws -> String {
+        let reads = try inputs.map { path -> String in
+            guard FileManager.default.fileExists(atPath: path) else { return "absent" }
+            return try Self.recordNames(in: URL(fileURLWithPath: path)).joined(separator: " ")
         }
         return "argv: \(argv.map { mask($0) }.joined(separator: " ")) | reads: \(reads.joined(separator: " / ")) | plan: \(planText)"
     }
@@ -378,6 +440,73 @@ final class ClassifierReadSetParityTests: XCTestCase {
         return lines.enumerated().compactMap { index, line in
             index % 4 == 0 && line.hasPrefix("@") ? String(line.dropFirst()) : nil
         }
+    }
+}
+
+/// A conda root whose stand-in micromamba runs a stand-in EsViritu 1.3.3. It keeps the argv it
+/// got, one argument per line, and writes a detection table with the columns and no detection
+/// for the `-s` sample in the `-o` folder, so the run completes.
+private struct ArgvKeepingEsViritu {
+    let condaManager: CondaManager
+    private let argvFile: URL
+
+    init(root: URL) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        argvFile = root.appendingPathComponent("esviritu-argv.txt")
+        let micromamba = root.appendingPathComponent("stand-in-micromamba")
+        let header = EsVirituDetectionParser.requiredColumns.joined(separator: "\t")
+        try """
+            #!/bin/sh
+            if [ "$1" = "--version" ]; then echo "micromamba 2.0.0"; exit 0; fi
+            [ "$1" = "run" ] || { echo "unexpected micromamba invocation: $*" >&2; exit 64; }
+            shift
+            if [ "$1" = "-n" ]; then shift; shift; fi
+            tool="$1"; shift
+            [ "$tool" = "EsViritu" ] || { echo "unexpected tool: $tool" >&2; exit 64; }
+            if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then echo "EsViritu 1.3.3"; exit 0; fi
+            : > '\(argvFile.path)'
+            for argument in "$@"; do printf '%s\\n' "$argument" >> '\(argvFile.path)'; done
+            sample=""; output=""
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                -s) shift; sample="$1" ;;
+                -o) shift; output="$1" ;;
+              esac
+              shift
+            done
+            mkdir -p "$output"
+            printf '%s\\n' '\(header)' > "$output/$sample.detected_virus.info.tsv"
+            exit 0
+            """.write(to: micromamba, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: micromamba.path)
+        condaManager = CondaManager(
+            rootPrefix: root.appendingPathComponent("conda", isDirectory: true),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.0" }
+        )
+    }
+
+    /// The argv EsViritu got.
+    func argv() throws -> [String] {
+        try String(contentsOf: argvFile, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .dropLast()
+            .map(String.init)
+    }
+}
+
+/// The reason on a run's `failed` event.
+private final class FailureReason: @unchecked Sendable {
+    private let lock = NSLock()
+    private var reason: String?
+
+    func set(_ value: String) {
+        lock.withLock { reason = value }
+    }
+
+    var value: String? {
+        lock.withLock { reason }
     }
 }
 
@@ -474,6 +603,19 @@ enum ClassifierReadSetParityTable {
             lane: "A10, A12"
         ),
     ]
+
+    /// The value the executor route gives for a row whose frozen value is `frozen`, the same
+    /// handoff in the terms of a command run. A record holds a read-set plan only when the plan
+    /// records something (`RecordedReadSetPlan`), so `records nothing` reads as `none`. A refusal
+    /// is the command's exit 3 with the reason on its `failed` event, so it names no error type.
+    static func executorValue(of frozen: String) -> String {
+        let refused = "refused: "
+        if frozen.hasPrefix(refused) {
+            let reason = frozen.dropFirst(refused.count).split(separator: " ", maxSplits: 1).last ?? ""
+            return refused + reason
+        }
+        return frozen.replacingOccurrences(of: "| plan: \(recordsNothing)", with: "| plan: \(unplanned)")
+    }
 
     private static let imports = "<project>/Imports"
     private static let materialized = "<scratch>/materialized-<uuid>.fastq"
