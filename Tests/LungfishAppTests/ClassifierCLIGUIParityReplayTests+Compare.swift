@@ -17,7 +17,8 @@
 // - Every provenance record found on both sides, projected with `ProvenanceCompatFacts`. Each
 //   fact of the reference side must appear with an equal value on the other side, and facts
 //   the other side adds pass. Values compare equal when they differ only in UUIDs or in the
-//   wall times and rates a tool prints (golden rules R6, R7 and the tool log durations). Facts a
+//   wall times and rates a tool prints (golden rules R6, R7 and the tool log durations), and a
+//   stderr that ProvenanceStderr cut compares on the whole lines both sides kept. Facts a
 //   real run measures (wall times, peak memory, the host values under `recorded`) are left out,
 //   and so are the checksum and size of a file both trees hold, whose content the folder
 //   comparison owns.
@@ -416,10 +417,36 @@ enum ClassifierParityComparison {
         }
     }
 
-    /// Whether two values are the same fact: equal, or equal once UUIDs and measured times and
-    /// rates are masked in every string.
+    /// Whether two values are the same fact: equal, equal once UUIDs and measured times and
+    /// rates are masked in every string, or two cut texts that agree on every whole line both
+    /// kept.
     static func sameFact(_ reference: Value, _ candidate: Value) -> Bool {
-        reference == candidate || maskingVariance(reference) == maskingVariance(candidate)
+        if reference == candidate || maskingVariance(reference) == maskingVariance(candidate) { return true }
+        if case .string(let textA) = reference, case .string(let textB) = candidate {
+            return sameCutText(textA, textB)
+        }
+        return false
+    }
+
+    /// Whether two texts that `ProvenanceStderr` cut agree on every whole line both kept, each
+    /// line masked as `maskedText` masks it. The cut keeps a fixed number of characters on each
+    /// side of its marker, so a measured value of another width on one side moves the cut
+    /// points, and the lines they fall in differ. Those lines are dropped, the first head lines
+    /// both sides kept must agree, and so must the last tail lines. A cut at line boundaries
+    /// (F2 bio ruling 2) can still keep tails that start a line apart. Texts without the marker,
+    /// or with nothing left to compare on either side of it, are not the same here.
+    static func sameCutText(_ textA: String, _ textB: String) -> Bool {
+        let partsA = textA.components(separatedBy: ProvenanceStderr.truncationMarker)
+        let partsB = textB.components(separatedBy: ProvenanceStderr.truncationMarker)
+        guard partsA.count == 2, partsB.count == 2 else { return false }
+        func lines(_ text: String) -> [String] { text.components(separatedBy: "\n").map(maskedText) }
+        let headA = lines(partsA[0]).dropLast(), headB = lines(partsB[0]).dropLast()
+        let tailA = lines(partsA[1]).dropFirst(), tailB = lines(partsB[1]).dropFirst()
+        let heads = min(headA.count, headB.count)
+        let tails = min(tailA.count, tailB.count)
+        guard heads > 0, tails > 0 else { return false }
+        return headA.prefix(heads).elementsEqual(headB.prefix(heads))
+            && tailA.suffix(tails).elementsEqual(tailB.suffix(tails))
     }
 
     static func maskingVariance(_ value: Value) -> Value {
@@ -428,17 +455,22 @@ enum ClassifierParityComparison {
             // EsViritu wraps long log lines, which can split a path, so the writer sanitizes
             // only the part before the break and each side's own root stays in the text. The
             // comparison joins the lines and masks everything up to the project folder.
-            let joined = text.replacingOccurrences(of: "\n", with: "")
-            let rootless = joined.replacingOccurrences(
-                of: "[^\\s\"']*\(NSRegularExpression.escapedPattern(for: ClassifierParityFixtures.projectName))",
-                with: "<PROJECT>",
-                options: .regularExpression
-            )
-            return .string(maskedMeasurements(maskedID(rootless)))
+            return .string(maskedText(text.replacingOccurrences(of: "\n", with: "")))
         case .array(let items): return .array(items.map(maskingVariance))
         case .object(let members): return .object(members.mapValues(maskingVariance))
         default: return value
         }
+    }
+
+    /// `text` with every path up to the project folder, the UUIDs, the timestamps and the
+    /// measured times and rates masked.
+    static func maskedText(_ text: String) -> String {
+        let rootless = text.replacingOccurrences(
+            of: "[^\\s\"']*\(NSRegularExpression.escapedPattern(for: ClassifierParityFixtures.projectName))",
+            with: "<PROJECT>",
+            options: .regularExpression
+        )
+        return maskedMeasurements(maskedID(rootless))
     }
 
     /// Wall times and rates tools print, after scripts/golden/normalize.py (the tool log
