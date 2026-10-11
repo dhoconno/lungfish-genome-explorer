@@ -285,17 +285,21 @@ public actor ProvenanceRecorder {
             throw ProvenanceError.runNotFound(runID)
         }
         logDeclarationsWithoutObservation(of: run)
-        let canonical = run.canonicalEnvelope()
-        var envelope = canonical
+        var envelope = run.canonicalEnvelope()
         if let options {
+            // `ProvenanceOptions.mergingRunParameters` holds this rule with the resolved defaults as its
+            // target. The recorder keeps the explicit options as its target until the classifier
+            // producers converge on that home, because the move changes their records.
             let onlyInRun = run.parameters.filter { key, value in
                 options.defaults[key] != value && options.resolvedDefaults[key] != value
             }
-            envelope = canonical.replacingOptions(ProvenanceOptions(
-                explicit: options.explicit.merging(onlyInRun) { given, _ in given },
-                defaults: options.defaults,
-                resolvedDefaults: options.resolvedDefaults
-            ))
+            envelope = envelope.with {
+                $0.options = ProvenanceOptions(
+                    explicit: options.explicit.merging(onlyInRun) { given, _ in given },
+                    defaults: options.defaults,
+                    resolvedDefaults: options.resolvedDefaults
+                )
+            }
         }
         if dropMissingRunLevelFiles {
             envelope = envelope.droppingMissingRunLevelFiles()
@@ -490,37 +494,6 @@ private extension StepExecution {
             // The recorder stamps every step it records, so both times are always there.
             startTime: step.startedAt ?? Date.distantPast,
             endTime: step.completedAt
-        )
-    }
-}
-
-private extension ProvenanceEnvelope {
-    func replacingOptions(_ options: ProvenanceOptions) -> ProvenanceEnvelope {
-        ProvenanceEnvelope(
-            schemaVersion: schemaVersion,
-            id: id,
-            createdAt: createdAt,
-            workflowName: workflowName,
-            workflowVersion: workflowVersion,
-            toolName: toolName,
-            toolVersion: toolVersion,
-            githubReleaseVersion: githubReleaseVersion,
-            tool: tool,
-            argv: argv,
-            durableReplayArgv: durableReplayArgv,
-            reproducibleCommand: reproducibleCommand,
-            options: options,
-            runtimeIdentity: runtimeIdentity,
-            files: files,
-            output: output,
-            outputs: outputs,
-            steps: steps,
-            wallTimeSeconds: wallTimeSeconds,
-            exitStatus: exitStatus,
-            stderr: stderr,
-            signatures: signatures,
-            status: status,
-            legacyWorkflowRun: legacyRun
         )
     }
 }
