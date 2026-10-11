@@ -24,16 +24,18 @@ enum ClassifierLegacyRuns {
     /// What one `lungfish-cli conda classify` run left in its output folder.
     struct CondaClassifyRun {
         let command: ClassifyCommand
-        /// The argv the wrapper record names, `lungfish-cli conda classify ...`.
+        /// The argv the root record names, `lungfish-cli conda classify ...`.
         let argv: [String]
         let result: ClassificationResult
-        /// The pipeline's own record, read before the wrapper replaced it.
+        /// The pipeline's own record, read before the root record replaced it.
         let pipelineEnvelope: ProvenanceEnvelope?
-        /// The wrapper record `lungfish.classify`.
+        /// The root record `lungfish.classify` the executor wrote last.
         let wrapperEnvelope: ProvenanceEnvelope
         let outputDirectory: URL
-        /// How the command ends, `Kraken classification ... completed` or exit 64.
-        let terminalPolicy: ClassifyTerminalPolicy
+        /// How the run ended, as the executor reports it to the command.
+        let status: RunStatus
+        /// The code the command exits with, 0 for a completed run with or without warnings.
+        let exitCode: Int32
     }
 
     /// The arguments after `lungfish-cli conda classify` that the Operations
@@ -42,11 +44,11 @@ enum ClassifierLegacyRuns {
         Array(try RecordedCLICommand.arguments(of: AppDelegate.classificationCLICommand(for: config)).dropFirst(2))
     }
 
-    /// Runs `lungfish-cli conda classify <arguments>` in the order
-    /// `ClassifyCommand.run` runs it after the registry lookup, which here
-    /// finds `databasePath` under the recorded name. It resolves, configures,
-    /// plans, runs the pipeline over `condaManager`, writes the wrapper record
-    /// and takes the terminal policy.
+    /// Runs `lungfish-cli conda classify <arguments>` the way `ClassifyCommand.run` runs it since
+    /// lane A8 of Phase 2.7: `Kraken2AnalysisRunTool` through `AnalysisRunExecutor`, with the
+    /// registry lookup finding `databasePath` under the recorded name and the pipeline running over
+    /// `condaManager`. The pipeline's own record is read before the executor's root record
+    /// replaces it at the end of the run.
     static func condaClassify(
         arguments: [String],
         databasePath: URL,
@@ -55,70 +57,67 @@ enum ClassifierLegacyRuns {
     ) async throws -> CondaClassifyRun {
         let command = try ClassifyCommand.parse(arguments)
         let argv = [CLICommandIdentity.executableName, "conda", "classify"] + arguments
-        let startedAt = Date()
-        let inputs = try CLIClassificationFolderResolver.expandInputArguments(command.fastqFiles, recursive: command.recursive)
         let outputDirectory = URL(fileURLWithPath: try XCTUnwrap(command.outputDir), isDirectory: true)
-        let materializationDirectory = outputDirectory.appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
-        let resolved = try await ClassifyCommand.resolveExecutionInputs(
-            for: inputs, tempDirectory: materializationDirectory, materializer: materializer
-        )
-        let durableReplayArgv = CLISequenceInputMaterialization.durableReplayArgv(
-            argv: argv,
-            originalInputArguments: resolved.argumentsPerExecutionFile(command.fastqFiles),
-            originalInputURLs: resolved.originalInputURLs,
-            executionInputURLs: resolved.executionInputURLs
-        )
         let database = MetagenomicsDatabaseInfo(
             name: command.databaseName, tool: "kraken2", version: "fixture-v1", sizeBytes: 1, catalogID: nil,
             installationRecipe: nil, payloadDigest: "sha256:fixture-db", description: "", path: databasePath,
             status: .ready, recommendedRAM: 1
         )
-        var config = try command.makeConfigForTesting(
-            inputURLs: inputs,
-            databaseInfo: database,
-            inputFormat: try ClassifyCommand.inferInputFormat(from: inputs),
-            outputDirectory: outputDirectory
-        )
-        config.inputFiles = resolved.executionInputURLs
-        if let confidence = command.confidence { config.confidence = confidence }
-        if let minimumHitGroups = command.minHitGroups { config.minimumHitGroups = minimumHitGroups }
-        config.originalInputFiles = inputs.map(\.standardizedFileURL)
-        config.sampleDisplayName = inputs.first?.deletingPathExtension().lastPathComponent
-        let readSet = try await command.planReadSet(
-            inputURLs: inputs,
-            executionInputURLs: resolved.executionInputURLs,
-            config: &config,
-            materializationDirectory: materializationDirectory
-        )
-
+        var request = command.runRequest
+        request.commandPath = ["conda", "classify"]
         let pipeline = ClassificationPipeline(condaManager: condaManager)
-        let result = command.profile
-            ? try await pipeline.profile(config: config)
-            : try await pipeline.classify(config: config)
-        let pipelineEnvelope = ProvenanceRecorder.loadEnvelope(from: outputDirectory)
-        let sidecar = try ClassifyCommand.writeProvenance(
-            result: result,
-            originalInputURLs: readSet?.originalInputURLs ?? resolved.originalInputURLs,
-            executionInputURLs: readSet?.executionInputURLs ?? resolved.executionInputURLs,
-            argv: argv,
-            durableReplayArgv: readSet == nil ? durableReplayArgv : nil,
-            preset: command.preset.rawValue,
-            startedAt: startedAt,
-            endedAt: Date(),
-            materializationStartedAt: resolved.materializationStartedAt,
-            materializationEndedAt: resolved.materializationEndedAt,
-            recursive: command.recursive,
-            writer: ProvenanceWriter(signingProvider: nil)
+        let captured = PipelineCapture()
+        let tool = Kraken2AnalysisRunTool(request: request, services: Kraken2RunServices(
+            expandInputs: { arguments, recursive in
+                try CLIClassificationFolderResolver.expandInputArguments(arguments, recursive: recursive)
+            },
+            database: { _ in database },
+            availableDatabases: { [database] },
+            materializer: materializer,
+            runPipeline: { config, progress in
+                let result = config.goal == .profile
+                    ? try await pipeline.profile(config: config, progress: progress)
+                    : try await pipeline.classify(config: config, progress: progress)
+                captured.store(result, ProvenanceRecorder.loadEnvelope(from: config.outputDirectory))
+                return result
+            }
+        ))
+        let report = await AnalysisRunExecutor(
+            services: AnalysisRunServices(writer: ProvenanceWriter(signingProvider: nil))
+        ).execute(
+            tool,
+            AnalysisRunRequest(inputs: [], destination: .directory(outputDirectory), groupsSamples: false, commandLine: argv),
+            events: .discarding
         )
+        let result = try XCTUnwrap(captured.result, "the pipeline did not return: \(report.message)")
         return CondaClassifyRun(
             command: command,
             argv: argv,
             result: result,
-            pipelineEnvelope: pipelineEnvelope,
-            wrapperEnvelope: try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar)),
+            pipelineEnvelope: captured.envelope,
+            wrapperEnvelope: try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: XCTUnwrap(report.recordURL))),
             outputDirectory: outputDirectory,
-            terminalPolicy: ClassifyCommand.terminalPolicy(for: result)
+            status: report.status,
+            exitCode: report.exitCode
         )
+    }
+
+    /// The result and the pipeline's record of a `conda classify` run, kept when the pipeline
+    /// returns.
+    private final class PipelineCapture: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storedResult: ClassificationResult?
+        private var storedEnvelope: ProvenanceEnvelope?
+
+        var result: ClassificationResult? { lock.withLock { storedResult } }
+        var envelope: ProvenanceEnvelope? { lock.withLock { storedEnvelope } }
+
+        func store(_ result: ClassificationResult, _ envelope: ProvenanceEnvelope?) {
+            lock.withLock {
+                storedResult = result
+                storedEnvelope = envelope
+            }
+        }
     }
 
     // MARK: - Kraken2 batch

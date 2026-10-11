@@ -22,11 +22,13 @@ final class ClassifierLegacyRecordPinTests: XCTestCase {
 
     // MARK: - Batch argv
 
-    /// Lane A8 flips this (E8). The Kraken2 batch record's argv is a
-    /// `/bin/sh -c` script, `set -e` then one line per sample of six
-    /// `/bin/test` guards on the database receipt, three through `plutil` and
-    /// one through `conda db info`, before that sample's `conda classify`
-    /// command. No command runs the batch as one.
+    /// Lane A12 flips this (E8), when the app's batch runs `kraken2 classify
+    /// --batch`. The legacy GUI batch writer's record argv is a `/bin/sh -c`
+    /// script, `set -e` then one line per sample of six `/bin/test` guards on
+    /// the database receipt, three through `plutil` and one through `conda db
+    /// info`, before that sample's classify command. Lane A8 gave the command
+    /// line `kraken2 classify --batch`, whose root record names the command
+    /// that ran (`Kraken2AnalysisRunToolTests`), and left this writer to A12.
     func testKraken2BatchRecordArgvIsAShellScriptOfGuardsAndOneClassifyPerSample() async throws {
         let fixture = try FakeClassificationCondaFixture()
         defer { fixture.cleanup() }
@@ -193,12 +195,14 @@ final class ClassifierLegacyRecordPinTests: XCTestCase {
 
     // MARK: - conda classify wrapper
 
-    /// Lane A8 flips this (D7, D8, E12). The command the Operations panel
-    /// records names no `--preset`, yet the wrapper record says the run used
-    /// the balanced preset and lists the balanced thresholds as its defaults,
-    /// beside the thresholds it ran with. The pipeline record it replaced
-    /// lists other defaults, confidence 0 and two minimum hit groups.
-    func testWrapperRecordsABalancedPresetNobodyGaveAndDefaultsThePipelineDoesNotHold() async throws {
+    /// Lane A8 flipped this (D7, D8, E12). The command the Operations panel
+    /// records names no `--preset`. At the base the wrapper record said the
+    /// run used the balanced preset beside the thresholds it ran with, and
+    /// the pipeline record it replaced listed other defaults, confidence 0
+    /// and two minimum hit groups. The root record the executor writes names
+    /// no preset and holds one defaults table, the command's own, and it
+    /// replaces the pipeline record, so the result holds one table.
+    func testRootRecordNamesNoPresetNobodyGaveAndHoldsTheCommandsDefaults() async throws {
         let fixture = try FakeClassificationCondaFixture()
         defer { fixture.cleanup() }
         var config = try fixture.makeConfig(goal: .profile, profileRequest: .automaticDefault)
@@ -212,26 +216,31 @@ final class ClassifierLegacyRecordPinTests: XCTestCase {
 
         let wrapper = run.wrapperEnvelope.options
         let balanced = ClassificationConfig.Preset.balanced.parameters
-        XCTAssertNil(wrapper.explicit["preset"])
-        XCTAssertEqual(wrapper.defaults["preset"], .string("balanced"))
-        XCTAssertEqual(wrapper.resolvedDefaults["preset"], .string("balanced"), "a run made with 0.5 and 3 reads balanced")
+        for (name, options) in [("explicit", wrapper.explicit), ("defaults", wrapper.defaults), ("resolved", wrapper.resolvedDefaults)] {
+            XCTAssertNil(options["preset"], "the \(name) options name no preset nobody gave (E12)")
+        }
         XCTAssertEqual(wrapper.explicit["confidence"], .number(0.5))
         XCTAssertEqual(wrapper.explicit["minimumHitGroups"], .integer(3))
+        XCTAssertEqual(wrapper.defaults, Kraken2RunRecordOptions.commandDefaults, "one table, the command's own (D8)")
         XCTAssertEqual(wrapper.defaults["confidence"], .number(balanced.confidence))
         XCTAssertEqual(wrapper.defaults["minimumHitGroups"], .integer(balanced.minimumHitGroups))
 
+        // The pipeline still writes its own table, which side A's GUI record keeps until 2.9. The
+        // root record replaces that record in the folder.
         let pipeline = try XCTUnwrap(run.pipelineEnvelope).options
         XCTAssertEqual(pipeline.defaults["confidence"], .number(0))
         XCTAssertEqual(pipeline.defaults["minimumHitGroups"], .integer(2))
-        XCTAssertNotEqual(pipeline.defaults["confidence"], wrapper.defaults["confidence"], "the two writers disagree")
+        XCTAssertEqual(ProvenanceRecorder.loadEnvelope(from: run.outputDirectory)?.workflowName, "lungfish.classify")
     }
 
-    /// Lane A8 flips this (D6, E13). The pipeline record of a sample that
+    /// Lane A8 flipped this (D6, E13). The pipeline record of a sample that
     /// mixes pairs and merged reads holds its read-set plan with the fragment
-    /// counts. The `conda classify` wrapper record that replaces it holds none.
+    /// counts in its legacy home, the explicit options. At the base the
+    /// `conda classify` wrapper record that replaced it held none. The root
+    /// record holds the plan in its one home, the resolved options.
     /// The wizard's config is recorded without Bracken, the command's default,
     /// because the stand-in kraken2 that counts fragments runs no Bracken.
-    func testWrapperDropsThePipelinesReadSetPlan() async throws {
+    func testRootRecordKeepsTheReadSetPlanInTheResolvedOptions() async throws {
         let root = try TestTempDirectory.make(prefix: "wrapper-read-set-plan-pin")
         defer { TestTempDirectory.cleanup(root) }
         let kraken2 = try ClassifierLegacyRuns.StandInKraken2Conda(root: root)
@@ -277,9 +286,11 @@ final class ClassifierLegacyRecordPinTests: XCTestCase {
         }
         XCTAssertEqual(plan["pairedFragments"], .integer(1))
         XCTAssertEqual(plan["mergedReads"], .integer(3))
-        let wrapper = run.wrapperEnvelope.options
-        for (name, options) in [("explicit", wrapper.explicit), ("defaults", wrapper.defaults), ("resolved", wrapper.resolvedDefaults)] {
-            XCTAssertNil(options["readSetPlan"], "the wrapper's \(name) options hold no plan")
-        }
+        let recorded = try XCTUnwrap(run.wrapperEnvelope.readSetPlan, "the root record holds the plan")
+        XCTAssertEqual(recorded.place, .resolvedDefaults)
+        XCTAssertEqual(recorded.fields["pairedFragments"], .integer(1))
+        XCTAssertEqual(recorded.fields["mergedReads"], .integer(3))
+        XCTAssertNil(run.wrapperEnvelope.options.explicit["readSetPlan"])
+        XCTAssertNil(run.wrapperEnvelope.options.defaults["readSetPlan"])
     }
 }
