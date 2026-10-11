@@ -290,12 +290,12 @@ struct ProvenanceMethodsSentenceTests {
     func genotypeGoldenMethods() throws {
         let text = try Self.goldenMethods("genotype/bundle/lungfish-provenance.json")
         #expect(
-            text.contains("Alignments were sorted, merged and indexed with samtools unknown (conda environment samtools), using samtools sort, samtools merge and samtools index. "),
+            text.contains("Alignments were sorted, merged and indexed with samtools v1.24 (conda environment samtools), using samtools sort, samtools merge and samtools index. "),
             Comment(rawValue: text)
         )
-        #expect(text.contains("Processing was performed with pysam retained-read demux filter unknown (conda environment pysam). "), Comment(rawValue: text))
+        #expect(text.contains("Processing was performed with pysam retained-read demux filter v0.24.0 (conda environment pysam). "), Comment(rawValue: text))
         #expect(!text.contains("sort sort"), Comment(rawValue: text))
-        #expect(text.contains("Reads were mapped to the reference with minimap2 unknown (conda environment minimap2), with the sr preset. "), Comment(rawValue: text))
+        #expect(text.contains("Reads were mapped to the reference with minimap2 v2.31 (conda environment minimap2), with the sr preset. "), Comment(rawValue: text))
     }
 
     // MARK: - Records in the older shape
