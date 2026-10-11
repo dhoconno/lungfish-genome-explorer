@@ -320,9 +320,23 @@ struct ProvenanceSection: View {
     private var rawJSONContent: some View {
         let display = viewModel.rawJSONDisplay
         return VStack(alignment: .leading, spacing: 8) {
-            if viewModel.rawJSON.isEmpty {
-                emptyMessage("No raw provenance JSON is available.")
-            } else {
+            switch display.content {
+            case .noRecord:
+                emptyMessage(ProvenanceRawJSONDisplay.noRecordMessage)
+            case .notShown(let message):
+                emptyMessage(message)
+                if display.revealURL != nil {
+                    Button {
+                        viewModel.revealSidecarInFinder()
+                    } label: {
+                        Label("Reveal in Finder", systemImage: "folder")
+                    }
+                    .buttonStyle(.borderless)
+                    .font(LungfishInspectorStyle.controlFont)
+                    .help("Reveal the provenance file in Finder")
+                    .accessibilityIdentifier("provenance-raw-json-reveal")
+                }
+            case .text:
                 HStack {
                     Spacer()
                     Button {

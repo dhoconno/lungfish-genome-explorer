@@ -328,8 +328,8 @@ struct VerifiedProvenanceRecord {
 @Observable
 @MainActor
 final class ProvenanceInspectorViewModel {
-    nonisolated private static let maximumDisplayedFileRows = 500
-    nonisolated private static let maximumDisplayedStepPaths = 200
+    nonisolated static let maximumDisplayedFileRows = 500
+    nonisolated static let maximumDisplayedStepPaths = 200
 
     var currentItem: ProvenanceInspectableItem?
     private(set) var sources: [ProvenanceSource] = []
@@ -433,6 +433,8 @@ final class ProvenanceInspectorViewModel {
     /// when the lookup could read it, and the record encoded again when it could not. It is empty
     /// for a record past the display caps.
     var rawJSON: String = ""
+    /// Where `rawJSON` came from, which the pane says when it is not the file's own text.
+    var rawJSONSource: ProvenanceRawJSONSource = .none
     var copyableText: String = ""
     var resolvedEnvelope: ProvenanceEnvelope?
     var resolvedSidecarURL: URL?
@@ -442,6 +444,8 @@ final class ProvenanceInspectorViewModel {
 
     /// The pasteboard the Raw JSON Copy button writes. Tests substitute a private one.
     @ObservationIgnored var pasteboard: NSPasteboard = .general
+    /// What the Raw JSON Reveal in Finder button does with the sidecar. Tests substitute their own.
+    @ObservationIgnored var revealer: (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
 
     private let monitor: ProvenanceCoverageMonitor
 
@@ -474,6 +478,7 @@ final class ProvenanceInspectorViewModel {
         optionRows = []
         runtimeRows = []
         rawJSON = ""
+        rawJSONSource = .none
         copyableText = ""
         resolvedEnvelope = nil
         resolvedSidecarURL = nil
@@ -722,9 +727,7 @@ final class ProvenanceInspectorViewModel {
         fileRows = Array(completeFileRows.prefix(Self.maximumDisplayedFileRows))
         optionRows = buildOptionRows(envelope.options, projectURL: projectURL)
         runtimeRows = buildRuntimeRows(envelope.runtimeIdentity)
-        rawJSON = Self.shouldInlineRawJSON(fileRowCount: deduplicatedDescriptors.count, envelope: envelope)
-            ? (sidecarText ?? encodedJSON(envelope))
-            : ""
+        applyRawJSON(for: envelope, fileRowCount: deduplicatedDescriptors.count, sidecarText: sidecarText)
         copyableText = buildCopyableText()
     }
 
@@ -950,16 +953,6 @@ final class ProvenanceInspectorViewModel {
         ]
     }
 
-    nonisolated private static func shouldInlineRawJSON(fileRowCount: Int, envelope: ProvenanceEnvelope) -> Bool {
-        guard fileRowCount <= Self.maximumDisplayedFileRows else {
-            return false
-        }
-        return !envelope.steps.contains {
-            $0.inputs.count > Self.maximumDisplayedStepPaths
-                || $0.outputs.count > Self.maximumDisplayedStepPaths
-        }
-    }
-
     private func buildOptionRows(_ options: ProvenanceOptions, projectURL: URL?) -> [ProvenanceOptionRow] {
         rows(from: options.explicit, kind: "Explicit", projectURL: projectURL)
             + rows(from: options.defaults, kind: "Default", projectURL: projectURL)
@@ -1020,11 +1013,6 @@ final class ProvenanceInspectorViewModel {
     private func appendOptional(_ label: String, _ value: String?, to rows: inout [ProvenanceRuntimeRow]) {
         guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         rows.append(ProvenanceRuntimeRow(label: label, value: value))
-    }
-
-    private func encodedJSON(_ envelope: ProvenanceEnvelope) -> String {
-        guard let data = try? ProvenanceJSON.encoder.encode(envelope) else { return "" }
-        return String(data: data, encoding: .utf8) ?? ""
     }
 
     private func buildCopyableText() -> String {
