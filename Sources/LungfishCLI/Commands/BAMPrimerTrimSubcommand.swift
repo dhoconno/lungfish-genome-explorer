@@ -26,7 +26,9 @@ extension BAMCommand {
         let provenanceSidecarURL: URL
     }
 
-    /// Wire-format event for the JSON output mode. One JSON object per line.
+    /// One step of the run. JSON mode writes it as a shared `CLIEvent` line
+    /// through `CLIEventEmitter`, and text mode prints its message, so this
+    /// type never reaches the wire itself.
     struct PrimerTrimEvent: Codable, Sendable {
         let event: String
         let progress: Double?

@@ -1,6 +1,6 @@
 # LungfishKit
 
-Line numbers were checked at commit a0eec8b32, and the OperationCenter.swift and OperationReporting.swift ones again in Phase 1 lane 1a.3. When a line has moved, search for the named symbol.
+Line numbers were checked at commit a0eec8b32, the OperationCenter.swift and OperationReporting.swift ones again in Phase 1 lane 1a.3, and the transport and bridge ones in Phase 2.6 lane C3. When a line has moved, search for the named symbol.
 
 ## Purpose
 
@@ -17,12 +17,14 @@ LungfishCore, LungfishIO, LungfishWorkflow, AppKit, SwiftUI and Combine. Never L
 | Register the operation and take bundle locks | `OperationCenter.begin` | Sources/LungfishKit/OperationCenter.swift line 602 |
 | Report from operation code through a type tests can replace | `OperationReporting` | Sources/LungfishKit/OperationReporting.swift line 26 |
 | Build the one `lungfish-cli` spec and map its outcome | `CLIProcessLauncher` | Sources/LungfishKit/CLIProcessLauncher.swift |
-| Spawn `lungfish-cli` and decode its event stream | `CLISubprocessTransport.run` | Sources/LungfishKit/CLISubprocessTransport.swift line 94 |
-| Map each `CLIEvent` onto the operation row | `OperationCenterCLIBridge` | Sources/LungfishApp/Services/OperationCenterCLIBridge.swift line 20 |
+| Spawn `lungfish-cli` and decode its event stream | `CLISubprocessTransport.run` | Sources/LungfishKit/CLISubprocessTransport.swift line 114 |
+| Map each `CLIEvent` onto the operation row | `OperationCenterCLIBridge` | Sources/LungfishApp/Services/OperationCenterCLIBridge.swift line 30 |
 | Find the CLI binary | `CLIBinaryLocator` | Sources/LungfishKit/CLIBinaryLocator.swift line 17 |
 | Track and reveal the analysis folder | `OperationCenter.trackAnalysisOutput` | OperationCenter.swift line 1132 |
 
 `begin` returns `.started` or `.refused`, so a bundle-lock conflict cannot be ignored. Pass `operationType` and `cliCommand` every time, since neither `OperationCenter.begin` nor the `begin` the protocol adds has a default for them, and a call with no CLI equivalent passes `nil`. A launch site takes `reporter: any OperationReporting = OperationCenter.shared` and calls `begin` through it, so a test passes `RecordingOperationReporter` from LungfishKitTestSupport or a fresh `OperationCenter()`. An async entry point that returns a value ends that call with `requireStarted()`, which throws `OperationRefusedError` on a refusal. docs/contracts/ADDING-AN-OPERATION.md has the recipe under "Registering an operation with begin()". The bridge currently lives in LungfishApp, so leaves reach the path only through App glue until the Phase 3 launcher lands. Pipeline steps call both `update` and `log`, or the expanded row loses its history (memory file reference_runtime_patterns.md).
+
+`CLISubprocessTransport.run` decodes each stdout line of any schema version through `CLIEventLine`, skips a line whose event it does not know, and hands each line of plain standard error to `onEvent` as an info `log` event, so the operation log keeps that text at info level. Its `Result` holds `outputs` and the typed artifacts of the completion. A runner imports only `outputs`, reads an artifact by its role, and reads a kind that names a bundle kind through `CLIEventArtifact.bundleKind`. docs/formats/cli-events.md has the wire format and the primer trim example.
 
 ## Other entry points
 

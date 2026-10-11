@@ -38,11 +38,31 @@ A run that succeeds ends with one `complete` line, and a run that fails ends wit
 | Key | Meaning |
 | --- | --- |
 | `path` | The file or folder. This key is required |
-| `kind` | What it is. A plain string today, and a bundle kind id once the bundle kind registry exists |
+| `kind` | What it is, such as the bundle kind id `phylogenetic-tree` or the file kind `bam`. It is a string on the wire |
 | `role` | Why the command made it, such as `alignment` |
 | `provenancePath` | The provenance record that describes it |
 
-A reader keeps a `kind` it does not know as a plain string. An element without a `path` is dropped, and the rest of the line is kept. The app still takes the paths it imports from `outputs`, and `artifacts` adds information beside them.
+A reader keeps a `kind` it does not know as a plain string. In the app, `CLIEventArtifact.bundleKind` reads a kind that names a bundle kind in `BundleKindRegistry` as that `BundleKindID`, and gives nil for any other kind, which keeps its string. An element without a `path` is dropped, and the rest of the line is kept. The app takes the paths it imports from `outputs` only, and `artifacts` adds information beside them.
+
+### Roles and the primer trim example
+
+A runner finds an artifact by its role. `CLIEventArtifact.Role` names the roles that a command and an app runner both read, and a writer may use others.
+
+| Role | What the artifact is |
+| --- | --- |
+| `alignment` | The alignment the command made |
+| `alignment-index` | The index of that alignment |
+| `provenance` | The provenance record of the run |
+
+`bam primer-trim` is the first command that types its outputs. Its `outputs` keep the version 1 order, the trimmed BAM, then its index, then its record, and its `artifacts` describe the same three paths.
+
+| Path | `kind` | `role` |
+| --- | --- | --- |
+| The trimmed BAM, in the bundle under `alignments/primer-trimmed` | `bam` | `alignment` |
+| Its index | `bai` | `alignment-index` |
+| Its record | `provenance` | `provenance` |
+
+The BAM and its index also name the record in `provenancePath`. The app's primer trim runner reads each path by role, and it falls back to the path's place in `outputs` when a version 1 CLI wrote no artifacts.
 
 ## The version rule
 
@@ -66,6 +86,8 @@ Events go to standard output, one line at a time. The app reads standard output 
 
 While events are on, standard output holds event lines and nothing else. Human text goes to standard error, written with `printHumanLine`. A reader skips any line that does not start with `{`, so a fragment of text in front of an event hides that event.
 
+The app's subprocess transport shows each line of standard error that is not blank in the operation log at info level. The text stays visible there and never counts as a warning.
+
 A few older commands write events to standard error instead. `assemble` and the two ONT FASTQ commands do, and they move to standard output in 2.8.
 
 ## Warnings
@@ -81,3 +103,7 @@ Some commands print events in shapes of their own. The MSA and tree imports, the
 ## Tests
 
 `Tests/Fixtures/cli-events/v1` holds transcripts captured from real runs of version 1. `CLIEventCompatibilityTests` decodes every one with a frozen copy of the version 1 reader and with the current decoder. It also reads version 2 lines back with the frozen reader and decodes a line from a later version that carries unknown keys, names and kinds.
+
+`Tests/Fixtures/cli-events/v2/bam-primer-trim.ndjson` is a version 2 run of `bam primer-trim`. It was captured in process on the sarscov2 fixture, with standard output redirected for the length of the run and the scratch folder rewritten to `/work`. `CLIPrimerTrimRunnerTests` reads it with the runner and with the frozen version 1 reader, which gets the same outcome and `outputs`.
+
+`CLISubprocessTransportTests` plays every version 1 transcript, and the same run written as version 2 lines, through the transport and gets the same outcome both ways. `OperationCenterCLIBridgeTests` plays four of them through a runner and the bridge, one for each label a run can end on.

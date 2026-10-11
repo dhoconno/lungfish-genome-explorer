@@ -71,11 +71,11 @@ public actor CLISubprocessTransport {
         public let outputs: [String]
         public let message: String?
         /// The typed artifacts of the `complete` line, in the order the command
-        /// wrote them, or empty when the CLI wrote none, as a version 1 CLI
-        /// never does. They describe outputs beside `outputs` and never replace
-        /// it as the input to bundle import. A kind stays the string the CLI
-        /// wrote, and ``CLIEventArtifact/bundleKind`` reads a kind that names a
-        /// registered bundle kind.
+        /// wrote them. Empty when the CLI wrote none, and always empty for a
+        /// version 1 CLI. They describe outputs beside `outputs` and never
+        /// replace it as the input to bundle import. A kind stays the string the
+        /// CLI wrote, and ``CLIEventArtifact/bundleKind`` reads a kind that names
+        /// a registered bundle kind.
         public let artifacts: [CLIEventArtifact]
     }
 
