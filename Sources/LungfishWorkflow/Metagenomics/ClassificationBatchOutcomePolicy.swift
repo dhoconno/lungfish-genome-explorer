@@ -105,8 +105,9 @@ public enum ClassificationBatchOutcomePolicy {
 
     /// Escapes one value for the batch summary. A value with a tab, a line feed or a double quote
     /// is wrapped in double quotes and its quotes are doubled. The app's `appTSVField` follows the
-    /// same rule for the other tables its launches write.
-    public static func tsvField(_ value: String) -> String {
+    /// same rule for the other tables its launches write. The batch summary keeps the app's quoting
+    /// rule so its bytes stay as they are, and a new table uses `DelimitedText` from LungfishCore.
+    static func tsvField(_ value: String) -> String {
         if value.contains("\t") || value.contains("\n") || value.contains("\"") {
             return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
         }
