@@ -176,8 +176,9 @@ enum ClassifierParityKnownDifferences {
         ClassifierParityKnownDifference(counts: counts, scope: .side(side), id: "fact: record * names \(file)", reason: reason, closedBy: closedBy)
     }
 
-    /// The per-read output and the empty mate come from the shared ClassificationPipeline.
-    static let sharedPipeline = "A8 under E3, the owner review F2 proposes until the manager names another. The cause is in the shared ClassificationPipeline, so its fix moves A and B together"
+    /// The per-read output and the empty mate come from the shared ClassificationPipeline, which
+    /// sides A, B, C and C' all run.
+    static let sharedPipeline = "2.8, classifier records name every file they keep (E3). The cause is in the shared ClassificationPipeline, which gzips the per-read classification.kraken with no recorded step and stages merged.emptymate.fastq and removes it, so its fix moves sides A, B, C and C' together"
 
     private static let namedFiles: [ClassifierParityKnownDifference] = [
         namedFile(.a, [.k1: 1, .k3: 2, .k4: 1, .e1: 2, .e3: 2], "<project>/.tmp/* that does not exist",
@@ -193,13 +194,14 @@ enum ClassifierParityKnownDifferences {
         namedFile(.b, [.k2: 1, .k3: 1], "*.lungfish-classify-inputs/merged.emptymate.fastq that does not exist",
                   "As on side A", closedBy: sharedPipeline),
         // Landing 2 found both still matching after A7 landed. A7 records the move as a step of its
-        // own (E7), but the records written before the move keep the old path and digest, and side
-        // C shows the same through the CLI route's finalize (ClassifierParityKnownDifferences+RouteC).
+        // own (E7), and build-db marks duplicates in place after it, a recorded step too, but the
+        // records written before them keep the old path and digest. Side C shows the same through
+        // the CLI route's finalize (ClassifierParityKnownDifferences+RouteC).
         namedFile(.a, [.e1: 6, .e2: 6, .e3: 20], "*/*_temp/*.third.filt.sorted.bam* that does not exist",
-                  "The GUI's build-db esviritu moves the BAM and its index to bams/, and the records written before the move still name them in _temp/",
+                  "build-db esviritu moves the BAM and its index to bams/ and then marks duplicates in place, both recorded steps, so the records written before them still name them in _temp/",
                   closedBy: bamRelocation),
         namedFile(.a, [.e1: 3, .e2: 3, .e3: 10], "*/bams/*.third.filt.sorted.bam with another digest",
-                  "The BAM that build-db esviritu moved to bams/ holds other bytes than the digest the records state, the digest of the file in _temp/",
+                  "build-db esviritu marks duplicates in the BAM in bams/ after the move, so it holds other bytes than the digest the records written before the markdup state, the digest from before it",
                   closedBy: bamRelocation),
     ]
 

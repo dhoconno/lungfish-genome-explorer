@@ -17,9 +17,9 @@ import Foundation
 extension ClassifierParityKnownDifferences {
     static let routeC: [ClassifierParityKnownDifference] = aAgainstC + commandFacts
 
-    /// The BAM relocation of `build-db esviritu`, which the legacy GUI's build-db step and the
-    /// CLI route's finalize share.
-    static let bamRelocation = "a later lane the manager names. The relocation that A7 made a recorded step (E7) still leaves the records written before it naming the BAM and its index in _temp/ with the digest from there, on both routes, so its fix moves sides A, C and C' together"
+    /// The BAM relocation and duplicate marking of `build-db esviritu`, which the legacy GUI's
+    /// build-db step and the CLI route's finalize share.
+    static let bamRelocation = "2.8, build-db esviritu records the moved and deduplicated BAM. The core moves EsViritu's BAM and its index from _temp/ to bams/ and then marks duplicates in place, both recorded steps, so the records written before them name _temp/ and the digest from before the markdup. Both routes run the core, so its fix moves sides A, C and C' together"
 
     private static func aAgainstC(
         _ counts: [ClassifierParityCase: Int], _ id: String, _ reason: String, closedBy: String = retire
@@ -129,9 +129,9 @@ extension ClassifierParityKnownDifferences {
     /// defects of code both routes share, so they show on side C and side C' as on side A.
     private static let commandFacts: [ClassifierParityKnownDifference] = [
         commandFact([.e1: 8, .e2: 8, .e3: 24], "fact: record * names *_temp/*.third.filt.sorted.bam* that does not exist",
-            "The finalize's BAM relocation moves EsViritu's BAM and its index from _temp/ to bams/ and records the move (A7, E7), yet every record written before the move still names them in _temp/", closedBy: bamRelocation),
+            "build-db esviritu moves EsViritu's BAM and its index from _temp/ to bams/ and then marks duplicates in place, both recorded steps (A7, E7), so every record written before them still names the BAM and its index in _temp/", closedBy: bamRelocation),
         commandFact([.e1: 5, .e2: 5, .e3: 14], "fact: record * names */bams/*.third.filt.sorted.bam* with another digest",
-            "The BAM and the index the relocation moved to bams/ hold other bytes than the digest the records state, the digest of the file in _temp/", closedBy: bamRelocation),
+            "build-db esviritu marks duplicates in the BAM in bams/ after the move, so the BAM and its index hold other bytes than the digest the records written before the markdup state, the digest of the file from before it", closedBy: bamRelocation),
         commandFact([.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1], "fact: record * names *classification.kraken that does not exist",
             "As on sides A and B. ClassificationPipeline gzips the per-read output to classification.kraken.gz and deletes it, and no step records the compression", closedBy: sharedPipeline),
         commandFact([.k2: 1, .k3: 1], "fact: record * names *.lungfish-classify-inputs/merged.emptymate.fastq that does not exist",

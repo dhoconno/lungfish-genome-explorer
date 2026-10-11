@@ -609,7 +609,7 @@ enum ClassifierReadSetParityTable {
         KnownDifference(
             tool: .kraken2, row: "L6e demultiplex group", route: "executor",
             value: "exit 64: Demultiplexed group bundles are container-only; select an individual demultiplexed FASTQ bundle for classification.",
-            lane: "a later lane the manager names, which moves the check into the Kraken2 plan as A9 did for EsViritu"
+            lane: "2.8, the Kraken2 plan refuses a demultiplexed group before its folder exists, as A9 did for EsViritu"
         ),
     ]
 
