@@ -45,9 +45,10 @@ final class BuildDbClassifierLayoutTests: XCTestCase {
     }
 
     /// A one-folder result keeps its BAM in `<root>/<sample>_temp/`. Its rows name the BAM under the root's
-    /// `bams`, the run moves it there before samtools counts its reads, and the cleanup removes `_temp`. A
-    /// stand-in samtools reports the BAM as marked and counts two reads, so no real tool runs.
-    func testOneFolderResultMovesItsBAMToTheRootBams() async throws {
+    /// `bams`, the run moves it there before samtools counts its reads, and the cleanup removes `_temp`. The
+    /// record of the run holds the move as its first step (plan decision E7), from the old path to the new one
+    /// with one digest. A stand-in samtools reports the BAM as marked and counts two reads, so no real tool runs.
+    func testOneFolderResultMovesItsBAMToTheRootBamsAsARecordedStep() async throws {
         let root = try TestTempDirectory.make(prefix: "BuildDbOneFolderBAM")
         defer { TestTempDirectory.cleanup(root) }
         let samtools = try ManagedSamtoolsHome.makeStub(rootURL: root, namePrefix: "Home", script: Self.markedSamtools)
@@ -68,6 +69,21 @@ final class BuildDbClassifierLayoutTests: XCTestCase {
         XCTAssertEqual(Set(rows.map(\.uniqueReads)), [2])
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.appendingPathComponent("bams/sample-A.third.filt.sorted.bam").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: temp.path), "The cleanup removes _temp")
+
+        let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: result), "No other record was there")
+        XCTAssertEqual(record.workflowName, "lungfish build-db esviritu")
+        let move = try XCTUnwrap(record.steps.first)
+        XCTAssertEqual(move.toolName, "Lungfish EsViritu BAM Relocation")
+        XCTAssertEqual(move.inputs.map(\.path), ["bam", "bam.bai"].map { temp.appendingPathComponent("sample-A.third.filt.sorted.\($0)").path })
+        let bams = result.appendingPathComponent("bams", isDirectory: true)
+        XCTAssertEqual(move.outputs.map(\.path), ["bam", "bam.bai"].map { bams.appendingPathComponent("sample-A.third.filt.sorted.\($0)").path })
+        XCTAssertEqual(move.outputs.map(\.originPath), move.inputs.map(\.path))
+        XCTAssertEqual(move.outputs.map(\.checksumSHA256), move.inputs.map(\.checksumSHA256), "A move changes no byte")
+        XCTAssertEqual(move.outputs.map(\.role), [.output, .index])
+        XCTAssertTrue(record.steps.dropFirst().contains { $0.toolName == "samtools" }, "samtools runs after the move")
+        for output in record.outputs {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: output.path), "The record names \(output.path)")
+        }
     }
 
     /// R4. A batch sample folder takes the sanitized id (`Patient_07`), while EsViritu names its tables by
@@ -90,9 +106,9 @@ final class BuildDbClassifierLayoutTests: XCTestCase {
     }
 
     /// R6. The sample record lists the coverage windows and the assembly summary as outputs, as
-    /// `EsVirituPipeline` records them. Known defect: cleanup deletes both tables, so the record names files
-    /// that no longer exist.
-    func testCleanupDeletesTablesTheSampleRecordNamesKnownDefect() async throws {
+    /// `EsVirituPipeline` records them, and the cleanup keeps both (plan decision E7). It was a known defect
+    /// at base `18e422c4f`, where the cleanup deleted both tables and the record named files that were gone.
+    func testCleanupKeepsEveryTableTheSampleRecordNames() async throws {
         let root = try TestTempDirectory.make(prefix: "BuildDbCleanup")
         defer { TestTempDirectory.cleanup(root) }
         let batch = root.appendingPathComponent("esviritu-batch-2026-10-11T10-00-00", isDirectory: true)
@@ -105,11 +121,7 @@ final class BuildDbClassifierLayoutTests: XCTestCase {
         let named = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: sampleFolder)).outputs.map(\.path).sorted()
         XCTAssertEqual(named, tables.map(\.path).sorted(), "The sample record still names the three tables")
         let missing = named.filter { !FileManager.default.fileExists(atPath: $0) }
-        XCTAssertEqual(
-            missing.map { URL(fileURLWithPath: $0).lastPathComponent },
-            ["S1.detected_virus.assembly_summary.tsv", "S1.virus_coverage_windows.tsv"],
-            "R6: cleanup deletes two tables the record names"
-        )
+        XCTAssertEqual(missing, [], "R6: every table the sample record names is still there")
         let database = try EsVirituDatabase(at: batch.appendingPathComponent("esviritu.sqlite"))
         XCTAssertEqual(try database.fetchCoverageWindows(sample: "S1", accession: "OR708245.1").count, 100)
     }

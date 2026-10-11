@@ -770,8 +770,9 @@ final class BuildDbCommandTests: XCTestCase {
         XCTAssertNotNil(meta["created_at"])
     }
 
-    /// Verifies that EsViritu cleanup removes _temp dirs and intermediate TSVs
-    /// while preserving detection TSVs.
+    /// Verifies that EsViritu cleanup removes _temp dirs and keeps every table,
+    /// since the sample record names the coverage windows and assembly summary
+    /// tables as outputs (plan decision E7 of Phase 2.7).
     func testEsVirituCleanupRemovesIntermediateFiles() async throws {
         let tmpDir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
@@ -795,11 +796,11 @@ final class BuildDbCommandTests: XCTestCase {
         XCTAssertFalse(fm.fileExists(atPath: sampleDir.appendingPathComponent("SRR35517702_temp").path),
                        "_temp/ should be removed by cleanup")
 
-        // Verify intermediate TSVs are removed
-        XCTAssertFalse(fm.fileExists(atPath: sampleDir.appendingPathComponent("SRR35517702.virus_coverage_windows.tsv").path),
-                       "virus_coverage_windows.tsv should be removed by cleanup")
-        XCTAssertFalse(fm.fileExists(atPath: sampleDir.appendingPathComponent("SRR35517702.detected_virus.assembly_summary.tsv").path),
-                       "assembly_summary.tsv should be removed by cleanup")
+        // Verify the tables the sample record names are kept
+        XCTAssertTrue(fm.fileExists(atPath: sampleDir.appendingPathComponent("SRR35517702.virus_coverage_windows.tsv").path),
+                      "virus_coverage_windows.tsv should be kept by cleanup")
+        XCTAssertTrue(fm.fileExists(atPath: sampleDir.appendingPathComponent("SRR35517702.detected_virus.assembly_summary.tsv").path),
+                      "assembly_summary.tsv should be kept by cleanup")
 
         // Verify detection TSV and database are preserved
         XCTAssertTrue(fm.fileExists(atPath: sampleDir.appendingPathComponent("SRR35517702.detected_virus.info.tsv").path),

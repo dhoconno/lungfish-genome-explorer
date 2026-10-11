@@ -66,6 +66,7 @@ extension BuildDbCommand {
             let provenanceInputs = BuildDbCommand.buildDbInputRecords(tool: .esViritu, resultURL: resultURL)
             let samtoolsProvenance = BuildDbSamtoolsProvenanceCollector()
             let databaseSnapshot = try BuildDbDatabaseSnapshot.capture(dbURL: dbURL)
+            var relocationSteps: [ProvenanceStep] = []
 
             do {
                 // 1. Enumerate sample subdirectories containing detection TSVs
@@ -127,7 +128,12 @@ extension BuildDbCommand {
 
                 // 4. Relocate BAMs from <sample>/<sample>_temp/ to <sample>/bams/ so the
                 // resolver in updateUniqueReadsInDB and post-cleanup VC can both find them.
-                relocateEsVirituBAMs(resultURL: resultURL)
+                // The move is a step of the run's record (plan decision E7).
+                let relocationClock = ProvenanceRunClock()
+                let moved = relocateEsVirituBAMs(resultURL: resultURL)
+                relocationSteps = bamRelocationStep(
+                    moved, resultURL: resultURL, recordedInputs: provenanceInputs, clock: relocationClock
+                ).map { [$0] } ?? []
 
                 // 5. Compute unique reads from BAMs and update DB
                 try await updateUniqueReadsInDB(
@@ -160,7 +166,7 @@ extension BuildDbCommand {
                     globalOptions: options.globalOptions,
                     runClock: runClock,
                     inputRecords: provenanceInputs,
-                    additionalSteps: samtoolsProvenance.steps
+                    additionalSteps: relocationSteps + samtoolsProvenance.steps
                 )
                 try databaseSnapshot.discard()
                 return BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: record)
@@ -180,7 +186,7 @@ extension BuildDbCommand {
                     runClock: runClock,
                     inputRecords: provenanceInputs,
                     error: error,
-                    additionalSteps: samtoolsProvenance.steps,
+                    additionalSteps: relocationSteps + samtoolsProvenance.steps,
                     includeOutputRecords: false
                 )
                 throw error
@@ -430,11 +436,12 @@ extension BuildDbCommand {
 
         // MARK: - Post-Build Cleanup
 
-        /// Removes intermediate files while preserving detection TSVs and the database.
+        /// Removes the `_temp/` folders, whose BAMs the run moved to `bams/` first.
         ///
-        /// Removes: `*_temp/` directories, `*.virus_coverage_windows.tsv`,
-        /// `*.detected_virus.assembly_summary.tsv`.
-        /// Keeps: `*.detected_virus.info.tsv`, `esviritu.sqlite`.
+        /// Keeps every table EsViritu wrote, among them `*.virus_coverage_windows.tsv` and
+        /// `*.detected_virus.assembly_summary.tsv`, which the sample record names as outputs and which
+        /// hold the coverage breadth behind each detection (plan decision E7 of Phase 2.7, risk R6). Keeps
+        /// `esviritu.sqlite` and `bams/`.
         private static func performCleanup(resultURL: URL, events: BuildDbEventSink) {
             let fm = FileManager.default
             var freedBytes: Int64 = 0
@@ -460,19 +467,6 @@ extension BuildDbCommand {
                     continue
                 }
 
-                // Inside sample directories, remove intermediate TSVs
-                let coverageWindows = dir.appendingPathComponent("\(name).virus_coverage_windows.tsv")
-                if let size = fileSize(coverageWindows) {
-                    try? fm.removeItem(at: coverageWindows)
-                    freedBytes += size
-                }
-
-                let assemblySummary = dir.appendingPathComponent("\(name).detected_virus.assembly_summary.tsv")
-                if let size = fileSize(assemblySummary) {
-                    try? fm.removeItem(at: assemblySummary)
-                    freedBytes += size
-                }
-
                 // Remove _temp directory inside sample directory
                 let tempDir = dir.appendingPathComponent("\(name)_temp")
                 if let size = directorySize(tempDir) {
@@ -496,10 +490,51 @@ extension BuildDbCommand {
             return total
         }
 
-        private static func fileSize(_ url: URL) -> Int64? {
-            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            return Int64(size)
+        /// The BAM move from `_temp/` to `bams/` as a step of the run's record (plan decision E7). Each moved
+        /// file is an input under its old path and an output under its new one that names the old path as its
+        /// origin. A move changes no byte, so both carry the digest and size the run recorded for the file when
+        /// it began, or the digest of the moved file when the run recorded none. Nil when nothing moved.
+        static func bamRelocationStep(
+            _ moved: [(source: URL, destination: URL)],
+            resultURL: URL,
+            recordedInputs: [FileRecord],
+            clock: ProvenanceRunClock
+        ) -> ProvenanceStep? {
+            var recorded: [String: ProvenanceFileDescriptor] = [:]
+            for record in recordedInputs {
+                recorded[URL(fileURLWithPath: record.path).standardizedFileURL.path] = ProvenanceFileDescriptor(fileRecord: record)
+            }
+            var inputs: [ProvenanceFileDescriptor] = []
+            var outputs: [ProvenanceFileDescriptor] = []
+            for move in moved {
+                let name = move.destination.lastPathComponent
+                let role: FileRole = name.hasSuffix(".bai") || name.hasSuffix(".csi") ? .index : .output
+                guard let before = recorded[move.source.standardizedFileURL.path]
+                    ?? (try? ProvenanceFileDescriptor.file(url: move.destination, role: role == .index ? .index : .input)),
+                    before.checksumSHA256 != nil, before.fileSize != nil else { continue }
+                inputs.append(ProvenanceFileDescriptor(
+                    path: move.source.path, checksumSHA256: before.checksumSHA256, fileSize: before.fileSize,
+                    format: before.format, role: before.role
+                ))
+                outputs.append(ProvenanceFileDescriptor(
+                    path: move.destination.path, checksumSHA256: before.checksumSHA256, fileSize: before.fileSize,
+                    format: before.format, role: role, originPath: move.source.path
+                ))
+            }
+            guard !outputs.isEmpty else { return nil }
+            return ProvenanceStep(
+                toolName: "Lungfish EsViritu BAM Relocation",
+                toolVersion: WorkflowRun.currentAppVersion,
+                argv: ["BuildDbCommand.EsVirituSubcommand.relocateEsVirituBAMs(resultURL:)", resultURL.path],
+                resolvedOptions: ["invocationKind": .string("swift-api"), "operation": .string("move")],
+                runtimeIdentity: ProvenanceRuntimeIdentity(),
+                inputs: inputs,
+                outputs: outputs,
+                exitStatus: 0,
+                wallTimeSeconds: clock.elapsed,
+                startedAt: clock.startedAt,
+                completedAt: clock.now
+            )
         }
 
         // MARK: - Column Index Builder
