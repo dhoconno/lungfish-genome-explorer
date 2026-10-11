@@ -23,8 +23,12 @@ private let logger = Logger(subsystem: LogSubsystem.workflow, category: "Provena
 /// LungfishWorkflow they are `ClassificationPipeline`, `EsVirituPipeline`,
 /// `TaxonomyExtractionPipeline`, `TaxTriagePipeline`,
 /// `TaxTriageSerialBatchRunner` and `NativeBundleBuilder`. In LungfishCLI it
-/// is `FastqDeaconRiboSubcommand`. The recorder is rebuilt on
-/// `ProvenanceRunBuilder` in sub-phase 2.7.
+/// is `FastqDeaconRiboSubcommand`.
+///
+/// Since sub-phase 2.7 a run's state is the `ProvenanceRunBuilder` value of its
+/// record and the `ProvenanceStep` values recorded so far. `save` completes the
+/// record through `ProvenanceRunBuilder.completeRecordedRun`, which keeps the
+/// rules the recorder's records have always followed.
 ///
 /// ## Usage
 ///
@@ -58,13 +62,8 @@ public actor ProvenanceRecorder {
 
     // MARK: - Properties
 
-    /// Active and recently completed workflow runs, keyed by run ID.
-    private var runs: [UUID: WorkflowRun] = [:]
-
-    /// Clocks timing the runs this recorder began, keyed by run ID. A step's
-    /// end and the run's end are read from them, so a wall-clock step cannot
-    /// make a run end before it began.
-    private var runClocks: [UUID: ProvenanceRunClock] = [:]
+    /// The runs this recorder began, keyed by run ID.
+    private var runs: [UUID: RecordedRun] = [:]
 
     /// Optional signer used after JSON sidecars are written.
     private var signingProvider: (any ProvenanceSigningProvider)?
@@ -90,10 +89,8 @@ public actor ProvenanceRecorder {
         name: String,
         parameters: [String: ParameterValue] = [:]
     ) -> UUID {
-        let runClock = ProvenanceRunClock()
-        let run = WorkflowRun(name: name, startTime: runClock.startedAt, parameters: parameters)
+        let run = RecordedRun(name: name, parameters: parameters, clock: ProvenanceRunClock())
         runs[run.id] = run
-        runClocks[run.id] = runClock
         logger.info("Provenance: began run '\(name)' [\(run.id)]")
         return run.id
     }
@@ -145,49 +142,60 @@ public actor ProvenanceRecorder {
         managedToolID: ManagedToolID? = nil,
         toolVersionEvidence: ToolVersionEvidence? = nil
     ) -> UUID? {
-        guard runs[runID] != nil else {
+        let stepID = modifyRun(runID) { run -> UUID in
+            // Both of the step's times are when it was recorded, read from the run's clock.
+            let recordedAt = run.clock.now
+            let step = ProvenanceStep(
+                toolName: toolName,
+                toolVersion: toolVersion,
+                githubReleaseVersion: githubReleaseVersion,
+                argv: command,
+                durableReplayArgv: durableReplayArgv,
+                // A step's shell line is what a replay runs, its durable argv when it has one.
+                reproducibleCommand: (durableReplayArgv ?? command).map(shellEscape).joined(separator: " "),
+                resolvedOptions: resolvedOptions ?? [:],
+                runtimeIdentity: runtimeIdentity,
+                inputs: inputs.map { ProvenanceFileDescriptor(fileRecord: $0) },
+                outputs: outputs.map { ProvenanceFileDescriptor(fileRecord: $0) },
+                exitStatus: Int(exitCode),
+                wallTimeSeconds: wallTime,
+                peakMemoryBytes: peakMemoryBytes,
+                stderr: ProvenanceStderr.truncated(stderr),
+                dependsOn: dependsOn,
+                startedAt: recordedAt,
+                completedAt: recordedAt,
+                parentStepID: parentStepID,
+                managedToolID: managedToolID,
+                toolVersionEvidence: toolVersionEvidence
+            )
+            if run.steps.isEmpty {
+                // The first step names the run's tool, and its container is the run's.
+                run.builder = run.builder.leadingRecordedStep(
+                    step,
+                    reportedVersion: toolVersion,
+                    fallbackVersion: run.appVersion
+                )
+                run.containerImage = containerImage
+                run.containerDigest = containerDigest
+            }
+            run.steps.append(step)
+            return step.id
+        }
+        guard let stepID else {
             logger.warning("Provenance: no active run \(runID) — step not recorded")
             return nil
         }
-
-        let truncatedStderr = ProvenanceStderr.truncated(stderr)
-        let recordedAt = runClocks[runID]?.now ?? Date()
-
-        let step = StepExecution(
-            toolName: toolName,
-            toolVersion: toolVersion,
-            githubReleaseVersion: githubReleaseVersion,
-            containerImage: containerImage,
-            containerDigest: containerDigest,
-            command: command,
-            durableReplayArgv: durableReplayArgv,
-            resolvedOptions: resolvedOptions,
-            runtimeIdentity: runtimeIdentity,
-            inputs: inputs,
-            outputs: outputs,
-            exitCode: exitCode,
-            wallTime: wallTime,
-            peakMemoryBytes: peakMemoryBytes,
-            stderr: truncatedStderr,
-            dependsOn: dependsOn,
-            parentStepID: parentStepID,
-            managedToolID: managedToolID,
-            toolVersionEvidence: toolVersionEvidence,
-            startTime: recordedAt,
-            endTime: recordedAt
-        )
-
-        runs[runID]?.steps.append(step)
-
         logger.info("Provenance: recorded \(toolName) step in run \(runID) (exit \(exitCode))")
-        return step.id
+        return stepID
     }
 
     /// Marks a run as completed, failed, or cancelled.
     public func completeRun(_ runID: UUID, status: RunStatus) {
-        guard runs[runID] != nil else { return }
-        runs[runID]?.status = status
-        runs[runID]?.endTime = runClocks[runID]?.now ?? Date()
+        let found = modifyRun(runID) { run in
+            run.status = status
+            run.endedAt = run.clock.now
+        }
+        guard found != nil else { return }
         logger.info("Provenance: run \(runID) → \(status.rawValue)")
     }
 
@@ -195,12 +203,12 @@ public actor ProvenanceRecorder {
 
     /// Returns the workflow run with the given ID.
     public func getRun(_ runID: UUID) -> WorkflowRun? {
-        runs[runID]
+        runs[runID]?.workflowRun
     }
 
     /// Returns all runs, most recent first.
     public func allRuns() -> [WorkflowRun] {
-        runs.values.sorted { $0.startTime > $1.startTime }
+        runs.values.map(\.workflowRun).sorted { $0.startTime > $1.startTime }
     }
 
     // MARK: - Persistence
@@ -258,6 +266,133 @@ public actor ProvenanceRecorder {
             url = try writer.write(envelope, to: directory)
         }
         logger.info("Provenance: saved canonical run \(runID) to \(url.path)")
+    }
+
+    // MARK: - Run State
+
+    /// Applies `change` to the run `runID` in place and returns what it returns, or returns nil when
+    /// the recorder holds no such run.
+    func modifyRun<Result>(_ runID: UUID, _ change: (inout RecordedRun) -> Result) -> Result? {
+        guard runs[runID] != nil else { return nil }
+        return change(&runs[runID]!)
+    }
+}
+
+// MARK: - RecordedRun
+
+extension ProvenanceRecorder {
+    /// One run the recorder gathers: the builder value of its record, the steps recorded so far and
+    /// how the run ended.
+    struct RecordedRun: Sendable {
+        let id: UUID
+        /// Times the run, so no step time and no end is earlier than the run's start, even when the
+        /// wall clock steps back.
+        let clock: ProvenanceRunClock
+        /// The app version and operating system the run began under, which its record names.
+        let appVersion: String
+        let hostOS: String
+        /// The run's name and parameters, and from its first recorded step on, that step's tool,
+        /// version, argv and durable argv, which the record names as the run's own.
+        var builder: ProvenanceRunBuilder
+        /// The container the first step ran in, which the record names as the run's.
+        var containerImage: String?
+        var containerDigest: String?
+        var steps: [ProvenanceStep] = []
+        var status: RunStatus = .running
+        var endedAt: Date?
+
+        init(name: String, parameters: [String: ParameterValue], clock: ProvenanceRunClock) {
+            id = UUID()
+            self.clock = clock
+            appVersion = WorkflowRun.currentAppVersion
+            hostOS = WorkflowRun.currentHostOS
+            // Until a step is recorded, the run names itself as its tool and the app as its version.
+            builder = ProvenanceRunBuilder(
+                workflowName: name,
+                workflowVersion: ProvenanceVersion.required(appVersion, fallback: WorkflowRun.currentAppVersion),
+                toolName: name,
+                toolVersion: ProvenanceVersion.required(nil, fallback: appVersion)
+            )
+            .options(explicit: parameters, defaults: [:], resolved: [:])
+        }
+
+        /// The parameters the run began with.
+        var parameters: [String: ParameterValue] {
+            builder.provenanceOptions.explicit
+        }
+
+        /// The record of the run as `save` writes it before the caller's options. The runtime identity
+        /// is the writing process's, with the app version, operating system and container of the run.
+        func canonicalEnvelope() -> ProvenanceEnvelope {
+            builder
+                .runtime(ProvenanceRuntimeIdentity(
+                    appVersion: appVersion,
+                    operatingSystemVersion: hostOS,
+                    user: WorkflowRun.currentUser,
+                    containerImage: containerImage,
+                    containerDigest: containerDigest
+                ))
+                .completeRecordedRun(
+                    id: id,
+                    steps: steps,
+                    status: status,
+                    startedAt: clock.startedAt,
+                    endedAt: endedAt
+                )
+        }
+
+        /// The run as `getRun` and `allRuns` return it. The first step carries the run's container,
+        /// and a later step's container is not kept, because no record names it.
+        var workflowRun: WorkflowRun {
+            WorkflowRun(
+                id: id,
+                name: builder.workflowName,
+                startTime: clock.startedAt,
+                endTime: endedAt,
+                status: status,
+                appVersion: appVersion,
+                hostOS: hostOS,
+                steps: steps.enumerated().map { index, step in
+                    StepExecution(
+                        recordedStep: step,
+                        containerImage: index == 0 ? containerImage : nil,
+                        containerDigest: index == 0 ? containerDigest : nil
+                    )
+                },
+                parameters: parameters
+            )
+        }
+    }
+}
+
+private extension StepExecution {
+    /// A recorded step as a run's step, for the `WorkflowRun` view of a recorded run.
+    init(recordedStep step: ProvenanceStep, containerImage: String?, containerDigest: String?) {
+        self.init(
+            id: step.id,
+            toolName: step.toolName,
+            toolVersion: step.toolVersion,
+            githubReleaseVersion: step.githubReleaseVersion,
+            containerImage: containerImage,
+            containerDigest: containerDigest,
+            command: step.argv,
+            durableReplayArgv: step.durableReplayArgv,
+            resolvedOptions: step.resolvedOptions,
+            runtimeIdentity: step.runtimeIdentity,
+            inputs: step.inputs.map(FileRecord.init(provenanceFile:)),
+            outputs: step.outputs.map(FileRecord.init(provenanceFile:)),
+            exitCode: step.exitStatus.map { Int32(clamping: $0) },
+            wallTime: step.wallTimeSeconds,
+            peakMemoryBytes: step.peakMemoryBytes,
+            stderr: step.stderr,
+            dependsOn: step.dependsOn,
+            parentStepID: step.parentStepID,
+            managedToolID: step.managedToolID,
+            toolVersionEvidence: step.toolVersionEvidence,
+            // The recorder stamps every step it records, so both times are always there.
+            startTime: step.startedAt ?? Date.distantPast,
+            endTime: step.completedAt
+        )
     }
 }
 

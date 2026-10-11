@@ -47,18 +47,20 @@ public enum ProvenanceBuilderError: Error, LocalizedError, Sendable, Equatable {
 }
 
 public struct ProvenanceRunBuilder: Sendable {
-    private let workflowName: String
-    private let workflowVersion: String
-    private let toolName: String
-    private let toolVersion: String
-    private let arguments: [String]
-    private let durableArguments: [String]?
-    private let command: String?
-    private let provenanceOptions: ProvenanceOptions
-    private let inputs: [ProvenanceFileDescriptor]
-    private let outputs: [ProvenanceFileDescriptor]
-    private let runtimeIdentity: ProvenanceRuntimeIdentity?
-    private let provenanceSteps: [ProvenanceStep]
+    // Internal, not private, because `ProvenanceRunBuilder+Recorded.swift` completes a run that
+    // `ProvenanceRecorder` gathered from the same values.
+    let workflowName: String
+    let workflowVersion: String
+    let toolName: String
+    let toolVersion: String
+    let arguments: [String]
+    let durableArguments: [String]?
+    let command: String?
+    let provenanceOptions: ProvenanceOptions
+    let inputs: [ProvenanceFileDescriptor]
+    let outputs: [ProvenanceFileDescriptor]
+    let runtimeIdentity: ProvenanceRuntimeIdentity?
+    let provenanceSteps: [ProvenanceStep]
 
     public init(
         workflowName: String,
@@ -82,7 +84,7 @@ public struct ProvenanceRunBuilder: Sendable {
         )
     }
 
-    private init(
+    init(
         workflowName: String,
         workflowVersion: String,
         toolName: String,
