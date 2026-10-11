@@ -9,10 +9,11 @@
 // finalize writes the batch manifest and the database line the commands write. A shell script
 // plays the transcript in place of `lungfish-cli`, as the commands of lanes A8 and A9 print it.
 // Lane A10c plays lane A9's captured `esviritu detect` runs, and lane X1 lane A8's captured
-// single `kraken2 classify` runs. The shapes no captured run has (failed and degraded samples of
-// a batch, a database failure, a cancel, a batch of several samples) keep the executor's
-// transcripts. Like the real units, a stand-in unit reports its materialization line as progress
-// at its start and hands its EsViritu log tail over as the failure's detail.
+// `kraken2 classify` runs, among them a batch of two samples. The shapes no captured run has
+// (failed and degraded samples of a batch, a database failure, a cancel, an EsViritu batch of
+// several samples) keep the executor's transcripts. Like the real units, a stand-in unit reports its materialization line as progress
+// at its start and hands its EsViritu log tail over, as the failure's detail in a run of one
+// unit and as a headed `error` log line in a batch.
 
 import Foundation
 import LungfishCore
@@ -29,8 +30,9 @@ enum StandInClassifierUnit: Sendable, Equatable {
     /// Writes the fixture result with a degraded Bracken profile and completes with a warning, as
     /// a Kraken2 sample whose profile degraded does (E4).
     case degrade(String)
-    /// Fails for the reason given, after handing the executor the EsViritu log tail as the
-    /// failure's detail when one is given, as the EsViritu unit does.
+    /// Fails for the reason given, after handing over the EsViritu log tail when one is given, as
+    /// the EsViritu unit does. In a run of one unit it is the failure's detail, and in a batch it
+    /// is one `error` log line under the heading of today's row.
     case fail(String, logTail: String?)
 }
 
@@ -87,7 +89,13 @@ struct StandInClassifierTool: AnalysisRunTool {
             return .completedWithWarning(unit.directory, reason: reason)
         case .fail(let reason, let logTail):
             if let logTail {
-                context.recordFailureDetail(logTail)
+                if unit.count > 1 {
+                    if let bounded = AnalysisRunFailureDetail.bounded(logTail) {
+                        context.log(.error, EsVirituAnalysisRunTool.logTailHeading + bounded)
+                    }
+                } else {
+                    context.recordFailureDetail(logTail)
+                }
             }
             return .failed(reason: reason)
         }

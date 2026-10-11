@@ -92,11 +92,21 @@ extension EsVirituAnalysisRunTool {
                 context.progress(fraction, message)
             }
         } catch let error as EsVirituPipelineError {
-            // EsViritu's own reason, and the last lines of its log as the failure's detail, which
-            // the executor bounds and sends on the run's `failed` line when this sample's failure
-            // fails the run (UX D11). The words the app puts in front of it are the app's.
+            // EsViritu's own reason, and the last lines of its log (UX D11, D6). In a run of one
+            // sample the tail is the failure's detail, which the executor bounds and sends on the
+            // run's `failed` line, and the words the app puts in front of it are the app's. A
+            // batch goes on past a failed sample or fails with several, so no `failed` line
+            // carries the tail. The unit logs it, bounded the same way, as one `error` line headed
+            // as the app's batch row has always headed it, and the tail is the only clue when
+            // EsViritu reports no error of its own.
             if let logTail = error.logTail {
-                context.recordFailureDetail(logTail)
+                if unit.count > 1 {
+                    if let bounded = AnalysisRunFailureDetail.bounded(logTail) {
+                        context.log(.error, Self.logTailHeading + bounded)
+                    }
+                } else {
+                    context.recordFailureDetail(logTail)
+                }
             }
             return .failed(reason: error.localizedDescription)
         }

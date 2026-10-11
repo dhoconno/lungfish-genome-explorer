@@ -299,10 +299,11 @@ final class EsVirituDetectExecutorTests: XCTestCase {
         ])
     }
 
-    /// A8d review fix 1 (UX D11). A sample whose EsViritu wrote no detection table ends the run in
-    /// `failed` with the last lines of EsViritu's output as the line's `detail`, which the executor
-    /// bounds, and the tail is no `error` log line headed `EsViritu log (last lines):` any more. The
-    /// stand-in's tables do not exist, so it exits 0 after its copies fail on standard error.
+    /// A8d review fix 1 (UX D11). A run of one sample whose EsViritu wrote no detection table ends
+    /// in `failed` with the last lines of EsViritu's output as the line's `detail`, which the
+    /// executor bounds, and the tail is no `error` log line headed `EsViritu log (last lines):`. A
+    /// batch logs it instead (X1 review fix 2, the next test). The stand-in's tables do not exist,
+    /// so it exits 0 after its copies fail on standard error.
     func testAFailedSampleSendsItsLogTailAsTheFailedLinesDetail() async throws {
         let esviritu = try StandInEsViritu(
             root: root.appendingPathComponent("tool"),
@@ -339,6 +340,70 @@ final class EsVirituDetectExecutorTests: XCTestCase {
             if case .log(_, let text) = event { return text.hasPrefix("EsViritu log (last lines):") }
             return false
         }, "the tail is not logged")
+    }
+
+    /// X1 review fix 2 (UX D6, E15). A sample of a batch that fails while another completes sends
+    /// its log tail as one `error` log line headed as the app's batch row has always written it,
+    /// since no `failed` line carries it. The tail line comes before the sample's warning, the run
+    /// completes, and no file of the result holds the tail, since the journal keeps warnings only.
+    func testAFailedSampleOfABatchLogsItsLogTailAsOneErrorLine() async throws {
+        let inputs = root.appendingPathComponent("inputs", isDirectory: true)
+        let first = try reads("Alpha", in: inputs)
+        let second = try reads("Beta", in: inputs)
+        let esviritu = try StandInEsViritu(
+            root: root.appendingPathComponent("tool"),
+            tables: Self.fixtureTables,
+            missSample: "Alpha"
+        )
+        let output = root.appendingPathComponent("batch", isDirectory: true)
+        let lines = LineSink()
+        let command = try parse(["--input", first.path, second.path, "--batch", "--output", output.path], esviritu)
+        let code = await command.detect(
+            pipeline: EsVirituPipeline(condaManager: esviritu.condaManager),
+            materializer: FASTQCLIMaterializer(runner: .shared),
+            installedDatabase: { [databaseURL = esviritu.databaseURL] in databaseURL },
+            cancelRequested: { false },
+            events: AnalysisRunEvents { lines.append($0) }
+        )
+
+        XCTAssertEqual(code, 0, "one sample completed")
+        XCTAssertEqual(esviritu.samplesSeen, ["Alpha", "Beta"])
+        let events = lines.all.compactMap(\.event)
+        let tailIndexes = events.indices.filter { index in
+            if case .log(.error, let text) = events[index] { return text.hasPrefix("EsViritu log (last lines):") }
+            return false
+        }
+        XCTAssertEqual(tailIndexes.count, 1, "one tail line, for the sample that failed")
+        guard let tailIndex = tailIndexes.first, case .log(_, let tail) = events[tailIndex] else {
+            return XCTFail("no tail line: \(events)")
+        }
+        XCTAssertTrue(tail.hasPrefix(EsVirituAnalysisRunTool.logTailHeading), tail)
+        XCTAssertTrue(tail.hasSuffix("stand-in finished without a detection table for Alpha"), tail)
+        let warningIndex = events.firstIndex { event in
+            if case .log(.warning, let text) = event { return text.hasPrefix("Alpha failed: ") }
+            return false
+        }
+        XCTAssertLessThan(tailIndex, warningIndex ?? .min, "the unit logs the tail before the executor reports the failure")
+        guard case .complete? = events.last else { return XCTFail("no complete line: \(events)") }
+        XCTAssertFalse(events.contains { if case .failed = $0 { return true }; return false }, "no failed line carries a tail")
+        XCTAssertEqual(try filesHolding("EsViritu log (last lines)", under: output), [], "no record holds the tail")
+    }
+
+    /// The paths under `folder` of the files whose bytes hold `text`.
+    private func filesHolding(_ text: String, under folder: URL) throws -> [String] {
+        let needle = Data(text.utf8)
+        var found: [String] = []
+        var scanned = 0
+        let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey])
+        while let url = enumerator?.nextObject() as? URL {
+            guard (try url.resourceValues(forKeys: [.isRegularFileKey])).isRegularFile == true else { continue }
+            scanned += 1
+            if try Data(contentsOf: url).range(of: needle) != nil {
+                found.append(String(url.path.dropFirst(folder.path.count)))
+            }
+        }
+        XCTAssertGreaterThan(scanned, 0, "the result folder holds files")
+        return found
     }
 
     /// A10 review fix 5 (UX D5, D14). The lines a virtual bundle's materialization reports are

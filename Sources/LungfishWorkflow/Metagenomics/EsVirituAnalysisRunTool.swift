@@ -26,6 +26,10 @@ public struct EsVirituAnalysisRunTool: AnalysisRunTool {
     public static let materializationDirectoryName = ".lungfish-esviritu-inputs"
     /// The batch summary at a batch root.
     public static let summaryFilename = "esviritu-batch-summary.tsv"
+    /// The heading of a failed sample's log tail on an `error` log line, the words the app's batch
+    /// row has always written before it (UX D6). A run of one sample sends the tail as the detail
+    /// of its `failed` line instead, without a heading.
+    public static let logTailHeading = "EsViritu log (last lines):\n"
     /// The database identity status of every EsViritu run. The catalog pins no digest and nothing
     /// hashes the database folder per run (E9, SWIFT X4).
     public static let databaseIdentityStatus = "unpinned"

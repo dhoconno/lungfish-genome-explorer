@@ -62,10 +62,11 @@ struct CLIClassifierRowEvents: Sendable {
         var trackedFolder: URL?
     }
 
-    /// The heading today's row writes before the EsViritu log tail in its error detail. The runner
-    /// puts it before the `failed` line's detail of a single EsViritu run, since the words belong
-    /// to the app and the command sends the tail alone.
-    static let esVirituLogTailHeading = "EsViritu log (last lines):\n"
+    /// The heading today's row writes before the EsViritu log tail in its error detail and in the
+    /// error line of a failed batch sample. The command logs a batch sample's tail under the same
+    /// words, and the runner puts them before the `failed` line's detail of a single EsViritu run,
+    /// since that detail is the tail alone.
+    static let esVirituLogTailHeading = EsVirituAnalysisRunTool.logTailHeading
 
     let tool: CLIClassifierTool
     /// Today's sample ids in plan order. More than one makes a batch.

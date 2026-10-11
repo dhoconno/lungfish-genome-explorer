@@ -155,9 +155,12 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
         XCTAssertEqual(run.item.displayStateLabel, "Completed")
         XCTAssertEqual(run.item.detail, "1 completed, 1 failed")
         XCTAssertEqual(loggedLines(of: run.item).filter { $0.hasPrefix("warning:") }, [])
-        // The command sends a sample's log tail only as the detail of a run's one failure (A8d
-        // review), so the row no longer logs the tail line today's batch logs for the sample.
-        XCTAssertEqual(loggedLines(of: run.item).filter { $0.hasPrefix("error:") }, ["error: Sample 1/2 (A): \(reason)"])
+        // The command logs a batch sample's log tail as an `error` line under today's heading,
+        // since no `failed` line carries it (X1 review fix 2), before the reason line.
+        XCTAssertEqual(loggedLines(of: run.item).filter { $0.hasPrefix("error:") }, [
+            "error: Sample 1/2 (A): EsViritu log (last lines):\ntail",
+            "error: Sample 1/2 (A): \(reason)",
+        ])
         XCTAssertTrue(loggedLines(of: run.item).contains("info: Building esviritu.sqlite from 1 sample(s)"))
         XCTAssertNil(run.viewer.taxonomyViewController, "nothing opens after an EsViritu run")
     }

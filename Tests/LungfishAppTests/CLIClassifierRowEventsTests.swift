@@ -265,10 +265,11 @@ final class CLIClassifierRowEventsTests: XCTestCase {
         XCTAssertEqual(rows.failedUnitReasons, [])
     }
 
-    /// D8, D11. A failed sample of an EsViritu batch reads as today's error line with its reason,
-    /// and never as a warning, so the batch reads Completed as today. Since the A8d review the
-    /// command sends a sample's log tail only as the detail of a run's one failure, so the row
-    /// no longer logs the batch sample's tail that today's batch logs.
+    /// D6, D8, D11. A failed sample of an EsViritu batch reads as today's two error lines, the tail
+    /// of its log under today's heading and its reason, and never as a warning, so the batch reads
+    /// Completed as today. The command logs the tail as an `error` line in a batch, since no
+    /// `failed` line carries it (X1 review fix 2), and does so before the executor reports the
+    /// reason, so the two lines come in the opposite order of today's batch.
     func testAFailedBatchSampleReadsAsTodaysErrorLinesAndNoWarning() async throws {
         let reason = "EsViritu exited with status 1"
         let run = try await executorRun(StandInClassifierTool(
@@ -280,7 +281,10 @@ final class CLIClassifierRowEventsTests: XCTestCase {
 
         XCTAssertEqual(run.report.warnings, ["A failed: \(reason)"], "the command's own warning")
         XCTAssertEqual(logLines(effects).filter { $0.hasPrefix("warning:") }, [])
-        XCTAssertEqual(logLines(effects).filter { $0.hasPrefix("error:") }, ["error: Sample 1/2 (A): \(reason)"])
+        XCTAssertEqual(logLines(effects).filter { $0.hasPrefix("error:") }, [
+            "error: Sample 1/2 (A): EsViritu log (last lines):\ntail",
+            "error: Sample 1/2 (A): \(reason)",
+        ])
         XCTAssertTrue(logLines(effects).contains("info: Building esviritu.sqlite from 1 sample(s)"))
         XCTAssertEqual(rows.failedUnitReasons, [reason])
         XCTAssertFalse(rows.everyUnitFailed)
@@ -346,7 +350,10 @@ final class CLIClassifierRowEventsTests: XCTestCase {
             "info: Sample 2/2 (A): Validating configuration...",
             "info: Sample 2/2 (A): Running EsViritu...",
         ])
-        XCTAssertEqual(logLines(effects).filter { $0.hasPrefix("error:") }, ["error: Sample 2/2 (A): \(reason)"])
+        XCTAssertEqual(logLines(effects).filter { $0.hasPrefix("error:") }, [
+            "error: Sample 2/2 (A): EsViritu log (last lines):\ntail",
+            "error: Sample 2/2 (A): \(reason)",
+        ])
         XCTAssertEqual(rows.failedUnitReasons, [reason])
     }
 

@@ -165,21 +165,35 @@ final class EsVirituCommandBundleInputTests: XCTestCase {
 /// Given `tables`, the path of a sample's tables without their suffix, it
 /// copies that sample's detection, coverage windows and assembly summary
 /// tables under the `-s` name instead. A run of `failSample` exits 1 with no
-/// table, and a run of `holdSample` notes that it started and waits 60
-/// seconds, so a test can cancel it.
+/// table, a run of `missSample` exits 0 after a line on standard error and
+/// writes no table, so EsViritu produced no detection output, and a run of
+/// `holdSample` notes that it started and waits 60 seconds, so a test can
+/// cancel it.
 struct StandInEsViritu {
     let condaManager: CondaManager
     let databaseURL: URL
     private let seenDirectory: URL
 
-    init(root: URL, tables: URL? = nil, failSample: String? = nil, holdSample: String? = nil) throws {
+    init(
+        root: URL,
+        tables: URL? = nil,
+        failSample: String? = nil,
+        holdSample: String? = nil,
+        missSample: String? = nil
+    ) throws {
         let fm = FileManager.default
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         databaseURL = root.appendingPathComponent("esviritu-db", isDirectory: true)
         try fm.createDirectory(at: databaseURL, withIntermediateDirectories: true)
         seenDirectory = root.appendingPathComponent("esviritu-saw", isDirectory: true)
         let micromamba = root.appendingPathComponent("stand-in-micromamba")
-        try Self.script(seenDirectory: seenDirectory, tables: tables, failSample: failSample, holdSample: holdSample)
+        try Self.script(
+            seenDirectory: seenDirectory,
+            tables: tables,
+            failSample: failSample,
+            holdSample: holdSample,
+            missSample: missSample
+        )
             .write(to: micromamba, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: micromamba.path)
         condaManager = CondaManager(
@@ -213,7 +227,13 @@ struct StandInEsViritu {
         (try? String(contentsOf: seenDirectory.appendingPathComponent("format"), encoding: .utf8)) ?? ""
     }
 
-    private static func script(seenDirectory: URL, tables: URL?, failSample: String?, holdSample: String?) -> String {
+    private static func script(
+        seenDirectory: URL,
+        tables: URL?,
+        failSample: String?,
+        holdSample: String?,
+        missSample: String?
+    ) -> String {
         """
         #!/bin/sh
         if [ "$1" = "--version" ]; then
@@ -285,6 +305,10 @@ struct StandInEsViritu {
         if [ "$sample" = '\(failSample ?? "")' ]; then
           echo "stand-in failure for $sample" >&2
           exit 1
+        fi
+        if [ "$sample" = '\(missSample ?? "")' ]; then
+          echo "stand-in finished without a detection table for $sample" >&2
+          exit 0
         fi
         if [ "$sample" = '\(holdSample ?? "")' ]; then
           touch "$seen/held"
