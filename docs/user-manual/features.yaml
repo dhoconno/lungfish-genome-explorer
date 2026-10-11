@@ -114,7 +114,11 @@ features:
       - Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift
       - Sources/LungfishApp/Services/DownloadCenter.swift
       - Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController+OperationBegin.swift
-      - Sources/LungfishWorkflow/Provenance/ProvenanceRecorder.swift
+      - Sources/LungfishApp/Views/DatabaseBrowser/SRAWindowImportProvenance.swift
+      - Sources/LungfishCore/Services/SRA/SRADownloadProvenanceValues.swift
+      - Sources/LungfishWorkflow/Provenance/ProvenanceRecorder+FileRecords.swift
+      - Sources/LungfishWorkflow/Provenance/ProvenanceRecorder+SidecarLookup.swift
+      - Sources/LungfishWorkflow/Provenance/ProvenanceWriter.swift
     module: [LungfishApp, LungfishCLI, LungfishCore, LungfishWorkflow]
     tests:
       - Tests/LungfishCoreTests/Services/SRADownloadChecksTests.swift
@@ -1626,37 +1630,228 @@ features:
     entry_points:
       - "File > Export > Provenance > Nextflow Pipeline…"
       - "File > Export > Provenance > Snakemake Workflow…"
-    inputs: [workflow-graph, project-history]
-    outputs: [nextflow-pipeline, snakemake-workflow]
+      - "Inspector > Provenance > Export > Nextflow Pipeline…"
+      - "Inspector > Provenance > Export > Snakemake Workflow…"
+      - "CLI: lungfish provenance export --format nextflow"
+      - "CLI: lungfish provenance export --format snakemake"
+    inputs: [provenance-sidecar, bundle]
+    outputs: [nextflow-pipeline, snakemake-workflow, provenance-sidecar]
     viewport_class: none
     sources:
-      - Sources/LungfishApp/App/MainMenu.swift
+      - Sources/LungfishApp/App/ProvenanceExportMenuModel.swift
       - Sources/LungfishApp/App/AppDelegate+ImportExport.swift
-      - Sources/LungfishWorkflow/ApplicationExports
-    module: [LungfishApp, LungfishWorkflow]
+      - Sources/LungfishApp/App/AppProvenanceExportSourceResolver.swift
+      - Sources/LungfishApp/App/MainMenu.swift
+      - Sources/LungfishWorkflow/Provenance/ProvenanceExporter.swift
+      - Sources/LungfishWorkflow/Provenance/ProvenanceExportPlan.swift
+      - Sources/LungfishWorkflow/Provenance/WorkflowExportGraph.swift
+      - Sources/LungfishWorkflow/Provenance/ProvenanceToolIdentityText.swift
+      - Sources/LungfishCLI/Commands/ProvenanceCommand.swift
+    module: [LungfishApp, LungfishWorkflow, LungfishCLI]
+    cli:
+      - lungfish-cli provenance export
+    tests:
+      - Tests/LungfishWorkflowTests/ProvenanceWorkflowExportGoldenTests.swift
+      - Tests/LungfishAppTests/AppProvenanceExportSourceResolverTests.swift
     notes: >-
-      Exports the current operation history or builder graph as a runnable
-      Nextflow pipeline or Snakemake workflow.
+      Nextflow Pipeline… and Snakemake Workflow… are two of the six
+      ProvenanceExportMenuModel items, and they run the same export as the
+      other four on the provenance record of the current viewer or sidebar
+      selection, with the upstream records it chains to. No workflow builder
+      graph exists. ProvenanceExportPlan turns the recorded steps into a plan,
+      WorkflowExportGraph gives each file one producer and drops a step's own
+      inputs from its outputs, and ProvenanceExporter.exportBundle writes
+      main.nf, nextflow.config and containers/manifest.json, or a Snakefile,
+      config.yaml and one envs/<tool>.yaml conda file per managed tool, into
+      the folder the save panel names. The folder also gets a provenance
+      folder with copies of the source records and a record of the export.
 
   # --- Provenance, project, and infrastructure ---
   provenance.export:
     title: Provenance reports and verification
     entry_points:
+      - "File > Export > Provenance > Shell Script…"
+      - "File > Export > Provenance > Python Script…"
       - "File > Export > Provenance > Methods Section…"
       - "File > Export > Provenance > Full Provenance (JSON)…"
+      - "Inspector > Provenance > Export"
       - "CLI: lungfish provenance export"
+      - "CLI: lungfish provenance verify"
+      - "CLI: lungfish provenance bibliography"
     inputs: [provenance-sidecar, bundle]
-    outputs: [methods-section, provenance-json, bibliography]
+    outputs: [shell-script, python-script, methods-section, provenance-json, bibliography]
     viewport_class: none
     sources:
+      - Sources/LungfishApp/App/ProvenanceExportMenuModel.swift
+      - Sources/LungfishApp/App/AppDelegate+ImportExport.swift
+      - Sources/LungfishApp/App/AppProvenanceExportSourceResolver.swift
       - Sources/LungfishApp/App/AppProvenanceExportCommandBuilder.swift
       - Sources/LungfishApp/App/MainMenu.swift
       - Sources/LungfishCLI/Commands/ProvenanceCommand.swift
+      - Sources/LungfishWorkflow/Provenance/ProvenanceExporter.swift
+      - Sources/LungfishWorkflow/Provenance/ProvenanceRecorder+SidecarLookup.swift
       - Sources/LungfishWorkflow/Provenance/ProvenanceRecorder.swift
-    module: [LungfishApp, LungfishCLI, LungfishWorkflow]
+    module: [LungfishApp, LungfishWorkflow, LungfishCLI]
+    cli:
+      - lungfish-cli provenance export
+      - lungfish-cli provenance verify
+      - lungfish-cli provenance bibliography
+    tests:
+      - Tests/LungfishAppTests/AppProvenanceExportSourceResolverTests.swift
+      - Tests/LungfishAppTests/AppProvenanceExportSelectionTests.swift
+      - Tests/LungfishCLITests/ProvenanceExportCommandTests.swift
+      - Tests/LungfishWorkflowTests/ProvenanceExportFidelityTests.swift
     notes: >-
-      Exports a methods section, full provenance JSON, or citation bibliography
-      from a bundle and verifies signed provenance sidecars.
+      File > Export > Provenance holds the six ProvenanceExportMenuModel
+      items. Each exports the record of the current viewer or sidebar
+      selection, which AppProvenanceExportSourceResolver picks and
+      ProvenanceRecorder.findProvenanceEnvelope finds without writing. With
+      no selection it falls back to the newest completed run that the
+      in-memory ProvenanceRecorder holds. ProvenanceExporter.exportBundle
+      writes run.sh, reproduce.py, methods.md or provenance.json into the
+      folder the save panel names, beside a provenance folder with copies of
+      the source records and a record of the export. The Export menu of the
+      Inspector's Provenance tab offers the same six items. The CLI
+      provenance export runs the same exporter, provenance verify checks a
+      signed record and provenance bibliography prints a citation list.
+  provenance.inspector:
+    title: Read a result's provenance in the Inspector
+    entry_points:
+      - "View > Provenance Inspector"
+      - "Inspector > Provenance"
+    inputs: [provenance-sidecar, bundle]
+    outputs: [provenance-text, provenance-export]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/Inspector/Sections/ProvenanceSection.swift
+      - Sources/LungfishApp/Views/Inspector/Sections/ProvenancePathCaption.swift
+      - Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift
+      - Sources/LungfishApp/Views/Inspector/InspectorSupportingTypes.swift
+      - Sources/LungfishApp/Views/Inspector/InspectorViewModel.swift
+      - Sources/LungfishApp/Views/Inspector/InspectorViewController+Notifications.swift
+      - Sources/LungfishApp/App/AppDelegate+MenuActions.swift
+      - Sources/LungfishApp/App/MainMenu.swift
+      - Sources/LungfishWorkflow/Provenance/ProvenanceRecorder+SidecarLookup.swift
+      - Sources/LungfishWorkflow/Provenance/ProvenanceLineageResolver.swift
+    module: [LungfishApp, LungfishWorkflow]
+    tests:
+      - Tests/LungfishAppTests/ProvenanceInspectorViewModelTests.swift
+      - Tests/LungfishAppTests/ProvenanceInspectorViewModelOffMainTests.swift
+      - Tests/LungfishAppTests/ProvenanceSectionAccessibilityTests.swift
+      - Tests/LungfishAppTests/ProvenanceSectionSourceTests.swift
+      - Tests/LungfishAppTests/ProvenanceLegacyDisplayTests.swift
+    notes: >-
+      View > Provenance Inspector (Option-Command-V) shows the Inspector on
+      its Provenance tab. InspectorViewModel.availableTabs offers the tab in
+      every content mode except the empty viewer, and in a classifier's read
+      evidence view only while it has an item to load. The tab finds the
+      selection's record with ProvenanceRecorder.findProvenanceEnvelope and
+      its upstream records with ProvenanceLineageResolver, and reading writes
+      nothing. It shows Run Summary, Lineage, Files & Outputs, Invocation &
+      Options, Runtime and Raw JSON, a Warnings group when there are any, a
+      Source picker when the selection has several records, a Copy button
+      and an Export menu of the six File > Export > Provenance formats. A
+      result with no record reads Missing provenance.
+  provenance.result-popovers:
+    title: Show a result viewer's pipeline information popover
+    entry_points:
+      - "Result viewer action bar > Pipeline Info button"
+      - "Kraken2 or EsViritu result viewer > Export button > Show Provenance…"
+    inputs: [taxonomy-dataset, twelve-s-result]
+    outputs: []
+    viewport_class: taxonomy
+    sources:
+      - Sources/LungfishKit/ClassifierActionBar.swift
+      - Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift
+      - Sources/LungfishApp/Views/Metagenomics/TaxonomyProvenanceView.swift
+      - Sources/LungfishApp/Views/Metagenomics/CzIdResultViewController.swift
+      - Sources/LungfishApp/Views/Metagenomics/CzIdProvenanceView.swift
+      - Sources/LungfishEsVirituUI/EsVirituResultViewController.swift
+      - Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift
+      - Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift
+      - Sources/LungfishNaoMgsUI/NaoMgsProvenanceView.swift
+      - Sources/LungfishNvdUI/NvdResultViewController.swift
+      - Sources/LungfishNvdUI/NvdProvenanceView.swift
+      - Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController.swift
+      - Sources/LungfishTwelveSUI/TwelveSReadFateSummary.swift
+    module: [LungfishApp, LungfishKit, LungfishEsVirituUI, LungfishTaxTriageUI, LungfishNaoMgsUI, LungfishNvdUI, LungfishTwelveSUI]
+    tests:
+      - Tests/LungfishKitTests/LungfishHelpContentTests.swift
+      - Tests/LungfishAppTests/MetagenomicsGapFixTests.swift
+    notes: >-
+      The info.circle button at the right end of ClassifierActionBar, whose
+      accessibility description is Pipeline Info, calls onProvenance. The
+      Kraken2, CZ-ID, EsViritu, TaxTriage, NAO-MGS, NVD and 12S result viewers
+      each answer it with a transient popover of the pipeline facts that the
+      loaded result or manifest holds, such as the tool version, database and
+      runtime, drawn by TaxonomyProvenanceView, CzIdProvenanceView,
+      EsVirituProvenanceView, TaxTriageProvenanceView, NaoMgsProvenanceView,
+      NvdProvenanceView or TwelveSProvenanceSummaryView. The Kraken2 and
+      EsViritu Export menus open the same popover from Show Provenance…. A
+      popover reads the result already in memory and never opens the
+      provenance record, which the Inspector's Provenance tab shows.
+  provenance.reveal:
+    title: Reveal a tree bundle's provenance record in Finder
+    entry_points:
+      - "Selection > Tree Node > Reveal Provenance"
+      - "Tree viewer node context menu > Reveal Provenance"
+    inputs: [lungfishtree]
+    outputs: []
+    viewport_class: none
+    sources:
+      - Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift
+      - Sources/LungfishApp/App/MainMenu+TreeNode.swift
+    module: [LungfishPhylogeneticsUI, LungfishApp]
+    tests:
+      - Tests/LungfishAppViewTests/TreeInferenceMenuTests.swift
+      - Tests/LungfishPhylogeneticsUITests/PhylogeneticNodeRowAccessibilityTests.swift
+    notes: >-
+      PhylogeneticTreeViewController.revealTreeProvenance selects the tree
+      bundle's root .lungfish-provenance.json in Finder. The command is
+      offered whenever the viewer has a bundle URL, with or without a
+      selected node, from the node context menu, the canvas accessibility
+      actions and the last section of Selection > Tree Node. It is the only
+      Reveal Provenance command in the app.
+  operations.panel:
+    title: Follow, review and rerun operations in the Operations panel
+    entry_points:
+      - "Operations > Show Operations Panel"
+      - "Operations > Selected Operation > Copy CLI Command"
+      - "Operations > Selected Operation > View Log"
+      - "Operations > Selected Operation > Run Again…"
+      - "Operations > Clear Completed"
+      - "Operations > Cancel All Operations"
+    inputs: [operation-center-item]
+    outputs: [operation-log, failure-report, cli-command]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/Operations/OperationsPanelController.swift
+      - Sources/LungfishApp/Views/Operations/OperationsPanelViewController.swift
+      - Sources/LungfishApp/Views/Operations/OperationRowAction.swift
+      - Sources/LungfishApp/Views/Operations/OperationsRowCellView.swift
+      - Sources/LungfishApp/Views/Operations/OperationsLogInspector.swift
+      - Sources/LungfishApp/Views/Operations/OperationLogDocument.swift
+      - Sources/LungfishApp/Views/Operations/OperationResultNavigation.swift
+      - Sources/LungfishApp/App/MainMenu.swift
+      - Sources/LungfishApp/App/AppDelegate+MenuActions.swift
+      - Sources/LungfishKit/OperationCenter.swift
+    module: [LungfishApp, LungfishKit]
+    tests:
+      - Tests/LungfishAppViewTests/OperationRowActionAccessibilityTests.swift
+      - Tests/LungfishAppViewTests/OperationResultNavigationTests.swift
+      - Tests/LungfishAppViewTests/OperationsLiveInspectorTests.swift
+    notes: >-
+      Operations > Show Operations Panel (Shift-Command-P) opens a window that
+      lists every operation OperationCenter tracks, whether it is running,
+      finished, failed or interrupted. OperationRowAction is the one list of row
+      commands, from Remove Partial Output… and Reveal Output Files to Run
+      Again…, Copy CLI Command, View Log, Copy Failure Report, Cancel and
+      Clear. The row's context menu, the log drawer's Actions pull-down, the
+      row's accessibility actions and Operations > Selected Operation all
+      read OperationRowAction.available(for:), so they always agree. Copy CLI
+      Command (Option-Command-C), View Log (Option-Command-L) and Reveal
+      Output Files (Option-Command-O) have keys, and the Selected Operation
+      items work while the Operations window is key and a row is selected.
   project.manage:
     title: Manage projects and shared locks
     entry_points:
