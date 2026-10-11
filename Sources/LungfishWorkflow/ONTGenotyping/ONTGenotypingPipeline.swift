@@ -350,8 +350,7 @@ public struct ONTGenotypingPipeline: Sendable {
         sampleDirectory: URL
     ) throws {
         let rawProvenance = MappingProvenance.load(from: sampleDirectory)
-        let lockTool = try? ManagedToolLock.loadFromBundle().tool(named: "pysam")
-        let pysamVersion = lockTool?.version ?? "unknown"
+        let pysamVersion = ManagedToolLock.bundled.entry(id: ManagedToolID(rawValue: "pysam"))?.version ?? "unknown"
         let mappingResultURL = sampleDirectory.appendingPathComponent("mapping-result.json")
         let filterInputs = [
             ProvenanceRecorder.fileRecord(url: rawMappingResult.bamURL, format: .bam, role: .input),
@@ -419,9 +418,11 @@ public struct ONTGenotypingPipeline: Sendable {
         startedAt: Date,
         completedAt: Date
     ) throws {
-        let lockTool = try? ManagedToolLock.loadFromBundle().tool(named: "pysam")
-        let pysamVersion = lockTool?.version ?? "unknown"
-        let pysamPackageSpec = lockTool?.packageSpec ?? ManagedToolLock.bundled.packageSpec(forEnvironment: "pysam") ?? "bioconda::pysam"
+        let lock = ManagedToolLock.bundled
+        let pysamEntry = lock.entry(id: ManagedToolID(rawValue: "pysam"))
+        let pysamVersion = pysamEntry?.version ?? "unknown"
+        let pysamPackageSpec = pysamEntry.flatMap { lock.packageSpec(of: $0) }
+            ?? lock.packageSpec(forEnvironment: "pysam") ?? "bioconda::pysam"
         let minimap2Requirement = PluginPack.builtInPack(id: "read-mapping")?
             .toolRequirements
             .first { $0.id == "minimap2" }

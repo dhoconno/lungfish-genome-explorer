@@ -1363,7 +1363,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
     }
 
     private static func pinnedManagedToolVersion(named id: String) -> String? {
-        (try? ManagedToolLock.loadFromBundle().tool(named: id)?.version) ?? nil
+        ManagedToolLock.bundled.entry(id: ManagedToolID(rawValue: id))?.version
     }
 
     // MARK: - Helpers
