@@ -158,10 +158,10 @@ final class ONTSampleSplitEventStreamTests: XCTestCase {
         }
     }
 
-    /// The FASTQ operation family decodes standard error with `CLIEventLineDecoder` and shows
-    /// each `progress`, `start` and `log` event, so the dialog sees the same progress that it saw
-    /// from the private shape, with the start line in front. A `complete` line is not shown, and
-    /// a `failed` line is kept as the failure text.
+    /// The FASTQ operation family decodes standard error with `CLIEventLineDecoder`, and the
+    /// progress events it gets are the ones the private shape gave. `ONTSampleSplitFASTQFamilyTests`
+    /// in the App tests runs the family's own reader on the lines and reads what the dialog is
+    /// told and the failure text that the runner throws.
     func testTheFASTQFamilyReadsTheSameProgressFromTheLines() async throws {
         let fluidigm = try await fluidigmRun()
         let decoder = CLIEventLineDecoder()
