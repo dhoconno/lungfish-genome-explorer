@@ -83,6 +83,12 @@ final class TaxTriageRunSIGTERMReplayTests: XCTestCase {
         // The cancel reached the executor's run (S2). The pipeline stopped the engine and handed its
         // cancelled step to the executor, whose root record names the cancel and 125.
         let record = try ProvenanceEnvelopeReader.load(from: folder.appendingPathComponent("output", isDirectory: true))
+        // N7 on the CLI route. The cancelled launch leaves its scratch for the sweep, which scans only a
+        // project's .tmp/, so this run outside a project removes its own from the system temp folder.
+        let work = try String(contentsOf: folder.appendingPathComponent("scratch"), encoding: .utf8)
+        let launchScratch = URL(fileURLWithPath: work, isDirectory: true).deletingLastPathComponent()
+        addTeardownBlock { try? FileManager.default.removeItem(at: launchScratch) }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: launchScratch.path), "a cancelled executor launch leaves its scratch for the sweep (N7)")
         XCTAssertEqual(
             record?.workflowName,
             TaxTriageAnalysisRunTool.workflowName,
@@ -118,6 +124,10 @@ final class TaxTriageRunSIGTERMReplayTests: XCTestCase {
         let announce = Task {
             guard let launch = await engine.waitForLaunch(timeout: .seconds(60)),
                   let pid = launch.processIdentifier else { return }
+            // The scratch first, so the parent knows it before it may signal this process.
+            if let work = launch.workDirectory {
+                try? work.write(to: folder.appendingPathComponent("scratch"), atomically: true, encoding: .utf8)
+            }
             try? String(pid).write(to: folder.appendingPathComponent("launched"), atomically: true, encoding: .utf8)
         }
         let outcome: String
