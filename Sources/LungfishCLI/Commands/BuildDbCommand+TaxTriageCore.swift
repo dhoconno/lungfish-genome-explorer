@@ -6,7 +6,7 @@
 // analysis run executor builds its viewer index through it (lane A2, `TaxTriageResultIndexer`). The core is the
 // static `buildDatabase(in:options:cleanup:events:)`, as the Kraken2 and EsViritu leaves have theirs. It keeps an
 // existing database unless `--force`, captures the record's input list, resolves the taxonomy rows of the result
-// folder and of each serial sample folder, writes `taxtriage.sqlite`, recomputes unique reads
+// folder and of each serial sample folder in byte order (BIO 8), writes `taxtriage.sqlite`, recomputes unique reads
 // from the BAMs and writes the records. A failure puts the database of an earlier build back and writes a failure
 // record, and a cancel writes none. Its cleanup takes one of two forms (decision T5 of Phase 2.8).
 //
@@ -501,6 +501,9 @@ extension BuildDbCommand {
             return (parsed.rows, parsed.accessionMap, "top report fallback", .topReport)
         }
 
+        /// The serial sample folders of a batch root, each a folder that holds a supported report, in byte
+        /// order of their names, the order of every sample order (BIO 8, 2.7 E8), so `S10` comes before `S2`
+        /// and `B` before `a`.
         private func serialTaxTriageResultDirectories(in resultURL: URL) -> [URL] {
             let fm = FileManager.default
             guard let children = try? fm.contentsOfDirectory(
@@ -530,7 +533,7 @@ extension BuildDbCommand {
 
                     return !taxTriageTopReportFiles(in: child.appendingPathComponent("top")).isEmpty
                 }
-                .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+                .sorted { $0.lastPathComponent.utf8.lexicographicallyPrecedes($1.lastPathComponent.utf8) }
         }
 
         private func prefixBAMPaths(in row: TaxTriageTaxonomyRow, with directoryName: String) -> TaxTriageTaxonomyRow {
