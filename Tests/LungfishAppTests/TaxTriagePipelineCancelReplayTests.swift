@@ -69,7 +69,7 @@ final class TaxTriagePipelineCancelReplayTests: XCTestCase {
         let treeRunsAfterTheRun = Self.isRunning(engineID) || Self.isRunning(childID)
         let workWentWhileTheChildRan = await watcher.value
         let record = try ProvenanceEnvelopeReader.load(from: config.outputDirectory)
-        let step = record?.steps.first { $0.toolName == "TaxTriage" }
+        let step = record?.steps.first { $0.toolName == "taxtriage" }
         let ended = try engine.launches().first
 
         // T4, which recorded failed with exit -1.
