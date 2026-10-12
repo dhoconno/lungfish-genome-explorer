@@ -56,9 +56,15 @@ extension TaxTriageParityHarness {
             cancelledViolations(run: run, violate: violate)
             return violations
         }
+        // What the engine received is a fact of the request whatever the end, so a side that
+        // ends otherwise than the case expects still freezes its launches.
+        if let analysis, engine.standIn != nil {
+            launchViolations(parityCase, samples: samples, run: run, analysis: analysis, engine: engine, violate: violate)
+        }
         let end = TaxTriageParityComparison.outcome(of: run)
         guard end == parityCase.expectedEnd.rawValue else {
-            violate("the run ends \(parityCase.expectedEnd.rawValue)", "\(run.terminal), \(end)")
+            // The id holds the end itself, so a declared end pins how the side ends.
+            violate("the run ends \(parityCase.expectedEnd.rawValue), not \(run.terminal)", end)
             return violations
         }
         guard let analysis else {
@@ -66,9 +72,6 @@ extension TaxTriageParityHarness {
             return violations
         }
         violations += try namedFileViolations(of: run)
-        if engine.standIn != nil {
-            launchViolations(parityCase, samples: samples, run: run, analysis: analysis, engine: engine, violate: violate)
-        }
         resultViolations(parityCase, samples: samples, analysis: analysis, violate: violate)
         try databaseViolations(parityCase, samples: samples, analysis: analysis, engine: engine, violate: violate)
         manifestViolations(parityCase, run: run, analysis: analysis, violate: violate)

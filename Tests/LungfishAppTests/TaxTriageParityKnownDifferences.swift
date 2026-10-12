@@ -218,7 +218,7 @@ enum TaxTriageParityKnownDifferences {
         TaxTriageParityKnownDifference(
             counts: [.x4: 1],
             scope: .side(.b),
-            id: "fact: the run ends Completed with Warnings",
+            id: "fact: the run ends Completed with Warnings, not error pipelineFailed(exitCode: 1, *",
             reason: "Side B's pooled run of both samples fails as a whole when one sample fails (2.8 T2), so it cannot keep the other sample and count 1 failed sample (1 report)",
             closedBy: perSample
         ),
