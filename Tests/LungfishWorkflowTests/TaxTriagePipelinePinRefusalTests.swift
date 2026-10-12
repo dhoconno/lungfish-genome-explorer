@@ -33,7 +33,7 @@ final class TaxTriagePipelinePinRefusalTests: XCTestCase {
         let unpinned = ManagedToolLock(packID: "lungfish-tools", displayName: "Test lock", version: "test", tools: [], managedData: [], pipelines: [])
 
         do {
-            _ = try await pipeline.run(config: config, lock: unpinned, progress: nil)
+            _ = try await pipeline.run(config: config, recording: .pipelineSave, lock: unpinned, progress: nil)
             XCTFail("an unpinned TaxTriage ran")
         } catch {
             XCTAssertEqual(error.localizedDescription, "LGE's tool lock has no pinned version of TaxTriage, so LGE will not run it.")

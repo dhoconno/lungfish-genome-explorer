@@ -258,18 +258,21 @@ public actor TaxTriagePipeline {
         config: TaxTriageConfig,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> TaxTriageResult {
-        try await run(config: config, lock: .bundled, progress: progress)
+        try await run(config: config, recording: .pipelineSave, lock: .bundled, progress: progress)
     }
 
-    /// Runs the pipeline with TaxTriage's pin from `lock`, which a test empties to see the run refused
-    /// (N4). The pin resolves right after the configuration is validated, before the Docker wait and
-    /// before any folder exists, so an unpinned TaxTriage leaves nothing on disk.
+    /// The pipeline body both routes share (A2 M2). `recording` says where the run's record goes, the
+    /// pipeline's own save for the app's route, or the executor's root record for `taxtriage run`.
+    /// The pin comes from `lock`, which a test empties to see the run refused (N4). It resolves right
+    /// after the configuration is validated, before the Docker wait and before any folder exists, so
+    /// an unpinned TaxTriage leaves nothing on disk.
     ///
     /// - Throws: `NextflowDescriptorRefusal` with exit code 126 when `lock` has no usable TaxTriage
     ///   pin, and the errors of ``run(config:progress:)``.
     package func run(
         config: TaxTriageConfig,
-        lock: ManagedToolLock,
+        recording: TaxTriageRecording,
+        lock: ManagedToolLock = .bundled,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> TaxTriageResult {
         let runClock = ProvenanceRunClock()
@@ -362,14 +365,9 @@ public actor TaxTriagePipeline {
         let tempRedirectDir = preparedExecution.redirectDirectory
         let needsRedirect = preparedExecution.needsRedirect
 
-        // Generate samplesheet
-        let sampleEntries = Self.samplesheetEntries(for: effectiveConfig)
-
+        // The samplesheet through A16's builder, today's bytes, one keyed row per sample (T7).
         do {
-            try TaxTriageSamplesheet.write(
-                samples: sampleEntries,
-                to: effectiveConfig.samplesheetURL
-            )
+            try TaxTriageSamplesheetBuilder().write(effectiveConfig.samples, to: effectiveConfig.samplesheetURL)
         } catch {
             throw TaxTriagePipelineError.samplesheetGenerationFailed(error)
         }
@@ -428,20 +426,29 @@ public actor TaxTriagePipeline {
         let scratch = try engine.makeScratch(contextURL: effectiveConfig.outputDirectory)
         defer { engine.finish(scratch, .remove) }
 
-        let arguments = buildNextflowLaunchArguments(
-            config: effectiveConfig,
-            runtimeConfigURL: runtimeConfigURL,
-            pipelineLaunchTarget: pipelineProjectSource.launchTarget,
-            pipelineRevision: pipelineProjectSource.revision,
-            workDirectory: scratch.workDirectory
+        // A16. The descriptor orders the argv, today's bytes without --skip_plots (A16 M2 ruling). A
+        // given --revision launches the pin's repository at that revision, and LGE's snapshot of the
+        // revision starts without -r. The reproducible command always names the repository with -r.
+        let launchPin = NextflowPipelinePin(
+            pipelineID: pin.pipelineID,
+            repository: pin.repository,
+            revision: launchRevision,
+            releaseVersion: pin.releaseVersion
         )
-        let reproducibleArguments = buildNextflowLaunchArguments(
-            config: effectiveConfig,
-            runtimeConfigURL: runtimeConfigURL,
-            pipelineLaunchTarget: pin.repository,
-            pipelineRevision: launchRevision,
-            workDirectory: scratch.workDirectory
+        var launchRequest = NextflowLaunchRequest(
+            configFiles: [runtimeConfigURL],
+            target: pipelineProjectSource.revision == nil
+                ? .snapshot(URL(fileURLWithPath: pipelineProjectSource.launchTarget, isDirectory: true))
+                : .pinned(launchPin),
+            samplesheet: effectiveConfig.samplesheetURL,
+            outputDirectory: effectiveConfig.outputDirectory,
+            workDirectory: scratch.workDirectory,
+            profile: effectiveConfig.profile,
+            pipelineArguments: effectiveConfig.nextflowPipelineArguments()
         )
+        let arguments = NextflowWorkflowDescriptor.taxTriage.nextflowArguments(for: launchRequest)
+        launchRequest.target = .pinned(launchPin)
+        let reproducibleArguments = NextflowWorkflowDescriptor.taxTriage.nextflowArguments(for: launchRequest)
         let micromambaArgs = ["run", "-n", nextflowEnvName, "nextflow"] + arguments
         let reproducibleMicromambaArgs = ["run", "-n", nextflowEnvName, "nextflow"] + reproducibleArguments
         let launchCommand = shellCommand(executablePath: micromambaPath.path, arguments: micromambaArgs)
@@ -509,7 +516,7 @@ public actor TaxTriagePipeline {
         } catch is CancellationError {
             // E10. The task was cancelled before the spawn, so no engine ran and no log was written.
             try await recordCancellation(
-                runID: runID, config: profileAdjustedConfig, command: provenanceCommand,
+                runID: runID, recording: recording, config: profileAdjustedConfig, command: provenanceCommand,
                 pin: pin, pipelineSource: pipelineProjectSource.pipelineSource,
                 wallTime: runClock.elapsed, logFile: logFile
             )
@@ -527,7 +534,8 @@ public actor TaxTriagePipeline {
                 stderr: spawnMessage
             )
             await ProvenanceRecorder.shared.completeRun(runID, status: .failed)
-            try await saveTaxTriageProvenanceOrThrow(
+            try await finishTaxTriageRecord(
+                recording: recording,
                 runID: runID,
                 outputDirectory: profileAdjustedConfig.outputDirectory,
                 description: "failure",
@@ -548,7 +556,7 @@ public actor TaxTriagePipeline {
         // ended (2.7 E5).
         if Task.isCancelled {
             try await recordCancellation(
-                runID: runID, config: profileAdjustedConfig, command: provenanceCommand,
+                runID: runID, recording: recording, config: profileAdjustedConfig, command: provenanceCommand,
                 pin: pin, pipelineSource: pipelineProjectSource.pipelineSource,
                 wallTime: runClock.elapsed, logFile: logFile
             )
@@ -567,7 +575,8 @@ public actor TaxTriagePipeline {
                 stderr: logFailure
             )
             await ProvenanceRecorder.shared.completeRun(runID, status: .failed)
-            try await saveTaxTriageProvenanceOrThrow(
+            try await finishTaxTriageRecord(
+                recording: recording,
                 runID: runID,
                 outputDirectory: profileAdjustedConfig.outputDirectory,
                 description: "failure",
@@ -600,7 +609,8 @@ public actor TaxTriagePipeline {
                 stderr: stderrText
             )
             await ProvenanceRecorder.shared.completeRun(runID, status: .failed)
-            try await saveTaxTriageProvenanceOrThrow(
+            try await finishTaxTriageRecord(
+                recording: recording,
                 runID: runID,
                 outputDirectory: profileAdjustedConfig.outputDirectory,
                 description: "failure",
@@ -651,7 +661,7 @@ public actor TaxTriagePipeline {
         // A cancel during the finish wins too (T10), so no result is written.
         if Task.isCancelled {
             try await recordCancellation(
-                runID: runID, config: profileAdjustedConfig, command: provenanceCommand,
+                runID: runID, recording: recording, config: profileAdjustedConfig, command: provenanceCommand,
                 pin: pin, pipelineSource: pipelineProjectSource.pipelineSource,
                 wallTime: runClock.elapsed, logFile: logFile
             )
@@ -660,7 +670,10 @@ public actor TaxTriagePipeline {
         // Save the result for later reference
         do {
             try result.save()
-            Self.markAsProjectAnalysisIfNeeded(result.outputDirectory)
+            // The executor writes the folder's metadata on its route.
+            if case .pipelineSave = recording {
+                Self.markAsProjectAnalysisIfNeeded(result.outputDirectory)
+            }
         } catch {
             throw taxTriagePersistenceFailure(
                 artifactDescription: "result metadata",
@@ -683,7 +696,8 @@ public actor TaxTriagePipeline {
             stderr: ""
         )
         await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
-        try await saveTaxTriageProvenanceOrThrow(
+        try await finishTaxTriageRecord(
+            recording: recording,
             runID: runID,
             outputDirectory: profileAdjustedConfig.outputDirectory,
             description: "completed run",
@@ -711,6 +725,7 @@ public actor TaxTriagePipeline {
     /// run's deferred cleanup, the launch scratch among it, runs only after this (T13).
     private func recordCancellation(
         runID: UUID,
+        recording: TaxTriageRecording,
         config: TaxTriageConfig,
         command: [String],
         pin: NextflowPipelinePin,
@@ -731,7 +746,8 @@ public actor TaxTriagePipeline {
             stderr: message
         )
         await ProvenanceRecorder.shared.completeRun(runID, status: .cancelled)
-        try await saveTaxTriageProvenanceOrThrow(
+        try await finishTaxTriageRecord(
+            recording: recording,
             runID: runID,
             outputDirectory: config.outputDirectory,
             description: "cancelled run",

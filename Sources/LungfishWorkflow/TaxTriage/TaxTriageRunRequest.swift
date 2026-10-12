@@ -91,13 +91,6 @@ package struct TaxTriageRunRefusal: Error, LocalizedError, AnalysisRunExitCoding
     package static func folderHoldsPairedReads(folder: String, read1: String, read2: String) -> TaxTriageRunRefusal {
         .input("The folder \(folder) holds paired reads, such as \(read1) and \(read2). Use --samplesheet to pair them.")
     }
-
-    /// The refusal of every unit and of the finalize while the lane's first milestone plans TaxTriage on
-    /// the executor without running it. Milestone 2 deletes it with the stubs that throw it.
-    package static let notRunnableYet = TaxTriageRunRefusal(
-        message: "This build plans a TaxTriage run on the analysis run executor but cannot run it yet.",
-        exitCode: AnalysisRunExitCode.workflowError
-    )
 }
 
 /// What ``TaxTriageAnalysisRunTool`` runs with besides its request, so a test can stand in for the

@@ -360,34 +360,6 @@ final class TaxTriageAnalysisRunToolPlanTests: XCTestCase {
         XCTAssertEqual(batch.units.map(\.label), ["S1", "S1"])
     }
 
-    // MARK: - Units and finalize (until milestone 2)
-
-    func testRunAndFinalizeRefuseWhileTheLaneOnlyPlans() async throws {
-        let reads = try writeReads("S1.fastq")
-        let tool = makeTool(makeRequest(input: reads.path, sample: "S1"))
-        let planned = try await plan(tool, .directory(root.appendingPathComponent("out", isDirectory: true)))
-        let unit = try XCTUnwrap(planned.units.first)
-
-        do {
-            _ = try await tool.run(
-                AnalysisRunUnit(index: 0, count: 1, label: unit.label, sampleName: unit.label, directory: root, value: unit.value),
-                context: AnalysisRunUnitContext(rootDirectory: root, projectURL: nil)
-            )
-            XCTFail("a unit ran")
-        } catch {
-            XCTAssertEqual(error as? TaxTriageRunRefusal, .notRunnableYet)
-        }
-        do {
-            _ = try await tool.finalize(
-                [],
-                context: AnalysisRunFinalizeContext(rootDirectory: root, layout: .singleFolder, projectURL: nil, toolID: .taxtriage, indexing: nil)
-            )
-            XCTFail("the finalize ran")
-        } catch {
-            XCTAssertEqual(error as? TaxTriageRunRefusal, .notRunnableYet)
-        }
-    }
-
     // MARK: - Helpers
 
     static let customPin = PipelineSpec(

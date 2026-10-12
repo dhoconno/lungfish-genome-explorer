@@ -6,9 +6,56 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
+/// Where a TaxTriage pipeline run hands its record (A2 M2, ARCH 3).
+package enum TaxTriageRecording: Sendable {
+    /// The app's route, the public `run(config:progress:)`. The pipeline saves its own record in the
+    /// output folder.
+    case pipelineSave
+    /// A `.singleFolder` or `.sharedBatchRoot` unit of `taxtriage run`, whose folder is the result
+    /// folder. The pipeline saves no record of its own and hands every step, input and option to the
+    /// root record, which the executor writes there.
+    case rootRecord(AnalysisRunUnitContext)
+    /// A `.batchRoot` unit of `taxtriage run`. The sample keeps the pipeline's own record in its folder,
+    /// and the unit hands the root record only run-level values.
+    case unitRecord(AnalysisRunUnitContext)
+}
+
 extension TaxTriagePipeline {
 
     // MARK: - Provenance
+
+    /// Finishes the run's record where `recording` sends it. The app's route and a batch sample save
+    /// the pipeline's record in `outputDirectory`. A result folder on the executor saves none and hands
+    /// the root record each step and input with the digests the recorder took, so nothing is hashed
+    /// twice (S2), and the options under their homes, so no fact is written twice into one file.
+    func finishTaxTriageRecord(
+        recording: TaxTriageRecording,
+        runID: UUID,
+        outputDirectory: URL,
+        description: String,
+        exitCode: Int32,
+        stderr: String,
+        logFile: URL?
+    ) async throws {
+        guard case .rootRecord(let context) = recording else {
+            try await saveTaxTriageProvenanceOrThrow(
+                runID: runID,
+                outputDirectory: outputDirectory,
+                description: description,
+                exitCode: exitCode,
+                stderr: stderr,
+                logFile: logFile
+            )
+            return
+        }
+        let parameters = await ProvenanceRecorder.shared.getRun(runID)?.parameters ?? [:]
+        guard let envelope = await ProvenanceRecorder.shared.canonicalEnvelope(for: runID) else { return }
+        for file in envelope.files where file.role == .input {
+            context.recordInput(file)
+        }
+        envelope.steps.forEach(context.recordStep)
+        context.recordOptions(TaxTriageRecordFacts.rootRecordOptions(fromRunParameters: parameters))
+    }
 
     func saveTaxTriageProvenanceOrThrow(
         runID: UUID,
@@ -214,6 +261,18 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
     /// default with the same value.
     static func recordOptions(fromRunParameters parameters: [String: ParameterValue]) -> ProvenanceOptions {
         ProvenanceOptions(resolvedDefaults: parameters.filter { resolvedDefaultKeys.contains($0.key) })
+    }
+
+    /// The root record's options for a run that began with `parameters`, each under the home the
+    /// pipeline's own save gives it, with the plan of a one-sample record in its one home (E13).
+    static func rootRecordOptions(fromRunParameters parameters: [String: ParameterValue]) -> AnalysisRootRecordOptions {
+        var resolved = parameters.filter { resolvedDefaultKeys.contains($0.key) }
+        let plan = resolved.removeValue(forKey: RecordedReadSetPlan.key)
+        return AnalysisRootRecordOptions(
+            explicit: parameters.filter { !resolvedDefaultKeys.contains($0.key) },
+            resolved: resolved,
+            readSetPlan: plan
+        )
     }
 
     /// The identity of the Kraken 2 database at `databaseURL`, as decision E9 gives EsViritu's. Its path, the size of
