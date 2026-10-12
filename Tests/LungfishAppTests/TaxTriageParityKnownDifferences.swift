@@ -211,9 +211,9 @@ enum TaxTriageParityKnownDifferences {
         TaxTriageParityKnownDifference(
             counts: [.x4: 1],
             scope: .side(.a),
-            id: "fact: nothing is written into negative-control's bundle",
+            id: "fact: nothing is written into negative-control's bundle: analyses-manifest.json",
             reason: "QA inventory 2.2 says a failed sample writes nothing into its bundle, but completeTaxTriageRun records the analysis in the manifest of every sample of the request, the failed one too (AppDelegate+TaxTriageCompletion.swift:90-105)",
-            closedBy: guiRoute
+            closedBy: "completeTaxTriageRun records only the samples that kept a report (AppDelegate+TaxTriageCompletion.swift:90), at the latest with the 2.10 GUI route through lungfish-cli (A3 and U8)"
         ),
         TaxTriageParityKnownDifference(
             counts: [.x4: 1],

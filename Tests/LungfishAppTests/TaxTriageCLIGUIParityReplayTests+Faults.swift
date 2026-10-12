@@ -191,9 +191,11 @@ extension TaxTriageParityHarness {
         for path in parityCase.untouchedBundlePaths {
             let before = Self.bundleContents(pristineProject.appendingPathComponent(path, isDirectory: true))
             let after = Self.bundleContents(run.project.appendingPathComponent(path, isDirectory: true))
-            let changed = Set(before.keys).union(after.keys).filter { before[$0] != after[$0] }.sorted()
-            if !changed.isEmpty {
-                violate("nothing is written into \(TaxTriageParitySampleFacts.forBundle(path).sampleID)'s bundle", "changed \(changed)")
+            let sampleID = TaxTriageParitySampleFacts.forBundle(path).sampleID
+            // One difference per file, so a declared write cannot hide a second one.
+            for file in Set(before.keys).union(after.keys).filter({ before[$0] != after[$0] }).sorted() {
+                let change = before[file] == nil ? "added" : (after[file] == nil ? "removed" : "changed")
+                violate("nothing is written into \(sampleID)'s bundle: \(file)", change)
             }
         }
     }
