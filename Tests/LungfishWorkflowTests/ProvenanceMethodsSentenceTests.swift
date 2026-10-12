@@ -130,7 +130,11 @@ struct ProvenanceMethodsSentenceTests {
         #expect(joined.identity == joined.stageIdentities[0])
         // The iVar run has a pipe too, and each of its steps has one identity for each command, which is how the methods
         // text pairs a tool with its stage.
-        for step in plan(Self.variantCallerRun()).steps {
+        let variantCaller = plan(Self.variantCallerRun())
+        let ivarPipe = try #require(variantCaller.steps.first { $0.commands.count == 2 })
+        #expect(ivarPipe.stageIdentities.map(\.toolName) == ["samtools", "ivar"])
+        #expect(ivarPipe.stageIdentities.map(\.version) == ["1.24", "1.4.4"])
+        for step in variantCaller.steps {
             #expect(step.stageIdentities.count == step.commands.count, Comment(rawValue: step.toolName))
         }
     }
