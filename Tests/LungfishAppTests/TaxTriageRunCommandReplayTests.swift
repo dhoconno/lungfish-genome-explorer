@@ -51,6 +51,10 @@ final class TaxTriageRunCommandReplayTests: XCTestCase {
         XCTAssertEqual(record.workflowName, TaxTriageAnalysisRunTool.workflowName, "the executor's root record")
         XCTAssertEqual(record.status, .completed)
         XCTAssertEqual(record.steps.filter { $0.toolName == "taxtriage" }.count, 1)
+        XCTAssertNil(
+            record.steps.first { $0.toolName == "taxtriage" }?.resolvedOptions["sample"],
+            "a pooled launch of two samples names no one sample on its step (B12)"
+        )
 
         let events = try lines.map { try XCTUnwrap(try CLIEventLineDecoder().decode(line: $0), $0) }
         guard case .start? = events.first, case .complete(let outputs, _)? = events.last else {

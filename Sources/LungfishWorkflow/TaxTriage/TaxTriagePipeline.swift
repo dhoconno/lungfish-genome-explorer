@@ -531,7 +531,8 @@ public actor TaxTriagePipeline {
                 outputFiles: [logFile],
                 exitCode: -1,
                 wallTime: runClock.elapsed,
-                stderr: spawnMessage
+                stderr: spawnMessage,
+                sample: recording.stepSample(of: profileAdjustedConfig)
             )
             await ProvenanceRecorder.shared.completeRun(runID, status: .failed)
             try await finishTaxTriageRecord(
@@ -572,7 +573,8 @@ public actor TaxTriagePipeline {
                 outputFiles: [],
                 exitCode: exitCode,
                 wallTime: runClock.elapsed,
-                stderr: logFailure
+                stderr: logFailure,
+                sample: recording.stepSample(of: profileAdjustedConfig)
             )
             await ProvenanceRecorder.shared.completeRun(runID, status: .failed)
             try await finishTaxTriageRecord(
@@ -606,7 +608,8 @@ public actor TaxTriagePipeline {
                 ],
                 exitCode: exitCode,
                 wallTime: runClock.elapsed,
-                stderr: stderrText
+                stderr: stderrText,
+                sample: recording.stepSample(of: profileAdjustedConfig)
             )
             await ProvenanceRecorder.shared.completeRun(runID, status: .failed)
             try await finishTaxTriageRecord(
@@ -693,7 +696,10 @@ public actor TaxTriagePipeline {
             ).taxTriageUniquedByPath(),
             exitCode: exitCode,
             wallTime: result.runtime,
-            stderr: ""
+            stderr: "",
+            // B12. The warnings come from the result in memory, never read back from its file.
+            ignoredFailures: result.ignoredFailures,
+            sample: recording.stepSample(of: profileAdjustedConfig)
         )
         await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
         try await finishTaxTriageRecord(
@@ -743,7 +749,8 @@ public actor TaxTriagePipeline {
             outputFiles: [],
             exitCode: AnalysisRunExitCode.cancelled,
             wallTime: wallTime,
-            stderr: message
+            stderr: message,
+            sample: recording.stepSample(of: config)
         )
         await ProvenanceRecorder.shared.completeRun(runID, status: .cancelled)
         try await finishTaxTriageRecord(

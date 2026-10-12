@@ -18,6 +18,14 @@ package enum TaxTriageRecording: Sendable {
     /// A `.batchRoot` unit of `taxtriage run`. The sample keeps the pipeline's own record in its folder,
     /// and the unit hands the root record only run-level values.
     case unitRecord(AnalysisRunUnitContext)
+
+    /// The sample the TaxTriage step of an executor launch names, the launch's one sample, because
+    /// a record of one sample otherwise names it only through a split or `cat` step (B12, 2.8 row
+    /// 256). The app's route and a pooled launch of several samples name none.
+    func stepSample(of config: TaxTriageConfig) -> String? {
+        if case .pipelineSave = self { return nil }
+        return config.samples.count == 1 ? config.samples[0].sampleId : nil
+    }
 }
 
 extension TaxTriagePipeline {
@@ -108,11 +116,12 @@ extension TaxTriagePipeline {
         TaxTriageRecordFacts(config: config, interleavedSplits: interleavedSplits, pin: pin).runParameters
     }
 
-    /// Records the TaxTriage step. A run that ended 0 names its result among `outputFiles`, and each task failure
-    /// that TaxTriage ignored in it adds a warning line to the step's stderr (T8). The step's tool, version, tag and
-    /// resolved options are the run's Nextflow facts (``TaxTriageRecordFacts/nextflowFacts(revision:pin:pipelineSource:)``),
-    /// whose resolved options hold `pipelineSource` and the version of the Nextflow that ran, from the log among
-    /// `outputFiles`.
+    /// Records the TaxTriage step. Each task failure TaxTriage ignored in a run that ended 0 adds a warning line to the
+    /// step's stderr (T8), from `ignoredFailures`, the result's list in memory, so a result file that fails to decode
+    /// loses none (B12, 2.8 row 256). The step's tool, version, tag and resolved options are the run's Nextflow facts
+    /// (``TaxTriageRecordFacts/nextflowFacts(revision:pin:pipelineSource:)``), whose resolved options hold
+    /// `pipelineSource` and the version of the Nextflow that ran, from the log among `outputFiles`, and `sample`, the
+    /// one sample of an executor launch (``TaxTriageRecording/stepSample(of:)``).
     func recordTaxTriageProvenanceStep(
         runID: UUID,
         config: TaxTriageConfig,
@@ -122,22 +131,28 @@ extension TaxTriagePipeline {
         outputFiles: [URL],
         exitCode: Int32,
         wallTime: TimeInterval,
-        stderr: String?
+        stderr: String?,
+        ignoredFailures: [TaxTriageIgnoredFailure] = [],
+        sample: String? = nil
     ) async {
-        let warnings = exitCode == 0 ? TaxTriageRecordFacts.ignoredFailureWarnings(inResultAmong: outputFiles) : []
+        let warnings = exitCode == 0 ? TaxTriageRecordFacts.warningLines(for: ignoredFailures) : []
         let stderrLines = ([stderr ?? ""] + warnings).filter { !$0.isEmpty }
         let nextflow = TaxTriageRecordFacts.nextflowFacts(
             revision: config.launchRevision(pin: pin),
             pin: pin,
             pipelineSource: pipelineSource
         )
+        var resolvedOptions = nextflow.resolvedOptions(logFile: TaxTriageRecordFacts.nextflowLog(among: outputFiles))
+        if let sample {
+            resolvedOptions["sample"] = .string(sample)
+        }
         await ProvenanceRecorder.shared.recordStep(
             runID: runID,
             toolName: nextflow.toolName,
             toolVersion: nextflow.toolVersion,
             githubReleaseVersion: nextflow.githubReleaseVersion,
             command: command,
-            resolvedOptions: nextflow.resolvedOptions(logFile: TaxTriageRecordFacts.nextflowLog(among: outputFiles)),
+            resolvedOptions: resolvedOptions,
             inputs: inputRecords(for: config),
             outputs: outputRecords(for: outputFiles),
             exitCode: exitCode,
@@ -336,15 +351,6 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
             }
             return line
         }
-    }
-
-    /// The warning lines of the task failures the result among `outputFiles` lists, none when no result is among them.
-    static func ignoredFailureWarnings(inResultAmong outputFiles: [URL]) -> [String] {
-        guard let resultFile = outputFiles.first(where: { $0.lastPathComponent == "taxtriage-result.json" }),
-              let result = try? TaxTriageResult.load(from: resultFile.deletingLastPathComponent()) else {
-            return []
-        }
-        return warningLines(for: result.ignoredFailures)
     }
 
     /// The Nextflow facts of the TaxTriage step of a run at `revision` from `pipelineSource`, the tool `taxtriage` at the

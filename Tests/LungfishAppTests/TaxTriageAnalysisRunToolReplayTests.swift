@@ -45,6 +45,11 @@ final class TaxTriageAnalysisRunToolReplayTests: XCTestCase {
         let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: output))
         XCTAssertEqual(record.workflowName, TaxTriageAnalysisRunTool.workflowName, "the root record replaced the pipeline's")
         XCTAssertEqual(record.steps.filter { $0.toolName == "taxtriage" }.count, 1, "the pipeline's step reached the root record once")
+        XCTAssertEqual(
+            record.steps.first { $0.toolName == "taxtriage" }?.resolvedOptions["sample"],
+            .string("S1"),
+            "the executor's step names the launch's one sample (B12, 2.8 row 256)"
+        )
         XCTAssertEqual(record.options.explicit["sample_count"], .integer(1))
         XCTAssertEqual(record.options.resolvedDefaults["databaseIdentityStatus"], .string("unpinned"))
     }
@@ -64,6 +69,11 @@ final class TaxTriageAnalysisRunToolReplayTests: XCTestCase {
             let sampleFolder = output.appendingPathComponent(sample, isDirectory: true)
             let sampleRecord = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: sampleFolder), sample)
             XCTAssertEqual(sampleRecord.workflowName, "TaxTriage", "\(sample) keeps the pipeline's own record")
+            XCTAssertEqual(
+                sampleRecord.steps.first { $0.toolName == "taxtriage" }?.resolvedOptions["sample"],
+                .string(sample),
+                "\(sample)'s step names its sample (B12)"
+            )
             XCTAssertTrue(
                 FileManager.default.fileExists(atPath: sampleFolder.appendingPathComponent("taxtriage-result.json").path),
                 sample
