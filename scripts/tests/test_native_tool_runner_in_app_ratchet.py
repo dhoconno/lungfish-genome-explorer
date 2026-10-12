@@ -120,6 +120,9 @@ def test_comments_are_ignored(tmp_path, lines):
         ['let s = "\\(d["k"]) // text"; ' + USE],
         ['let a = """', "  see https://example.org // not a comment", '  """; ' + USE],
         ['let p = #"C:\\"#; ' + USE],
+        ['let s = "a \\" // b"; ' + USE],
+        ['let s = "\\(f("//"))"; ' + USE],
+        ['let a = """', "  glob /* pattern", '  """', USE],
         ['let s = "NativeToolRunner failed"'],
     ],
 )
