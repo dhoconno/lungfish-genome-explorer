@@ -2431,7 +2431,7 @@ public actor ClassificationPipeline {
         return records
     }
 
-    private func compactKrakenOutputIfPossible(
+    func compactKrakenOutputIfPossible(
         rawURL: URL,
         provenanceRecorder: ProvenanceRecorder,
         runID: UUID,
