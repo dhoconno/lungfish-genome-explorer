@@ -302,6 +302,13 @@ final class TaxTriageStandInEngineReplayTests: XCTestCase {
         XCTAssertEqual(launch.fastqRecords, records, file: file, line: line)
         XCTAssertEqual(launch.environment["HOME"], engine.home.path, file: file, line: line)
         XCTAssertEqual(launch.environment["MAMBA_ROOT_PREFIX"], engine.condaRoot.path, file: file, line: line)
+        XCTAssertEqual(
+            launch.environment["NXF_HOME"].map { $0.hasPrefix(engine.home.path + "/") },
+            true,
+            "a stand-in run keeps Nextflow's home inside the engine, never the real one",
+            file: file,
+            line: line
+        )
         XCTAssertNil(launch.environment["NXF_CONDA_ENABLED"], "a profile other than conda drops the conda variables", file: file, line: line)
     }
 
