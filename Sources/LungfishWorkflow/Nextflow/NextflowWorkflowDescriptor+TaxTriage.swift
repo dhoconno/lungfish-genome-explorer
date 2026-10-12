@@ -10,8 +10,14 @@ extension NextflowWorkflowDescriptor {
     ///
     /// The profile is `TaxTriageConfig`'s default, the work folder goes with `-w` and the trace into the
     /// output folder as `trace.txt` (`TaxTriagePipeline.buildNextflowArguments`), and the scratch prefix
-    /// and keep-work key are the ones `makeLocalLaunchScratch` uses. No task count is set, so the bar
-    /// keeps the engine's estimate (W2), and the finalize takes the last tenth of it (W3).
+    /// and keep-work key are the ones `makeLocalLaunchScratch` uses. The finalize takes the last tenth of
+    /// the bar (W3).
+    ///
+    /// The bar counts against 29 tasks for each sample (W2). A one-sample run of the pinned TaxTriage
+    /// with LGE's settings ran 29 tasks in lane Q15's real runs, 17 of its sample's own and 12 for the
+    /// whole run, and a pooled run of two ran 46. The app's batch runner launches one sample at a time,
+    /// so its bar counts against the tasks each launch runs. A pooled run of several samples counts
+    /// against more tasks than it runs, so its bar ends lower before the finish takes it on.
     package static let taxTriage = NextflowWorkflowDescriptor(
         toolID: .taxtriage,
         lockPipelineID: "taxtriage",
@@ -24,7 +30,7 @@ extension NextflowWorkflowDescriptor {
         argumentLayout: .inputFirst,
         scratchPrefix: "taxtriage-run-",
         keepWorkEnvironmentKey: "LUNGFISH_TAXTRIAGE_KEEP_WORK",
-        expectedTaskCountPerSample: nil,
+        expectedTaskCountPerSample: 29,
         finalizeProgressShare: 0.1
     )
 }

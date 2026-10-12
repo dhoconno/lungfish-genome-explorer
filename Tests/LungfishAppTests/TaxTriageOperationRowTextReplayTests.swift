@@ -164,9 +164,11 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
             ].joined(separator: "\n")
         )
 
-        // The bar never moves back (T9). The runner reports 1.0 and the database build keeps the
-        // bar there. Before the fix the app showed 0.95 while it built the database.
-        XCTAssertEqual(Self.rounded(run.trace.bars), [0, 0.05, 0.1, 0.1533, 0.9, 1.0])
+        // The bar never moves back (T9). In the engine stage it follows the completed rows of
+        // trace.txt against 29 tasks, and the stand-in writes one row (2.9 W2). The runner reports
+        // 1.0 and the database build keeps the bar there. Before the fix the app showed 0.95 while
+        // it built the database.
+        XCTAssertEqual(Self.rounded(run.trace.bars), [0, 0.05, 0.1, 0.1276, 0.9, 1.0])
         XCTAssertEqual(Self.drops(in: run.trace.bars), [])
 
         // The details the row showed, from the first to the last. The database line sits between
@@ -184,6 +186,13 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         XCTAssertFalse(lines.contains { $0.hasPrefix("warning:") || $0.hasPrefix("error:") }, "\(lines)")
         XCTAssertEqual(run.viewer.overlayLines.last, "TaxTriage pipeline complete")
         XCTAssertFalse(run.viewer.overlayLines.contains("Building TaxTriage database\u{2026}"))
+
+        // The stand-in's task line reads `Running <process> (<tag>)` in the log, the detail and the
+        // overlay, and the log keeps it once, though the trace reading at the end of the run
+        // repeats it with the bar it moved (2.9 W1, W2).
+        XCTAssertEqual(lines.filter { $0.hasPrefix("info: Running ") }, ["info: Running KRAKEN2_KRAKEN2 (S1)"])
+        XCTAssertTrue(run.trace.details.contains("Running KRAKEN2_KRAKEN2 (S1)"), "\(run.trace.details)")
+        XCTAssertTrue(run.viewer.overlayLines.contains("Running KRAKEN2_KRAKEN2 (S1)"))
 
         // Copy CLI Command copies the recorded command. It replays into the folder the GUI wrote.
         let analysis = try analysisFolder(in: project)
@@ -311,9 +320,10 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         XCTAssertNil(item.cliCommand)
         XCTAssertFalse(OperationRowAction.copyCLICommand.isAvailable(for: item))
 
-        // The bar never moves back (T9). The failed sample ends the bar at 1.0 and the database
-        // build keeps it there.
-        XCTAssertEqual(Self.rounded(run.trace.bars), [0, 0.025, 0.05, 0.0767, 0.45, 0.5, 0.525, 0.55, 1.0])
+        // The bar never moves back (T9). Each sample's engine stage follows its completed trace rows
+        // against 29 tasks (2.9 W2), S1's one row and none for the failing S2. The failed sample ends
+        // the bar at 1.0 and the database build keeps it there.
+        XCTAssertEqual(Self.rounded(run.trace.bars), [0, 0.025, 0.05, 0.0638, 0.45, 0.5, 0.525, 0.55, 1.0])
         XCTAssertEqual(Self.drops(in: run.trace.bars), [])
         XCTAssertTrue(run.trace.details.contains("TaxTriage serial batch complete"))
 

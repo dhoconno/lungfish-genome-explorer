@@ -161,7 +161,7 @@ final class NextflowWorkflowDescriptorTests: XCTestCase {
         XCTAssertEqual(descriptor.containerRuntime, .docker)
         XCTAssertEqual(descriptor.releaseEnvironment, [:])
         XCTAssertNil(descriptor.parameterSchemaPath)
-        XCTAssertNil(descriptor.expectedTaskCountPerSample, "W2, no count keeps the engine's estimate")
+        XCTAssertEqual(descriptor.expectedTaskCountPerSample, 29, "W2, a one-sample run's tasks in lane Q15's real runs (U10 M1)")
         XCTAssertEqual(descriptor.finalizeProgressShare, 0.1, "W3")
 
         let output = URL(fileURLWithPath: "/tmp/lungfish-descriptor/out", isDirectory: true)

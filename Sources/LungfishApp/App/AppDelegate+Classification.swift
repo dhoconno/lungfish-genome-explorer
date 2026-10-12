@@ -113,7 +113,7 @@ extension AppDelegate {
                                         progress: max(0, min(1, progress)),
                                         detail: message
                                     )
-                                    OperationCenter.shared.log(id: opID, level: .info, message: message)
+                                    Self.logTaxTriageProgress(message, for: opID)
                                 }
                             }
                         }
