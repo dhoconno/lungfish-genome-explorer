@@ -11,10 +11,10 @@ import Foundation
 ///
 /// - `unpinned` is TaxTriage's and EsViritu's word, and the status's own.
 /// - `unresolved-bounded-metadata` is Kraken 2's word for a database with no digest, so it reads as ``unpinned``.
-/// - `provided-aggregate-digest` is Kraken 2's word when the run was given the digest of the whole database, the
-///   registry's payload digest or `--db-digest`, so it reads as ``pinned``.
+/// - `provided-aggregate-digest` is Kraken 2's word when the run carries the aggregate SHA-256 that LGE's install
+///   computed over the database's files, from the registry or from `--db-digest`, so it reads as ``pinned``.
 package enum DatabaseIdentityStatus: String, Sendable, Equatable, CaseIterable {
-    /// A digest names the database, one LGE checked or one the run was given for the whole database.
+    /// A SHA-256 that LGE computed over the database's files names the database, at install or in the run.
     case pinned
     /// No digest pins the database, so its path, its file sizes and its install receipt name it.
     case unpinned
