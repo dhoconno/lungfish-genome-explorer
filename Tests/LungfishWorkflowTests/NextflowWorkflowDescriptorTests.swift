@@ -218,6 +218,19 @@ final class NextflowWorkflowDescriptorTests: XCTestCase {
         }
     }
 
+    // MARK: - The Docker wait
+
+    /// The wait follows the effective profile, as `TaxTriagePipeline.swift:272` does, so a conda run and a stand-in
+    /// run with `local` never wait for Docker.
+    func testOnlyTheDockerProfileWaitsForDocker() {
+        let taxTriage = NextflowWorkflowDescriptor.taxTriage
+        XCTAssertTrue(taxTriage.waitsForDocker(profile: "docker"))
+        for profile in ["conda", "local", "docker,test"] {
+            XCTAssertFalse(taxTriage.waitsForDocker(profile: profile), profile)
+        }
+        XCTAssertTrue(NextflowWorkflowDescriptor.viralRecon.waitsForDocker(profile: "docker"))
+    }
+
     // MARK: - Launch types
 
     func testALaunchRequestStartsWithNoConfigFilesNoWorkFolderAndNoOptions() throws {
@@ -228,6 +241,7 @@ final class NextflowWorkflowDescriptorTests: XCTestCase {
             outputDirectory: URL(fileURLWithPath: "/tmp/lungfish-descriptor/out", isDirectory: true))
         XCTAssertEqual(request.configFiles, [])
         XCTAssertNil(request.workDirectory)
+        XCTAssertNil(request.profile, "nil is the descriptor's profile")
         XCTAssertEqual(request.pipelineArguments, [])
         XCTAssertEqual(request.target, .pinned(pin))
         XCTAssertNotEqual(request.target, .snapshot(URL(fileURLWithPath: "/tmp/lungfish-descriptor/snapshot")))

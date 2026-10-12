@@ -128,6 +128,19 @@ extension NextflowWorkflowDescriptor {
     }
 }
 
+// MARK: - The Docker wait
+
+extension NextflowWorkflowDescriptor {
+    /// Whether a launch with the effective `profile` waits for the Docker daemon before it starts.
+    ///
+    /// ``containerRuntime`` describes the descriptor's own ``profile``, so only a launch with exactly
+    /// that profile waits. A conda run, or a stand-in run with `local`, never waits, as the TaxTriage
+    /// pipeline decides today. The caller passes the profile as it normalized it.
+    package func waitsForDocker(profile: String) -> Bool {
+        containerRuntime == .docker && profile == self.profile
+    }
+}
+
 // MARK: - Pin
 
 /// The lock's pin of one Nextflow pipeline (`PipelineSpec`), the repository with the commit or tag a run
@@ -216,6 +229,9 @@ package struct NextflowLaunchRequest: Sendable, Equatable {
     /// The work folder, passed with the descriptor's ``NextflowWorkflowDescriptor/workDirectoryOption``,
     /// or nil to leave Nextflow's default.
     package var workDirectory: URL?
+    /// The Nextflow profile of this launch as the caller resolved it, or nil for the descriptor's
+    /// ``NextflowWorkflowDescriptor/profile``.
+    package var profile: String?
     /// The workflow's own options, in order, after LGE's.
     package var pipelineArguments: [String]
 
@@ -225,6 +241,7 @@ package struct NextflowLaunchRequest: Sendable, Equatable {
         samplesheet: URL,
         outputDirectory: URL,
         workDirectory: URL? = nil,
+        profile: String? = nil,
         pipelineArguments: [String] = []
     ) {
         self.configFiles = configFiles
@@ -232,6 +249,7 @@ package struct NextflowLaunchRequest: Sendable, Equatable {
         self.samplesheet = samplesheet
         self.outputDirectory = outputDirectory
         self.workDirectory = workDirectory
+        self.profile = profile
         self.pipelineArguments = pipelineArguments
     }
 }
