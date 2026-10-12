@@ -328,7 +328,8 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
     /// BIO T6. A run's parameters hold the sixteen settings and the release version, the ids of the samples split to
     /// R1 and R2 when there are any, and `read_set_plans` when a plan has something to say. Nothing names the Kraken 2
     /// database, the Nextflow version or a container image, so a result cannot say which database classified it
-    /// outside the argv of the engine's own step.
+    /// outside the argv of the engine's own step. Lane B2 records more of this as values, and the exact key sets
+    /// below change with it.
     func testTheRunParametersHoldSixteenSettingsAndTheReleaseTag() throws {
         XCTAssertEqual(Self.settingKeys.count, 16)
         let c = config([sample("A")], everySetting: true)
@@ -387,11 +388,23 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         XCTAssertFalse(String(describing: options).contains("viral-kraken2"))
     }
 
+    /// Saves a run holding `parameters` as the recorder does for a TaxTriage run and reads the record back.
+    private func savedRecord(parameters: [String: ParameterValue], as name: String) async throws -> ProvenanceEnvelope {
+        let runID = await ProvenanceRecorder.shared.beginRun(name: "TaxTriage", parameters: parameters)
+        await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
+        let directory = root.appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try await ProvenanceRecorder.shared.save(runID: runID, to: directory)
+        return try record(in: directory)
+    }
+
     /// BIO T7. A plan is recorded as `read_set_plans`, keyed by sample id, among the run parameters, and the recorder
     /// merges the run parameters into `options.explicit`. The one reader of a plan looks for `readSetPlan` only, so it
-    /// never finds a TaxTriage plan, while it finds the same fields once they sit under that key.
-    /// Plan decision T7 moves a sample's plan to `resolvedDefaults.readSetPlan` and lets the reader accept
-    /// `read_set_plans`, so the three assertions marked FLIPS change with lane B2.
+    /// never finds a TaxTriage plan, while it finds the same fields once they sit under that key. Each sample of a
+    /// several-sample app run writes a record of one sample, so its dictionary holds one key.
+    /// Plan decision T7 moves the plan of a record of one sample to `resolvedDefaults.readSetPlan` and lets the reader
+    /// accept `read_set_plans[<sample>]`. Lane B2 flips the assertions marked FLIPS, on the record of one sample, and a
+    /// pooled record of several samples keeps the keyed form.
     func testPlansAreKeyedBySampleInTheExplicitOptionsAndTheReaderNeverFindsThem() async throws {
         let fixtures = try makeFixtures()
         let mixed = try await planned(fixtures.mixedRoot, as: "mixed", in: fixtures)
@@ -408,19 +421,18 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
             XCTAssertNotEqual(fields["singleReadReason"], .null, "the plan states why mates ran as single reads")
         }
 
-        let runID = await ProvenanceRecorder.shared.beginRun(name: "TaxTriage", parameters: parameters)
-        await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
-        let directory = root.appendingPathComponent("run-record", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try await ProvenanceRecorder.shared.save(runID: runID, to: directory)
-        let envelope = try record(in: directory)
+        let pooled = try await savedRecord(parameters: parameters, as: "pooled-record")
+        XCTAssertEqual(Set(try XCTUnwrap(pooled.options.explicit["read_set_plans"]?.dictionaryValue).keys), ["mixed", "merged"])
+        XCTAssertNil(pooled.readSetPlan, "a pooled record of several samples keeps the keyed form, which the reader does not read")
 
-        XCTAssertEqual(Set(try XCTUnwrap(envelope.options.explicit["read_set_plans"]?.dictionaryValue).keys), ["mixed", "merged"])
-        XCTAssertTrue(envelope.options.resolvedDefaults.isEmpty, "nothing is in the resolved defaults")
-        XCTAssertNil(envelope.options.explicit["readSetPlan"])
-        XCTAssertNil(envelope.readSetPlan, "FLIPS: the reader finds no TaxTriage plan")
+        let oneSample = TaxTriagePipeline().provenanceParameters(for: config([mixed]))
+        let single = try await savedRecord(parameters: oneSample, as: "single-record")
+        XCTAssertEqual(Set(try XCTUnwrap(single.options.explicit["read_set_plans"]?.dictionaryValue).keys), ["mixed"])
+        XCTAssertTrue(single.options.resolvedDefaults.isEmpty, "FLIPS: nothing is in the resolved defaults")
+        XCTAssertNil(single.options.explicit["readSetPlan"])
+        XCTAssertNil(single.readSetPlan, "FLIPS: the reader finds no TaxTriage plan")
 
-        let underItsKey = envelope.with { copy in
+        let underItsKey = single.with { copy in
             copy.options = ProvenanceOptions(
                 explicit: copy.options.explicit,
                 resolvedDefaults: ["readSetPlan": plans["mixed"]!]
@@ -436,7 +448,8 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
     /// outputs, and in its argv the folder of the halves, which is inside the run's scratch folder
     /// `.lungfish-interleaved-split`. The run removes that folder when it ends. The step and the run's files name the
     /// durable interleaved file, never a half as a file. (The TaxTriage step's own input list is not reachable without
-    /// the engine.) Plan decision T6 keeps the halves scratch and has the record cite only the durable file.
+    /// the engine.) Plan decision T6 keeps the halves scratch and has the record cite only the durable file, so the
+    /// assertion on the folder in the argv may flip with lane B2.
     func testTheInterleavedSplitStepNamesItsSourceAndNoOutputs() async throws {
         let fixtures = try makeFixtures()
         let interleaved = try await planned(fixtures.interleavedRoot, as: "inter", in: fixtures)
@@ -574,7 +587,8 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
 
     /// BIO T14. Nextflow exits 0 when TaxTriage ignores an errored task. The failure is in `taxtriage-result.json`
     /// and in the GUI log, while the sample's step has exit 0 and no stderr, the failure text appears nowhere in the
-    /// record, and the run is `completed`.
+    /// record, and the run is `completed`. Plan decision T8 keeps the run `completed`. If lane B2 puts the failures into
+    /// the record, the assertions on stderr and on the record text flip.
     func testAnIgnoredTaskFailureLeavesExitZeroEmptyStderrAndACompletedRun() async throws {
         let failure = TaxTriageIgnoredFailure(
             processPath: "NFCORE_TAXTRIAGE:TAXTRIAGE:MINIMAP2_ALIGN",
