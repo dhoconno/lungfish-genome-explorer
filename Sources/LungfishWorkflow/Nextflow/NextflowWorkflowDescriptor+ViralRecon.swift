@@ -10,7 +10,8 @@ extension NextflowWorkflowDescriptor {
     ///
     /// It shows that a second workflow fits the descriptor (N12). Its runs still go through
     /// `NFCoreRunRequest`, and nothing launches from this value in Phase 2.9. Docker is the one executor
-    /// that reaches a working run, so the profile is `docker`. The work folder goes with `-work-dir`, the
+    /// that reaches a working run, so the profile is `docker`. The work folder goes with `-work-dir` ahead
+    /// of the profile, and the parameters follow sorted by name, as `NFCoreRunRequest` writes them. The
     /// run writes no trace file, and the scratch prefix is the one the command uses. Release 3.0.0 needs
     /// the legacy syntax parser, as `NFCoreSupportedWorkflow.launchEnvironment(forVersion:)` says, and
     /// the parameter schema sits at the root of the pipeline checkout.
@@ -23,6 +24,7 @@ extension NextflowWorkflowDescriptor {
         parameterSchemaPath: "nextflow_schema.json",
         workDirectoryOption: "-work-dir",
         traceFileName: nil,
+        argumentLayout: .sortedParameters,
         scratchPrefix: "nfcore-run-",
         keepWorkEnvironmentKey: nil,
         expectedTaskCountPerSample: nil,

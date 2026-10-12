@@ -60,6 +60,7 @@ final class NextflowWorkflowsRegistryAgreementTests: XCTestCase {
             containerRuntime: descriptor.containerRuntime, releaseEnvironment: descriptor.releaseEnvironment,
             parameterSchemaPath: descriptor.parameterSchemaPath,
             workDirectoryOption: descriptor.workDirectoryOption, traceFileName: descriptor.traceFileName,
+            argumentLayout: descriptor.argumentLayout,
             scratchPrefix: descriptor.scratchPrefix, keepWorkEnvironmentKey: descriptor.keepWorkEnvironmentKey,
             expectedTaskCountPerSample: descriptor.expectedTaskCountPerSample,
             finalizeProgressShare: descriptor.finalizeProgressShare)

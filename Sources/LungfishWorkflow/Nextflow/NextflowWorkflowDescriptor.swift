@@ -37,6 +37,9 @@ package struct NextflowWorkflowDescriptor: Sendable, Equatable {
     package let workDirectoryOption: String
     /// The name of the trace file a run writes into its output folder, or nil when it writes none.
     package let traceFileName: String?
+    /// How ``nextflowArguments(for:)`` orders a launch's options after the target, as the workflow's
+    /// launch writes them today.
+    package let argumentLayout: NextflowArgumentLayout
     /// The name prefix of a run's scratch folder, the launch folder that holds `.nextflow/` and the work
     /// folder.
     package let scratchPrefix: String
@@ -63,6 +66,7 @@ package struct NextflowWorkflowDescriptor: Sendable, Equatable {
         parameterSchemaPath: String?,
         workDirectoryOption: String,
         traceFileName: String?,
+        argumentLayout: NextflowArgumentLayout,
         scratchPrefix: String,
         keepWorkEnvironmentKey: String?,
         expectedTaskCountPerSample: Int?,
@@ -84,6 +88,7 @@ package struct NextflowWorkflowDescriptor: Sendable, Equatable {
         self.parameterSchemaPath = parameterSchemaPath
         self.workDirectoryOption = workDirectoryOption
         self.traceFileName = traceFileName
+        self.argumentLayout = argumentLayout
         self.scratchPrefix = scratchPrefix
         self.keepWorkEnvironmentKey = keepWorkEnvironmentKey
         self.expectedTaskCountPerSample = expectedTaskCountPerSample
@@ -138,6 +143,58 @@ extension NextflowWorkflowDescriptor {
     /// pipeline decides today. The caller passes the profile as it normalized it.
     package func waitsForDocker(profile: String) -> Bool {
         containerRuntime == .docker && profile == self.profile
+    }
+}
+
+// MARK: - The launch's arguments
+
+extension NextflowWorkflowDescriptor {
+    /// The arguments of `nextflow` for one launch, in the order the workflow's launch writes them today.
+    ///
+    /// The `-c` files come first, then `run` with the target, `-r` with the pin's revision for a pinned
+    /// target and nothing for a snapshot, and `-resume` when the launch resumes. The profile is the
+    /// launch's, or else the descriptor's, written as given. ``argumentLayout`` orders the rest, which
+    /// are the samplesheet as `--input`, the output folder as `--outdir`, the trace file in the output
+    /// folder when the workflow writes one, the work folder with ``workDirectoryOption`` when the launch
+    /// names one, and the workflow's own options.
+    package func nextflowArguments(for launch: NextflowLaunchRequest) -> [String] {
+        var arguments = launch.configFiles.flatMap { ["-c", $0.path] }
+        arguments.append("run")
+        switch launch.target {
+        case .pinned(let pin):
+            arguments += [pin.repository, "-r", pin.revision]
+        case .snapshot(let folder):
+            arguments.append(folder.path)
+        }
+        if launch.resume {
+            arguments.append("-resume")
+        }
+        let profileOption = ["-profile", launch.profile ?? profile]
+        let inputAndOutput = ["--input", launch.samplesheet.path, "--outdir", launch.outputDirectory.path]
+        let traceOption = traceFileName.map {
+            ["-with-trace", launch.outputDirectory.appendingPathComponent($0).path]
+        } ?? []
+        let workOption = launch.workDirectory.map { [workDirectoryOption, $0.path] } ?? []
+        switch argumentLayout {
+        case .inputFirst:
+            arguments += profileOption + inputAndOutput + traceOption + workOption + launch.pipelineArguments
+        case .sortedParameters:
+            arguments += workOption + profileOption + traceOption
+            arguments += Self.sortedParameters(launch.pipelineArguments + inputAndOutput)
+        }
+        return arguments
+    }
+
+    /// `--name value` pairs sorted by name, as `NFCoreRunRequest` sorts its parameters.
+    ///
+    /// - Precondition: `arguments` alternate a name that starts with `--` and its value.
+    private static func sortedParameters(_ arguments: [String]) -> [String] {
+        precondition(arguments.count.isMultiple(of: 2), "Parameters come as --name value pairs")
+        let pairs = stride(from: 0, to: arguments.count, by: 2).map { index in
+            precondition(arguments[index].hasPrefix("--"), "A parameter's name starts with --")
+            return (name: String(arguments[index].dropFirst(2)), value: arguments[index + 1])
+        }
+        return pairs.sorted { $0.name < $1.name }.flatMap { ["--\($0.name)", $0.value] }
     }
 }
 
@@ -213,6 +270,22 @@ package enum NextflowContainerRuntime: Sendable, Equatable {
     case hostOnly
 }
 
+// MARK: - Argument layout
+
+/// How a launch orders its options after `run`, the target, `-r` and `-resume`.
+///
+/// A run's recorded command keeps the order its launch wrote, so each workflow keeps the order it has
+/// today, and moving a workflow's launch onto the descriptor changes no recorded command.
+package enum NextflowArgumentLayout: Sendable, Equatable {
+    /// `-profile`, `--input`, `--outdir`, the trace, the work folder, and then the workflow's options in
+    /// the order the caller gives them, as the TaxTriage pipeline writes them.
+    case inputFirst
+    /// The work folder, `-profile` and the trace, and then every parameter as a `--name value` pair
+    /// sorted by name, `--input` and `--outdir` among them, as `NFCoreRunRequest` writes them. The
+    /// workflow's options must be such pairs.
+    case sortedParameters
+}
+
 // MARK: - Launch
 
 /// The run-time parts of one launch's argument list, which the descriptor puts in order, the `-c` files
@@ -232,7 +305,11 @@ package struct NextflowLaunchRequest: Sendable, Equatable {
     /// The Nextflow profile of this launch as the caller resolved it, or nil for the descriptor's
     /// ``NextflowWorkflowDescriptor/profile``.
     package var profile: String?
-    /// The workflow's own options, in order, after LGE's.
+    /// Whether the launch passes `-resume`, so Nextflow reuses the cached tasks of the run in its
+    /// launch folder.
+    package var resume: Bool
+    /// The workflow's own options, which ``NextflowWorkflowDescriptor/argumentLayout`` places after
+    /// LGE's options in order, or as `--name value` pairs sorted with `--input` and `--outdir`.
     package var pipelineArguments: [String]
 
     package init(
@@ -242,6 +319,7 @@ package struct NextflowLaunchRequest: Sendable, Equatable {
         outputDirectory: URL,
         workDirectory: URL? = nil,
         profile: String? = nil,
+        resume: Bool = false,
         pipelineArguments: [String] = []
     ) {
         self.configFiles = configFiles
@@ -250,6 +328,7 @@ package struct NextflowLaunchRequest: Sendable, Equatable {
         self.outputDirectory = outputDirectory
         self.workDirectory = workDirectory
         self.profile = profile
+        self.resume = resume
         self.pipelineArguments = pipelineArguments
     }
 }
