@@ -209,6 +209,16 @@ struct TaxTriageParityReplayedCommand: Sendable {
     }
 }
 
+/// Side B's command for a request of several samples is no longer a plain `--output` pooled run.
+struct TaxTriageParityPooledCommandError: Error, CustomStringConvertible {
+    let words: [String]
+
+    var description: String {
+        "The one-sample spelling no longer gives a plain --output pooled run (2.8 T17). Side B of several "
+            + "samples stays pooled (2.8 T2, 2.9 T5), so re-spell pooledCommand. Words \(words)"
+    }
+}
+
 /// The Operations panel row of a GUI run, what a user reads.
 struct TaxTriageParityRow: Equatable, Sendable {
     let title: String
@@ -457,6 +467,13 @@ extension TaxTriageCLIGUIParityReplayTests {
         var words = try RecordedCLICommand.arguments(of: AppDelegate.taxTriageCLICommand(for: config))
         if let index = words.firstIndex(of: "--sample"), index + 1 < words.count {
             words.removeSubrange(index...(index + 1))
+        }
+        // 2.8 T17 changes the spelling of a one-sample row with A2, while 2.8 T2 and 2.9 T5 keep a
+        // plain --output pooled. Side B of several samples stays that pooled run, so a spelling
+        // that loses --output or gains --project or --batch means re-spelling this command.
+        guard Self.resolved(TaxTriageParityReplayedCommand.outputFolder(in: words)) == Self.resolved(config.outputDirectory.path),
+              !words.contains("--project"), !words.contains("--batch"), !words.contains("--sample") else {
+            throw TaxTriageParityPooledCommandError(words: words)
         }
         return OperationCenter.buildCLICommand(subcommand: "", args: words)
     }
