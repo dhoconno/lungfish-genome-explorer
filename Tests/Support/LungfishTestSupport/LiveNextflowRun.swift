@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: MIT
 //
 // Owner direction O5 (Phase 2.9). The shared helper of every live Nextflow class (S10's container
-// cleanup class, U10's progress class, Q1b's parity class). A live class calls `begin()` in its
-// test, or in `setUp`, and `teardown()` in `tearDown`. `begin()`
+// cleanup class, U10's progress class, Q1b's parity class). A live class calls `begin()` at the top of
+// its test and `defer { XCTAssertEqual(run.teardown().problems, []) }` right after it, as
+// LiveNextflowTeardownLiveConformanceTests does. A class that begins in `setUpWithError` keeps the run
+// optional and calls `run?.teardown()` in `tearDown`, which XCTest runs after a skip in setUp. `begin()`
 //
 //   1. asks LiveNextflowSwitch whether the class runs, and with which managed root,
 //   2. gates the root, the managed Nextflow in it and a Docker that answers `docker info` within

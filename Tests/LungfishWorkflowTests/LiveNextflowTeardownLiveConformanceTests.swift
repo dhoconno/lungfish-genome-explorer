@@ -16,7 +16,7 @@ import XCTest
 final class LiveNextflowTeardownLiveConformanceTests: XCTestCase {
     func testTeardownRemovesTheContainersOfTheRunAndNoOthersOnTheRealDaemon() throws {
         let run = try LiveNextflowRun.begin()
-        defer { run.teardown() }
+        defer { XCTAssertEqual(run.teardown().problems, []) }
         let docker = run.docker
         let image = try localImage(docker)
 
