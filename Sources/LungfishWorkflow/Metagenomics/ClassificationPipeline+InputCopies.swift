@@ -69,11 +69,12 @@ extension ClassificationPipeline {
     }
 
     /// The kraken2 step's durable replay argv, kraken2 over files that
-    /// outlive the run. A run that hands kraken2 files it stages and then
-    /// deletes, the halves of an interleaved file, a header-only mate or a
-    /// copy in the compression of R1, has no such command, so the step
-    /// records none. Its argv still records what ran, and the run's recorded
-    /// command reproduces it (final review A, note 5).
+    /// outlive the run. A run that hands kraken2 files it stages, the halves
+    /// of an interleaved file, a header-only mate or a copy in the
+    /// compression of R1, has no such command, whether it removes them after
+    /// the run or keeps them (O1 of Phase 2.8), so the step records none. Its
+    /// argv still records what ran, and the run's recorded command reproduces
+    /// it (final review A, note 5).
     static func durableKraken2ReplayArgv(
         effectiveConfig: ClassificationConfig,
         kraken2Config: ClassificationConfig,
