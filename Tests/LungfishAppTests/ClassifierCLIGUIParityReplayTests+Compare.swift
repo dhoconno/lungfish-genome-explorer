@@ -301,12 +301,13 @@ enum ClassifierParityComparison {
 
     /// The facts of one record as a value tree.
     ///
-    /// A replay runs the command in this process, so its records hold the test process's argv
-    /// where the shipped binary holds its own (Swift 6 makes `CommandLine.arguments` read only).
-    /// The argv of the line that wrote the record replaces it, after both pass through what the
-    /// writer and the reader do to an argv (`PortablePath.sanitize`, `PortablePath.resolve`,
-    /// then the facts' `PathNormalizer`), as an array and in the joined form of
-    /// `reproducibleCommand`.
+    /// A replay runs the command in this process. A record that holds the test process's argv,
+    /// where the shipped binary holds its own (Swift 6 makes `CommandLine.arguments` read only),
+    /// gets the argv of the line that wrote it instead, after both pass through what the writer
+    /// and the reader do to an argv (`PortablePath.sanitize`, `PortablePath.resolve`, then the
+    /// facts' `PathNormalizer`), as an array and in the joined form of `reproducibleCommand`.
+    /// `kraken2 classify` and `esviritu detect` record the command their parsed options spell
+    /// instead (row 424 of the 2.7 plan), so the swap leaves their root records as they are.
     static func factsTree(of run: ClassifierParitySideRun, record relativePath: String) throws -> Value {
         let sidecar = run.root.appendingPathComponent(relativePath)
         let facts = try ProvenanceCompatFacts.project(sidecar: sidecar, projectRoot: run.project)

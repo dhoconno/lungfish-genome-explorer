@@ -481,9 +481,10 @@ extension ClassifierCLIGUIParityReplayTests {
 
     /// How `lines` end when the built `lungfish-cli` runs each of them, one after another, through
     /// `CLISubprocessTransport`, the launch the GUI route uses, each raced against `timeout`.
-    /// Side C' replays this way. A run in this process records the test runner's argv, its
-    /// version and the options `kraken2 classify` reads from that argv, where the binary side C
-    /// ran records its own.
+    /// Side C' replays this way. A run in this process records the test runner's version, and
+    /// `kraken2 classify` there records the command its parsed options spell
+    /// (`ClassifyCommand.canonicalArguments()`) and reads its explicit options from it, not
+    /// from the line as typed, where the binary side C ran records its own.
     nonisolated static func binaryTerminal(of lines: [[String]], cli: URL, timeout: Duration) async -> ClassifierParityTerminal {
         for arguments in lines {
             let transport = CLISubprocessTransport(cliURLOverride: cli)

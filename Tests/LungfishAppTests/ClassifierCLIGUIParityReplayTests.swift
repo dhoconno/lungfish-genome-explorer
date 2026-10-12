@@ -15,9 +15,10 @@
 //   `launchClassification` or `launchEsViritu`, runs the same configs with every route key set
 //   to the CLI route, so `CLIClassifierRunner` runs the built CLI that `LUNGFISH_CLI_PATH` names.
 // - Side C' is the command side C's row recorded, rebased onto a fresh root and run by the
-//   same built CLI. A run in this process would record the test runner's argv and version, and
-//   `kraken2 classify` reads its explicit options from that argv, so only the binary can show
-//   that the recorded command reproduces side C.
+//   same built CLI. A run in this process would record the test runner's version, and
+//   `kraken2 classify` would record the command its parsed options spell and read its explicit
+//   options from it, not from the line as typed, so only the binary can show that the
+//   recorded command reproduces side C.
 //
 // Each case compares two side roots (the analysis folder and the source bundle's
 // analyses-manifest.json, SQLite files as sorted dumps), every provenance record by its facts,
