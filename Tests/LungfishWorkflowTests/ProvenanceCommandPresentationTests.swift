@@ -38,6 +38,17 @@ struct ProvenanceCommandPresentationTests {
         #expect(display("cat '\(base)'", existing: [base]) == "cat Imports/reads.fq")
     }
 
+    /// Pin at the Phase 2.8 base (lane U3, finding P5). A record names a file of its project as `@/Inputs/x`,
+    /// and the reader turns that into the project's path without quotes, so a project folder with a space
+    /// becomes two words. The shortener then shows the path whole, naming the project folder and leaving the
+    /// space unquoted, where Files & Outputs shows `Inputs/x`.
+    @Test("A project path with a space that a record resolved without quotes shows whole at the base")
+    func anUnquotedProjectPathWithASpaceShowsWholeAtTheBase() {
+        let command = "lungfish-cli fastq trim /Users/someone/Desktop/HG002 chr20.lungfish/Inputs/reads.fastq"
+            + " --output /Users/someone/Desktop/HG002 chr20.lungfish/Analyses/trim-1/trimmed.fastq"
+        #expect(display(command) == command)
+    }
+
     @Test("A project-relative path that needs quoting is quoted again")
     func rewrittenPathsAreRequoted() {
         let path = "\(foreign)/Reference Sequences/ref (v2).fa"

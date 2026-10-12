@@ -272,6 +272,22 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
         XCTAssertFalse(model.copyableText.contains("Process ID"), model.copyableText)
     }
 
+    /// Pin at the Phase 2.8 base (lane U3, finding P4). `VerifiedProvenanceRecord` holds no flag for a stated
+    /// status, so a verified record whose bytes hold no `status` shows the word the decoder derived from the
+    /// exit status as if the record had stated it. The same bytes found by a lookup read Not recorded.
+    func testAVerifiedRecordThatStatesNoStatusShowsTheDerivedWordAtTheBase() throws {
+        let bytes = try recordBytes("fastq-trim-cancelled") { $0.removeValue(forKey: "status") }
+        let (_, sidecar) = try makeProject(bytes)
+        let envelope = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: sidecar), sidecarURL: sidecar)
+        let model = ProvenanceInspectorViewModel()
+
+        model.configureVerifiedSources([verifiedSource(envelope, sidecar: sidecar)])
+
+        XCTAssertEqual(envelope.status, .completed, "The decoder derives completed from the exit status 0.")
+        XCTAssertEqual(model.summary.runStatus, .stated(.completed))
+        XCTAssertTrue(model.copyableText.contains("Run Status: Completed"), model.copyableText)
+    }
+
     // MARK: - The words of the row
 
     func testEachStatedStatusReadsInPlainWords() {
@@ -366,6 +382,21 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: original) as? [String: Any])
         edit(&object)
         return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
+    }
+
+    /// The source a native bundle loader hands the Inspector for a record it has already verified.
+    private func verifiedSource(_ envelope: ProvenanceEnvelope, sidecar: URL) -> ProvenanceSource {
+        ProvenanceSource(
+            id: sidecar.path,
+            name: "Analysis",
+            item: ProvenanceInspectableItem(
+                url: sidecar.deletingLastPathComponent(),
+                sidebarType: .primerAnalysisBundle,
+                contentMode: .genomics,
+                displayName: "Analysis"
+            ),
+            verifiedRecord: VerifiedProvenanceRecord(envelope: envelope, sidecarURL: sidecar)
+        )
     }
 
     private func loadedModel(_ bytes: Data) async throws -> ProvenanceInspectorViewModel {
