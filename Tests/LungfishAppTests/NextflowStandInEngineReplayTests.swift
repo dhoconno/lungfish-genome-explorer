@@ -73,7 +73,7 @@ final class NextflowStandInEngineReplayTests: XCTestCase {
         let snapshot = root.appendingPathComponent("output/workflow-source/taxtriage", isDirectory: true)
         let result = try launchDirectly(launch, [
             "-c", output.appendingPathComponent("lungfish.nextflow.config").path,
-            "run", snapshot.path, "-profile", "docker",
+            "run", snapshot.path, "-profile", TaxTriageStandInEngine.profile,
             "--input", sheet.path, "--outdir", output.path, "-w", work.path, "-with-trace", trace.path,
         ])
         XCTAssertEqual(result.status, 0, result.stderr)
@@ -88,6 +88,7 @@ final class NextflowStandInEngineReplayTests: XCTestCase {
         XCTAssertEqual(Self.kindOrder(of: lines), Self.kindOrder(of: excerpt))
         XCTAssertEqual(lines.first, "Nextflow version: \(NextflowStandInEngine.version)", "the sentinel, not the lock's 26.04.6")
         XCTAssertEqual(lines.first { $0.hasPrefix("[WORKDIR] ") }, "[WORKDIR] \(work.path)")
+        XCTAssertEqual(lines.first { $0.hasPrefix("[PIPELINE] ") }, "[PIPELINE] nf-core/taxtriage 1.0dev | profile=\(TaxTriageStandInEngine.profile)")
         XCTAssertEqual(lines.last, "[SUCCESS] completed=46 failed=0 cached=0")
 
         let rows = try String(contentsOf: trace, encoding: .utf8).split(separator: "\n").dropFirst()
@@ -286,6 +287,7 @@ final class NextflowStandInEngineReplayTests: XCTestCase {
             (#"^Date: .+$"#, "Date: <date>"),
             (#"^Nextflow version: [0-9]+\.[0-9]+\.[0-9]+$"#, "Nextflow version: <version>"),
             (#"^\[SUCCESS\] completed=[0-9]+ failed=[0-9]+ cached=[0-9]+$"#, "[SUCCESS] completed=<n> failed=<n> cached=<n>"),
+            (#" \| profile=[^ ]+$"#, " | profile=<profile>"),
         ]
         var shaped = line
         for (pattern, replacement) in rules {
