@@ -16,8 +16,8 @@ import LungfishIO
 /// The descriptor names its analysis kind by ``toolID`` and its lock pipeline by ``lockPipelineID``,
 /// and an agreement test holds that id equal to the registry's `.lockedPipeline` id. It holds no
 /// repository, commit or tag of its own. Those come from the lock through ``resolvePin(in:)``, which
-/// refuses a lock that has no pin for the workflow (decision N4), so LGE never runs a branch such as
-/// `main` that no lock names.
+/// refuses a lock that has no pin for the workflow (decision N4), so a missing pin never falls back to a
+/// branch such as `main`.
 package struct NextflowWorkflowDescriptor: Sendable, Equatable {
     /// The analysis kind, which names the result folder and keys the registry row.
     package let toolID: AnalysisToolID
