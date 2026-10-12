@@ -210,7 +210,7 @@ The Operations row is the entry of `OperationCenter` that a launch begins and en
 | Moment | TaxTriage today | A new workflow |
 |---|---|---|
 | Row title and first detail | `TaxTriage (N sample[s])`, `Starting TaxTriage pipeline…` | `<W> (N sample[s])`, `Starting <W>…` |
-| Docker wait | `Docker daemon unavailable. Launching Docker Desktop...`, `Docker daemon ready` | `Starting Docker Desktop…`, `Docker Desktop is running` |
+| Docker wait | `Docker daemon unavailable. Launching Docker Desktop...`, `Docker daemon ready`, and on a failure `Docker Desktop is not running or daemon is unreachable. Start Docker Desktop and retry.` | The same words, because the engine's one wait reports them for every workflow (section 3). A lane that rewords them does so for every workflow and both surfaces in one commit (decision E15 of Phase 2.7) |
 | Before the engine | `Checking prerequisites...`, `Generating samplesheet...` | `Checking Nextflow and Docker…`, `Writing the samplesheet…` |
 | A task | A line that holds `process >`, such as `[aa/000001] Submitted process > <path>`, as the raw line | `Running <process> (<tag>)`, with the last part of the process name as `<process>` |
 | After the engine | `Collecting output files...`, `TaxTriage pipeline complete` | `Collecting output files…`, `<W> complete` |
