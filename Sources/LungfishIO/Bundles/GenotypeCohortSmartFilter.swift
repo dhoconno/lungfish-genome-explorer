@@ -13,16 +13,23 @@ public struct GenotypeCohortSmartFilter: Codable, Equatable, Sendable {
     /// readers can still evaluate the saved sample cohort. Older readers
     /// safely ignore this additive top-level key.
     public var searchProjectionText: String?
+    /// The stored identity of the cohort, which `lungfish-cli genotype
+    /// export-labkey` writes as `cohort_id`. A sidecar saved before Phase 2.8
+    /// stores none, and the cohort then has the id derived from its scope and
+    /// name (see `resolvedIDs(of:)`). A sidecar without the key reads as before
+    /// and older readers ignore it.
+    public var id: UUID?
 
     public init(name: String, description: String? = nil, scope: String = "bundle",
                 isStarred: Bool = false, predicate: SmartCohortPredicate = .all([]),
-                searchProjectionText: String? = nil) {
+                searchProjectionText: String? = nil, id: UUID? = nil) {
         self.name = name
         self.description = description
         self.scope = scope
         self.isStarred = isStarred
         self.predicate = predicate
         self.searchProjectionText = searchProjectionText
+        self.id = id
     }
 
     /// Returns de-duplicated stable IDs in deterministic natural order.
