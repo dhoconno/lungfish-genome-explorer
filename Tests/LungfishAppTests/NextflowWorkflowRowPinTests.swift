@@ -58,9 +58,11 @@ final class NextflowWorkflowRowPinTests: XCTestCase {
     // MARK: - Viral Recon, the row at launch
 
     /// The row starts as `Viral Recon` with a detail of the platform, the sample count and the
-    /// reference, and offers Cancel. Nextflow's own lines, streamed in, reach the log and never the
-    /// detail or the bar, which sits at 0 until the end.
-    func testViralReconRowAtLaunchReadsItsTitleAndFirstDetailAndNextflowLinesOnlyReachTheLog() async throws {
+    /// reference, and offers Cancel. Each line the CLI prints reaches the log as it arrives, standard
+    /// output as info and standard error as a warning, and never the detail or the bar, which sits at
+    /// 0 until the end. The CLI prints no Nextflow line today (it writes them into the run bundle's
+    /// logs folder), so the lines here stand in for whatever the CLI prints.
+    func testViralReconRowAtLaunchReadsItsTitleAndFirstDetailAndCLILinesOnlyReachTheLog() async throws {
         let runner = PinViralReconRunner()
         runner.streamed = [
             .standardOutput("[aa/000001] Submitted process > FASTQC (SARS2_A)"),
@@ -217,6 +219,8 @@ final class NextflowWorkflowRowPinTests: XCTestCase {
     func testACancelledViralReconRunReadsCancellingThenCancelledByUser() async throws {
         let runner = PinViralReconRunner()
         runner.blocksUntilCancelled = true
+        // A CLI ended by the tree termination exits non-zero, and the row must still read Cancelled.
+        runner.result = ViralReconWorkflowProcessResult(exitCode: 15, standardOutput: "", standardError: "")
         let run = try makeViralReconRun(runner: runner)
         var cancelling: OperationCenter.Item?
         runner.onRun = {
