@@ -10,8 +10,8 @@ import LungfishWorkflow
 /// taxtriage` core (Phase 2.9 lane A2, as `Kraken2ResultIndexer` builds Kraken2's), so a new result
 /// never needs a build at first view.
 ///
-/// A result folder indexes its own reports, and a batch root the reports of each sample folder in it,
-/// in byte order of their names (BIO 8). The cleanup is the executor's form of decision T5 of Phase
+/// A result folder indexes its own reports, and a batch root the reports of each sample folder in it.
+/// The cleanup is the executor's form of decision T5 of Phase
 /// 2.8. It keeps `top/`, removes `count/`, the fastp FASTQ files and seven intermediate folders, and
 /// its removal step comes after the build step in the steps this returns, so the root record names
 /// the removal after the step that read what it removed (2.8 P1). The step names each removed file

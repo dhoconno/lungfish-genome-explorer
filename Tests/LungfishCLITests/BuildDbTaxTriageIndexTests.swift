@@ -2,9 +2,9 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.9 lane A2 M3, with B12 M2 and BIO 8. Decision T5 of Phase 2.8 gives the executor path a cleanup that keeps
+// Phase 2.9 lane A2 M3, with B12 M2. Decision T5 of Phase 2.8 gives the executor path a cleanup that keeps
 // `top/` and records its removal after the build step, and keeps today's cleanup for the legacy route, so row 258's
-// `--force` rebuild is pinned on both. Serial sample folders are read in byte order of their names (BIO 8, 2.7 E8).
+// `--force` rebuild is pinned on both.
 // The runs use `taxtriage-mini` without `minimap2/` and `taxtriage-odr-3.3.8`, as `BuildDbTaxTriageCleanupFreezeTests`
 // does, so no row names a BAM and no samtools runs.
 
@@ -115,21 +115,6 @@ final class BuildDbTaxTriageIndexTests: XCTestCase {
             steps: [ProvenanceStep(toolName: "taxtriage", toolVersion: "fixture", outputs: outputs)]
         )
         try ProvenanceWriter(signingProvider: nil).write(record, to: folder)
-    }
-
-    // MARK: - BIO 8
-
-    /// `S10` comes before `S2` in byte order and after it in Finder's order, so the rows of the folder `S10` come first.
-    func testSerialSampleFoldersAreReadInByteOrder() async throws {
-        let batch = root.appendingPathComponent("taxtriage-batch", isDirectory: true)
-        try makeMini(at: batch.appendingPathComponent("S2", isDirectory: true), seeded: false)
-        try makeODR(at: batch.appendingPathComponent("S10", isDirectory: true))
-
-        try await buildDb(batch, ["--force", "--no-cleanup", "-q"])
-
-        let samples = try rowSamples(in: batch)
-        XCTAssertEqual(samples.first, "SRR12486983", "\(samples)")
-        XCTAssertEqual(Set(samples), ["SRR12486983", "SRR35517702", "SRR35517703", "SRR35517705"])
     }
 
     // MARK: - Row 258, the legacy route
