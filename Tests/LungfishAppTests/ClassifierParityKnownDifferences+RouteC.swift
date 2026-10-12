@@ -41,8 +41,10 @@ extension ClassifierParityKnownDifferences {
             "BIO D12. config.inputFiles names the GUI's deleted scratch file or the bundle's own files where the command names the files it kept, and the GUI's outputDirectory URL ends in a slash"),
         aAgainstC([.k3: 1], "analysis: differs: classification-batch-result.json",
             "The GUI's batch manifest names the merge sample single-end, as the grouper sees it, and the executor's names it paired, as its read-set plan runs it (E8, E13)"),
+        // E2's one and E3's second are the pair's provenanceId number, a comparison artifact. E3's
+        // moves with the spelling of the side roots, which assertParity keeps in the scratch folder.
         aAgainstC([.e1: 1, .e2: 1, .e3: 2], "analysis: differs: */esviritu-result.json",
-            "The GUI's outputDirectory URL ends in a slash, and for the subset config.inputFiles names the GUI's deleted scratch file (BIO D12)"),
+            "For the subset config.inputFiles names the GUI's deleted scratch file (BIO D12). The pair's file holds the same values on both sides, and only the number the folder comparison gives its provenanceId differs, because each side numbers the UUIDs of all its records in one sequence and the records sorted before the pair's hold another number of step ids on each side (Q4 review). Both outputDirectory URLs end in a slash"),
         aAgainstC([.e1: 1, .e3: 1], "analysis: differs: */*.fastp.json",
             "BIO D4. fastp's command names the GUI's scratch input and the command's kept input"),
         aAgainstC([.k1: 1, .k3: 1, .k4: 1], "analysis: only in A: *.lungfish-provenance/intermediates/classification-inputs/input-1-materialized-<UUID>.fastq",
