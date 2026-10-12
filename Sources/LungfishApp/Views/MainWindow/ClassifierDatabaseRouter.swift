@@ -51,12 +51,15 @@ enum ClassifierDatabaseRouter {
     /// subdirectory inside one.
     ///
     /// - If `url`'s parent is a classifier result, `url` is a sample of it whatever its name is. The
-    ///   route has `sampleId = url.lastPathComponent` and `resultURL` pointing at the parent.
+    ///   route has `sampleId = url.lastPathComponent` and `resultURL` pointing at the parent. The
+    ///   project folder and its Analyses folder are never results, so the router does not ask them.
     /// - Otherwise, if `url` is a classifier result, returns a top-level `Route` with `sampleId = nil`.
     /// - Otherwise returns nil.
     static func route(for url: URL) -> Route? {
         let parent = url.deletingLastPathComponent()
         if parent.path != url.path, !parent.lastPathComponent.isEmpty,
+           parent.lastPathComponent != AnalysesFolder.directoryName,
+           parent.pathExtension.lowercased() != "lungfish",
            let parentRoute = routeDirect(for: parent) {
             return Route(
                 tool: parentRoute.tool,

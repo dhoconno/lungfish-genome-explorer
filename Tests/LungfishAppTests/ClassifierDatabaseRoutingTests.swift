@@ -396,4 +396,20 @@ final class ClassifierDatabaseRoutingTests: XCTestCase {
         XCTAssertEqual(route.analysisID, .taxtriage)
         XCTAssertEqual(route.tool, "taxtriage")
     }
+
+    /// A loose tool file directly in Analyses does not make the Analyses folder a result, so a result
+    /// in it keeps its own route.
+    func testRoute_aLooseToolFileInAnalysesDoesNotCaptureItsResults() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let analyses = dir.appendingPathComponent("Study.lungfish/Analyses")
+        let result = analyses.appendingPathComponent("kraken2-2026-10-11T10-00-00")
+        try FileManager.default.createDirectory(at: result, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: analyses.appendingPathComponent("HG002.detected_virus.info.tsv").path, contents: Data())
+
+        let route = try XCTUnwrap(ClassifierDatabaseRouter.route(for: result))
+        XCTAssertEqual(route.analysisID, .kraken2)
+        XCTAssertEqual(route.resultURL.lastPathComponent, result.lastPathComponent)
+        XCTAssertNil(route.sampleId)
+    }
 }
