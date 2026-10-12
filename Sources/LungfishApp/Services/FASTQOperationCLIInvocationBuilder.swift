@@ -691,7 +691,7 @@ enum FASTQOperationCLIInvocationError: Error, LocalizedError, Equatable {
         case .contaminantReferenceNeedsBundle(let reference):
             return "The contaminant reference \(reference) is a relative path, and the input is in no .lungfishfastq bundle to resolve it in. Choose the reference by its full path."
         case .classifierLaunchHasNoDialogCommand(let tool):
-            return "The FASTQ operations dialog writes no lungfish-cli command for a \(tool.title) launch. The classification, EsViritu and TaxTriage wizards start these runs and record their own commands."
+            return "The FASTQ operations dialog writes no lungfish-cli command for \(tool.title) runs. The classification, EsViritu and TaxTriage wizards start these runs and record their own commands."
         }
     }
 }

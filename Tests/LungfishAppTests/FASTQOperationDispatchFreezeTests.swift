@@ -11,7 +11,9 @@
 // the request names. A cell that builds pins the first word the dispatcher
 // passes the CLI, every word of the row command, what the shipped parser
 // (`LungfishCLI.parseAsRoot`, through `RecordedCLICommand`) makes of the row and
-// of the dispatcher's argv, and the output kind the planner gives the request.
+// of the argv in the dispatcher's shape (`[subcommand] + arguments`, with the
+// row's `<derived>` output, because the argv of a run waits for lane S3), and
+// the output kind the planner gives the request.
 //
 // The three classify cells hold decision D1 of Phase 2.8. The classification,
 // EsViritu and TaxTriage wizards the dialog embeds start their runs through
