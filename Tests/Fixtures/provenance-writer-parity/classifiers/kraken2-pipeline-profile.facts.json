@@ -141,6 +141,18 @@
     },
     {
       "command" : [
+        "FileManager.removeItem(at:)",
+        "<project>/output/classification.kraken"
+      ],
+      "dependsOn" : [
+        4
+      ],
+      "exitCode" : 0,
+      "toolName" : "Lungfish Kraken2 Output Removal",
+      "toolVersion" : "<app-version>"
+    },
+    {
+      "command" : [
         "LungfishWorkflow",
         "ClassificationResult.save",
         "<project>/output/classification-result.json"
@@ -571,6 +583,18 @@
       "exitCode" : 0,
       "toolName" : "gzip",
       "toolVersion" : "system"
+    },
+    {
+      "command" : [
+        "FileManager.removeItem(at:)",
+        "<project>/output/classification.kraken"
+      ],
+      "dependsOn" : [
+        4
+      ],
+      "exitCode" : 0,
+      "toolName" : "Lungfish Kraken2 Output Removal",
+      "toolVersion" : "<app-version>"
     },
     {
       "command" : [
@@ -1143,6 +1167,44 @@
       },
       "toolName" : "gzip",
       "toolVersion" : "system"
+    },
+    {
+      "argv" : [
+        "FileManager.removeItem(at:)",
+        "<project>/output/classification.kraken"
+      ],
+      "dependsOn" : [
+        4
+      ],
+      "exitStatus" : 0,
+      "inputs" : [
+        {
+          "format" : "text",
+          "path" : "<project>/output/classification.kraken",
+          "role" : "input",
+          "sha256" : "aa0e8e991bbada7f2dc4af2b2f85307ea52ec3a41e76b3fcc80203dcf6220158",
+          "size" : 18
+        }
+      ],
+      "outputs" : [
+
+      ],
+      "recorded" : {
+
+      },
+      "reproducibleCommand" : "'FileManager.removeItem(at:)' <project>/output/classification.kraken",
+      "resolvedOptions" : {
+        "invocationKind" : {
+          "type" : "string",
+          "value" : "swift-api"
+        },
+        "operation" : {
+          "type" : "string",
+          "value" : "remove"
+        }
+      },
+      "toolName" : "Lungfish Kraken2 Output Removal",
+      "toolVersion" : "<app-version>"
     },
     {
       "argv" : [
