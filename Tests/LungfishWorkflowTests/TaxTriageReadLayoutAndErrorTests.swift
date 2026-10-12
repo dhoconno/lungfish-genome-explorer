@@ -305,7 +305,7 @@ final class TaxTriageReadLayoutAndErrorTests: XCTestCase {
         config.removeTaxids = "9606 10090"
         let pipeline = TaxTriagePipeline()
 
-        let args = pipeline.buildNextflowArguments(config: config)
+        let args = pipeline.buildNextflowArguments(config: config, pin: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin())
         let index = try XCTUnwrap(args.firstIndex(of: "--remove_taxids"))
         XCTAssertEqual(args[index + 1], "9606 10090", "the list is one argument, as TaxTriage expects")
         XCTAssertTrue(config.nextflowPipelineArguments().contains("--remove_taxids"))
@@ -316,21 +316,21 @@ final class TaxTriageReadLayoutAndErrorTests: XCTestCase {
         XCTAssertEqual(decoded.removeTaxids, "9606 10090")
     }
 
-    func testExtraArgumentsRemoveTaxidsWinsOverTheField() {
+    func testExtraArgumentsRemoveTaxidsWinsOverTheField() throws {
         for extra in [["--remove_taxids", "2"], ["--remove_taxids=2"]] {
             var config = config(samples: [TaxTriageSample(sampleId: "S1", fastq1: URL(fileURLWithPath: "/data/a.fastq"))])
             config.removeTaxids = "9606"
             config.extraArguments = extra
             XCTAssertNil(config.effectiveRemoveTaxids)
-            let args = TaxTriagePipeline().buildNextflowArguments(config: config)
+            let args = TaxTriagePipeline().buildNextflowArguments(config: config, pin: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin())
             XCTAssertEqual(args.filter { $0.hasPrefix("--remove_taxids") }.count, 1, "\(extra)")
             XCTAssertFalse(args.contains("9606"))
         }
     }
 
-    func testNoRemoveTaxidsPassesNothing() {
+    func testNoRemoveTaxidsPassesNothing() throws {
         let config = config(samples: [TaxTriageSample(sampleId: "S1", fastq1: URL(fileURLWithPath: "/data/a.fastq"))])
-        XCTAssertFalse(TaxTriagePipeline().buildNextflowArguments(config: config).contains("--remove_taxids"))
+        XCTAssertFalse(TaxTriagePipeline().buildNextflowArguments(config: config, pin: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin()).contains("--remove_taxids"))
         XCTAssertEqual(TaxTriagePipeline().provenanceParameters(for: config)["remove_taxids"], .string(""))
     }
 

@@ -52,21 +52,24 @@ extension TaxTriagePipeline {
     }
 
     /// The parameters a TaxTriage run begins with, every option its record holds (``TaxTriageRecordFacts``).
+    /// `pin` names the tag of the pinned revision, and the revision when the configuration chose none.
     nonisolated func provenanceParameters(
         for config: TaxTriageConfig,
-        interleavedSplits: [InterleavedSampleSplit] = []
+        interleavedSplits: [InterleavedSampleSplit] = [],
+        pin: NextflowPipelinePin? = nil
     ) -> [String: ParameterValue] {
-        TaxTriageRecordFacts(config: config, interleavedSplits: interleavedSplits).runParameters
+        TaxTriageRecordFacts(config: config, interleavedSplits: interleavedSplits, pin: pin).runParameters
     }
 
     /// Records the TaxTriage step. A run that ended 0 names its result among `outputFiles`, and each task failure
     /// that TaxTriage ignored in it adds a warning line to the step's stderr (T8). The step's tool, version, tag and
-    /// resolved options are the run's Nextflow facts (``TaxTriageRecordFacts/nextflowFacts(revision:pipelineSource:)``),
+    /// resolved options are the run's Nextflow facts (``TaxTriageRecordFacts/nextflowFacts(revision:pin:pipelineSource:)``),
     /// whose resolved options hold `pipelineSource` and the version of the Nextflow that ran, from the log among
     /// `outputFiles`.
     func recordTaxTriageProvenanceStep(
         runID: UUID,
         config: TaxTriageConfig,
+        pin: NextflowPipelinePin,
         pipelineSource: NextflowPipelineSource,
         command: [String],
         outputFiles: [URL],
@@ -76,7 +79,11 @@ extension TaxTriagePipeline {
     ) async {
         let warnings = exitCode == 0 ? TaxTriageRecordFacts.ignoredFailureWarnings(inResultAmong: outputFiles) : []
         let stderrLines = ([stderr ?? ""] + warnings).filter { !$0.isEmpty }
-        let nextflow = TaxTriageRecordFacts.nextflowFacts(revision: config.revision, pipelineSource: pipelineSource)
+        let nextflow = TaxTriageRecordFacts.nextflowFacts(
+            revision: config.launchRevision(pin: pin),
+            pin: pin,
+            pipelineSource: pipelineSource
+        )
         await ProvenanceRecorder.shared.recordStep(
             runID: runID,
             toolName: nextflow.toolName,
@@ -151,7 +158,11 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
     /// What the run resolved, the plan of a record of one sample and the identity of its database.
     let resolvedDefaults: [String: ParameterValue]
 
-    init(config: TaxTriageConfig, interleavedSplits: [TaxTriagePipeline.InterleavedSampleSplit] = []) {
+    init(
+        config: TaxTriageConfig,
+        interleavedSplits: [TaxTriagePipeline.InterleavedSampleSplit] = [],
+        pin: NextflowPipelinePin? = nil
+    ) {
         var explicit: [String: ParameterValue] = [
             "workflow": .string("taxtriage"),
             "sample_count": .integer(config.samples.count),
@@ -164,13 +175,16 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
             "max_memory": .string(config.maxMemory),
             "max_cpus": .integer(config.maxCpus),
             "profile": .string(config.profile),
-            "revision": .string(config.revision),
             "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
             "output_directory": .file(config.outputDirectory),
             "remove_taxids": .string(config.effectiveRemoveTaxids ?? ""),
         ]
-        if let githubReleaseVersion = TaxTriageConfig.githubReleaseVersion(for: config.revision) {
-            explicit["github_release_version"] = .string(githubReleaseVersion)
+        // The revision that runs, the configuration's or else the pin's, with its tag (N4, R1).
+        if let revision = config.revision ?? pin?.revision {
+            explicit["revision"] = .string(revision)
+            if let githubReleaseVersion = TaxTriageConfig.githubReleaseVersion(for: revision, pin: pin) {
+                explicit["github_release_version"] = .string(githubReleaseVersion)
+            }
         }
         if !interleavedSplits.isEmpty {
             explicit["interleaved_samples_split_to_r1_r2"] = .array(interleavedSplits.map { .string($0.sampleId) })
@@ -276,11 +290,15 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
 
     /// The Nextflow facts of the TaxTriage step of a run at `revision` from `pipelineSource`, the tool `taxtriage` at the
     /// revision, with the release tag beside it when the lock's pin or a `v` tag names one (RT4, R1, T6).
-    static func nextflowFacts(revision: String, pipelineSource: NextflowPipelineSource) -> NextflowRecordFacts {
+    static func nextflowFacts(
+        revision: String,
+        pin: NextflowPipelinePin?,
+        pipelineSource: NextflowPipelineSource
+    ) -> NextflowRecordFacts {
         NextflowRecordFacts(
             toolName: toolName,
             toolVersion: revision,
-            githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: revision),
+            githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: revision, pin: pin),
             pipelineSource: pipelineSource
         )
     }

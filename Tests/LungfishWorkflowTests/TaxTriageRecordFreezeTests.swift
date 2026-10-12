@@ -216,6 +216,7 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
     /// `-c`, `-with-trace` and `-w` (the sample's own record holds that one). The sample's folder is `--outdir`.
     func testTheBatchRecordHoldsOneRebuiltNextflowCommandPerSample() async throws {
         let batch = config([sample("Alpha"), sample("Beta")], everySetting: true)
+        let pin = try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin()
 
         _ = try await runner(SeenConfigs(), files: []).run(config: batch)
 
@@ -225,7 +226,7 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         for (step, id) in zip(steps, ["Alpha", "Beta"]) {
             let folder = batchRoot.appendingPathComponent(id, isDirectory: true).path
             XCTAssertEqual(step.argv, [
-                "nextflow", "run", TaxTriageConfig.pipelineRepository, "-r", batch.revision, "-profile", "docker",
+                "nextflow", "run", pin.repository, "-r", batch.launchRevision(pin: pin), "-profile", "docker",
                 "--input", folder + "/samplesheet.csv", "--outdir", folder, "--db", "/db/viral-kraken2",
                 "--top_hits_count", "7", "--k2_confidence", "0.3", "--rank", "G", "--max_memory", "8.GB", "--max_cpus", "4",
                 "--skip_assembly", "--skip_krona", "--remove_taxids", "9606 10090", "--foo", "bar",
@@ -235,7 +236,7 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
                 XCTAssertFalse(step.argv.contains(launchOnly), "the rebuilt command lacks \(launchOnly), which the launch carries")
             }
         }
-        let launch = TaxTriagePipeline().buildNextflowArguments(config: batch)
+        let launch = TaxTriagePipeline().buildNextflowArguments(config: batch, pin: pin)
         XCTAssertTrue(launch.contains("-with-trace"), "the launch arguments carry what the rebuilt command lacks")
         let last = try XCTUnwrap(envelope.steps.last)
         XCTAssertEqual(last.toolName, "lungfish-app-taxtriage-serial-batch")
@@ -253,11 +254,12 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         _ = try await runner(SeenConfigs(), files: []).run(config: batch)
 
         let envelope = try record(in: batchRoot)
-        let revision = TaxTriageConfig.defaultRevision
-        XCTAssertEqual(batch.revision, revision)
+        let pin = try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin()
+        let revision = pin.revision
+        XCTAssertNil(batch.revision, "nil runs the commit the lock pins (N4)")
         XCTAssertEqual(revision.count, 40, "the revision is a commit")
         XCTAssertTrue(revision.allSatisfy(\.isHexDigit), revision)
-        let tag = try XCTUnwrap(TaxTriageConfig.githubReleaseVersion(for: revision))
+        let tag = try XCTUnwrap(TaxTriageConfig.githubReleaseVersion(for: revision, pin: pin))
         XCTAssertTrue(tag.hasPrefix("v"), "the release tag is beside the revision, it is not the version: \(tag)")
         for step in sampleSteps(envelope) {
             XCTAssertEqual(step.toolVersion, revision)
@@ -336,7 +338,7 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         let c = config([sample("A")], everySetting: true)
         let pipeline = TaxTriagePipeline()
 
-        let parameters = pipeline.provenanceParameters(for: c)
+        let parameters = pipeline.provenanceParameters(for: c, pin: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin())
 
         let databaseKeys: Set<String> = ["databasePath", "databaseIdentityStatus", "databaseCoreFileSizes"]
         XCTAssertEqual(Set(parameters.keys), Self.settingKeys.union(["github_release_version"]).union(databaseKeys))
@@ -352,11 +354,11 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         XCTAssertEqual(parameters["max_memory"], .string("8.GB"))
         XCTAssertEqual(parameters["max_cpus"], .integer(4))
         XCTAssertEqual(parameters["profile"], .string("docker"))
-        XCTAssertEqual(parameters["revision"], .string(c.revision))
+        XCTAssertEqual(parameters["revision"], .string(c.launchRevision(pin: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin())))
         XCTAssertEqual(parameters["extraArgs"], .string("--foo bar"))
         XCTAssertEqual(parameters["output_directory"], .file(c.outputDirectory))
         XCTAssertEqual(parameters["remove_taxids"], .string("9606 10090"))
-        XCTAssertEqual(parameters["github_release_version"], .string(TaxTriageConfig.defaultGithubReleaseVersion))
+        XCTAssertEqual(parameters["github_release_version"], .string(try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().releaseVersion))
         XCTAssertEqual(parameters["databasePath"], .string("/db/viral-kraken2"), "flipped by B2 (RT5), the database is named")
         XCTAssertEqual(parameters["databaseIdentityStatus"], .string("unpinned"))
         XCTAssertEqual(parameters["databaseCoreFileSizes"], .dictionary([:]))
@@ -374,7 +376,7 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
             pairCount: 2,
             wallTime: 0
         )
-        let withSplit = pipeline.provenanceParameters(for: c, interleavedSplits: [split])
+        let withSplit = pipeline.provenanceParameters(for: c, interleavedSplits: [split], pin: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin())
         XCTAssertEqual(
             Set(withSplit.keys),
             Self.settingKeys.union(["github_release_version", "interleaved_samples_split_to_r1_r2"]).union(databaseKeys)

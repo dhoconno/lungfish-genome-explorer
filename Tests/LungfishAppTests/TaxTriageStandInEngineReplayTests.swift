@@ -305,7 +305,7 @@ final class TaxTriageStandInEngineReplayTests: XCTestCase {
         )
         XCTAssertEqual(launch.value(after: "--db"), database.path, file: file, line: line)
         XCTAssertEqual(launch.value(after: "-profile"), TaxTriageStandInEngine.profile, file: file, line: line)
-        XCTAssertEqual(launch.value(after: "-r"), TaxTriageConfig.defaultRevision, file: file, line: line)
+        XCTAssertEqual(launch.value(after: "-r"), (try? NextflowWorkflowDescriptor.taxTriage.resolveBundledPin())?.revision, file: file, line: line)
         XCTAssertEqual(launch.value(after: "--max_cpus"), "2", file: file, line: line)
         XCTAssertEqual(Array(launch.arguments.prefix(3)), ["-c", outputDirectory.appendingPathComponent("lungfish.nextflow.config").path, "run"], file: file, line: line)
         XCTAssertEqual(String(decoding: launch.samplesheet, as: UTF8.self), samplesheet, file: file, line: line)

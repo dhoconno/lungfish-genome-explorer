@@ -161,10 +161,11 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         XCTAssertEqual(record.status, .completed)
         XCTAssertEqual(record.steps.count, 1)
         let step = try taxTriageStep(record)
-        let revision = TaxTriageConfig.defaultRevision
+        let pin = try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin()
+        let revision = pin.revision
         XCTAssertEqual(step.toolName, "taxtriage", "flipped by B2 (RT4), one tool name, as the batch record names it")
         XCTAssertEqual(step.toolVersion, revision, "the version is the revision, a commit")
-        XCTAssertEqual(step.githubReleaseVersion, TaxTriageConfig.defaultGithubReleaseVersion)
+        XCTAssertEqual(step.githubReleaseVersion, pin.releaseVersion)
         XCTAssertEqual(step.argv, [engine.micromamba.path, "run", "-n", "nextflow", "nextflow"] + run.launch.arguments)
         XCTAssertNil(step.durableReplayArgv)
         XCTAssertEqual(step.exitStatus, 0)
@@ -177,7 +178,7 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         XCTAssertFalse(arguments.contains("--classifiers"), "R5, the argv is unchanged and passes no classifiers")
         XCTAssertEqual(
             Array(arguments.prefix(6)),
-            ["-c", run.output.appendingPathComponent("lungfish.nextflow.config").path, "run", TaxTriageConfig.pipelineRepository, "-r", revision]
+            ["-c", run.output.appendingPathComponent("lungfish.nextflow.config").path, "run", pin.repository, "-r", revision]
         )
         XCTAssertEqual(run.launch.value(after: "-with-trace"), run.output.appendingPathComponent("trace.txt").path)
         let work = try XCTUnwrap(run.launch.value(after: "-w"))

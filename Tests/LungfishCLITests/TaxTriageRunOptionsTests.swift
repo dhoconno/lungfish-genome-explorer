@@ -36,7 +36,7 @@ final class TaxTriageRunOptionsTests: XCTestCase {
 
         XCTAssertEqual(config.removeTaxids, "9606 10090")
         XCTAssertEqual(config.effectiveRemoveTaxids, "9606 10090")
-        let args = TaxTriagePipeline().buildNextflowArguments(config: config)
+        let args = TaxTriagePipeline().buildNextflowArguments(config: config, pin: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin())
         let index = try XCTUnwrap(args.firstIndex(of: "--remove_taxids"))
         XCTAssertEqual(args[index + 1], "9606 10090")
     }
@@ -44,13 +44,13 @@ final class TaxTriageRunOptionsTests: XCTestCase {
     func testRemoveTaxidsDefaultsToNothingOnTheCLI() throws {
         let config = try parse([]).makeConfigForTesting()
         XCTAssertNil(config.removeTaxids)
-        XCTAssertFalse(TaxTriagePipeline().buildNextflowArguments(config: config).contains("--remove_taxids"))
+        XCTAssertFalse(TaxTriagePipeline().buildNextflowArguments(config: config, pin: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin()).contains("--remove_taxids"))
     }
 
     func testExtraArgsRemoveTaxidsOverridesTheFlag() throws {
         let config = try parse(["--remove-taxids", "9606", "--extra-args", "--remove_taxids 2"]).makeConfigForTesting()
         XCTAssertNil(config.effectiveRemoveTaxids)
-        let args = TaxTriagePipeline().buildNextflowArguments(config: config)
+        let args = TaxTriagePipeline().buildNextflowArguments(config: config, pin: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin())
         XCTAssertEqual(args.filter { $0 == "--remove_taxids" }.count, 1)
         XCTAssertEqual(Array(args.suffix(2)), ["--remove_taxids", "2"])
     }

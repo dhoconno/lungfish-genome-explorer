@@ -174,24 +174,25 @@ final class NextflowRecordFactsTests: XCTestCase {
 
     /// RT4 and R1. A TaxTriage step is the tool `taxtriage` at the revision, with the lock's tag for the pinned commit,
     /// the tag itself for a revision that is a `v` tag and no tag for another commit.
-    func testATaxTriageStepIsTaxtriageAtTheRevisionWithTheTagThatNamesIt() {
+    func testATaxTriageStepIsTaxtriageAtTheRevisionWithTheTagThatNamesIt() throws {
+        let pin = try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin()
         let otherCommit = "78f4b4b" + String(repeating: "0", count: 33)
 
         XCTAssertEqual(
-            TaxTriageRecordFacts.nextflowFacts(revision: TaxTriageConfig.defaultRevision, pipelineSource: .snapshot),
+            TaxTriageRecordFacts.nextflowFacts(revision: pin.revision, pin: pin, pipelineSource: .snapshot),
             NextflowRecordFacts(
                 toolName: "taxtriage",
-                toolVersion: TaxTriageConfig.defaultRevision,
-                githubReleaseVersion: TaxTriageConfig.defaultGithubReleaseVersion,
+                toolVersion: pin.revision,
+                githubReleaseVersion: pin.releaseVersion,
                 pipelineSource: .snapshot
             )
         )
         XCTAssertEqual(
-            TaxTriageRecordFacts.nextflowFacts(revision: "v3.3.9", pipelineSource: .remote),
+            TaxTriageRecordFacts.nextflowFacts(revision: "v3.3.9", pin: try? NextflowWorkflowDescriptor.taxTriage.resolveBundledPin(), pipelineSource: .remote),
             NextflowRecordFacts(toolName: "taxtriage", toolVersion: "v3.3.9", githubReleaseVersion: "v3.3.9", pipelineSource: .remote)
         )
         XCTAssertEqual(
-            TaxTriageRecordFacts.nextflowFacts(revision: otherCommit, pipelineSource: .remote),
+            TaxTriageRecordFacts.nextflowFacts(revision: otherCommit, pin: try? NextflowWorkflowDescriptor.taxTriage.resolveBundledPin(), pipelineSource: .remote),
             NextflowRecordFacts(toolName: "taxtriage", toolVersion: otherCommit, githubReleaseVersion: nil, pipelineSource: .remote)
         )
     }
@@ -204,7 +205,7 @@ final class NextflowRecordFactsTests: XCTestCase {
         let report = try writeLog(["N E X T F L O W  ~  version 23.04.0"], at: "report.txt")
         let kept = try writeLog(Self.nextflow25Lines)
         let bannerless = try writeLog(["Launching jhuapl-bio/taxtriage"], at: "earlier/nextflow.log")
-        let step = TaxTriageRecordFacts.nextflowFacts(revision: Self.commit, pipelineSource: .remote)
+        let step = TaxTriageRecordFacts.nextflowFacts(revision: Self.commit, pin: try? NextflowWorkflowDescriptor.taxTriage.resolveBundledPin(), pipelineSource: .remote)
 
         XCTAssertEqual(TaxTriageRecordFacts.nextflowLog(among: [own, report, kept]), kept)
         XCTAssertNil(TaxTriageRecordFacts.nextflowLog(among: [own, report]))
@@ -239,7 +240,7 @@ final class NextflowRecordFactsTests: XCTestCase {
         )
         XCTAssertEqual(
             NextflowRecordFacts(pin: pin, pipelineSource: .remote),
-            TaxTriageRecordFacts.nextflowFacts(revision: pin.revision, pipelineSource: .remote)
+            TaxTriageRecordFacts.nextflowFacts(revision: pin.revision, pin: try? NextflowWorkflowDescriptor.taxTriage.resolveBundledPin(), pipelineSource: .remote)
         )
         XCTAssertNil(NextflowRecordFacts(pin: untagged, pipelineSource: .remote).githubReleaseVersion)
     }

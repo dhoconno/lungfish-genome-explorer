@@ -13,7 +13,7 @@ import Foundation
 ///   the run's own log (``nextflowVersion(inLog:)``) and left out when the log names no version.
 ///
 /// TaxTriage is the first workflow whose step records this shape
-/// (``TaxTriageRecordFacts/nextflowFacts(revision:pipelineSource:)``).
+/// (``TaxTriageRecordFacts/nextflowFacts(revision:pin:pipelineSource:)``).
 package struct NextflowRecordFacts: Sendable, Equatable {
     /// The step's tool, the pipeline id, such as `taxtriage`.
     package let toolName: String

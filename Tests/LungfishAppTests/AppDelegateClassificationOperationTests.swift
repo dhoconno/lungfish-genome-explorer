@@ -523,7 +523,7 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         XCTAssertEqual(command.maxMemory, "32.GB")
         XCTAssertEqual(command.maxCpus, 6)
         XCTAssertEqual(command.nfProfile, "docker")
-        XCTAssertEqual(command.revision, TaxTriageConfig.defaultRevision)
+        XCTAssertEqual(command.revision, (try? NextflowWorkflowDescriptor.taxTriage.resolveBundledPin())?.revision)
         XCTAssertEqual(try AdvancedCommandLineOptions.parse(command.extraArgs), ["--use_denovo", "yes please"])
 
         _ = try assertOneSampleCommandReproducesTheRun(config)

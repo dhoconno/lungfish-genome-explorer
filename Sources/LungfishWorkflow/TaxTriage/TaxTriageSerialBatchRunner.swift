@@ -40,6 +40,12 @@ public struct TaxTriageSerialBatchRunner: Sendable {
             return try await runPipeline(config, progress)
         }
 
+        // N4. The pin resolves before the batch root exists, so an unpinned TaxTriage leaves no folder,
+        // and every sample runs the revision the batch records.
+        let pin = try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin()
+        var config = config
+        config.revision = config.launchRevision(pin: pin)
+
         let runClock = ProvenanceRunClock()
         let total = config.samples.count
         let root = config.outputDirectory
@@ -47,7 +53,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
 
         let runID = await ProvenanceRecorder.shared.beginRun(
             name: "TaxTriage Serial Batch",
-            parameters: provenanceParameters(for: config)
+            parameters: provenanceParameters(for: config, pin: pin)
         )
 
         var usedDirectoryNames = Set<String>()
@@ -82,6 +88,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
                 sampleResults.append(result)
                 await recordSampleProvenance(
                     runID: runID,
+                    pin: pin,
                     sample: sample,
                     result: result,
                     exitCode: 0,
@@ -93,6 +100,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
                 // at the next sample, with this sample recorded as cancelled, not failed (T9, E5).
                 await recordSampleFailureProvenance(
                     runID: runID,
+                    pin: pin,
                     sample: sample,
                     config: sampleConfig,
                     outputDirectory: sampleOutputDirectory,
@@ -109,6 +117,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
                 sampleFailures.append(failure)
                 await recordSampleFailureProvenance(
                     runID: runID,
+                    pin: pin,
                     sample: sample,
                     config: sampleConfig,
                     outputDirectory: sampleOutputDirectory,
@@ -217,7 +226,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
         throw CancellationError()
     }
 
-    private func provenanceParameters(for config: TaxTriageConfig) -> [String: ParameterValue] {
+    private func provenanceParameters(for config: TaxTriageConfig, pin: NextflowPipelinePin) -> [String: ParameterValue] {
         var parameters: [String: ParameterValue] = [
             "workflow": .string("taxtriage-serial-batch"),
             "sample_count": .integer(config.samples.count),
@@ -231,12 +240,12 @@ public struct TaxTriageSerialBatchRunner: Sendable {
             "max_memory": .string(config.maxMemory),
             "max_cpus": .integer(config.maxCpus),
             "profile": .string(config.profile),
-            "revision": .string(config.revision),
+            "revision": .string(config.launchRevision(pin: pin)),
             "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
             "output_directory": .file(config.outputDirectory),
             "remove_taxids": .string(config.effectiveRemoveTaxids ?? ""),
         ]
-        if let githubReleaseVersion = TaxTriageConfig.githubReleaseVersion(for: config.revision) {
+        if let githubReleaseVersion = TaxTriageConfig.githubReleaseVersion(for: config.launchRevision(pin: pin), pin: pin) {
             parameters["github_release_version"] = .string(githubReleaseVersion)
         }
         return parameters
@@ -244,6 +253,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
 
     private func recordSampleProvenance(
         runID: UUID,
+        pin: NextflowPipelinePin,
         sample: TaxTriageSample,
         result: TaxTriageResult,
         exitCode: Int32,
@@ -257,9 +267,9 @@ public struct TaxTriageSerialBatchRunner: Sendable {
         await ProvenanceRecorder.shared.recordStep(
             runID: runID,
             toolName: TaxTriageRecordFacts.toolName,
-            toolVersion: result.config.revision,
-            githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: result.config.revision),
-            command: sampleCommand(for: result.config),
+            toolVersion: result.config.launchRevision(pin: pin),
+            githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: result.config.launchRevision(pin: pin), pin: pin),
+            command: sampleCommand(for: result.config, pin: pin),
             inputs: inputRecords(for: sample),
             outputs: fileRecords(
                 for: TaxTriageOutputArtifactPolicy.filterRetainedOutputFiles(
@@ -276,6 +286,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
 
     private func recordSampleFailureProvenance(
         runID: UUID,
+        pin: NextflowPipelinePin,
         sample: TaxTriageSample,
         config: TaxTriageConfig,
         outputDirectory: URL,
@@ -289,9 +300,9 @@ public struct TaxTriageSerialBatchRunner: Sendable {
         await ProvenanceRecorder.shared.recordStep(
             runID: runID,
             toolName: TaxTriageRecordFacts.toolName,
-            toolVersion: failedConfig.revision,
-            githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: failedConfig.revision),
-            command: sampleCommand(for: failedConfig),
+            toolVersion: failedConfig.launchRevision(pin: pin),
+            githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: failedConfig.launchRevision(pin: pin), pin: pin),
+            command: sampleCommand(for: failedConfig, pin: pin),
             inputs: inputRecords(for: sample),
             outputs: [],
             exitCode: exitCode,
@@ -328,13 +339,13 @@ public struct TaxTriageSerialBatchRunner: Sendable {
         )
     }
 
-    private func sampleCommand(for config: TaxTriageConfig) -> [String] {
+    private func sampleCommand(for config: TaxTriageConfig, pin: NextflowPipelinePin) -> [String] {
         var command = [
             "nextflow",
             "run",
-            TaxTriageConfig.pipelineRepository,
+            pin.repository,
             "-r",
-            config.revision,
+            config.launchRevision(pin: pin),
             "-profile",
             config.profile,
             "--input",

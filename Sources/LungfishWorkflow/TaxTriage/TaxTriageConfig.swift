@@ -153,10 +153,10 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
     /// Use "docker" or "apple" for explicit control.
     public var containerRuntime: String?
 
-    /// Nextflow pipeline revision (Git branch or tag).
-    ///
-    /// Passed as `-r` to Nextflow. Default: ``defaultRevision``.
-    public var revision: String
+    /// The pipeline revision a caller chose, a commit or tag passed as `-r` to Nextflow, or nil to run
+    /// the commit LGE's tool lock pins. A run resolves the pin first and refuses a lock with no
+    /// TaxTriage pin, with no fallback branch (N4, A16 M1 review ruling 1).
+    public var revision: String?
 
     // MARK: - Provenance
 
@@ -217,7 +217,7 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
         maxCpus: Int = ProcessInfo.processInfo.activeProcessorCount,
         profile: String = "docker",
         containerRuntime: String? = nil,
-        revision: String = TaxTriageConfig.defaultRevision,
+        revision: String? = nil,
         sourceBundleURLs: [URL]? = nil,
         extraArguments: [String] = [],
         removeTaxids: String? = nil
@@ -249,44 +249,21 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
         outputDirectory.appendingPathComponent("samplesheet.csv")
     }
 
-    /// The GitHub repository identifier for the TaxTriage pipeline.
-    ///
-    /// Sourced from the dependency manifest (`ManagedToolLock.bundled`); falls back to the
-    /// last-known-good literal only if the bundled manifest is missing the `taxtriage` pin.
-    public static var pipelineRepository: String {
-        ManagedToolLock.bundled.pipeline(id: "taxtriage")?.repository ?? "jhuapl-bio/taxtriage"
+    /// The revision a launch of this configuration runs as `-r`, the chosen ``revision`` or else the
+    /// commit `pin` names. The repository always comes from the pin (N4, A16 M1 review ruling 1).
+    package func launchRevision(pin: NextflowPipelinePin) -> String {
+        revision ?? pin.revision
     }
 
-    /// The pinned TaxTriage revision validated by Lungfish.
-    ///
-    /// Using an exact commit prevents silent output-schema drift from upstream `main`.
-    /// Sourced from the dependency manifest (`ManagedToolLock.bundled`); falls back to `"main"`
-    /// only if the bundled manifest is missing the `taxtriage` pin.
-    public static var defaultRevision: String {
-        ManagedToolLock.bundled.pipeline(id: "taxtriage")?.revision ?? "main"
-    }
-
-    /// Human-readable GitHub release tag for the pinned TaxTriage revision.
-    ///
-    /// Sourced from the dependency manifest (`ManagedToolLock.bundled`); falls back to
-    /// `"unknown"` only if the bundled manifest is missing the `taxtriage` pin.
-    public static var defaultGithubReleaseVersion: String {
-        ManagedToolLock.bundled.pipeline(id: "taxtriage")?.releaseVersion ?? "unknown"
-    }
-
-    /// Returns the human-readable GitHub release tag when the selected revision identifies one.
-    public static func githubReleaseVersion(for revision: String) -> String? {
+    /// The release tag a record names beside `revision`. It is the pin's tag for the pin's commit or
+    /// tag, the revision itself when it starts with `v`, and nil otherwise, so a record never names the
+    /// lock's tag for other code. With no pin only a `v` tag names a release.
+    package static func githubReleaseVersion(for revision: String, pin: NextflowPipelinePin?) -> String? {
         let trimmedRevision = revision.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedRevision == defaultRevision {
-            return defaultGithubReleaseVersion
+        if let pin, trimmedRevision == pin.revision || trimmedRevision == pin.releaseVersion {
+            return pin.releaseVersion
         }
-        if trimmedRevision == defaultGithubReleaseVersion {
-            return defaultGithubReleaseVersion
-        }
-        if trimmedRevision.hasPrefix("v") {
-            return trimmedRevision
-        }
-        return nil
+        return trimmedRevision.hasPrefix("v") ? trimmedRevision : nil
     }
 
     // MARK: - Host Taxa Removal
@@ -383,8 +360,7 @@ extension TaxTriageConfig {
                 ?? ProcessInfo.processInfo.activeProcessorCount,
             profile: try container.decodeIfPresent(String.self, forKey: .profile) ?? "docker",
             containerRuntime: try container.decodeIfPresent(String.self, forKey: .containerRuntime),
-            revision: try container.decodeIfPresent(String.self, forKey: .revision)
-                ?? TaxTriageConfig.defaultRevision,
+            revision: try container.decodeIfPresent(String.self, forKey: .revision),
             sourceBundleURLs: try container.decodeIfPresent([URL].self, forKey: .sourceBundleURLs),
             extraArguments: try container.decodeIfPresent([String].self, forKey: .extraArguments) ?? [],
             removeTaxids: try container.decodeIfPresent(String.self, forKey: .removeTaxids)

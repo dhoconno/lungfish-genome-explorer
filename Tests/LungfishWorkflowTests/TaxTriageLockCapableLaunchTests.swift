@@ -83,8 +83,8 @@ final class TaxTriageLockCapableLaunchTests: XCTestCase {
 
         let args = pipeline.buildNextflowArguments(
             config: config,
-            pipelineLaunchTarget: TaxTriageConfig.pipelineRepository,
-            pipelineRevision: config.revision,
+            pipelineLaunchTarget: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().repository,
+            pipelineRevision: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().revision,
             workDirectory: scratchWork
         )
 
@@ -100,7 +100,7 @@ final class TaxTriageLockCapableLaunchTests: XCTestCase {
         )
     }
 
-    func testNextflowArgumentsOmitWorkFlagWhenNoScratchGiven() {
+    func testNextflowArgumentsOmitWorkFlagWhenNoScratchGiven() throws {
         let pipeline = TaxTriagePipeline()
         let sample = TaxTriageSample(
             sampleId: "S1",
@@ -112,7 +112,7 @@ final class TaxTriageLockCapableLaunchTests: XCTestCase {
             outputDirectory: URL(fileURLWithPath: "/output")
         )
 
-        let args = pipeline.buildNextflowArguments(config: config)
+        let args = pipeline.buildNextflowArguments(config: config, pin: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin())
 
         XCTAssertFalse(args.contains("-w"))
     }
@@ -134,8 +134,8 @@ final class TaxTriageLockCapableLaunchTests: XCTestCase {
         let args = pipeline.buildNextflowLaunchArguments(
             config: config,
             runtimeConfigURL: resultDirectory.appendingPathComponent("lungfish.nextflow.config"),
-            pipelineLaunchTarget: TaxTriageConfig.pipelineRepository,
-            pipelineRevision: config.revision,
+            pipelineLaunchTarget: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().repository,
+            pipelineRevision: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().revision,
             workDirectory: scratch.workDirectory
         )
 
@@ -148,7 +148,8 @@ final class TaxTriageLockCapableLaunchTests: XCTestCase {
             workingDirectory: scratch.launchDirectory,
             environment: [:],
             nextflowWorkDirectory: scratch.workDirectory,
-            workflowRevision: config.revision,
+            workflowRepository: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().repository,
+            workflowRevision: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().revision,
             workflowGithubReleaseVersion: nil
         )
 

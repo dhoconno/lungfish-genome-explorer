@@ -1657,8 +1657,7 @@ final class TaxTriageConfigRegressionTests: XCTestCase {
         XCTAssertEqual(config.maxMemory, "16.GB")
         XCTAssertEqual(config.profile, "docker")
         XCTAssertNil(config.containerRuntime)
-        XCTAssertEqual(config.revision, TaxTriageConfig.defaultRevision)
-        XCTAssertNotEqual(config.revision, "main")
+        XCTAssertNil(config.revision, "nil runs the commit the lock pins, with no fallback branch (N4)")
     }
 
     func testPlatformAllCases() {
@@ -1683,8 +1682,8 @@ final class TaxTriageConfigRegressionTests: XCTestCase {
         XCTAssertEqual(config.samplesheetURL.lastPathComponent, "samplesheet.csv")
     }
 
-    func testPipelineRepository() {
-        XCTAssertEqual(TaxTriageConfig.pipelineRepository, "jhuapl-bio/taxtriage")
+    func testPipelineRepository() throws {
+        XCTAssertEqual(try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().repository, "jhuapl-bio/taxtriage")
     }
 
     func testNextflowArguments() {

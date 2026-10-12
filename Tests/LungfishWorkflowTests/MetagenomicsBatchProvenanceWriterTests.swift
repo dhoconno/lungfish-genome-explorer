@@ -964,14 +964,14 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
         let envelope = try XCTUnwrap(ProvenanceRecorder.findProvenanceEnvelope(for: resultDirectory)?.envelope)
         XCTAssertEqual(envelope.workflowName, "TaxTriage")
         XCTAssertEqual(envelope.toolName, "TaxTriage")
-        XCTAssertEqual(envelope.githubReleaseVersion, TaxTriageConfig.defaultGithubReleaseVersion)
-        XCTAssertEqual(envelope.steps.first?.githubReleaseVersion, TaxTriageConfig.defaultGithubReleaseVersion)
+        XCTAssertEqual(envelope.githubReleaseVersion, try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().releaseVersion)
+        XCTAssertEqual(envelope.steps.first?.githubReleaseVersion, try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().releaseVersion)
         XCTAssertTrue(envelope.steps.contains { $0.toolName == "TaxTriage" })
         XCTAssertTrue(envelope.outputs.contains { $0.path == sqliteURL.path })
         XCTAssertTrue(envelope.files.contains { $0.path == fastqURL.path && $0.checksumSHA256 != nil })
         XCTAssertEqual(envelope.options.defaults["topHitsCount"], .integer(10))
-        XCTAssertEqual(envelope.options.defaults["github_release_version"], .string(TaxTriageConfig.defaultGithubReleaseVersion))
-        XCTAssertEqual(envelope.options.resolvedDefaults["github_release_version"], .string(TaxTriageConfig.defaultGithubReleaseVersion))
+        XCTAssertEqual(envelope.options.defaults["github_release_version"], .string(try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().releaseVersion))
+        XCTAssertEqual(envelope.options.resolvedDefaults["github_release_version"], .string(try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().releaseVersion))
         XCTAssertEqual(envelope.options.resolvedDefaults["maxCpus"], .integer(config.maxCpus))
         XCTAssertEqual(envelope.runtimeIdentity.condaEnvironment, "nextflow")
         XCTAssertTrue(envelope.outputs.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
@@ -1071,7 +1071,7 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
         ]
         let step = ProvenanceStep(
             toolName: "TaxTriage",
-            toolVersion: config.revision,
+            toolVersion: config.revision ?? "",
             argv: exactArgv,
             inputs: [input],
             outputs: [output],
@@ -1082,8 +1082,8 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
             workflowName: "TaxTriage",
             workflowVersion: "Lungfish test",
             toolName: "TaxTriage",
-            toolVersion: config.revision,
-            tool: ProvenanceToolIdentity(name: "TaxTriage", version: config.revision, kind: "nextflow"),
+            toolVersion: config.revision ?? "",
+            tool: ProvenanceToolIdentity(name: "TaxTriage", version: config.revision ?? "", kind: "nextflow"),
             argv: exactArgv,
             options: ProvenanceOptions(explicit: ["profile": .string(config.profile)]),
             files: [input, output],

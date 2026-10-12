@@ -68,9 +68,8 @@ final class NextflowWorkflowDescriptorTests: XCTestCase {
     /// changes no run.
     func testTheBundledPinIsThePinTodaysBuildersRead() throws {
         let taxTriage = try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin()
-        XCTAssertEqual(taxTriage.repository, TaxTriageConfig.pipelineRepository)
-        XCTAssertEqual(taxTriage.revision, TaxTriageConfig.defaultRevision)
-        XCTAssertEqual(taxTriage.releaseVersion, TaxTriageConfig.defaultGithubReleaseVersion)
+        let taxTriageSpec = try XCTUnwrap(ManagedToolLock.bundled.pipeline(id: "taxtriage"))
+        XCTAssertEqual(taxTriage, NextflowPipelinePin(taxTriageSpec), "the descriptor is the one reader of the lock entry (N4)")
 
         let viralRecon = try NextflowWorkflowDescriptor.viralRecon.resolveBundledPin()
         let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "viralrecon"))
@@ -172,8 +171,8 @@ final class NextflowWorkflowDescriptorTests: XCTestCase {
         let pipeline = TaxTriagePipeline()
         let args = pipeline.buildNextflowArguments(
             config: config,
-            pipelineLaunchTarget: TaxTriageConfig.pipelineRepository,
-            pipelineRevision: TaxTriageConfig.defaultRevision,
+            pipelineLaunchTarget: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().repository,
+            pipelineRevision: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().revision,
             workDirectory: work)
         XCTAssertEqual(value(after: "-profile", in: args), descriptor.profile)
         XCTAssertEqual(value(after: descriptor.workDirectoryOption, in: args), work.path)

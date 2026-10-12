@@ -258,6 +258,20 @@ public actor TaxTriagePipeline {
         config: TaxTriageConfig,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> TaxTriageResult {
+        try await run(config: config, lock: .bundled, progress: progress)
+    }
+
+    /// Runs the pipeline with TaxTriage's pin from `lock`, which a test empties to see the run refused
+    /// (N4). The pin resolves right after the configuration is validated, before the Docker wait and
+    /// before any folder exists, so an unpinned TaxTriage leaves nothing on disk.
+    ///
+    /// - Throws: `NextflowDescriptorRefusal` with exit code 126 when `lock` has no usable TaxTriage
+    ///   pin, and the errors of ``run(config:progress:)``.
+    package func run(
+        config: TaxTriageConfig,
+        lock: ManagedToolLock,
+        progress: (@Sendable (Double, String) -> Void)?
+    ) async throws -> TaxTriageResult {
         let runClock = ProvenanceRunClock()
         var profileAdjustedConfig = config
         profileAdjustedConfig.profile = profileAdjustedConfig.profile
@@ -270,6 +284,12 @@ public actor TaxTriagePipeline {
         // Phase 1: Prerequisites (0.00 -- 0.05)
         progress?(0.0, "Checking prerequisites...")
         try profileAdjustedConfig.validate()
+
+        // N4. The pin resolves first, from the lock the caller passes, so an unpinned TaxTriage never
+        // waits for Docker and leaves no folder. Every later reader takes the revision the launch runs.
+        let pin = try NextflowWorkflowDescriptor.taxTriage.resolvePin(in: lock)
+        let launchRevision = profileAdjustedConfig.launchRevision(pin: pin)
+        profileAdjustedConfig.revision = launchRevision
 
         let useNextflowConda = Self.usesNextflowConda(profile: profileAdjustedConfig.profile)
         let launchEnvironment = await buildLaunchEnvironment(useNextflowConda: useNextflowConda)
@@ -387,7 +407,8 @@ public actor TaxTriagePipeline {
         }
 
         let pipelineProjectSource = try await preparePipelineProjectSource(
-            forRevision: effectiveConfig.revision,
+            forRevision: launchRevision,
+            repository: pin.repository,
             durableOutputDirectory: effectiveConfig.outputDirectory
         )
         defer {
@@ -417,8 +438,8 @@ public actor TaxTriagePipeline {
         let reproducibleArguments = buildNextflowLaunchArguments(
             config: effectiveConfig,
             runtimeConfigURL: runtimeConfigURL,
-            pipelineLaunchTarget: TaxTriageConfig.pipelineRepository,
-            pipelineRevision: effectiveConfig.revision,
+            pipelineLaunchTarget: pin.repository,
+            pipelineRevision: launchRevision,
             workDirectory: scratch.workDirectory
         )
         let micromambaArgs = ["run", "-n", nextflowEnvName, "nextflow"] + arguments
@@ -436,9 +457,9 @@ public actor TaxTriagePipeline {
             workingDirectory: scratch.launchDirectory,
             environment: environment,
             nextflowWorkDirectory: scratch.workDirectory,
-            workflowRepository: TaxTriageConfig.pipelineRepository,
-            workflowRevision: effectiveConfig.revision,
-            workflowGithubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: effectiveConfig.revision),
+            workflowRepository: pin.repository,
+            workflowRevision: launchRevision,
+            workflowGithubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: launchRevision, pin: pin),
             workflowSnapshotURL: pipelineProjectSource.snapshotDirectory
         )
         persistLaunchMetadata(
@@ -450,7 +471,8 @@ public actor TaxTriagePipeline {
             name: "TaxTriage",
             parameters: provenanceParameters(
                 for: profileAdjustedConfig,
-                interleavedSplits: layoutPrepared.splits
+                interleavedSplits: layoutPrepared.splits,
+                pin: pin
             )
         )
         await Self.recordReadSetSteps(
@@ -488,7 +510,7 @@ public actor TaxTriagePipeline {
             // E10. The task was cancelled before the spawn, so no engine ran and no log was written.
             try await recordCancellation(
                 runID: runID, config: profileAdjustedConfig, command: provenanceCommand,
-                pipelineSource: pipelineProjectSource.pipelineSource,
+                pin: pin, pipelineSource: pipelineProjectSource.pipelineSource,
                 wallTime: runClock.elapsed, logFile: logFile
             )
         } catch {
@@ -497,7 +519,7 @@ public actor TaxTriagePipeline {
             await recordTaxTriageProvenanceStep(
                 runID: runID,
                 config: profileAdjustedConfig,
-                pipelineSource: pipelineProjectSource.pipelineSource,
+                pin: pin, pipelineSource: pipelineProjectSource.pipelineSource,
                 command: provenanceCommand,
                 outputFiles: [logFile],
                 exitCode: -1,
@@ -527,7 +549,7 @@ public actor TaxTriagePipeline {
         if Task.isCancelled {
             try await recordCancellation(
                 runID: runID, config: profileAdjustedConfig, command: provenanceCommand,
-                pipelineSource: pipelineProjectSource.pipelineSource,
+                pin: pin, pipelineSource: pipelineProjectSource.pipelineSource,
                 wallTime: runClock.elapsed, logFile: logFile
             )
         }
@@ -537,7 +559,7 @@ public actor TaxTriagePipeline {
             await recordTaxTriageProvenanceStep(
                 runID: runID,
                 config: profileAdjustedConfig,
-                pipelineSource: pipelineProjectSource.pipelineSource,
+                pin: pin, pipelineSource: pipelineProjectSource.pipelineSource,
                 command: provenanceCommand,
                 outputFiles: [],
                 exitCode: exitCode,
@@ -567,7 +589,7 @@ public actor TaxTriagePipeline {
             await recordTaxTriageProvenanceStep(
                 runID: runID,
                 config: profileAdjustedConfig,
-                pipelineSource: pipelineProjectSource.pipelineSource,
+                pin: pin, pipelineSource: pipelineProjectSource.pipelineSource,
                 command: provenanceCommand,
                 outputFiles: [
                     logFile,
@@ -630,7 +652,7 @@ public actor TaxTriagePipeline {
         if Task.isCancelled {
             try await recordCancellation(
                 runID: runID, config: profileAdjustedConfig, command: provenanceCommand,
-                pipelineSource: pipelineProjectSource.pipelineSource,
+                pin: pin, pipelineSource: pipelineProjectSource.pipelineSource,
                 wallTime: runClock.elapsed, logFile: logFile
             )
         }
@@ -649,7 +671,7 @@ public actor TaxTriagePipeline {
         await recordTaxTriageProvenanceStep(
             runID: runID,
             config: profileAdjustedConfig,
-            pipelineSource: pipelineProjectSource.pipelineSource,
+            pin: pin, pipelineSource: pipelineProjectSource.pipelineSource,
             command: provenanceCommand,
             outputFiles: (
                 result.allOutputFiles + [
@@ -691,6 +713,7 @@ public actor TaxTriagePipeline {
         runID: UUID,
         config: TaxTriageConfig,
         command: [String],
+        pin: NextflowPipelinePin,
         pipelineSource: NextflowPipelineSource,
         wallTime: TimeInterval,
         logFile: URL
@@ -699,6 +722,7 @@ public actor TaxTriagePipeline {
         await recordTaxTriageProvenanceStep(
             runID: runID,
             config: config,
+            pin: pin,
             pipelineSource: pipelineSource,
             command: command,
             outputFiles: [],
@@ -874,12 +898,13 @@ public actor TaxTriagePipeline {
     /// This avoids `nextflow run ... -r <revision>` failing against a dirty shared cache checkout.
     func preparePipelineProjectSource(
         forRevision revision: String,
+        repository: String,
         durableOutputDirectory: URL? = nil
     ) async throws -> PreparedPipelineProjectSource {
         let cachedRepositoryURL = cachedTaxTriageRepositoryURL()
         guard FileManager.default.fileExists(atPath: cachedRepositoryURL.appendingPathComponent(".git").path) else {
             return PreparedPipelineProjectSource(
-                launchTarget: TaxTriageConfig.pipelineRepository,
+                launchTarget: repository,
                 revision: revision,
                 cleanupDirectory: nil,
                 snapshotDirectory: nil
@@ -888,7 +913,7 @@ public actor TaxTriagePipeline {
 
         guard await cachedRepositoryCanProvideRevision(cachedRepositoryURL, revision: revision) else {
             return PreparedPipelineProjectSource(
-                launchTarget: TaxTriageConfig.pipelineRepository,
+                launchTarget: repository,
                 revision: revision,
                 cleanupDirectory: nil,
                 snapshotDirectory: nil
@@ -1034,11 +1059,12 @@ public actor TaxTriagePipeline {
             .appendingPathComponent("assets/jhuapl-bio/taxtriage", isDirectory: true)
     }
 
-    nonisolated func buildNextflowArguments(config: TaxTriageConfig) -> [String] {
+    /// The arguments of a launch of `pin`'s repository at the revision the configuration runs.
+    nonisolated func buildNextflowArguments(config: TaxTriageConfig, pin: NextflowPipelinePin) -> [String] {
         buildNextflowArguments(
             config: config,
-            pipelineLaunchTarget: TaxTriageConfig.pipelineRepository,
-            pipelineRevision: config.revision
+            pipelineLaunchTarget: pin.repository,
+            pipelineRevision: config.launchRevision(pin: pin)
         )
     }
 
@@ -1115,15 +1141,17 @@ public actor TaxTriagePipeline {
         return args
     }
 
+    /// The launch arguments, `-c` first, of `pin`'s repository at the revision the configuration runs.
     nonisolated func buildNextflowLaunchArguments(
         config: TaxTriageConfig,
-        runtimeConfigURL: URL
+        runtimeConfigURL: URL,
+        pin: NextflowPipelinePin
     ) -> [String] {
         buildNextflowLaunchArguments(
             config: config,
             runtimeConfigURL: runtimeConfigURL,
-            pipelineLaunchTarget: TaxTriageConfig.pipelineRepository,
-            pipelineRevision: config.revision
+            pipelineLaunchTarget: pin.repository,
+            pipelineRevision: config.launchRevision(pin: pin)
         )
     }
 
@@ -1381,7 +1409,7 @@ public actor TaxTriagePipeline {
         workingDirectory: URL,
         environment: [String: String],
         nextflowWorkDirectory: URL? = nil,
-        workflowRepository: String = TaxTriageConfig.pipelineRepository,
+        workflowRepository: String,
         workflowRevision: String,
         workflowGithubReleaseVersion: String?,
         workflowSnapshotURL: URL? = nil

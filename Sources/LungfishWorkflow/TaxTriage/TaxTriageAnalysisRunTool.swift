@@ -31,10 +31,6 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
 
     /// The workflow name of the root record, in the form of `EsVirituAnalysisRunTool.workflowName`.
     package static let workflowName = "lungfish.taxtriage.run"
-    /// The id of TaxTriage's entry in the lock's `pipelines`, the registry's `.lockedPipeline` id.
-    /// Milestone 2 reads the pin through `NextflowWorkflowDescriptor.taxTriage.resolvePin(in:)` instead.
-    static let lockPipelineID = "taxtriage"
-
     package let request: TaxTriageRunRequest
     package let services: TaxTriageRunServices
 
@@ -57,7 +53,7 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
         _ runRequest: AnalysisRunRequest,
         context: AnalysisRunPlanningContext
     ) async throws -> AnalysisRunPlan<TaxTriageRunUnit> {
-        let pin = try resolvePin()
+        let pin = try NextflowWorkflowDescriptor.taxTriage.resolvePin(in: services.lock)
         let revision = try launchRevision(pin: pin)
         let samples = try plannedSamples()
         try refuseMissingDatabase()
@@ -86,7 +82,7 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
                 value: TaxTriageRunUnit(
                     config: config,
                     revision: revision,
-                    githubReleaseVersion: Self.releaseVersion(of: revision, pin: pin),
+                    githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: revision, pin: pin),
                     handsFactsToRoot: layout != .batchRoot
                 )
             )
@@ -96,24 +92,13 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
 
     // MARK: - The pin (N4)
 
-    /// TaxTriage's pin in the lock the services hold.
-    ///
-    /// - Throws: ``TaxTriageRunRefusal/noPinnedVersion(of:)`` with exit code 126 when the lock has no
-    ///   entry for TaxTriage, or its entry names no repository or no revision. Nothing runs then, and
-    ///   no fallback revision such as `main` takes the pin's place (N4).
-    func resolvePin() throws -> PipelineSpec {
-        guard let spec = services.lock.pipeline(id: Self.lockPipelineID),
-              !spec.repository.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !spec.revision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else {
-            throw TaxTriageRunRefusal.noPinnedVersion(of: identity.displayName)
-        }
-        return spec
-    }
+    // The pin comes from `NextflowWorkflowDescriptor.taxTriage.resolvePin(in:)` with the lock the
+    // services hold, which refuses a lock with no usable TaxTriage pin with N4's words and exit 126.
+    // Nothing runs then, and no fallback revision such as `main` takes the pin's place.
 
     /// The revision a launch passes as `-r`, the `--revision` given or else the commit the lock pins.
     /// A blank `--revision` is refused, never read as the pin.
-    func launchRevision(pin: PipelineSpec) throws -> String {
+    func launchRevision(pin: NextflowPipelinePin) throws -> String {
         guard let given = request.revision else { return pin.revision }
         guard !given.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw TaxTriageRunRefusal.input(
@@ -121,19 +106,6 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
             )
         }
         return given
-    }
-
-    /// The release tag of the revision a launch runs, by the rule of
-    /// `TaxTriageConfig.githubReleaseVersion(for:)` with the pin in place of the bundled lock, so the
-    /// record names the tag today's record names. It is the pin's tag for the pin's commit or tag, the
-    /// revision itself when it starts with `v`, and nil otherwise. A2 M2 replaces it with that function
-    /// once the function takes the pin (A16 M1 review ruling 1).
-    static func releaseVersion(of revision: String, pin: PipelineSpec) -> String? {
-        let trimmed = revision.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed == pin.revision || trimmed == pin.releaseVersion {
-            return pin.releaseVersion
-        }
-        return trimmed.hasPrefix("v") ? trimmed : nil
     }
 
     // MARK: - Samples

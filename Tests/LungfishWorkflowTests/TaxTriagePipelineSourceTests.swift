@@ -72,10 +72,11 @@ final class TaxTriagePipelineSourceTests: XCTestCase {
         let home = try XCTUnwrap(root)
         let pipeline = TaxTriagePipeline(homeDirectoryProvider: { home })
 
-        let prepared = try await pipeline.preparePipelineProjectSource(forRevision: TaxTriageConfig.defaultRevision)
+        let pin = try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin()
+        let prepared = try await pipeline.preparePipelineProjectSource(forRevision: pin.revision, repository: pin.repository)
 
-        XCTAssertEqual(prepared.launchTarget, TaxTriageConfig.pipelineRepository)
-        XCTAssertEqual(prepared.revision, TaxTriageConfig.defaultRevision)
+        XCTAssertEqual(prepared.launchTarget, pin.repository)
+        XCTAssertEqual(prepared.revision, pin.revision)
         XCTAssertEqual(prepared.pipelineSource, .remote)
         let snapshot = TaxTriagePipeline.PreparedPipelineProjectSource(
             launchTarget: home.appendingPathComponent("out/workflow-source/taxtriage").path,
@@ -107,11 +108,11 @@ final class TaxTriagePipelineSourceTests: XCTestCase {
         let output = home.appendingPathComponent("out", isDirectory: true)
         let pipeline = TaxTriagePipeline(homeDirectoryProvider: { home })
 
-        let prepared = try await pipeline.preparePipelineProjectSource(forRevision: revision, durableOutputDirectory: output)
+        let prepared = try await pipeline.preparePipelineProjectSource(forRevision: revision, repository: "jhuapl-bio/taxtriage", durableOutputDirectory: output)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: repos.appendingPathComponent("bare/HEAD").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: assets.appendingPathComponent("jhuapl-bio/taxtriage").path))
-        XCTAssertEqual(prepared.launchTarget, TaxTriageConfig.pipelineRepository, "the repository, not the cache")
+        XCTAssertEqual(prepared.launchTarget, "jhuapl-bio/taxtriage", "the repository, not the cache")
         XCTAssertEqual(prepared.revision, revision)
         XCTAssertNil(prepared.snapshotDirectory)
         XCTAssertNil(prepared.cleanupDirectory)

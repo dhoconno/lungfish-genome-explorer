@@ -37,8 +37,8 @@ final class TaxTriageAnalysisRunToolPlanTests: XCTestCase {
         XCTAssertEqual(tool.terminalPolicy, .warnOnFailedUnits)
         XCTAssertEqual(
             AnalysisToolRegistry.descriptor(for: .taxtriage)?.provisioning,
-            .lockedPipeline(TaxTriageAnalysisRunTool.lockPipelineID),
-            "the plan reads the lock entry the registry names"
+            .lockedPipeline(NextflowWorkflowDescriptor.taxTriage.lockPipelineID),
+            "the plan reads the lock entry the registry names, through the descriptor"
         )
     }
 
@@ -61,13 +61,15 @@ final class TaxTriageAnalysisRunToolPlanTests: XCTestCase {
         XCTAssertEqual(bundledUnit.githubReleaseVersion, bundledPin.releaseVersion)
         XCTAssertEqual(bundledUnit.config.revision, bundledPin.revision)
 
-        // The bundled lock keeps today's record bytes, the tag rule of `TaxTriageConfig`.
-        for value in [bundledPin.revision, bundledPin.releaseVersion, "v3.3.9", "main"] {
-            XCTAssertEqual(
-                TaxTriageAnalysisRunTool.releaseVersion(of: value, pin: bundledPin),
-                TaxTriageConfig.githubReleaseVersion(for: value),
-                value
-            )
+        // The tag rule of the record, with the pin the plan resolved.
+        let cases: [(revision: String, tag: String?)] = [
+            (bundledPin.revision, bundledPin.releaseVersion),
+            (bundledPin.releaseVersion, bundledPin.releaseVersion),
+            ("v3.3.9", "v3.3.9"),
+            ("main", nil),
+        ]
+        for (revision, tag) in cases {
+            XCTAssertEqual(TaxTriageConfig.githubReleaseVersion(for: revision, pin: NextflowPipelinePin(bundledPin)), tag, revision)
         }
     }
 
@@ -122,6 +124,32 @@ final class TaxTriageAnalysisRunToolPlanTests: XCTestCase {
             XCTAssertNil(report.analysisDirectory, name)
             XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "\(name): a refused plan makes no folder")
         }
+    }
+
+    /// N4 amended (5 to 0). The executor route refuses at plan, so no unit asks the pipeline for the
+    /// Docker wait and no folder exists. The pipeline route's case is in TaxTriagePipelinePinRefusalTests.
+    func testAnUnpinnedTaxTriageRefusesBeforeTheDockerWaitAndLeavesNoFolder() async throws {
+        let reads = try writeReads("S1.fastq")
+        let output = root.appendingPathComponent("out", isDirectory: true)
+        let probe = ScriptedDockerProbe(answers: [true])
+        let tool = TaxTriageAnalysisRunTool(
+            request: makeRequest(input: reads.path, sample: "S1"),
+            services: TaxTriageRunServices(
+                makePipeline: { TaxTriagePipeline(containerRuntimeProbe: probe) },
+                expandInputs: Self.expandFolder,
+                materializer: ReadSetFixtures.StubMaterializer(readsByBundlePath: [:]),
+                lock: Self.lock()
+            )
+        )
+
+        let report = await execute(tool, .directory(output))
+
+        XCTAssertEqual(report.status, .failed)
+        XCTAssertEqual(report.exitCode, 126)
+        XCTAssertEqual(report.message, "LGE's tool lock has no pinned version of TaxTriage, so LGE will not run it.")
+        XCTAssertNil(report.analysisDirectory)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "a refused plan makes no folder")
+        XCTAssertEqual(probe.daemonQueries, 0, "the refusal comes before the Docker wait")
     }
 
     // MARK: - A folder of mates (T8)

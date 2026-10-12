@@ -217,7 +217,7 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
             "--max-memory 16.GB",
             "--max-cpus 2",
             "--nf-profile local",
-            "--revision \(TaxTriageConfig.defaultRevision)",
+            "--revision \((try? NextflowWorkflowDescriptor.taxTriage.resolveBundledPin())?.revision ?? "no pin")",
         ].joined(separator: " ")
         XCTAssertEqual(item.cliCommand, expectedCommand)
         XCTAssertTrue(OperationRowAction.copyCLICommand.isAvailable(for: item))

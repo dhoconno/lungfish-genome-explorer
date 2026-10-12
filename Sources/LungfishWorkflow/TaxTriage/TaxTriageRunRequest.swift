@@ -86,13 +86,6 @@ package struct TaxTriageRunRefusal: Error, LocalizedError, AnalysisRunExitCoding
         TaxTriageRunRefusal(message: message, exitCode: dependencyCode)
     }
 
-    /// N4. The lock has no usable pin for the workflow, so nothing runs and no fallback revision takes
-    /// the pin's place. The words and the code are those of `NextflowDescriptorRefusal.noPinnedVersion(of:)`,
-    /// which takes over this refusal once the plan reads the pin through the descriptor (A2 M2).
-    package static func noPinnedVersion(of workflowName: String) -> TaxTriageRunRefusal {
-        .dependency("LGE's tool lock has no pinned version of \(workflowName), so LGE will not run it.")
-    }
-
     /// T8. An `--input` folder that holds mates, which the folder route would run as two half samples.
     /// `read1` and `read2` name one such pair as the folder holds them.
     package static func folderHoldsPairedReads(folder: String, read1: String, read2: String) -> TaxTriageRunRefusal {

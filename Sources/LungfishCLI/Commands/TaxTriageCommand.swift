@@ -194,7 +194,7 @@ extension TaxTriageCommand {
             name: .customLong("revision"),
             help: "TaxTriage pipeline revision/branch (defaults to Lungfish's pinned TaxTriage revision)"
         )
-        var revision: String = TaxTriageConfig.defaultRevision
+        var revision: String?
 
         @Option(
             name: .customLong("extra-args"),
@@ -459,7 +459,7 @@ extension TaxTriageCommand {
                 ("Max memory", maxMemory),
                 ("Max CPUs", String(config.maxCpus)),
                 ("Profile", nfProfile),
-                ("Revision", revision),
+                ("Revision", revision ?? (try? NextflowWorkflowDescriptor.taxTriage.resolveBundledPin())?.revision ?? "none pinned"),
                 ("Output", outputDirectory.path),
             ]))
             print("")

@@ -73,7 +73,7 @@ public enum MetagenomicsBatchProvenanceWriter {
         return try writeTaxTriageProvenance(
             result: result,
             sqliteURL: sqliteURL,
-            command: taxTriageCommand(for: result.config)
+            command: taxTriageCommand(for: result.config, pin: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin())
         )
     }
 
@@ -277,10 +277,13 @@ public enum MetagenomicsBatchProvenanceWriter {
         let inputs = result.config.samples.flatMap(taxTriageInputDescriptors(for:))
         let outputs = taxTriageOutputDescriptors(result: result, sqliteURL: sqliteURL)
         let stderr = taxTriageUsefulStderr(result: result)
+        // N4. The revision a saved result ran, or the pin's for a result that names none, never a fallback.
+        let pin = try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin()
+        let revision = result.config.launchRevision(pin: pin)
         let step = ProvenanceStep(
             toolName: "TaxTriage",
-            toolVersion: result.config.revision,
-            githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: result.config.revision),
+            toolVersion: revision,
+            githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: revision, pin: pin),
             argv: command,
             inputs: inputs,
             outputs: outputs,
@@ -293,15 +296,15 @@ public enum MetagenomicsBatchProvenanceWriter {
             workflowName: "TaxTriage",
             workflowVersion: WorkflowRun.currentAppVersion,
             toolName: "TaxTriage",
-            toolVersion: result.config.revision,
-            githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: result.config.revision),
+            toolVersion: revision,
+            githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: revision, pin: pin),
             tool: ProvenanceToolIdentity(
                 name: "TaxTriage",
-                version: result.config.revision,
+                version: revision,
                 kind: "nextflow"
             ),
             argv: command,
-            options: taxTriageOptions(for: result.config),
+            options: taxTriageOptions(for: result.config, pin: pin),
             runtimeIdentity: taxTriageRuntimeIdentity(),
             files: uniqueDescriptors(inputs + outputs),
             output: outputs.first,
@@ -775,13 +778,13 @@ public enum MetagenomicsBatchProvenanceWriter {
         return uniqueDescriptors(outputs)
     }
 
-    private static func taxTriageCommand(for config: TaxTriageConfig) -> [String] {
+    private static func taxTriageCommand(for config: TaxTriageConfig, pin: NextflowPipelinePin) -> [String] {
         var command = [
             "nextflow",
             "run",
-            TaxTriageConfig.pipelineRepository,
+            pin.repository,
             "-r",
-            config.revision,
+            config.launchRevision(pin: pin),
             "-profile",
             config.profile,
             "--input",
@@ -816,7 +819,7 @@ public enum MetagenomicsBatchProvenanceWriter {
         return command
     }
 
-    private static func taxTriageOptions(for config: TaxTriageConfig) -> ProvenanceOptions {
+    private static func taxTriageOptions(for config: TaxTriageConfig, pin: NextflowPipelinePin) -> ProvenanceOptions {
         var explicit: [String: ParameterValue] = [
             "sampleCount": .integer(config.samples.count),
             "samplesheet": .string(config.samplesheetURL.path),
@@ -831,10 +834,10 @@ public enum MetagenomicsBatchProvenanceWriter {
             "maxMemory": .string(config.maxMemory),
             "maxCpus": .integer(config.maxCpus),
             "profile": .string(config.profile),
-            "revision": .string(config.revision),
+            "revision": .string(config.launchRevision(pin: pin)),
             "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
         ]
-        if let githubReleaseVersion = TaxTriageConfig.githubReleaseVersion(for: config.revision) {
+        if let githubReleaseVersion = TaxTriageConfig.githubReleaseVersion(for: config.launchRevision(pin: pin), pin: pin) {
             explicit["github_release_version"] = .string(githubReleaseVersion)
         }
         if let databasePath = config.kraken2DatabasePath {
@@ -858,10 +861,10 @@ public enum MetagenomicsBatchProvenanceWriter {
             "maxMemory": .string(config.maxMemory),
             "maxCpus": .integer(config.maxCpus),
             "profile": .string(config.profile),
-            "revision": .string(config.revision),
+            "revision": .string(config.launchRevision(pin: pin)),
             "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
         ]
-        if let githubReleaseVersion = TaxTriageConfig.githubReleaseVersion(for: config.revision) {
+        if let githubReleaseVersion = TaxTriageConfig.githubReleaseVersion(for: config.launchRevision(pin: pin), pin: pin) {
             resolvedDefaults["github_release_version"] = .string(githubReleaseVersion)
         }
 
@@ -877,8 +880,8 @@ public enum MetagenomicsBatchProvenanceWriter {
                 "skipKrona": .boolean(false),
                 "maxMemory": .string("16.GB"),
                 "profile": .string("docker"),
-                "revision": .string(TaxTriageConfig.defaultRevision),
-                "github_release_version": .string(TaxTriageConfig.defaultGithubReleaseVersion),
+                "revision": .string(pin.revision),
+                "github_release_version": .string(pin.releaseVersion),
                 "extraArgs": .string(""),
             ],
             resolvedDefaults: resolvedDefaults

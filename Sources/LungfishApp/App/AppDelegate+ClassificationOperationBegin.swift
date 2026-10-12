@@ -232,7 +232,10 @@ extension AppDelegate {
         args += ["--max-memory", config.maxMemory]
         args += ["--max-cpus", String(config.maxCpus)]
         args += ["--nf-profile", config.profile]
-        args += ["--revision", config.revision]
+        // The row names the revision the run takes, the pinned commit when the config names none (N4).
+        if let revision = config.revision ?? (try? NextflowWorkflowDescriptor.taxTriage.resolveBundledPin())?.revision {
+            args += ["--revision", revision]
+        }
         if !config.extraArguments.isEmpty {
             args += ["--extra-args", AdvancedCommandLineOptions.join(config.extraArguments)]
         }

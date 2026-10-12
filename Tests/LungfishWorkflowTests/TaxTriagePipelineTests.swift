@@ -298,8 +298,7 @@ final class TaxTriagePipelineTests: XCTestCase {
         XCTAssertEqual(config.maxMemory, "16.GB")
         XCTAssertEqual(config.profile, "docker")
         XCTAssertNil(config.kraken2DatabasePath)
-        XCTAssertEqual(config.revision, TaxTriageConfig.defaultRevision)
-        XCTAssertNotEqual(config.revision, "main")
+        XCTAssertNil(config.revision, "nil runs the commit the lock pins, with no fallback branch (N4)")
     }
 
     func testConfigWithAllParameters() {
@@ -354,8 +353,8 @@ final class TaxTriagePipelineTests: XCTestCase {
         )
     }
 
-    func testPipelineRepository() {
-        XCTAssertEqual(TaxTriageConfig.pipelineRepository, "jhuapl-bio/taxtriage")
+    func testPipelineRepository() throws {
+        XCTAssertEqual(try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().repository, "jhuapl-bio/taxtriage")
     }
 
     // MARK: - Platform Tests
@@ -954,7 +953,7 @@ final class TaxTriagePipelineTests: XCTestCase {
 
     // MARK: - Pipeline Argument Building Tests
 
-    func testBuildNextflowArguments() {
+    func testBuildNextflowArguments() throws {
         let pipeline = TaxTriagePipeline()
 
         let sample = TaxTriageSample(
@@ -977,7 +976,7 @@ final class TaxTriagePipelineTests: XCTestCase {
             revision: "dev"
         )
 
-        let args = pipeline.buildNextflowArguments(config: config)
+        let args = pipeline.buildNextflowArguments(config: config, pin: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin())
 
         // Verify structure
         XCTAssertEqual(args[0], "run")
@@ -1004,7 +1003,7 @@ final class TaxTriagePipelineTests: XCTestCase {
         XCTAssertTrue(args.contains("-with-trace"))
     }
 
-    func testBuildNextflowLaunchArgumentsPrependRuntimeConfigOverride() {
+    func testBuildNextflowLaunchArgumentsPrependRuntimeConfigOverride() throws {
         let pipeline = TaxTriagePipeline()
 
         let sample = TaxTriageSample(
@@ -1020,7 +1019,8 @@ final class TaxTriagePipelineTests: XCTestCase {
 
         let args = pipeline.buildNextflowLaunchArguments(
             config: config,
-            runtimeConfigURL: runtimeConfigURL
+            runtimeConfigURL: runtimeConfigURL,
+            pin: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin()
         )
 
         XCTAssertEqual(args.prefix(4), ["-c", runtimeConfigURL.path, "run", "jhuapl-bio/taxtriage"])
@@ -1084,9 +1084,9 @@ final class TaxTriagePipelineTests: XCTestCase {
             launcherArguments: args,
             workingDirectory: outputDirectory,
             environment: ["NXF_HOME": "/tmp/nxf"],
-            workflowRepository: TaxTriageConfig.pipelineRepository,
-            workflowRevision: config.revision,
-            workflowGithubReleaseVersion: TaxTriageConfig.defaultGithubReleaseVersion,
+            workflowRepository: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().repository,
+            workflowRevision: "8fd1fb5bb236e4978f5734e522e6b89e0640a2a9",
+            workflowGithubReleaseVersion: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().releaseVersion,
             workflowSnapshotURL: snapshotURL
         )
 
@@ -1139,16 +1139,13 @@ final class TaxTriagePipelineTests: XCTestCase {
         XCTAssertFalse(script.contains("\n/usr/bin/nextflow run /tmp/taxtriage-output/workflow-source/taxtriage\n"))
     }
 
-    func testTaxTriageGithubReleaseLabelIsOnlyUsedForKnownReleaseRevisions() {
-        XCTAssertEqual(
-            TaxTriageConfig.githubReleaseVersion(for: TaxTriageConfig.defaultRevision),
-            TaxTriageConfig.defaultGithubReleaseVersion
-        )
-        XCTAssertEqual(
-            TaxTriageConfig.githubReleaseVersion(for: TaxTriageConfig.defaultGithubReleaseVersion),
-            TaxTriageConfig.defaultGithubReleaseVersion
-        )
-        XCTAssertNil(TaxTriageConfig.githubReleaseVersion(for: "8fd1fb5bb236e4978f5734e522e6b89e0640a2aa"))
+    func testTaxTriageGithubReleaseLabelIsOnlyUsedForKnownReleaseRevisions() throws {
+        let pin = try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin()
+        XCTAssertEqual(TaxTriageConfig.githubReleaseVersion(for: pin.revision, pin: pin), pin.releaseVersion)
+        XCTAssertEqual(TaxTriageConfig.githubReleaseVersion(for: pin.releaseVersion, pin: pin), pin.releaseVersion)
+        XCTAssertNil(TaxTriageConfig.githubReleaseVersion(for: "8fd1fb5bb236e4978f5734e522e6b89e0640a2aa", pin: pin))
+        XCTAssertEqual(TaxTriageConfig.githubReleaseVersion(for: "v3.3.9", pin: nil), "v3.3.9")
+        XCTAssertNil(TaxTriageConfig.githubReleaseVersion(for: pin.revision, pin: nil), "with no pin only a v tag names a release")
     }
 
     /// Capture on 9.68: `taxtriage run --output <project>/Analyses/taxtriage-cornea`
@@ -1295,14 +1292,14 @@ final class TaxTriagePipelineTests: XCTestCase {
         let (repoURL, revision) = try createDirtyCachedTaxTriageRepository(in: home)
 
         let pipeline = TaxTriagePipeline(homeDirectoryProvider: { home })
-        let prepared = try await pipeline.preparePipelineProjectSource(forRevision: revision)
+        let prepared = try await pipeline.preparePipelineProjectSource(forRevision: revision, repository: "jhuapl-bio/taxtriage")
         defer {
             if let cleanupDirectory = prepared.cleanupDirectory {
                 try? FileManager.default.removeItem(at: cleanupDirectory)
             }
         }
 
-        XCTAssertNotEqual(prepared.launchTarget, TaxTriageConfig.pipelineRepository)
+        XCTAssertNotEqual(prepared.launchTarget, "jhuapl-bio/taxtriage")
         XCTAssertNil(prepared.revision)
         XCTAssertEqual(prepared.pipelineSource, .snapshot, "B11 M2 (T6), the step records the snapshot it launched")
 
@@ -1336,14 +1333,14 @@ final class TaxTriagePipelineTests: XCTestCase {
         let (repoURL, revision) = try createDirtyCachedTaxTriageRepositoryMissingRemoteRevision(in: home)
 
         let pipeline = TaxTriagePipeline(homeDirectoryProvider: { home })
-        let prepared = try await pipeline.preparePipelineProjectSource(forRevision: revision)
+        let prepared = try await pipeline.preparePipelineProjectSource(forRevision: revision, repository: "jhuapl-bio/taxtriage")
         defer {
             if let cleanupDirectory = prepared.cleanupDirectory {
                 try? FileManager.default.removeItem(at: cleanupDirectory)
             }
         }
 
-        XCTAssertNotEqual(prepared.launchTarget, TaxTriageConfig.pipelineRepository)
+        XCTAssertNotEqual(prepared.launchTarget, "jhuapl-bio/taxtriage")
         XCTAssertNil(prepared.revision)
         XCTAssertEqual(prepared.pipelineSource, .snapshot, "B11 M2 (T6), the step records the snapshot it launched")
 
