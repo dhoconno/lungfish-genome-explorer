@@ -12,8 +12,9 @@ import LungfishWorkflow
 
 /// Phase 2.8 lane U3, decision P3. A classifier that runs through `lungfish-cli` records `lungfish-cli` as its
 /// tool, so the Tool row of the Run Summary never named Kraken2 or EsViritu above the Lineage. The Step Tools row
-/// names the tool and version of each step, from that step's own record and never from the managed tool lock.
-/// It shows only when the run-level tool is `lungfish-cli`.
+/// names the tool and version of each step that ran a program other than LGE, from that step's own record and
+/// never from the managed tool lock. A step LGE ran itself, such as `lungfish-cli fastq materialize` or a result
+/// sidecar writer, stays in the Lineage alone. The row shows only when the run-level tool is `lungfish-cli`.
 ///
 /// The cases edit the bytes of the committed cancelled `fastq trim` record, copy them into a temporary project and
 /// read them through the real lookup, so the Copy text and the view are the ones a scientist gets.
@@ -61,6 +62,34 @@ final class ProvenanceStepToolsDisplayTests: XCTestCase {
         let model = try await loadedModel(try recordBytes())
 
         XCTAssertEqual(model.summary.toolName, "fastp")
+        XCTAssertFalse(model.copyableText.contains("Step Tools"), model.copyableText)
+        XCTAssertFalse(try summaryTexts(of: model).contains("Step Tools"))
+    }
+
+    /// The steps of the committed CLI-route Kraken2 record, with `LGE primer ordering` added. Four of the six are
+    /// LGE's own, and the Lineage lists them. The row names the programs LGE ran, so it reads two entries.
+    func testLGEsOwnStepsAreLeftOutOfTheRow() async throws {
+        let model = try await loadedModel(try commandLineRecord(steps: [
+            ("lungfish-cli fastq materialize", "2026.10.14"),
+            ("kraken2", "2.17.1"),
+            ("lungfish-kraken2-index", "Lungfish 2026.10.14 (dev)"),
+            ("gzip", "system"),
+            ("Lungfish Classification Result Sidecar", "Lungfish 2026.10.14 (dev)"),
+            ("LGE primer ordering", "1.0"),
+        ]))
+
+        XCTAssertTrue(model.copyableText.contains("Step Tools: kraken2 v2.17.1, gzip system\n"), model.copyableText)
+        let texts = try summaryTexts(of: model)
+        XCTAssertTrue(texts.contains("kraken2 v2.17.1, gzip system"), "\(texts)")
+    }
+
+    /// A record whose every step is LGE's own names no program, so the row does not show.
+    func testARecordWhoseStepsAreAllLGEsOwnShowsNoRow() async throws {
+        let model = try await loadedModel(try commandLineRecord(steps: [
+            ("lungfish-cli fastq materialize", "2026.10.14"),
+            ("Lungfish EsViritu Result Sidecar", "Lungfish 2026.10.14 (dev)"),
+        ]))
+
         XCTAssertFalse(model.copyableText.contains("Step Tools"), model.copyableText)
         XCTAssertFalse(try summaryTexts(of: model).contains("Step Tools"))
     }
