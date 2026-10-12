@@ -4,7 +4,7 @@
 //
 // Phase 2.8 lane TF-W. The app runs `lungfish-cli build-db taxtriage <root> --force` after every TaxTriage run, with no
 // `--no-cleanup`, and the command then deletes `count/` (raw FASTQ copies), the fastp FASTQ files and eight folders
-// that no recorded step names. Records written before it name those files (BIO T11 and T12). Plan decision T5 gives
+// with no recorded step for the removal. Records written before it name those files (BIO T11 and T12). Plan decision T5 gives
 // the executor path a recorded removal step and keeps this cleanup for the legacy route, so these assertions stay
 // true for the route that exists in 2.8 and a lane that changes the cleanup flips them where its decision says.
 //
