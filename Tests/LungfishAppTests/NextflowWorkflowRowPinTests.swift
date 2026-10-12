@@ -379,12 +379,13 @@ final class NextflowWorkflowRowPinTests: XCTestCase {
         XCTAssertNil(reporter.items.last?.cliCommand, "several samples record no command")
     }
 
-    /// Row T2 of the UX inventory. The app hands each engine line to the viewer's overlay before it
-    /// updates the row, and the row refuses an update once it is cancelling. So a line the engine
-    /// prints through the grace of a cancel reaches the overlay and the log, while the row keeps
-    /// reading `Cancelling...` and the bar stays where it was. The runner here prints such a line
-    /// and ends only when the case lets it.
-    func testAnEngineLineAfterACancelReachesTheOverlayWhileTheRowReadsCancelling() async throws {
+    /// Row T2 of the UX inventory, as lane U10's second milestone moved it. The app shows an engine
+    /// line on the viewer's overlay only once the row has taken it, and the row refuses a line once
+    /// it is cancelling. From the cancel on, the overlay shows the row's own `Cancelling...`. So a
+    /// line the engine prints through the grace of a cancel reaches the log alone, while the row
+    /// and the overlay keep reading `Cancelling...` and the bar stays where it was. The runner here
+    /// prints such a line and ends only when the case lets it.
+    func testAnEngineLineAfterACancelLeavesTheRowAndTheOverlayReadingCancelling() async throws {
         let project = scratch.appendingPathComponent("Project.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
         let reads = try writeFASTQ("S1.fastq")
@@ -397,6 +398,9 @@ final class NextflowWorkflowRowPinTests: XCTestCase {
             progress?(0.3, before)
             while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(5)) }
             progress?(0.4, during)
+            // The engine's last reading of trace.txt, once the process has exited, reports a bar that
+            // moved with the last task line's words (U10 M1 review, note 3).
+            progress?(0.5, during)
             await gate.wait()
             throw CancellationError()
         }
@@ -421,18 +425,23 @@ final class NextflowWorkflowRowPinTests: XCTestCase {
             self.item(rowID)?.detail == before
         }
         XCTAssertTrue(reachedFirstLine, "the row never read the first engine line")
+        XCTAssertEqual(viewer.overlayLines.last, before, "a line the row takes reaches the overlay")
         OperationCenter.shared.cancel(id: rowID)
-        let reachedOverlay = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(5)) {
-            viewer.overlayLines.contains(during)
+        let loggedLateLine = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(5)) {
+            self.item(rowID).map { Self.loggedLines(of: $0).last == "info: \(during)" } ?? false
         }
-        XCTAssertTrue(reachedOverlay, "the late engine line never reached the overlay")
+        XCTAssertTrue(loggedLateLine, "the late engine line never reached the log")
+        let overlayReadsCancelling = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(5)) {
+            viewer.overlayLines.last == "Cancelling..."
+        }
+        XCTAssertTrue(overlayReadsCancelling, "the overlay never read the row's Cancelling..., \(viewer.overlayLines)")
 
         let cancelling = try XCTUnwrap(item(rowID))
         XCTAssertEqual(cancelling.state, .cancelling)
         XCTAssertEqual(cancelling.displayStateLabel, "Cancelling")
         XCTAssertEqual(cancelling.detail, "Cancelling...", "the row refuses the late line")
         XCTAssertEqual(cancelling.progress, 0.3, accuracy: 0.0001, "and the bar stays where it was")
-        XCTAssertEqual(viewer.overlayLines.last, during, "while the overlay shows it")
+        XCTAssertFalse(viewer.overlayLines.contains(during), "the overlay refuses it too, \(viewer.overlayLines)")
         XCTAssertEqual(Self.loggedLines(of: cancelling).last, "info: \(during)", "and the log keeps it")
 
         gate.release()
@@ -444,6 +453,9 @@ final class NextflowWorkflowRowPinTests: XCTestCase {
         XCTAssertEqual(cancelled.state, .cancelled)
         XCTAssertEqual(cancelled.detail, "Cancelled by user")
         XCTAssertNil(window.attachedSheet, "a cancel shows no sheet")
+        // The main queue ran both late reports before the run's end, so this sees the reading too.
+        XCTAssertEqual(viewer.overlayLines.last, "Cancelling...", "the reading after the cancel leaves the overlay, \(viewer.overlayLines)")
+        XCTAssertEqual(Self.loggedLines(of: cancelled).filter { $0 == "info: \(during)" }.count, 1, "and logs the line once")
     }
 
     // MARK: - pbAA

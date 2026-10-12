@@ -107,7 +107,11 @@ struct CLIClassifierRunner {
                     let effects = state.effects(of: event)
                     effects.bridged.forEach(bridge)
                     if let line = effects.overlay {
-                        Task { @MainActor in showProgress(line) }
+                        // Only while the row runs, as the bridge's update, so a line after a cancel
+                        // never replaces what the overlay shows (Phase 2.9 UX inventory T2).
+                        Task { @MainActor in
+                            if OperationCenter.shared.items.first(where: { $0.id == operationID })?.state == .running { showProgress(line) }
+                        }
                     }
                     if let folder = effects.trackedFolder {
                         Task { @MainActor in OperationCenter.shared.trackAnalysisOutput(folder, for: operationID) }

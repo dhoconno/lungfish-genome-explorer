@@ -202,4 +202,33 @@ final class OperationCenterCancelGracePeriodTests: XCTestCase {
         XCTAssertEqual(center.items.first(where: { $0.id == id })?.state, .cancelled)
         XCTAssertEqual(center.items.first(where: { $0.id == id })?.detail, "Cancelled by user")
     }
+
+    /// Row T10 of the Phase 2.9 UX inventory. The forced warning says the bundle stays locked only
+    /// when the row holds a bundle lock. A row that locks no bundle, as a TaxTriage row does not,
+    /// reads the first sentence alone.
+    func testTheForcedWarningNamesABundleLockOnlyWhenTheRowHoldsOne() async throws {
+        let bundleURL = URL(fileURLWithPath: "/tmp/OperationCenterCancelGracePeriodTests-\(UUID().uuidString).lungfishfastq")
+        guard case .started(let locking) = center.begin(
+            title: "Stuck op on a bundle", detail: "running", operationType: .classification,
+            targetBundleURL: bundleURL, cliCommand: nil, onCancel: {}
+        ) else { return XCTFail("expected the first operation on an unlocked bundle to start") }
+        let lockless = center.begin(
+            title: "Stuck op on no bundle", detail: "running", operationType: .classification, cliCommand: nil, onCancel: {}
+        ).rowID
+
+        center.cancel(id: locking)
+        center.cancel(id: lockless)
+        await waitUntil {
+            [locking, lockless].allSatisfy { id in center.items.first { $0.id == id }?.state == .cancelled }
+        }
+
+        let warnings = { (id: UUID) in
+            self.center.items.first { $0.id == id }?.logEntries.filter { $0.level == .warning }.map(\.message) ?? []
+        }
+        let first = "Worker did not respond to cancellation within \(Int(center.cancelGracePeriod))s; marked cancelled."
+        XCTAssertEqual(warnings(locking), [first + " Its bundle stays locked until the worker exits."])
+        XCTAssertEqual(warnings(lockless), [first], "a row that holds no lock names none")
+        _ = center.fail(id: locking, detail: "late")
+        XCTAssertTrue(center.canStartOperation(on: bundleURL), "the worker's late return releases the lock")
+    }
 }

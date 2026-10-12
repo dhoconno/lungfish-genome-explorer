@@ -238,6 +238,73 @@ final class TaxTriagePipelineCancelReplayTests: XCTestCase {
         XCTAssertEqual(record?.status, .cancelled, "the run's record says cancelled")
     }
 
+    /// Row T2 of the Phase 2.9 UX inventory on the stand-in engine (U9's review, note 3). The engine
+    /// traps the cancel's TERM, and the case lets it print its task lines inside the 4 s grace. The
+    /// reader words them and the log keeps them, but the row keeps reading `Cancelling...` and the
+    /// viewer's overlay reads the row's `Cancelling...` from the cancel on and shows no later line.
+    func testATaskLineInsideTheCancelsGraceReachesNeitherTheRowNorTheOverlay() async throws {
+        let engine = try makeEngine(.trapsTermWithHeartbeatChild)
+        let project = scratch.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let config = TaxTriageConfig(
+            samples: [TaxTriageSample(sampleId: "G1", fastq1: try writeFASTQ("G1.fastq", records: 3))],
+            outputDirectory: scratch.appendingPathComponent("replaced-by-the-launch", isDirectory: true),
+            kraken2DatabasePath: try makeDatabaseFolder(),
+            maxCpus: 2,
+            profile: TaxTriageStandInEngine.profile
+        )
+        let delegate = makeAppDelegateWithTemporaryState()
+        let viewer = OverlayRecordingViewer()
+        let window = NSWindow(contentViewController: viewer)
+        window.isReleasedWhenClosed = false
+        defer {
+            if let sheet = window.attachedSheet { window.endSheet(sheet) }
+            window.contentViewController = nil
+            window.close()
+        }
+
+        let existing = Set(OperationCenter.shared.items.map(\.id))
+        let details = RowDetailRecorder(ignoring: existing)
+        AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue({ engine.makeRunner() }) {
+            delegate.runTaxTriage(
+                config: config,
+                viewerController: viewer,
+                routeContext: OperationRouteContext(projectURL: project, windowStateScopeID: nil)
+            )
+        }
+        let rowID = try XCTUnwrap(OperationCenter.shared.items.first { !existing.contains($0.id) }?.id, "runTaxTriage started no row")
+        let started = await engine.waitForLaunch()
+        XCTAssertNotNil(started, "the launch never started")
+
+        OperationCenter.shared.cancel(id: rowID)
+        let trapped = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(10)) {
+            (try? engine.launches().first?.trappedSignals.isEmpty == false) ?? false
+        }
+        XCTAssertTrue(trapped, "the engine never trapped the cancel's TERM")
+        engine.release()
+
+        let taskLines = { () -> [String] in
+            OperationCenter.shared.items.first { $0.id == rowID }?.logEntries.map(\.message).filter { $0.hasPrefix("Running ") } ?? []
+        }
+        let logged = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(20)) { !taskLines().isEmpty }
+        XCTAssertTrue(logged, "no task line of the grace reached the log")
+        let settled = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(20)) {
+            OperationCenter.shared.items.first { $0.id == rowID }.map { !$0.state.isActive } ?? true
+        }
+        XCTAssertTrue(settled, "the row did not settle in 30 seconds")
+
+        let item = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == rowID })
+        XCTAssertEqual(item.state, .cancelled, "\(item.displayStateLabel): \(item.detail)")
+        XCTAssertEqual(item.detail, "Cancelled by user")
+        let shown = details.details[rowID] ?? []
+        let afterCancel = shown.drop { $0 != "Cancelling..." }
+        XCTAssertEqual(afterCancel.first, "Cancelling...", "the row never read Cancelling..., \(shown)")
+        XCTAssertEqual(Array(afterCancel.dropFirst()), ["Cancelled by user"], "the row took a line after the cancel, \(shown)")
+        XCTAssertFalse(viewer.overlayLines.contains { $0.hasPrefix("Running ") }, "the overlay took a task line, \(viewer.overlayLines)")
+        XCTAssertEqual(viewer.overlayLines.last, "Cancelling...", "the overlay reads the row's Cancelling..., \(viewer.overlayLines)")
+        XCTAssertNil(window.attachedSheet, "a cancel shows no alert")
+    }
+
     // MARK: - Helpers
 
     /// The engine for one case, stopped in teardown so no stand-in outlives a case that fails.

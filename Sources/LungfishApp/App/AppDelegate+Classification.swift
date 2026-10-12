@@ -93,8 +93,8 @@ extension AppDelegate {
                         progress: { message in
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
-                                    viewerController.showProgress(message)
-                                    _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                                    // The overlay shows a line only while the row runs (UX inventory T2).
+                                    if OperationCenter.shared.update(id: opID, progress: 0, detail: message) { viewerController.showProgress(message) }
                                     OperationCenter.shared.log(id: opID, level: .info, message: message)
                                 }
                             }
@@ -107,13 +107,7 @@ extension AppDelegate {
                         progress: { progress, message in
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
-                                    viewerController.showProgress(message)
-                                    _ = OperationCenter.shared.update(
-                                        id: opID,
-                                        progress: max(0, min(1, progress)),
-                                        detail: message
-                                    )
-                                    Self.logTaxTriageProgress(message, for: opID)
+                                    Self.showTaxTriageProgress(progress, message, for: opID, on: viewerController)
                                 }
                             }
                         }
@@ -146,7 +140,10 @@ extension AppDelegate {
                 }
             }
 
-            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+            OperationCenter.shared.setCancelCallback(for: opID) {
+                Self.showTaxTriageCancelling(for: opID, on: viewerController)
+                task.cancel()
+            }
         }
     }
 

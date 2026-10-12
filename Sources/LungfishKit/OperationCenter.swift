@@ -1053,15 +1053,15 @@ public final class OperationCenter: ObservableObject {
     private func forceAcknowledgeCancellationIfStillCancelling(id: UUID) {
         guard let index = items.firstIndex(where: { $0.id == id }),
               items[index].state == .cancelling else { return }
-        // `finishWorker` always writes the plain "Cancelled by user" detail
-        // once cancellation wins, so the diagnostic that this was a *forced*
-        // cancellation (the worker never came back on its own) is recorded
-        // as a log entry instead, where the Operations Panel's expanded row
-        // history can still surface it.
+        // `finishWorker` always writes the plain "Cancelled by user" detail once cancellation wins,
+        // so the diagnostic that this was a *forced* cancellation is a log entry, which names a
+        // bundle lock only when the row holds one (Phase 2.9 UX inventory T10).
+        let holdsBundleLock = bundleLocks.values.contains { $0.operationID == id }
+        let lockSentence = holdsBundleLock ? " Its bundle stays locked until the worker exits." : ""
         items[index].appendLogEntryCapped(
             OperationLogEntry(
                 level: .warning,
-                message: "Worker did not respond to cancellation within \(Int(cancelGracePeriod))s; marked cancelled. Its bundle stays locked until the worker exits."
+                message: "Worker did not respond to cancellation within \(Int(cancelGracePeriod))s; marked cancelled.\(lockSentence)"
             )
         )
         _ = finishWorker(id: id, state: .cancelled, detail: "Cancelled by user", retainBundleLock: true)
