@@ -159,7 +159,9 @@ final class RoutingTableSafetyNetTests: XCTestCase {
         let settled = await waitUntil(timeout: settleTimeout, pollInterval: Self.settlePoll, isSettled)
         if !settled {
             settleTimeout = Self.settleAfterTimeout
-            await waitUntil(timeout: Self.settleGrace, pollInterval: Self.settlePoll, isSettled)
+            if await waitUntil(timeout: Self.settleGrace, pollInterval: Self.settlePoll, isSettled) {
+                print("\(label) settled only in the grace look, after \(ContinuousClock.now - waitStarted) at load average \(Self.loadAverage). Later rows of this test wait \(Self.settleAfterTimeout).")
+            }
         }
         XCTAssertEqual(
             observed.description,
