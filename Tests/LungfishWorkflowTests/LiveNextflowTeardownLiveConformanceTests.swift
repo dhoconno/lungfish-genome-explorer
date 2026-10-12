@@ -30,7 +30,7 @@ final class LiveNextflowTeardownLiveConformanceTests: XCTestCase {
         let siblingFolder = run.directory.appendingPathComponent("work-other/aa", isDirectory: true)
 
         let keptNames = ["\(run.key)-other-run", "\(run.key)-sibling", "\(run.key)-temporary-only"]
-        defer { _ = try? docker.run(["rm", "-f", "-v"] + keptNames) }
+        defer { _ = try? docker.run(["rm", "-f", "-v", "\(run.key)-owned"] + keptNames) }
 
         let owned = try create("\(run.key)-owned", mounting: [temporary, taskFolder], image: image, docker: docker)
         let other = try create(keptNames[0], mounting: [temporary, otherTaskFolder], image: image, docker: docker)
