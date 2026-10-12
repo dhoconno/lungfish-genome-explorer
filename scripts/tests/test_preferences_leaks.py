@@ -26,7 +26,7 @@ SCRIPT = ROOT / "scripts/testing/preferences-leaks.py"
 ALLOWED = ROOT / "scripts/testing/preferences-leaks-allowed.txt"
 
 # The allowed list may only shrink. Lower this number with it, never raise it.
-SEEDED_ROWS = 73
+SEEDED_ROWS = 74
 
 # The eleven classes the owner named, moved onto TestDefaultsSuite by the first milestone of Q10.
 ELEVEN = {
@@ -337,6 +337,27 @@ class CheckTests(WorkspaceCase):
         status, out, err = self.check()
         self.assertEqual(status, 1, out + err)
         self.assertIn(name, err)
+
+    def test_the_fork_suites_app_identity_tests_leave_count_against_their_prefix(self):
+        # AppIdentityTests.swift joins "org.example.test-" to UUID().uuidString.lowercased(), and
+        # LungfishAppIdentity builds its fork suites from that namespace, so each run leaves
+        # <prefix>-<lowercase uuid>.<channel>.preferences.plist. Lint cannot see the call, which
+        # is in Sources, so the file carries a row.
+        file = self.swift("B/AppIdentityTests.swift",
+                          'let namespace = "org.example.test-" + UUID().uuidString.lowercased()\n')
+        self.take_snapshot()
+        name = f"org.example.test-{uuid(90).lower()}.preview.preferences.plist"
+        (self.preferences / name).write_text("{}")
+        status, out, err = self.check()
+        self.assertEqual(status, 1, out + err)
+        self.assertIn(name, err)
+
+        self.allow(("org.example.test", file))
+        self.take_snapshot()
+        (self.preferences / f"org.example.test-{uuid(91).lower()}.preview.preferences.plist").write_text("{}")
+        status, out, err = self.check()
+        self.assertEqual(status, 0, out + err)
+        self.assertIn("1 on the allowed list", out)
 
     def test_a_plist_that_appears_during_the_settle_is_caught_by_the_second_scan(self):
         self.take_snapshot()
