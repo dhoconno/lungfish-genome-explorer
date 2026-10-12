@@ -10,6 +10,10 @@ import os.log
 private let logger = Logger(subsystem: LogSubsystem.workflow, category: "ClassificationPipeline")
 
 extension ClassificationPipeline {
+    /// The tool name of the step that records the removal of the per-read output once its gzip
+    /// copy and index exist, here and in `build-db kraken2`.
+    public static let kraken2OutputRemovalToolName = "Lungfish Kraken2 Output Removal"
+
     func compactKrakenOutputIfPossible(
         rawURL: URL,
         provenanceRecorder: ProvenanceRecorder,
@@ -31,6 +35,8 @@ extension ClassificationPipeline {
                 includeUnclassified: false
             )
             let indexCompletedAt = indexClock.now
+            // Hashed once for the index, gzip and removal steps that name it.
+            let rawRecord = ProvenanceRecorder.fileRecord(url: rawURL, format: .text, role: .input)
             _ = await provenanceRecorder.recordStep(
                 runID: runID,
                 toolName: "lungfish-kraken2-index",
@@ -44,7 +50,7 @@ extension ClassificationPipeline {
                     indexURL.path,
                 ],
                 inputs: [
-                    ProvenanceRecorder.fileRecord(url: rawURL, format: .text, role: .input),
+                    rawRecord,
                 ],
                 outputs: [
                     ProvenanceRecorder.fileRecord(url: indexURL, format: .unknown, role: .index),
@@ -57,13 +63,13 @@ extension ClassificationPipeline {
             let gzipClock = ProvenanceRunClock()
             try gzipCopy(source: rawURL, destination: compressedURL)
             let gzipCompletedAt = gzipClock.now
-            _ = await provenanceRecorder.recordStep(
+            let gzipStepID = await provenanceRecorder.recordStep(
                 runID: runID,
                 toolName: "gzip",
                 toolVersion: "system",
                 command: gzipReplayCommand(source: rawURL, destination: compressedURL),
                 inputs: [
-                    ProvenanceRecorder.fileRecord(url: rawURL, format: .text, role: .input),
+                    rawRecord,
                 ],
                 outputs: [
                     ProvenanceRecorder.fileRecord(url: compressedURL, format: .text, role: .output),
@@ -74,6 +80,12 @@ extension ClassificationPipeline {
             )
 
             try fm.removeItem(at: rawURL)
+            // The kraken2, index and gzip steps keep naming the per-read output, so its
+            // removal is a step of the record too (P1 of Phase 2.8).
+            await RecordedRemovalStep.record(
+                in: provenanceRecorder, runID: runID, toolName: Self.kraken2OutputRemovalToolName,
+                api: "FileManager.removeItem(at:)", removing: [rawRecord], dependsOn: [gzipStepID].compactMap { $0 }
+            )
             logger.info(
                 "Compacted Kraken2 output to \(compressedURL.lastPathComponent, privacy: .public) and \(indexURL.lastPathComponent, privacy: .public)"
             )

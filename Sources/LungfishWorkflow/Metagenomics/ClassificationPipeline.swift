@@ -486,6 +486,7 @@ public actor ClassificationPipeline {
             .appendingPathComponent(Self.interleavedSplitDirectoryName, isDirectory: true)
         defer { Self.removeIfPresent(interleavedSplitDirectory) }
         var interleavedSplitStepID: UUID?
+        var interleavedHalves: [FileRecord] = []
         if effectiveConfig.interleavedInput {
             progress?(0.05, "Splitting interleaved pairs for kraken2...")
             let splitClock = ProvenanceRunClock()
@@ -499,6 +500,7 @@ public actor ClassificationPipeline {
                 kraken2Config.inputFiles = [split.r1, split.r2]
                 kraken2Config.isPairedEnd = true
                 kraken2Config.interleavedInput = false
+                interleavedHalves = [split.r1, split.r2].map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) }
                 interleavedSplitStepID = await provenanceRecorder.recordStep(
                     runID: runID,
                     toolName: "Lungfish Classification Interleaved Split",
@@ -510,9 +512,7 @@ public actor ClassificationPipeline {
                     ],
                     runtimeIdentity: ProvenanceRuntimeIdentity(),
                     inputs: splitInputs,
-                    outputs: [split.r1, split.r2].map {
-                        ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output)
-                    },
+                    outputs: interleavedHalves,
                     exitCode: 0,
                     wallTime: splitClock.elapsed,
                     dependsOn: replayMaterializationStepID.map { [$0] } ?? []
@@ -545,8 +545,8 @@ public actor ClassificationPipeline {
             }
         }
         // A read set of pairs and single reads: its splits, then a header-only
-        // mate staged beside each file of single reads (decisions 1 and 2).
-        defer { Self.removeStagedMates(for: kraken2Config) }
+        // mate staged beside each file of single reads (decisions 1 and 2). The
+        // staged files stay with the kept inputs, which the records name (O1).
         let readSetStepIDs: [UUID]
         do {
             readSetStepIDs = try await recordReadSetInputSteps(
@@ -645,7 +645,8 @@ public actor ClassificationPipeline {
                 dependsOn: kraken2Dependencies,
                 exitCode: 130,
                 stderr: "Kraken2 classification cancelled.",
-                kraken2Clock: kraken2Clock
+                kraken2Clock: kraken2Clock,
+                interleavedHalves: interleavedHalves
             )
             try await persistInterruptedClassificationRun(
                 provenanceRecorder: provenanceRecorder,
@@ -676,7 +677,8 @@ public actor ClassificationPipeline {
                 dependsOn: kraken2Dependencies,
                 exitCode: unavailable ? 127 : 1,
                 stderr: error.localizedDescription,
-                kraken2Clock: kraken2Clock
+                kraken2Clock: kraken2Clock,
+                interleavedHalves: interleavedHalves
             )
             try await persistInterruptedClassificationRun(
                 provenanceRecorder: provenanceRecorder,
@@ -702,7 +704,8 @@ public actor ClassificationPipeline {
                 dependsOn: kraken2Dependencies,
                 exitCode: 1,
                 stderr: error.localizedDescription,
-                kraken2Clock: kraken2Clock
+                kraken2Clock: kraken2Clock,
+                interleavedHalves: interleavedHalves
             )
             try await persistInterruptedClassificationRun(
                 provenanceRecorder: provenanceRecorder,
@@ -738,8 +741,11 @@ public actor ClassificationPipeline {
         )
 
         // The halves are only needed by kraken2; drop them now rather than at
-        // scope exit so Bracken and sidecar work do not hold the disk.
-        Self.removeIfPresent(interleavedSplitDirectory)
+        // scope exit so Bracken and sidecar work do not hold the disk, as a step.
+        await Self.removeInterleavedSplit(
+            interleavedHalves, of: effectiveConfig, recorder: provenanceRecorder, runID: runID,
+            dependsOn: [kraken2StepID].compactMap { $0 }
+        )
 
         if kraken2Result.exitCode != 0 {
             try await persistInterruptedClassificationRun(
@@ -756,7 +762,6 @@ public actor ClassificationPipeline {
                 stderr: kraken2Result.stderr
             )
         }
-        Self.removeStagedMates(for: kraken2Config)
         do {
             if let note = try Self.verifyFragmentCount(config: kraken2Config, kraken2Stderr: kraken2Result.stderr) {
                 logger.warning("\(note, privacy: .public)")
@@ -1376,7 +1381,8 @@ public actor ClassificationPipeline {
         dependsOn: [UUID],
         exitCode: Int32,
         stderr: String,
-        kraken2Clock: ProvenanceRunClock
+        kraken2Clock: ProvenanceRunClock,
+        interleavedHalves: [FileRecord]
     ) async {
         let fileManager = FileManager.default
         let outputs: [FileRecord] = [
@@ -1404,6 +1410,9 @@ public actor ClassificationPipeline {
             wallTime: kraken2Clock.elapsed,
             stderr: stderr,
             dependsOn: dependsOn
+        )
+        await Self.removeInterleavedSplit(
+            interleavedHalves, of: effectiveConfig, recorder: provenanceRecorder, runID: runID, dependsOn: dependsOn
         )
     }
 

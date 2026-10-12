@@ -132,9 +132,5 @@ extension ClassifierParityKnownDifferences {
             "build-db esviritu moves EsViritu's BAM and its index from _temp/ to bams/ and then marks duplicates in place, both recorded steps (A7, E7), so every record written before them still names the BAM and its index in _temp/", closedBy: bamRelocation),
         commandFact([.e1: 5, .e2: 5, .e3: 14], "fact: record * names */bams/*.third.filt.sorted.bam* with another digest",
             "build-db esviritu marks duplicates in the BAM in bams/ after the move, so the BAM and its index hold other bytes than the digest the records written before the markdup state, the digest of the file from before it", closedBy: bamRelocation),
-        commandFact([.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1], "fact: record * names *classification.kraken that does not exist",
-            "As on sides A and B. ClassificationPipeline gzips the per-read output to classification.kraken.gz and deletes it, and no step records the compression", closedBy: sharedPipeline),
-        commandFact([.k2: 1, .k3: 1], "fact: record * names *.lungfish-classify-inputs/merged.emptymate.fastq that does not exist",
-            "As on sides A and B. ClassificationPipeline stages an empty mate for the merged reads and removes it after the run, where E3 keeps staged inputs", closedBy: sharedPipeline),
     ].flatMap { $0 }
 }

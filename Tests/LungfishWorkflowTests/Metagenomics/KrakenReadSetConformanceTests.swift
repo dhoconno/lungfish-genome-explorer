@@ -78,7 +78,10 @@ final class KrakenReadSetConformanceTests: XCTestCase {
             zip(a, b).map { $0 + $1 }
         }
         XCTAssertEqual(combined, summed)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: config.emptyMateURL(for: merged.standardizedFileURL).path))
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: config.emptyMateURL(for: merged.standardizedFileURL).path),
+            "the staged mate stays with the kept inputs (O1 of Phase 2.8)"
+        )
     }
 
     /// Final review S1. `conda classify --paired R1 R2 --unpaired S` reads the

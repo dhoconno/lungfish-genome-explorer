@@ -23,6 +23,26 @@ extension ClassificationPipeline {
         do { try fm.removeItem(at: url) } catch {}
     }
 
+    /// The tool name of the step that records the removal of the interleaved split halves.
+    public static let interleavedSplitRemovalToolName = "Lungfish Classification Interleaved Split Removal"
+
+    /// Removes the halves of an interleaved split with their folder, and records the removal of
+    /// `halves`, the split step's outputs with their digests. The halves are scratch (decision
+    /// T6), so the record says that they are gone (P1 of Phase 2.8, BIO memo objection 5).
+    /// Nothing when the run split nothing.
+    static func removeInterleavedSplit(
+        _ halves: [FileRecord], of config: ClassificationConfig, recorder: ProvenanceRecorder, runID: UUID, dependsOn: [UUID]
+    ) async {
+        let directory = config.outputDirectory.appendingPathComponent(interleavedSplitDirectoryName, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: directory.path) else { return }
+        removeIfPresent(directory)
+        await RecordedRemovalStep.record(
+            in: recorder, runID: runID, toolName: interleavedSplitRemovalToolName, api: "FileManager.removeItem(at:)",
+            removing: halves.map { FileRecord(path: $0.path, sha256: $0.sha256, sizeBytes: $0.sizeBytes, format: $0.format, role: .input) },
+            dependsOn: dependsOn
+        )
+    }
+
     /// Re-checks a request to split one input as interleaved pairs against
     /// the records, through the shared layout resolver.
     ///
@@ -333,9 +353,10 @@ extension ClassificationPipeline {
         return records
     }
 
-    /// Removes the staged mates and copies once kraken2 has read them. The
-    /// run calls this again from a `defer`, so every removal checks first
-    /// and none fails (``removeIfPresent(_:)``).
+    /// Removes the staged mates and copies when staging fails, before any
+    /// step names them. A run that staged them keeps them with its kept
+    /// inputs, which the staging and kraken2 steps name (O1 of Phase 2.8).
+    /// Every removal checks first and none fails (``removeIfPresent(_:)``).
     static func removeStagedMates(for config: ClassificationConfig) {
         let fm = FileManager.default
         for single in config.singleReadFiles {

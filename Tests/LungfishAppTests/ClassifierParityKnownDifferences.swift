@@ -185,23 +185,9 @@ enum ClassifierParityKnownDifferences {
         ClassifierParityKnownDifference(counts: counts, scope: .side(side), id: "fact: record * names \(file)", reason: reason, closedBy: closedBy)
     }
 
-    /// The per-read output and the empty mate come from the shared ClassificationPipeline, which
-    /// sides A, B, C and C' all run.
-    static let sharedPipeline = "2.8, classifier records name every file they keep (E3). The cause is in the shared ClassificationPipeline, which gzips the per-read classification.kraken with no recorded step and stages merged.emptymate.fastq and removes it, so its fix moves sides A, B, C and C' together"
-
     private static let namedFiles: [ClassifierParityKnownDifference] = [
         namedFile(.a, [.k1: 1, .k3: 2, .k4: 1, .e1: 2, .e3: 2], "<project>/.tmp/* that does not exist",
                   "BIO D4, BIO D5. The GUI's materialized scratch input, which it deletes after the run", closedBy: retire),
-        namedFile(.a, [.k1: 1, .k2: 1, .k3: 4, .k4: 1, .k5: 1, .k6: 1], "*classification.kraken that does not exist",
-                  "ClassificationPipeline gzips the per-read output to classification.kraken.gz and deletes it, and no step records the compression",
-                  closedBy: sharedPipeline),
-        namedFile(.b, [.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1], "*classification.kraken that does not exist",
-                  "As on side A", closedBy: sharedPipeline),
-        namedFile(.a, [.k2: 1, .k3: 2], "*.lungfish-classify-inputs/merged.emptymate.fastq that does not exist",
-                  "ClassificationPipeline stages an empty mate for the merged reads and removes it after the run, where E3 keeps staged inputs",
-                  closedBy: sharedPipeline),
-        namedFile(.b, [.k2: 1, .k3: 1], "*.lungfish-classify-inputs/merged.emptymate.fastq that does not exist",
-                  "As on side A", closedBy: sharedPipeline),
         // Landing 2 found both still matching after A7 landed. A7 records the move as a step of its
         // own (E7), and build-db marks duplicates in place after it, a recorded step too, but the
         // records written before them keep the old path and digest. Side C shows the same through

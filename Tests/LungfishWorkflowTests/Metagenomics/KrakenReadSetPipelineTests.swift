@@ -254,10 +254,11 @@ final class KrakenReadSetPipelineTests: XCTestCase {
         // Staging content: the same headers in the same order, empty sequence and quality.
         let seenMate = try kraken2.inputsSeen()[3]
         XCTAssertEqual(try String(contentsOf: seenMate, encoding: .utf8), "@x1\n\n+\n\n@x2\n\n+\n\n@x3\n\n+\n\n")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: mate.path), "the staged mate is removed after the run")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mate.path), "the staged mate stays with the kept inputs (O1)")
 
         // Provenance records the staging step and its counts, and kraken2 depends on it.
         let provenance = try XCTUnwrap(ProvenanceRecorder.load(from: config.outputDirectory))
+        assertEveryNamedFileIsKeptOrRemoved(provenance)
         let staging = try XCTUnwrap(provenance.steps.first { $0.toolName == ClassificationPipeline.singleReadMateStagingToolName })
         XCTAssertEqual(staging.resolvedOptions?["records"], .integer(3))
         XCTAssertEqual(staging.inputs.map(\.path), [merged.path])
@@ -280,7 +281,7 @@ final class KrakenReadSetPipelineTests: XCTestCase {
     /// first input, R1, for every input. Loose files named with `--paired`
     /// and `--unpaired` reach kraken2 with each file of single reads and its
     /// staged mate in that compression, whether the files are gzip, plain or
-    /// a mix, and every staged file is removed after the run.
+    /// a mix, and every staged file stays with the kept inputs (O1).
     func testLooseGzipAndPlainFilesRunTheirSingleReadsInTheCompressionOfR1() async throws {
         let loose = root.appendingPathComponent("loose", isDirectory: true)
         try FileManager.default.createDirectory(at: loose, withIntermediateDirectories: true)
@@ -324,7 +325,11 @@ final class KrakenReadSetPipelineTests: XCTestCase {
             let staged = (try? FileManager.default.contentsOfDirectory(
                 atPath: config.outputDirectory.appendingPathComponent(KrakenReadSetPlanner.inputsDirectoryName).path
             )) ?? []
-            XCTAssertEqual(staged, [], "\(label): every staged file is removed")
+            let provenance = try XCTUnwrap(ProvenanceRecorder.load(from: config.outputDirectory), label)
+            let stagedByStep = provenance.steps.filter { $0.toolName == ClassificationPipeline.singleReadMateStagingToolName }
+                .flatMap(\.outputs).map { URL(fileURLWithPath: $0.path).lastPathComponent }
+            XCTAssertEqual(Set(staged), Set(stagedByStep), "\(label): every staged file is kept, as the staging step names it (O1)")
+            assertEveryNamedFileIsKeptOrRemoved(provenance)
         }
     }
 
@@ -438,6 +443,38 @@ final class KrakenReadSetPipelineTests: XCTestCase {
         }
     }
 
+    /// BIO memo objection 5 and P1 of Phase 2.8. The split step names the halves of an
+    /// interleaved input with their digests, and the run removes the halves after kraken2 and
+    /// the per-read output after its gzip copy. A removal step names each with the digest an
+    /// earlier step recorded, so every file the record names exists with its digest or a
+    /// removal step names it.
+    func testAnInterleavedRunRecordsTheRemovalOfItsHalvesAndPerReadOutput() async throws {
+        let kraken2 = try StandInKraken2(root: root.appendingPathComponent("interleaved-run"))
+        let file = fixtures.interleavedRoot.appendingPathComponent("reads.fastq").standardizedFileURL
+        var config = makeConfig(inputFiles: [file], database: kraken2.databaseURL)
+        config.interleavedInput = true
+        config.originalInputFiles = [fixtures.interleavedRoot]
+        _ = try await ClassificationPipeline(condaManager: kraken2.condaManager).classify(config: config)
+
+        let splitFolder = config.outputDirectory.appendingPathComponent(ClassificationPipeline.interleavedSplitDirectoryName)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: splitFolder.path), "the halves are scratch (T6)")
+        let provenance = try XCTUnwrap(ProvenanceRecorder.load(from: config.outputDirectory))
+        let split = try XCTUnwrap(provenance.steps.first { $0.toolName == "Lungfish Classification Interleaved Split" })
+        let kraken = try XCTUnwrap(provenance.steps.first { $0.toolName == "kraken2" })
+        let halves = split.outputs.map(\.path)
+        XCTAssertEqual(halves.count, 2)
+        XCTAssertTrue(kraken.inputs.map(\.path).contains(file.path), "the kraken2 step names the durable interleaved file")
+        let removal = try XCTUnwrap(provenance.steps.first { $0.toolName == ClassificationPipeline.interleavedSplitRemovalToolName })
+        XCTAssertEqual(removal.inputs.map(\.path), halves)
+        XCTAssertEqual(removal.inputs.map(\.sha256), split.outputs.map(\.sha256), "the digests the split recorded")
+        XCTAssertTrue(removal.dependsOn.contains(kraken.id))
+        let outputRemoval = try XCTUnwrap(provenance.steps.first { $0.toolName == ClassificationPipeline.kraken2OutputRemovalToolName })
+        XCTAssertEqual(outputRemoval.inputs.map(\.path), [config.outputURL.path])
+        let gzip = try XCTUnwrap(provenance.steps.first { $0.toolName == "gzip" })
+        XCTAssertEqual(outputRemoval.inputs.map(\.sha256), gzip.inputs.map(\.sha256), "the bytes gzip read")
+        assertEveryNamedFileIsKeptOrRemoved(provenance)
+    }
+
     // MARK: - Codable
 
     func testEveryCommittedKraken2SidecarLoadsUnchanged() throws {
@@ -477,6 +514,29 @@ final class KrakenReadSetPipelineTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// Every file a step of `provenance` names exists with the digest it states, or a removal
+    /// step names it (P1 of Phase 2.8). A folder is checked for existence only.
+    private func assertEveryNamedFileIsKeptOrRemoved(
+        _ provenance: WorkflowRun, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let removed = Set(provenance.steps.filter { $0.resolvedOptions?["operation"] == .string(RecordedRemovalStep.operation) }
+            .flatMap { $0.inputs.map(\.path) })
+        for step in provenance.steps {
+            for named in step.inputs + step.outputs where !removed.contains(named.path) {
+                var isDirectory: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: named.path, isDirectory: &isDirectory) else {
+                    XCTFail("\(step.toolName) names \(named.path), which is gone", file: file, line: line)
+                    continue
+                }
+                guard !isDirectory.boolValue, let recorded = named.sha256 else { continue }
+                XCTAssertEqual(
+                    ProvenanceRecorder.sha256(of: URL(fileURLWithPath: named.path)), recorded,
+                    "\(step.toolName) names \(named.path)", file: file, line: line
+                )
+            }
+        }
+    }
 
     private func makeConfig(inputFiles: [URL], database: URL? = nil) -> ClassificationConfig {
         let databaseURL = database ?? root.appendingPathComponent("db", isDirectory: true)
