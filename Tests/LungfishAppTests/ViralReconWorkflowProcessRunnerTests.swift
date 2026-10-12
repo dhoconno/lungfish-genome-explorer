@@ -38,7 +38,7 @@ final class ViralReconWorkflowProcessRunnerTests: XCTestCase {
         let marker = scratch.appendingPathComponent("cleaned")
         let cli = try writeCLI(
             """
-            trap 'sleep 0.4; echo cleaned > "$2"; exit 125' TERM
+            trap 'trap "" TERM; sleep 0.4; echo cleaned > "$2"; exit 125' TERM
             : > "$1"
             sleep 30 &
             wait $!
