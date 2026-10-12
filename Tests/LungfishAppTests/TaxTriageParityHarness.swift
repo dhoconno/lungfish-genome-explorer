@@ -41,23 +41,33 @@ struct TaxTriageParityHarness {
         func root(_ side: TaxTriageParitySide) -> URL {
             caseRoot.appendingPathComponent(side.folderName, isDirectory: true)
         }
-        // One project, copied, so every side starts from the same bytes.
+        // One project, copied, so every side starts from the same bytes, and a pristine copy that
+        // no side touches, for the bundles no side may write into.
         let projectA = try parityCase.makeProject(in: root(.a))
-        try FileManager.default.createDirectory(at: root(.b), withIntermediateDirectories: true)
-        try FileManager.default.copyItem(at: projectA, to: root(.b).appendingPathComponent(projectA.lastPathComponent, isDirectory: true))
+        let pristine = caseRoot.appendingPathComponent("pristine", isDirectory: true)
+            .appendingPathComponent(projectA.lastPathComponent, isDirectory: true)
+        for copy in [root(.b).appendingPathComponent(projectA.lastPathComponent, isDirectory: true), pristine] {
+            try FileManager.default.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: projectA, to: copy)
+        }
 
-        let runA = try await runGUISide(parityCase, root: root(.a), engine: engine)
-        let runB = await runReplay(of: runA, parityCase, root: root(.b), engine: engine)
+        var runA = TaxTriageParitySideRun.notRun(.a, root: root(.a), reason: "no GUI route makes a plain --output run of several samples")
+        if parityCase.runsGUISide { runA = try await runGUISide(parityCase, root: root(.a), engine: engine) }
+        if parityCase.rebuildsAfterTheCleanup { runA = await rebuildAfterTheCleanup(runA) }
+        var runB = await runReplay(of: runA, parityCase, root: root(.b), engine: engine)
+        if parityCase.rebuildsAfterTheCleanup { runB = await rebuildAfterTheCleanup(runB) }
 
         var found: [TaxTriageParityScope: [TaxTriageParityDifference]] = [:]
         for run in [runA, runB] {
-            found[.side(run.side)] = try fixedFactViolations(parityCase, run: run, engine: engine)
+            found[.side(run.side)] = try fixedFactViolations(parityCase, run: run, engine: engine, pristineProject: pristine)
         }
-        found[.pair(.a, .b)] = try TaxTriageParityComparison.differences(
-            reference: runA,
-            candidate: runB,
-            bundlePaths: parityCase.bundlePaths
-        )
+        if parityCase.runsGUISide {
+            found[.pair(.a, .b)] = try TaxTriageParityComparison.differences(
+                reference: runA,
+                candidate: runB,
+                bundlePaths: parityCase.bundlePaths
+            )
+        }
         try dumpIfRequested(parityCase, caseRoot: caseRoot, runs: [runA, runB], found: found)
 
         for scope in Self.scopes {
@@ -99,6 +109,7 @@ struct TaxTriageParityHarness {
             if let command = run.recordedCommand { report.append("recorded command:\n\(command)") }
             report += run.replayedCommands.map { "replayed: \($0.argv.dropFirst().joined(separator: " "))" }
             report += run.launches.map { "launch \($0.folder.lastPathComponent): exit \($0.exitStatus.map(String.init) ?? "none"), \($0.fastqRecords)" }
+            if let rebuild = run.rebuild { report.append("rebuild: \(rebuild)") }
             if let row = run.row {
                 report.append("row: \(row.title) | \(row.firstDetail) | \(row.stateLabel) | \(row.completionDetail) | error \(row.errorMessage ?? "none") | alert \(row.alertText ?? "none")")
                 report += row.logLines.map { "  \($0)" }

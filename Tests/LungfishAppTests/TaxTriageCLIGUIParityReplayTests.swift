@@ -46,6 +46,8 @@ final class TaxTriageCLIGUIParityReplayTests: XCTestCase {
 
     enum ParityError: Error {
         case missingCLI
+        /// The stand-in keeps no organism report fixture at the path, which X7 empties.
+        case noOrganismReportFixture(String)
     }
 
     override func setUp() async throws {
@@ -89,6 +91,26 @@ final class TaxTriageCLIGUIParityReplayTests: XCTestCase {
         try await assertParity(.x3)
     }
 
+    func testX4OneFailedSampleOfTwo() async throws {
+        try await assertParity(.x4)
+    }
+
+    func testX5ErroredTasksTheRunIgnores() async throws {
+        try await assertParity(.x5)
+    }
+
+    func testX6CancelOnceTheEngineStarted() async throws {
+        try await assertParity(.x6)
+    }
+
+    func testX7ForceRebuildAfterTheCleanup() async throws {
+        try await assertParity(.x7)
+    }
+
+    func testX8PlainOutputOfTwoSamplesOnSideB() async throws {
+        try await assertParity(.x8)
+    }
+
     // MARK: - One case
 
     /// Runs `parityCase` on its own stand-in engine through TaxTriageParityHarness, which a live
@@ -96,20 +118,29 @@ final class TaxTriageCLIGUIParityReplayTests: XCTestCase {
     func assertParity(_ parityCase: TaxTriageParityCase) async throws {
         let caseRoot = scratch.appendingPathComponent(parityCase.rawValue, isDirectory: true)
         try? FileManager.default.removeItem(at: caseRoot)
-        let engine = try makeStandInEngine(in: caseRoot)
+        let engine = try makeStandInEngine(in: caseRoot, for: parityCase)
         try await TaxTriageParityHarness(testCase: self, cliBinary: cliBinary)
             .assertParity(parityCase, engine: engine, caseRoot: caseRoot)
     }
 
-    /// The case's stand-in engine in `caseRoot`, with an empty Kraken2 database folder beside it,
-    /// which the pipeline checks and the stand-in never reads. Both sides run on it one after the
-    /// other, so the launches it numbers by counting a folder never collide (2.8 row 249). A
-    /// teardown block stops any stand-in process the case left (QA checklist 2).
-    private func makeStandInEngine(in caseRoot: URL) throws -> TaxTriageParityEngine {
+    /// The case's stand-in engine in `caseRoot`, with the case's behaviour and an empty Kraken2
+    /// database folder beside it, which the pipeline checks and the stand-in never reads. Both
+    /// sides run on it one after the other, so the launches it numbers by counting a folder never
+    /// collide (2.8 row 249). A teardown block stops any stand-in process the case left (QA
+    /// checklist 2), and a waiting launch gives up after 60 seconds, which bounds a cancel that
+    /// never arrives.
+    private func makeStandInEngine(in caseRoot: URL, for parityCase: TaxTriageParityCase) throws -> TaxTriageParityEngine {
         let database = caseRoot.appendingPathComponent("kraken2-db", isDirectory: true)
         try FileManager.default.createDirectory(at: database, withIntermediateDirectories: true)
-        let engine = try TaxTriageStandInEngine(root: caseRoot.appendingPathComponent("engine", isDirectory: true))
+        let engine = try TaxTriageStandInEngine(
+            root: caseRoot.appendingPathComponent("engine", isDirectory: true),
+            behaviour: parityCase.behaviour,
+            maximumWait: .seconds(60)
+        )
         addTeardownBlock { await engine.stopLeftoverProcesses() }
+        if !parityCase.organismReportsHaveRows {
+            try Self.emptyOrganismReport(of: engine)
+        }
         return .standIn(engine, databasePath: database)
     }
 }

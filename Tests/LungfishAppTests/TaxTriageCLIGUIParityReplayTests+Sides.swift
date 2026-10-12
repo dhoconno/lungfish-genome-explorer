@@ -28,18 +28,40 @@ enum TaxTriageParityCase: String, CaseIterable, Sendable {
     case x2 = "X2"
     /// Two samples in one launch request, copies of the pair and the negative control in one folder.
     case x3 = "X3"
+    /// X3's two samples, of which the negative control fails.
+    case x4 = "X4"
+    /// The pair as one sample, whose run ignores one errored task.
+    case x5 = "X5"
+    /// The pair as one sample, cancelled once the engine has started.
+    case x6 = "X6"
+    /// The pair as one sample whose organism report lists nothing, rebuilt with `--force` after
+    /// the cleanup.
+    case x7 = "X7"
+    /// A plain `--output` of two samples, the merge bundle and the negative control, on side B
+    /// only.
+    case x8 = "X8"
 
     /// The folder of the two bundles a request of two samples names, relative to the project. It
-    /// holds copies of the fixture's pair and negative control and nothing else, so a folder
-    /// `--input` names exactly the two samples.
+    /// holds copies of the case's two bundles and nothing else, so a folder `--input` names
+    /// exactly the two samples.
     static let twoSampleFolder = "Imports/two-samples"
+
+    /// The bundles copied into `twoSampleFolder` for a request of two samples, as the project
+    /// holds them.
+    var folderSources: [String] {
+        switch self {
+        case .x3, .x4: return [ClassifierParityFixtures.negativeControlBundlePath, ClassifierParityFixtures.pairBundlePath]
+        case .x8: return [ClassifierParityFixtures.mergeBundlePath, ClassifierParityFixtures.negativeControlBundlePath]
+        case .x1, .x2, .x5, .x6, .x7: return []
+        }
+    }
 
     /// The bundles the request names, relative to the project.
     var bundlePaths: [String] {
         switch self {
         case .x1: return [ClassifierParityFixtures.subsetBundlePath]
-        case .x2: return [ClassifierParityFixtures.pairBundlePath]
-        case .x3: return ["negative-control", "sarscov2-pair"].map { "\(Self.twoSampleFolder)/\($0).lungfishfastq" }
+        case .x2, .x5, .x6, .x7: return [ClassifierParityFixtures.pairBundlePath]
+        case .x3, .x4, .x8: return folderSources.map { "\(Self.twoSampleFolder)/\(($0 as NSString).lastPathComponent)" }
         }
     }
 
@@ -61,7 +83,7 @@ enum TaxTriageParityCase: String, CaseIterable, Sendable {
         guard isBatch else { return project }
         let folder = project.appendingPathComponent(Self.twoSampleFolder, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        for source in [ClassifierParityFixtures.negativeControlBundlePath, ClassifierParityFixtures.pairBundlePath] {
+        for source in folderSources {
             let bundle = project.appendingPathComponent(source, isDirectory: true)
             try FileManager.default.copyItem(at: bundle, to: folder.appendingPathComponent(bundle.lastPathComponent, isDirectory: true))
         }
@@ -139,6 +161,9 @@ struct TaxTriageParitySampleFacts: Sendable {
             return .init(sampleID: "sarscov2-pair", records: [ClassifierParityFixtures.rootReads, ClassifierParityFixtures.rootReads])
         case "negative-control.lungfishfastq":
             return .init(sampleID: "negative-control", records: [40])
+        case "merge.lungfishfastq":
+            // 77 merged reads and 23 unmerged pairs.
+            return .init(sampleID: "merge", records: [123])
         default:
             // The virtual subset holds 55 reads, its preview 10 and its root 100.
             return .init(sampleID: "len-150-any-00000000", records: [ClassifierParityFixtures.subsetReads])
@@ -295,6 +320,16 @@ struct TaxTriageParitySideRun {
     let row: TaxTriageParityRow?
     /// The stand-in's launches while the side ran, in launch order.
     let launches: [TaxTriageStandInEngine.Launch]
+    /// X7's `--force` rebuild after the run, nil for the other cases.
+    var rebuild: TaxTriageParityRebuild?
+
+    /// A side the case does not run, for `reason`.
+    static func notRun(_ side: TaxTriageParitySide, root: URL, reason: String) -> TaxTriageParitySideRun {
+        TaxTriageParitySideRun(
+            side: side, root: root, analysisPath: nil, recordedCommand: nil, replayedCommands: [],
+            terminal: .notRun(reason), row: nil, launches: []
+        )
+    }
 
     var project: URL { root.appendingPathComponent(ClassifierParityFixtures.projectName, isDirectory: true) }
 
@@ -344,6 +379,12 @@ extension TaxTriageParityHarness {
         )
         let rowID = started.id
         let firstDetail = started.detail
+        if parityCase.cancelsOnceTheEngineStarts {
+            // The Operations panel's Cancel, once the engine runs (QA inventory 2.2, X6).
+            let launch = await engine.standIn?.waitForLaunch(launchesBefore, timeout: engine.processWait)
+            XCTAssertNotNil(launch, "\(parityCase.rawValue): side \(side)'s engine never started")
+            OperationCenter.shared.cancel(id: rowID)
+        }
         let finished = await waitUntil(timeout: engine.processWait, pollInterval: .milliseconds(100)) {
             OperationCenter.shared.items.first { $0.id == rowID }.map { !$0.state.isActive } ?? true
         }
@@ -365,10 +406,11 @@ extension TaxTriageParityHarness {
         )
 
         let folders = Self.visibleFolders(in: project.appendingPathComponent("Analyses", isDirectory: true))
-        // A completed run keeps one folder.
+        // A completed run keeps one folder, and so does a cancelled one, with its cancelled record
+        // (TaxTriagePipelineCancelReplayTests, 2.8 S1).
         XCTAssertEqual(
             folders.count,
-            item.state == .completed ? 1 : 0,
+            item.state == .completed || item.state == .cancelled ? 1 : 0,
             "\(parityCase.rawValue): side \(side), \(item.displayStateLabel), left \(folders) in Analyses"
         )
         return TaxTriageParitySideRun(
@@ -415,7 +457,11 @@ extension TaxTriageParityHarness {
                         argv: [cliBinary.path] + arguments
                     ))
                 }
-                terminal = await Self.replayTerminal(of: script, engine: engine)
+                if parityCase.cancelsOnceTheEngineStarts {
+                    terminal = await Self.replayTerminalCancelledBySIGTERM(of: script, engine: engine, launchesBefore: launchesBefore)
+                } else {
+                    terminal = await Self.replayTerminal(of: script, engine: engine)
+                }
             } else {
                 terminal = .notRun("side \(gui.side)'s row records no command")
             }
