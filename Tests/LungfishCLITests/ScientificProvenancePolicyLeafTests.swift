@@ -11,12 +11,12 @@ import XCTest
 /// leaf command of `lungfish-cli`, and checks that no leaf holds the entry of another command.
 ///
 /// The leaves come from a walk of `LungfishCLI.configuration`, so a leaf that a lane registers needs
-/// its row in the commit that adds it, with no wait for a golden recapture (2.7 row 435). A leaf is
-/// a command that no other command extends. The golden help index,
-/// `Tests/Fixtures/golden/cli-help/index.tsv`, lists every command path the executable registers,
-/// hidden commands included, and `testTheHelpIndexListsExactlyTheRegisteredLeaves` holds the walk to
-/// it. The table holds the id of the entry each leaf resolves to, or nil when it resolves to none.
-/// A new CLI leaf needs a row, and the failure message prints it.
+/// its row in the commit that adds it (2.7 row 435). A leaf is a command that no other command
+/// extends. The golden help index, `Tests/Fixtures/golden/cli-help/index.tsv`, lists every command
+/// path the executable registers, hidden commands included, and
+/// `testTheHelpIndexListsExactlyTheRegisteredLeaves` holds the walk to it, so that test fails until
+/// the golden is recaptured. The table holds the id of the entry each leaf resolves to, or nil when
+/// it resolves to none. A new CLI leaf needs a row, and the failure message prints it.
 ///
 /// The lookup takes the exact row of the path, else the row of its longest registered prefix, else
 /// the entry of the command group that starts the path (plan decision E16). It never takes the
