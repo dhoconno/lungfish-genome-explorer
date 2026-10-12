@@ -29,9 +29,11 @@ final class TaxTriageExportFallbackTests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// The keys a one-sample TaxTriage record holds among its resolved defaults when its sample has a plan.
+    /// The keys a one-sample TaxTriage record holds among its resolved defaults when its sample has a plan. Moved by
+    /// A2 M3 (B12 ruling H1): `sample_count` is one too, because LGE counts the samplesheet rows itself.
     private static let resolvedKeys: Set<String> = [
         "classifiers", "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes", RecordedReadSetPlan.key,
+        "sample_count",
     ]
 
     /// A Kraken 2 database folder with its three core files, which the stand-in never reads.
