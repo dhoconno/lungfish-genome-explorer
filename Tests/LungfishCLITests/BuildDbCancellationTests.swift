@@ -255,6 +255,30 @@ final class BuildDbCancellationTests: XCTestCase {
         XCTAssertEqual(try Self.topLevelFiles(of: result), earlier, "The cancelled rebuild changed what the first build published")
     }
 
+    /// The read count pass catches the failure of each samtools call and goes on to the next BAM. The markdup
+    /// of a BAM after a cancel checks for it before it hashes the BAM, so the pass hashes no BAM after a cancel.
+    func testMarkdupAfterACancelHashesNoBAM() async throws {
+        let scratch = try ImportStreamCapture.Scratch()
+        defer { scratch.remove() }
+        // A BAM that the hash cannot open, so a markdup that hashes it throws descriptorUnavailable.
+        let bam = scratch.root.appendingPathComponent("sample.bam")
+        try Data("BAM".utf8).write(to: bam)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: bam.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: bam.path) }
+
+        let task = Task { () async throws -> Void in
+            while !Task.isCancelled { await Task.yield() }
+            let tracker = BuildDbSamtoolsProvenanceTracker(
+                samtoolsPath: "/usr/bin/false", collector: BuildDbSamtoolsProvenanceCollector()
+            )
+            _ = try await tracker.markdup(bamURL: bam)
+        }
+        task.cancel()
+        let outcome = await task.result
+
+        Self.assertCancelled(outcome, "The markdup of a BAM after a cancel")
+    }
+
     // MARK: Running a core under a cancel
 
     private static func options(force: Bool = false, noCleanup: Bool = false) throws -> BuildDbRunOptions {

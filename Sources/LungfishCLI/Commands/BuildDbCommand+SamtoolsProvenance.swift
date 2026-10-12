@@ -85,6 +85,9 @@ final class BuildDbSamtoolsProvenanceTracker {
         threads: Int = 4,
         force: Bool = false
     ) async throws -> MarkdupResult {
+        // The read count pass catches the failure of each samtools call and goes on to the next BAM, so a
+        // markdup after a cancel stops here, before the header probe and the hash of the BAM below (2.7 E5).
+        try Task.checkCancellation()
         let markdupClock = ProvenanceRunClock()
         let fm = FileManager.default
 
