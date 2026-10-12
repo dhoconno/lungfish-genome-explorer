@@ -11,9 +11,9 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 |---|---|---|---|---|---|---|
 | Lungfish | executable | Sources/Lungfish | 1 | 93 | 0 | LungfishApp |
 | LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 9 | 2858 | 18 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishApp | library | Sources/LungfishApp | 583 | 219943 | 180 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
+| LungfishApp | library | Sources/LungfishApp | 584 | 220000 | 180 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 7 | 1994 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishCLI | library | Sources/LungfishCLI | 237 | 63682 | 3 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishCLI | library | Sources/LungfishCLI | 238 | 63904 | 3 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
 | LungfishCore | library | Sources/LungfishCore | 164 | 44797 | 325 | none |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | 5588 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -26,7 +26,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 6 | 2473 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 8 | 8359 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 14 | 3548 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 792 | 237165 | 1419 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 796 | 237979 | 1419 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 4 | 399 | 2 | LungfishKit, LungfishTestSupport |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 56 | 12025 | 55 | LungfishCore, LungfishIO, LungfishWorkflow |
 
@@ -35,24 +35,24 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | Test target | Path | Swift files | Lines | Internal dependencies |
 |---|---|---|---|---|
 | LungfishAlignmentUITests | Tests/LungfishAlignmentUITests | 9 | 1562 | LungfishAlignmentUI, LungfishIO, LungfishKit, LungfishTestSupport |
-| LungfishAppTests | Tests/LungfishAppTests | 703 | 190288 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
+| LungfishAppTests | Tests/LungfishAppTests | 708 | 191496 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppViewTests | Tests/LungfishAppViewTests | 38 | 20058 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppWorkflowTests | Tests/LungfishAppWorkflowTests | 7 | 6070 | LungfishApp, LungfishKitTestSupport, LungfishTestSupport, LungfishWorkflow |
 | LungfishAssemblyUITests | Tests/LungfishAssemblyUITests | 4 | 1394 | LungfishAssemblyUI, LungfishKit |
-| LungfishCLITests | Tests/LungfishCLITests | 228 | 65632 | LungfishCLI, LungfishIO, LungfishTestSupport |
+| LungfishCLITests | Tests/LungfishCLITests | 229 | 65908 | LungfishCLI, LungfishIO, LungfishTestSupport |
 | LungfishCoreTests | Tests/LungfishCoreTests | 119 | 37090 | LungfishCore, LungfishTestSupport |
 | LungfishEsVirituUITests | Tests/LungfishEsVirituUITests | 4 | 1717 | LungfishEsVirituUI, LungfishKit, LungfishTestSupport |
 | LungfishGenotypeUITests | Tests/LungfishGenotypeUITests | 85 | 58369 | LungfishGenotypeUI, LungfishKit, LungfishTestSupport |
 | LungfishIOTests | Tests/LungfishIOTests | 196 | 71167 | LungfishIO, LungfishTestSupport |
 | LungfishIntegrationTests | Tests/LungfishIntegrationTests | 31 | 11086 | LungfishApp, LungfishCLI, LungfishCore, LungfishIO, LungfishTestSupport, LungfishWorkflow |
-| LungfishKitTests | Tests/LungfishKitTests | 42 | 7795 | LungfishCore, LungfishKit, LungfishKitTestSupport, LungfishTestSupport |
+| LungfishKitTests | Tests/LungfishKitTests | 42 | 7824 | LungfishCore, LungfishKit, LungfishKitTestSupport, LungfishTestSupport |
 | LungfishNaoMgsUITests | Tests/LungfishNaoMgsUITests | 2 | 1629 | LungfishKit, LungfishNaoMgsUI, LungfishTestSupport |
 | LungfishNvdUITests | Tests/LungfishNvdUITests | 3 | 1466 | LungfishKit, LungfishNvdUI, LungfishTestSupport |
 | LungfishOperationsTests | Tests/LungfishOperationsTests | 31 | 5813 | LungfishCore, LungfishIO, LungfishOperations, LungfishTestSupport, LungfishWorkflow |
 | LungfishPhylogeneticsUITests | Tests/LungfishPhylogeneticsUITests | 4 | 1114 | LungfishIO, LungfishKit, LungfishPhylogeneticsUI, LungfishTestSupport, LungfishWorkflow |
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 10 | 3210 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 12 | 2569 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
-| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 531 | 198110 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
+| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 535 | 199167 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 
 ## Lungfish
 
@@ -109,7 +109,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishApp
-- Swift files. 583, lines 219943
+- Swift files. 584, lines 220000
 - Depends on. LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow
 - External products. none
 - Used by. Lungfish
@@ -119,8 +119,8 @@ None.
 
 | Subdirectory | Swift files | Lines |
 |---|---|---|
-| App | 78 | 22465 |
-| Services | 76 | 20147 |
+| App | 79 | 22518 |
+| Services | 76 | 20151 |
 | StateManagement | 7 | 595 |
 | Support | 2 | 94 |
 | UITestSupport | 4 | 487 |
@@ -361,7 +361,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishCLI
-- Swift files. 237, lines 63682
+- Swift files. 238, lines 63904
 - Depends on. LungfishCore, LungfishIO, LungfishWorkflow
 - External products. ArgumentParser (swift-argument-parser)
 - Used by. LungfishCLIExecutable
@@ -371,7 +371,7 @@ None.
 
 | Subdirectory | Swift files | Lines |
 |---|---|---|
-| Commands | 220 | 59735 |
+| Commands | 221 | 59957 |
 | Options | 2 | 487 |
 | Output | 2 | 554 |
 | Support | 12 | 2596 |
@@ -1850,7 +1850,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 792, lines 237165
+- Swift files. 796, lines 237979
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1861,7 +1861,7 @@ None.
 | Subdirectory | Swift files | Lines |
 |---|---|---|
 | Alignment | 20 | 7033 |
-| AnalysisRun | 15 | 2017 |
+| AnalysisRun | 15 | 2081 |
 | Annotation | 1 | 88 |
 | ApplicationExports | 3 | 1207 |
 | Assembly | 21 | 5816 |
@@ -1881,7 +1881,7 @@ None.
 | Ingestion | 30 | 10080 |
 | MSA | 14 | 2641 |
 | Mapping | 27 | 9665 |
-| Metagenomics | 66 | 23837 |
+| Metagenomics | 66 | 23836 |
 | Metagenomics/CzId | 3 | 909 |
 | Native | 10 | 4085 |
 | Nextflow | 13 | 2037 |
@@ -1891,7 +1891,7 @@ None.
 | PrimerAnalysis | 10 | 3231 |
 | PrimerDesign | 37 | 10178 |
 | Primers | 8 | 1962 |
-| Provenance | 69 | 16929 |
+| Provenance | 69 | 16931 |
 | ReadPairing | 14 | 1917 |
 | ReadPairing/Capabilities | 6 | 207 |
 | Recipes | 12 | 2533 |
@@ -1901,7 +1901,7 @@ None.
 | SequenceAnnotation | 1 | 1311 |
 | SequenceProcessing | 1 | 239 |
 | Storage | 18 | 9628 |
-| TaxTriage | 10 | 4204 |
+| TaxTriage | 14 | 4953 |
 | ToolReference | 2 | 473 |
 | TwelveS | 15 | 4993 |
 | Variants | 32 | 7402 |
@@ -2015,7 +2015,7 @@ None.
 - `AmpliconGenotypingPreset` typealias, `Sources/LungfishWorkflow/ONTGenotyping/MCMHaplotypingPreset.swift:249`
 - `AmpliconGenotypingReadType` enum, `Sources/LungfishWorkflow/ONTGenotyping/AmpliconGenotypingMode.swift:41`
 - `AnalysisManifestSourceRecord` struct, `Sources/LungfishWorkflow/AnalysisRun/AnalysisSourceRecord.swift:45`
-- `AnalysisResultIndex` struct, `Sources/LungfishWorkflow/AnalysisRun/AnalysisResultIndexing.swift:45`
+- `AnalysisResultIndex` struct, `Sources/LungfishWorkflow/AnalysisRun/AnalysisResultIndexing.swift:51`
 - `AnalysisResultIndexing` protocol, `Sources/LungfishWorkflow/AnalysisRun/AnalysisResultIndexing.swift:13`
 - `AnalysisResultIndexRequest` struct, `Sources/LungfishWorkflow/AnalysisRun/AnalysisResultIndexing.swift:18`
 - `AnalysisRootRecordOptions` struct, `Sources/LungfishWorkflow/AnalysisRun/AnalysisRunRequest.swift:108`
@@ -2027,8 +2027,8 @@ None.
 - `AnalysisRunExitCoding` protocol, `Sources/LungfishWorkflow/AnalysisRun/AnalysisRunReport.swift:75`
 - `AnalysisRunFinalization` struct, `Sources/LungfishWorkflow/AnalysisRun/AnalysisRunFinalization.swift:8`
 - `AnalysisRunFinalizeContext` struct, `Sources/LungfishWorkflow/AnalysisRun/AnalysisRunContexts.swift:131`
-- `AnalysisRunIdentity` struct, `Sources/LungfishWorkflow/AnalysisRun/AnalysisRunTool.swift:81`
-- `AnalysisRunLayout` enum, `Sources/LungfishWorkflow/AnalysisRun/AnalysisRunTool.swift:100`
+- `AnalysisRunIdentity` struct, `Sources/LungfishWorkflow/AnalysisRun/AnalysisRunTool.swift:90`
+- `AnalysisRunLayout` enum, `Sources/LungfishWorkflow/AnalysisRun/AnalysisRunTool.swift:109`
 - `AnalysisRunOutput` struct, `Sources/LungfishWorkflow/AnalysisRun/AnalysisRunRequest.swift:188`
 - `AnalysisRunPlan` struct, `Sources/LungfishWorkflow/AnalysisRun/AnalysisRunRequest.swift:61`
 - `AnalysisRunPlannedUnit` struct, `Sources/LungfishWorkflow/AnalysisRun/AnalysisRunRequest.swift:85`
@@ -2841,7 +2841,7 @@ None.
 - `PreparedAlignmentAttachmentService` actor, `Sources/LungfishWorkflow/Alignment/PreparedAlignmentAttachmentService.swift:152`
 - `PreparedMetagenomicsDatabaseInstallation` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstaller.swift:434`
 - `PreparedReferenceSource` struct, `Sources/LungfishWorkflow/Bundles/ReferenceSourcePreparer.swift:49`
-- `PrerequisiteStatus` struct, `Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift:1508`
+- `PrerequisiteStatus` struct, `Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift:1562`
 - `PrimalScheme3AlleleLabelMap` struct, `Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3AlleleLabelMap.swift:4`
 - `PrimalScheme3AlleleOptions` struct, `Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3AlleleOptions.swift:29`
 - `PrimalScheme3CoverageMetric` enum, `Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3CoverageMetric.swift:6`
@@ -3189,7 +3189,7 @@ None.
 - `TaxonomyExtractionPipeline` actor, `Sources/LungfishWorkflow/Metagenomics/TaxonomyExtractionPipeline.swift:65`
 - `TaxTriageBatchManifest` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:145`
 - `TaxTriageConfig` struct, `Sources/LungfishWorkflow/TaxTriage/TaxTriageConfig.swift:45`
-- `TaxTriageConfigError` enum, `Sources/LungfishWorkflow/TaxTriage/TaxTriageConfig.swift:601`
+- `TaxTriageConfigError` enum, `Sources/LungfishWorkflow/TaxTriage/TaxTriageConfig.swift:515`
 - `TaxTriageCrossRef` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:110`
 - `TaxTriageIgnoredFailure` struct, `Sources/LungfishWorkflow/TaxTriage/TaxTriageResult.swift:16`
 - `TaxTriageImportResult` struct, `Sources/LungfishWorkflow/Metagenomics/TaxTriageImportResult.swift:12`
@@ -3197,7 +3197,7 @@ None.
 - `TaxTriagePipelineError` enum, `Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift:15`
 - `TaxTriageReadSetPlanner` enum, `Sources/LungfishWorkflow/TaxTriage/TaxTriageReadSetPlanner.swift:14`
 - `TaxTriageResult` struct, `Sources/LungfishWorkflow/TaxTriage/TaxTriageResult.swift:101`
-- `TaxTriageSample` struct, `Sources/LungfishWorkflow/TaxTriage/TaxTriageConfig.swift:483`
+- `TaxTriageSample` struct, `Sources/LungfishWorkflow/TaxTriage/TaxTriageConfig.swift:397`
 - `TaxTriageSampleFailure` struct, `Sources/LungfishWorkflow/TaxTriage/TaxTriageResult.swift:64`
 - `TaxTriageSerialBatchError` enum, `Sources/LungfishWorkflow/TaxTriage/TaxTriageSerialBatchRunner.swift:8`
 - `TaxTriageSerialBatchRunner` struct, `Sources/LungfishWorkflow/TaxTriage/TaxTriageSerialBatchRunner.swift:20`
