@@ -122,21 +122,23 @@ extension ToolProcessRunObservation {
     ///
     /// The limits are four bytes per character over the 2,048 and 8,192
     /// characters of ``ProvenanceStderr``, so a large capture never sits in
-    /// an observation buffer, and a character cut at the edge of ``head`` or
-    /// ``tail`` never reaches the record.
+    /// an observation buffer.
     ///
-    /// A recorder builds the stderr that a record keeps from the decoded
-    /// bytes in one of two ways. When ``omittedByteCount`` is 0, it applies
-    /// ``ProvenanceStderr/truncated(_:)`` to the decoded ``head``, which holds
-    /// the whole capture. Otherwise it joins the first
-    /// ``ProvenanceStderr/headLength`` characters of the decoded ``head``,
-    /// ``ProvenanceStderr/truncationMarker`` and the last
-    /// ``ProvenanceStderr/tailLength`` characters of the decoded ``tail``.
-    /// It does not apply `truncated(_:)` to the joined head and tail, because
-    /// for a capture of four-byte characters alone they hold exactly
-    /// ``ProvenanceStderr/maxLength`` characters, which `truncated(_:)` keeps
-    /// whole and without the marker. The result matches what the whole capture
-    /// gives, except for a grapheme cluster longer than four bytes.
+    /// No recorder keeps an excerpt yet. A recorder first leaves out the first
+    /// line of the decoded ``head`` when ``earlierBytesDropped`` is true,
+    /// because that line lost its start. When ``omittedByteCount`` is 0 the
+    /// decoded ``head`` then holds the rest of the capture, and the recorder
+    /// applies ``ProvenanceStderr/truncated(_:)`` to it. Otherwise it never
+    /// joins characters of ``head`` and ``tail`` and never applies
+    /// `truncated(_:)` to their join, because the cut keeps whole lines only
+    /// and keeps nothing of a window that holds no line break (Phase 2.8,
+    /// decision P4), so a join can keep a fragment of a path. It cuts the
+    /// decoded ``head`` by the head rule and the decoded ``tail`` by the tail
+    /// rule, each on its own. For a capture of four-byte characters the excerpt
+    /// lacks the character after the head window and the one before the tail
+    /// window, which the cut also reads, so the recorder counts such an edge as
+    /// no line break and keeps one line less. ``ProvenanceStderr`` has no public
+    /// entry point for one side yet, and the first recorder adds it.
     public struct StderrExcerpt: Sendable, Equatable {
         /// Bytes kept from the start of the capture.
         public static let headByteLimit = ProvenanceStderr.headLength * 4
