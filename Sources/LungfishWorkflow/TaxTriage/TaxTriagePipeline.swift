@@ -424,7 +424,8 @@ public actor TaxTriagePipeline {
         // published results still land in the project.
         // The scratch goes only once the run's record is written, a cancelled one too (N5, N7).
         let scratch = try engine.makeScratch(contextURL: effectiveConfig.outputDirectory)
-        defer { engine.finish(scratch, .remove) }
+        // N5, N7. The executor writes a cancelled launch's record after this body returns.
+        defer { engine.finish(scratch, recording.scratchDisposition(cancelled: Task.isCancelled)) }
 
         // A16. The descriptor orders the argv, today's bytes without --skip_plots (A16 M2 ruling). A
         // given --revision launches the pin's repository at that revision, and LGE's snapshot of the
@@ -728,7 +729,9 @@ public actor TaxTriagePipeline {
     /// Records the cancel of a run and throws `CancellationError` (2.7 E5). The status and the
     /// exit status 125 come from the cancel request, never from how the engine ended, and the
     /// step names no output, so nothing partial is hashed. The engine tree is gone by now, so the
-    /// run's deferred cleanup, the launch scratch among it, runs only after this (T13).
+    /// run's deferred cleanup, the launch scratch among it, runs only after this (T13). On the
+    /// executor route the record is the root record, which the executor writes after the unit
+    /// returns, so the scratch stays for the sweep (N7).
     private func recordCancellation(
         runID: UUID,
         recording: TaxTriageRecording,

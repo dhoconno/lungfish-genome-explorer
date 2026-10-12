@@ -26,6 +26,15 @@ package enum TaxTriageRecording: Sendable {
         if case .pipelineSave = self { return nil }
         return config.samples.count == 1 ? config.samples[0].sampleId : nil
     }
+
+    /// How a launch that ends now leaves its engine scratch (N7, `NextflowEngineProcess.finish`). A
+    /// cancelled executor launch leaves it for the abandoned-scratch sweep, because its cancelled record
+    /// is the root record, which the executor writes after the unit returns (N5). The app's route and
+    /// every launch that was not cancelled remove it.
+    func scratchDisposition(cancelled: Bool) -> NextflowScratchDisposition {
+        if case .pipelineSave = self { return .remove }
+        return cancelled ? .leaveForSweep : .remove
+    }
 }
 
 extension TaxTriagePipeline {
