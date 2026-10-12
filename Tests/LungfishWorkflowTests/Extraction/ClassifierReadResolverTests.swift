@@ -6,6 +6,7 @@ import XCTest
 import SQLite3
 @testable import LungfishWorkflow
 import LungfishIO
+import LungfishCore
 import LungfishTestSupport
 
 final class ClassifierReadResolverTests: XCTestCase {
@@ -436,6 +437,33 @@ final class ClassifierReadResolverTests: XCTestCase {
         assertSameFile(try await resolveEsVirituBAM("S1", resultPath: resultPath), bam)
     }
 
+    /// Every entry under `root`, hidden ones included, with the bytes of each file. A folder maps to empty data.
+    private func resultTreeContents(_ root: URL) throws -> [String: Data] {
+        var contents: [String: Data] = [:]
+        for subpath in try FileManager.default.subpathsOfDirectory(atPath: root.path) {
+            let url = root.appendingPathComponent(subpath)
+            var isDirectory: ObjCBool = false
+            _ = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            contents[subpath] = try isDirectory.boolValue ? Data() : Data(contentsOf: url)
+        }
+        return contents
+    }
+
+    /// UX 6. Resolving reads `esviritu.sqlite` and writes nothing in the result, with no journal, `-wal` or `-shm`
+    /// file and no changed byte, whether the result path names the database or the folder.
+    func testResolveBAMURL_esviritu_oneFolderResult_writesNothingInTheResult() async throws {
+        let recorded = "bams/S1.third.filt.sorted.bam"
+        let (root, resultPath) = try makeEsVirituResult(sampleId: "S1", bamPath: recorded)
+        defer { TestTempDirectory.cleanup(root) }
+        let bam = try writeStandInBAM(recorded, under: root)
+        let before = try resultTreeContents(root)
+
+        assertSameFile(try await resolveEsVirituBAM("S1", resultPath: resultPath), bam)
+        assertSameFile(try await resolveEsVirituBAM("S1", resultPath: root), bam, "a folder result path")
+
+        XCTAssertEqual(try resultTreeContents(root), before)
+    }
+
     /// A batch result records `<sample>/bams/...`, which the layout lookups also reach, so it still resolves.
     func testResolveBAMURL_esviritu_batchResult_usesRecordedBAMPath() async throws {
         let recorded = "S1/bams/S1.third.filt.sorted.bam"
@@ -505,7 +533,10 @@ final class ClassifierReadResolverTests: XCTestCase {
             withDestinationURL: target
         )
 
-        assertSameFile(try await resolveEsVirituBAM("S1", resultPath: resultPath), target)
+        let resolved = try await resolveEsVirituBAM("S1", resultPath: resultPath)
+        assertSameFile(resolved, target)
+        // SWIFT 6. samtools opens the path that was checked, the target's physical path, never the recorded symlink.
+        XCTAssertEqual(resolved.path, CanonicalFilePath.path(for: target))
     }
 
     /// A recorded file that is a symlink to a BAM outside the result root is not read. No layout lookup finds a
