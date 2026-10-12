@@ -428,8 +428,9 @@ extension TaxTriageParityHarness {
     /// Side B. The command side A's row recorded, rebased onto `root`, or for a request whose row
     /// records none the pooled command of the same request (`pooledCommand`), run in this process
     /// with the CLI's pipeline seam bound to the engine, the way docs/contracts/CLI-EQUIVALENCE.md
-    /// replays a command. The replay may take the engine's wait, so a hung replay ends the case
-    /// and not the tier.
+    /// replays a command. Since 2.9 S11 `taxtriage run` runs its pipeline in a task that only a
+    /// SIGTERM cancels, so the engine's wait no longer cuts a hung replay. A stand-in launch that
+    /// waits gives up after the stand-in's maximumWait, which bounds the case.
     func runReplay(
         of gui: TaxTriageParitySideRun,
         _ parityCase: TaxTriageParityCase,
@@ -543,8 +544,9 @@ extension TaxTriageParityHarness {
     }
 
     /// How `script` ends when it runs in this process with the CLI's pipeline seam bound to the
-    /// engine, raced against the engine's wait in a task group. The first to finish wins and the
-    /// other is cancelled. Child tasks inherit the seam's task-local value.
+    /// engine, raced against the engine's wait in a task group. The first to finish gives the end,
+    /// but the group still waits for the replay, because its cancel does not reach the task
+    /// `taxtriage run` starts (2.9 S11). Child tasks inherit the seam's task-local value.
     nonisolated static func replayTerminal(of script: String, engine: TaxTriageParityEngine) async -> TaxTriageParityTerminal {
         let timeout = engine.processWait
         return await TaxTriageCommand.RunSubcommand.$makePipeline.withValue(engine.makePipeline) {

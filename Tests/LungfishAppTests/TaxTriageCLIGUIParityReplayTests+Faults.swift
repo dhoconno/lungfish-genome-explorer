@@ -117,7 +117,9 @@ extension TaxTriageParityHarness {
     /// this process, so once the engine runs the signal goes to this process, where the
     /// command's own handler takes it. SIGTERM is ignored around the replay, so a command that no
     /// longer listens leaves the signal ignored and the case fails on its end, while the test
-    /// process lives on. The engine's wait bounds such a replay.
+    /// process lives on. The stand-in's maximumWait bounds such a replay, not the engine's wait.
+    /// A second SIGTERM while the command listens ends this process (`secondSignalEndsProcess`
+    /// in TaxTriageCommand+Cancellation.swift), so the case sends exactly one.
     nonisolated static func replayTerminalCancelledBySIGTERM(
         of script: String,
         engine: TaxTriageParityEngine,
