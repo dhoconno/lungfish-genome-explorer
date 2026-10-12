@@ -6,15 +6,18 @@
 // memory. This class checks the one fact that class cannot, which is the form in which the real daemon
 // reports the host side of a mount. It runs only when the live switch is on (LUNGFISH_LIVE_NEXTFLOW_ROOT, or
 // LUNGFISH_REQUIRE_TOOLS=1 with LUNGFISH_STORAGE_ROOT) and Docker answers `docker info`. It never starts
-// Docker Desktop, pulls nothing and starts no container. It creates four containers from an image that is
+// Docker Desktop, pulls nothing and starts no container. It creates five containers from an image that is
 // already local, with the mounts a Nextflow task has, and removes the three it keeps by their exact names.
+// One of the five has its task folder in a `taxtriage-run-` folder of the system temporary folder, outside
+// the run's own folder, which is where a real TaxTriage launch puts its Nextflow work (R1,
+// TaxTriagePipeline.swift:1089), and the class names that folder in `engineWorkFolders`.
 
 import Foundation
 import LungfishTestSupport
 import XCTest
 
 final class LiveNextflowTeardownLiveConformanceTests: XCTestCase {
-    func testTeardownRemovesTheContainersOfTheRunAndNoOthersOnTheRealDaemon() throws {
+    func testTeardownRemovesTheContainersOfTheRunAndNoOthersOnTheRealDaemon() async throws {
         let run = try LiveNextflowRun.begin()
         defer { XCTAssertEqual(run.teardown().problems, []) }
         let docker = run.docker
@@ -28,11 +31,17 @@ final class LiveNextflowTeardownLiveConformanceTests: XCTestCase {
         defer { TestTempDirectory.cleanup(otherRun) }
         let otherTaskFolder = otherRun.appendingPathComponent("work/06/2dcb09834cd2b4c58ce632d16d3eba", isDirectory: true)
         let siblingFolder = run.directory.appendingPathComponent("work-other/aa", isDirectory: true)
+        // A TaxTriage launch makes its own work folder in the system temporary folder, outside the run's folder.
+        let engineRun = try TestTempDirectory.make(prefix: "taxtriage-run-\(run.key)")
+        defer { TestTempDirectory.cleanup(engineRun) }
+        let engineWork = engineRun.appendingPathComponent("work", isDirectory: true)
+        let engineTaskFolder = engineWork.appendingPathComponent("06/2dcb09834cd2b4c58ce632d16d3eba", isDirectory: true)
 
         let keptNames = ["\(run.key)-other-run", "\(run.key)-sibling", "\(run.key)-temporary-only"]
-        defer { _ = try? docker.run(["rm", "-f", "-v", "\(run.key)-owned"] + keptNames) }
+        defer { _ = try? docker.run(["rm", "-f", "-v", "\(run.key)-owned", "\(run.key)-engine"] + keptNames) }
 
         let owned = try create("\(run.key)-owned", mounting: [temporary, taskFolder], image: image, docker: docker)
+        let engine = try create("\(run.key)-engine", mounting: [temporary, engineTaskFolder], image: image, docker: docker)
         let other = try create(keptNames[0], mounting: [temporary, otherTaskFolder], image: image, docker: docker)
         let sibling = try create(keptNames[1], mounting: [siblingFolder], image: image, docker: docker)
         let temporaryOnly = try create(keptNames[2], mounting: [temporary], image: image, docker: docker)
@@ -41,12 +50,29 @@ final class LiveNextflowTeardownLiveConformanceTests: XCTestCase {
         print("[live-nextflow] mount sources the daemon reports for the run's container: \(before.flatMap(\.mountSources))")
         XCTAssertEqual(before.map(\.id), [owned], "only the container with a mount inside the run's work folder is the run's")
 
-        let report = run.teardown()
+        // The engine's work folder lies outside the run's folder, so its container is the run's only when
+        // the class names that folder.
+        let named = try run.ownedContainers(engineWorkFolders: [engineWork])
+        let labels = [owned: "owned", engine: "engine"]
+        print("[live-nextflow] containers found with the engine work folder named: "
+            + named.map { "\(labels[$0.id] ?? $0.id) mounts \($0.mountSources)" }.joined(separator: ", "))
+        XCTAssertEqual(Set(named.map(\.id)), [owned, engine], "the engine's task container counts once its folder is named")
+
+        // None of the five containers runs, and a created container is not a running one, so a wait for a
+        // running container of the run fails on the real daemon instead of passing on nothing.
+        do {
+            _ = try await run.waitForOwnedContainers(engineWorkFolders: [engineWork], timeout: 1)
+            XCTFail("a container that was created and never started is not a running container")
+        } catch let error as LiveNextflowError {
+            guard case .misconfigured = error else { return XCTFail("\(error)") }
+        }
+
+        let report = run.teardown(engineWorkFolders: [engineWork])
 
         XCTAssertEqual(report.problems, [])
-        XCTAssertEqual(report.removedContainerIDs, [owned])
+        XCTAssertEqual(Set(report.removedContainerIDs), [owned, engine])
         let present = Set(try docker.containers().map(\.id))
-        XCTAssertFalse(present.contains(owned), "the run's container is gone")
+        XCTAssertTrue(present.isDisjoint(with: [owned, engine]), "the run's containers are gone")
         XCTAssertTrue(present.isSuperset(of: [other, sibling, temporaryOnly]), "no other container was touched")
         XCTAssertFalse(FileManager.default.fileExists(atPath: run.directory.path), "the run's folder is gone")
     }
