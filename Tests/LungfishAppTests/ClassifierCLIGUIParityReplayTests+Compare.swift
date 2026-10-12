@@ -24,8 +24,6 @@
 //   comparison owns, and of a file neither tree holds any more, which the named-file fact of
 //   each side reports. Such a file's bytes can hold the run's own folder, as the header of
 //   EsViritu's BAM does before the BAM moves to bams/, so two runs cannot share its digest.
-//   For side A against side C only, a step's toolVersion is left out when each side holds its
-//   own LGE version there (`withoutOwnLGEVersion`, ruling R1 of Phase 2.8).
 // - The terminal state, in the words of a row. Exit 0 reads Completed, or Completed with Warnings
 //   when a Bracken profile degraded (E4), exit 125 Cancelled and any other end Failed.
 // - When the two runs named their analysis folders differently, as two runs with `--project`
@@ -136,7 +134,7 @@ enum ClassifierParityComparison {
             .filter { !sourceManifests.contains(comparedPath(of: $0)) }
             .compactMap { parse($0, as: "inputs", reference: reference.side, candidate: candidate.side) }
 
-        // The rest of the project. Side A leaves an empty .tmp/ today, which holds no file.
+        // The rest of the project. An empty .tmp/ holds no file, so it does not show.
         let analysisFolders = [reference, candidate].compactMap(\.analysisPath).map {
             String($0.dropFirst(ClassifierParityFixtures.projectName.count + 1)) + "/"
         }
@@ -301,41 +299,14 @@ enum ClassifierParityComparison {
         return paths.sorted()
     }
 
-    /// The facts of one record as a value tree.
-    ///
-    /// A replay runs the command in this process. A record that holds the test process's argv,
-    /// where the shipped binary holds its own (Swift 6 makes `CommandLine.arguments` read only),
-    /// gets the argv of the line that wrote it instead, after both pass through what the writer
-    /// and the reader do to an argv (`PortablePath.sanitize`, `PortablePath.resolve`, then the
-    /// facts' `PathNormalizer`), as an array and in the joined form of `reproducibleCommand`.
-    /// `kraken2 classify` and `esviritu detect` record the command their parsed options spell
-    /// instead (row 424 of the 2.7 plan), so the swap leaves their root records as they are.
+    /// The facts of one record as a value tree. Both sides run the built `lungfish-cli` in its own
+    /// process, so each record holds the binary's argv as it is. Side B, which replayed a command
+    /// in this process and so needed the test runner's argv swapped for the line's, went with the
+    /// in-process route (E14).
     static func factsTree(of run: ClassifierParitySideRun, record relativePath: String) throws -> Value {
         let sidecar = run.root.appendingPathComponent(relativePath)
         let facts = try ProvenanceCompatFacts.project(sidecar: sidecar, projectRoot: run.project)
-        let tree = try JSONDecoder().decode(Value.self, from: JSONEncoder().encode(facts))
-        guard let argv = replayedArgv(of: run, writing: sidecar),
-              let context = PortablePath.Context.forWriting(at: sidecar) else { return tree }
-        let normalize = ProvenanceCompatFacts.PathNormalizer(projectRoot: run.project)
-        func recorded(_ words: [String]) -> (argv: [Value], command: String) {
-            let read = PortablePath.resolve(argv: PortablePath.sanitize(argv: words, context: context), context: context)
-            let command = PortablePath.resolve(
-                text: PortablePath.sanitize(text: words.map(shellEscape).joined(separator: " "), context: context),
-                context: context
-            )
-            return (read.map { .string(normalize($0)) }, normalize(command))
-        }
-        return replacing(recorded(CommandLine.arguments), with: recorded(argv), in: tree)
-    }
-
-    /// The argv of the replayed line whose output folder holds `file`, the longest match.
-    static func replayedArgv(of run: ClassifierParitySideRun, writing file: URL) -> [String]? {
-        let path = file.resolvingSymlinksInPath().standardizedFileURL.path
-        return run.replayedCommands
-            .map { (folder: URL(fileURLWithPath: $0.outputFolder).resolvingSymlinksInPath().standardizedFileURL.path, argv: $0.argv) }
-            .filter { !$0.folder.isEmpty && path.hasPrefix($0.folder + "/") }
-            .max { $0.folder.count < $1.folder.count }?
-            .argv
+        return try JSONDecoder().decode(Value.self, from: JSONEncoder().encode(facts))
     }
 
     static func replacing(
@@ -392,38 +363,6 @@ enum ClassifierParityComparison {
     /// The arrays of a record's steps, whose elements pair by tool name.
     static let stepArrays: Set<String> = ["steps", "legacyRunSteps", "canonicalRunSteps"]
 
-    /// LGE's own version as side A's steps record it, `Lungfish <version> (<build>)` and the
-    /// version alone (`WorkflowRun.currentAppVersion` and `currentAppReleaseVersion`). Side A runs
-    /// the GUI path in this process, so both read the XCTest host's bundle.
-    static let sideALGEVersions = [WorkflowRun.currentAppVersion, WorkflowRun.currentAppReleaseVersion]
-
-    /// The same two shapes on side C, which runs the SwiftPM `lungfish-cli`. Its embedded plist
-    /// holds no version, so it names `LungfishAppVersion.short` and the build `dev`.
-    static let sideCLGEVersions = ["Lungfish \(LungfishAppVersion.short) (dev)", LungfishAppVersion.short]
-
-    /// `step` without its `toolVersion` when the pair is side A against side C and each of the two
-    /// steps holds its own side's LGE version there, in the same shape (ruling R1 of Phase 2.8).
-    /// The two stamps name the process that wrote the record, not the route, so no lane can make
-    /// them agree. The values match exactly, so a third-party tool's version, another LGE version
-    /// or a changed shape still shows, and every other pair compares the key as it is.
-    static func withoutOwnLGEVersion(
-        _ step: Value,
-        beside candidateStep: Value?,
-        reference: ClassifierParitySide,
-        candidate: ClassifierParitySide
-    ) -> Value {
-        guard reference == .a, candidate == .c,
-              case .object(var members) = step,
-              case .object(let candidateMembers)? = candidateStep,
-              case .string(let versionA)? = members["toolVersion"],
-              case .string(let versionC)? = candidateMembers["toolVersion"],
-              zip(sideALGEVersions, sideCLGEVersions).contains(where: { $0.0 == versionA && $0.1 == versionC }) else {
-            return step
-        }
-        members["toolVersion"] = nil
-        return .object(members)
-    }
-
     /// Arrays whose elements are matched by identity rather than by position. A file's identity
     /// is its path with UUIDs masked, so the materialized input of two runs pairs up.
     static func elementKey(forArrayAt path: String) -> ((Value, Int) -> String)? {
@@ -475,11 +414,7 @@ enum ClassifierParityComparison {
             }
             let candidateByKey = Dictionary(keyedElements(candidateItems, key), uniquingKeysWith: { first, _ in first })
             for (elementKey, element) in keyedElements(items, key) {
-                let match = candidateByKey[elementKey]
-                let compared = stepArrays.contains(last)
-                    ? withoutOwnLGEVersion(element, beside: match, reference: context.reference.side, candidate: context.candidate.side)
-                    : element
-                collectMissing(compared, match, path: "\(path)[\(elementKey)]", into: &found, context: context)
+                collectMissing(element, candidateByKey[elementKey], path: "\(path)[\(elementKey)]", into: &found, context: context)
             }
         case (.string(let textA), .string(let textB)) where !sameFact(reference, candidate):
             // Long texts such as a tool's log, shown from the first character that differs

@@ -8,8 +8,7 @@
 // reads), the merge bundle holds 100 fragments as 23 pairs and 77 merged reads with its read-set
 // plan, pairs run as pairs (`--paired`, `-p paired`), and the thresholds and thread count are
 // the ones the wizard chose. Every file a record names in the project exists with the digest
-// the record states. The Operations rows of sides A and C are held to today's labels (UX memo
-// T2, E15).
+// the record states. The Operations row of side C is held to today's labels (UX memo T2, E15).
 
 import Foundation
 import XCTest
@@ -271,9 +270,9 @@ extension ClassifierCLIGUIParityReplayTests {
         }
     }
 
-    // MARK: - Side A's row
+    // MARK: - Side C's row
 
-    /// Today's Operations row, which sides A and C must both show (UX memo T2, E15): its title,
+    /// Today's Operations row, which side C must show (UX memo T2, E15): its title,
     /// first detail, final state, completion detail, alert and log levels, and for a run that
     /// builds the viewer database at its end the detail and the overlay of that build.
     func rowOutcomeViolations(
@@ -339,7 +338,7 @@ extension ClassifierCLIGUIParityReplayTests {
             check("title", row.title, "EsViritu \(first.sampleID)")
             check("first detail", row.firstDetail, "Starting EsViritu viral detection\u{2026}")
             check("state", row.stateLabel, "Completed")
-            // From side A's own detection table, as the Kraken2 detail comes from its kreport,
+            // From the run's own detection table, as the Kraken2 detail comes from its kreport,
             // so a route that reads its result back wrongly cannot pass with today's form. The
             // fixed facts reject a SARS-CoV-2 table that lists no virus.
             let table = run.analysisFolder.map {

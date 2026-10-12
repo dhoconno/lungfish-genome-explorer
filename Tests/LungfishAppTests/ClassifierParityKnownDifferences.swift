@@ -1,17 +1,16 @@
-// ClassifierParityKnownDifferences.swift - Every declared difference between the sides of a classifier parity case
+// ClassifierParityKnownDifferences.swift - Every declared difference of a classifier parity case
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Panel decision T2 in docs/plans/2026-10-11-phase-2-7.md. Side A (today's GUI path) and side B
-// (its recorded command replayed) differ today, and each difference is declared here with its
-// reason, the lane whose change removes it, and how many found differences it matches in each
-// case. ClassifierCLIGUIParityReplayTests fails on a difference no entry declares and on an
-// entry that matches more or fewer differences in a case than its count, so the list only
-// shrinks, one difference at a time, and a new difference cannot hide under an old pattern. A
-// lane that closes a difference lowers the count, or deletes the case or the entry, in the same
-// commit. A against B stays in place until the legacy GUI paths retire in 2.9 (E14). Lane F3
-// added the entries of A against C and the facts sides C and C' do not hold
-// (ClassifierParityKnownDifferences+RouteC.swift). C against C', both ways, declares none.
+// Panel decision T2 in docs/plans/2026-10-11-phase-2-7.md. A fixed fact that sides C and C' do not
+// hold is declared here with its reason, the lane whose change removes it, and how many found
+// differences it matches in each case. ClassifierCLIGUIParityReplayTests fails on a difference no
+// entry declares and on an entry that matches more or fewer differences in a case than its count,
+// so the list only shrinks, one difference at a time, and a new difference cannot hide under an old
+// pattern. A lane that closes a difference lowers the count, or deletes the case or the entry, in
+// the same commit. Sides A and B, the in-process route and its replay, went with the route in
+// Phase 2.9 (E14, QA Q12), and with them the declared differences of A against B and A against C,
+// which were most of this list. C against C', both ways, declares none.
 
 import Foundation
 
@@ -49,154 +48,12 @@ struct ClassifierParityKnownDifference: Sendable {
 }
 
 enum ClassifierParityKnownDifferences {
-    /// A D number names a difference of one of two inventories and always carries its prefix. BIO
-    /// D numbers are the GUI and CLI differences of the BIO inventory, section 1.3. UX D numbers are
-    /// the user-visible differences of the UX inventory, section 1.4.
-    static let all: [ClassifierParityKnownDifference] = layout + kraken2Records + esVirituRecords + facts + namedFiles + routeC
+    /// The fixed facts the command's runs do not hold, on side C and on side C'
+    /// (ClassifierParityKnownDifferences+RouteC.swift).
+    static let all: [ClassifierParityKnownDifference] = commandFacts
 
-    static let retire = "2.9, when the legacy GUI paths retire (E14)"
     /// The run level of the records build-db esviritu writes after its move and markdup.
     static let bamRunLevel = "2.9, the records build-db esviritu writes after its move and markdup, and the batch root written after them, name the BAM and its index at their run level where they are and with their final digests (B3 review fix 1)"
-    /// One difference in each sample's record, two in the K3 batch.
-    private static let oneInEachKraken2Record: [ClassifierParityCase: Int] = [.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1]
-
-    private static func pair(
-        _ counts: [ClassifierParityCase: Int], _ id: String, _ reason: String, closedBy: String = retire
-    ) -> ClassifierParityKnownDifference {
-        ClassifierParityKnownDifference(counts: counts, scope: .pair(.a, .b), id: id, reason: reason, closedBy: closedBy)
-    }
-
-    // MARK: Folders
-
-    private static let layout: [ClassifierParityKnownDifference] = [
-        pair([.k3: 1], "analysis: only in A: analysis-metadata.json",
-             "The GUI's batch root. The row's command runs each sample alone with --output-dir in a folder below the root, which is not directly in Analyses/, so the claim writes no metadata (E1b, E8)"),
-        pair([.e1: 1, .e2: 1], "analysis: only in A: analysis-metadata.json",
-             "AnalysesFolder writes it for the batch folder the GUI creates. The row's command names the sample folder below it with --output, which gets none under E1b"),
-        pair([.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1, .e1: 1, .e2: 1], "source manifest: only in A: *",
-             "Only the GUI records the run in the source bundle's analyses-manifest.json"),
-        pair([.k1: 1, .k3: 1, .k4: 1], "analysis: only in A: *.lungfish-provenance/intermediates/classification-inputs/input-1-materialized-<UUID>.fastq",
-             "BIO D4. The GUI materializes the subset into a scratch folder it deletes, so the pipeline keeps a replay copy"),
-        pair([.k1: 1, .k3: 1, .k4: 1], "analysis: only in B: *.lungfish-classify-inputs/materialized-<UUID>.fastq",
-             "BIO D4. The CLI materializes the subset into the output folder and keeps it"),
-        pair([.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1], "analysis: differs: *classification-result.json",
-             "BIO D12. config.inputFiles names the GUI's deleted scratch file and the CLI's kept file, and the GUI's outputDirectory URL ends in a slash"),
-        pair([.k3: 1, .e1: 1, .e2: 1], "analysis: only in A: .lungfish-provenance.json",
-             "The GUI's batch record at the batch root. The row's command runs each sample alone (E8)"),
-        pair([.k3: 2], "analysis: only in A: classification-batch-*",
-             "The GUI's batch summary and batch manifest, which no per-sample command writes (E8)"),
-        pair([.k3: 2], "analysis: only in A: kraken2.sqlite*",
-             "The GUI builds kraken2.sqlite and its record with build-db after the batch (E6)"),
-        pair([.k3: 6], "analysis: only in A: */classification*.lungfish-provenance.json",
-             "The GUI's batch record writer leaves a record beside each sample output it names"),
-        pair([.e1: 4, .e2: 4], "analysis: only in A: esviritu*",
-             "A single GUI EsViritu run uses the batch layout and writes the batch manifest, the summary, esviritu.sqlite and its record (E2, E6)"),
-        pair([.e1: 4, .e2: 4], "analysis: only in A: */bams/*",
-             "The GUI's build-db esviritu moves the BAM and its index from _temp/ to bams/ and records each move. The row's command is a plain --output run, which builds no index, so side B keeps the BAM in _temp/ (E2)",
-             closedBy: retire),
-        pair([.e1: 2, .e2: 2], "analysis: only in B: */*_temp/*.third.filt.sorted.bam*",
-             "The same BAM where the CLI leaves it, in _temp/. The row's command is a plain --output run, which builds no index, so side B keeps the BAM in _temp/ (E2)",
-             closedBy: retire),
-        pair([.e1: 1], "analysis: only in B: */.lungfish-esviritu-inputs/materialized-<UUID>.fastq",
-             "BIO D4. The CLI keeps the materialized subset, the GUI deletes its scratch copy"),
-        pair([.e1: 1], "analysis: differs: */*.fastp.json",
-             "BIO D4. fastp's command names the GUI's scratch input and the CLI's kept input"),
-        pair([.e1: 1, .e2: 1], "analysis: differs: */esviritu-result.json",
-             "The GUI's outputDirectory URL ends in a slash, and for the subset config.inputFiles names the GUI's deleted scratch file (BIO D12)"),
-        pair([.e3: 1], "command: B has no command to run",
-             "cli-parity-gap esviritu-batch. The EsViritu batch row records no command, so nothing replays the batch (E8). Side C' replays the new route's batch command"),
-    ]
-
-    // MARK: Records
-
-    // Side A stays the legacy GUI path until 2.9 (T2) and A8 and A9 change side B only, so a
-    // record fact closes in A8 or A9 only when the CLI record gains it. A difference that comes
-    // from the GUI record's legacy shape closes when that path retires.
-
-    private static func kraken2Record(
-        _ fact: String, _ counts: [ClassifierParityCase: Int], _ reason: String, closedBy: String = retire
-    ) -> ClassifierParityKnownDifference {
-        pair(counts, "record Project.lungfish/Analyses/*/.lungfish-provenance.json: \(fact)", reason, closedBy: closedBy)
-    }
-
-    private static let kraken2Records: [ClassifierParityKnownDifference] = [
-        kraken2Record("workflowName", oneInEachKraken2Record, "The pipeline's record (Metagenomics Classification or Profiling) against the lungfish.classify record the CLI writes in its place (BIO inventory 1.1). E15 keeps lungfish.classify on the CLI side"),
-        kraken2Record("toolName", oneInEachKraken2Record, "The GUI record takes its run-level tool from its first step, the replay copy, the single-read mate staging or kraken2, and the CLI root record names lungfish-cli (A8)"),
-        kraken2Record("toolVersion", oneInEachKraken2Record, "As toolName, the version of that first step against the LGE version of lungfish-cli"),
-        kraken2Record("argv", oneInEachKraken2Record, "The GUI record's argv is its first step's, the copy or staging script, or kraken2's own for a plain file. The CLI root record's argv is the command that ran, which an in-process replay spells from its parsed options (E11, row 424 of the 2.7 plan)"),
-        kraken2Record("reproducibleCommand", oneInEachKraken2Record, "As argv"),
-        kraken2Record("durableReplayArgv", [.k5: 1, .k6: 1], "The GUI record of a plain file holds kraken2's command as its replay argv. The CLI root record names none, because the command it ran replays the run"),
-        // Lane Q3 of 2.8 (row 424 of the 2.7 plan) lowered the next two counts by five a record,
-        // from 16, 20, 39, 19, 19 and 19 to 11, 15, 29, 14, 14 and 14 (K3 holds two records, 14 and 15).
-        // Side B replays side A's command in this process, and a command run there now records the
-        // command its parsed options spell where it recorded the test runner's argv. Its root record
-        // lists the five options that command gives and side A's record holds too, confidence,
-        // databaseDigest, minimumHitGroups, readFormat and threads, so they no longer differ.
-        // These are the A against C counts as well, except K3's, which is 21 there.
-        kraken2Record("explicitOptions.*", [.k1: 11, .k2: 15, .k3: 29, .k4: 14, .k5: 14, .k6: 14], "The GUI record holds every pipeline option, the database identity and a merge bundle's readSetPlan among them. The CLI root record holds the options its command line gave, which an in-process replay reads from the command its parsed options spell, and keeps the readSetPlan in resolvedDefaults (BIO D6, E13)"),
-        kraken2Record("legacyRunParameters.*", [.k1: 11, .k2: 15, .k3: 29, .k4: 14, .k5: 14, .k6: 14], "As explicitOptions"),
-        kraken2Record("defaultOptions.*", [.k1: 6, .k2: 6, .k3: 12, .k4: 6, .k5: 6, .k6: 6], "The pipeline's defaults (confidence 0, read format unpaired) in the GUI record against the command's one table in the CLI root record (BIO D7, BIO D8, E12)"),
-        kraken2Record("resolvedDefaultOptions.*", [.k1: 5, .k2: 5, .k3: 10, .k4: 5, .k5: 5, .k6: 5], "The CLI root record names no database identity status, core file sizes, effective memory mapping, extra arguments string or minimizer report flag. Its --db-digest names the database through the install receipt instead (E9). The kraken2 step of both records keeps databaseIdentityStatus, databaseCoreFileSizes, databaseDigest and databasePath in its resolvedOptions"),
-        kraken2Record("files[*", [.k1: 4, .k2: 1, .k3: 5, .k4: 4, .k5: 1, .k6: 1], "BIO D4. The GUI record names the scratch input and the replay copy, the CLI record the kept materialized input. Both name the database as a reference, the GUI record with the size of its core files and the CLI record with the install receipt's payload size (E9)"),
-        kraken2Record("outputs[*", [.k1: 1, .k3: 1, .k4: 1], "The GUI record lists the pipeline's replay copy of the materialized input as an output, the CLI record does not (BIO D4)"),
-        kraken2Record("output.*", [.k1: 2, .k2: 2, .k3: 4, .k4: 2, .k5: 2, .k6: 2], "The run's output is classification-result.json in the GUI record and the kreport in the CLI record"),
-        kraken2Record("steps[*", [.k1: 7, .k2: 4, .k3: 11, .k4: 7], "BIO D4. The GUI's copy or staging step against the CLI's fastq materialize step, so kraken2 reads another path and depends on another step"),
-        kraken2Record("canonicalRunSteps[*", [.k1: 4, .k2: 4, .k3: 8, .k4: 4], "As steps"),
-        kraken2Record("legacyRunSteps[*", [.k1: 4, .k2: 4, .k3: 8, .k4: 4], "As steps"),
-    ]
-
-    private static func esVirituRecord(
-        _ fact: String, _ count: Int, _ reason: String, closedBy: String = retire
-    ) -> ClassifierParityKnownDifference {
-        pair([.e1: count], "record Project.lungfish/Analyses/*/.lungfish-provenance.json: \(fact)", reason, closedBy: closedBy)
-    }
-
-    private static func esVirituRecord(
-        _ fact: String, _ counts: [ClassifierParityCase: Int], _ reason: String, closedBy: String = retire
-    ) -> ClassifierParityKnownDifference {
-        pair(counts, "record Project.lungfish/Analyses/*/.lungfish-provenance.json: \(fact)", reason, closedBy: closedBy)
-    }
-
-    private static let esVirituRecords: [ClassifierParityKnownDifference] = [
-        esVirituRecord("argv", [.e1: 1, .e2: 1], "The replayed command runs through the analysis run executor, whose root record names the lungfish-cli command that ran (E1, E15), where the pipeline's record took EsViritu's argv. EsViritu's argv stays on its step, which in E1 also names the GUI's deleted scratch file (BIO D4, BIO D5)"),
-        esVirituRecord("reproducibleCommand", [.e1: 1, .e2: 1], "As argv"),
-        esVirituRecord("workflowName", [.e1: 1, .e2: 1], "As argv. The executor's root record, lungfish.esviritu.detect, replaces the pipeline's Viral Metagenomics Detection record in the plain --output folder (E2)"),
-        esVirituRecord("toolName", [.e1: 1, .e2: 1], "As workflowName. The root record's tool is lungfish-cli, and EsViritu stays the tool of its step"),
-        esVirituRecord("toolVersion", [.e1: 1, .e2: 1], "As toolName. The LGE version of lungfish-cli against EsViritu 1.3.3, which the EsViritu step still records"),
-        esVirituRecord("output.*", [.e1: 2, .e2: 2], "The executor's run output is its first output, the detection table, where the pipeline's record names esviritu-result.json. Both stay in outputs with their digests"),
-        esVirituRecord("explicitOptions.*", 5, "The GUI scans the input's read layout and puts the format it chose in the row's command (--read-format unpaired), so the replay scans nothing and records no scan. Both sides record the format"),
-        esVirituRecord("legacyRunParameters.*", 5, "As explicitOptions"),
-        esVirituRecord("files[*", 1, "BIO D5. The GUI record names the deleted scratch input"),
-        esVirituRecord("steps[*", 3, "As argv, in the EsViritu step and its log"),
-        esVirituRecord("canonicalRunSteps[*", 1, "As argv"),
-        esVirituRecord("legacyRunSteps[*", 1, "As argv"),
-    ]
-
-    // MARK: Fixed facts
-
-    private static let facts: [ClassifierParityKnownDifference] = [
-    ]
-
-    // MARK: Named files
-
-    /// Files the records of one side name that are gone or hold another digest (review F2
-    /// fix 5). Side C must hold this fact with nothing declared.
-    private static func namedFile(
-        _ side: ClassifierParitySide, _ counts: [ClassifierParityCase: Int], _ file: String, _ reason: String, closedBy: String
-    ) -> ClassifierParityKnownDifference {
-        ClassifierParityKnownDifference(counts: counts, scope: .side(side), id: "fact: record * names \(file)", reason: reason, closedBy: closedBy)
-    }
-
-    private static let namedFiles: [ClassifierParityKnownDifference] = [
-        namedFile(.a, [.k1: 1, .k3: 2, .k4: 1, .e1: 2, .e3: 2], "<project>/.tmp/* that does not exist",
-                  "BIO D4, BIO D5. The GUI's materialized scratch input, which it deletes after the run", closedBy: retire),
-        namedFile(.a, [.e1: 6, .e2: 6, .e3: 20], "*/*_temp/*.third.filt.sorted.bam* that does not exist",
-                  "build-db esviritu writes its record and the sidecars of esviritu.sqlite, the BAM and its index after the move and the markdup, and their run level still names the BAM and its index in _temp/. A removal step accounts for step facts, never the run level (P1, BIO checklist 2)",
-                  closedBy: bamRunLevel),
-        namedFile(.a, [.e1: 3, .e2: 3, .e3: 10], "*/bams/*.third.filt.sorted.bam with another digest",
-                  "The same records name the BAM in bams/ at their run level with its digest from before the markdup",
-                  closedBy: bamRunLevel),
-    ]
 
     /// One line per found difference that no entry declares, and per entry that matches another
     /// number of found differences than its count for `parityCase` in `scope`, listing the
