@@ -210,7 +210,10 @@ struct ProvenanceSection: View {
                 summaryRow("Workflow Version", value: viewModel.summary.workflowVersion)
             }
             if !viewModel.summary.toolName.isEmpty {
-                summaryRow("Tool", value: toolLabel)
+                summaryRow("Tool", value: viewModel.toolText)
+            }
+            if let stepTools = viewModel.stepToolsText {
+                summaryRow("Step Tools", value: stepTools)
             }
             if let createdAt = viewModel.summary.createdAt {
                 summaryRow("Created", value: createdAt.formatted(date: .abbreviated, time: .shortened))
@@ -626,13 +629,6 @@ struct ProvenanceSection: View {
         return viewModel.runtimeRows.filter {
             matchesSearch($0.label) || matchesSearch($0.value)
         }
-    }
-
-    private var toolLabel: String {
-        guard !viewModel.summary.toolVersion.isEmpty else {
-            return viewModel.summary.toolName
-        }
-        return "\(viewModel.summary.toolName) \(viewModel.summary.toolVersion)"
     }
 
     private var statusSymbol: String {

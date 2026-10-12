@@ -992,7 +992,8 @@ final class ProvenanceInspectorViewModel {
                 rows: [
                     ("Workflow", summary.workflowName),
                     ("Workflow Version", summary.workflowVersion),
-                    ("Tool", summary.toolVersion.isEmpty ? summary.toolName : "\(summary.toolName) \(summary.toolVersion)"),
+                    ("Tool", toolText),
+                    ("Step Tools", stepToolsText ?? ""),
                     ("Created", summary.createdAt?.formatted(date: .abbreviated, time: .shortened) ?? (summary.createdAtNotRecorded ? "Not recorded" : "")),
                     ("Run Status", summary.runStatus?.label ?? ""),
                     ("Exit Status", summary.exitStatus.map(String.init) ?? (summary.exitStatusNotRecorded ? "Not recorded" : "")),

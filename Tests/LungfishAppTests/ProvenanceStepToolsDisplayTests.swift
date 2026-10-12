@@ -1,0 +1,151 @@
+// ProvenanceStepToolsDisplayTests.swift - The Step Tools row of the Run Summary
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import AppKit
+import SwiftUI
+import ViewInspector
+import XCTest
+@testable import LungfishApp
+import LungfishTestSupport
+import LungfishWorkflow
+
+/// Phase 2.8 lane U3, decision P3. A classifier that runs through `lungfish-cli` records `lungfish-cli` as its
+/// tool, so the Tool row of the Run Summary never named Kraken2 or EsViritu above the Lineage. The Step Tools row
+/// names the tool and version of each step, from that step's own record and never from the managed tool lock.
+/// It shows only when the run-level tool is `lungfish-cli`.
+///
+/// The cases edit the bytes of the committed cancelled `fastq trim` record, copy them into a temporary project and
+/// read them through the real lookup, so the Copy text and the view are the ones a scientist gets.
+@MainActor
+final class ProvenanceStepToolsDisplayTests: XCTestCase {
+
+    // MARK: - The row
+
+    func testTheRowNamesEachStepsToolAndVersionOnceInStepOrder() async throws {
+        let model = try await loadedModel(
+            try commandLineRecord(steps: [("EsViritu", "1.3.3"), ("samtools", "1.21"), ("EsViritu", "1.3.3")])
+        )
+
+        XCTAssertTrue(model.copyableText.contains("Step Tools: EsViritu v1.3.3, samtools v1.21\n"), model.copyableText)
+        let texts = try summaryTexts(of: model)
+        XCTAssertTrue(texts.contains("Step Tools") && texts.contains("EsViritu v1.3.3, samtools v1.21"), "\(texts)")
+    }
+
+    /// The version is the step's own. No tool is pinned at 0.0.1, so a version read from the managed tool lock
+    /// could not produce this text.
+    func testEachVersionIsTheStepsOwnAndNeverTheLocksVersion() async throws {
+        let model = try await loadedModel(try commandLineRecord(steps: [("kraken2", "0.0.1"), ("bracken", "9.9.9")]))
+
+        XCTAssertTrue(model.copyableText.contains("Step Tools: kraken2 v0.0.1, bracken v9.9.9\n"), model.copyableText)
+    }
+
+    func testAStepWithNoVersionShowsItsToolAloneAndAStepWithNoToolShowsNothing() async throws {
+        let model = try await loadedModel(
+            try commandLineRecord(steps: [("bracken", ""), ("unknown", "1.0"), ("", "2.0"), ("kraken2", "unknown")])
+        )
+
+        XCTAssertTrue(model.copyableText.contains("Step Tools: bracken, kraken2\n"), model.copyableText)
+    }
+
+    func testARecordWhoseStepsNameNoToolShowsNoRow() async throws {
+        let model = try await loadedModel(try commandLineRecord(steps: [("unknown", "1.0"), ("", "2.0")]))
+
+        XCTAssertFalse(model.copyableText.contains("Step Tools"), model.copyableText)
+        XCTAssertFalse(try summaryTexts(of: model).contains("Step Tools"))
+    }
+
+    /// The row is for the run-level tool that runs other tools. A run whose own tool is the scientific tool
+    /// already names it in the Tool row, and its record shows no second row.
+    func testARunWhoseOwnToolIsNotTheCommandLineShowsNoRow() async throws {
+        let model = try await loadedModel(try recordBytes())
+
+        XCTAssertEqual(model.summary.toolName, "fastp")
+        XCTAssertFalse(model.copyableText.contains("Step Tools"), model.copyableText)
+        XCTAssertFalse(try summaryTexts(of: model).contains("Step Tools"))
+    }
+
+    // MARK: - Order
+
+    /// The row comes right after Tool in the Copy text, in the order the view lists its rows, and so in the order
+    /// VoiceOver reads them (UX 5).
+    func testTheRowSitsRightAfterToolInTheCopyTextTheViewAndWhatVoiceOverReads() async throws {
+        let model = try await loadedModel(try commandLineRecord(steps: [("EsViritu", "1.3.3")]))
+
+        let copy = model.copyableText
+        let tool = try XCTUnwrap(copy.range(of: "\nTool: "), copy)
+        let steps = try XCTUnwrap(copy.range(of: "\nStep Tools: "), copy)
+        let created = try XCTUnwrap(copy.range(of: "\nCreated: "), copy)
+        XCTAssertLessThan(tool.lowerBound, steps.lowerBound)
+        XCTAssertLessThan(steps.lowerBound, created.lowerBound)
+
+        let texts = try summaryTexts(of: model)
+        let shown = ["Tool", "Step Tools", "EsViritu v1.3.3", "Created"].compactMap { texts.firstIndex(of: $0) }
+        XCTAssertEqual(shown.count, 4, "\(texts)")
+        XCTAssertEqual(shown, shown.sorted(), "\(texts)")
+
+        let window = AccessibilityTreeProbe.host(ProvenanceSection(viewModel: model))
+        defer { window.orderOut(nil) }
+        func spoken() -> [String] {
+            AccessibilityTreeProbe.all(in: window).flatMap { element in
+                [AccessibilityTreeProbe.label(element), AccessibilityTreeProbe.value(element)].compactMap { $0 }
+            }
+        }
+        AccessibilityTreeProbe.waitUntil { spoken().contains("Step Tools") }
+        let heard = spoken()
+        let heardAt = ["Tool", "Step Tools", "EsViritu v1.3.3", "Created"].compactMap { heard.firstIndex(of: $0) }
+        XCTAssertEqual(heardAt.count, 4, "\(heard)\n" + AccessibilityTreeProbe.dump(window))
+        XCTAssertEqual(heardAt, heardAt.sorted(), "\(heard)")
+    }
+
+    // MARK: - Harness
+
+    /// The committed cancelled `fastq trim` record, which names `fastp` as its own tool.
+    private func recordBytes() throws -> Data {
+        try Data(contentsOf: ProvenanceDisplayFixtures.directory
+            .appendingPathComponent("Analyses/fastq-trim-cancelled/.lungfish-provenance.json"))
+    }
+
+    /// The cancelled record after it names `lungfish-cli` as its own tool and holds one step per pair.
+    private func commandLineRecord(steps: [(tool: String, version: String)]) throws -> Data {
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: try recordBytes()) as? [String: Any])
+        let template = try XCTUnwrap((object["steps"] as? [[String: Any]])?.first)
+        object["toolName"] = "lungfish-cli"
+        object["toolVersion"] = "2026.10.14"
+        object["tool"] = ["kind": "cli", "name": "lungfish-cli", "version": "2026.10.14"]
+        object["steps"] = steps.map { pair -> [String: Any] in
+            var step = template
+            step["id"] = UUID().uuidString
+            step["toolName"] = pair.tool
+            step["toolVersion"] = pair.version
+            return step
+        }
+        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
+    }
+
+    private func loadedModel(_ bytes: Data) async throws -> ProvenanceInspectorViewModel {
+        let root = try TestTempDirectory.make(prefix: "provenance-step-tools")
+        addTeardownBlock { TestTempDirectory.cleanup(root) }
+        let project = root.appendingPathComponent("Runs.lungfish", isDirectory: true)
+        let sidecar = project.appendingPathComponent("Analyses/classify-run/.lungfish-provenance.json")
+        try FileManager.default.createDirectory(at: sidecar.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try bytes.write(to: sidecar, options: .atomic)
+
+        let model = ProvenanceInspectorViewModel()
+        model.load(item: ProvenanceInspectableItem(
+            url: sidecar.deletingLastPathComponent(),
+            sidebarType: .analysisResult,
+            contentMode: .genomics,
+            displayName: "classify-run"
+        ))
+        let finished = await waitUntil(timeout: .seconds(30)) { !model.isLoading }
+        XCTAssertTrue(finished, "The provenance lookup did not finish.")
+        XCTAssertNotNil(model.resolvedEnvelope, "The record was not found.")
+        return model
+    }
+
+    /// The text of every label and value the section draws, in the order it draws them.
+    private func summaryTexts(of model: ProvenanceInspectorViewModel) throws -> [String] {
+        try ProvenanceSection(viewModel: model).inspect().findAll(ViewType.Text.self).compactMap { try? $0.string() }
+    }
+}
