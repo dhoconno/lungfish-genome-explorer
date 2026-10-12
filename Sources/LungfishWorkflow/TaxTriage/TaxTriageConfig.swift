@@ -289,68 +289,6 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
         return nil
     }
 
-    /// Builds the command-line arguments for the Nextflow `run` invocation.
-    ///
-    /// This produces the complete argument list after `nextflow run jhuapl-bio/taxtriage`.
-    ///
-    /// - Returns: An array of argument strings.
-    public func nextflowArguments() -> [String] {
-        var args: [String] = []
-
-        // Pipeline source and revision
-        args += [Self.pipelineRepository, "-r", revision]
-
-        // Profile
-        args += ["-profile", profile]
-
-        // Input samplesheet
-        args += ["--input", samplesheetURL.path]
-
-        // Output directory
-        args += ["--outdir", outputDirectory.path]
-
-        // Database
-        if let dbPath = kraken2DatabasePath {
-            args += ["--db", dbPath.path]
-        }
-
-        // Classification parameters
-        if !classifiers.isEmpty {
-            args += ["--classifiers", classifiers.joined(separator: ",")]
-        }
-        args += ["--top_hits_count", String(topHitsCount)]
-        args += ["--k2_confidence", String(k2Confidence)]
-        args += ["--rank", rank]
-
-        // Assembly control
-        if skipAssembly {
-            args.append("--skip_assembly")
-        }
-
-        // Krona control
-        if skipKrona {
-            args.append("--skip_krona")
-        }
-
-        // Upfront QC plots. FastQC and NanoPlot only feed the MultiQC report,
-        // which LGE does not read. FastQC also recurses once per gzip member
-        // and overflows its stack on the thousands of empty members fastp can
-        // write. The JVM then never exits and the run waits forever.
-        args.append("--skip_plots")
-
-        // Host taxa removal
-        if let effectiveRemoveTaxids {
-            args += ["--remove_taxids", effectiveRemoveTaxids]
-        }
-
-        // Resource limits
-        args += ["--max_memory", maxMemory]
-        args += ["--max_cpus", String(maxCpus)]
-        args += extraArguments
-
-        return args
-    }
-
     // MARK: - Host Taxa Removal
 
     /// The NCBI taxid of *Homo sapiens*, the default host taxon removed from

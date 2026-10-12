@@ -1698,13 +1698,9 @@ final class TaxTriageConfigRegressionTests: XCTestCase {
             skipAssembly: true,
             skipKrona: true
         )
-        let args = config.nextflowArguments()
-        XCTAssertTrue(args.contains("jhuapl-bio/taxtriage"))
-        XCTAssertTrue(args.contains("-r"))
-        XCTAssertTrue(args.contains(TaxTriageConfig.defaultRevision))
-        XCTAssertTrue(args.contains("-profile"))
-        XCTAssertTrue(args.contains("--input"))
-        XCTAssertTrue(args.contains("--outdir"))
+        // TaxTriage's own options. The launch target, -r, -profile, --input and --outdir are the
+        // descriptor's (NextflowLaunchArgumentsTests).
+        let args = config.nextflowPipelineArguments()
         XCTAssertTrue(args.contains("--db"))
         XCTAssertTrue(args.contains("--top_hits_count"))
         XCTAssertTrue(args.contains("5"))
@@ -1725,7 +1721,7 @@ final class TaxTriageConfigRegressionTests: XCTestCase {
             skipAssembly: false,
             skipKrona: false
         )
-        let args = config.nextflowArguments()
+        let args = config.nextflowPipelineArguments()
         XCTAssertFalse(args.contains("--db"))
         XCTAssertFalse(args.contains("--skip_assembly"))
         XCTAssertFalse(args.contains("--skip_krona"))

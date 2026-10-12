@@ -462,8 +462,8 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         XCTAssertEqual(cliConfig.outputDirectory.path, config.outputDirectory.path, file: file, line: line)
         XCTAssertEqual(cliConfig.kraken2DatabasePath?.path, config.kraken2DatabasePath?.path, file: file, line: line)
         XCTAssertEqual(
-            cliConfig.nextflowArguments(),
-            config.nextflowArguments(),
+            cliConfig.nextflowPipelineArguments(),
+            config.nextflowPipelineArguments(),
             "the pasted command must build the same Nextflow arguments as the run",
             file: file,
             line: line

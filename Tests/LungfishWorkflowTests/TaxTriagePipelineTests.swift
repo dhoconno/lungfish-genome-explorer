@@ -664,6 +664,8 @@ final class TaxTriagePipelineTests: XCTestCase {
 
     // MARK: - Nextflow Argument Building Tests
 
+    // TaxTriage's own options, the launch's pipeline arguments. The launch target, -r, -profile,
+    // --input and --outdir are the descriptor's (NextflowLaunchArgumentsTests).
     func testNextflowArgumentsBasic() {
         let sample = TaxTriageSample(
             sampleId: "S1",
@@ -675,20 +677,13 @@ final class TaxTriagePipelineTests: XCTestCase {
             outputDirectory: URL(fileURLWithPath: "/output")
         )
 
-        let args = config.nextflowArguments()
+        let args = config.nextflowPipelineArguments()
 
-        XCTAssertTrue(args.contains("jhuapl-bio/taxtriage"))
-        XCTAssertTrue(args.contains("-r"))
-        XCTAssertTrue(args.contains(TaxTriageConfig.defaultRevision))
-        XCTAssertTrue(args.contains("-profile"))
-        XCTAssertTrue(args.contains("docker"))
-        XCTAssertTrue(args.contains("--input"))
-        XCTAssertTrue(args.contains("--outdir"))
         XCTAssertTrue(args.contains("--skip_assembly"))
         XCTAssertFalse(args.contains("--skip_krona"))
-        // Capture on 9.68: FastQC hung for 48 minutes on fastp output with
-        // 4,843 empty gzip members, holding the whole run.
-        XCTAssertTrue(args.contains("--skip_plots"))
+        // Today's real launch passes no --skip_plots. Only the deleted, uncalled builder added it
+        // (A16 M2 review ruling), and adding it needs a panel vote, a Moved out row for 2.10.
+        XCTAssertFalse(args.contains("--skip_plots"))
     }
 
     func testNextflowArgumentsWithDatabase() {
@@ -703,7 +698,7 @@ final class TaxTriagePipelineTests: XCTestCase {
             kraken2DatabasePath: URL(fileURLWithPath: "/db/kraken2")
         )
 
-        let args = config.nextflowArguments()
+        let args = config.nextflowPipelineArguments()
 
         XCTAssertTrue(args.contains("--db"))
         XCTAssertTrue(args.contains("/db/kraken2"))
@@ -722,50 +717,29 @@ final class TaxTriagePipelineTests: XCTestCase {
             skipKrona: true
         )
 
-        let args = config.nextflowArguments()
+        let args = config.nextflowPipelineArguments()
 
         XCTAssertFalse(args.contains("--skip_assembly"))
         XCTAssertTrue(args.contains("--skip_krona"))
     }
 
-    // Reported 2026-09-23: `classifiers` was
-    // recorded in provenance and the inspector but never reached the
-    // Nextflow arguments, so a user's classifier selection silently had no
-    // effect on the run.
-    func testNextflowArgumentsIncludesClassifiers() throws {
+    // The launch passes no --classifiers whatever the config holds, so TaxTriage runs its own
+    // default, Kraken 2, and the record files `classifiers` as a resolved default (BIO T1, R5).
+    // Only the deleted, uncalled builder passed the flag.
+    func testNextflowArgumentsNeverPassClassifiers() {
         let sample = TaxTriageSample(
             sampleId: "S1",
             fastq1: URL(fileURLWithPath: "/data/R1.fq.gz"),
             platform: .illumina
         )
-        let config = TaxTriageConfig(
-            samples: [sample],
-            outputDirectory: URL(fileURLWithPath: "/output"),
-            classifiers: ["kraken2", "diamond"]
-        )
-
-        let args = config.nextflowArguments()
-
-        XCTAssertTrue(args.contains("--classifiers"))
-        let flagIndex = try XCTUnwrap(args.firstIndex(of: "--classifiers"))
-        XCTAssertEqual(args[args.index(after: flagIndex)], "kraken2,diamond")
-    }
-
-    func testNextflowArgumentsOmitsClassifiersFlagWhenEmpty() {
-        let sample = TaxTriageSample(
-            sampleId: "S1",
-            fastq1: URL(fileURLWithPath: "/data/R1.fq.gz"),
-            platform: .illumina
-        )
-        let config = TaxTriageConfig(
-            samples: [sample],
-            outputDirectory: URL(fileURLWithPath: "/output"),
-            classifiers: []
-        )
-
-        let args = config.nextflowArguments()
-
-        XCTAssertFalse(args.contains("--classifiers"))
+        for classifiers in [["kraken2", "diamond"], ["kraken2"], []] {
+            let config = TaxTriageConfig(
+                samples: [sample],
+                outputDirectory: URL(fileURLWithPath: "/output"),
+                classifiers: classifiers
+            )
+            XCTAssertFalse(config.nextflowPipelineArguments().contains("--classifiers"), "\(classifiers)")
+        }
     }
 
     // MARK: - TaxTriageResult Tests

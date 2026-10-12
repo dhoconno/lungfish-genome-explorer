@@ -308,7 +308,7 @@ final class TaxTriageReadLayoutAndErrorTests: XCTestCase {
         let args = pipeline.buildNextflowArguments(config: config)
         let index = try XCTUnwrap(args.firstIndex(of: "--remove_taxids"))
         XCTAssertEqual(args[index + 1], "9606 10090", "the list is one argument, as TaxTriage expects")
-        XCTAssertTrue(config.nextflowArguments().contains("--remove_taxids"))
+        XCTAssertTrue(config.nextflowPipelineArguments().contains("--remove_taxids"))
         XCTAssertEqual(pipeline.provenanceParameters(for: config)["remove_taxids"], .string("9606 10090"))
         XCTAssertEqual(config.summaryParameters()["removeTaxids"], .string("9606 10090"))
 

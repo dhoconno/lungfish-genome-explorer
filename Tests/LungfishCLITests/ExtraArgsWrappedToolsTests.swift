@@ -95,7 +95,7 @@ final class ExtraArgsWrappedToolsTests: XCTestCase {
         let config = try command.makeConfigForTesting()
 
         XCTAssertEqual(config.extraArguments, ["--skip_fastqc", "--custom_config_base", "/configs"])
-        XCTAssertTrue(config.nextflowArguments().suffix(3).elementsEqual(["--skip_fastqc", "--custom_config_base", "/configs"]))
+        XCTAssertTrue(config.nextflowPipelineArguments().suffix(3).elementsEqual(["--skip_fastqc", "--custom_config_base", "/configs"]))
     }
 
     func testTreeInferExtraArgsParseAndReachIQTreeArguments() async throws {
