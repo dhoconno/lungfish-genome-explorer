@@ -204,6 +204,17 @@ final class TaxTriageCompletionStateTests: XCTestCase {
         XCTAssertTrue(item.logEntries.isEmpty)
     }
 
+    func testTheSummaryCountsOneAffectedSampleInTheSingular() {
+        XCTAssertTrue(
+            result(ignoredFailures: [minimapKilled("SRR12486983")]).summary
+                .contains("Ignored sample failures: 1 across 1 sample\n")
+        )
+        XCTAssertTrue(
+            result(ignoredFailures: [minimapKilled("SRR12486983"), minimapKilled("SRR12486989")]).summary
+                .contains("Ignored sample failures: 2 across 2 samples\n")
+        )
+    }
+
     // MARK: - Exclude host taxa field
 
     func testExcludeHostTaxaFollowsSampleRolesUntilEdited() {
