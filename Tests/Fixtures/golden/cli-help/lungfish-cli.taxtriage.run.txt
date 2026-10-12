@@ -22,6 +22,8 @@ OPTIONS:
                           (default: illumina) (values: illumina, oxford,
                           pacbio; default: illumina)
   -o, --output <output>   Output directory for results
+        With several samples, one Nextflow run processes them all and writes
+        their results to this folder.
   --db <db>               Path to existing Kraken2 database
   --confidence <confidence>
                           Kraken2 confidence threshold (default: 0.2) (default:

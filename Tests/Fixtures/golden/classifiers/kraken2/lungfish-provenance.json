@@ -714,6 +714,45 @@
     },
     {
       "argv" : [
+        "FileManager.removeItem(at:)",
+        "@/Analyses/kraken2-golden/classification.kraken"
+      ],
+      "completedAt" : "<TIMESTAMP>",
+      "dependsOn" : [
+        "<UUID-6>"
+      ],
+      "exitStatus" : 0,
+      "id" : "<UUID-7>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "6f0a47de05f578bc1c92c0e4f6f3a28cc956ac3fbe23625b1b2d37d2eb86a8b2",
+          "fileSize" : 3858,
+          "format" : "text",
+          "path" : "@/Analyses/kraken2-golden/classification.kraken",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+
+      ],
+      "reproducibleCommand" : "'FileManager.removeItem(at:)' @/Analyses/kraken2-golden/classification.kraken",
+      "resolvedOptions" : {
+        "invocationKind" : {
+          "type" : "string",
+          "value" : "swift-api"
+        },
+        "operation" : {
+          "type" : "string",
+          "value" : "remove"
+        }
+      },
+      "startedAt" : "<TIMESTAMP>",
+      "toolName" : "Lungfish Kraken2 Output Removal",
+      "toolVersion" : "Lungfish <APP_VERSION> (dev)",
+      "wallTimeSeconds" : "<DURATION>"
+    },
+    {
+      "argv" : [
         "LungfishWorkflow",
         "ClassificationResult.save",
         "@/Analyses/kraken2-golden/classification-result.json"
@@ -723,7 +762,7 @@
         "<UUID-4>"
       ],
       "exitStatus" : 0,
-      "id" : "<UUID-7>",
+      "id" : "<UUID-8>",
       "inputs" : [
         {
           "checksumSHA256" : "39a0faf6699d341e61c5f53f7763ee985e01e0c6db02b619930467b369446789",

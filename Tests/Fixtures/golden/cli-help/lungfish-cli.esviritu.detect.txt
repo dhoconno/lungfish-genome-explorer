@@ -9,7 +9,7 @@ OPTIONS:
                           without --batch)
   --db <db>               Path to EsViritu database directory (default:
                           auto-detect)
-  -o, --output <output>   Output directory (default: current directory)
+  -o, --output <output>   Output directory (default: ./esviritu-<sample>)
   --project <project>     The .lungfish project the run belongs to. The result
                           lands in its Analyses/esviritu-batch-<timestamp>/
                           folder with one folder per sample, where the app's
