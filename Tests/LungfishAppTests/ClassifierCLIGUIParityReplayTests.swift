@@ -34,8 +34,9 @@
 // Viral database come from `~/.lungfish-stable`. The EsViritu database is read in place from
 // `LUNGFISH_TEST_ESVIRITU_DB`, by default the golden folder, with a listing taken before and
 // after, and the Stable database registry must keep its bytes. `LUNGFISH_REQUIRE_TOOLS=1` turns a
-// missing tool or database into a failure. `LUNGFISH_PARITY_DUMP=<folder>` keeps every side root,
-// the facts of every record and the differences of each case in that folder.
+// missing tool or database into a failure. `LUNGFISH_PARITY_DUMP=<folder>` keeps a copy of every
+// side root, the facts of every record and the differences of each case in that folder. The cases
+// run in the test's temporary folder wherever it points.
 
 import AppKit
 import Foundation
@@ -142,8 +143,11 @@ final class ClassifierCLIGUIParityReplayTests: XCTestCase {
             }
         }
 
-        let caseRoot = Self.dumpFolder?.appendingPathComponent(parityCase.rawValue, isDirectory: true)
-            ?? scratch.appendingPathComponent(parityCase.rawValue, isDirectory: true)
+        // Every case runs in the test's temporary folder, wherever LUNGFISH_PARITY_DUMP points. The
+        // spelling of a side root's path decides which steps build-db esviritu keeps in each BAM's
+        // record, and with them the UUID numbers the folder comparison gives, so a dump outside /tmp
+        // moved E3's count (Q4 review). dumpIfRequested copies the side roots afterwards.
+        let caseRoot = scratch.appendingPathComponent(parityCase.rawValue, isDirectory: true)
         try? FileManager.default.removeItem(at: caseRoot)
         func root(_ side: ClassifierParitySide) -> URL {
             caseRoot.appendingPathComponent(side.folderName, isDirectory: true)
@@ -251,14 +255,20 @@ final class ClassifierCLIGUIParityReplayTests: XCTestCase {
         }
     }
 
-    /// Writes the row outcome, every difference and the facts of every record of each side
-    /// beside the side roots, when `LUNGFISH_PARITY_DUMP` is set.
+    /// Copies each side root into the case's dump folder and writes the row outcome, every
+    /// difference and the facts of every record of each side beside them, when
+    /// `LUNGFISH_PARITY_DUMP` is set.
     private func dumpIfRequested(
         _ parityCase: ClassifierParityCase,
         runs: [ClassifierParitySideRun],
         found: [ClassifierParityScope: [ClassifierParityDifference]]
     ) throws {
         guard let folder = Self.dumpFolder?.appendingPathComponent(parityCase.rawValue, isDirectory: true) else { return }
+        try? FileManager.default.removeItem(at: folder)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        for run in runs {
+            try FileManager.default.copyItem(at: run.root, to: folder.appendingPathComponent(run.side.folderName, isDirectory: true))
+        }
         var report: [String] = []
         for run in runs {
             report.append("side \(run.side): \(run.terminal), analysis \(run.analysisPath ?? "none")")
