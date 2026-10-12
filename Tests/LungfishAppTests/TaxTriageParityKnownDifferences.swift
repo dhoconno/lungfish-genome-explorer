@@ -48,6 +48,7 @@ struct TaxTriageParityKnownDifference: Sendable {
 enum TaxTriageParityKnownDifferences {
     static let all: [TaxTriageParityKnownDifference] =
         layout + pooledLayout + records + pooledRecords + facts + faultLayout + faultRecords + faultFacts
+            + executorLayout + executorRecords
 
     /// The legacy GUI route stays in process through 2.9 (2.8 T1), so a difference that comes from
     /// it closes when the route runs through lungfish-cli.
@@ -61,6 +62,8 @@ enum TaxTriageParityKnownDifferences {
     static let folderClaim = "A2 or the 2.10 GUI route, once both routes claim the folder before the pipeline lists its outputs"
     /// build-db's cleanup deletes `top/`, which the records it leaves still name.
     static let keptTop = "A2 with B12, a cleanup that keeps top/ and records what it removes (2.8 T5, row 258)"
+    /// A one-sample row records a plain `--output` into the GUI's own batch folder (2.8 T17).
+    static let rowSpelling = "2.8 T17, a one-sample row that records --project, so its replay lays the result out as the app does (A2 M3 with U13, or 2.10)"
 
     private static func pair(
         _ counts: [TaxTriageParityCase: Int], _ id: String, _ reason: String, closedBy: String
@@ -102,8 +105,8 @@ enum TaxTriageParityKnownDifferences {
         pair([.x3: 20, .x4: 17], "analysis: only in A: */*",
              "Each sample folder of the GUI's batch holds its own samplesheet, config, launch command, log, trace, accession map, organism report, record and result. The GUI's cleanup deleted each folder's top/. X4's failed sample keeps its samplesheet, config, launch command, log, trace and record",
              closedBy: perSample),
-        pair([.x3: 12, .x4: 6], "analysis: only in B: *",
-             "The pooled run writes one samplesheet, config, launch command, log and trace for both samples and every sample's accession map, organism report and top report at the root of its folder. X4's failed pooled run writes only the first five",
+        pair([.x3: 12, .x4: 7], "analysis: only in B: *",
+             "The pooled run writes one samplesheet, config, launch command, log and trace for both samples and every sample's accession map, organism report and top report at the root of its folder. X4's failed pooled run writes only the first five, and the executor keeps its run record with the outcome failed (E5)",
              closedBy: perSample),
     ]
 
@@ -124,17 +127,14 @@ enum TaxTriageParityKnownDifferences {
         record([.x1: 1, .x2: 1, .x3: 1, .x4: 1, .x5: 1, .x7: 1], "files[*taxtriage.sqlite|output]",
                "The index step's output, the database", closedBy: executorIndex),
         record([.x1: 1, .x2: 1, .x3: 1, .x4: 1, .x5: 1, .x7: 1], "outputs[*taxtriage.sqlite|output]", "As files", closedBy: executorIndex),
-        record([.x1: 1, .x2: 1, .x5: 1, .x7: 1], "files[*analysis-metadata.json|output]",
-               "The GUI writes analysis-metadata.json when it claims the folder before the run, so the pipeline lists it among its outputs. taxtriage run marks its folder after (markAsProjectAnalysisIfNeeded)",
-               closedBy: folderClaim),
-        record([.x1: 2, .x2: 2, .x5: 2, .x7: 2], "outputs[*analysis-metadata.json|output]",
-               "As files, once from the taxtriage step and once from the index step's inputs", closedBy: folderClaim),
-        record([.x1: 1, .x2: 1, .x5: 1, .x7: 1], "steps[taxtriage#1].outputs[*analysis-metadata.json|output]",
-               "As files, in the taxtriage step", closedBy: folderClaim),
-        record([.x1: 1, .x2: 1, .x3: 1, .x4: 1, .x5: 1, .x7: 1], "output.format",
-               "The run's output is its first output. In the GUI record it is analysis-metadata.json, or taxtriage-result.json in a batch record, and in the record of taxtriage run the first accession map, or nextflow.log for X4's failed run",
-               closedBy: folderClaim),
-        record([.x1: 1, .x2: 1, .x3: 1, .x4: 1, .x5: 1, .x7: 1], "output.path", "As output.format", closedBy: folderClaim),
+        // A2 closed the analysis-metadata.json rows of X1, X2, X5 and X7. The executor writes the
+        // file when it claims the folder in phase P1, before the pipeline lists its outputs.
+        record([.x4: 1], "output.format",
+               "The run's output is its first output. In the GUI's batch record it is taxtriage-result.json, and in the record of X4's failed pooled run nextflow.log",
+               closedBy: perSample),
+        record([.x3: 1, .x4: 1], "output.path",
+               "As output.format. X3's two records name files of one format, the batch result against the pooled run's first output",
+               closedBy: perSample),
     ]
 
     /// X3 and X4. The GUI's batch record against the record of the pooled run.
@@ -184,15 +184,11 @@ enum TaxTriageParityKnownDifferences {
         pair([.x4: 1], "terminal: A and B end differently",
              "Side A's serial batch keeps the sample that completed and reads Completed with Warnings. Side B's pooled run, one Nextflow for both samples (2.8 T2), fails as a whole when one sample fails, and taxtriage run ends with the pipeline's error, exit 1 in the shipped binary",
              closedBy: perSample),
-        pair([.x4: 1, .x6: 1], "analysis: only in A: analysis-metadata.json",
-             "The GUI writes analysis-metadata.json when it claims the folder before the run. taxtriage run marks its folder only once the pipeline lists its outputs (markAsProjectAnalysisIfNeeded), so a run that fails (X4) or is cancelled (X6) leaves none",
-             closedBy: folderClaim),
+        // A2 closed X4's and X6's analysis-metadata.json and X6's run record. The executor claims
+        // the folder with both before the run and keeps them for a failed or cancelled run (E5).
         pair([.x4: 1], "analysis: only in A: taxtriage-result.json",
              "Side A's batch writes its aggregate result for the sample that completed. The failed pooled run writes none",
              closedBy: perSample),
-        pair([.x6: 1], "analysis: only in A: .lungfish-run-in-progress.json",
-             "OperationCenter clears the in-progress mark of the folder the GUI claims only for a run that succeeds (settleIfIdle), so a cancelled run keeps it with its outcome, stays hidden and is listed for review at the next project open. taxtriage run writes no such mark",
-             closedBy: guiRoute),
     ]
 
     /// X4. The GUI's batch record, which completes with one sample, against the record of the
@@ -222,8 +218,8 @@ enum TaxTriageParityKnownDifferences {
         TaxTriageParityKnownDifference(
             counts: [.x4: 1],
             scope: .side(.b),
-            id: "fact: the run ends Completed with Warnings, not error pipelineFailed(exitCode: 1, *",
-            reason: "Side B's pooled run of both samples fails as a whole when one sample fails (2.8 T2), so it cannot keep the other sample and count 1 failed sample (1 report)",
+            id: "fact: the run ends Completed with Warnings, not exit 64",
+            reason: "Side B's pooled run of both samples fails as a whole when one sample fails (2.8 T2), so it cannot keep the other sample and count 1 failed sample (1 report). Since A2 the executor ends the failed run with its workflow error code, 64 (AnalysisRunExitCode.workflowError), where the pipeline's error escaped the command before",
             closedBy: perSample
         ),
         TaxTriageParityKnownDifference(
@@ -233,6 +229,45 @@ enum TaxTriageParityKnownDifferences {
             reason: "2.8 T5 on side B. X7 runs the app's build-db on side B before the rebuild, whose cleanup deletes top/, which the result's record and the database's record still name, as on side A",
             closedBy: keptTop
         ),
+    ]
+
+    // MARK: Side B on the executor (A2 M2)
+
+    /// The folders of side B since `taxtriage run` runs on the analysis run executor.
+    private static let executorLayout: [TaxTriageParityKnownDifference] = [
+        pair([.x1: 1, .x2: 1, .x5: 1, .x6: 1, .x7: 1], "analysis: differs: analysis-metadata.json",
+             "isBatch. The GUI marks its taxtriage-batch folder as a batch. The executor claims the folder the one-sample row's plain --output names as a single result folder and marks it so",
+             closedBy: rowSpelling),
+        pair([.x3: 1, .x4: 1], "analysis: differs: analysis-metadata.json",
+             "isBatch. The GUI's serial batch against the executor's single folder of the pooled run",
+             closedBy: perSample),
+        pair([.x1: 1, .x2: 1, .x5: 1, .x6: 1, .x7: 1], "analysis: differs: nextflow.log",
+             "The same lines on both sides, one launch scratch named by its UUID, which the comparison numbers in the order it meets a side's UUIDs. Side B's tree holds one UUID more before this file, so its scratch reads one number higher (a dump of X2 shows the files differ only in the side root, the timestamp and the UUID)",
+             closedBy: "Q1b, a comparison that numbers the UUIDs of each file alone"),
+        pair([.x1: 2, .x2: 2, .x5: 2, .x6: 2, .x7: 2], "analysis: differs: taxtriage-launch-command.*",
+             "As nextflow.log, the .sh and .txt launch commands",
+             closedBy: "Q1b, a comparison that numbers the UUIDs of each file alone"),
+        pair([.x6: 1], "analysis: differs: .lungfish-run-in-progress.json",
+             "Both cancelled runs keep their run record with the outcome. The GUI's names the command its row records, the executor's the canonical taxtriage run argv, which a test process records in place of its own (recordedCommandLine)",
+             closedBy: guiRoute),
+    ]
+
+    /// The result's root record, which the executor writes on side B in place of the pipeline's own.
+    private static let executorRecords: [TaxTriageParityKnownDifference] = [
+        record([.x1: 1, .x2: 1, .x5: 1, .x6: 1, .x7: 1], "workflowName",
+               "TaxTriage against lungfish.taxtriage.run, the executor's root record (S2, A2)", closedBy: guiRoute),
+        record([.x1: 1, .x2: 1, .x3: 1, .x4: 1, .x5: 1, .x6: 1, .x7: 1], "toolName",
+               "The pipeline's record names taxtriage as the run's tool, the executor's names lungfish-cli. The TaxTriage step names taxtriage on both",
+               closedBy: guiRoute),
+        record([.x1: 1, .x2: 1, .x3: 1, .x4: 1, .x5: 1, .x6: 1, .x7: 1], "toolVersion",
+               "As toolName, the pinned commit against LGE's version", closedBy: guiRoute),
+        record([.x1: 1, .x2: 1, .x5: 1, .x6: 1, .x7: 1], "argv",
+               "The run level of the executor's record names the taxtriage run command (R1, UX 6), the pipeline's record the launch of Nextflow, which the step keeps on both",
+               closedBy: guiRoute),
+        record([.x1: 1, .x2: 1, .x5: 1, .x6: 1, .x7: 1], "reproducibleCommand", "As argv", closedBy: guiRoute),
+        record([.x1: 1, .x2: 1, .x5: 1, .x6: 1, .x7: 1], "stderr",
+               "The pipeline's record keeps the run's stderr, empty, X5's warning lines or the pipeline's cancel words. The executor's keeps the run's warnings, none, X5's errored-task paragraph or its own cancel words. The step keeps the warning lines on both (B12)",
+               closedBy: guiRoute),
     ]
 
     /// One line per found difference that no entry declares, and per entry that matches another
