@@ -51,7 +51,8 @@ public struct TaxTriageStandInEngine: Sendable {
         case waitsUntilCancelled
         /// As `waitsUntilCancelled`, but the engine first starts a child that appends a line to
         /// `Launch.heartbeat` every 0.2 seconds, and both trap TERM, record it and go on. Only
-        /// SIGKILL, `release()` or `stopLeftoverProcesses()` ends them.
+        /// SIGKILL, `release()` or `stopLeftoverProcesses()` ends them. Both traps are set before
+        /// the launch is marked started, so a test may signal as soon as `waitForLaunch` returns.
         case trapsTermWithHeartbeatChild
     }
 
@@ -415,6 +416,7 @@ public struct TaxTriageStandInEngine: Sendable {
     if [ "$behaviour" = trap-term ]; then
       (
         trap 'echo TERM >> "$record/child-signals"' TERM
+        : > "$record/child-trapping"
         beat=0
         while [ "$beat" -lt "$ticks" ]; do
           [ -e "$control/stop" ] && exit 143
@@ -427,6 +429,12 @@ public struct TaxTriageStandInEngine: Sendable {
       ) &
       printf '%s\n' "$!" > "$record/child.pid"
       trap 'echo TERM >> "$record/signals"' TERM
+      # The launch is marked started only once the child traps TERM too, so a test may signal at once.
+      waited=0
+      while [ ! -e "$record/child-trapping" ] && [ "$waited" -lt "$ticks" ]; do
+        sleep 0.05
+        waited=$((waited + 1))
+      done
     fi
     : > "$record/started"
     echo "N E X T F L O W  ~  version 25.04.6"

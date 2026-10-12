@@ -241,11 +241,12 @@ final class TaxTriageStandInEngineReplayTests: XCTestCase {
         let launch = try XCTUnwrap(started, "the launch never started")
         let engineID = try XCTUnwrap(launch.processIdentifier)
         let childID = try XCTUnwrap(launch.childProcessIdentifier)
-        let beating = await waitUntil(timeout: .seconds(30)) { Self.lineCount(launch.heartbeat) >= 2 }
-        XCTAssertTrue(beating, "the child wrote no heartbeat")
 
+        // Both traps are set before the launch is marked started, so TERM may go at once.
         XCTAssertEqual(kill(engineID, SIGTERM), 0)
         XCTAssertEqual(kill(childID, SIGTERM), 0)
+        let beating = await waitUntil(timeout: .seconds(30)) { Self.lineCount(launch.heartbeat) >= 2 }
+        XCTAssertTrue(beating, "the child wrote no heartbeat")
         let trapped = await waitUntil(timeout: .seconds(30)) {
             let current = try? engine.launches().first
             return current?.trappedSignals == ["TERM"] && current?.childTrappedSignals == ["TERM"]
