@@ -632,47 +632,26 @@ extension SequenceViewerView {
                 return String(sequence[startIdx..<endIdx])
             }
 
-            // Fallback path: pull the exact interval directly from bundle-backed FASTA.
+            // Fallback path: pull the interval directly from bundle-backed FASTA, clamped to the chromosome.
             guard let bundle = self.currentReferenceBundle else { return nil }
-            let fetchRegion = GenomicRegion(chromosome: referenceChromosome, start: start, end: end)
-            return try? bundle.fetchSequenceSync(region: fetchRegion)
+            return ClampedSequenceProvider(bundle: bundle)
+                .bases(chromosome: referenceChromosome, start: start, end: end)
         }
 
-        let sortedIntervals = annotation.intervals.sorted { $0.start < $1.start }
-        var exonSequences: [(sequence: String, interval: AnnotationInterval)] = []
-        for interval in sortedIntervals {
-            guard let seq = sequenceProvider(interval.start, interval.end), !seq.isEmpty else { continue }
-            exonSequences.append((seq, interval))
-        }
-        guard !exonSequences.isEmpty else { return nil }
-
-        let concatenated = exonSequences.map(\.sequence).joined()
-        let codingSequence: String
-        if annotation.strand == .reverse {
-            codingSequence = reverseComplementString(concatenated)
-        } else {
-            codingSequence = concatenated
-        }
-
-        var codingPositions: [Int] = []
-        codingPositions.reserveCapacity(codingSequence.count)
-        for (seq, interval) in exonSequences {
-            for idx in 0..<seq.count {
-                codingPositions.append(interval.start + idx)
+        // The engine joins the segments in transcription order and finds the frame, so a reverse-strand
+        // CDS that the chromosome end clips keeps the phase of its 5'-most segment.
+        guard let layout = TranslationEngine.codingLayout(
+            annotation: annotation,
+            segmentProvider: { start, end in
+                sequenceProvider(start, end).map { TranslationEngine.SegmentRead(start: start, sequence: $0) }
             }
-        }
-        if annotation.strand == .reverse {
-            codingPositions.reverse()
-        }
-
-        let codingBases = Array(codingSequence.uppercased())
-        guard codingBases.count == codingPositions.count else { return nil }
+        ) else { return nil }
 
         let context = CDSCodingContext(
             annotation: annotation,
-            codingBases: codingBases,
-            codingGenomePositions: codingPositions,
-            phaseOffset: exonSequences.first?.interval.phase ?? 0,
+            codingBases: Array(layout.codingSequence.uppercased()),
+            codingGenomePositions: layout.genomicPositions,
+            phaseOffset: layout.phaseOffset,
             codonTable: .standard
         )
         cachedCDSCodingContexts[annotation.id] = context

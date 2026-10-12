@@ -644,10 +644,7 @@ extension SequenceViewerView {
     /// Creates a sequence provider for an annotation (bundle mode or single-sequence mode).
     func makeSequenceProvider(for annotation: SequenceAnnotation) -> SequenceExtractor.SequenceProvider? {
         if let bundle = currentReferenceBundle {
-            return { chromosome, start, end in
-                let region = GenomicRegion(chromosome: chromosome, start: start, end: end)
-                return try? bundle.fetchSequenceSync(region: region)
-            }
+            return ClampedSequenceProvider(bundle: bundle).extractionProvider
         } else if let seq = sequence {
             return { _, start, end in
                 let clampedStart = max(0, start)
@@ -662,10 +659,7 @@ extension SequenceViewerView {
     /// Creates a sequence provider for region-based extraction.
     func makeRegionSequenceProvider() -> SequenceExtractor.SequenceProvider {
         if let bundle = currentReferenceBundle {
-            return { chromosome, start, end in
-                let region = GenomicRegion(chromosome: chromosome, start: start, end: end)
-                return try? bundle.fetchSequenceSync(region: region)
-            }
+            return ClampedSequenceProvider(bundle: bundle).extractionProvider
         } else if let seq = sequence {
             return { _, start, end in
                 let clampedStart = max(0, start)

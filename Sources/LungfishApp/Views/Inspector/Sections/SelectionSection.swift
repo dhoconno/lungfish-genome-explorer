@@ -193,13 +193,9 @@ public final class SelectionSectionViewModel {
     public func computeTranslation(for annotation: SequenceAnnotation) -> String? {
         guard let bundle = referenceBundle else { return nil }
 
-        let sequenceProvider: (Int, Int) -> String? = { start, end in
-            let region = GenomicRegion(
-                chromosome: annotation.chromosome ?? bundle.chromosomeNames.first ?? "",
-                start: start, end: end
-            )
-            return try? bundle.fetchSequenceSync(region: region)
-        }
+        let sequenceProvider = ClampedSequenceProvider(bundle: bundle).basesProvider(
+            chromosome: annotation.chromosome ?? bundle.chromosomeNames.first ?? ""
+        )
 
         guard let result = TranslationEngine.translateCDS(
             annotation: annotation,

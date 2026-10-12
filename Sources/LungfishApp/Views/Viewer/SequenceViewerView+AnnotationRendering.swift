@@ -411,20 +411,12 @@ extension SequenceViewerView {
             && cachedBundleSequence != nil
             && cachedSequenceRegion != nil
 
-        // Build sequence provider from cached data (no I/O in draw loop)
-        let sequenceProvider: ((Int, Int) -> String?)?
+        // Build sequence provider from cached data (no I/O in draw loop). The window can cut either end of
+        // a CDS, so the provider reports where each read starts.
+        let sequenceProvider: ((Int, Int) -> TranslationEngine.SegmentRead?)?
         if autoCDS, let seq = cachedBundleSequence, let region = cachedSequenceRegion {
-            sequenceProvider = { start, end in
-                let clampedStart = max(region.start, start)
-                let clampedEnd = min(region.end, end)
-                guard clampedStart < clampedEnd else { return nil }
-                let offsetStart = clampedStart - region.start
-                let offsetEnd = clampedEnd - region.start
-                guard offsetStart >= 0, offsetEnd <= seq.count else { return nil }
-                let startIdx = seq.index(seq.startIndex, offsetBy: offsetStart)
-                let endIdx = seq.index(seq.startIndex, offsetBy: offsetEnd)
-                return String(seq[startIdx..<endIdx])
-            }
+            sequenceProvider = ClampedSequenceProvider(window: seq, region: region)
+                .segmentProvider(chromosome: region.chromosome)
         } else {
             sequenceProvider = nil
         }
@@ -570,7 +562,7 @@ extension SequenceViewerView {
 
     func embeddedAnnotationTranslationAvailable(
         for annotation: SequenceAnnotation,
-        sequenceProvider: ((Int, Int) -> String?)?
+        sequenceProvider: ((Int, Int) -> TranslationEngine.SegmentRead?)?
     ) -> Bool {
         if annotation.type == .cds {
             return sequenceProvider != nil
@@ -580,7 +572,7 @@ extension SequenceViewerView {
 
     func embeddedAnnotationTranslationResult(
         for annotation: SequenceAnnotation,
-        sequenceProvider: ((Int, Int) -> String?)?
+        sequenceProvider: ((Int, Int) -> TranslationEngine.SegmentRead?)?
     ) -> TranslationResult? {
         if let cached = cachedCDSTranslations[annotation.id] {
             return cached
@@ -590,7 +582,7 @@ extension SequenceViewerView {
         if annotation.type == .cds, let sequenceProvider {
             result = TranslationEngine.translateCDS(
                 annotation: annotation,
-                sequenceProvider: sequenceProvider
+                segmentProvider: sequenceProvider
             )
         } else {
             result = Self.storedAnnotationTranslationResult(for: annotation)

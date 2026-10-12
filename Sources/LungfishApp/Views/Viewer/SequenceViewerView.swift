@@ -2186,14 +2186,10 @@ public class SequenceViewerView: NSView {
         // Build a sequence provider from the available data source
         let sequenceProvider: (Int, Int) -> String?
         if let bundle = currentReferenceBundle {
-            // Bundle mode: use sync sequence fetch
-            sequenceProvider = { start, end in
-                let region = GenomicRegion(
-                    chromosome: annotation.chromosome ?? bundle.chromosomeNames.first ?? "",
-                    start: start, end: end
-                )
-                return try? bundle.fetchSequenceSync(region: region)
-            }
+            // Bundle mode: sync fetch, clamped to the chromosome like single-sequence mode
+            sequenceProvider = ClampedSequenceProvider(bundle: bundle).basesProvider(
+                chromosome: annotation.chromosome ?? bundle.chromosomeNames.first ?? ""
+            )
         } else if let seq = sequence {
             // Single-sequence mode: extract from loaded sequence
             sequenceProvider = { start, end in

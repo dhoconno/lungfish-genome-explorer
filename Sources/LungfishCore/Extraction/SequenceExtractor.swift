@@ -368,10 +368,15 @@ public enum SequenceExtractor {
         // CDS translation
         let proteinSequence: String?
         if annotation.type == .cds {
+            // Ask only for the bases the chromosome holds. A segment that runs past the end comes back
+            // short, and the engine moves the frame of a reverse-strand CDS by the bases that are missing,
+            // whatever the provider does with a range it cannot serve in full.
             let result = TranslationEngine.translateCDS(
                 annotation: annotation,
                 sequenceProvider: { start, end in
-                    sequenceProvider(chromosome, start, end)
+                    let clampedEnd = min(end, chromosomeLength)
+                    guard start < clampedEnd else { return nil }
+                    return sequenceProvider(chromosome, start, clampedEnd)
                 }
             )
             proteinSequence = result?.protein

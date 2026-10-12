@@ -82,8 +82,42 @@ public enum TranslationEngine {
 
     // MARK: - CDS Translation
 
+    /// The bases a provider returned for one CDS segment, and where they start.
+    ///
+    /// A provider that clamps a request to the sequence it holds returns fewer bases than the segment has.
+    /// `start` says which end it kept. That lets the engine tell a clip at the 5' end of the CDS, which moves
+    /// the reading frame, from a clip at the 3' end, which only shortens the protein.
+    package struct SegmentRead: Sendable, Equatable {
+        /// The 0-based plus-strand coordinate of the first base of `sequence`.
+        package let start: Int
+
+        /// The plus-strand bases that were read, as the sequence stores them.
+        package let sequence: String
+
+        package init(start: Int, sequence: String) {
+            self.start = start
+            self.sequence = sequence
+        }
+    }
+
     /// Translates a CDS (coding sequence) annotation, handling discontiguous exons,
-    /// strand orientation, and phase offsets.
+    /// strand orientation, phase offsets and a sequence that ends inside the CDS.
+    ///
+    /// The provider reads one segment, a 0-based half-open range, and returns its plus-strand bases. It
+    /// returns fewer bases than were asked for only when the range ran past the end of the sequence, and
+    /// nil when no base of the range exists. The bases it returns start where the range starts. A provider
+    /// that can also cut the start of the range, such as a window onto part of a chromosome, reports where
+    /// its bases start through `translateCDS(annotation:segmentProvider:table:)` instead.
+    ///
+    /// A segment that comes back short, or not at all, lost bases to the end of the sequence. Bases lost at
+    /// the 3' end of the CDS only shorten the protein, and a partial last codon is dropped. Bases lost at
+    /// the 5' end move the frame. With p the phase of the 5'-most segment and r the coding bases lost before
+    /// the first base that was read, whole segments included, the first codon starts at base ((p - r) mod 3)
+    /// of the bases that were read. A GenBank import records the phase on the 5'-most segment only, so a
+    /// segment with no phase of its own takes it from p and r. A segment that records a phase of its own,
+    /// as the CDS lines of a GFF3 import do, keeps it. A segment that fails between two that were read, or
+    /// a clip that leaves a gap between two segments, gives no protein. The protein and the amino acid
+    /// indexes start at the first whole codon that was read, and every codon maps to the bases it came from.
     ///
     /// - Parameters:
     ///   - annotation: The annotation to translate (should be a CDS or gene with exon intervals).
@@ -100,73 +134,38 @@ public enum TranslationEngine {
         sequenceProvider: (Int, Int) -> String?,
         table: CodonTable? = nil
     ) -> TranslationResult? {
-        guard !annotation.intervals.isEmpty else { return nil }
+        translateCDS(
+            annotation: annotation,
+            segmentProvider: { start, end in
+                sequenceProvider(start, end).map { SegmentRead(start: start, sequence: $0) }
+            },
+            table: table
+        )
+    }
+
+    /// Translates a CDS annotation from a provider that reports where its bases start.
+    ///
+    /// The rule for a clipped CDS is the one `translateCDS(annotation:sequenceProvider:table:)` describes.
+    /// Here the provider says which end of a segment it cut, so a window that starts inside the CDS moves
+    /// the frame of a forward-strand CDS the way the end of a sequence moves the frame of a reverse-strand one.
+    package static func translateCDS(
+        annotation: SequenceAnnotation,
+        segmentProvider: (Int, Int) -> SegmentRead?,
+        table: CodonTable? = nil
+    ) -> TranslationResult? {
+        guard let layout = codingLayout(annotation: annotation, segmentProvider: segmentProvider) else {
+            return nil
+        }
 
         let table = table ?? resolvedCodonTable(for: annotation)
 
-        // Transcription order. For an ordinary linear feature this is
-        // ascending genomic order on '+' and descending on '-', matching the
-        // app-level rendering convention (`SequenceViewerView.
-        // codingCoordinateOrder`). `SequenceAnnotation.intervals` is no longer
-        // force-sorted ascending by `SequenceAnnotation.init`, so for
-        // an origin-spanning feature on a circular molecule (GenBank
-        // `join(4000..4200,1..100)`) the stored order already IS the correct
-        // transcription order and sorting it — in either direction — would
-        // scramble it, since no single genomic direction recovers order across
-        // an origin wrap. `annotation.isOriginSpanning` distinguishes the two
-        // cases from the interval coordinates alone.
-        let transcriptionOrderIntervals: [AnnotationInterval]
-        if annotation.isOriginSpanning {
-            transcriptionOrderIntervals = annotation.intervals
-        } else {
-            let ascending = annotation.intervals.sorted { $0.start < $1.start }
-            transcriptionOrderIntervals = annotation.strand == .reverse ? ascending.reversed() : ascending
-        }
-
-        // Extract nucleotides from each interval, in transcription order.
-        var exonSequences: [(sequence: String, interval: AnnotationInterval)] = []
-        for interval in transcriptionOrderIntervals {
-            guard let seq = sequenceProvider(interval.start, interval.end), !seq.isEmpty else {
-                continue
-            }
-            exonSequences.append((seq, interval))
-        }
-
-        guard !exonSequences.isEmpty else { return nil }
-
-        // Concatenate exon sequences in transcription order. For the reverse
-        // strand each exon's raw (plus-strand) sequence is reverse-complemented
-        // individually and then joined in transcription order, which is
-        // equivalent to rc(exonN)+...+rc(exon1) for a genomic-ascending '-'
-        // feature but also correct for an origin-spanning feature whose stored
-        // order already reflects 5'->3' transcription rather than genomic
-        // ascent.
-        let codingSequence: String
-        if annotation.strand == .reverse {
-            codingSequence = exonSequences.map { reverseComplement($0.sequence) }.joined()
-        } else {
-            codingSequence = exonSequences.map(\.sequence).joined()
-        }
-
-        // Determine phase offset from the 5'-most segment in transcription order,
-        // i.e. the first element of `exonSequences` (previously this used
-        // `exonSequences.first` after an ascending sort, which for the reverse
-        // strand picked the 3'-most segment instead of the 5'-most one).
-        let phaseOffset = exonSequences.first?.interval.phase ?? 0
-
-        // Build the genomic coordinate map for each nucleotide position in the coding sequence
-        let genomicPositions = buildGenomicPositionMap(
-            exonSequences: exonSequences,
-            strand: annotation.strand
-        )
-
         // Translate and build amino acid positions
-        let upperCoding = codingSequence.uppercased()
+        let upperCoding = layout.codingSequence.uppercased()
         let chars = Array(upperCoding)
         var aminoAcidPositions: [AminoAcidPosition] = []
         var protein = ""
         var aaIndex = 0
-        var position = phaseOffset
+        var position = layout.phaseOffset
 
         while position + 3 <= chars.count {
             let codon = String(chars[position..<(position + 3)])
@@ -175,7 +174,7 @@ public enum TranslationEngine {
             // Map this codon's 3 nucleotide positions back to genomic coordinates
             let codonGenomicRanges = genomicRangesForCodon(
                 codingPositions: position..<(position + 3),
-                genomicPositions: genomicPositions
+                genomicPositions: layout.genomicPositions
             )
 
             let aaPos = AminoAcidPosition(
@@ -195,10 +194,10 @@ public enum TranslationEngine {
 
         return TranslationResult(
             protein: protein,
-            codingSequence: codingSequence,
+            codingSequence: layout.codingSequence,
             aminoAcidPositions: aminoAcidPositions,
             codonTable: table,
-            phaseOffset: phaseOffset
+            phaseOffset: layout.phaseOffset
         )
     }
 
@@ -242,37 +241,154 @@ public enum TranslationEngine {
         return CodonTable.table(id: tableID) ?? .standard
     }
 
-    // MARK: - Private Helpers
+    // MARK: - Coding Layout
 
-    /// Builds a map from coding-sequence nucleotide index to genomic coordinate.
+    /// A CDS read from its provider and ready to translate.
+    package struct CodingLayout {
+        /// The bases that were read, in transcription order and on the coding strand.
+        package let codingSequence: String
+
+        /// The genomic coordinate of each base of `codingSequence`.
+        package let genomicPositions: [Int]
+
+        /// Bases to skip before the first whole codon.
+        package let phaseOffset: Int
+    }
+
+    /// One segment of a CDS as its provider returned it.
+    private struct ReadSegment {
+        let interval: AnnotationInterval
+        let read: SegmentRead
+        let baseCount: Int
+
+        /// Bases of the segment that the read left out at its 5' end.
+        let fivePrimeLoss: Int
+
+        /// Bases of the segment that the read left out at its 3' end.
+        let threePrimeLoss: Int
+    }
+
+    /// The intervals of `annotation` in transcription order.
     ///
-    /// `exonSequences` is in transcription order and, for the reverse strand, each
-    /// exon's sequence has already been individually reverse-complemented before
-    /// this is called (see `translateCDS`). So per exon, coding position 0 maps to
-    /// that exon's highest genomic coordinate and counts down, and exons are
-    /// concatenated in transcription order (not necessarily genomic-ascending, for
-    /// an origin-spanning circular feature).
-    private static func buildGenomicPositionMap(
-        exonSequences: [(sequence: String, interval: AnnotationInterval)],
-        strand: Strand
-    ) -> [Int] {
-        var positions: [Int] = []
+    /// For an ordinary linear feature this is ascending genomic order on '+' and descending on '-', matching the
+    /// app-level rendering convention (`SequenceViewerView.codingCoordinateOrder`). `SequenceAnnotation.intervals`
+    /// is no longer force-sorted ascending by `SequenceAnnotation.init`, so for an origin-spanning feature on a
+    /// circular molecule (GenBank `join(4000..4200,1..100)`) the stored order already is the transcription
+    /// order. Sorting it in either direction would scramble it, since no single genomic direction recovers the
+    /// order across an origin wrap. `annotation.isOriginSpanning` tells the two cases apart from the interval
+    /// coordinates alone.
+    private static func transcriptionOrder(of annotation: SequenceAnnotation) -> [AnnotationInterval] {
+        if annotation.isOriginSpanning {
+            return annotation.intervals
+        }
+        let ascending = annotation.intervals.sorted { $0.start < $1.start }
+        return annotation.strand == .reverse ? ascending.reversed() : ascending
+    }
 
-        for (seq, interval) in exonSequences {
-            if strand == .reverse {
-                // This exon's own sequence was individually reverse-complemented,
-                // so its first base corresponds to the exon's last genomic base.
-                for i in 0..<seq.count {
-                    positions.append(interval.end - 1 - i)
+    /// Reads every segment of `annotation`, joins the bases in transcription order and finds the frame.
+    ///
+    /// Returns nil when no segment could be read, when a segment fails between two that were read, and when
+    /// a clip leaves a gap between two segments. The rule for the frame is on `translateCDS`.
+    package static func codingLayout(
+        annotation: SequenceAnnotation,
+        segmentProvider: (Int, Int) -> SegmentRead?
+    ) -> CodingLayout? {
+        guard !annotation.intervals.isEmpty else { return nil }
+
+        let isReverse = annotation.strand == .reverse
+        let ordered = transcriptionOrder(of: annotation)
+
+        // Read each segment in transcription order. A segment that fails before the first one that reads
+        // is lost at the 5' end of the CDS. One that fails after it and is followed by another that reads
+        // leaves a hole.
+        var segments: [ReadSegment] = []
+        var droppedBeforeFirst = 0
+        var failedSinceLastRead = false
+        for interval in ordered where interval.length > 0 {
+            guard let read = segmentProvider(interval.start, interval.end), !read.sequence.isEmpty else {
+                if segments.isEmpty {
+                    droppedBeforeFirst += interval.length
+                } else {
+                    failedSinceLastRead = true
                 }
+                continue
+            }
+            if failedSinceLastRead { return nil }
+
+            // The part of the segment that the read left out at its low and at its high coordinate. The
+            // 5' end of a segment is its high end on the reverse strand and its low end on the forward strand.
+            let baseCount = read.sequence.count
+            let lowLoss = max(0, read.start - interval.start)
+            let highLoss = max(0, interval.end - (read.start + baseCount))
+            segments.append(ReadSegment(
+                interval: interval,
+                read: read,
+                baseCount: baseCount,
+                fivePrimeLoss: isReverse ? highLoss : lowLoss,
+                threePrimeLoss: isReverse ? lowLoss : highLoss
+            ))
+        }
+
+        guard let first = segments.first else { return nil }
+
+        // Only the 5' end of the first segment and the 3' end of the last may be short. A short end
+        // anywhere else leaves a gap in the coding sequence.
+        for (index, segment) in segments.enumerated() {
+            if index > 0 && segment.fivePrimeLoss > 0 { return nil }
+            if index < segments.count - 1 && segment.threePrimeLoss > 0 { return nil }
+        }
+
+        // Join the bases in transcription order. On the reverse strand each segment is reverse-complemented
+        // on its own and then joined. That equals rc(exonN)+...+rc(exon1) for a genomic-ascending '-' feature
+        // and is also right for an origin-spanning feature whose stored order already reflects 5'->3'
+        // transcription. Per segment, coding position 0 maps to the highest genomic base that was read and
+        // counts down on the reverse strand, and to the lowest and counts up on the forward strand.
+        var codingSequence = ""
+        var genomicPositions: [Int] = []
+        for segment in segments {
+            if isReverse {
+                codingSequence += reverseComplement(segment.read.sequence)
+                let top = min(segment.read.start + segment.baseCount, segment.interval.end)
+                genomicPositions.append(contentsOf: (0..<segment.baseCount).map { top - 1 - $0 })
             } else {
-                for i in 0..<seq.count {
-                    positions.append(interval.start + i)
-                }
+                codingSequence += segment.read.sequence
+                genomicPositions.append(contentsOf: (0..<segment.baseCount).map { segment.read.start + $0 })
             }
         }
 
-        return positions
+        return CodingLayout(
+            codingSequence: codingSequence,
+            genomicPositions: genomicPositions,
+            phaseOffset: frameOffset(
+                first: first,
+                fivePrimePhase: ordered.first?.phase,
+                basesDroppedBeforeFirst: droppedBeforeFirst
+            )
+        )
+    }
+
+    /// Bases to skip before the first whole codon of the bases that were read.
+    ///
+    /// With nothing lost at the 5' end this is the phase recorded on the first segment, as it has always been.
+    /// Otherwise the phase at the start of the first segment that was read is the one it records, or when it
+    /// records none, the phase of the 5'-most segment moved on by the bases of the segments dropped before it.
+    /// The bases lost inside that segment then move it again.
+    private static func frameOffset(
+        first: ReadSegment,
+        fivePrimePhase: Int?,
+        basesDroppedBeforeFirst: Int
+    ) -> Int {
+        if basesDroppedBeforeFirst == 0 && first.fivePrimeLoss == 0 {
+            return first.interval.phase ?? 0
+        }
+        let phaseAtSegment = first.interval.phase
+            ?? wrapToCodon((fivePrimePhase ?? 0) - basesDroppedBeforeFirst)
+        return wrapToCodon(phaseAtSegment - first.fivePrimeLoss)
+    }
+
+    /// `value` taken to 0, 1 or 2, counting back from a multiple of three when it is negative.
+    private static func wrapToCodon(_ value: Int) -> Int {
+        ((value % 3) + 3) % 3
     }
 
     /// Converts coding-sequence positions to genomic ranges, merging consecutive positions.
