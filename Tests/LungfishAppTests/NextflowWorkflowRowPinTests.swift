@@ -605,7 +605,6 @@ private final class PinLocalWorkflowRunner: LocalWorkflowCLIProcessRunning {
     var onRun: (@MainActor () -> Void)?
     var blocksUntilCancelled = false
     private(set) var cancelCount = 0
-    private var barrier: CheckedContinuation<Void, Never>?
 
     init(exitCode: Int32, standardOutput: String = "", standardError: String = "") {
         result = LocalWorkflowCLIProcessResult(exitCode: exitCode, standardOutput: standardOutput, standardError: standardError)
@@ -618,17 +617,18 @@ private final class PinLocalWorkflowRunner: LocalWorkflowCLIProcessRunning {
     ) async throws -> LocalWorkflowCLIProcessResult {
         onRun?()
         if blocksUntilCancelled {
-            await withCheckedContinuation { barrier = $0 }
+            // Waits for the row's cancel callback, and gives up after 10 s, so a row that registered
+            // no callback fails the case instead of hanging the class.
+            let deadline = Date().addingTimeInterval(10)
+            while cancelCount == 0, Date() < deadline {
+                try? await Task.sleep(for: .milliseconds(10))
+            }
         }
         if result.exitCode == 0 { try Self.writeCompletedBundle(arguments: arguments) }
         return result
     }
 
-    func cancel() {
-        cancelCount += 1
-        barrier?.resume()
-        barrier = nil
-    }
+    func cancel() { cancelCount += 1 }
 
     private static func writeCompletedBundle(arguments: [String]) throws {
         guard let bundleIndex = arguments.firstIndex(of: "--bundle-path"),
