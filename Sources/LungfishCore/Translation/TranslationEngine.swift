@@ -113,11 +113,12 @@ public enum TranslationEngine {
     /// the 3' end of the CDS only shorten the protein, and a partial last codon is dropped. Bases lost at
     /// the 5' end move the frame. With p the phase of the 5'-most segment and r the coding bases lost before
     /// the first base that was read, whole segments included, the first codon starts at base ((p - r) mod 3)
-    /// of the bases that were read. A GenBank import records the phase on the 5'-most segment only, so a
-    /// segment with no phase of its own takes it from p and r. A segment that records a phase of its own,
-    /// as the CDS lines of a GFF3 import do, keeps it. A segment that fails between two that were read, or
-    /// a clip that leaves a gap between two segments, gives no protein. The protein and the amino acid
-    /// indexes start at the first whole codon that was read, and every codon maps to the bases it came from.
+    /// of the bases that were read. A phase recorded on a later segment is not used, so a clip never moves
+    /// the frame of a base that is still read and the protein is the in-frame tail of the unclipped one. A
+    /// GenBank import records the phase on the 5'-most segment only. A segment that fails between two that
+    /// were read, or a clip that leaves a gap between two segments, gives no protein. The protein and the
+    /// amino acid indexes start at the first whole codon that was read, and every codon maps to the bases it
+    /// came from.
     ///
     /// - Parameters:
     ///   - annotation: The annotation to translate (should be a CDS or gene with exon intervals).
@@ -361,7 +362,7 @@ public enum TranslationEngine {
             genomicPositions: genomicPositions,
             phaseOffset: frameOffset(
                 first: first,
-                fivePrimePhase: ordered.first?.phase,
+                fivePrimePhase: ordered.first(where: { $0.length > 0 })?.phase,
                 basesDroppedBeforeFirst: droppedBeforeFirst
             )
         )
@@ -370,9 +371,10 @@ public enum TranslationEngine {
     /// Bases to skip before the first whole codon of the bases that were read.
     ///
     /// With nothing lost at the 5' end this is the phase recorded on the first segment, as it has always been.
-    /// Otherwise the phase at the start of the first segment that was read is the one it records, or when it
-    /// records none, the phase of the 5'-most segment moved on by the bases of the segments dropped before it.
-    /// The bases lost inside that segment then move it again.
+    /// Otherwise it is ((p - r) mod 3), with p the phase of the original 5'-most segment and r every coding base
+    /// lost before the first base that was read, whole segments and the bases cut inside the first read segment
+    /// alike (decision G1). A phase recorded on a later segment is not used, so a clip never moves the frame of
+    /// a base that is still read.
     private static func frameOffset(
         first: ReadSegment,
         fivePrimePhase: Int?,
@@ -381,9 +383,7 @@ public enum TranslationEngine {
         if basesDroppedBeforeFirst == 0 && first.fivePrimeLoss == 0 {
             return first.interval.phase ?? 0
         }
-        let phaseAtSegment = first.interval.phase
-            ?? wrapToCodon((fivePrimePhase ?? 0) - basesDroppedBeforeFirst)
-        return wrapToCodon(phaseAtSegment - first.fivePrimeLoss)
+        return wrapToCodon((fivePrimePhase ?? 0) - basesDroppedBeforeFirst - first.fivePrimeLoss)
     }
 
     /// `value` taken to 0, 1 or 2, counting back from a multiple of three when it is negative.

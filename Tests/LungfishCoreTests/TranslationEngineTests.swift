@@ -470,7 +470,11 @@ final class TranslationEngineTests: XCTestCase {
         XCTAssertNil(result)
     }
 
-    func testPhaseUsesFirstTranslatedIntervalWhenEarlierExonMissing() {
+    /// Phase 2.8 lane B6, decision G1. The frame starts at base ((p - r) mod 3) of the bases that were read, with p
+    /// the phase of the original 5'-most segment and r every coding base lost before the first base that was read.
+    /// Here p is 2 on [0,3), r is 3 and ((2 - 3) mod 3) = 2. The phase 0 recorded on [10,19) disagrees with p and
+    /// the lengths and is not used.
+    func testPhaseOfAMissingFivePrimeExonCarriesThroughItsLength() {
         let annotation = SequenceAnnotation(
             type: .cds,
             name: "phase_fallback",
@@ -490,8 +494,8 @@ final class TranslationEngineTests: XCTestCase {
         )
 
         XCTAssertNotNil(result)
-        XCTAssertEqual(result?.phaseOffset, 0)
-        XCTAssertEqual(result?.protein, "MA*")
+        XCTAssertEqual(result?.phaseOffset, 2)
+        XCTAssertEqual(result?.protein, "GI")
     }
 
     func testAllStopCodons() {

@@ -204,14 +204,38 @@ final class TranslationFrameClampTests: XCTestCase {
         XCTAssertEqual(result.protein, "STVA")
     }
 
-    /// When every segment records a phase, as a GFF3 import does, the phase of the first segment that was
-    /// read is the one the rule gives, so both ways of reading it agree.
+    /// When every segment records a phase that agrees with the 5'-most one and the lengths, the rule gives the
+    /// phase the first segment read records.
     func testReverseSegmentsThatRecordTheirOwnPhaseAgreeWithTheRule() throws {
         let annotation = SequenceAnnotation(
             type: .cds,
             name: "gff3-phases",
             intervals: [
                 AnnotationInterval(start: 100, end: 115, phase: 1),
+                AnnotationInterval(start: 200, end: 229, phase: 0)
+            ],
+            strand: .reverse
+        )
+        let bases = record(length: 190, [(start: 100, bases: plusStrand(ofCoding: 29..<44))])
+
+        let result = try XCTUnwrap(
+            TranslationEngine.translateCDS(annotation: annotation, sequenceProvider: clamping(bases))
+        )
+
+        XCTAssertEqual(result.phaseOffset, 1)
+        XCTAssertEqual(result.protein, "QYGS")
+    }
+
+    /// A writer that puts 0 in every CDS phase column records a phase on [100,115) that disagrees with p and the
+    /// lengths, since 29 bases come before it. Only the phase of the 5'-most segment and the bases lost before
+    /// the first base that was read set the frame, so these bases read in the same frame as in the GenBank case
+    /// above, and the recorded 0 is not used (decision G1).
+    func testARecordedPhaseThatDisagreesWithTheFivePrimeSegmentIsNotUsed() throws {
+        let annotation = SequenceAnnotation(
+            type: .cds,
+            name: "phase-zero-everywhere",
+            intervals: [
+                AnnotationInterval(start: 100, end: 115, phase: 0),
                 AnnotationInterval(start: 200, end: 229, phase: 0)
             ],
             strand: .reverse
