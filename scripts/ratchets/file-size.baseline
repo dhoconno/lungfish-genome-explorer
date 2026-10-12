@@ -1,5 +1,5 @@
 # file-size baseline: Swift files over 800 lines (path, length). Lengths may only fall.
-Sources/LungfishApp/App/AppDelegate+Classification.swift 2354
+Sources/LungfishApp/App/AppDelegate+Classification.swift 2199
 Sources/LungfishApp/App/AppDelegate+ImportCenter.swift 3390
 Sources/LungfishApp/App/AppDelegate+MenuActions.swift 1025
 Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift 811
@@ -13,7 +13,7 @@ Sources/LungfishApp/Services/AnnotationSearchIndex.swift 1796
 Sources/LungfishApp/Services/FASTQIngestionService.swift 1270
 Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 858
 Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1334
-Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1225
+Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1089
 Sources/LungfishApp/Services/ProjectStorageCoordinator.swift 960
 Sources/LungfishApp/Services/ReferenceBundleMergeService.swift 1051
 Sources/LungfishApp/Services/ViralReconWorkflowExecutionService.swift 981
@@ -33,7 +33,7 @@ Sources/LungfishApp/Views/Inspector/InspectorViewController+TrimDuplicateWorkflo
 Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift 1339
 Sources/LungfishApp/Views/Inspector/Sections/DocumentSection.swift 1905
 Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift 2788
-Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift 1586
+Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift 1582
 Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift 806
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift 1362
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 1050
@@ -70,12 +70,12 @@ Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController.swift 4
 Sources/LungfishApp/Views/Viewer/OperationPreviewView.swift 1766
 Sources/LungfishApp/Views/Viewer/ReadTrackRenderer.swift 2432
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Alignment.swift 1412
-Sources/LungfishApp/Views/Viewer/SequenceViewerView+AnnotationRendering.swift 1710
+Sources/LungfishApp/Views/Viewer/SequenceViewerView+AnnotationRendering.swift 1702
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Interaction.swift 2100
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+MultiSequence.swift 1066
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Rendering.swift 1235
-Sources/LungfishApp/Views/Viewer/SequenceViewerView+Tooltips.swift 958
-Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift 2844
+Sources/LungfishApp/Views/Viewer/SequenceViewerView+Tooltips.swift 938
+Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift 2842
 Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift 901
 Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplay.swift 871
 Sources/LungfishApp/Views/Viewer/ViewerViewController+Mapping.swift 956
@@ -168,13 +168,13 @@ Sources/LungfishWorkflow/Extraction/ClassifierReadResolver.swift 954
 Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1155
 Sources/LungfishWorkflow/Geneious/GeneiousImportCollectionService.swift 860
 Sources/LungfishWorkflow/Geneious/GeneiousPackedSequenceExtractor.swift 902
-Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 2784
+Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 2694
 Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift 1468
 Sources/LungfishWorkflow/MSA/MSAReferenceBundleBuilder.swift 819
 Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift 1213
 Sources/LungfishWorkflow/Mapping/MappingProvenance.swift 913
 Sources/LungfishWorkflow/Mapping/MappingViewerBundlePublicationService.swift 1749
-Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline.swift 2625
+Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline.swift 2526
 Sources/LungfishWorkflow/Metagenomics/EsVirituPipeline.swift 855
 Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchProvenanceWriter.swift 1007
 Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseRegistry.swift 2267
@@ -207,6 +207,6 @@ Sources/LungfishWorkflow/SequenceAnnotation/SequenceAnnotationTrackWorkflow.swif
 Sources/LungfishWorkflow/Storage/ProjectStorageCleanupExecutor.swift 2486
 Sources/LungfishWorkflow/Storage/ProjectStorageCleanupReceiptWriter.swift 1680
 Sources/LungfishWorkflow/Storage/ProjectStorageScanner.swift 1567
-Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift 1879
+Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift 1649
 Sources/LungfishWorkflow/TwelveS/TwelveSAmpliconMatchingWorkflow.swift 1010
 Sources/LungfishWorkflow/Variants/ViralVariantCallingPipeline.swift 1709
