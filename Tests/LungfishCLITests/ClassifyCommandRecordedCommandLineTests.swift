@@ -31,7 +31,7 @@ final class ClassifyCommandRecordedCommandLineTests: XCTestCase {
         try "@r1\nACGTACGT\n+\nIIIIIIII\n@r2\nACGTACGT\n+\nIIIIIIII\n".write(to: reads, atomically: true, encoding: .utf8)
         let output = root.appendingPathComponent("out", isDirectory: true)
         let command = try ClassifyCommand.parse([
-            reads.path, "--db", "FixtureDB", "--confidence", "0.4", "--output-dir", output.path, "--threads", "2", "--quiet",
+            reads.path, "--db", "FixtureDB", "--confidence", "0.4", "--output-dir", output.path, "--threads", "1", "--quiet",
         ])
         let database = MetagenomicsDatabaseInfo(
             name: "FixtureDB", tool: "kraken2", version: "1", sizeBytes: 1, catalogID: "kraken2-viral",
@@ -48,7 +48,7 @@ final class ClassifyCommandRecordedCommandLineTests: XCTestCase {
         let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: output))
         XCTAssertEqual(record.argv, [
             CLICommandIdentity.executableName, "kraken2", "classify", "--db", "FixtureDB", "--output-dir", output.path,
-            "--confidence", "0.4", "--threads", "2", "--read-format", "auto", reads.path,
+            "--confidence", "0.4", "--threads", "1", "--read-format", "auto", reads.path,
         ])
     }
 

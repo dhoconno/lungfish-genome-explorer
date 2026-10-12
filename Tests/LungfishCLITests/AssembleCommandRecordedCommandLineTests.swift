@@ -32,7 +32,7 @@ final class AssembleCommandRecordedCommandLineTests: XCTestCase {
         let output = root.appendingPathComponent("out", isDirectory: true)
         let command = try AssembleCommand.parse([
             reads.path, "--assembler", "spades", "--read-type", "illumina-short-reads",
-            "--output", output.path, "--threads", "2", "--quiet",
+            "--output", output.path, "--threads", "1", "--quiet",
         ])
 
         try await command.execute(pipeline: ManagedAssemblyPipeline(condaManager: spades.condaManager))
@@ -40,7 +40,7 @@ final class AssembleCommandRecordedCommandLineTests: XCTestCase {
         let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: output))
         XCTAssertEqual(record.argv, [
             CLICommandIdentity.executableName, "assemble", reads.path, "--assembler", "spades",
-            "--read-type", "illumina-short-reads", "--threads", "2", "--output", output.path,
+            "--read-type", "illumina-short-reads", "--threads", "1", "--output", output.path,
         ])
     }
 
