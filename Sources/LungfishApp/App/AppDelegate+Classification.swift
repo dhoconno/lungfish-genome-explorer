@@ -1803,7 +1803,7 @@ extension AppDelegate {
             let config = config // The detached task cannot capture the mutable local.
             if let createdTaxTriageDirectory { OperationCenter.shared.trackAnalysisOutput(createdTaxTriageDirectory, for: opID) }
 
-            let task = Task.detached { [weak self] in
+            let task = Task.detached { [weak self, makeRunner = TaxTriageLaunchSeam.makeRunner] in
                 do {
                     // Materialize virtual FASTQs for each sample before running TaxTriage
                     let materializeTempDir = try ProjectTempDirectory.createFromContext(
@@ -1824,7 +1824,7 @@ extension AppDelegate {
                         }
                     ) ?? config
 
-                    let runner = TaxTriageSerialBatchRunner()
+                    let runner = makeRunner()
                     let result = try await runner.run(
                         config: resolvedConfig,
                         progress: { progress, message in

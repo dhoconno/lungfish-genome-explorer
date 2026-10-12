@@ -200,6 +200,13 @@ extension TaxTriageCommand {
 
         @OptionGroup var globalOptions: GlobalOptions
 
+        /// Makes the pipeline `run()` drives (Phase 2.8 decision T14). The
+        /// default is today's `TaxTriagePipeline.shared`. Only a test binds
+        /// another, whose micromamba and Nextflow are stand-ins, so the run
+        /// reaches no managed tool. The factory is task-local, so nothing can
+        /// assign it.
+        @TaskLocal static var makePipeline: @Sendable () -> TaxTriagePipeline = { TaxTriagePipeline.shared }
+
         // MARK: - Validation
 
         static func parse(_ arguments: [String]) throws -> Self {
@@ -445,7 +452,7 @@ extension TaxTriageCommand {
             print("")
 
             // Run pipeline
-            let pipeline = TaxTriagePipeline.shared
+            let pipeline = Self.makePipeline()
 
             let result = try await pipeline.run(config: config) { fraction, message in
                 if !globalOptions.quiet {
