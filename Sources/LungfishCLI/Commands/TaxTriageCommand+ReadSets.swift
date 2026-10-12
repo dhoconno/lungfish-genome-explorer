@@ -9,9 +9,10 @@ import LungfishWorkflow
 extension TaxTriageCommand.RunSubcommand {
 
     /// The folder in the output directory that holds the files a virtual
-    /// bundle is materialized into and the files a join writes. The command
-    /// removes it when the run ends, as the app removes its scratch folder.
-    static let materializationDirectoryName = ".lungfish-taxtriage-inputs"
+    /// bundle is materialized into and the files a join writes. It stays
+    /// after the run, because the record names those files (O1), and the
+    /// app keeps the inputs of its result in the same folder.
+    static let materializationDirectoryName = TaxTriageReadSetPlanner.materializationDirectoryName
 
     /// `samples` with each one's inputs resolved to the files TaxTriage reads,
     /// through ``TaxTriageReadSetPlanner/resolve(_:materializationDirectory:materializer:progress:)``,

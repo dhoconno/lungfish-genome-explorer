@@ -1805,14 +1805,14 @@ extension AppDelegate {
 
             let task = Task.detached { [weak self, makeRunner = TaxTriageLaunchSeam.makeRunner] in
                 do {
-                    // Materialize virtual FASTQs for each sample before running TaxTriage
+                    // Materialize each sample's inputs into the result's inputs folder, which keeps them, because
+                    // the records name them (O1). The project temp folder below now holds nothing.
                     let materializeTempDir = try ProjectTempDirectory.createFromContext(
                         prefix: "taxtriage-", contextURL: config.samples.first?.fastq1 ?? config.outputDirectory)
                     defer { try? FileManager.default.removeItem(at: materializeTempDir) }
-
                     let resolvedConfig = try await self?.resolvedTaxTriageConfig(
                         config,
-                        tempDirectory: materializeTempDir,
+                        tempDirectory: TaxTriageReadSetPlanner.materializationDirectory(in: config.outputDirectory),
                         progress: { message in
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {

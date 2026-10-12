@@ -551,11 +551,13 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         XCTAssertEqual(try TaxTriageResult.load(from: batchRoot).sourceBundleURLs, bundles, "only the result file names them")
     }
 
-    /// BIO T10. The record names the materialized input files, with their digests, and the caller removes the folder
-    /// they were written into when the run ends (the GUI in a `defer` of its TaxTriage launch in
-    /// `AppDelegate+Classification`, the CLI route in `<output>/.lungfish-taxtriage-inputs`). The test removes it the same way, and the record then names
-    /// files that no longer exist.
-    func testTheRecordNamesMaterializedInputsThatTheCallerThenRemoves() async throws {
+    /// BIO T10. The record names the materialized input files, with their digests. At the base the caller removed the
+    /// folder they were written into when the run ended (the GUI in a `defer` of its TaxTriage launch in
+    /// `AppDelegate+Classification`, the CLI route in `<output>/.lungfish-taxtriage-inputs`), and the test removed it
+    /// the same way, so the record named files that no longer existed. Decision O1, applied by lane B2 at both callers,
+    /// keeps them where the record says (`TaxTriageKeptInputsReplayTests` runs both callers). The test no longer
+    /// removes the folder, and the assertion on the files was flipped by B2, and the test's name with it.
+    func testTheRecordNamesMaterializedInputsThatTheCallerKeeps() async throws {
         let fixtures = try makeFixtures()
         let materialized = root.appendingPathComponent("materialized-inputs", isDirectory: true)
         let a = try await planned(fixtures.subsetOfSingle, as: "A", in: fixtures, materializeInto: materialized)
@@ -573,12 +575,13 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         XCTAssertTrue(inputs.joined().allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil }, "recorded with a digest while the files exist")
         XCTAssertEqual(relativeSet(envelope.steps.last?.inputs ?? [], to: materialized), names.sorted())
 
-        try FileManager.default.removeItem(at: materialized)
-
         let reread = try record(in: batchRoot)
         let namedNow = reread.steps.flatMap(\.inputs).map(\.path)
         XCTAssertEqual(namedNow.count, 4, "two samples, named by their step and by the batch step")
-        XCTAssertTrue(namedNow.allSatisfy { !FileManager.default.fileExists(atPath: $0) }, "every input the record names is gone")
+        XCTAssertTrue(
+            namedNow.allSatisfy { FileManager.default.fileExists(atPath: $0) },
+            "flipped by B2 (O1), every input the record names exists"
+        )
     }
 
     // MARK: - BIO T11, the files a record names

@@ -378,18 +378,18 @@ extension TaxTriageCommand {
 
             // Resolve each --input sample to the files TaxTriage reads, once
             // the cheap checks above have passed, since a virtual bundle is
-            // materialized here. The scratch folder goes when the run ends,
-            // as the app removes its own.
-            let scratchDirectory = outputDirectory.appendingPathComponent(
+            // materialized here. The materialized and joined files stay in
+            // the output's inputs folder after the run, because the record
+            // names them (O1).
+            let materializationDirectory = outputDirectory.appendingPathComponent(
                 Self.materializationDirectoryName,
                 isDirectory: true
             )
-            defer { try? FileManager.default.removeItem(at: scratchDirectory) }
             if resolvesInputs {
                 do {
                     samples = try await Self.resolveSamples(
                         samples,
-                        materializationDirectory: scratchDirectory,
+                        materializationDirectory: materializationDirectory,
                         materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared),
                         progress: { message in
                             if !globalOptions.quiet {

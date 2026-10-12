@@ -16,6 +16,16 @@ public enum TaxTriageReadSetPlanner {
     /// The consumer ID TaxTriage declares in ``ReadPairingCapabilityRegistry``.
     public static let consumerID = "classify.taxtriage"
 
+    /// The folder of a TaxTriage result that keeps the files a virtual bundle is materialized into
+    /// and the files a join writes. The records name those files, so they stay after the run, on the
+    /// app's route and on `taxtriage run` (decision O1 of Phase 2.8, as E3 of 2.7 keeps EsViritu's).
+    public static let materializationDirectoryName = ".lungfish-taxtriage-inputs"
+
+    /// The inputs folder (``materializationDirectoryName``) of the TaxTriage result at `outputDirectory`.
+    public static func materializationDirectory(in outputDirectory: URL) -> URL {
+        outputDirectory.appendingPathComponent(materializationDirectoryName, isDirectory: true)
+    }
+
     /// The sample with its inputs resolved to the files TaxTriage reads.
     ///
     /// - A `.lungfishfastq` bundle path (`fastq2` nil) is the whole bundle,
