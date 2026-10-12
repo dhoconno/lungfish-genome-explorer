@@ -4,8 +4,9 @@
 //
 // Phase 2.9 lane B11, milestone M2, ruling N12. Decision R1 gives every Nextflow step one shape, the pipeline id at its
 // revision with the release tag beside it, and `pipelineSource` and `nextflowVersion` among its resolved options
-// (`NextflowRecordFacts`). In 2.9 only TaxTriage writes it. These tests state each gap of Viral Recon's record as
-// today's fact and change nothing in it. Viral Recon's move onto the shape in Phase 2.10 flips them.
+// (`NextflowRecordFacts`). In 2.9 only TaxTriage writes it. These tests state Viral Recon's gaps against that shape and
+// the profile, parameter and input rows of the panel's BIO mapping, each as today's fact, and change nothing in it.
+// Viral Recon's move onto the shape in Phase 2.10 flips them.
 
 import Foundation
 import XCTest
@@ -63,5 +64,9 @@ final class ViralReconRecordShapeGapTests: XCTestCase {
         XCTAssertEqual(record.options.explicit["github_release_version"], .string(pin.releaseVersion))
         XCTAssertNil(step.resolvedOptions["nextflowVersion"], "gap, no Nextflow version")
         XCTAssertNil(step.resolvedOptions["pipelineSource"], "gap, no pipeline source")
+        XCTAssertEqual(record.options.explicit["executor"], .string("docker"), "gap, the profile is recorded only as the executor")
+        XCTAssertNil(record.options.explicit["profile"], "gap, no profile")
+        XCTAssertEqual(record.options.resolvedDefaults, [:], "gap, every value is an explicit option, with no home for what LGE passed unasked")
+        XCTAssertEqual(step.inputs.count, 1, "gap, the samplesheet is the one input with a digest, and the FASTQs it names are not inputs")
     }
 }
