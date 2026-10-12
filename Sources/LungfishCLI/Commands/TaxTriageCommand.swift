@@ -267,6 +267,12 @@ extension TaxTriageCommand {
         // MARK: - Execution
 
         func run() async throws {
+            try await runCancellingOnSIGTERM()
+        }
+
+        /// What `run()` does, as the one task that a SIGTERM cancels
+        /// (`runCancellingOnSIGTERM()` in TaxTriageCommand+Cancellation.swift).
+        func execute() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
             let outputDirectory = URL(fileURLWithPath: outputDir)
@@ -398,6 +404,8 @@ extension TaxTriageCommand {
                         }
                     )
                 } catch {
+                    // A SIGTERM here is a cancel, whatever error the stopped tool raised.
+                    if Task.isCancelled || error is CancellationError { throw CancellationError() }
                     print(formatter.error(error.localizedDescription))
                     throw CLIExitCode.inputError.exitCode
                 }
