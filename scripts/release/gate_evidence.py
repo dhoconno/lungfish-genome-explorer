@@ -521,7 +521,8 @@ def preferences_leaks(root, directory, command, *arguments):
                                check=False)
     if completed.returncode == 0:
         return []
-    return [f"preferences-leaks {command} exited {completed.returncode}, see {report.name}"]
+    pointer = f", see {report.name}" if report.is_file() else ""
+    return [f"preferences-leaks {command} exited {completed.returncode}{pointer}"]
 
 
 def run_swift_gate(args):
@@ -822,7 +823,10 @@ def unit_result_status(result, expected):
                 *result.get("discovery", []), *authoritative]
     if any(isinstance(command, dict) and command.get("intervention") is not None for command in commands):
         return None
-    if any("source changed" in str(error) for error in result.get("errors", [])):
+    # A checkout that changed under the run, or a Preferences check that could not read its
+    # input (exit 4), says nothing about the code.
+    if any("source changed" in str(error) or re.match(r"preferences-leaks \w+ exited 4\b", str(error))
+           for error in result.get("errors", [])):
         return None
     return "red"
 

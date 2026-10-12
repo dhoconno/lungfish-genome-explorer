@@ -314,6 +314,17 @@ class GateBehaviorTests(unittest.TestCase):
         self.assertTrue(evidence["errors"][0].startswith("preferences-leaks snapshot exited 3"), evidence["errors"])
         self.assertIn("the allowed list is stale", result.stderr)
 
+    def test_a_preferences_folder_that_cannot_be_listed_runs_no_tests(self):
+        # A regular file stands in for the folder, so listing it raises NotADirectoryError and the
+        # check exits 4 before it writes a report, which is why the error carries no pointer.
+        result, evidence = self.run_gate(
+            "one", "--filter", "ExampleTests", with_leak_check=True,
+            env={"LUNGFISH_PREFERENCES_DIR": str(ROOT / "scripts/testing/preferences-leaks.py")})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIs(evidence["authorized"], False)
+        self.assertEqual(evidence["attempts"], [])
+        self.assertEqual(evidence["errors"], ["preferences-leaks snapshot exited 4"])
+
     def test_the_quiet_gate_prints_the_failed_preferences_check_after_its_fail_line(self):
         result, _ = self.run_gate("one", "--filter", "ExampleTests", "--quiet",
                                   env={"STUB_WRITES": LEAKED_PLIST}, with_leak_check=True)

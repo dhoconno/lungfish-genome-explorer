@@ -858,6 +858,14 @@ class UnitResultStatusTests(unittest.TestCase):
         self.assertIsNone(self.status(lambda r: r.update(errors=leak)), "an error never validates as green")
         self.assertEqual(self.status(), "green", "control: the same run without the leak is green")
 
+    def test_a_preferences_check_that_could_not_read_its_input_is_not_red(self):
+        # Exit 4 means the check hit an OSError or ValueError on its input, which says nothing about
+        # the code. A stale allowed list (exit 3) is a fact of the commit and stays red.
+        unreadable = ["preferences-leaks snapshot exited 4"]
+        self.assertIsNone(self.status(lambda r: r.update(attempts=[], errors=unreadable), authorized=False))
+        stale = ["preferences-leaks snapshot exited 3, see preferences.txt"]
+        self.assertEqual(self.status(lambda r: r.update(attempts=[], errors=stale), authorized=False), "red")
+
     def test_failures_that_say_nothing_about_the_code_are_not_red(self):
         for label, change in UNINFORMATIVE_FAILURES.items():
             with self.subTest(label):
