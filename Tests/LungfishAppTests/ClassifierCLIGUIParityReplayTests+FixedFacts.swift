@@ -380,38 +380,148 @@ extension ClassifierCLIGUIParityReplayTests {
     // MARK: - Named files
 
     /// Every file a record under the side root names in the project that does not exist, or
-    /// that holds another digest than the record states (QA checklist 4, BIO checklist 7). Two
-    /// sides that share the fault cannot show it in a pair comparison, which leaves the digest of
-    /// a file both trees hold to the folder comparison. Paths under `<storage-root>/` and
-    /// `<external>/` are not checked, and a folder is checked for existence only. One difference
-    /// per record and named path, however often the record names it.
+    /// that holds another digest than the record states (QA checklist 4, BIO checklist 7), and
+    /// that the result does not account for (`namedFileDifferences`). Two sides that share the
+    /// fault cannot show it in a pair comparison, which leaves the digest of a file both trees
+    /// hold to the folder comparison. Paths under `<storage-root>/` and `<external>/` are not
+    /// checked, and a folder is checked for existence only.
     func namedFileViolations(of run: ClassifierParitySideRun) throws -> [ClassifierParityDifference] {
-        let token = "<project>/"
+        let records = try ClassifierParityComparison.recordPaths(under: run.root).map {
+            (path: $0, facts: try ClassifierParityComparison.factsTree(of: run, record: $0))
+        }
         var digests: [String: String] = [:]
+        return try Self.namedFileDifferences(side: "\(run.side)", records: records) { relativePath in
+            let file = run.project.appendingPathComponent(relativePath)
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory) else { return nil }
+            guard !isDirectory.boolValue else { return .folder }
+            return .file {
+                let actual = try digests[file.path] ?? ClassifierParityFixtures.sha256(of: file)
+                digests[file.path] = actual
+                return actual
+            }
+        }
+    }
+
+    /// What a named path holds in the project. Nil when it does not exist.
+    enum NamedPathState {
+        case folder
+        /// A file, with a function that returns its SHA-256.
+        case file(() throws -> String)
+    }
+
+    /// The named-file differences of `records`, the facts of each record under a side root by
+    /// its relative path, where `state` reads a path below `<project>/`. One difference per
+    /// record and named path, however often the record names it.
+    ///
+    /// Panel decision P1 of Phase 2.8. Step facts stay as they were, so a file that is missing
+    /// or holds another digest is accepted only when a later step of the same record names it
+    /// with the stated digest as input, or a removal step of the same result names it by path.
+    /// A removal step says `operation` `remove` in its resolved options and names each removed
+    /// path as an input. A record's step list is the only order a record states, so a later step
+    /// is one later in the same record, and nothing comes later than the run level. A later
+    /// consumer can excuse an earlier naming but never the last one, so a removed or rewritten
+    /// file is accepted only through a removal step. The result of a record is its folder under
+    /// `Analyses/`, which holds every record of a run, a batch's sample records included.
+    static func namedFileDifferences(
+        side: String,
+        records: [(path: String, facts: ProvenanceCompatFacts.Value)],
+        state: (String) throws -> NamedPathState?
+    ) throws -> [ClassifierParityDifference] {
+        let token = "<project>/"
+        var removed: [String: Set<String>] = [:]
+        for record in records {
+            removed[resultFolder(of: record.path), default: []].formUnion(removedPaths(in: record.facts))
+        }
         var found: [String: ClassifierParityDifference] = [:]
-        for record in ClassifierParityComparison.recordPaths(under: run.root) {
-            for named in Self.namedFiles(in: try ClassifierParityComparison.factsTree(of: run, record: record)) {
-                guard case .string(let path)? = named["path"], path.hasPrefix(token) else { continue }
-                let file = run.project.appendingPathComponent(String(path.dropFirst(token.count)))
-                var isDirectory: ObjCBool = false
+        for record in records {
+            let namings = orderedNamings(in: record.facts)
+            for (index, named) in namings.enumerated() {
+                guard named.path.hasPrefix(token) else { continue }
                 let problem: String
-                var detail = "\(run.side) \(record) names \(path)"
-                if !FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory) {
+                var detail = "\(side) \(record.path) names \(named.path)"
+                switch try state(String(named.path.dropFirst(token.count))) {
+                case nil:
                     problem = "that does not exist"
-                } else if !isDirectory.boolValue, case .string(let recorded)? = named["sha256"] {
-                    let actual = try digests[file.path] ?? ClassifierParityFixtures.sha256(of: file)
-                    digests[file.path] = actual
+                case .folder?:
+                    continue
+                case .file(let digest)?:
+                    guard let recorded = named.sha256 else { continue }
+                    let actual = try digest()
                     guard actual != recorded else { continue }
                     problem = "with another digest"
                     detail += ", recorded \(recorded), found \(actual)"
-                } else {
-                    continue
                 }
-                let id = "fact: record \(ClassifierParityComparison.maskedID(record)) names \(ClassifierParityComparison.maskedID(path)) \(problem)"
+                if removed[resultFolder(of: record.path)]?.contains(named.path) == true { continue }
+                let consumedLater = namings[(index + 1)...].contains {
+                    $0.step > named.step && $0.isInput && $0.path == named.path && $0.sha256 != nil && $0.sha256 == named.sha256
+                }
+                if consumedLater { continue }
+                let id = "fact: record \(ClassifierParityComparison.maskedID(record.path)) names \(ClassifierParityComparison.maskedID(named.path)) \(problem)"
                 if found[id] == nil { found[id] = ClassifierParityDifference(id: id, detail: detail) }
             }
         }
         return found.keys.sorted().compactMap { found[$0] }
+    }
+
+    /// One path a record names, with the index of the step that names it (the step count for
+    /// the run level and every other place) and whether that step reads it.
+    struct Naming {
+        let step: Int
+        let isInput: Bool
+        let path: String
+        let sha256: String?
+    }
+
+    /// Every naming of `facts` in record order, the steps first and then the rest of the tree.
+    /// Together they are the objects `namedFiles(in:)` finds in the whole tree.
+    static func orderedNamings(in facts: ProvenanceCompatFacts.Value) -> [Naming] {
+        guard case .object(var members) = facts else { return [] }
+        var steps: [ProvenanceCompatFacts.Value] = []
+        if case .array(let items)? = members.removeValue(forKey: "steps") { steps = items }
+        func namings(_ value: ProvenanceCompatFacts.Value, step: Int, isInput: Bool) -> [Naming] {
+            namedFiles(in: value).compactMap { named in
+                guard case .string(let path)? = named["path"] else { return nil }
+                guard case .string(let sha256)? = named["sha256"] else {
+                    return Naming(step: step, isInput: isInput, path: path, sha256: nil)
+                }
+                return Naming(step: step, isInput: isInput, path: path, sha256: sha256)
+            }
+        }
+        var found: [Naming] = []
+        for (index, step) in steps.enumerated() {
+            guard case .object(var stepMembers) = step else { continue }
+            let inputs = stepMembers.removeValue(forKey: "inputs")
+            found += inputs.map { namings($0, step: index, isInput: true) } ?? []
+            found += namings(.object(stepMembers), step: index, isInput: false)
+        }
+        return found + namings(.object(members), step: steps.count, isInput: false)
+    }
+
+    /// The paths the removal steps of `facts` name.
+    static func removedPaths(in facts: ProvenanceCompatFacts.Value) -> Set<String> {
+        guard case .object(let members) = facts, case .array(let steps)? = members["steps"] else { return [] }
+        var paths: Set<String> = []
+        for case .object(let step) in steps {
+            guard case .object(let options)? = step["resolvedOptions"],
+                  case .object(let operation)? = options["operation"],
+                  operation["value"] == .string("remove"),
+                  case .array(let inputs)? = step["inputs"] else { continue }
+            for case .object(let input) in inputs {
+                if case .string(let path)? = input["path"] { paths.insert(path) }
+            }
+        }
+        return paths
+    }
+
+    /// The folder of the result that holds the record at `recordPath`, relative to the side
+    /// root. A record outside `Analyses/` is its own result, its folder.
+    static func resultFolder(of recordPath: String) -> String {
+        let components = recordPath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        if let analyses = components.firstIndex(of: "Analyses"), analyses + 2 < components.count {
+            return components[...(analyses + 1)].joined(separator: "/")
+        }
+        return components.dropLast().joined(separator: "/")
     }
 
     /// Every object in `value` with a `path` string and a `role`, the files a record names.
