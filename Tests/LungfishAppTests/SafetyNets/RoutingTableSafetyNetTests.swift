@@ -31,8 +31,29 @@ final class RoutingTableSafetyNetTests: XCTestCase {
     /// so the margin costs nothing when the machine is idle. The NAO-MGS rows
     /// open their SQLite database on the main actor, and under the unit gate's
     /// own load (load average 126 on 14 cores) they and the genotype workbook
-    /// preview row took more than 30 seconds.
-    private static let settleTimeout: Duration = .seconds(120)
+    /// preview row took more than 30 seconds. On 2026-10-12 the unit tier ran
+    /// beside four lane builds. Tests that touched files stalled for two to
+    /// three minutes at a time (unrelated tests took 139 to 181 seconds) and
+    /// the NVD analysis row ran out of 120 seconds before its load published.
+    /// The ceiling now sits well above the longest stall seen.
+    private static let settleCeiling: Duration = .seconds(300)
+
+    /// What a row may wait once an earlier row of the same test ran out of
+    /// time. A stall ends for every row at once, so a later row either settles
+    /// in moments or its route is broken. This keeps a change that breaks
+    /// many rows from costing the full ceiling for each of them.
+    private static let settleAfterTimeout: Duration = .seconds(30)
+
+    /// A further look after a row runs out of time. When a stall ends, the
+    /// poll that finds the deadline gone can run before the load it waits for,
+    /// which then publishes a moment later.
+    private static let settleGrace: Duration = .seconds(10)
+
+    /// The wait between two looks. Each look reads the whole window and runs on
+    /// the main actor beside the load it waits for.
+    private static let settlePoll: Duration = .milliseconds(25)
+
+    private var settleTimeout: Duration = RoutingTableSafetyNetTests.settleCeiling
 
     // MARK: - Coverage
 
@@ -130,17 +151,31 @@ final class RoutingTableSafetyNetTests: XCTestCase {
         split.displayContent(for: fixture.item)
 
         var observed = RoutingObserver.observe(split, paths: context.paths, loaded: recorder.urls)
-        await waitUntil(timeout: Self.settleTimeout) {
+        func isSettled() -> Bool {
             observed = RoutingObserver.observe(split, paths: context.paths, loaded: recorder.urls)
             return observed == fixture.expected
+        }
+        let waitStarted = ContinuousClock.now
+        let settled = await waitUntil(timeout: settleTimeout, pollInterval: Self.settlePoll, isSettled)
+        if !settled {
+            settleTimeout = Self.settleAfterTimeout
+            await waitUntil(timeout: Self.settleGrace, pollInterval: Self.settlePoll, isSettled)
         }
         XCTAssertEqual(
             observed.description,
             fixture.expected.description,
-            "\(label) routed differently.\n--- observed\n\(observed)\n--- expected\n\(fixture.expected)"
+            "\(label) routed differently after \(ContinuousClock.now - waitStarted) at load average \(Self.loadAverage).\n--- observed\n\(observed)\n--- expected\n\(fixture.expected)"
         )
 
         tearDownRow(split)
+    }
+
+    /// The one-minute load average, written into a failure so a stalled machine
+    /// reads differently from a changed route.
+    private static var loadAverage: String {
+        var loads = [Double](repeating: 0, count: 3)
+        guard getloadavg(&loads, 3) == 3 else { return "unknown" }
+        return String(format: "%.1f", loads[0])
     }
 
     /// Ends the row's display request and removes its viewport, so no load
