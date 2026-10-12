@@ -1,9 +1,13 @@
-// FindSourceBundleTests.swift - Regression tests for AppDelegate.findSourceBundle
+// FindSourceBundleTests.swift - Regression tests for MappingResultLayoutService.findSourceBundle
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
+//
+// The window code (the Map Reads completion and the end of a TaxTriage run) finds the source bundle
+// of its inputs through the Workflow finder, the one `lungfish-cli map` uses. The App's own copy went
+// with the in-process classifier launch in Phase 2.9 (E14).
 
 import XCTest
-@testable import LungfishApp
+import LungfishWorkflow
 
 final class FindSourceBundleTests: XCTestCase {
     private var tempDir: URL!
@@ -30,55 +34,48 @@ final class FindSourceBundleTests: XCTestCase {
         )
     }
 
-    @MainActor
     func testFindsWhenInputIsBundleURL() {
         let bundleURL = tempDir.appendingPathComponent("sample.lungfishfastq")
-        let result = AppDelegate.findSourceBundle(for: [bundleURL])
+        let result = MappingResultLayoutService.findSourceBundle(for: [bundleURL])
         assertURLEqual(result, bundleURL)
     }
 
-    @MainActor
     func testFindsWhenInputIsFileInsideBundle() {
         let bundleURL = tempDir.appendingPathComponent("sample.lungfishfastq")
         let fileURL = bundleURL.appendingPathComponent("reads.fastq.gz")
-        let result = AppDelegate.findSourceBundle(for: [fileURL])
+        let result = MappingResultLayoutService.findSourceBundle(for: [fileURL])
         assertURLEqual(result, bundleURL)
     }
 
-    @MainActor
     func testReturnsNilForPlainFASTQ() {
         let fileURL = tempDir.appendingPathComponent("reads.fastq.gz")
-        let result = AppDelegate.findSourceBundle(for: [fileURL])
+        let result = MappingResultLayoutService.findSourceBundle(for: [fileURL])
         XCTAssertNil(result)
     }
 
-    @MainActor
     func testReturnsNilForEmptyArray() {
-        let result = AppDelegate.findSourceBundle(for: [])
+        let result = MappingResultLayoutService.findSourceBundle(for: [])
         XCTAssertNil(result)
     }
 
-    @MainActor
     func testFindsFirstBundleInMultipleInputs() {
         let plainFile = tempDir.appendingPathComponent("other.fastq")
         let bundleURL = tempDir.appendingPathComponent("sample.lungfishfastq")
         let fileInBundle = bundleURL.appendingPathComponent("reads.fastq.gz")
-        let result = AppDelegate.findSourceBundle(for: [plainFile, fileInBundle])
+        let result = MappingResultLayoutService.findSourceBundle(for: [plainFile, fileInBundle])
         assertURLEqual(result, bundleURL)
     }
 
-    @MainActor
     func testCaseInsensitiveExtension() {
         let bundleURL = tempDir.appendingPathComponent("sample.LUNGFISHFASTQ")
-        let result = AppDelegate.findSourceBundle(for: [bundleURL])
+        let result = MappingResultLayoutService.findSourceBundle(for: [bundleURL])
         assertURLEqual(result, bundleURL)
     }
 
-    @MainActor
     func testFileInsideBundleWithMixedCaseExtension() {
         let bundleURL = tempDir.appendingPathComponent("sample.LungfishFastq")
         let fileURL = bundleURL.appendingPathComponent("reads.fastq")
-        let result = AppDelegate.findSourceBundle(for: [fileURL])
+        let result = MappingResultLayoutService.findSourceBundle(for: [fileURL])
         assertURLEqual(result, bundleURL)
     }
 }

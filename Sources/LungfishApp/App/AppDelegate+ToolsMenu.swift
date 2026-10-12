@@ -1311,7 +1311,7 @@ extension AppDelegate {
         request: MappingRunRequest
     ) {
         guard let split = mainWindowController?.mainSplitViewController else { return }
-        if let bundleURL = Self.findSourceBundle(for: request.inputFASTQURLs) {
+        if let bundleURL = MappingResultLayoutService.findSourceBundle(for: request.inputFASTQURLs) {
             let entry = AnalysisManifestEntry(
                 tool: request.tool.rawValue,
                 analysisDirectoryName: Self.analysisManifestDirectoryName(

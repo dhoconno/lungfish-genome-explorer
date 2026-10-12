@@ -89,7 +89,7 @@ extension AppDelegate {
 
                 // Record analysis in source bundle manifests
                 for sample in capturedConfig.samples {
-                    if let bundleURL = Self.findSourceBundle(for: [sample.fastq1] + (sample.fastq2.map { [$0] } ?? [])) {
+                    if let bundleURL = MappingResultLayoutService.findSourceBundle(for: [sample.fastq1] + (sample.fastq2.map { [$0] } ?? [])) {
                         let entry = AnalysisManifestEntry(
                             tool: "taxtriage",
                             analysisDirectoryName: Self.analysisManifestDirectoryName(
