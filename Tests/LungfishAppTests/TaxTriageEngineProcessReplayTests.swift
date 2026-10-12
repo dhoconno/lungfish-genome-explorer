@@ -12,8 +12,9 @@
 // - `nextflow.log` holds the launch metadata, then `--- stdout ---` and the stdout lines, then
 //   `--- stderr ---` and the stderr lines (N8, today's bytes).
 //
-// `XCTExpectFailure` pins of today's defects, which M2 fixes and turns into plain assertions.
-// - E9. A cancel during the Docker wait is swallowed by `try?` on its sleep.
+// Pins of the defects M2 fixes, `XCTExpectFailure` pins until TaxTriage moved onto the engine.
+// - E9. A cancel during the Docker wait ends the run at once, where `try?` on its sleep swallowed it.
+// - Only a run with the docker profile asks the Docker daemon (A16 M1 review, ruling 2).
 // - E10. A cancel before the launch still starts the engine.
 // - A KILL leaves no `nextflow.log`, because the log is written once the engine returns (Q15 R3).
 //
@@ -124,14 +125,8 @@ final class TaxTriageEngineProcessReplayTests: XCTestCase {
         let engine = try makeEngine(.completes)
         var config = try makeConfig([("D1", 2)], output: "docker")
         config.profile = "docker"
-        let probe = UnreachableDockerProbe()
-        let home = engine.home
-        let pipeline = TaxTriagePipeline(
-            condaManager: engine.condaManager,
-            homeDirectoryProvider: { home },
-            appIdentity: .preview,
-            containerRuntimeProbe: probe
-        )
+        let probe = CountingDockerProbe(reachable: false)
+        let pipeline = makePipeline(engine, probe: probe)
 
         let outcome = await Task {
             try await pipeline.run(config: config) { _, message in
@@ -144,12 +139,48 @@ final class TaxTriageEngineProcessReplayTests: XCTestCase {
         }.result
 
         XCTAssertEqual(try engine.launches().count, 0, "no engine starts once the run is cancelled")
-        XCTExpectFailure(
-            "E9. The wait swallows the cancel with try? on its sleep, asks the daemon without a pause until its 90 s count runs out and fails as a missing prerequisite. S9 M2 moves TaxTriage onto the engine's wait."
-        ) {
-            XCTAssertTrue(outcome.failure is CancellationError, "\(String(describing: outcome.failure))")
-            XCTAssertLessThanOrEqual(probe.daemonQueries, 2, "a cancelled wait stops asking the daemon")
-        }
+        // E9. Before S9 M2 the wait swallowed the cancel with try? on its sleep, asked the daemon
+        // without a pause until its 90 s count ran out and failed as a missing prerequisite.
+        XCTAssertTrue(outcome.failure is CancellationError, "\(String(describing: outcome.failure))")
+        XCTAssertGreaterThanOrEqual(probe.daemonQueries, 1, "the wait asked the daemon before it said it was unavailable")
+        XCTAssertLessThanOrEqual(probe.daemonQueries, 2, "a cancelled wait stops asking the daemon")
+    }
+
+    func testOnlyARunWithTheDockerProfileAsksTheDockerDaemon() async throws {
+        let engine = try makeEngine(.completes)
+        // The prerequisite report asks the daemon for every profile (`checkPrerequisites`), so each
+        // run's count is read against the report's own.
+        let reportProbe = CountingDockerProbe(reachable: true)
+        _ = await makePipeline(engine, probe: reportProbe).checkPrerequisites()
+        let local = try makeConfig([("P1", 2)], output: "profile-local")
+        let localProbe = CountingDockerProbe(reachable: true)
+        var docker = try makeConfig([("P2", 2)], output: "profile-docker")
+        docker.profile = "docker"
+        let dockerProbe = CountingDockerProbe(reachable: true)
+        let dockerPipeline = makePipeline(engine, probe: dockerProbe)
+
+        _ = try await makePipeline(engine, probe: localProbe).run(config: local)
+        let outcome = await Task {
+            try await dockerPipeline.run(config: docker) { _, message in
+                // The daemon answers at once, so `open` never runs. The run stops at its last line
+                // before the launch.
+                if message == "Starting TaxTriage pipeline..." {
+                    withUnsafeCurrentTask { $0?.cancel() }
+                }
+            }
+        }.result
+
+        XCTAssertEqual(
+            localProbe.daemonQueries,
+            reportProbe.daemonQueries,
+            "a run with profile local asks the daemon only for its prerequisite report, never to wait"
+        )
+        XCTAssertTrue(outcome.failure is CancellationError, "\(String(describing: outcome.failure))")
+        XCTAssertGreaterThanOrEqual(
+            dockerProbe.daemonQueries,
+            reportProbe.daemonQueries + 1,
+            "a run with profile docker waits for the daemon before it goes on"
+        )
     }
 
     func testACancelBeforeTheLaunchStartsNoEngine() async throws {
@@ -219,6 +250,17 @@ final class TaxTriageEngineProcessReplayTests: XCTestCase {
         )
         addTeardownBlock { await engine.stopLeftoverProcesses() }
         return engine
+    }
+
+    /// A pipeline that launches the stand-in and asks `probe` about the Docker daemon.
+    private func makePipeline(_ engine: TaxTriageStandInEngine, probe: any ContainerRuntimeProbing) -> TaxTriagePipeline {
+        let home = engine.home
+        return TaxTriagePipeline(
+            condaManager: engine.condaManager,
+            homeDirectoryProvider: { home },
+            appIdentity: .preview,
+            containerRuntimeProbe: probe
+        )
     }
 
     /// A stand-in run of one single-end FASTQ per sample into `output` under the scratch folder.
@@ -301,9 +343,14 @@ final class TaxTriageEngineProcessReplayTests: XCTestCase {
     }
 }
 
-/// A Docker probe whose daemon never answers, counting how often it is asked.
-private final class UnreachableDockerProbe: ContainerRuntimeProbing, Sendable {
+/// A Docker probe whose daemon answers as `reachable` says, counting how often it is asked.
+private final class CountingDockerProbe: ContainerRuntimeProbing, Sendable {
+    private let reachable: Bool
     private let queries = Mutex(0)
+
+    init(reachable: Bool) {
+        self.reachable = reachable
+    }
 
     var daemonQueries: Int { queries.withLock { $0 } }
 
@@ -312,10 +359,10 @@ private final class UnreachableDockerProbe: ContainerRuntimeProbing, Sendable {
     func dockerDaemon(dockerPath: String, timeout: TimeInterval) async -> DockerDaemonProbe {
         queries.withLock { $0 += 1 }
         return DockerDaemonProbe(
-            reachable: false,
+            reachable: reachable,
             clientVersion: "28.3.2",
-            serverVersion: nil,
-            detail: "Cannot connect to the Docker daemon"
+            serverVersion: reachable ? "28.3.2" : nil,
+            detail: reachable ? nil : "Cannot connect to the Docker daemon"
         )
     }
 

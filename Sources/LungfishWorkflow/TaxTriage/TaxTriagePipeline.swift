@@ -274,11 +274,12 @@ public actor TaxTriagePipeline {
         let useNextflowConda = Self.usesNextflowConda(profile: profileAdjustedConfig.profile)
         let launchEnvironment = await buildLaunchEnvironment(useNextflowConda: useNextflowConda)
         let engine = Self.nextflowEngine(processManager: processManager, profile: profileAdjustedConfig.profile)
-        if profileAdjustedConfig.profile == "docker" {
-            try await ensureDockerDaemonReady(
-                progress: progress,
-                environment: launchEnvironment
-            )
+        // The engine waits for the daemon for the docker profile alone, a cancel ends the wait at once,
+        // and a Docker Desktop that cannot be started fails it at once, in TaxTriage's words (N9, E9).
+        do {
+            try await engine.waitForDocker(probe: containerRuntimeProbe, progress: progress)
+        } catch let error as NextflowEngineError {
+            throw TaxTriagePipelineError.prerequisiteFailed(tool: "Docker", reason: error.localizedDescription)
         }
 
         let prereqs = await checkPrerequisites()
@@ -1338,71 +1339,6 @@ public actor TaxTriagePipeline {
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
             .contains("conda")
-    }
-
-    private func ensureDockerDaemonReady(
-        progress: (@Sendable (Double, String) -> Void)?,
-        environment: [String: String]
-    ) async throws {
-        if await dockerDaemonAvailable(environment: environment) {
-            return
-        }
-
-        progress?(0.01, "Docker daemon unavailable. Launching Docker Desktop...")
-        logger.warning("Docker daemon unavailable; attempting to launch Docker Desktop")
-        _ = await launchDockerDesktop()
-
-        let timeoutSeconds: UInt64 = 90
-        let pollIntervalSeconds: UInt64 = 2
-        var waitedSeconds: UInt64 = 0
-        while waitedSeconds < timeoutSeconds {
-            try? await Task.sleep(nanoseconds: pollIntervalSeconds * 1_000_000_000)
-            waitedSeconds += pollIntervalSeconds
-            if await dockerDaemonAvailable(environment: environment) {
-                logger.info("Docker daemon became available after \(waitedSeconds, privacy: .public)s")
-                progress?(0.02, "Docker daemon ready")
-                return
-            }
-        }
-
-        throw TaxTriagePipelineError.prerequisiteFailed(
-            tool: "Docker",
-            reason: "Docker Desktop is not running or daemon is unreachable. Start Docker Desktop and retry."
-        )
-    }
-
-    private func launchDockerDesktop() async -> Bool {
-        let openPath = URL(fileURLWithPath: "/usr/bin/open")
-        do {
-            let result = try await processManager.runAndWait(
-                executable: openPath,
-                arguments: ["-g", "-a", "Docker"],
-                workingDirectory: homeDirectoryProvider()
-            )
-            if result.exitCode == 0 {
-                logger.info("Requested Docker Desktop launch via open -a Docker")
-                return true
-            }
-            let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            logger.warning("Failed to launch Docker Desktop (exit \(result.exitCode, privacy: .public)): \(stderr, privacy: .public)")
-            return false
-        } catch {
-            logger.warning("Failed to launch Docker Desktop: \(error.localizedDescription)")
-            return false
-        }
-    }
-
-    /// Whether the Docker daemon answers right now, by the same probe the
-    /// CLI check and the wizard row use, so all three agree on one verdict.
-    /// `environment` is the launch environment the pipeline will run with
-    /// and is kept for logging; the probe finds `docker` on its own.
-    private func dockerDaemonAvailable(environment: [String: String]) async -> Bool {
-        let status = await PipelineContainerRuntimeStatus.check(probe: containerRuntimeProbe)
-        if !status.available {
-            let detail = status.detail ?? status.unavailableMessage
-            logger.warning("Docker daemon unavailable: \(detail, privacy: .public)")
-        }
-        return status.available
     }
 
     nonisolated func buildLaunchMetadata(
