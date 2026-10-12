@@ -126,13 +126,21 @@ final class AnalysisRunJournal: Sendable {
         AnalysisRunPlanningContext(projectURL: projectURL, log: { level, message in self.log(level, message) })
     }
 
-    func unitContext(index: Int, count: Int, rootDirectory: URL, projectURL: URL?) -> AnalysisRunUnitContext {
+    func unitContext(
+        index: Int,
+        count: Int,
+        rootDirectory: URL,
+        projectURL: URL?,
+        finalizeShare: Double = 0
+    ) -> AnalysisRunUnitContext {
         AnalysisRunUnitContext(
             rootDirectory: rootDirectory,
             projectURL: projectURL,
             progress: { fraction, message in
                 self.emit(.progress(
-                    fraction: Self.runFraction(index: index, count: count, unitFraction: fraction),
+                    fraction: Self.runFraction(
+                        index: index, count: count, unitFraction: fraction, finalizeShare: finalizeShare
+                    ),
                     message: message
                 ))
             },
@@ -150,7 +158,8 @@ final class AnalysisRunJournal: Sendable {
         layout: AnalysisRunLayout,
         projectURL: URL?,
         toolID: AnalysisToolID,
-        indexing: (any AnalysisResultIndexing)?
+        indexing: (any AnalysisResultIndexing)?,
+        finalizeShare: Double = 0
     ) -> AnalysisRunFinalizeContext {
         AnalysisRunFinalizeContext(
             rootDirectory: rootDirectory,
@@ -158,15 +167,22 @@ final class AnalysisRunJournal: Sendable {
             projectURL: projectURL,
             toolID: toolID,
             indexing: indexing,
+            finalizeShare: finalizeShare,
             log: { level, message in self.log(level, message) },
-            progress: { message in self.emit(.progress(fraction: 1, message: message)) }
+            progress: { fraction, message in self.emit(.progress(fraction: fraction, message: message)) }
         )
     }
 
-    /// A unit's progress on the run's scale, `(index + fraction) / count`, with the fraction held
-    /// to 0...1 and a value that is not a number read as 0.
-    static func runFraction(index: Int, count: Int, unitFraction: Double) -> Double {
+    /// A unit's progress on the run's scale, `(index + fraction) / count` of the range the units own,
+    /// `1 - finalizeShare` (W3), with the fraction held to 0...1 and a value that is not a number read
+    /// as 0.
+    static func runFraction(index: Int, count: Int, unitFraction: Double, finalizeShare: Double = 0) -> Double {
         let fraction = unitFraction.isFinite ? min(max(unitFraction, 0), 1) : 0
-        return (Double(index) + fraction) / Double(max(count, 1))
+        return (Double(index) + fraction) / Double(max(count, 1)) * (1 - clampedShare(finalizeShare))
+    }
+
+    /// A tool's finalize share held to 0 up to 0.99, and a value that is not a number read as 0.
+    static func clampedShare(_ share: Double) -> Double {
+        share.isFinite ? min(max(share, 0), 0.99) : 0
     }
 }

@@ -39,6 +39,13 @@ public protocol AnalysisRunTool: Sendable {
     /// How the unit outcomes end the run. The default fails the run at the first failed unit.
     var terminalPolicy: AnalysisRunTerminalPolicy { get }
 
+    /// The share of the run's progress that ``finalize(_:context:)`` owns at the end of the bar, at
+    /// least 0 and less than 1 (W3 of Phase 2.9). The units move the bar from 0 to `1 - share` and the
+    /// finalize from there to 1, so a finalize that builds a viewer index, as TaxTriage's does after
+    /// its Nextflow run, does not sit at the end of the bar. The default 0 gives the units the whole
+    /// bar, as Kraken2 and EsViritu have always had it.
+    var finalizeProgressShare: Double { get }
+
     /// Phase P0. Turns the request into units without writing anything.
     ///
     /// Every check that refuses a request without running a tool belongs here, such as the
@@ -75,6 +82,8 @@ public protocol AnalysisRunTool: Sendable {
 
 extension AnalysisRunTool {
     public var terminalPolicy: AnalysisRunTerminalPolicy { .failOnAnyFailedUnit }
+
+    public var finalizeProgressShare: Double { 0 }
 }
 
 /// What kind of analysis a tool runs and the name its root record is written under.

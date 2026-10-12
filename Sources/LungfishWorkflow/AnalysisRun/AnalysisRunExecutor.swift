@@ -236,7 +236,8 @@ public struct AnalysisRunExecutor: Sendable {
                     layout: layout,
                     projectURL: folder.projectURL,
                     toolID: tool.identity.toolID,
-                    indexing: services.indexing
+                    indexing: services.indexing,
+                    finalizeShare: tool.finalizeProgressShare
                 )
             )
             // A cancel during the finalize drops what it wrote from the record, so nothing

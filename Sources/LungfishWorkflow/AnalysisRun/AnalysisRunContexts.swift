@@ -136,23 +136,28 @@ public struct AnalysisRunFinalizeContext: Sendable {
     public let projectURL: URL?
     public let toolID: AnalysisToolID
     private let indexing: (any AnalysisResultIndexing)?
+    private let finalizeShare: Double
     private let logHandler: @Sendable (CLIEventLogLevel, String) -> Void
-    private let progressHandler: @Sendable (String) -> Void
+    private let progressHandler: @Sendable (Double, String) -> Void
 
+    /// `finalizeShare` is the tool's ``AnalysisRunTool/finalizeProgressShare``, and `progress` takes
+    /// the fraction of the whole run, from `1 - finalizeShare` to 1.
     public init(
         rootDirectory: URL,
         layout: AnalysisRunLayout,
         projectURL: URL?,
         toolID: AnalysisToolID,
         indexing: (any AnalysisResultIndexing)?,
+        finalizeShare: Double = 0,
         log: @escaping @Sendable (CLIEventLogLevel, String) -> Void = { _, _ in },
-        progress: @escaping @Sendable (String) -> Void = { _ in }
+        progress: @escaping @Sendable (Double, String) -> Void = { _, _ in }
     ) {
         self.rootDirectory = rootDirectory
         self.layout = layout
         self.projectURL = projectURL
         self.toolID = toolID
         self.indexing = indexing
+        self.finalizeShare = AnalysisRunJournal.clampedShare(finalizeShare)
         self.logHandler = log
         self.progressHandler = progress
     }
@@ -162,10 +167,19 @@ public struct AnalysisRunFinalizeContext: Sendable {
         logHandler(level, message)
     }
 
-    /// Says what the finalize is doing. The units have used the whole progress range, so the
-    /// executor reports it at the end of the range.
+    /// Says what the finalize is doing, at the start of its share of the progress range. A tool with
+    /// no share, such as Kraken2, has used the whole range in its units, so the executor reports it at
+    /// the end of the range.
     public func progress(_ message: String) {
-        progressHandler(message)
+        progress(0, message)
+    }
+
+    /// Reports how far the finalize is, `fraction` from 0 to 1 of its own share of the progress
+    /// range. The executor maps it onto the run as `1 - share + share * fraction` (W3), so with no
+    /// share every fraction is the end of the range.
+    public func progress(_ fraction: Double, _ message: String) {
+        let clamped = fraction.isFinite ? min(max(fraction, 0), 1) : 0
+        progressHandler(1 - finalizeShare + finalizeShare * clamped, message)
     }
 
     /// Builds the viewer index of the result in process, through the index builder the executor

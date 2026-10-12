@@ -168,6 +168,10 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
     var finalizeError: String?
     var finalizeWarnings: [String] = []
     var finalizeOutputs = true
+    /// The finalize's share of the progress range (W3), 0 as Kraken2 and EsViritu have it.
+    var finalizeProgressShare: Double = 0
+    /// Fractions of its own share the finalize reports, each through `context.progress(_:_:)`.
+    var finalizeProgress: [Double] = []
     /// Options each unit records right after its input, before it fails or completes.
     var unitOptions: AnalysisRootRecordOptions?
     /// The failure detail the unit of each label records right after its input, before it fails,
@@ -333,6 +337,9 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
 
     func finalize(_ units: [AnalysisUnitReport<URL>], context: AnalysisRunFinalizeContext) async throws -> AnalysisRunFinalization {
         probe.note("finalize")
+        for fraction in finalizeProgress {
+            context.progress(fraction, "finalize at \(fraction)")
+        }
         if finalizeCancels {
             Self.cancelCurrentTask()
         }

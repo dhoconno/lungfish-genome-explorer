@@ -519,6 +519,33 @@ struct AnalysisRunExecutorTests {
         #expect(fractions == [0, 0.25, 0.5, 0, 0.5, 0.75])
     }
 
+    @Test("A finalize share keeps the units below it and gives the finalize the end of the bar (W3)")
+    func finalizeShareSplitsTheBar() async throws {
+        let fixture = try AnalysisRunTestProject()
+        defer { fixture.cleanup() }
+        let recorder = AnalysisRunEventRecorder()
+        var tool = FakeAnalysisRunTool(probe: FakeToolProbe())
+        tool.layout = .batchRoot
+        tool.finalizeProgressShare = 0.1
+        tool.finalizeProgress = [0, 0.5, 1, 7]
+        tool.units = [
+            AnalysisRunPlannedUnit(label: "s1", value: .progress([0.5, 1])),
+            AnalysisRunPlannedUnit(label: "s2", value: .progress([1])),
+        ]
+
+        _ = await AnalysisRunExecutor.unsigned.execute(tool, fixture.request(groupsSamples: true), events: recorder.events)
+
+        let fractions = recorder.snapshot.compactMap { line -> Double? in
+            if case .progress(let fraction, _)? = line.event { return fraction }
+            return nil
+        }
+        let expected = [0, 0.225, 0.45, 0.45, 0.9, 0.9, 0.95, 1, 1]
+        #expect(fractions.count == expected.count, "\(fractions)")
+        for (seen, wanted) in zip(fractions, expected) {
+            #expect(abs(seen - wanted) < 1e-9, "\(fractions)")
+        }
+    }
+
     @Test("A finalize failure fails the run and its warnings stay in the record")
     func finalizeFailureFailsTheRun() async throws {
         let fixture = try AnalysisRunTestProject()

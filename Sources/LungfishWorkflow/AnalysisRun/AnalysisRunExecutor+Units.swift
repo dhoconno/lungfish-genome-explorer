@@ -31,13 +31,16 @@ extension AnalysisRunExecutor {
     ) async -> AnalysisRunUnitResults<Tool.UnitResult> {
         let count = plan.units.count
         let policy = tool.terminalPolicy
+        let finalizeShare = tool.finalizeProgressShare
         var reports: [AnalysisUnitReport<Tool.UnitResult>] = []
         for (index, planned) in plan.units.enumerated() {
             guard !cancelIsRequested else {
                 return AnalysisRunUnitResults(reports: reports, cancelled: true)
             }
             journal.emit(.progress(
-                fraction: AnalysisRunJournal.runFraction(index: index, count: count, unitFraction: 0),
+                fraction: AnalysisRunJournal.runFraction(
+                    index: index, count: count, unitFraction: 0, finalizeShare: finalizeShare
+                ),
                 message: count > 1 ? "Running \(planned.label) (\(index + 1) of \(count))." : "Running \(planned.label)."
             ))
 
@@ -65,7 +68,8 @@ extension AnalysisRunExecutor {
                         index: index,
                         count: count,
                         rootDirectory: folder.root,
-                        projectURL: folder.projectURL
+                        projectURL: folder.projectURL,
+                        finalizeShare: finalizeShare
                     )
                 )
             } catch {
