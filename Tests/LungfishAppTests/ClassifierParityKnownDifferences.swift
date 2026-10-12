@@ -55,6 +55,8 @@ enum ClassifierParityKnownDifferences {
     static let all: [ClassifierParityKnownDifference] = layout + kraken2Records + esVirituRecords + facts + namedFiles + routeC
 
     static let retire = "2.9, when the legacy GUI paths retire (E14)"
+    /// The run level of the records build-db esviritu writes after its move and markdup.
+    static let bamRunLevel = "2.9, the records build-db esviritu writes after its move and markdup, and the batch root written after them, name the BAM and its index at their run level where they are and with their final digests (B3 review fix 1)"
     /// One difference in each sample's record, two in the K3 batch.
     private static let oneInEachKraken2Record: [ClassifierParityCase: Int] = [.k1: 1, .k2: 1, .k3: 2, .k4: 1, .k5: 1, .k6: 1]
 
@@ -188,6 +190,12 @@ enum ClassifierParityKnownDifferences {
     private static let namedFiles: [ClassifierParityKnownDifference] = [
         namedFile(.a, [.k1: 1, .k3: 2, .k4: 1, .e1: 2, .e3: 2], "<project>/.tmp/* that does not exist",
                   "BIO D4, BIO D5. The GUI's materialized scratch input, which it deletes after the run", closedBy: retire),
+        namedFile(.a, [.e1: 6, .e2: 6, .e3: 20], "*/*_temp/*.third.filt.sorted.bam* that does not exist",
+                  "build-db esviritu writes its record and the sidecars of esviritu.sqlite, the BAM and its index after the move and the markdup, and their run level still names the BAM and its index in _temp/. A removal step accounts for step facts, never the run level (P1, BIO checklist 2)",
+                  closedBy: bamRunLevel),
+        namedFile(.a, [.e1: 3, .e2: 3, .e3: 10], "*/bams/*.third.filt.sorted.bam with another digest",
+                  "The same records name the BAM in bams/ at their run level with its digest from before the markdup",
+                  closedBy: bamRunLevel),
     ]
 
     /// One line per found difference that no entry declares, and per entry that matches another

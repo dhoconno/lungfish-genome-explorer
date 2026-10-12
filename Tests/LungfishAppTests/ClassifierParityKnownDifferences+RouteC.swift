@@ -15,12 +15,21 @@
 import Foundation
 
 extension ClassifierParityKnownDifferences {
-    static let routeC: [ClassifierParityKnownDifference] = aAgainstC
+    static let routeC: [ClassifierParityKnownDifference] = aAgainstC + commandFacts
 
     private static func aAgainstC(
         _ counts: [ClassifierParityCase: Int], _ id: String, _ reason: String, closedBy: String = retire
     ) -> ClassifierParityKnownDifference {
         ClassifierParityKnownDifference(counts: counts, scope: .pair(.a, .c), id: id, reason: reason, closedBy: closedBy)
+    }
+
+    /// A fixed fact the command's run does not hold, on side C and on side C'.
+    private static func commandFact(
+        _ counts: [ClassifierParityCase: Int], _ id: String, _ reason: String, closedBy: String
+    ) -> [ClassifierParityKnownDifference] {
+        [ClassifierParitySide.c, .cPrime].map {
+            ClassifierParityKnownDifference(counts: counts, scope: .side($0), id: id, reason: reason, closedBy: closedBy)
+        }
     }
 
     // MARK: A against C
@@ -111,4 +120,16 @@ extension ClassifierParityKnownDifferences {
         aAgainstC([.k3: 1, .e1: 1, .e2: 1, .e3: 1], "record *: stderr",
             "The GUI record keeps EsViritu's log as the run's stderr, and the root record keeps it on the EsViritu step"),
     ]
+
+    // MARK: Facts of the command's runs
+
+    /// Review F2 fix 5 asked side C to hold the named-file fact with nothing declared. These are
+    /// defects of code both routes share, so they show on side C and side C' as on side A.
+    private static let commandFacts: [ClassifierParityKnownDifference] = [
+        commandFact([.e1: 6, .e2: 6, .e3: 20], "fact: record * names *_temp/*.third.filt.sorted.bam* that does not exist",
+            "As on side A", closedBy: bamRunLevel),
+        commandFact([.e1: 5, .e2: 5, .e3: 14], "fact: record * names */bams/*.third.filt.sorted.bam* with another digest",
+            "As on side A, and the batch root names the BAM and its index as the run's outputs with their digests from before the markdup",
+            closedBy: bamRunLevel),
+    ].flatMap { $0 }
 }

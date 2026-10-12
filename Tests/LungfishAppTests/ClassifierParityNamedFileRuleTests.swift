@@ -70,8 +70,23 @@ final class ClassifierParityNamedFileRuleTests: XCTestCase {
         let found = try differences([(path, record(steps: steps, files: [file(bam, "d0")]))], files: [bam: "d2"])
         XCTAssertEqual(found.map(\.id), ["fact: record \(path) names <project>/\(bam) with another digest"])
         XCTAssertEqual(try differences([
-            (path, record(steps: steps + [step(inputs: [file(bam, nil)], operation: "remove")], files: [file(bam, "d0")])),
+            (path, record(steps: steps + [step(inputs: [file(bam, nil)], operation: "remove")])),
         ], files: [bam: "d2"]), [])
+    }
+
+    func testARemovalStepDoesNotAccountForTheRunLevel() throws {
+        let bam = "Analyses/kraken2-batch-1/s1/bams/s1.bam"
+        let path = "\(result)/s1/.lungfish-provenance.json"
+        let replaced = try differences([
+            (path, record(steps: [step(outputs: [file(bam, "d0")]), step(inputs: [file(bam, "d0")], operation: "remove")],
+                          files: [file(bam, "d0")])),
+        ], files: [bam: "d2"])
+        XCTAssertEqual(replaced.map(\.id), ["fact: record \(path) names <project>/\(bam) with another digest"])
+        let removed = try differences([
+            (path, record(steps: [step(outputs: [file(kraken, "d0")]), step(inputs: [file(kraken, "d0")], operation: "remove")],
+                          files: [file(kraken, "d0")])),
+        ], files: [:])
+        XCTAssertEqual(removed.map(\.id), ["fact: record \(path) names <project>/\(kraken) that does not exist"])
     }
 
     func testAMoveIsNotARemovalStep() throws {

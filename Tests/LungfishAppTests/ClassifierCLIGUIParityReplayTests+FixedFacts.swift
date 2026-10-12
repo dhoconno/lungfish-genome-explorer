@@ -421,8 +421,10 @@ extension ClassifierCLIGUIParityReplayTests {
     /// path as an input. A record's step list is the only order a record states, so a later step
     /// is one later in the same record, and nothing comes later than the run level. A later
     /// consumer can excuse an earlier naming but never the last one, so a removed or rewritten
-    /// file is accepted only through a removal step. The result of a record is its folder under
-    /// `Analyses/`, which holds every record of a run, a batch's sample records included.
+    /// file is accepted only through a removal step and only where a step names it. The run
+    /// level, which a record writes after its steps, names each file as it is (BIO checklist 2).
+    /// The result of a record is its folder under `Analyses/`, which holds every record of a run,
+    /// a batch's sample records included.
     static func namedFileDifferences(
         side: String,
         records: [(path: String, facts: ProvenanceCompatFacts.Value)],
@@ -452,7 +454,10 @@ extension ClassifierCLIGUIParityReplayTests {
                     problem = "with another digest"
                     detail += ", recorded \(recorded), found \(actual)"
                 }
-                if removed[resultFolder(of: record.path)]?.contains(named.path) == true { continue }
+                // A removal step accounts for a step's naming, never the run level's, which the
+                // record writes after every step (P1, BIO checklist 2).
+                if named.step < stepCount(of: record.facts),
+                   removed[resultFolder(of: record.path)]?.contains(named.path) == true { continue }
                 let consumedLater = namings[(index + 1)...].contains {
                     $0.step > named.step && $0.isInput && $0.path == named.path && $0.sha256 != nil && $0.sha256 == named.sha256
                 }
@@ -496,6 +501,12 @@ extension ClassifierCLIGUIParityReplayTests {
             found += namings(.object(stepMembers), step: index, isInput: false)
         }
         return found + namings(.object(members), step: steps.count, isInput: false)
+    }
+
+    /// The number of steps of `facts`, the index `orderedNamings(in:)` gives the run level.
+    static func stepCount(of facts: ProvenanceCompatFacts.Value) -> Int {
+        guard case .object(let members) = facts, case .array(let steps)? = members["steps"] else { return 0 }
+        return steps.count
     }
 
     /// The paths the removal steps of `facts` name.
