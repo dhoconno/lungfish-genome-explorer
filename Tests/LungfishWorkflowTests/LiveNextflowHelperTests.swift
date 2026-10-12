@@ -325,6 +325,46 @@ final class LiveNextflowHelperTests: XCTestCase {
         XCTAssertEqual(daemon.commands.filter { $0.first == "rm" }.count, 1, "a second teardown removes nothing")
     }
 
+    /// A real TaxTriage run keeps its Nextflow work in `<system temporary folder>/taxtriage-run-<UUID>/work`,
+    /// not in the run's folder (R1: `example-command.run:133` and `:310`). The daemon below holds the
+    /// mounts of R1's task container and the mounts of another run's task container.
+    func testAnEngineWorkFolderOutsideTheRunFolderCountsOnlyWhenTheClassNamesIt() throws {
+        let daemon = FakeDockerDaemon()
+        let run = try beginRun(daemon)
+        let temporary = run.directory.deletingLastPathComponent().path
+        let engineWork = URL(fileURLWithPath: temporary + "/taxtriage-run-AAAA/work")
+        daemon.setContainers([
+            container("engine-task", temporary + "/taxtriage-BBBB/output", temporary, engineWork.path + "/06/2dcb09"),
+            container("other-run", temporary, temporary + "/taxtriage-run-CCCC/work/06/2dcb09"),
+        ])
+
+        XCTAssertEqual(try run.ownedContainers(), [], "nothing mounts the run's own work folder")
+        XCTAssertEqual(try run.ownedContainers(engineWorkFolders: [engineWork]).map(\.id), ["engine-task"])
+        XCTAssertEqual(run.teardown(engineWorkFolders: [engineWork]).removedContainerIDs, ["engine-task"])
+        XCTAssertEqual(daemon.containerIDs, ["other-run"])
+    }
+
+    func testWaitingForTheRunsContainersFailsWhenTheEngineUsesAnotherWorkFolder() async throws {
+        let daemon = FakeDockerDaemon()
+        let run = try beginRun(daemon)
+        let temporary = run.directory.deletingLastPathComponent().path
+        let engineWork = URL(fileURLWithPath: temporary + "/taxtriage-run-AAAA/work")
+        defer { run.teardown(engineWorkFolders: [engineWork]) }
+        daemon.setContainers([
+            container("engine-task", temporary + "/taxtriage-BBBB/output", temporary, engineWork.path + "/06/2dcb09"),
+            container("other-run", temporary, temporary + "/taxtriage-run-CCCC/work/06/2dcb09"),
+        ])
+
+        do {
+            _ = try await run.waitForOwnedContainers(timeout: 1)
+            XCTFail("a wait that finds no container under the folders it was given must fail")
+        } catch let error as LiveNextflowError {
+            guard case .misconfigured = error else { return XCTFail("\(error)") }
+        }
+        let found = try await run.waitForOwnedContainers(engineWorkFolders: [engineWork], timeout: 1)
+        XCTAssertEqual(found.map(\.id), ["engine-task"])
+    }
+
     func testTeardownReportsAContainerThatSurvivesAndStillRemovesTheFolder() throws {
         let daemon = FakeDockerDaemon()
         daemon.ignoresRemoval = true

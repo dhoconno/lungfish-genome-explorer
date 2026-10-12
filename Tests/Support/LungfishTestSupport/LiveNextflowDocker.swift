@@ -269,6 +269,11 @@ public struct LiveNextflowDocker: Sendable {
         }
     }
 
+    /// The containers with a mount whose host side is one of `workFolders` or lies inside one.
+    public static func filter(_ containers: [Container], holdingAny workFolders: [URL]) -> [Container] {
+        containers.filter { container in workFolders.contains { !Self.filter([container], holding: $0).isEmpty } }
+    }
+
     private static func firstLine(of text: String) -> String? {
         text.split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }

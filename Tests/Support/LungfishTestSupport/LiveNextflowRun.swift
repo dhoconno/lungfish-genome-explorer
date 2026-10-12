@@ -13,8 +13,9 @@
 //      `ps` finds the run's processes by it, and the work folder is the run's own.
 //
 // `installDemoProject` copies the input out of a demo archive into that folder, so a run never reads
-// or writes the cache. `teardown()` removes the containers whose mounts hold the run's work folder
-// and then the folder. It touches no other container. Nothing here starts Docker Desktop.
+// or writes the cache. `teardown()` removes the containers whose mounts hold the run's work folder,
+// or the work folder of an engine the class names with `engineWorkFolders`, and then the run's
+// folder. It touches no other container. Nothing here starts Docker Desktop.
 
 import Foundation
 import LungfishCore
@@ -52,7 +53,7 @@ public final class LiveNextflowRun: Sendable {
     public let docker: LiveNextflowDocker
     private let environment: [String: String]
 
-    /// The Nextflow work folder. Teardown finds the run's containers by their mounts inside it.
+    /// The work folder of an engine the class launches itself with -w. A TaxTriage launch picks its own, see ownedContainers.
     public var workDirectory: URL { directory.appendingPathComponent("work", isDirectory: true) }
     public var outputDirectory: URL { directory.appendingPathComponent("output", isDirectory: true) }
     /// Where `installDemoProject` puts the input.
@@ -288,30 +289,60 @@ public final class LiveNextflowRun: Sendable {
 
     // MARK: - The run's containers and teardown
 
-    /// The containers whose mounts hold this run's work folder.
-    public func ownedContainers(includingStopped: Bool = true) throws -> [LiveNextflowDocker.Container] {
-        try docker.containers(holding: workDirectory, includingStopped: includingStopped)
+    /// The containers whose mounts hold `workDirectory` or one of `engineWorkFolders`. A TaxTriage launch
+    /// makes its own work folder, the `-w` argument of its launch command (TaxTriagePipeline.swift:1089),
+    /// in the system temporary folder for the Pathogen Detection demo, so a class that runs TaxTriage
+    /// passes that folder here, to `waitForOwnedContainers` and to `teardown`.
+    public func ownedContainers(
+        includingStopped: Bool = true,
+        engineWorkFolders: [URL] = []
+    ) throws -> [LiveNextflowDocker.Container] {
+        let everything = try docker.containers(includingStopped: includingStopped)
+        return LiveNextflowDocker.filter(everything, holdingAny: [workDirectory] + engineWorkFolders)
+    }
+
+    /// Waits until a container of the run is running and returns the running ones. A live class calls it
+    /// while a task runs and before it checks that a cancel or a teardown left none, so a work folder the
+    /// engine does not use fails here instead of passing that check with nothing to find.
+    public func waitForOwnedContainers(
+        engineWorkFolders: [URL] = [],
+        timeout: TimeInterval = 120
+    ) async throws -> [LiveNextflowDocker.Container] {
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            let running = try ownedContainers(includingStopped: false, engineWorkFolders: engineWorkFolders)
+            if !running.isEmpty { return running }
+            if Date() >= deadline { break }
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        let folders = ([workDirectory] + engineWorkFolders).map(\.path)
+        throw LiveNextflowError.misconfigured(
+            "No container of the run was running within \(Int(timeout)) s under \(folders). "
+                + "The engine's work folder is not one the class gave the helper."
+        )
     }
 
     /// What a teardown did.
     public struct Teardown: Equatable, Sendable {
-        /// The containers it removed, all of them holding the run's work folder.
+        /// The containers it removed, all of them holding the run's work folder or an engine work folder.
         public let removedContainerIDs: [String]
         /// Anything that went wrong. A live class asserts this is empty.
         public let problems: [String]
     }
 
-    /// Removes the containers whose mounts hold the run's work folder, checks that none is left, and
-    /// removes the run's folder. It removes no other container. A second call finds nothing to do.
+    /// Removes the containers whose mounts hold the run's work folder or one of `engineWorkFolders`,
+    /// checks that none is left, and removes the run's folder. It removes no other container. A second
+    /// call finds nothing to do. A class that launches an engine with a work folder of its own passes
+    /// that folder, see `ownedContainers`, and never a folder that holds other runs.
     @discardableResult
-    public func teardown() -> Teardown {
+    public func teardown(engineWorkFolders: [URL] = []) -> Teardown {
         var removed: [String] = []
         var problems: [String] = []
         do {
-            let owned = try docker.containers(holding: workDirectory)
+            let owned = try ownedContainers(engineWorkFolders: engineWorkFolders)
             try docker.remove(owned)
             removed = owned.map(\.id)
-            let left = try docker.containers(holding: workDirectory)
+            let left = try ownedContainers(engineWorkFolders: engineWorkFolders)
             if !left.isEmpty {
                 problems.append("containers of the run remain: \(left.map { String($0.id.prefix(12)) })")
             }
