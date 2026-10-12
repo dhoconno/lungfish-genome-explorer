@@ -393,8 +393,8 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
             "Warning: TaxTriage ignored the failure of NFCORE_TAXTRIAGE:TAXTRIAGE:MINIMAP2_ALIGN for sample A, exit status 137 after 3 attempts (Killed: minimap2 -ax sr -t 14)",
             "Warning: TaxTriage ignored the failure of a task Nextflow did not name, exit status -1",
         ])
-        XCTAssertNil(TaxTriageRecordFacts.nextflowVersion(inBanner: "Launching jhuapl-bio/taxtriage"))
-        XCTAssertEqual(TaxTriageRecordFacts.nextflowVersion(inBanner: " N E X T F L O W  ~  version 24.10.4\n"), "24.10.4")
+        XCTAssertNil(NextflowRecordFacts.nextflowVersion(inLog: "Launching jhuapl-bio/taxtriage"))
+        XCTAssertEqual(NextflowRecordFacts.nextflowVersion(inLog: " N E X T F L O W  ~  version 24.10.4\n"), "24.10.4")
     }
 
     /// RT5. A database the app installed holds its install receipt, and its identity adds the catalog entry and the

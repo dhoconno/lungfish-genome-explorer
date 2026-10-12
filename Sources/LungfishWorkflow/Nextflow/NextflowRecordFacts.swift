@@ -8,8 +8,8 @@ import Foundation
 ///
 /// - The step's tool is the pipeline id and its version the revision that ran, the commit the lock pins unless the run
 ///   named a tag or a branch, with the release tag that names the revision beside it as `githubReleaseVersion`.
-/// - The step's resolved options hold the version of the Nextflow that ran as `nextflowVersion`, read from the banner
-///   the engine printed into the run's own log, and nothing when no log holds a banner.
+/// - The step's resolved options hold the version of the Nextflow that ran as `nextflowVersion`, read from the run's
+///   own log (``nextflowVersion(inLog:)``), and nothing when the log names no version.
 ///
 /// TaxTriage is the first workflow whose step records this shape (``TaxTriageRecordFacts/nextflowFacts(revision:)``).
 package struct NextflowRecordFacts: Sendable, Equatable {
@@ -26,8 +26,8 @@ package struct NextflowRecordFacts: Sendable, Equatable {
         self.githubReleaseVersion = githubReleaseVersion
     }
 
-    /// The step's resolved options, the version of the Nextflow that ran as `nextflowVersion`, read from the banner in
-    /// `logFile`. Empty when there is no log, when it cannot be read as UTF-8 and when it holds no banner.
+    /// The step's resolved options, the version of the Nextflow that ran as `nextflowVersion`, read from `logFile`.
+    /// Empty when there is no log, when it cannot be read as UTF-8 and when it names no version.
     package func resolvedOptions(logFile: URL?) -> [String: ParameterValue] {
         guard let logFile,
               let text = try? String(contentsOf: logFile, encoding: .utf8),
@@ -37,14 +37,21 @@ package struct NextflowRecordFacts: Sendable, Equatable {
         return ["nextflowVersion": .string(version)]
     }
 
-    /// The version in the first banner line Nextflow printed into `text`, `N E X T F L O W  ~  version 25.04.6`, or nil.
+    /// The version of the Nextflow that ran, from the first line of `text` that names it, or nil.
+    ///
+    /// Two lines name it. Nextflow 25.04 starts its output with the banner `N E X T F L O W  ~  version 25.04.6`.
+    /// Nextflow 26.04 prints no version on its standard output, and the line `Nextflow version: 26.04.6` is the one
+    /// TaxTriage's workflow prints from `workflow.nextflow.version`, the engine that ran (`workflows/taxtriage.nf:537`
+    /// at v3.3.8), so under Nextflow 26 a workflow's log names the engine only when its own code prints that line. A
+    /// line counts only when it starts with one of the two, so a path or an argument in the preamble LGE writes at the
+    /// top of the log never stands in for it.
     package static func nextflowVersion(inLog text: String) -> String? {
-        guard let banner = text.range(
-            of: #"N E X T F L O W\s+~\s+version\s+[0-9][0-9A-Za-z.\-]*"#,
+        guard let line = text.range(
+            of: #"(?m)^[ \t]*(N E X T F L O W[ \t]+~[ \t]+version|Nextflow version:)[ \t]+[0-9][0-9A-Za-z.\-]*"#,
             options: .regularExpression
         ) else {
             return nil
         }
-        return text[banner].split(whereSeparator: \.isWhitespace).last.map(String.init)
+        return text[line].split(whereSeparator: \.isWhitespace).last.map(String.init)
     }
 }

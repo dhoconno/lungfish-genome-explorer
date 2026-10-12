@@ -114,14 +114,45 @@ final class NextflowRecordFactsTests: XCTestCase {
         XCTAssertNil(NextflowRecordFacts.nextflowVersion(inLog: ""))
     }
 
-    /// The gap milestone M2 closes. Nextflow 26.04.6 prints no `N E X T F L O W` banner, and the version a real run's
-    /// log holds is the line `Nextflow version: 26.04.6` that TaxTriage's workflow prints, so its step records empty
-    /// resolved options today, as R1's record shows. FLIPS in M2, which reads both lines and finds `26.04.6` here.
-    func testTheVersionLineOfNextflow26IsNotReadYet() throws {
+    /// R1, the gap M2 closed (flipped by M2). Nextflow 26.04.6 prints no `N E X T F L O W` banner, and the version a
+    /// real run's log holds is the line `Nextflow version: 26.04.6` that TaxTriage's workflow prints from
+    /// `workflow.nextflow.version`, the engine that ran. Its step recorded empty resolved options in R1's record, and
+    /// reads `26.04.6` here now.
+    func testTheVersionLineTaxTriagePrintsIsRead() throws {
         let log = try writeLog(Self.nextflow26Lines)
 
-        XCTAssertNil(NextflowRecordFacts.nextflowVersion(inLog: Self.nextflow26Lines.joined(separator: "\n")))
-        XCTAssertNil(Self.taxTriageStep.resolvedOptions(logFile: log)["nextflowVersion"])
+        XCTAssertEqual(NextflowRecordFacts.nextflowVersion(inLog: Self.nextflow26Lines.joined(separator: "\n")), "26.04.6")
+        XCTAssertEqual(Self.taxTriageStep.resolvedOptions(logFile: log)["nextflowVersion"], .string("26.04.6"))
+    }
+
+    /// The BIO review of M1, note 1. Nextflow 26.04.6's own lines name the pipeline's manifest version and no engine
+    /// version, so a wider parser never records `1.0dev` as the Nextflow that ran.
+    func testTheEngineLinesOfNextflow26HoldNoVersion() {
+        XCTAssertNil(NextflowRecordFacts.nextflowVersion(
+            inLog: "[PIPELINE] nf-core/taxtriage 1.0dev | profile=docker\n[WORKDIR] /tmp/work\n[PROCESS 9d/b2ebdf] NFCORE_TAXTRIAGE:TAXTRIAGE:DOWNLOAD_TAXDUMP"
+        ))
+    }
+
+    /// A version counts only at the start of a line, so a path or an argument in the preamble LGE writes at the top of
+    /// the log never stands in for the engine's line, and the first line that names a version wins.
+    func testOnlyALineThatStartsWithTheVersionCounts() {
+        let preamble = [
+            "# TaxTriage launch metadata",
+            "requested_output_directory: /Users/me/Nextflow version: 9 runs/out",
+            "nextflow_command: nextflow run jhuapl-bio/taxtriage --title 'N E X T F L O W  ~  version 8'",
+        ]
+
+        XCTAssertNil(NextflowRecordFacts.nextflowVersion(inLog: preamble.joined(separator: "\n")))
+        XCTAssertEqual(
+            NextflowRecordFacts.nextflowVersion(inLog: (preamble + Self.nextflow25Lines + Self.nextflow26Lines).joined(separator: "\n")),
+            "25.04.6"
+        )
+        XCTAssertEqual(
+            NextflowRecordFacts.nextflowVersion(inLog: (preamble + Self.nextflow26Lines + Self.nextflow25Lines).joined(separator: "\n")),
+            "26.04.6"
+        )
+        XCTAssertEqual(NextflowRecordFacts.nextflowVersion(inLog: "\tNextflow version: 26.04.6\n"), "26.04.6")
+        XCTAssertNil(NextflowRecordFacts.nextflowVersion(inLog: "Nextflow version: local"))
     }
 
     // MARK: - TaxTriage, the first client
@@ -167,20 +198,5 @@ final class NextflowRecordFactsTests: XCTestCase {
         )
         XCTAssertEqual(TaxTriageRecordFacts.nextflowLog(among: [bannerless, kept]), bannerless)
         XCTAssertEqual(step.resolvedOptions(logFile: TaxTriageRecordFacts.nextflowLog(among: [bannerless, kept])), [:])
-    }
-
-    /// The sample freeze class reads the parser under its TaxTriage name, which is the shared parser.
-    func testTheTaxTriageParserIsTheSharedOne() {
-        let texts = [
-            Self.nextflow25Lines.joined(separator: "\n"),
-            Self.nextflow26Lines.joined(separator: "\n"),
-            "Launching jhuapl-bio/taxtriage",
-        ]
-        for text in texts {
-            XCTAssertEqual(
-                TaxTriageRecordFacts.nextflowVersion(inBanner: text),
-                NextflowRecordFacts.nextflowVersion(inLog: text)
-            )
-        }
     }
 }

@@ -62,7 +62,7 @@ extension TaxTriagePipeline {
     /// Records the TaxTriage step. A run that ended 0 names its result among `outputFiles`, and each task failure
     /// that TaxTriage ignored in it adds a warning line to the step's stderr (T8). The step's tool, version, tag and
     /// resolved options are the run's Nextflow facts (``TaxTriageRecordFacts/nextflowFacts(revision:)``), whose resolved
-    /// options hold the version of the Nextflow that ran, from the banner in the log among `outputFiles`.
+    /// options hold the version of the Nextflow that ran, from the log among `outputFiles`.
     func recordTaxTriageProvenanceStep(
         runID: UUID,
         config: TaxTriageConfig,
@@ -287,11 +287,5 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
     /// The log LGE keeps of the engine, the first of `outputFiles` named `nextflow.log`, banner or not, or nil.
     static func nextflowLog(among outputFiles: [URL]) -> URL? {
         outputFiles.first { $0.lastPathComponent == "nextflow.log" }
-    }
-
-    /// The version in Nextflow's banner line, `N E X T F L O W  ~  version 25.04.6`, or nil, as every Nextflow step
-    /// reads it (``NextflowRecordFacts/nextflowVersion(inLog:)``).
-    static func nextflowVersion(inBanner text: String) -> String? {
-        NextflowRecordFacts.nextflowVersion(inLog: text)
     }
 }
