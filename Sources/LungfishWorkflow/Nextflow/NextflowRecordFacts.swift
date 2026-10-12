@@ -6,8 +6,8 @@ import Foundation
 
 /// The engine and pipeline facts of one Nextflow step, one shape for every workflow (Phase 2.9 lane B11, decision R1).
 ///
-/// - The step's tool is the pipeline id and its version the revision that ran, the commit the lock pins unless the run
-///   named a tag or a branch, with the release tag that names the revision beside it as `githubReleaseVersion`.
+/// - The step's tool is the pipeline id and its version the revision that ran, the lock's pinned revision unless the
+///   run named another, with the release tag that names the revision beside it as `githubReleaseVersion`.
 /// - The step's resolved options hold where the launched code came from as `pipelineSource`, `remote` or `snapshot`,
 ///   which LGE never patches (decision T6), and the version of the Nextflow that ran as `nextflowVersion`, read from
 ///   the run's own log (``nextflowVersion(inLog:)``) and left out when the log names no version.
@@ -17,7 +17,7 @@ import Foundation
 package struct NextflowRecordFacts: Sendable, Equatable {
     /// The step's tool, the pipeline id, such as `taxtriage`.
     package let toolName: String
-    /// The step's tool version, the revision of the pipeline that ran, a commit unless the run named a tag or a branch.
+    /// The step's tool version, the revision of the pipeline that ran, a commit or a tag as the lock or the run named it.
     package let toolVersion: String
     /// The release tag that names the revision, nil when no tag names it.
     package let githubReleaseVersion: String?
