@@ -63,7 +63,7 @@ enum TaxTriageParityKnownDifferences {
     /// build-db's cleanup deletes `top/`, which the records it leaves still name.
     static let keptTop = "A2 with B12, a cleanup that keeps top/ and records what it removes (2.8 T5, row 258)"
     /// A one-sample row records a plain `--output` into the GUI's own batch folder (2.8 T17).
-    static let rowSpelling = "2.8 T17, a one-sample row that records --project, so its replay lays the result out as the app does (A2 M3 with U13, or 2.10)"
+    static let rowSpelling = "2.10, a one-sample row that records --project, so its replay lays the result out as the app does (2.8 T17)"
     /// The reader re-roots a span of free text that holds several paths (PortablePath.rerootFreeText).
     static let readerReroot = "2.10, a re-root that leaves a whole command alone (PortablePath.rerootFreeText, Moved out row)"
 
@@ -249,10 +249,10 @@ enum TaxTriageParityKnownDifferences {
              closedBy: perSample),
         pair([.x1: 1, .x2: 1, .x5: 1, .x6: 1, .x7: 1], "analysis: differs: nextflow.log",
              "The same lines on both sides, one launch scratch named by its UUID, which the comparison numbers in the order it meets a side's UUIDs. Side B's tree holds one UUID more before this file, so its scratch reads one number higher (a dump of X2 shows the files differ only in the side root, the timestamp and the UUID)",
-             closedBy: "Q1b, a comparison that numbers the UUIDs of each file alone"),
+             closedBy: uuidNumbering),
         pair([.x1: 2, .x2: 2, .x5: 2, .x6: 2, .x7: 2], "analysis: differs: taxtriage-launch-command.*",
              "As nextflow.log, the .sh and .txt launch commands",
-             closedBy: "Q1b, a comparison that numbers the UUIDs of each file alone"),
+             closedBy: uuidNumbering),
         pair([.x6: 1], "analysis: differs: .lungfish-run-in-progress.json",
              "Both cancelled runs keep their run record with the outcome. The GUI's names the command its row records, the executor's the canonical taxtriage run argv, which a test process records in place of its own (recordedCommandLine)",
              closedBy: guiRoute),
