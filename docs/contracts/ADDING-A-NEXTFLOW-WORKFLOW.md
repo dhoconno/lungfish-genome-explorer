@@ -251,7 +251,7 @@ Four rows start a Nextflow workflow today, and they do not read alike. Only TaxT
 | Completed detail | The summary of the result, one line per fact, or with ignored tasks the headline and the report count | `Viral Recon completed. Output: <folder>. Run bundle: <bundle>` | `Local workflow completed. Run bundle: <bundle>` | Not read |
 | Warning lines | One per ignored task cause and one for failed samples | Every stderr line of the CLI | Every stderr line, logged after the run | Not read |
 | Failure | The sheet `TaxTriage Failed` with the error as its text and no detail | `Viral Recon failed with exit code N.` and the last 40 stderr lines as the detail, no sheet | `Local workflow failed with exit code N`, and the whole stderr as the error detail | Not read |
-| Cancel | `Cancelling...`, then `Cancelled by user` | The same words, and the CLI's process tree ends with a grace of 0 | A first run has no Cancel button | The tool's default grace |
+| Cancel | `Cancelling...`, then `Cancelled by user` | The same words. The app ends the CLI's process tree with a grace of 0, so Nextflow gets no time to shut down until S16 (decision N14) | A first run has no Cancel button | The engine's 4 s grace, which pbAA's own runner applies (section 3) |
 
 A new workflow takes the right column of the Operations row table and not one of these four. Viral Recon's row waits for the move of its runner to the executor and the engine process (decisions N13 and X2), and pbAA takes the engine process as a later move (decision N15).
 
