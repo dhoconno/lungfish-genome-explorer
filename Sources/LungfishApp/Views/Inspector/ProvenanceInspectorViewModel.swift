@@ -299,6 +299,8 @@ struct ProvenanceSource: Identifiable {
 struct VerifiedProvenanceRecord {
     let envelope: ProvenanceEnvelope
     let sidecarURL: URL
+    /// Whether the record stated how its run ended. Nil lets the sidecar's own text decide (`statesItsStatus`).
+    var statusWasRecorded: Bool? = nil
 }
 
 @Observable
@@ -388,7 +390,8 @@ final class ProvenanceInspectorViewModel {
         apply(LookupOutcome(
             audit: .init(status: .present, requirement: .required("Verified scientific bundle"),
                          sidecarURL: record.sidecarURL, messages: []),
-            resolvedEnvelope: record.envelope, resolvedSidecarURL: record.sidecarURL, upstreamRuns: []), item: item)
+            resolvedEnvelope: record.envelope, resolvedSidecarURL: record.sidecarURL, upstreamRuns: [],
+            statusWasRecorded: record.statesItsStatus), item: item)
     }
 
     func presentUnavailableVerifiedRecord(item: ProvenanceInspectableItem, message: String) {
@@ -552,6 +555,7 @@ final class ProvenanceInspectorViewModel {
         var sidecarText: String? = nil
         /// What the reader made of the record: the shape that decoded it and whether it invented the date.
         var reading: ProvenanceEnvelopeReader.Reading? = nil
+        var statusWasRecorded: Bool? = nil
     }
 
     /// Applies a completed off-main lookup's result to published state. Must only be called
@@ -572,7 +576,8 @@ final class ProvenanceInspectorViewModel {
             sidecarURL: sidecarURL,
             upstreamRuns: outcome.upstreamRuns,
             sidecarText: outcome.sidecarText,
-            reading: outcome.reading
+            reading: outcome.reading,
+            statusWasRecorded: outcome.statusWasRecorded
         )
     }
 
@@ -635,7 +640,8 @@ final class ProvenanceInspectorViewModel {
         sidecarURL: URL,
         upstreamRuns: [ProvenanceUpstreamRun] = [],
         sidecarText: String? = nil,
-        reading: ProvenanceEnvelopeReader.Reading? = nil
+        reading: ProvenanceEnvelopeReader.Reading? = nil,
+        statusWasRecorded: Bool? = nil
     ) {
         // Paths are shown relative to the project the sidecar lies in; the
         // recorded path stays in the copy text, the tooltip and accessibility.
@@ -677,6 +683,7 @@ final class ProvenanceInspectorViewModel {
         )
         applyReading(reading, to: envelope)
         applyRunStatus(reading, to: envelope)
+        applyVerifiedRunStatus(statusWasRecorded, to: envelope)
         warnings = warningRows(for: audit)
             + stepWarningRows(for: envelope)
             + fastqPresentation.warningRows()
@@ -742,18 +749,10 @@ final class ProvenanceInspectorViewModel {
             return ProvenanceRecordShapeRule.olderRecordFormatTitle
         }
         switch status {
-        case .missing:
-            return "Missing provenance"
-        case .invalid:
-            return "Invalid provenance"
-        case .incomplete:
-            return "Incomplete provenance"
-        case .stale:
-            return "Stale provenance"
-        case .legacy:
-            return ProvenanceRecordShapeRule.olderRecordFormatTitle
         case .notRequired, .present:
             return "Provenance"
+        case .missing, .invalid, .incomplete, .stale, .legacy:
+            return status.displayName
         }
     }
 

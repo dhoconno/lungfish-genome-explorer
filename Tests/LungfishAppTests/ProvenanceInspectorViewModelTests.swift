@@ -242,7 +242,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.audit.status, .incomplete)
         XCTAssertTrue(viewModel.audit.isBlocking)
-        XCTAssertTrue(viewModel.warnings.contains { $0.title == "Incomplete provenance" })
+        XCTAssertTrue(viewModel.warnings.contains { $0.title == "Incomplete record" })
     }
 
     func testSuccessfulEnvelopeWithoutStderrIsComplete() async throws {

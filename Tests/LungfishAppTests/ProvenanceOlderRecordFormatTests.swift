@@ -133,7 +133,7 @@ final class ProvenanceOlderRecordFormatTests: XCTestCase {
         XCTAssertTrue(model.audit.isBlocking)
         XCTAssertTrue(model.audit.isOlderRecordFormat)
         XCTAssertEqual(model.summary.statusLabel, "Incomplete record")
-        XCTAssertEqual(titles(model), ["Incomplete provenance", olderTitle])
+        XCTAssertEqual(titles(model), ["Incomplete record", olderTitle])
         XCTAssertEqual(model.warnings.first?.message, "Wall time is missing.")
         // The shape decides Incomplete and never whether a row shows, so the gap also reads in its row.
         XCTAssertNil(model.summary.wallTimeSeconds)

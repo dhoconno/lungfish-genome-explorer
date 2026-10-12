@@ -272,10 +272,10 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
         XCTAssertFalse(model.copyableText.contains("Process ID"), model.copyableText)
     }
 
-    /// Pin at the Phase 2.8 base (lane U3, finding P4). `VerifiedProvenanceRecord` holds no flag for a stated
-    /// status, so a verified record whose bytes hold no `status` shows the word the decoder derived from the
-    /// exit status as if the record had stated it. The same bytes found by a lookup read Not recorded.
-    func testAVerifiedRecordThatStatesNoStatusShowsTheDerivedWordAtTheBase() throws {
+    /// Lane U3, finding P4 of Phase 2.8. `VerifiedProvenanceRecord` once held no flag for a stated status, so a
+    /// verified record whose bytes hold no `status` showed the word the decoder derived from the exit status as
+    /// if the record had stated it. The same bytes found by a lookup read Not recorded, and now so do these.
+    func testAVerifiedRecordThatStatesNoStatusReadsNotRecorded() throws {
         let bytes = try recordBytes("fastq-trim-cancelled") { $0.removeValue(forKey: "status") }
         let (_, sidecar) = try makeProject(bytes)
         let envelope = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: sidecar), sidecarURL: sidecar)
@@ -284,8 +284,39 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
         model.configureVerifiedSources([verifiedSource(envelope, sidecar: sidecar)])
 
         XCTAssertEqual(envelope.status, .completed, "The decoder derives completed from the exit status 0.")
-        XCTAssertEqual(model.summary.runStatus, .stated(.completed))
-        XCTAssertTrue(model.copyableText.contains("Run Status: Completed"), model.copyableText)
+        XCTAssertEqual(model.summary.runStatus, .notRecorded)
+        XCTAssertTrue(model.copyableText.contains("Run Status: Not recorded"), model.copyableText)
+        XCTAssertFalse(model.copyableText.contains("Run Status: Completed"), model.copyableText)
+    }
+
+    /// A loader that decoded the record's bytes says whether the record stated its status, and its answer wins
+    /// over the sidecar's text in both directions.
+    func testALoadersAnswerOnWhetherTheRecordStatedItsStatusWinsOverTheSidecar() throws {
+        let stated = try makeProject(recordBytes("fastq-trim-cancelled")).sidecar
+        let derived = try makeProject(recordBytes("fastq-trim-cancelled") { $0.removeValue(forKey: "status") }).sidecar
+        func runStatus(of sidecar: URL, loaderSays: Bool) throws -> ProvenanceRunStatusDisplay? {
+            let envelope = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: sidecar), sidecarURL: sidecar)
+            var source = verifiedSource(envelope, sidecar: sidecar)
+            source.verifiedRecord?.statusWasRecorded = loaderSays
+            let model = ProvenanceInspectorViewModel()
+            model.configureVerifiedSources([source])
+            return model.summary.runStatus
+        }
+
+        XCTAssertEqual(try runStatus(of: stated, loaderSays: false), .notRecorded)
+        XCTAssertEqual(try runStatus(of: derived, loaderSays: true), .stated(.completed))
+    }
+
+    /// A sidecar that cannot be read leaves the old rule in place. A canonical envelope states its status.
+    func testAVerifiedRecordWhoseSidecarCannotBeReadCountsAsStatingItsStatus() throws {
+        let (_, sidecar) = try makeProject(recordBytes("fastq-trim-cancelled"))
+        let envelope = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: sidecar), sidecarURL: sidecar)
+        let missing = sidecar.deletingLastPathComponent().appendingPathComponent("no-such-record.json")
+        let model = ProvenanceInspectorViewModel()
+
+        model.configureVerifiedSources([verifiedSource(envelope, sidecar: missing)])
+
+        XCTAssertEqual(model.summary.runStatus, .stated(.cancelled))
     }
 
     // MARK: - The words of the row
@@ -306,9 +337,9 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
     }
 
     /// The status line under the section title judges the record, and Run Status says how the run ended, so a
-    /// failed run can have a complete record. The two audit labels that stood alone now name their subject, and
-    /// "Complete record" beside "Failed" no longer reads as a contradiction (plan decision P14). The labels that
-    /// already name their subject keep their words.
+    /// failed run can have a complete record. The audit labels that stood alone name their subject, and
+    /// "Complete record" beside "Failed" no longer reads as a contradiction (plan decision P14). Invalid and Stale
+    /// were the last two that did not, and they read Invalid record and Stale record (Phase 2.8 lane U3, P1).
     func testTheAuditLabelsNameTheRecordTheyJudge() {
         let words = [
             ProvenanceAuditStatus.present, .incomplete, .legacy, .missing, .notRequired, .invalid, .stale,
@@ -318,8 +349,68 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
             words,
             [
                 "Complete record", "Incomplete record", "Older record format", "Missing provenance",
-                "No provenance required", "Invalid", "Stale",
+                "No provenance required", "Invalid record", "Stale record",
             ]
+        )
+    }
+
+    /// A verified record that cannot be read is the one producer of Invalid. Its status line and its Warnings
+    /// title read the same words, so the Warnings block never names the problem differently from the line above it.
+    func testAnUnreadableVerifiedRecordReadsInvalidRecordInTheStatusLineAndTheWarning() {
+        let model = ProvenanceInspectorViewModel()
+
+        model.presentUnavailableVerifiedRecord(
+            item: ProvenanceInspectableItem(
+                url: URL(fileURLWithPath: "/tmp/analysis.lungfishprimers"),
+                sidebarType: .primerAnalysisBundle,
+                contentMode: .genomics,
+                displayName: "Analysis"
+            ),
+            message: "The analysis record could not be read."
+        )
+
+        XCTAssertEqual(model.summary.statusLabel, "Invalid record")
+        XCTAssertEqual(model.warnings.map(\.title), ["Invalid record"])
+        XCTAssertEqual(model.copyableText, "Invalid record\nThe analysis record could not be read.")
+    }
+
+    /// The status line has a tooltip, which SwiftUI also gives to VoiceOver as its help (Phase 2.8 lane U3, P3).
+    func testTheStatusLineHelpSaysWhatItJudgesAndWhatRunStatusSays() throws {
+        let viewModel = ProvenanceInspectorViewModel()
+        viewModel.summary.statusLabel = "Complete record"
+
+        let inspected = try ProvenanceSection(viewModel: viewModel).inspect()
+        let status = try inspected.find(ViewType.Label.self, where: {
+            (try? $0.find(text: "Complete record")) != nil
+        })
+
+        XCTAssertEqual(
+            try status.help().string(),
+            "The status line says whether the record holds every fact LGE expects. Run Status says how the run ended."
+        )
+    }
+
+    /// VoiceOver reads the same sentence as the status line's help, after the line's words.
+    func testTheStatusLineHelpReachesVoiceOver() throws {
+        let viewModel = ProvenanceInspectorViewModel()
+        viewModel.summary.statusLabel = "Complete record"
+        let window = AccessibilityTreeProbe.host(ProvenanceSection(viewModel: viewModel))
+        defer { window.orderOut(nil) }
+        func statusLine() -> NSObject? {
+            AccessibilityTreeProbe.all(in: window).first {
+                [AccessibilityTreeProbe.label($0), AccessibilityTreeProbe.value($0)].contains("Complete record")
+            }
+        }
+        func helpOfStatusLine() -> String? {
+            statusLine().flatMap { ($0 as AnyObject).accessibilityHelp?() ?? nil }
+        }
+
+        AccessibilityTreeProbe.waitUntil { helpOfStatusLine() != nil }
+
+        XCTAssertNotNil(statusLine(), AccessibilityTreeProbe.dump(window))
+        XCTAssertEqual(
+            helpOfStatusLine(),
+            "The status line says whether the record holds every fact LGE expects. Run Status says how the run ended."
         )
     }
 

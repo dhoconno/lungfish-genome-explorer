@@ -160,6 +160,7 @@ struct ProvenanceSection: View {
         let label = Label(viewModel.summary.statusLabel, systemImage: statusSymbol)
             .font(LungfishInspectorStyle.controlFont)
             .foregroundStyle(statusForegroundStyle)
+            .help(ProvenanceAuditStatus.statusLineHelp)
         if usesGenotypePresentation {
             label.fixedSize(horizontal: false, vertical: true)
         } else {

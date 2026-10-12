@@ -51,10 +51,11 @@ struct ProvenanceRecordShapeRule: Equatable, Sendable {
 extension ProvenanceAuditStatus {
     /// The status as the Provenance tab spells it.
     ///
-    /// Complete and Incomplete name their subject, the record. The audit judges whether the record holds
+    /// Every word names its subject, the record or the provenance. The audit judges whether the record holds
     /// every fact LGE expects, and the Run Status row says how the run ended, so a failed or cancelled run
-    /// with a full record no longer reads "Complete" beside "Failed" (plan decision P14). The other words
-    /// already name their subject.
+    /// with a full record no longer reads "Complete" beside "Failed" (plan decision P14). Invalid and Stale
+    /// were the last two that stood alone, and they read Invalid record and Stale record (Phase 2.8 P3).
+    /// The Warnings title of a gap in the record is the same word.
     var displayName: String {
         switch self {
         case .notRequired: return "No provenance required"
@@ -62,9 +63,14 @@ extension ProvenanceAuditStatus {
         case .missing: return "Missing provenance"
         case .legacy: return ProvenanceRecordShapeRule.olderRecordFormatTitle
         case .incomplete: return "Incomplete record"
-        case .invalid, .stale: return rawValue.capitalized
+        case .invalid: return "Invalid record"
+        case .stale: return "Stale record"
         }
     }
+
+    /// The tooltip of the status line, which SwiftUI also gives to VoiceOver as the line's help.
+    static let statusLineHelp = "The status line says whether the record holds every fact LGE expects. "
+        + "Run Status says how the run ended."
 }
 
 extension ProvenanceCoverageMonitor {
