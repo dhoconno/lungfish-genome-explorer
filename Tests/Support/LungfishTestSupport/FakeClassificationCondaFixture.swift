@@ -4,20 +4,15 @@
 //
 // Moved from ClassificationPipelineProvenanceSourceTests.swift by Phase 2.7
 // lane F1, so the classifier freeze in LungfishAppTests drives the same fake
-// tools. The fixture builds its conda root with the test initializer of
-// `CondaManager` and checksums installed files with
-// `ManagedToolSourceInstallationRecord.sha256(of:)`. Both are internal to
-// LungfishWorkflow, so this file imports it `@testable`, as
-// TaxTriageStandInEngine.swift does. The `#if DEBUG` guard keeps a release
-// build of the package compiling, because a release build does not compile
-// LungfishWorkflow for testing. The lane that makes the `CondaManager` test
-// initializer and `ManagedToolSourceInstallationRecord.sha256(of:)` public
-// removes the attribute and the guard here and in TaxTriageStandInEngine.swift.
+// tools. The fixture builds its conda root with the package initializer of
+// `CondaManager` and checksums installed files with the package
+// `ManagedToolSourceInstallationRecord.sha256(of:)`. Phase 2.9 lane Q9 made
+// both `package`, so this file imports LungfishWorkflow plainly and builds in
+// a release build too.
 
 import Foundation
 import LungfishIO
-#if DEBUG
-@testable import LungfishWorkflow
+import LungfishWorkflow
 
 public struct FakeClassificationCondaFixture {
     public enum ReportRank: String {
@@ -439,4 +434,3 @@ public struct FakeClassificationCondaFixture {
         """
     }
 }
-#endif

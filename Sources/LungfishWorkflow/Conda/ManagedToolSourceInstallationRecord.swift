@@ -231,7 +231,7 @@ public struct ManagedToolSourceInstallationRecord: Sendable, Codable, Hashable {
         return size.uint64Value > 0
     }
 
-    static func sha256(of url: URL) -> String? {
+    package static func sha256(of url: URL) -> String? {
         guard let data = try? Data(contentsOf: url) else { return nil }
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }

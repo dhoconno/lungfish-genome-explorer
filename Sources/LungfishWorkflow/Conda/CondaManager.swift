@@ -194,8 +194,8 @@ public actor CondaManager {
     }
 
 
-    typealias BundledMicromambaProvider = @Sendable () -> URL?
-    typealias BundledMicromambaVersionProvider = @Sendable () -> String?
+    package typealias BundledMicromambaProvider = @Sendable () -> URL?
+    package typealias BundledMicromambaVersionProvider = @Sendable () -> String?
     typealias RootPrefixProvider = @Sendable () -> URL
 
     /// Shared singleton instance.
@@ -254,7 +254,7 @@ public actor CondaManager {
         self.sharedPackageCache = CondaSharedPackageCache()
     }
 
-    init(
+    package init( // package so the test-support stand-ins need no testing import (2.9 Q9)
         rootPrefix: URL,
         bundledMicromambaProvider: @escaping BundledMicromambaProvider,
         bundledMicromambaVersionProvider: @escaping BundledMicromambaVersionProvider,
