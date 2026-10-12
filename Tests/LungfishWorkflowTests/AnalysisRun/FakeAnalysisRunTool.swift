@@ -179,6 +179,10 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
     var planCancels: PlanCancel?
     /// A finalize that cancels its own run, then returns what it wrote.
     var finalizeCancels = false
+    /// A finalize that writes `kept.fastq` into the root and names it as a recorded input and
+    /// output with ``recordedDigest``, which is not the file's SHA-256.
+    var finalizeRecordsKeptFile = false
+    static let recordedDigest = String(repeating: "a", count: 64)
     let probe: FakeToolProbe
 
     enum PlanCancel: Sendable {
@@ -357,6 +361,14 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
         if let sourceRecordError {
             sourceRecords.append(FailingSourceRecord(message: sourceRecordError))
         }
+        var recordedFiles: [ProvenanceFileDescriptor] = []
+        if finalizeRecordsKeptFile {
+            let kept = context.rootDirectory.appendingPathComponent("kept.fastq")
+            try Data("@r\n".utf8).write(to: kept)
+            recordedFiles = [FileRole.input, .output].map {
+                ProvenanceFileDescriptor(path: kept.path, checksumSHA256: Self.recordedDigest, fileSize: 3, format: .fastq, role: $0)
+            }
+        }
         return AnalysisRunFinalization(
             outputs: finalizeOutputs ? [AnalysisRunOutput(url: summary, format: .text)] : [],
             steps: [ProvenanceStep(toolName: "fake-index", toolVersion: "1.0", argv: ["fake-index", summary.path])],
@@ -364,7 +376,8 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
             artifacts: [CLIEventArtifact(kind: "tsv", path: summary.path, role: "summary")],
             completionDetail: "\(units.filter { $0.outcome.completed }.count) of \(units.count) samples classified",
             warnings: finalizeWarnings,
-            options: finalizeOptions
+            options: finalizeOptions,
+            recordedFiles: recordedFiles
         )
     }
 

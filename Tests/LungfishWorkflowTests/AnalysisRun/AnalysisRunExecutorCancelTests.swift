@@ -167,6 +167,7 @@ struct AnalysisRunExecutorCancelTests {
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
         var tool = FakeAnalysisRunTool(probe: probe)
         tool.finalizeCancels = true
+        tool.finalizeRecordsKeptFile = true
         tool.sourceBundle = bundle
         let request = fixture.request()
 
@@ -177,6 +178,7 @@ struct AnalysisRunExecutorCancelTests {
         let record = try fixture.record(at: report.recordURL)
         #expect(record.status == .cancelled)
         #expect(!record.files.contains { $0.path.hasSuffix("summary.tsv") })
+        #expect(!record.files.contains { $0.path.hasSuffix("/kept.fastq") })
         #expect(!record.steps.contains { $0.toolName == "fake-index" })
         #expect(AnalysisRunRecord.load(from: try #require(report.analysisDirectory))?.outcome == .cancelled)
         #expect(!FileManager.default.fileExists(atPath: bundle.appendingPathComponent(AnalysisManifest.filename).path))

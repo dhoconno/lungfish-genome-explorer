@@ -94,6 +94,27 @@ struct AnalysisRunExecutorTests {
         }
     }
 
+    @Test("Files a finalize names as recorded reach a completed run's root record with the digest it gave")
+    func recordedFilesKeepTheGivenDigest() async throws {
+        let fixture = try AnalysisRunTestProject()
+        defer { fixture.cleanup() }
+        var tool = FakeAnalysisRunTool(probe: FakeToolProbe())
+        tool.finalizeRecordsKeptFile = true
+
+        let report = await AnalysisRunExecutor.unsigned.execute(tool, fixture.request(), events: .discarding)
+
+        #expect(report.status == .completed)
+        let record = try fixture.record(at: report.recordURL)
+        for role in [FileRole.input, .output] {
+            let kept = try #require(record.files.first { $0.role == role && $0.path.hasSuffix("/kept.fastq") })
+            #expect(kept.checksumSHA256 == FakeAnalysisRunTool.recordedDigest)
+            #expect(kept.fileSize == 3)
+        }
+        let output = try #require(record.outputs.first { $0.path.hasSuffix("/kept.fastq") })
+        #expect(output.checksumSHA256 == FakeAnalysisRunTool.recordedDigest)
+        #expect(record.output.map { URL(fileURLWithPath: $0.path).lastPathComponent } == "summary.tsv")
+    }
+
     @Test("Events follow the phases and end with complete")
     func eventsFollowThePhases() async throws {
         let fixture = try AnalysisRunTestProject()
