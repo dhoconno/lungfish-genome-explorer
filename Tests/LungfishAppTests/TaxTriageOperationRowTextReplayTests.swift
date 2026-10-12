@@ -165,10 +165,14 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         )
 
         // The bar never moves back (T9). In the engine stage it follows the completed rows of
-        // trace.txt against 29 tasks, and the stand-in writes one row (2.9 W2). The runner reports
-        // 1.0 and the database build keeps the bar there. Before the fix the app showed 0.95 while
-        // it built the database.
-        XCTAssertEqual(Self.rounded(run.trace.bars), [0, 0.05, 0.1, 0.1276, 0.9, 1.0])
+        // trace.txt against 29 tasks, so the stand-in's 29 rows take it to its stop at 0.86 (2.9 W2).
+        // The runner reports 1.0 and the database build keeps the bar there. Before the fix the app
+        // showed 0.95 while it built the database.
+        XCTAssertEqual(
+            Self.bars(Self.rounded(run.trace.bars), leavingOutPollsWithin: [(0.1, 0.86)]),
+            [0, 0.05, 0.1, 0.86, 0.9, 1.0],
+            "\(run.trace.bars)"
+        )
         XCTAssertEqual(Self.drops(in: run.trace.bars), [])
 
         // The details the row showed, from the first to the last. The database line sits between
@@ -187,10 +191,14 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         XCTAssertEqual(run.viewer.overlayLines.last, "TaxTriage pipeline complete")
         XCTAssertFalse(run.viewer.overlayLines.contains("Building TaxTriage database\u{2026}"))
 
-        // The stand-in's task line reads `Running <process> (<tag>)` in the log, the detail and the
-        // overlay, and the log keeps it once, though the trace reading at the end of the run
-        // repeats it with the bar it moved (2.9 W1, W2).
-        XCTAssertEqual(lines.filter { $0.hasPrefix("info: Running ") }, ["info: Running KRAKEN2_KRAKEN2 (S1)"])
+        // Each of the stand-in's 29 task lines reads `Running <process> (<tag>)` once in the log, the
+        // detail and the overlay, though the trace reading at the end of the run repeats the last one
+        // with the bar it moved (2.9 W1, W2).
+        let taskLines = lines.filter { $0.hasPrefix("info: Running ") }
+        XCTAssertEqual(taskLines.count, 29, "\(taskLines)")
+        XCTAssertEqual(Set(taskLines).count, 29, "no task line is logged twice, \(taskLines)")
+        XCTAssertEqual(taskLines.first, "info: Running DOWNLOAD_TAXDUMP")
+        XCTAssertEqual(taskLines.last, "info: Running CREATE_COMPARISON_REPORT (comparison_full_report)")
         XCTAssertTrue(run.trace.details.contains("Running KRAKEN2_KRAKEN2 (S1)"), "\(run.trace.details)")
         XCTAssertTrue(run.viewer.overlayLines.contains("Running KRAKEN2_KRAKEN2 (S1)"))
 
@@ -258,7 +266,12 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         let paragraph = "\(headline). Results that depend on the failed steps, such as alignments and TASS scores, are missing for the samples named."
             + " Raise Max memory, or list the host in Exclude host taxa (9606 for human) so the host genome is not downloaded as an alignment reference."
         let lines = Self.loggedLines(of: item)
-        XCTAssertEqual(lines.filter { $0.contains("MINIMAP2_ALIGN") }, ["warning: \(paragraph)"], "\(lines)")
+        // The ignored task's own task line is an information line (2.9 W1), and its cause is one warning line.
+        XCTAssertEqual(
+            lines.filter { $0.contains("MINIMAP2_ALIGN") },
+            ["info: Running MINIMAP2_ALIGN (S1.S1.dwnld.references)", "warning: \(paragraph)"],
+            "\(lines)"
+        )
         XCTAssertEqual(
             Array(lines.suffix(3)),
             [
@@ -321,9 +334,14 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         XCTAssertFalse(OperationRowAction.copyCLICommand.isAvailable(for: item))
 
         // The bar never moves back (T9). Each sample's engine stage follows its completed trace rows
-        // against 29 tasks (2.9 W2), S1's one row and none for the failing S2. The failed sample ends
-        // the bar at 1.0 and the database build keeps it there.
-        XCTAssertEqual(Self.rounded(run.trace.bars), [0, 0.025, 0.05, 0.0638, 0.45, 0.5, 0.525, 0.55, 1.0])
+        // against 29 tasks (2.9 W2). S1's 29 rows stop it at 0.86 of its half, and S2's run ends after
+        // 7 completed rows and its failed one. The failed sample ends the bar at 1.0 and the database
+        // build keeps it there.
+        XCTAssertEqual(
+            Self.bars(Self.rounded(run.trace.bars), leavingOutPollsWithin: [(0.05, 0.43), (0.55, 0.6466)]),
+            [0, 0.025, 0.05, 0.43, 0.45, 0.5, 0.525, 0.55, 0.6466, 1.0],
+            "\(run.trace.bars)"
+        )
         XCTAssertEqual(Self.drops(in: run.trace.bars), [])
         XCTAssertTrue(run.trace.details.contains("TaxTriage serial batch complete"))
 
@@ -709,6 +727,14 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
     /// Each place the bar moved back, written `from to to`.
     private static func drops(in bars: [Double]) -> [String] {
         zip(bars, bars.dropFirst()).filter { $1 < $0 }.map { "\($0) to \($1)" }
+    }
+
+    /// The bar values without those strictly inside each `(from, to)` stage. The engine reads
+    /// trace.txt every 5 s and once more when the engine has ended, and the stand-in's run is so short
+    /// that the last reading is mostly its only one. A reading inside the run, on a busy Mac, adds a
+    /// value inside its engine stage, which is the only value that may vary.
+    private static func bars(_ bars: [Double], leavingOutPollsWithin stages: [(Double, Double)]) -> [Double] {
+        bars.filter { value in !stages.contains { $0.0 < value && value < $0.1 } }
     }
 
     /// The bar values to four decimals, so a sum of fractions compares as written.

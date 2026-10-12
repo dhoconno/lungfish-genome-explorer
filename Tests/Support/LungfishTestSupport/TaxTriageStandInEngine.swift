@@ -10,8 +10,8 @@
 // Since Phase 2.9 lane Q9 M1 (decision N11) it is a wrapper of the shared `NextflowStandInEngine`
 // with `NextflowStandInWorkflow.taxTriage`, which say what a launch records and writes. The
 // wrapper keeps the 2.8 API, with `Behaviour`, `Launch` and `FASTQRecords` as the shared engine's
-// types, the fixtures in `<root>/fixtures` under their 2.8 names, and the 2.8 lines of
-// `OutputMode.progressLines25` until lane U10 flips `outputMode`.
+// types and the fixtures in `<root>/fixtures` under their 2.8 names. Since lane U10 M1 it prints the
+// lines of a real Nextflow 26.04.6, `OutputMode.plainLog26`, in place of the 2.8 lines.
 //
 // Run it with the Nextflow profile `profile`. Any profile but docker skips the pipeline's Docker
 // check, and a profile other than conda keeps the conda variables out of the launch environment,
@@ -32,8 +32,8 @@ public struct TaxTriageStandInEngine: Sendable {
 
     /// The Nextflow profile a stand-in run uses.
     public static let profile = "local"
-    /// The lines the stand-in prints. Lane U10 flips this one line to `.plainLog26` with its reader.
-    public static let outputMode: NextflowStandInEngine.OutputMode = .progressLines25
+    /// The lines the stand-in prints, a real Nextflow 26.04.6's, which lane U10 M1 set with its reader.
+    public static let outputMode: NextflowStandInEngine.OutputMode = .plainLog26
 
     /// The shared engine, written with TaxTriage's outputs.
     public let engine: NextflowStandInEngine

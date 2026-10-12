@@ -69,7 +69,7 @@ public struct NextflowStandInEngine: Sendable {
         case plainLog26
         /// The lines of the 2.8 stand-in, a Nextflow 25.04.6 banner, then `Submitted process >`
         /// and `[100%]` for each sample, which a real 26.04.6 never prints. The TaxTriage wrapper
-        /// keeps them until lane U10 flips it.
+        /// printed them until lane U10 M1 flipped it to `plainLog26`.
         case progressLines25
     }
 

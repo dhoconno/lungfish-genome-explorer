@@ -92,30 +92,40 @@ final class TaxTriageEngineProcessReplayTests: XCTestCase {
         let failure = await Task { try await engine.makePipeline().run(config: failed) }.result
 
         XCTAssertNotNil(failure.failure, "the failing sample fails its run")
-        let task = "NFCORE_TAXTRIAGE:TAXTRIAGE:KRAKEN2_KRAKEN2"
-        let banner = ["N E X T F L O W  ~  version 25.04.6", "Launching jhuapl-bio/taxtriage [stand-in] DSL2"]
+        // Since lane U10 M1 the stand-in prints the plain log of a real Nextflow 26.04.6, one task line
+        // for each task of the sample. The lines are compared masked (`masked(_:)`).
+        let workflow = NextflowStandInWorkflow.taxTriage
+        let escape = "\u{1B}"
+        let completedTasks = workflow.leadingProcessNames
+            + workflow.processNames.map { $0.replacingOccurrences(of: "@SAMPLE@", with: "L1") }
+            + workflow.trailingProcessNames
         XCTAssertEqual(
-            try Self.log(in: completed.outputDirectory),
-            try Self.launchMetadata(in: completed.outputDirectory)
-                + "\n--- stdout ---\n"
-                + (banner + [
-                    "[aa/000001] Submitted process > \(task) (L1)",
-                    "[aa/000001] process > \(task) (L1) [100%] 1 of 1",
-                    "-[nf-core/taxtriage] Pipeline completed successfully-",
-                ]).joined(separator: "\n")
-                + "\n--- stderr ---\n",
+            Self.masked(try Self.log(in: completed.outputDirectory)),
+            Self.masked(
+                try Self.launchMetadata(in: completed.outputDirectory)
+                    + "\n--- stdout ---\n"
+                    + (Self.plainLogBanner + Self.taskLines(completedTasks) + [
+                        "-\(escape)[0;35m[nf-core/taxtriage]\(escape)[0;32m Pipeline completed successfully\(escape)[0m-",
+                        "[SUCCESS] completed=29 failed=0 cached=0",
+                    ]).joined(separator: "\n")
+                    + "\n--- stderr ---\n"
+            ),
             "a completed run logs its stdout lines and an empty stderr part"
         )
+        // A failing sample stops at its Kraken2 task, the fifth of its own.
+        let failedTasks = workflow.leadingProcessNames
+            + workflow.processNames.prefix(5).map { $0.replacingOccurrences(of: "@SAMPLE@", with: "L2") }
         XCTAssertEqual(
-            try Self.log(in: failed.outputDirectory),
-            try Self.launchMetadata(in: failed.outputDirectory)
-                + "\n--- stdout ---\n"
-                + (banner + [
-                    "[aa/000001] Submitted process > \(task) (L2)",
-                    "-[nf-core/taxtriage] Pipeline completed with errors-",
-                ]).joined(separator: "\n")
-                + "\n--- stderr ---\n"
-                + "ERROR ~ Error executing process > '\(task) (L2)'",
+            Self.masked(try Self.log(in: failed.outputDirectory)),
+            Self.masked(
+                try Self.launchMetadata(in: failed.outputDirectory)
+                    + "\n--- stdout ---\n"
+                    + (Self.plainLogBanner + Self.taskLines(failedTasks) + [
+                        "-\(escape)[0;35m[nf-core/taxtriage]\(escape)[0;31m Pipeline completed with errors\(escape)[0m-",
+                    ]).joined(separator: "\n")
+                    + "\n--- stderr ---\n"
+                    + "ERROR ~ Error executing process > 'NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:KRAKEN2_KRAKEN2 (L2)'"
+            ),
             "a failed run logs both streams, each line once, with no line break after the last"
         )
     }
@@ -218,14 +228,14 @@ final class TaxTriageEngineProcessReplayTests: XCTestCase {
         let engine = try makeEngine(.waitsUntilCancelled)
         let config = try makeConfig([("K1", 2)], output: "kill")
         let logFile = config.outputDirectory.appendingPathComponent("nextflow.log")
-        let linesSoFar = "\n--- stdout ---\nN E X T F L O W  ~  version 25.04.6\nLaunching jhuapl-bio/taxtriage [stand-in] DSL2"
+        let linesSoFar = "\n--- stdout ---\n" + Self.plainLogBanner.joined(separator: "\n")
 
         let run = Task { try await engine.makePipeline().run(config: config) }
         let started = await engine.waitForLaunch()
         XCTAssertNotNil(started, "the launch never started")
-        // The stand-in prints both lines once it is marked started, then waits for the cancel.
+        // The stand-in prints its banner once it is marked started, then waits for the cancel.
         let streamed = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(50)) {
-            (try? String(contentsOf: logFile, encoding: .utf8))?.hasSuffix(linesSoFar) == true
+            (try? String(contentsOf: logFile, encoding: .utf8)).map(Self.masked)?.hasSuffix(linesSoFar) == true
         }
         let logWhileRunning = try? String(contentsOf: logFile, encoding: .utf8)
         let metadata = try Self.launchMetadata(in: config.outputDirectory)
@@ -237,7 +247,7 @@ final class TaxTriageEngineProcessReplayTests: XCTestCase {
         XCTAssertTrue(streamed, "each stdout line reaches nextflow.log while the engine runs, so a KILL leaves it")
         // Compared as a Bool, so a failure does not print the whole launch metadata.
         XCTAssertTrue(
-            logWhileRunning == metadata + linesSoFar,
+            logWhileRunning.map(Self.masked) == Self.masked(metadata + linesSoFar),
             "the log holds the launch metadata and the stdout so far, and no stderr part, which joins only at the end (API risk 3)"
         )
     }
@@ -303,6 +313,34 @@ final class TaxTriageEngineProcessReplayTests: XCTestCase {
     /// The launch metadata the pipeline writes before the launch, the first part of its log.
     private static func launchMetadata(in outputDirectory: URL) throws -> String {
         try String(contentsOf: outputDirectory.appendingPathComponent("taxtriage-launch-command.txt"), encoding: .utf8)
+    }
+
+    /// The lines the stand-in prints before its first task in the plain-log mode, with the date, the
+    /// launch target and the work folder masked: TaxTriage's own four lines, then `[PIPELINE]` and
+    /// `[WORKDIR]`, as lines 66 to 71 of Q15's real run R1 read.
+    private static let plainLogBanner = [
+        "Nextflow version: 25.04.6",
+        "Commit ID: <masked>",
+        "Repository URL: <masked>",
+        "Date: <masked>",
+        "[PIPELINE] nf-core/taxtriage 1.0dev | profile=\(TaxTriageStandInEngine.profile)",
+        "[WORKDIR] <masked>",
+    ]
+
+    /// The task line the stand-in prints for each task, numbered from 1 as its trace rows are.
+    private static func taskLines(_ tasks: [String]) -> [String] {
+        tasks.enumerated().map { "[PROCESS aa/\(String(format: "%06d", $0.offset + 1))] \($0.element)" }
+    }
+
+    /// A log with the parts of the banner that change with each run masked, the date the banner prints,
+    /// the launch target that names the snapshot folder, and the work folder in the scratch.
+    private static func masked(_ log: String) -> String {
+        log.components(separatedBy: "\n").map { line in
+            for prefix in ["Commit ID: ", "Repository URL: ", "Date: ", "[WORKDIR] "] where line.hasPrefix(prefix) {
+                return prefix + "<masked>"
+            }
+            return line
+        }.joined(separator: "\n")
     }
 
     /// Whether `pid` names a process that has not exited. A zombie only waits to be reaped, so it has exited.
