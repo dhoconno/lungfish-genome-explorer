@@ -441,7 +441,7 @@ public struct FakeClassificationCondaFixture {
             done
             # est_abundance.py keeps a taxon at the level only when its clade reads (column 2) are
             # not below the threshold, and exits 1 with this line when it keeps none.
-            kept=$(awk -F '\\t' -v level="$level" -v threshold="$threshold" '$4 == level && $2 + 0 >= threshold + 0 { n++ } END { print n + 0 }' "$input")
+            kept=$(awk -F '\\t' -v level="$level" -v threshold="$threshold" '$(NF-2) == level && $2 + 0 >= threshold + 0 { n++ } END { print n + 0 }' "$input")
             if [ "$kept" = "0" ]; then
               echo "Error: no reads found. Please check your Kraken report" >&2
               exit 1
