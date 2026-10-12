@@ -94,7 +94,10 @@ extension FASTQOperationPlanner {
         } else {
             // This call is not told which command read or wrote which file, and a step that listed
             // them all would claim files its command never touched. The run lists the files and
-            // each step names only its command.
+            // each step names only its command. A reader that converts the record to a WorkflowRun
+            // (`legacyWorkflowRun`, which script export and `lungfish-cli provenance` use) still adds
+            // the run's outputs to the last step, until the dispatcher passes each invocation's
+            // outputs here (Phase 2.9).
             for url in inputPayloadURLs { builder = try builder.input(url, role: .input) }
             for url in outputPayloadURLs { builder = try builder.output(url, role: .output) }
             for argv in commandLines { builder = builder.step(Self.groupedStep(argv: argv)) }

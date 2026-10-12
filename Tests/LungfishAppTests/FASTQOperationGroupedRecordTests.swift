@@ -193,6 +193,27 @@ final class FASTQOperationGroupedRecordTests: XCTestCase {
         )
     }
 
+    func testTheExportReadingOfTwoInvocationsReplaysEachRealCommand() throws {
+        let run = try makeMixedFormatRun()
+        let record = try writeRecord(for: run)
+        // Script export and `lungfish-cli provenance` read the record through this conversion.
+        let reading = record.legacyWorkflowRun(preferCanonicalSteps: true)
+
+        XCTAssertEqual(reading.steps.map(\.command), run.commands)
+        let words = reading.steps.flatMap(\.command)
+        XCTAssertFalse(words.contains("gui"))
+        XCTAssertFalse(words.contains("fastq-grouped-result"))
+
+        // Known until the dispatcher passes each invocation's outputs (Phase 2.9). The reading adds the
+        // run's outputs to the last step and gives no step an input.
+        XCTAssertEqual(reading.steps.map(\.outputs.count), [0, 2])
+        XCTAssertEqual(reading.steps[1].outputs.map { tail($0.path, 2) }, [
+            "filtered-sequences.\(FASTQBundle.directoryExtension)/reads.fastq",
+            "filtered-reads.\(FASTQBundle.directoryExtension)/reads.fastq",
+        ])
+        XCTAssertTrue(reading.steps.allSatisfy { $0.inputs.isEmpty })
+    }
+
     // MARK: - No command
 
     func testNoInvocationWritesNoRecordBecauseNoCommandRan() throws {
