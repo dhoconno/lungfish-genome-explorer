@@ -504,7 +504,7 @@ extension TaxTriageCommand {
                 // Nextflow exited 0, but TaxTriage ignored errored tasks.
                 print(formatter.warning(erroredProcessesMessage))
                 print("")
-                print(formatter.warning("Some TaxTriage tasks failed in \(runtimeStr)s"))
+                print(formatter.warning("TaxTriage completed with warnings in \(runtimeStr)s"))
             } else {
                 print(formatter.success(
                     "TaxTriage completed in \(runtimeStr)s"
