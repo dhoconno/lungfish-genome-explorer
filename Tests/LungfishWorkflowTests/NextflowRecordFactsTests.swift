@@ -29,11 +29,12 @@ final class NextflowRecordFactsTests: XCTestCase {
     /// The commit of TaxTriage `v3.3.8`, the commit the lock pins.
     private static let commit = "e10bfebda32a62711f38a4e23ab03b61725a9675"
 
-    /// The facts of a TaxTriage step at that commit.
+    /// The facts of a TaxTriage step at that commit launched from LGE's snapshot, as R1 ran.
     private static let taxTriageStep = NextflowRecordFacts(
         toolName: "taxtriage",
         toolVersion: commit,
-        githubReleaseVersion: "v3.3.8"
+        githubReleaseVersion: "v3.3.8",
+        pipelineSource: .snapshot
     )
 
     /// The banner of Nextflow 25.04.6 as the stand-in engine prints it, and the launch line that follows it.
@@ -65,38 +66,52 @@ final class NextflowRecordFactsTests: XCTestCase {
 
     // MARK: - The shape
 
-    /// R1. A Nextflow step is the pipeline id at the commit that ran, with the release tag that names the commit.
+    /// R1 and T6. A Nextflow step is the pipeline id at the commit that ran, with the release tag that names the commit,
+    /// launched from the repository or from LGE's snapshot.
     func testAStepIsThePipelineAtTheCommitWithTheTagBeside() {
         let step = Self.taxTriageStep
 
         XCTAssertEqual(step.toolName, "taxtriage")
         XCTAssertEqual(step.toolVersion, Self.commit)
         XCTAssertEqual(step.githubReleaseVersion, "v3.3.8")
+        XCTAssertEqual(step.pipelineSource, .snapshot)
         XCTAssertNotEqual(
             step,
-            NextflowRecordFacts(toolName: "taxtriage", toolVersion: Self.commit, githubReleaseVersion: nil),
+            NextflowRecordFacts(toolName: "taxtriage", toolVersion: Self.commit, githubReleaseVersion: nil, pipelineSource: .snapshot),
             "a commit that no tag names is another fact"
+        )
+        XCTAssertNotEqual(
+            step,
+            NextflowRecordFacts(toolName: "taxtriage", toolVersion: Self.commit, githubReleaseVersion: "v3.3.8", pipelineSource: .remote),
+            "the code the repository gave is another fact"
+        )
+        XCTAssertEqual(NextflowPipelineSource.remote.rawValue, "remote")
+        XCTAssertEqual(NextflowPipelineSource.snapshot.rawValue, "snapshot")
+    }
+
+    /// The step's resolved options are where its code came from and the version of the Nextflow that ran, from the
+    /// banner in the run's own log (declared move of M2, `pipelineSource` added).
+    func testTheResolvedOptionsHoldTheSourceAndTheVersionFromTheLog() throws {
+        let log = try writeLog(Self.nextflow25Lines)
+
+        XCTAssertEqual(
+            Self.taxTriageStep.resolvedOptions(logFile: log),
+            ["pipelineSource": .string("snapshot"), "nextflowVersion": .string("25.04.6")]
         )
     }
 
-    /// The step's one resolved option is the version of the Nextflow that ran, from the banner in the run's own log.
-    func testTheResolvedOptionsHoldTheVersionFromTheBannerInTheLog() throws {
-        let log = try writeLog(Self.nextflow25Lines)
-
-        XCTAssertEqual(Self.taxTriageStep.resolvedOptions(logFile: log), ["nextflowVersion": .string("25.04.6")])
-    }
-
-    /// No log, a log that is gone, a log that is not UTF-8 and a log with no banner each leave the options empty, and
-    /// the recorder writes empty options as it writes none.
-    func testTheResolvedOptionsAreEmptyWithNoBannerToRead() throws {
+    /// No log, a log that is gone, a log that is not UTF-8 and a log with no banner each leave the version out, and
+    /// the source stays (declared move of M2, the options were empty).
+    func testTheResolvedOptionsHoldOnlyTheSourceWithNoVersionToRead() throws {
         let notUTF8 = root.appendingPathComponent("not-utf8.log", isDirectory: false)
         try Data([0x4E, 0x20, 0xFF, 0xFE, 0xC3]).write(to: notUTF8)
         let step = Self.taxTriageStep
+        let sourceOnly: [String: ParameterValue] = ["pipelineSource": .string("snapshot")]
 
-        XCTAssertEqual(step.resolvedOptions(logFile: nil), [:])
-        XCTAssertEqual(step.resolvedOptions(logFile: root.appendingPathComponent("gone.log", isDirectory: false)), [:])
-        XCTAssertEqual(step.resolvedOptions(logFile: notUTF8), [:])
-        XCTAssertEqual(step.resolvedOptions(logFile: try writeLog(["Launching jhuapl-bio/taxtriage"])), [:])
+        XCTAssertEqual(step.resolvedOptions(logFile: nil), sourceOnly)
+        XCTAssertEqual(step.resolvedOptions(logFile: root.appendingPathComponent("gone.log", isDirectory: false)), sourceOnly)
+        XCTAssertEqual(step.resolvedOptions(logFile: notUTF8), sourceOnly)
+        XCTAssertEqual(step.resolvedOptions(logFile: try writeLog(["Launching jhuapl-bio/taxtriage"])), sourceOnly)
     }
 
     /// The parser reads the version of the first banner, a suffix such as `-edge` with it, and nothing else.
@@ -163,40 +178,44 @@ final class NextflowRecordFactsTests: XCTestCase {
         let otherCommit = "78f4b4b" + String(repeating: "0", count: 33)
 
         XCTAssertEqual(
-            TaxTriageRecordFacts.nextflowFacts(revision: TaxTriageConfig.defaultRevision),
+            TaxTriageRecordFacts.nextflowFacts(revision: TaxTriageConfig.defaultRevision, pipelineSource: .snapshot),
             NextflowRecordFacts(
                 toolName: "taxtriage",
                 toolVersion: TaxTriageConfig.defaultRevision,
-                githubReleaseVersion: TaxTriageConfig.defaultGithubReleaseVersion
+                githubReleaseVersion: TaxTriageConfig.defaultGithubReleaseVersion,
+                pipelineSource: .snapshot
             )
         )
         XCTAssertEqual(
-            TaxTriageRecordFacts.nextflowFacts(revision: "v3.3.9"),
-            NextflowRecordFacts(toolName: "taxtriage", toolVersion: "v3.3.9", githubReleaseVersion: "v3.3.9")
+            TaxTriageRecordFacts.nextflowFacts(revision: "v3.3.9", pipelineSource: .remote),
+            NextflowRecordFacts(toolName: "taxtriage", toolVersion: "v3.3.9", githubReleaseVersion: "v3.3.9", pipelineSource: .remote)
         )
         XCTAssertEqual(
-            TaxTriageRecordFacts.nextflowFacts(revision: otherCommit),
-            NextflowRecordFacts(toolName: "taxtriage", toolVersion: otherCommit, githubReleaseVersion: nil)
+            TaxTriageRecordFacts.nextflowFacts(revision: otherCommit, pipelineSource: .remote),
+            NextflowRecordFacts(toolName: "taxtriage", toolVersion: otherCommit, githubReleaseVersion: nil, pipelineSource: .remote)
         )
     }
 
     /// A TaxTriage step reads the version from the first output named `nextflow.log`, the log LGE keeps of the engine,
-    /// and never from Nextflow's own `.nextflow.log` or another output. A first log with no banner leaves the options
-    /// empty, and no later log stands in.
+    /// and never from Nextflow's own `.nextflow.log` or another output. A first log with no banner leaves the version
+    /// out, and no later log stands in.
     func testATaxTriageStepReadsTheFirstOutputNamedNextflowLog() throws {
         let own = try writeLog(["N E X T F L O W  ~  version 24.10.4"], at: ".nextflow.log")
         let report = try writeLog(["N E X T F L O W  ~  version 23.04.0"], at: "report.txt")
         let kept = try writeLog(Self.nextflow25Lines)
         let bannerless = try writeLog(["Launching jhuapl-bio/taxtriage"], at: "earlier/nextflow.log")
-        let step = TaxTriageRecordFacts.nextflowFacts(revision: Self.commit)
+        let step = TaxTriageRecordFacts.nextflowFacts(revision: Self.commit, pipelineSource: .remote)
 
         XCTAssertEqual(TaxTriageRecordFacts.nextflowLog(among: [own, report, kept]), kept)
         XCTAssertNil(TaxTriageRecordFacts.nextflowLog(among: [own, report]))
         XCTAssertEqual(
             step.resolvedOptions(logFile: TaxTriageRecordFacts.nextflowLog(among: [own, report, kept])),
-            ["nextflowVersion": .string("25.04.6")]
+            ["pipelineSource": .string("remote"), "nextflowVersion": .string("25.04.6")]
         )
         XCTAssertEqual(TaxTriageRecordFacts.nextflowLog(among: [bannerless, kept]), bannerless)
-        XCTAssertEqual(step.resolvedOptions(logFile: TaxTriageRecordFacts.nextflowLog(among: [bannerless, kept])), [:])
+        XCTAssertEqual(
+            step.resolvedOptions(logFile: TaxTriageRecordFacts.nextflowLog(among: [bannerless, kept])),
+            ["pipelineSource": .string("remote")]
+        )
     }
 }

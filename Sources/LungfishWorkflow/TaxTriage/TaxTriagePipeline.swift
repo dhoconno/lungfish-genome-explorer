@@ -157,6 +157,10 @@ public actor TaxTriagePipeline {
         let revision: String?
         let cleanupDirectory: URL?
         let snapshotDirectory: URL?
+
+        /// Where the launched code comes from (T6), LGE's snapshot when the launch names the export folder without
+        /// `-r`, else the repository at the revision.
+        var pipelineSource: NextflowPipelineSource { revision == nil ? .snapshot : .remote }
     }
 
     /// Shared instance for convenience.
@@ -475,6 +479,7 @@ public actor TaxTriagePipeline {
             await recordTaxTriageProvenanceStep(
                 runID: runID,
                 config: profileAdjustedConfig,
+                pipelineSource: pipelineProjectSource.pipelineSource,
                 command: provenanceCommand,
                 outputFiles: [logFile],
                 exitCode: -1,
@@ -513,6 +518,7 @@ public actor TaxTriagePipeline {
         if Task.isCancelled {
             try await recordCancellation(
                 runID: runID, config: profileAdjustedConfig, command: provenanceCommand,
+                pipelineSource: pipelineProjectSource.pipelineSource,
                 wallTime: runClock.elapsed, logFile: logFile
             )
         }
@@ -528,6 +534,7 @@ public actor TaxTriagePipeline {
             await recordTaxTriageProvenanceStep(
                 runID: runID,
                 config: profileAdjustedConfig,
+                pipelineSource: pipelineProjectSource.pipelineSource,
                 command: provenanceCommand,
                 outputFiles: [
                     logFile,
@@ -590,6 +597,7 @@ public actor TaxTriagePipeline {
         if Task.isCancelled {
             try await recordCancellation(
                 runID: runID, config: profileAdjustedConfig, command: provenanceCommand,
+                pipelineSource: pipelineProjectSource.pipelineSource,
                 wallTime: runClock.elapsed, logFile: logFile
             )
         }
@@ -608,6 +616,7 @@ public actor TaxTriagePipeline {
         await recordTaxTriageProvenanceStep(
             runID: runID,
             config: profileAdjustedConfig,
+            pipelineSource: pipelineProjectSource.pipelineSource,
             command: provenanceCommand,
             outputFiles: (
                 result.allOutputFiles + [
@@ -649,6 +658,7 @@ public actor TaxTriagePipeline {
         runID: UUID,
         config: TaxTriageConfig,
         command: [String],
+        pipelineSource: NextflowPipelineSource,
         wallTime: TimeInterval,
         logFile: URL
     ) async throws -> Never {
@@ -656,6 +666,7 @@ public actor TaxTriagePipeline {
         await recordTaxTriageProvenanceStep(
             runID: runID,
             config: config,
+            pipelineSource: pipelineSource,
             command: command,
             outputFiles: [],
             exitCode: AnalysisRunExitCode.cancelled,

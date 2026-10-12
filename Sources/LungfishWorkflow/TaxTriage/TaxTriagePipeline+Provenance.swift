@@ -61,11 +61,13 @@ extension TaxTriagePipeline {
 
     /// Records the TaxTriage step. A run that ended 0 names its result among `outputFiles`, and each task failure
     /// that TaxTriage ignored in it adds a warning line to the step's stderr (T8). The step's tool, version, tag and
-    /// resolved options are the run's Nextflow facts (``TaxTriageRecordFacts/nextflowFacts(revision:)``), whose resolved
-    /// options hold the version of the Nextflow that ran, from the log among `outputFiles`.
+    /// resolved options are the run's Nextflow facts (``TaxTriageRecordFacts/nextflowFacts(revision:pipelineSource:)``),
+    /// whose resolved options hold `pipelineSource` and the version of the Nextflow that ran, from the log among
+    /// `outputFiles`.
     func recordTaxTriageProvenanceStep(
         runID: UUID,
         config: TaxTriageConfig,
+        pipelineSource: NextflowPipelineSource,
         command: [String],
         outputFiles: [URL],
         exitCode: Int32,
@@ -74,7 +76,7 @@ extension TaxTriagePipeline {
     ) async {
         let warnings = exitCode == 0 ? TaxTriageRecordFacts.ignoredFailureWarnings(inResultAmong: outputFiles) : []
         let stderrLines = ([stderr ?? ""] + warnings).filter { !$0.isEmpty }
-        let nextflow = TaxTriageRecordFacts.nextflowFacts(revision: config.revision)
+        let nextflow = TaxTriageRecordFacts.nextflowFacts(revision: config.revision, pipelineSource: pipelineSource)
         await ProvenanceRecorder.shared.recordStep(
             runID: runID,
             toolName: nextflow.toolName,
@@ -118,8 +120,8 @@ extension TaxTriagePipeline {
 /// (Phase 2.8 lane B2, decisions T6 to T8 of `docs/plans/2026-10-11-phase-2-8.md`).
 ///
 /// - Every TaxTriage step is the tool `taxtriage` at the revision, with the release tag beside it (RT4). With the
-///   Nextflow version they are the step's ``NextflowRecordFacts`` (``nextflowFacts(revision:)``, decision R1), which
-///   the sample steps of a serial batch record (`TaxTriageSerialBatchRunner.recordSampleProvenance`) do not take yet.
+///   pipeline source and the Nextflow version they are the step's ``NextflowRecordFacts`` (R1, T6), which the sample
+///   steps of a serial batch record (`TaxTriageSerialBatchRunner.recordSampleProvenance`) do not take yet.
 /// - The settings the run was asked for are explicit options.
 /// - The plan of a record of one sample is the resolved default `readSetPlan`, the home decision E13 of Phase 2.7 names
 ///   (T7). A pooled record of several samples keeps its plans keyed by sample under `read_set_plans` in the explicit
@@ -274,13 +276,14 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
         return warningLines(for: result.ignoredFailures)
     }
 
-    /// The Nextflow facts of the TaxTriage step of a run at `revision`, the tool `taxtriage` at the revision, with the
-    /// release tag beside it when the lock's pin or a `v` tag names one (RT4, R1).
-    static func nextflowFacts(revision: String) -> NextflowRecordFacts {
+    /// The Nextflow facts of the TaxTriage step of a run at `revision` from `pipelineSource`, the tool `taxtriage` at the
+    /// revision, with the release tag beside it when the lock's pin or a `v` tag names one (RT4, R1, T6).
+    static func nextflowFacts(revision: String, pipelineSource: NextflowPipelineSource) -> NextflowRecordFacts {
         NextflowRecordFacts(
             toolName: toolName,
             toolVersion: revision,
-            githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: revision)
+            githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: revision),
+            pipelineSource: pipelineSource
         )
     }
 

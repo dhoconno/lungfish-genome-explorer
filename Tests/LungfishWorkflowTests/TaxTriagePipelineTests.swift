@@ -1330,6 +1330,7 @@ final class TaxTriagePipelineTests: XCTestCase {
 
         XCTAssertNotEqual(prepared.launchTarget, TaxTriageConfig.pipelineRepository)
         XCTAssertNil(prepared.revision)
+        XCTAssertEqual(prepared.pipelineSource, .snapshot, "B11 M2 (T6), the step records the snapshot it launched")
 
         let exportedProject = URL(fileURLWithPath: prepared.launchTarget)
         let exportedWorkflow = try String(
@@ -1370,6 +1371,7 @@ final class TaxTriagePipelineTests: XCTestCase {
 
         XCTAssertNotEqual(prepared.launchTarget, TaxTriageConfig.pipelineRepository)
         XCTAssertNil(prepared.revision)
+        XCTAssertEqual(prepared.pipelineSource, .snapshot, "B11 M2 (T6), the step records the snapshot it launched")
 
         let exportedProject = URL(fileURLWithPath: prepared.launchTarget)
         let exportedWorkflow = try String(

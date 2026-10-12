@@ -205,7 +205,12 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
             .dictionary(["hash.k2d": .integer(11), "opts.k2d": .integer(7), "taxo.k2d": .integer(5)]),
             "the size of each core file, and nothing hashed"
         )
-        XCTAssertEqual(step.resolvedOptions, ["nextflowVersion": .string("25.04.6")], "from the banner the stand-in printed")
+        // Moved by B11 M2 (T6). The step adds `pipelineSource`, `remote` because the engine's home holds no cached asset.
+        XCTAssertEqual(
+            step.resolvedOptions,
+            ["nextflowVersion": .string("25.04.6"), "pipelineSource": .string("remote")],
+            "the version from the banner the stand-in printed, and the branch that launched"
+        )
     }
 
     // MARK: - BIO T6 and T8, an interleaved sample
