@@ -33,6 +33,28 @@ struct AnalysisRunExecutorRecordSeamTests {
         #expect(AnalysesFolder.isAnalysisIncomplete(target) == false)
     }
 
+    @Test("A failed run in a named folder outside Analyses stays hidden and is offered for review")
+    func failedRunOutsideAnalysesIsOfferedForReview() async throws {
+        let fixture = try AnalysisRunTestProject()
+        defer { fixture.cleanup() }
+        let target = fixture.project.appendingPathComponent("Results/kraken2-run", isDirectory: true)
+
+        let report = await AnalysisRunExecutor.unsigned.execute(
+            SeamProbeTool(sawRunRecord: SeenFlag(), fails: true),
+            fixture.request(.directory(target)),
+            events: .discarding
+        )
+
+        #expect(report.status == .failed)
+        #expect(AnalysesFolder.readAnalysisMetadata(from: target) == nil)
+        #expect(AnalysisRunRecord.load(from: target)?.outcome == .failed)
+        #expect(try AnalysesFolder.listAnalyses(in: fixture.project).isEmpty)
+        // The review once looked in Analyses only, so this folder was hidden and never offered (2.7 row 445).
+        let runs = AnalysesFolder.incompleteAnalysisRuns(in: fixture.project)
+        #expect(runs.map(\.directory.lastPathComponent) == ["kraken2-run"])
+        #expect(runs.first?.record?.outcome == .failed)
+    }
+
     @Test("A named folder directly in Analyses gets metadata")
     func namedFolderInAnalysesGetsMetadata() async throws {
         let fixture = try AnalysisRunTestProject()

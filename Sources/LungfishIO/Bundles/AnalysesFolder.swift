@@ -260,13 +260,15 @@ public enum AnalysesFolder {
         public let record: AnalysisRunRecord?
     }
 
-    /// Lists every incomplete analysis directory under the project's
-    /// `Analyses/` tree, including inside user grouping folders. Contents of
-    /// an incomplete directory are not searched further.
+    /// Lists every incomplete analysis directory of the project. The search covers the `Analyses/`
+    /// tree, including inside user grouping folders, and the rest of the project, because a run that
+    /// claimed a folder of its own choosing outside `Analyses/` keeps its run record when it fails or
+    /// is cancelled and every listing hides it. Contents of an incomplete directory are not searched
+    /// further, and neither are packages, but a package that carries a record is listed.
     public static func incompleteAnalysisRuns(in projectURL: URL) -> [IncompleteAnalysisRun] {
         let root = projectURL.appendingPathComponent(directoryName, isDirectory: true)
         var results: [IncompleteAnalysisRun] = []
-        func visit(_ directory: URL, depth: Int) {
+        func visit(_ directory: URL, depth: Int, inAnalyses: Bool) {
             guard depth < 8,
                   let children = try? FileManager.default.contentsOfDirectory(
                     at: directory,
@@ -276,17 +278,19 @@ public enum AnalysesFolder {
             for child in children {
                 let values = try? child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
                 guard values?.isDirectory == true, values?.isSymbolicLink != true else { continue }
+                if !inAnalyses, depth == 0, child.lastPathComponent == directoryName { continue }
                 if AnalysisRunRecord.isIncomplete(child) {
                     results.append(IncompleteAnalysisRun(directory: child, record: AnalysisRunRecord.load(from: child)))
                     continue
                 }
-                if analysisInfo(for: child) != nil || child.pathExtension.lowercased().hasPrefix("lungfish") {
+                if child.pathExtension.lowercased().hasPrefix("lungfish") || (inAnalyses && analysisInfo(for: child) != nil) {
                     continue
                 }
-                visit(child, depth: depth + 1)
+                visit(child, depth: depth + 1, inAnalyses: inAnalyses)
             }
         }
-        visit(root, depth: 0)
+        visit(root, depth: 0, inAnalyses: true)
+        visit(projectURL, depth: 0, inAnalyses: false)
         return results.sorted { $0.directory.path < $1.directory.path }
     }
 

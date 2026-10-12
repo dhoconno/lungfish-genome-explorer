@@ -245,6 +245,43 @@ final class ClassifierLayoutReaderPinTests: XCTestCase {
         }
     }
 
+    // MARK: - Runs outside Analyses
+
+    /// A run that failed or was cancelled in a folder the executor claimed outside Analyses (decision E1b)
+    /// keeps its run record, so the scan hides the folder like any unfinished run. The Operations Panel
+    /// offers it for review as well. The review once looked in Analyses only, so the folder was hidden
+    /// and never offered (2.7 row 445, fixed in 2.9).
+    func testEndedRunInAClaimedFolderOutsideAnalysesIsOfferedForReview() async throws {
+        let built = try await buildProject()
+        let command = Layouts.recordedCommand(for: "kraken2")
+        let claimed = built.imports.appendingPathComponent("Claimed Kraken2 run", isDirectory: true)
+        let claim = try AnalysesFolder.beginRunInOutputDirectory(
+            claimed, projectURL: built.project,
+            record: AnalysisRunRecord(analysisName: "Kraken2", command: command)
+        )
+        XCTAssertEqual(claim, .owned)
+        try SafetyNetFiles.write("partial\n", to: claimed.appendingPathComponent("classification.kreport"))
+        AnalysisRunRecord.recordOutcome(.cancelled, in: claimed)
+
+        let imports = try XCTUnwrap(SidebarProjectScanner.scanRootNodes(from: built.project).first { $0.title == "Imports" })
+        XCTAssertFalse(imports.children.map(\.title).contains(claimed.lastPathComponent), "the scan hides a run that did not complete")
+
+        let center = OperationCenter()
+        let ids = await InterruptedAnalysisRunDiscovery.registerInterruptedRuns(
+            in: built.project,
+            center: center,
+            processProbe: { _ in .notRunning }
+        )
+        let rows = ids.compactMap { id in center.items.first { $0.id == id } }.map {
+            "\($0.title) | \($0.detail.components(separatedBy: " started").first ?? "-") | \($0.state) | \($0.cliCommand ?? "-")"
+        }
+        XCTAssertTrue(
+            rows.contains("Kraken2: Claimed Kraken2 run | Cancelled run | interrupted | \(command)"),
+            "the claimed folder is offered for review, rows are \(rows)"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: claimed.path), "discovery never deletes")
+    }
+
     // MARK: - Folders outside Analyses
 
     /// Risk R11. A folder with `analysis-metadata.json` outside Analyses is listed. The scanner once

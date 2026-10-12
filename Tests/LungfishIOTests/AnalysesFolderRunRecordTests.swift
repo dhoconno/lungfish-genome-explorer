@@ -137,6 +137,41 @@ final class AnalysesFolderRunRecordTests: XCTestCase {
         XCTAssertEqual(incomplete.first { $0.directory.lastPathComponent == nested.lastPathComponent }?.record?.analysisName, "EsViritu")
     }
 
+    /// A run that claimed a folder of its own choosing outside Analyses keeps its run record when it fails or
+    /// is cancelled, so every listing hides the folder. The review lists it with the runs of Analyses (2.7 row
+    /// 445, fixed in 2.9).
+    func testIncompleteRunsOutsideAnalysesAreEnumeratedToo() throws {
+        let nested = projectURL.appendingPathComponent("Results/Kraken2 run", isDirectory: true)
+        let atRoot = projectURL.appendingPathComponent("EsViritu run", isDirectory: true)
+        for folder in [nested, atRoot] {
+            let claim = try AnalysesFolder.beginRunInOutputDirectory(
+                folder, projectURL: projectURL, record: AnalysisRunRecord(analysisName: "Claimed run")
+            )
+            XCTAssertEqual(claim, .owned)
+            AnalysisRunRecord.recordOutcome(.failed, in: folder)
+        }
+        let completed = projectURL.appendingPathComponent("Results/Finished run", isDirectory: true)
+        let finishedClaim = try XCTUnwrap(AnalysesFolder.beginRunInOutputDirectory(
+            completed, projectURL: projectURL, record: AnalysisRunRecord(analysisName: "Finished run")
+        ))
+        AnalysisRunRecord.completeRun(finishedClaim, in: completed)
+        // A record deeper inside a bundle is never searched for.
+        let inner = projectURL.appendingPathComponent("Reads/s1.lungfishfastq/inner", isDirectory: true)
+        try FileManager.default.createDirectory(at: inner, withIntermediateDirectories: true)
+        try AnalysisRunRecord.begin(AnalysisRunRecord(analysisName: "Inside a bundle"), in: inner)
+        let inAnalyses = try AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: projectURL)
+
+        let runs = AnalysesFolder.incompleteAnalysisRuns(in: projectURL)
+        XCTAssertEqual(
+            Set(runs.map { $0.directory.standardizedFileURL.path }),
+            Set([atRoot, inAnalyses, nested].map { $0.standardizedFileURL.path }),
+            "the runs outside Analyses join the runs inside it, and the finished run and the bundle's inner folder stay out"
+        )
+        XCTAssertEqual(runs.count, 3)
+        XCTAssertEqual(runs.map(\.directory.path), runs.map(\.directory.path).sorted(), "sorted by path")
+        XCTAssertEqual(runs.first { $0.directory.lastPathComponent == "Kraken2 run" }?.record?.outcome, .failed)
+    }
+
     func testEnclosingIncompleteDirectoryFindsTheBatchRoot() throws {
         let batch = try AnalysesFolder.createAnalysisDirectory(tool: "spades", in: projectURL, isBatch: true)
         let sample = try AnalysesFolder.batchSampleDirectory(named: "S1", in: batch)
