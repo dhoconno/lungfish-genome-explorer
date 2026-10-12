@@ -67,8 +67,8 @@ final class ClassifierLayoutReaderPinTests: XCTestCase {
     // MARK: - Sidebar
 
     /// The whole scan of the layout project against its committed snapshot. Every visible
-    /// layout is a row, and the failed, cancelled and running runs and the copy of an Analyses
-    /// result outside Analyses are absent.
+    /// layout is a row, the failed, cancelled and running runs are absent, and the copy of an
+    /// Analyses result outside Analyses lists as a plain folder (risk R11, fixed in 2.9).
     func testSidebarSnapshot() async throws {
         let built = try await buildProject()
         let layouts = SidebarScanSafetyNetProjects.classifierLayoutProject
