@@ -273,6 +273,7 @@ public actor TaxTriagePipeline {
 
         let useNextflowConda = Self.usesNextflowConda(profile: profileAdjustedConfig.profile)
         let launchEnvironment = await buildLaunchEnvironment(useNextflowConda: useNextflowConda)
+        let engine = Self.nextflowEngine(processManager: processManager, profile: profileAdjustedConfig.profile)
         if profileAdjustedConfig.profile == "docker" {
             try await ensureDockerDaemonReady(
                 progress: progress,
@@ -401,8 +402,9 @@ public actor TaxTriagePipeline {
         // locks"). The launch scratch stays on the project volume when it
         // qualifies and moves to local storage only when it does not;
         // published results still land in the project.
-        let scratch = try makeLocalLaunchScratch(contextURL: effectiveConfig.outputDirectory)
-        defer { cleanUpLaunchScratch(scratch) }
+        // The scratch goes only once the run's record is written, a cancelled one too (N5, N7).
+        let scratch = try engine.makeScratch(contextURL: effectiveConfig.outputDirectory)
+        defer { engine.finish(scratch, .remove) }
 
         let arguments = buildNextflowLaunchArguments(
             config: effectiveConfig,
@@ -463,9 +465,9 @@ public actor TaxTriagePipeline {
             sampleCount: sampleCount,
             report: { fraction, message in progress?(fraction, message) }
         )
-        let engine: TaxTriageEngineProcess.Outcome
+        let outcome: TaxTriageEngineProcess.Outcome
         do {
-            engine = try await TaxTriageEngineProcess(processManager: processManager).run(
+            outcome = try await TaxTriageEngineProcess(processManager: processManager).run(
                 executable: micromambaPath,
                 arguments: micromambaArgs,
                 workingDirectory: scratch.launchDirectory,
@@ -503,9 +505,9 @@ public actor TaxTriagePipeline {
             )
         }
 
-        let exitCode = engine.exitCode
-        let stdoutLines = engine.stdoutLines
-        let stderrLines = engine.stderrLines
+        let exitCode = outcome.exitCode
+        let stdoutLines = outcome.stdoutLines
+        let stderrLines = outcome.stderrLines
 
         // Write combined log
         let combinedLog = launchMetadata

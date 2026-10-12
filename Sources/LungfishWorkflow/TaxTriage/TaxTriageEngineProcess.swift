@@ -95,63 +95,47 @@ struct TaxTriageEngineProcess: Sendable {
     }
 }
 
-// MARK: - Engine launch
+// MARK: - Engine
 
 extension TaxTriagePipeline {
-    // MARK: - Local launch scratch
-
-    /// A local, lock-capable scratch area used as the Nextflow launch
-    /// directory (host of `.nextflow/` cache + history) and work tree.
-    struct LaunchScratch: Sendable {
-        /// Process working directory for the Nextflow launcher.
-        let launchDirectory: URL
-        /// Value passed to `nextflow -w`.
-        let workDirectory: URL
-        /// Root to delete once the run finishes; `nil` when kept for debugging.
-        let cleanupRoot: URL?
-    }
-
-    /// Set to `1` to keep the Nextflow launch scratch (including `work/`) after a run.
+    /// Set to `1` to keep the Nextflow launch scratch (including `work/`) after a run, the key
+    /// ``NextflowWorkflowDescriptor/taxTriage`` names.
     static let keepWorkEnvironmentKey = "LUNGFISH_TAXTRIAGE_KEEP_WORK"
 
+    /// TaxTriage's Nextflow engine for a launch with the effective `profile`, the shared engine
+    /// process with the settings of ``NextflowWorkflowDescriptor/taxTriage`` (Phase 2.9, N2).
+    ///
+    /// The engine waits for Docker only for the `docker` profile, gives the tree 4 s between TERM
+    /// and KILL, and names the scratch `taxtriage-run-` with the keep-work key (N6, N7, N9).
+    static func nextflowEngine(processManager: ProcessManager, profile: String) -> NextflowEngineProcess {
+        NextflowEngineProcess(
+            processManager: processManager,
+            configuration: NextflowWorkflowDescriptor.taxTriage.engineConfiguration(profile: profile)
+        )
+    }
+
+    // MARK: - Local launch scratch
+
+    /// A local, lock-capable scratch for one launch, as a run makes it with its engine, the launch
+    /// folder that hosts Nextflow's `.nextflow/` cache and history and the `-w` work folder (N7).
+    ///
+    /// The scratch stays on the project volume whenever it can host Nextflow's cache, since external
+    /// project drives are usually far larger than the boot volume and multi-GB work trees belong
+    /// there. Only a disqualified volume, one without `fcntl` locks or one whose AppleDouble sidecars
+    /// crash the LevelDB cache (ExFAT through FSKit, some network mounts), forces local storage. See
+    /// ``NextflowScratchVolumeProbe``.
     nonisolated func makeLocalLaunchScratch(
         contextURL: URL,
         volumeQualifiesForScratch: Bool? = nil
-    ) throws -> LaunchScratch {
-        // The scratch stays on the PROJECT volume whenever it can host
-        // Nextflow's cache: external project SSDs are usually far larger
-        // than the boot volume, so multi-GB work trees belong there. Only a
-        // disqualified volume (no fcntl locks, or AppleDouble xattr sidecars
-        // that crash the LevelDB cache — exFAT via FSKit, some network
-        // mounts) forces local storage. See NextflowScratchVolumeProbe.
-        let scratchCapable = volumeQualifiesForScratch
-            ?? NextflowScratchVolumeProbe.volumeSupportsNextflowScratch(at: contextURL)
-        let root = try ProjectTempDirectory.create(
-            prefix: "taxtriage-run-",
-            contextURL: contextURL,
-            policy: scratchCapable ? .preferProjectContext : .systemOnly
-        )
-        let workDirectory = root.appendingPathComponent("work", isDirectory: true)
-        try FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
-        let keepWork = ProcessInfo.processInfo.environment[Self.keepWorkEnvironmentKey] == "1"
-        if keepWork {
-            logger.info("Keeping TaxTriage launch scratch at \(root.path, privacy: .public)")
-        }
-        return LaunchScratch(
-            launchDirectory: root,
-            workDirectory: workDirectory,
-            cleanupRoot: keepWork ? nil : root
-        )
+    ) throws -> NextflowEngineScratch {
+        try Self.nextflowEngine(processManager: .shared, profile: NextflowWorkflowDescriptor.taxTriage.profile)
+            .makeScratch(contextURL: contextURL, volumeQualifiesForScratch: volumeQualifiesForScratch)
     }
 
-    nonisolated func cleanUpLaunchScratch(_ scratch: LaunchScratch) {
-        guard let cleanupRoot = scratch.cleanupRoot else { return }
-        do {
-            try FileManager.default.removeItem(at: cleanupRoot)
-        } catch {
-            logger.warning(
-                "Failed to clean TaxTriage launch scratch \(cleanupRoot.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
-            )
-        }
+    /// Removes a scratch from ``makeLocalLaunchScratch(contextURL:volumeQualifiesForScratch:)`` once
+    /// the run's record is written, unless it is kept for debugging.
+    nonisolated func cleanUpLaunchScratch(_ scratch: NextflowEngineScratch) {
+        Self.nextflowEngine(processManager: .shared, profile: NextflowWorkflowDescriptor.taxTriage.profile)
+            .finish(scratch, .remove)
     }
 }
