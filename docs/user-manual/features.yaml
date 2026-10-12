@@ -1901,7 +1901,7 @@ features:
       result with no record reads Missing provenance. The status line under the
       section title audits the record and not the run. It reads Complete record,
       Incomplete record, Older record format, Missing provenance or No provenance
-      required, and Invalid when a record a native loader verified cannot be
+      required, and Invalid record when a record a native loader verified cannot be
       read. Run Summary includes a Run Status row between Created and Exit
       Status. It reads the record's own status as Completed, Failed, Cancelled or
       Not finished, and reads Not recorded when the record states none and the
