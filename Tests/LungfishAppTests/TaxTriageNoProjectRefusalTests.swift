@@ -5,7 +5,7 @@
 // Phase 2.9 lane A12 (decision L1, UX U14). TaxTriage stays on the in-process route until 2.10, but
 // its launch takes the same refusal as Kraken2 and EsViritu. With no project open the dialog's own
 // folder, beside the first input, used to receive the result. The launch now shows the `No Project
-// Open` sheet and starts nothing, so no row appears and no byte is written beside the reads (UX-6).
+// Open` sheet and starts nothing, so no row appears and no byte is written beside the reads.
 
 import AppKit
 import XCTest

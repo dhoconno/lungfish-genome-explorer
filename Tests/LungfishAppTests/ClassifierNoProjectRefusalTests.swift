@@ -5,7 +5,7 @@
 // Phase 2.9 lane A12 (decision L1, UX U14). A launch with no project open used to take the
 // in-process route and write its result beside the first input, where no project lists it. It now
 // shows the `No Project Open` sheet and launches nothing: no row on the Operations panel, and no
-// byte written under the folder of the reads (UX-6).
+// byte written under the folder of the reads.
 
 import AppKit
 import XCTest
