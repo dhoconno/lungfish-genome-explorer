@@ -73,6 +73,25 @@ final class TaxTriageRunCommandReplayTests: XCTestCase {
         try recaptureTranscriptIfAsked(lines)
     }
 
+    /// BIO ruling X3 (SCR reviews, ruling-B12-homes.md). A pooled run that fails as a whole ends with the
+    /// executor's workflow error, 64, which its root record states as its exit status, and the record's
+    /// taxtriage step keeps Nextflow's own exit status, 1, so the tool's exit stays traceable behind the 64.
+    func testAFailedPooledRunRecordsTheWorkflowError64AndItsStepKeepsNextflowsExit1() async throws {
+        let engine = try makeEngine(.failsSamples(["B"]))
+        let folder = try writeTwoSamples()
+        let output = root.appendingPathComponent("out", isDirectory: true)
+
+        let (code, lines) = try await run(["--input", folder.path, "--output", output.path, "--format", "json"], engine: engine)
+
+        XCTAssertEqual(code, AnalysisRunExitCode.workflowError, lines.joined(separator: "\n"))
+        XCTAssertEqual(try engine.launches().count, 1, "one Nextflow run of both samples (2.8 T2)")
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: output))
+        XCTAssertEqual(record.status, .failed)
+        XCTAssertEqual(record.exitStatus, 64, "the executor's workflow error (ruling X1)")
+        let step = try XCTUnwrap(record.steps.first { $0.toolName == "taxtriage" }, "\(record.steps.map(\.toolName))")
+        XCTAssertEqual(step.exitStatus, 1, "Nextflow's exit status on the taxtriage step (ruling X3)")
+    }
+
     func testAProjectOfTwoSamplesRunsEachSampleAloneInOneBatchFolder() async throws {
         let engine = try makeEngine()
         let folder = try writeTwoSamples()
@@ -165,8 +184,10 @@ final class TaxTriageRunCommandReplayTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func makeEngine() throws -> TaxTriageStandInEngine {
-        let engine = try TaxTriageStandInEngine(root: root.appendingPathComponent("engine", isDirectory: true), maximumWait: .seconds(60))
+    private func makeEngine(_ behaviour: TaxTriageStandInEngine.Behaviour = .completes) throws -> TaxTriageStandInEngine {
+        let engine = try TaxTriageStandInEngine(
+            root: root.appendingPathComponent("engine", isDirectory: true), behaviour: behaviour, maximumWait: .seconds(60)
+        )
         addTeardownBlock { await engine.stopLeftoverProcesses() }
         return engine
     }
