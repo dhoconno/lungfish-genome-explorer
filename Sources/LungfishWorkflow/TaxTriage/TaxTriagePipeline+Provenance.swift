@@ -66,7 +66,14 @@ extension TaxTriagePipeline {
             return
         }
         let parameters = await ProvenanceRecorder.shared.getRun(runID)?.parameters ?? [:]
-        guard let envelope = await ProvenanceRecorder.shared.canonicalEnvelope(for: runID) else { return }
+        guard let envelope = await ProvenanceRecorder.shared.canonicalEnvelope(for: runID) else {
+            // The root record would lack the TaxTriage step and its inputs, so the run fails instead.
+            throw TaxTriagePipelineError.pipelineFailed(
+                exitCode: -1,
+                stderr: "The TaxTriage record of run \(runID.uuidString) is missing, so the run cannot hand its steps to the root record.",
+                logFile: logFile
+            )
+        }
         for file in envelope.files where file.role == .input {
             context.recordInput(file)
         }

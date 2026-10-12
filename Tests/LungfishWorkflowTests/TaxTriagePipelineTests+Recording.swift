@@ -25,6 +25,31 @@ extension TaxTriagePipelineTests {
         XCTAssertEqual(TaxTriageRecording.unitRecord(context).scratchDisposition(cancelled: false), .remove)
     }
 
+    /// ARCH 3 and 5. On the executor route the root record takes the TaxTriage step and its inputs from the
+    /// recorder's run. A run the recorder does not hold fails, instead of leaving a completed root record with
+    /// no `taxtriage` step and no inputs, as the app's route fails on a record it cannot save.
+    func testARootRecordWithNoRecordedRunFailsInsteadOfDroppingItsSteps() async throws {
+        let folder = try TestTempDirectory.make(prefix: "taxtriage-root-record")
+        defer { TestTempDirectory.cleanup(folder) }
+
+        do {
+            try await TaxTriagePipeline.shared.finishTaxTriageRecord(
+                recording: .rootRecord(Self.recordingUnitContext()),
+                runID: UUID(),
+                outputDirectory: folder,
+                description: "completed run",
+                exitCode: 0,
+                stderr: "",
+                logFile: nil
+            )
+            XCTFail("a root record with no recorded run returned instead of failing the run")
+        } catch let error as TaxTriagePipelineError {
+            guard case .pipelineFailed = error else {
+                return XCTFail("the run failed with \(error), not pipelineFailed")
+            }
+        }
+    }
+
     /// A unit context as `AnalysisRunJournal.unitContext` builds one, with recorders that keep nothing.
     private static func recordingUnitContext() -> AnalysisRunUnitContext {
         AnalysisRunUnitContext(
