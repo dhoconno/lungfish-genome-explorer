@@ -37,7 +37,7 @@ candidate, put that session's closing figures in the log for this session's upda
 | Never read a transcript | No `~/.claude/projects/**/*.jsonl` and no persisted tool-result file in your context. Write a script that prints numbers, then read its output with `sed -n` on the lines you need |
 | Batch | Independent reads and script runs go in one message. Put script output in files, not in your context |
 | Guard-safe commands | One command a call when it names an SCR path, since the guard refuses a `;` or `&&` chain that names a path under the checkout folder. Literal paths, no heredoc inside `$(...)`, no `python3 -`, no `( ... ) > file` around a command that names a repository path, timeout 270000 on long calls, `du` of the build folders in the background |
-| Check what you are told | Check every observation in the spawn prompt against the transcripts with a script before you use it |
+| Check what you are told | Check every observation in the spawn prompt against the transcripts with a script before you use it. Take times from the transcript stamps, since the typed times in the manager's notes have run up to 75 minutes ahead |
 | Short final message | At most 200 words, with the spend so far, the top findings and the files you wrote |
 
 ## Checkpoint routine
@@ -88,6 +88,8 @@ An action names the agents by id, the evidence, and the exact text the manager s
 | Subagents live in `<project>/<session>/subagents/agent-<id>.jsonl` with a `.meta.json` | The meta file gives the description, model and worktree |
 | `cost-state` entries carry Claude Code's own total cost | Use them to check the fitted prices |
 | A message to a running agent arrives as an `isMeta` user entry about the coordinator sending a message | Count it as a resume segment, idle or busy |
+| A background task that ends after an agent's final message sends an `isMeta` task notification that wakes the agent | Count it as a late wake, with the cache write of the reply |
+| `get_usage` called with a session id from a subagent answers that the session is not found | Call it with no argument, and it reports the manager's context |
 | Subagents write 5-minute cache entries, the main session 1-hour entries | A subagent wait over 5 minutes rebuilds its cache |
 | A session runs past midnight | A helper given an `HH:MM` start earlier than the session's first entry reads it as the next day |
 
@@ -98,7 +100,10 @@ Its commits land before the final candidate, so the unit tier covers the ledger'
 
 1. Run the checkpoint as above and put the closing figures (spend, wall time, lanes landed, cost per landed lane, rule
    results) in the log.
-2. Run `git merge --ff-only <head>` and check `git log -1`. Clone the lint packages as `lane-rules.md` says.
+2. Run `git merge --ff-only <head>` and check `git log -1`. Clone the lint packages as `lane-rules.md` says. Spawned
+   without isolation, add a detached worktree under `SCR/llm/` for the edits and checks, and build the commit from
+   your own directory with a temporary index (`GIT_INDEX_FILE=<file> git read-tree <head>`, `git update-index
+   --cacheinfo`, `git write-tree`, `git commit-tree -F`, `git branch`), since the guard refuses git in another worktree.
 3. Update `docs/contracts/RUNNING-A-PHASE-SESSION.md` by its end-of-session duty, and this file and
    `scripts/llm/session_ledger.py` with `scripts/tests/test_session_ledger.py` when they changed. Commit any agent type
    the session proposed, since Claude Code loads types only when a session starts. Keep the contract general and put
