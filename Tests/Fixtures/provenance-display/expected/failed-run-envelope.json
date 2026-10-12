@@ -25,7 +25,7 @@
     {
       "steps" : [
         {
-          "displayCommand" : "lungfish-cli fastq trim Legacy Records.lungfish/Inputs/reads.fastq --output Legacy Records.lungfish/Analyses/fastq-trim-failed/trimmed.fastq",
+          "displayCommand" : "lungfish-cli fastq trim Inputs/reads.fastq --output Analyses/fastq-trim-failed/trimmed.fastq",
           "exitStatus" : 1,
           "inputs" : [
             "Inputs/reads.fastq (intermediate file, not kept)"

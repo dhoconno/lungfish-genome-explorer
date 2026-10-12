@@ -10,6 +10,11 @@
 // root), by name for a scratch file the project did not keep, and otherwise
 // as recorded. Nothing else in the command is touched, and the recorded
 // command stays whole for the tooltip, assistive technology and copying.
+//
+// The reader turns a recorded `@/Inputs/x` into the project's path without
+// quotes, so a project folder named `Legacy Records.lungfish` reaches this
+// file as two words. The splitter is told that path and keeps it in one word,
+// which the presentation then shows project-relative like any other path.
 
 import Foundation
 import LungfishCore
@@ -22,6 +27,10 @@ public enum ProvenanceCommandPresentation {
         var raw: String
         /// The word after quote removal.
         var value: String
+        /// True when the word holds the project's path with its white space
+        /// unquoted, as a record resolved it. Its `raw` text escapes that white
+        /// space, and the presentation quotes the word whether it shortens it or not.
+        var joinedProjectPath = false
     }
 
     /// The command with each path argument presented for a reader inside
@@ -32,7 +41,7 @@ public enum ProvenanceCommandPresentation {
         projectURL: URL?,
         fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
     ) -> String {
-        guard projectURL != nil, let pieces = split(command) else { return command }
+        guard let projectURL, let pieces = split(command, keeping: spacedPaths(of: projectURL)) else { return command }
         return pieces.map { piece -> String in
             switch piece {
             case .separator(let text):
@@ -67,8 +76,28 @@ public enum ProvenanceCommandPresentation {
     private static func present(_ word: Word, projectURL: URL?, fileExists: (String) -> Bool) -> String {
         guard let part = pathPart(of: word.value) else { return word.raw }
         let label = displayPath(part.path, projectURL: projectURL, fileExists: fileExists)
-        guard label != part.path else { return word.raw }
+        guard label != part.path || word.joinedProjectPath else { return word.raw }
         return part.isRedirect ? part.prefix + shellEscape(label) : shellEscape(part.prefix + label)
+    }
+
+    /// The spellings of the project's path that hold white space, longest first.
+    private static func spacedPaths(of projectURL: URL) -> [String] {
+        Set([projectURL.standardizedFileURL.path, projectURL.path])
+            .filter { $0.contains(where: \.isWhitespace) }
+            .sorted { $0.count > $1.count }
+    }
+
+    /// True when `path` starts at `index` as a whole path: at the start of a
+    /// word or after `=`, `<` or `>`, and followed by `/`, white space or the
+    /// end, so a folder that only starts like the project's is not joined.
+    private static func startsPath(_ path: String, in command: String, at index: String.Index) -> Bool {
+        guard command[index...].hasPrefix(path) else { return false }
+        if index > command.startIndex {
+            let before = command[command.index(before: index)]
+            guard before.isWhitespace || "=<>".contains(before) else { return false }
+        }
+        let end = command.index(index, offsetBy: path.count, limitedBy: command.endIndex) ?? command.endIndex
+        return end == command.endIndex || command[end] == "/" || command[end].isWhitespace
     }
 
     /// The path inside a word and whatever precedes it: nothing for a bare
@@ -121,21 +150,25 @@ public enum ProvenanceCommandPresentation {
     /// following POSIX quoting: single quotes are literal, double quotes let a
     /// backslash escape `"`, `\`, `$` and a backquote, and a bare backslash
     /// escapes the next character. Returns nil on an unterminated quote or a
-    /// trailing backslash.
-    static func split(_ command: String) -> [Piece]? {
+    /// trailing backslash. An unquoted run of text that spells one of `paths`
+    /// stays inside its word, white space and all, and the word's `raw` text
+    /// escapes that white space.
+    static func split(_ command: String, keeping paths: [String] = []) -> [Piece]? {
         var pieces: [Piece] = []
         var raw = ""
         var value = ""
         var inWord = false
+        var joined = false
         var separator = ""
         var index = command.startIndex
 
         func flushWord() {
             if inWord {
-                pieces.append(.word(Word(raw: raw, value: value)))
+                pieces.append(.word(Word(raw: raw, value: value, joinedProjectPath: joined)))
                 raw = ""
                 value = ""
                 inWord = false
+                joined = false
             }
         }
         func flushSeparator() {
@@ -195,9 +228,16 @@ public enum ProvenanceCommandPresentation {
                 value.append(command[next])
                 index = command.index(after: next)
             default:
-                raw.append(character)
-                value.append(character)
-                index = command.index(after: index)
+                if let path = paths.first(where: { startsPath($0, in: command, at: index) }) {
+                    raw.append(contentsOf: path.map { $0.isWhitespace ? "\\\($0)" : String($0) }.joined())
+                    value.append(contentsOf: path)
+                    joined = true
+                    index = command.index(index, offsetBy: path.count, limitedBy: command.endIndex) ?? command.endIndex
+                } else {
+                    raw.append(character)
+                    value.append(character)
+                    index = command.index(after: index)
+                }
             }
         }
         flushWord()

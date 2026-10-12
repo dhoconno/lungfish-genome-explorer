@@ -37,6 +37,7 @@ Each test copies its record into a temporary project before anything reads it. T
 - Every Runtime row is pinned, the Dependency Set row last. A fact the record never held reads Not recorded, because since 2.6 no reader fills one from the Mac it runs on. The workflow version of a record that carries none reads Not recorded the same way.
 - The temporary project reads as `<project>`, any home folder as `<home>`, and a managed tool path as the tool's name. The bare run names its author's checkout in its recorded paths, which is why `<home>` appears in `bare-legacy-run.json`.
 - The size labels come from `ByteCountFormatter` in an English locale.
+- The temporary project is named `Legacy Records.lungfish`, with a space on purpose. A recorded `@/Inputs/reads.fastq` resolves to the project's path without quotes, so the Command of the cancelled run and the failed run pins how the shortener reads a project folder with a space. Each reads `Inputs/reads.fastq`, as Files & Outputs does, and never names the project folder.
 
 `runStatus` is the Run Status row of the Run Summary, which every case shows. A record that states how its run ended reads Completed, Failed, Cancelled or Not finished. A record that states none reads Not recorded, because the reader then derives a status from the exit status, and a derived Completed cannot tell a completed run from a cancelled one. The bare run, the MHC envelope, the cancelled run and the failed run state theirs. The three primitive records and the typed mapping record do not.
 
