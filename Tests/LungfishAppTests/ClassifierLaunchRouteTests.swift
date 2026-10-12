@@ -1,12 +1,12 @@
-// ClassifierLaunchRouteTests.swift - The hidden route switch, the CLI route's argv and its rows
+// ClassifierLaunchRouteTests.swift - The CLI route's argv and its rows
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.7 lane A10 (panel decisions E1, E10, E11 and E15, UX differences D1 to D4). The route
-// of each classifier launch comes from its own hidden key, read through the defaults a test
-// passes. The CLI route records the argv the transport runs, `kraken2 classify` or `esviritu
-// detect` into the project with `--format json`, and begins its row with today's title and first
-// detail.
+// Phase 2.7 lane A10 (panel decisions E1, E11 and E15, UX differences D1 to D4). The CLI route
+// records the argv the transport runs, `kraken2 classify` or `esviritu detect` into the project
+// with `--format json`, and begins its row with today's title and first detail. The hidden keys
+// that chose between this route and the in-process route went in Phase 2.9 (E14), and
+// ClassifierNoProjectRefusalTests holds the refusal of a launch with no project (decision L1).
 
 import XCTest
 @testable import LungfishApp
@@ -22,89 +22,6 @@ final class ClassifierLaunchRouteTests: XCTestCase {
     private let projectURL = URL(fileURLWithPath: "/tmp/lane a10/Project.lungfish")
     private let databaseURL = URL(fileURLWithPath: "/tmp/lane a10/Databases/Viral DB")
     private let digest = String(repeating: "ab", count: 32)
-    private var suiteName: String!
-    private var defaults: UserDefaults!
-
-    override func setUp() async throws {
-        try await super.setUp()
-        suiteName = "ClassifierLaunchRouteTests-\(UUID().uuidString)"
-        defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-    }
-
-    override func tearDown() async throws {
-        defaults.removePersistentDomain(forName: suiteName)
-        try await super.tearDown()
-    }
-
-    // MARK: - The switch
-
-    func testEachLaunchHasItsOwnHiddenKey() {
-        XCTAssertEqual(ClassifierLaunchPath.allCases.map(\.defaultsKey), [
-            "ClassifierLaunchRoute.kraken2.single",
-            "ClassifierLaunchRoute.kraken2.batch",
-            "ClassifierLaunchRoute.esviritu.single",
-            "ClassifierLaunchRoute.esviritu.batch",
-        ])
-        XCTAssertEqual(ClassifierLaunchPath.kraken2(sampleCount: 1), .kraken2Single)
-        XCTAssertEqual(ClassifierLaunchPath.kraken2(sampleCount: 2), .kraken2Batch)
-        XCTAssertEqual(ClassifierLaunchPath.esViritu(sampleCount: 1), .esVirituSingle)
-        XCTAssertEqual(ClassifierLaunchPath.esViritu(sampleCount: 3), .esVirituBatch)
-    }
-
-    func testEveryLaunchTakesTheCLIRouteSinceParitySideCIsGreen() {
-        XCTAssertEqual(ClassifierLaunchRouteSettings.defaultRoute, .cli, "lane F3 flipped the default after parity side C (E10)")
-        let routes = ClassifierLaunchRouteSettings(defaults: defaults)
-        for path in ClassifierLaunchPath.allCases {
-            XCTAssertEqual(routes.route(for: path), .cli, path.rawValue)
-        }
-    }
-
-    func testAKeyMovesOnlyItsOwnLaunch() {
-        defaults.set("legacy", forKey: ClassifierLaunchPath.kraken2Batch.defaultsKey)
-        defaults.set(false, forKey: ClassifierLaunchPath.esVirituSingle.defaultsKey)
-        defaults.set("someday", forKey: ClassifierLaunchPath.esVirituBatch.defaultsKey)
-        let routes = ClassifierLaunchRouteSettings(defaults: defaults)
-
-        XCTAssertEqual(routes.route(for: .kraken2Single), .cli)
-        XCTAssertEqual(routes.route(for: .kraken2Batch), .legacy)
-        XCTAssertEqual(routes.route(for: .esVirituSingle), .legacy, "a Boolean false asks for the legacy route")
-        XCTAssertEqual(routes.route(for: .esVirituBatch), .cli, "a value this reader does not know keeps the default")
-
-        defaults.set(true, forKey: ClassifierLaunchPath.esVirituSingle.defaultsKey)
-        defaults.set("CLI", forKey: ClassifierLaunchPath.kraken2Batch.defaultsKey)
-        XCTAssertEqual(routes.route(for: .esVirituSingle), .cli)
-        XCTAssertEqual(routes.route(for: .kraken2Batch), .cli)
-    }
-
-    /// Decision L1. Both routes write their result into the open project's Analyses folder, so a
-    /// launch with no project open takes neither, whatever its key says. The launch is refused
-    /// (ClassifierNoProjectRefusalTests).
-    func testALaunchWithNoProjectTakesNoRouteWhateverItsKeySays() {
-        let delegate = makeAppDelegateWithTemporaryState()
-        for path in ClassifierLaunchPath.allCases {
-            defaults.set("cli", forKey: path.defaultsKey)
-        }
-        let routes = ClassifierLaunchRouteSettings(defaults: defaults)
-        let project = OperationRouteContext(projectURL: projectURL, windowStateScopeID: nil)
-        let noProject = OperationRouteContext(projectURL: nil, windowStateScopeID: UUID())
-
-        for path in ClassifierLaunchPath.allCases {
-            XCTAssertEqual(delegate.classifierLaunchRoute(for: path, routeContext: project, routes: routes), .cli, path.rawValue)
-            XCTAssertNil(
-                delegate.classifierLaunchRoute(for: path, routeContext: noProject, routes: routes),
-                "\(path.rawValue): a launch without a project is refused and takes no route"
-            )
-            defaults.set("legacy", forKey: path.defaultsKey)
-            XCTAssertEqual(delegate.classifierLaunchRoute(for: path, routeContext: project, routes: routes), .legacy, path.rawValue)
-            XCTAssertNil(
-                delegate.classifierLaunchRoute(for: path, routeContext: noProject, routes: routes),
-                "\(path.rawValue): the legacy key does not keep a launch without a project on the in-process route"
-            )
-        }
-        let unset = ClassifierLaunchRouteSettings(defaults: UserDefaults(suiteName: "\(suiteName!)-unset")!)
-        XCTAssertEqual(delegate.classifierLaunchRoute(for: .kraken2Single, routeContext: project, routes: unset), .cli)
-        XCTAssertNil(delegate.classifierLaunchRoute(for: .kraken2Single, routeContext: noProject, routes: unset))
-    }
 
     // MARK: - Kraken2 argv
 

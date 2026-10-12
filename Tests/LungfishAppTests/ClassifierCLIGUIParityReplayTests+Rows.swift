@@ -54,33 +54,6 @@ final class RowDetailRecorder {
     }
 }
 
-/// A defaults suite whose four route keys name the CLI route, the settings side C launches with
-/// (panel decision E10). The keys are registered values, which stay in memory, so the suite writes
-/// no plist into ~/Library/Preferences. `ClassifierLaunchRouteSettings` reads a route with
-/// `object(forKey:)`, which sees registered values.
-@MainActor
-struct ClassifierParityCLIRoutes {
-    let settings: ClassifierLaunchRouteSettings
-    private let suiteName: String
-
-    init() throws {
-        suiteName = "ClassifierCLIGUIParityReplayTests-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defaults.register(defaults: Dictionary(uniqueKeysWithValues: ClassifierLaunchPath.allCases.map {
-            ($0.defaultsKey, ClassifierLaunchRoute.cli.rawValue as Any)
-        }))
-        settings = ClassifierLaunchRouteSettings(defaults: defaults)
-    }
-
-    /// The suite holds only registered values, so nothing was written and there is nothing to
-    /// remove. If the system wrote this suite's plist anyway, this removes that one file. The name
-    /// holds a fresh UUID, so it never names a plist that an earlier run left behind.
-    func remove() {
-        guard let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first else { return }
-        try? FileManager.default.removeItem(at: library.appendingPathComponent("Preferences/\(suiteName).plist"))
-    }
-}
-
 extension ClassifierParityComparison {
     /// How a side's run ended, in the words of a row: a row's own label, else `Completed` for
     /// exit 0, `Completed with Warnings` for exit 0 with a degraded Bracken profile (E4),

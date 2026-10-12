@@ -70,7 +70,6 @@ final class ClassifierCLIRealToolCancelReplayTests: XCTestCase {
     private var registryDigestBefore: String?
     private var rowIDs: [UUID] = []
     private var windows: [NSWindow] = []
-    private var routeSettings: [ClassifierParityCLIRoutes] = []
     private var delegates: [AppDelegate] = []
 
     override func setUp() async throws {
@@ -100,8 +99,6 @@ final class ClassifierCLIRealToolCancelReplayTests: XCTestCase {
             window.close()
         }
         windows.removeAll()
-        routeSettings.forEach { $0.remove() }
-        routeSettings.removeAll()
         rowIDs.forEach { OperationCenter.shared.clearItem(id: $0) }
         for (key, value) in savedEnvironment {
             if let value { setenv(key, value, 1) } else { unsetenv(key) }
@@ -287,24 +284,21 @@ final class ClassifierCLIRealToolCancelReplayTests: XCTestCase {
         return configs
     }
 
-    /// Hands `configs` to the dialog's launch with every route key on the CLI route, as side C of
-    /// the parity cases does, in a window that is never ordered front and holds a failed run's alert.
+    /// Hands `configs` to the dialog's launch, as side C of the parity cases does, in a window that
+    /// is never ordered front and holds a failed run's alert.
     private func launch(_ configs: [ClassificationConfig], project: URL) throws -> LaunchedRow {
         let delegate = makeAppDelegateWithTemporaryState()
         let viewer = ViewerViewController()
         let window = NSWindow(contentViewController: viewer)
         window.isReleasedWhenClosed = false
-        let routes = try ClassifierParityCLIRoutes()
         delegates.append(delegate)
         windows.append(window)
-        routeSettings.append(routes)
 
         let existing = Set(OperationCenter.shared.items.map(\.id))
         delegate.launchClassification(
             configs: configs,
             viewerController: viewer,
-            routeContext: OperationRouteContext(projectURL: project, windowStateScopeID: nil),
-            routes: routes.settings
+            routeContext: OperationRouteContext(projectURL: project, windowStateScopeID: nil)
         )
         let started = try XCTUnwrap(OperationCenter.shared.items.first { !existing.contains($0.id) }, "the launch started no row")
         rowIDs.append(started.id)

@@ -425,9 +425,9 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
 
     // MARK: - The Tools menu
 
-    /// E10. The Tools menu's launch takes the CLI route when the key of its path asks for it, and
-    /// records the command that ran.
-    func testTheToolsMenuLaunchTakesTheCLIRouteWhenItsKeyAsks() async throws {
+    /// E10. The Tools menu's launch takes the CLI route, the only route since the in-process route
+    /// and its hidden keys went in 2.9 (E14), and records the command that ran.
+    func testTheToolsMenuLaunchTakesTheCLIRoute() async throws {
         let made = try ClassifierRouteFixtures.makeProject(in: root)
         let configs = [esVirituConfig(sample: "air-A", inputs: made.inputs)]
         let transcript = await ClassifierRouteFixtures.transcript(
@@ -437,10 +437,6 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
             arguments: ["esviritu", "detect"]
         )
         let cli = try ClassifierRouteFixtures.standInCLI(in: root, lines: transcript.lines)
-        let suite = "ClassifierCLIRouteRowTests-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set("cli", forKey: ClassifierLaunchPath.esVirituSingle.defaultsKey)
         let savedCLIPath = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
         setenv("LUNGFISH_CLI_PATH", cli.path, 1)
         defer {
@@ -453,8 +449,7 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
         delegate.launchEsViritu(
             configs: configs,
             viewerController: viewer,
-            routeContext: OperationRouteContext(projectURL: made.project, windowStateScopeID: nil),
-            routes: ClassifierLaunchRouteSettings(defaults: defaults)
+            routeContext: OperationRouteContext(projectURL: made.project, windowStateScopeID: nil)
         )
         let row = try XCTUnwrap(OperationCenter.shared.items.first { !existing.contains($0.id) })
         rowIDs.append(row.id)

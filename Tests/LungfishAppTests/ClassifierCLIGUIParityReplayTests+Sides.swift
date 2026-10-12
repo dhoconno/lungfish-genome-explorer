@@ -308,12 +308,10 @@ extension ClassifierCLIGUIParityReplayTests {
         // window, never ordered front, whose sheet the row outcome reads.
         let window = NSWindow(contentViewController: viewer)
         window.isReleasedWhenClosed = false
-        let routes = try ClassifierParityCLIRoutes()
         defer {
             if let sheet = window.attachedSheet { window.endSheet(sheet) }
             window.contentViewController = nil
             window.close()
-            routes.remove()
         }
 
         let route = OperationRouteContext(projectURL: project, windowStateScopeID: nil)
@@ -326,7 +324,7 @@ extension ClassifierCLIGUIParityReplayTests {
             if side == .a {
                 delegate.runClassification(configs: configs, viewerController: viewer, routeContext: route)
             } else {
-                delegate.launchClassification(configs: configs, viewerController: viewer, routeContext: route, routes: routes.settings)
+                delegate.launchClassification(configs: configs, viewerController: viewer, routeContext: route)
             }
         case .esViritu:
             let database = try XCTUnwrap(esVirituDatabase)
@@ -334,7 +332,7 @@ extension ClassifierCLIGUIParityReplayTests {
             if side == .a {
                 delegate.runEsViritu(configs: configs, viewerController: viewer, routeContext: route)
             } else {
-                delegate.launchEsViritu(configs: configs, viewerController: viewer, routeContext: route, routes: routes.settings)
+                delegate.launchEsViritu(configs: configs, viewerController: viewer, routeContext: route)
             }
         }
         let started = try XCTUnwrap(

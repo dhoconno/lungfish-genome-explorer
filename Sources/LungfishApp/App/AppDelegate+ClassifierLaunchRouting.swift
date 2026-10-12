@@ -1,4 +1,4 @@
-// AppDelegate+ClassifierLaunchRouting.swift - Picks the CLI route or the in-process route for a classifier launch
+// AppDelegate+ClassifierLaunchRouting.swift - The FASTQ operations dialog's Kraken2 and EsViritu launches
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -7,74 +7,28 @@ import Foundation
 import LungfishKit
 import LungfishWorkflow
 
-/// The Tools menu's Kraken2 and EsViritu launches go through here (AppDelegate+ToolsMenu.swift),
-/// which picks the route of each launch from its hidden key (ClassifierLaunchRoute.swift, panel
-/// decision E10). The in-process route stays in AppDelegate+Classification.swift, unchanged, until it
-/// goes in 2.9 (E14). A launch with no project open takes neither route, since both write their result
-/// into the project (decision L1).
+/// The Tools menu's Kraken2 and EsViritu launches go through here (AppDelegate+ToolsMenu.swift).
+/// Every launch runs `lungfish-cli` through the CLI route (AppDelegate+ClassificationCLIRoute.swift),
+/// since the in-process route and the hidden keys that chose between them went in Phase 2.9 (E14).
+/// A launch with no project open is refused, because the command writes its result into the project
+/// (decision L1).
 extension AppDelegate {
-    /// Runs the Kraken2 configs the dialog hands over, on the route their path's key names.
+    /// Runs the Kraken2 configs the dialog hands over through `lungfish-cli kraken2 classify`.
     func launchClassification(
         configs: [ClassificationConfig],
         viewerController: ViewerViewController,
-        routeContext: OperationRouteContext? = nil,
-        routes: ClassifierLaunchRouteSettings = ClassifierLaunchRouteSettings()
+        routeContext: OperationRouteContext? = nil
     ) {
-        guard !configs.isEmpty else { return }
-        let path = ClassifierLaunchPath.kraken2(sampleCount: configs.count)
-        guard let route = classifierLaunchRoute(for: path, routeContext: routeContext, routes: routes) else {
-            refuseClassifierLaunchWithoutProject(
-                tool: FASTQOperationToolID.kraken2.title,
-                viewerController: viewerController,
-                routeContext: routeContext
-            )
-            return
-        }
-        switch route {
-        case .legacy:
-            runClassification(configs: configs, viewerController: viewerController, routeContext: routeContext)
-        case .cli:
-            runClassificationThroughCLI(configs: configs, viewerController: viewerController, routeContext: routeContext)
-        }
+        runClassificationThroughCLI(configs: configs, viewerController: viewerController, routeContext: routeContext)
     }
 
-    /// Runs the EsViritu configs the dialog hands over, on the route their path's key names.
+    /// Runs the EsViritu configs the dialog hands over through `lungfish-cli esviritu detect`.
     func launchEsViritu(
         configs: [EsVirituConfig],
         viewerController: ViewerViewController,
-        routeContext: OperationRouteContext? = nil,
-        routes: ClassifierLaunchRouteSettings = ClassifierLaunchRouteSettings()
+        routeContext: OperationRouteContext? = nil
     ) {
-        guard !configs.isEmpty else { return }
-        let path = ClassifierLaunchPath.esViritu(sampleCount: configs.count)
-        guard let route = classifierLaunchRoute(for: path, routeContext: routeContext, routes: routes) else {
-            refuseClassifierLaunchWithoutProject(
-                tool: FASTQOperationToolID.esViritu.title,
-                viewerController: viewerController,
-                routeContext: routeContext
-            )
-            return
-        }
-        switch route {
-        case .legacy:
-            runEsViritu(configs: configs, viewerController: viewerController, routeContext: routeContext)
-        case .cli:
-            runEsVirituThroughCLI(configs: configs, viewerController: viewerController, routeContext: routeContext)
-        }
-    }
-
-    /// The route a launch of `path` takes, or nil for a launch with no project open. Both routes
-    /// write their result into the open project's `Analyses/` folder (the CLI route with `--project`,
-    /// E1), so such a launch takes neither, whatever the key says, and is refused (decision L1).
-    func classifierLaunchRoute(
-        for path: ClassifierLaunchPath,
-        routeContext: OperationRouteContext?,
-        routes: ClassifierLaunchRouteSettings
-    ) -> ClassifierLaunchRoute? {
-        guard (routeContext ?? currentOperationRouteContext())?.projectURL != nil else {
-            return nil
-        }
-        return routes.route(for: path)
+        runEsVirituThroughCLI(configs: configs, viewerController: viewerController, routeContext: routeContext)
     }
 
     /// Refuses a classifier launch that has no project to write into with the `No Project Open`

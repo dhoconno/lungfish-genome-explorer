@@ -12,8 +12,8 @@
 // - Side B is the command side A's row recorded, rebased onto a fresh root and run in this
 //   process, as docs/contracts/CLI-EQUIVALENCE.md replays a command.
 // - Side C is the GUI route through `lungfish-cli` (lane A10). The dialog's launch,
-//   `launchClassification` or `launchEsViritu`, runs the same configs with every route key set
-//   to the CLI route, so `CLIClassifierRunner` runs the built CLI that `LUNGFISH_CLI_PATH` names.
+//   `launchClassification` or `launchEsViritu`, runs the same configs, so `CLIClassifierRunner`
+//   runs the built CLI that `LUNGFISH_CLI_PATH` names. Phase 2.9 removed the route keys (E14).
 // - Side C' is the command side C's row recorded, rebased onto a fresh root and run by the
 //   same built CLI. A run in this process would record the test runner's version, and
 //   `kraken2 classify` would record the command its parsed options spell and read its explicit

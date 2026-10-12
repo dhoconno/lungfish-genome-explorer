@@ -4,8 +4,8 @@
 //
 // Phase 2.9 lane A12 (decision L1, UX U14). A launch with no project open used to take the
 // in-process route and write its result beside the first input, where no project lists it. It now
-// shows the `No Project Open` sheet and launches nothing, whichever route the launch would take: no
-// row on the Operations panel, and no byte written under the folder of the reads (UX-6).
+// shows the `No Project Open` sheet and launches nothing: no row on the Operations panel, and no
+// byte written under the folder of the reads (UX-6).
 
 import AppKit
 import XCTest
@@ -22,8 +22,6 @@ final class ClassifierNoProjectRefusalTests: XCTestCase {
     private var root: URL!
     private var reads: URL!
     private var rowIDs: [UUID] = []
-    private var suiteName: String!
-    private var defaults: UserDefaults!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -31,40 +29,30 @@ final class ClassifierNoProjectRefusalTests: XCTestCase {
         reads = root.appendingPathComponent("Reads", isDirectory: true)
         try FileManager.default.createDirectory(at: reads, withIntermediateDirectories: true)
         OperationCenter.useTemporaryFailureReportsForTesting()
-        suiteName = "ClassifierNoProjectRefusalTests-\(UUID().uuidString)"
-        defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
     }
 
     override func tearDown() async throws {
         rowIDs.forEach { OperationCenter.shared.clearItem(id: $0) }
-        defaults.removePersistentDomain(forName: suiteName)
         TestTempDirectory.cleanup(root)
         try await super.tearDown()
     }
 
     // MARK: - Kraken2
 
-    /// The dialog's launch refuses a Kraken2 run with no project, for one sample and for a batch,
-    /// on the CLI route that is the default and on the in-process route a key can still ask for.
-    func testAKraken2LaunchWithNoProjectIsRefusedWhicheverRouteItWouldTake() async throws {
+    /// The dialog's launch refuses a Kraken2 run with no project, for one sample and for a batch.
+    func testAKraken2LaunchWithNoProjectIsRefused() async throws {
         for (name, context) in noProjectContexts() {
             for sampleCount in [1, 2] {
                 let configs = try kraken2Configs(count: sampleCount)
-                let path = ClassifierLaunchPath.kraken2(sampleCount: sampleCount)
-                for keyValue in [nil, "cli", "legacy"] {
-                    let settings = routeSettings(keyValue.map { [path: $0] } ?? [:])
-                    let outcome = try await launch { delegate, viewer in
-                        delegate.launchClassification(
-                            configs: configs, viewerController: viewer, routeContext: context, routes: settings
-                        )
-                    }
-                    assertRefused(outcome, tool: "Kraken2", "launchClassification, \(sampleCount) sample(s), key \(keyValue ?? "unset"), \(name)")
+                let outcome = try await launch { delegate, viewer in
+                    delegate.launchClassification(configs: configs, viewerController: viewer, routeContext: context)
                 }
+                assertRefused(outcome, tool: "Kraken2", "launchClassification, \(sampleCount) sample(s), \(name)")
             }
         }
     }
 
-    /// The CLI route's own entry refuses too, so a caller that skips the router cannot start a run.
+    /// The CLI route's own entry, which the dialog's launch forwards to, refuses a launch with no project.
     func testTheKraken2CLIEntryRefusesALaunchWithNoProject() async throws {
         for (name, context) in noProjectContexts() {
             for sampleCount in [1, 2] {
@@ -79,20 +67,14 @@ final class ClassifierNoProjectRefusalTests: XCTestCase {
 
     // MARK: - EsViritu
 
-    func testAnEsVirituLaunchWithNoProjectIsRefusedWhicheverRouteItWouldTake() async throws {
+    func testAnEsVirituLaunchWithNoProjectIsRefused() async throws {
         for (name, context) in noProjectContexts() {
             for sampleCount in [1, 2] {
                 let configs = try esVirituConfigs(count: sampleCount)
-                let path = ClassifierLaunchPath.esViritu(sampleCount: sampleCount)
-                for keyValue in [nil, "cli", "legacy"] {
-                    let settings = routeSettings(keyValue.map { [path: $0] } ?? [:])
-                    let outcome = try await launch { delegate, viewer in
-                        delegate.launchEsViritu(
-                            configs: configs, viewerController: viewer, routeContext: context, routes: settings
-                        )
-                    }
-                    assertRefused(outcome, tool: "EsViritu", "launchEsViritu, \(sampleCount) sample(s), key \(keyValue ?? "unset"), \(name)")
+                let outcome = try await launch { delegate, viewer in
+                    delegate.launchEsViritu(configs: configs, viewerController: viewer, routeContext: context)
                 }
+                assertRefused(outcome, tool: "EsViritu", "launchEsViritu, \(sampleCount) sample(s), \(name)")
             }
         }
     }
@@ -194,17 +176,6 @@ final class ClassifierNoProjectRefusalTests: XCTestCase {
             ("no route context", nil),
             ("a window with no project", OperationRouteContext(projectURL: nil, windowStateScopeID: UUID())),
         ]
-    }
-
-    /// Route settings that read `keys` from the test's own defaults suite.
-    private func routeSettings(_ keys: [ClassifierLaunchPath: String]) -> ClassifierLaunchRouteSettings {
-        for path in ClassifierLaunchPath.allCases {
-            defaults.removeObject(forKey: path.defaultsKey)
-        }
-        for (path, value) in keys {
-            defaults.set(value, forKey: path.defaultsKey)
-        }
-        return ClassifierLaunchRouteSettings(defaults: defaults)
     }
 
     // MARK: - Helpers
