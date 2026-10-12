@@ -184,6 +184,38 @@ final class ViralReconWorkflowProcessRunnerTests: XCTestCase {
         XCTAssertTrue(result.standardError.hasSuffix("\n"))
     }
 
+    /// The Viral Recon route logs the result's text only when no line streamed, so a run that printed a
+    /// line never shows the reason that sits in the result. The reason therefore streams too, as the
+    /// last line, and the row logs it as a warning line after everything the CLI printed.
+    func testACleanExitWhoseOutputAChildKeptOpenStreamsTheReasonAsTheLastLine() async throws {
+        let cli = try writeCLI(
+            """
+            echo finished
+            sleep 30 &
+            exit 0
+            """
+        )
+        let runner = ProcessViralReconWorkflowProcessRunner(executableURL: cli)
+        let streamed = StreamedLines()
+
+        let result = try await runner.runLungfishCLI(
+            arguments: [],
+            workingDirectory: scratch,
+            outputHandler: { streamed.lines.append($0) }
+        )
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.didStreamOutput)
+        XCTAssertEqual(streamed.lines.first, .standardOutput("finished"))
+        guard case .standardError(let reason)? = streamed.lines.last else {
+            return XCTFail("the last streamed line was not a standard error line: \(String(describing: streamed.lines.last))")
+        }
+        XCTAssertTrue(
+            reason.hasPrefix("The output of lungfish-cli is incomplete"),
+            "the last streamed line was: \(reason)"
+        )
+    }
+
     // MARK: - Helpers
 
     /// A shell script named `lungfish-cli` that runs `body`. Its arguments are the case's `$1`, `$2` and so on.

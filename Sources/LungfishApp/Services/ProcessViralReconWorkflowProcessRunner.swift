@@ -78,7 +78,15 @@ final class ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRun
         case .launchFailed(let reason):
             throw LungfishCLIRunner.RunError.launchFailed(reason)
         case .cancelled(let exit?), .exited(let exit):
-            return result(of: exit, didStreamOutput: relay.didSend)
+            var didStreamOutput = relay.didSend
+            if let incomplete = exit.incompleteOutput, let outputHandler {
+                // The Viral Recon route logs the result's text only when no line streamed, so the
+                // reason streams too. Every earlier line was queued on the main queue before the run
+                // returned, so it arrives last and the row logs it as a warning line.
+                await MainActor.run { outputHandler(.standardError(incomplete)) }
+                didStreamOutput = true
+            }
+            return result(of: exit, didStreamOutput: didStreamOutput)
         case .cancelled(nil):
             // A cancel came before the launch, so nothing ran.
             return ViralReconWorkflowProcessResult(
