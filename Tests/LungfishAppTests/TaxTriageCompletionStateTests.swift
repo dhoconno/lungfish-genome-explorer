@@ -100,6 +100,8 @@ final class TaxTriageCompletionStateTests: XCTestCase {
         XCTAssertTrue(item.logEntries.contains { entry in
             entry.level == .warning && entry.message.contains("Exclude host taxa (9606 for human)")
         })
+        // T8 and D4: the one warning line of the cause makes the label, and the detail is no second line.
+        XCTAssertEqual(warningLines(of: item).count, 1)
     }
 
     func testCleanRunFinishesAsPlainCompleted() throws {
@@ -120,20 +122,22 @@ final class TaxTriageCompletionStateTests: XCTestCase {
 
     // MARK: - The words of the finish
     //
-    // Phase 2.8 lane U2, milestone M1. These pin the words and the warning lines of
-    // `finishTaxTriageOperation` as they read today, so the fixes of milestone M3 (T8 and T9 of
-    // docs/plans/2026-10-11-phase-2-8.md) flip them one at a time. The row text of a whole run is
-    // pinned in `TaxTriageOperationRowTextReplayTests`.
+    // Phase 2.8 lane U2, milestones M1 and M3. These pin the words and the warning lines of
+    // `finishTaxTriageOperation`. Milestone M1 pinned them as they read before the fixes, and each
+    // fix of milestone M3 (T8, T9 and D4 of docs/plans/2026-10-11-phase-2-8.md) flipped its pins in
+    // the commit that made it. The row text of a whole run is pinned in
+    // `TaxTriageOperationRowTextReplayTests`.
 
-    func testOneFailedSampleReadsASingularNoun() throws {
+    func testOneFailedSampleReadsASingularNounAndLogsOneWarningLine() throws {
         let item = try finishedRow(result(ignoredFailures: [], sampleFailures: [sampleFailure("SRR12486989")]))
 
+        // The warning line of the cause makes the label (T8, D4). The detail is no second line (T9).
         XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
-        // T9: one item reads in the singular and zero stays plural.
+        // One item reads in the singular and zero stays plural (T9).
         XCTAssertEqual(item.detail, "1 failed sample (0 reports)")
         XCTAssertEqual(
             warningLines(of: item),
-            ["1 TaxTriage sample failed (SRR12486989: boom SRR12486989)", "1 failed sample (0 reports)"]
+            ["1 TaxTriage sample failed (SRR12486989: boom SRR12486989)"]
         )
     }
 
@@ -169,26 +173,27 @@ final class TaxTriageCompletionStateTests: XCTestCase {
 
         let headline = try XCTUnwrap(finished.erroredProcessesHeadline)
         XCTAssertEqual(item.detail, "\(headline); 1 failed sample (0 reports)")
-        // M3 (T9): one warning line per cause, so the detail is no third line.
+        XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
+        // One warning line per cause (T9), so the detail is no third line.
         XCTAssertEqual(
             warningLines(of: item),
             [
                 try XCTUnwrap(finished.erroredProcessesMessage),
                 "1 TaxTriage sample failed (SRR12486989: boom SRR12486989)",
-                item.detail,
             ]
         )
     }
 
-    func testAnErroredTaskCauseLogsItsParagraphAndItsDetailAsWarnings() throws {
+    func testAnErroredTaskCauseLogsItsParagraphOnceAsAWarning() throws {
         let finished = result(ignoredFailures: [minimapKilled("SRR12486983")])
         let item = try finishedRow(finished)
 
-        // M3 (T9): the paragraph is the one warning line of the cause. Today the detail follows it
-        // as a second warning, because `completeWithWarning` appends it, and the pipeline's last
-        // progress message adds the paragraph again at information level.
-        XCTAssertEqual(warningLines(of: item), [try XCTUnwrap(finished.erroredProcessesMessage), item.detail])
-        XCTAssertEqual(item.logEntries.count, 2)
+        // The paragraph is the one warning line of the cause and the only line of the log (T9).
+        // The detail is not logged again, because the row completes plainly and the warning line
+        // alone makes the label (T8, D4).
+        XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
+        XCTAssertEqual(warningLines(of: item), [try XCTUnwrap(finished.erroredProcessesMessage)])
+        XCTAssertEqual(item.logEntries.count, 1)
     }
 
     func testACleanResultLogsNothingAndShowsItsWholeSummary() throws {

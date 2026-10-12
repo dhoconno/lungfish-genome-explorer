@@ -113,8 +113,10 @@ extension AppDelegate {
     ///
     /// Nextflow exits 0 when TaxTriage ignores an errored task (for example
     /// MINIMAP2_ALIGN killed for memory), so a run with errored tasks or failed
-    /// samples finishes with a warning ("Completed with Warnings") whose
-    /// detail names the process, never as a plain "Completed".
+    /// samples logs one warning line per cause and reads "Completed with
+    /// Warnings", never a plain "Completed". The warning lines make the label
+    /// (D4), so the row completes plainly with a detail that names the process,
+    /// and the detail is not logged a second time as a warning.
     ///
     /// - Returns: `false` when the operation was no longer active (cancelled).
     @MainActor
@@ -153,7 +155,7 @@ extension AppDelegate {
             return center.complete(id: opID, detail: result.summary)
         }
         let detail = "\(warningSummaries.joined(separator: "; ")) (\(Self.counted(result.reportFiles.count, "report")))"
-        return center.completeWithWarning(id: opID, detail: detail)
+        return center.complete(id: opID, detail: detail)
     }
 
     /// `1 report` or `2 reports`, a count and its noun in the number it takes. Zero stays plural.

@@ -217,7 +217,7 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
 
     // MARK: - Errored tasks
 
-    func testAnErroredTaskCauseLogsOneInformationLineAndTwoWarningLines() async throws {
+    func testAnErroredTaskCauseLogsOneWarningLineAndTheRowReadsCompletedWithWarnings() async throws {
         try requireBuiltCLI()
         let engine = try makeEngine(.reportsErroredTasks)
         let project = try makeProject()
@@ -237,13 +237,14 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         // singular rule (T9).
         XCTAssertEqual(item.detail, "\(headline) (1 report)")
 
-        // M3 (T9): one warning line per cause and no information line. Today the paragraph is the
-        // pipeline's last progress message at info, then a warning, and the detail is a third line
-        // because `completeWithWarning` appends it at warning level.
+        // One warning line per cause (T9), and the warning line makes the label (T8, D4). The row
+        // completes plainly, so the detail is no second warning line. M3 (T9): the information line
+        // is the pipeline's last progress message, and the pipeline stops sending the paragraph
+        // as one.
         let paragraph = "\(headline). Results that depend on the failed steps, such as alignments and TASS scores, are missing for the samples named."
             + " Raise Max memory, or list the host in Exclude host taxa (9606 for human) so the host genome is not downloaded as an alignment reference."
         let lines = Self.loggedLines(of: item).filter { $0.contains("MINIMAP2_ALIGN") }
-        XCTAssertEqual(lines, ["info: \(paragraph)", "warning: \(paragraph)", "warning: \(item.detail)"])
+        XCTAssertEqual(lines, ["info: \(paragraph)", "warning: \(paragraph)"])
 
         // The bar never moves back (T9).
         XCTAssertEqual(Self.drops(in: run.trace.bars), [], "\(run.trace.bars)")
@@ -277,7 +278,7 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         XCTAssertEqual(item.detail, "1 failed sample (1 report)")
         let lines = Self.loggedLines(of: item)
         // The runner logs the sample's error at info, and the finish repeats it in one warning
-        // line. The detail is the second warning line, because `completeWithWarning` appends it.
+        // line (T9). The row completes plainly, so its detail is no second warning line.
         let failurePrefix = "info: Sample 2/2 (S2): Failed - "
         let error = try XCTUnwrap(
             lines.first { $0.hasPrefix(failurePrefix) }.map { String($0.dropFirst(failurePrefix.count)) },
@@ -285,7 +286,7 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         )
         XCTAssertEqual(
             lines.filter { $0.hasPrefix("warning:") },
-            ["warning: 1 TaxTriage sample failed (S2: \(error))", "warning: 1 failed sample (1 report)"]
+            ["warning: 1 TaxTriage sample failed (S2: \(error))"]
         )
 
         // Two samples record no command, because no single `taxtriage run` repeats the serial batch.
