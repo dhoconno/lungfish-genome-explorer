@@ -413,6 +413,45 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: analysis.appendingPathComponent(BatchRunHistoryLog.filename).path))
     }
 
+    // MARK: - A cancel that ends the runner with CancellationError
+
+    /// Lane S1 makes the engine throw `CancellationError` when a cancel stops it. The launch's catch
+    /// then calls `OperationCenter.fail`, which returns false once the cancel has won (its terminal
+    /// call keeps the row Cancelled and answers whether the requested state was reached), so the
+    /// row reads Cancelled with `Cancelled by user` and the launch shows no `TaxTriage Failed` alert
+    /// (rows T11 and UX 4 of the UX inventory). The runner here ends the way a stopped engine does,
+    /// so the case holds at any base.
+    func testACancelThatEndsTheRunnerWithCancellationErrorReadsCancelledAndShowsNoAlert() async throws {
+        let project = try makeProject()
+        let reads = try writeFASTQ("S1.fastq", records: 3)
+        let waiting = "Waiting for the cancel"
+        let runner = TaxTriageSerialBatchRunner { _, progress in
+            progress?(0.3, waiting)
+            while !Task.isCancelled { try await Task.sleep(for: .milliseconds(5)) }
+            throw CancellationError()
+        }
+
+        let run = try await launch(
+            makeConfig([TaxTriageSample(sampleId: "S1", fastq1: reads)], database: try makeDatabaseFolder()),
+            runner: { runner },
+            in: project,
+            cancelWhenDetailReads: waiting
+        )
+        let item = try XCTUnwrap(self.item(run.rowID))
+
+        XCTAssertEqual(item.state, .cancelled)
+        XCTAssertEqual(item.displayStateLabel, "Cancelled")
+        XCTAssertEqual(item.detail, "Cancelled by user")
+        XCTAssertNil(item.errorMessage)
+        XCTAssertNil(item.errorDetail)
+        XCTAssertNil(item.failureReportURL, "a cancel writes no failure report")
+        // The failed case above waits for its sheet, so this waits as long for one that never comes.
+        let sheetShown = await waitUntil(timeout: .seconds(5)) { run.window.attachedSheet != nil }
+        XCTAssertFalse(sheetShown, "a cancel shows no alert")
+        let lines = Self.loggedLines(of: item)
+        XCTAssertFalse(lines.contains { $0.hasPrefix("error:") || $0.contains("CancellationError") }, "\(lines)")
+    }
+
     // MARK: - A failed database build
 
     func testAFailedDatabaseBuildLogsOneWarningAndTheRowReadsCompletedWithWarnings() async throws {
@@ -456,6 +495,16 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         in project: URL,
         cancelWhenDetailReads cancelDetail: String? = nil
     ) async throws -> Run {
+        try await launch(config, runner: { engine.makeRunner() }, in: project, cancelWhenDetailReads: cancelDetail)
+    }
+
+    /// The same launch with any runner, such as one that ends the way a stopped engine does.
+    private func launch(
+        _ config: TaxTriageConfig,
+        runner makeRunner: @escaping @Sendable () -> TaxTriageSerialBatchRunner,
+        in project: URL,
+        cancelWhenDetailReads cancelDetail: String? = nil
+    ) async throws -> Run {
         let delegate = makeAppDelegateWithTemporaryState()
         let viewer = OverlayRecordingViewer()
         let window = NSWindow(contentViewController: viewer)
@@ -464,7 +513,7 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
 
         let existing = Set(OperationCenter.shared.items.map(\.id))
         let trace = TaxTriageRowTrace(ignoring: existing)
-        AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue({ engine.makeRunner() }) {
+        AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue(makeRunner) {
             delegate.runTaxTriage(
                 config: config,
                 viewerController: viewer,
