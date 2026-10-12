@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
 
@@ -224,9 +225,7 @@ final class WorkflowRunAgainStateTests: XCTestCase {
         let run = WorkflowRun(name: "Invented local run", endTime: Date(), status: .completed, steps: [step])
         try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), to: runBundle)
         let configuration = try LocalWorkflowReplayConfiguration.restored(from: history)
-        let suite = "WorkflowRunAgainStateTests-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        let defaults = makeTestDefaultsSuite(prefix: "WorkflowRunAgainStateTests").defaults
         let enablement = WorkflowLibraryEnablementStore(userDefaults: defaults)
         let packages = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
         let validated = try WorkflowPackageValidator.validatePackage(at: package)

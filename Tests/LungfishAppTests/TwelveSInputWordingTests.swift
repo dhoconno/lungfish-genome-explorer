@@ -5,6 +5,7 @@
 import Foundation
 @testable import LungfishApp
 @testable import LungfishCLI
+import LungfishTestSupport
 import SwiftUI
 import ViewInspector
 import XCTest
@@ -35,9 +36,7 @@ final class TwelveSInputWordingTests: XCTestCase {
     }
 
     func testTheTwelveSOptionsSayWhatTheWorkflowReads() throws {
-        let suiteName = "TwelveSInputWordingTests-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = makeTestDefaultsSuite(prefix: "TwelveSInputWordingTests").defaults
         let enablement = WorkflowLibraryEnablementStore(userDefaults: defaults)
         enablement.setWorkflow(WorkflowLibraryCatalog.twelveSAmpliconMatchingItem, enabled: true)
         let state = WorkflowOperationDialogState(

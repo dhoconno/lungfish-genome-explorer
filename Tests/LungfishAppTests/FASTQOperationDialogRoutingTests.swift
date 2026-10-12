@@ -1423,7 +1423,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
     }
 
     func testGenotypingDialogShowsBundledONTByDefaultAndHonorsExplicitLibraryDisable() throws {
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "FASTQOperationDialogRoutingTests-\(UUID().uuidString)"))
+        let defaults = makeTestDefaultsSuite(prefix: "FASTQOperationDialogRoutingTests").defaults
         let workflowLibrary = WorkflowLibraryEnablementStore(userDefaults: defaults)
         let defaultState = FASTQOperationDialogState(
             initialCategory: .genotyping,

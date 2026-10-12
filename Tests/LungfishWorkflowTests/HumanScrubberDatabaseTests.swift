@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishWorkflow
 import LungfishIO
+import LungfishTestSupport
 import CryptoKit
 
 final class HumanScrubberDatabaseTests: XCTestCase {
@@ -13,23 +14,18 @@ final class HumanScrubberDatabaseTests: XCTestCase {
     /// A private suite per test: DatabaseRegistry writes its override keys
     /// here instead of the process-shared preferences, which parallel xctest
     /// workers see through cfprefsd.
-    private var preferencesSuiteName: String!
-    private var preferences: UserDefaults!
+    private var preferencesSuite: TestDefaultsSuite!
+    private var preferences: UserDefaults { preferencesSuite.defaults }
 
     override func setUp() async throws {
         try await super.setUp()
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("human-scrubber-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        preferencesSuiteName = "HumanScrubberDatabaseTests-\(UUID().uuidString)"
-        preferences = try XCTUnwrap(UserDefaults(suiteName: preferencesSuiteName))
+        preferencesSuite = makeTestDefaultsSuite(prefix: "HumanScrubberDatabaseTests")
     }
 
     override func tearDown() async throws {
-        if let preferencesSuiteName {
-            preferences?.removePersistentDomain(forName: preferencesSuiteName)
-        }
-        preferences = nil
         if let tempDir {
             try? FileManager.default.removeItem(at: tempDir)
         }
@@ -68,7 +64,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: try bundledDatabasesRoot(),
             userDatabasesRoot: tempDir.appendingPathComponent("user-databases"),
-            preferences: UserDefaults(suiteName: preferencesSuiteName)
+            preferences: preferencesSuite.makeDefaults()
         )
         guard let manifest = await registry.manifest(for: "human-scrubber") else {
             XCTFail("Expected human-scrubber manifest")
@@ -89,7 +85,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: try bundledDatabasesRoot(),
             userDatabasesRoot: tempDir.appendingPathComponent("empty-user-databases"),
-            preferences: UserDefaults(suiteName: preferencesSuiteName)
+            preferences: preferencesSuite.makeDefaults()
         )
 
         do {
@@ -109,7 +105,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: try bundledDatabasesRoot(),
             userDatabasesRoot: tempDir.appendingPathComponent("empty-user-databases"),
-            preferences: UserDefaults(suiteName: preferencesSuiteName)
+            preferences: preferencesSuite.makeDefaults()
         )
 
         do {
@@ -129,7 +125,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: try bundledDatabasesRoot(),
             userDatabasesRoot: tempDir.appendingPathComponent("empty-user-databases"),
-            preferences: UserDefaults(suiteName: preferencesSuiteName)
+            preferences: preferencesSuite.makeDefaults()
         )
 
         do {
@@ -149,7 +145,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: try bundledDatabasesRoot(),
             userDatabasesRoot: tempDir.appendingPathComponent("empty-user-databases"),
-            preferences: UserDefaults(suiteName: preferencesSuiteName)
+            preferences: preferencesSuite.makeDefaults()
         )
 
         do {
@@ -172,7 +168,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: try bundledDatabasesRoot(),
             userDatabasesRoot: tempDir.appendingPathComponent("empty-user-databases"),
-            preferences: UserDefaults(suiteName: preferencesSuiteName)
+            preferences: preferencesSuite.makeDefaults()
         )
         let config = FASTQBatchImporter.ImportConfig(
             projectDirectory: tempDir.appendingPathComponent("project"), platform: .illumina,
@@ -229,7 +225,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             bundledDatabasesRoot: bundledRoot,
             userDatabasesRoot: userRoot,
             managedDatabaseDownloader: downloader,
-            preferences: UserDefaults(suiteName: preferencesSuiteName)
+            preferences: preferencesSuite.makeDefaults()
         )
 
         let installed = try await registry.installManagedDatabase("human-scrubber", reinstall: true)
@@ -276,7 +272,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             bundledDatabasesRoot: bundledRoot,
             userDatabasesRoot: userRoot,
             managedDatabaseDownloader: downloader,
-            preferences: UserDefaults(suiteName: preferencesSuiteName)
+            preferences: preferencesSuite.makeDefaults()
         )
 
         let installed = try await registry.installManagedDatabase("human-scrubber", reinstall: true)
@@ -323,7 +319,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             bundledDatabasesRoot: bundledRoot,
             userDatabasesRoot: userRoot,
             managedDatabaseToolRunner: toolRunner,
-            preferences: UserDefaults(suiteName: preferencesSuiteName)
+            preferences: preferencesSuite.makeDefaults()
         )
 
         let installed = try await registry.installManagedDatabase("deacon-panhuman", reinstall: true)
@@ -390,7 +386,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             userDatabasesRoot: userRoot,
             managedDatabaseDownloader: downloader,
             managedDatabaseToolRunner: toolRunner,
-            preferences: UserDefaults(suiteName: preferencesSuiteName)
+            preferences: preferencesSuite.makeDefaults()
         )
 
         let installed = try await registry.installManagedDatabase("deacon-ribokmers", reinstall: true)
@@ -434,7 +430,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             userDatabasesRoot: userRoot,
             managedDatabaseDownloader: downloader,
             managedDatabaseProvenanceWriter: provenanceWriter,
-            preferences: UserDefaults(suiteName: preferencesSuiteName)
+            preferences: preferencesSuite.makeDefaults()
         )
 
         do {
@@ -505,7 +501,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             managedDatabaseDownloader: downloader,
             managedDatabaseToolRunner: toolRunner,
             managedDatabaseProvenanceWriter: provenanceWriter,
-            preferences: UserDefaults(suiteName: preferencesSuiteName)
+            preferences: preferencesSuite.makeDefaults()
         )
 
         do {
@@ -557,7 +553,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             userDatabasesRoot: userRoot,
             managedDatabaseDownloader: downloader,
             managedDatabaseToolRunner: toolRunner,
-            preferences: UserDefaults(suiteName: preferencesSuiteName)
+            preferences: preferencesSuite.makeDefaults()
         )
 
         do {

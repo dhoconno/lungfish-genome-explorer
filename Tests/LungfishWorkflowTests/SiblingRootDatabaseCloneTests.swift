@@ -7,24 +7,22 @@ import Darwin
 import XCTest
 @testable import LungfishWorkflow
 import LungfishCore
+import LungfishTestSupport
 
 final class SiblingRootDatabaseCloneTests: XCTestCase {
     private var tempDir: URL!
-    private var preferencesSuiteName: String!
-    private var preferences: UserDefaults!
+    private var preferencesSuite: TestDefaultsSuite!
+    private var preferences: UserDefaults { preferencesSuite.defaults }
 
     override func setUp() async throws {
         try await super.setUp()
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("sibling-clone-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        preferencesSuiteName = "SiblingRootDatabaseCloneTests-\(UUID().uuidString)"
-        preferences = try XCTUnwrap(UserDefaults(suiteName: preferencesSuiteName))
+        preferencesSuite = makeTestDefaultsSuite(prefix: "SiblingRootDatabaseCloneTests")
     }
 
     override func tearDown() async throws {
-        if let preferencesSuiteName { preferences?.removePersistentDomain(forName: preferencesSuiteName) }
-        preferences = nil
         if let tempDir { try? FileManager.default.removeItem(at: tempDir) }
         try await super.tearDown()
     }
@@ -76,10 +74,10 @@ final class SiblingRootDatabaseCloneTests: XCTestCase {
         }
         let siblingRegistry = DatabaseRegistry(
             bundledDatabasesRoot: bundledRoot, userDatabasesRoot: siblingDatabases,
-            managedDatabaseDownloader: siblingDownloader, preferences: UserDefaults(suiteName: preferencesSuiteName)
+            managedDatabaseDownloader: siblingDownloader, preferences: preferencesSuite.makeDefaults()
         )
         let siblingInstalled = try await siblingRegistry.installManagedDatabase("human-scrubber", reinstall: true)
-        preferences.removePersistentDomain(forName: preferencesSuiteName)
+        preferences.removePersistentDomain(forName: preferencesSuite.name)
 
         // The current channel may fetch the small checksum but must never
         // download the database itself.
@@ -95,7 +93,7 @@ final class SiblingRootDatabaseCloneTests: XCTestCase {
         }
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: bundledRoot, userDatabasesRoot: currentDatabases,
-            managedDatabaseDownloader: currentDownloader, preferences: UserDefaults(suiteName: preferencesSuiteName),
+            managedDatabaseDownloader: currentDownloader, preferences: preferencesSuite.makeDefaults(),
             siblingDatabaseRoots: [siblingDatabases]
         )
 
@@ -144,7 +142,7 @@ final class SiblingRootDatabaseCloneTests: XCTestCase {
         }
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: bundledRoot, userDatabasesRoot: currentDatabases,
-            managedDatabaseDownloader: downloader, preferences: UserDefaults(suiteName: preferencesSuiteName),
+            managedDatabaseDownloader: downloader, preferences: preferencesSuite.makeDefaults(),
             siblingDatabaseRoots: [siblingDatabases]
         )
 

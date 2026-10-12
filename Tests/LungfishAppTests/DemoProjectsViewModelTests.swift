@@ -4,6 +4,7 @@
 
 import XCTest
 import LungfishCore
+import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
 @testable import LungfishCLI
@@ -12,7 +13,6 @@ import LungfishWorkflow
 final class DemoProjectsViewModelTests: XCTestCase {
     private var tempDir: URL!
     private var defaults: UserDefaults!
-    private var suiteName: String!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -20,12 +20,10 @@ final class DemoProjectsViewModelTests: XCTestCase {
             .appendingPathComponent("demo-projects-vm-\(UUID().uuidString)", isDirectory: true)
             .resolvingSymlinksInPath()
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        suiteName = "DemoProjectsViewModelTests-\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
+        defaults = makeTestDefaultsSuite(prefix: "DemoProjectsViewModelTests").defaults
     }
 
     override func tearDown() async throws {
-        defaults.removePersistentDomain(forName: suiteName)
         try? FileManager.default.removeItem(at: tempDir)
         try await super.tearDown()
     }

@@ -6,6 +6,7 @@ import AppKit
 import SwiftUI
 import XCTest
 import LungfishCore
+import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
 
@@ -164,13 +165,11 @@ final class DemoProjectsAccessibilityTests: XCTestCase {
     }
 
     private func makeHarness(projects: [DemoProject]) -> Harness {
-        let suite = "DemoProjectsAccessibilityTests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = makeTestDefaultsSuite(prefix: "DemoProjectsAccessibilityTests").defaults
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("demo-projects-ax-\(UUID().uuidString)", isDirectory: true)
             .resolvingSymlinksInPath()
         addTeardownBlock {
-            defaults.removePersistentDomain(forName: suite)
             try? FileManager.default.removeItem(at: root)
         }
         let store = DemoProjectLocationStore(defaults: defaults, homeDirectory: root)

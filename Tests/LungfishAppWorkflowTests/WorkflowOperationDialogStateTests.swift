@@ -1,6 +1,7 @@
 import XCTest
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
 
@@ -2135,10 +2136,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
     }
 
     private func makeDefaults() throws -> UserDefaults {
-        let suiteName = "WorkflowOperationDialogStateTests-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defaults.removePersistentDomain(forName: suiteName)
-        return defaults
+        makeTestDefaultsSuite(prefix: "WorkflowOperationDialogStateTests").defaults
     }
 
     /// 12S amplicon matching is a niche, opt-in workflow (disabled on fresh

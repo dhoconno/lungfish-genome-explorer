@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import XCTest
+import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
 
@@ -910,10 +911,7 @@ final class WorkflowLibraryTests: XCTestCase {
     }
 
     private func makeDefaults() throws -> UserDefaults {
-        let suiteName = "WorkflowLibraryTests-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defaults.removePersistentDomain(forName: suiteName)
-        return defaults
+        makeTestDefaultsSuite(prefix: "WorkflowLibraryTests").defaults
     }
 
     private func helloWorldNextflowPackageURL() -> URL {
