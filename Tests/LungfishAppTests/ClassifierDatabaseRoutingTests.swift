@@ -368,6 +368,22 @@ final class ClassifierDatabaseRoutingTests: XCTestCase {
         XCTAssertNil(route.sampleId)
     }
 
+    /// The first releases wrote `classification` as the tool of a Kraken2 run, and a folder with that
+    /// metadata still opens as Kraken2. Older layouts keep opening.
+    func testRoute_theLegacyClassificationToolInTheMetadataIsKraken2() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let resultDir = dir.appendingPathComponent("Old Kraken2 run")
+        try FileManager.default.createDirectory(at: resultDir, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: resultDir.appendingPathComponent("kraken2.sqlite").path, contents: Data())
+        try AnalysesFolder.writeAnalysisMetadata(AnalysesFolder.AnalysisMetadata(tool: "classification", isBatch: false), to: resultDir)
+
+        let route = try XCTUnwrap(ClassifierDatabaseRouter.route(for: resultDir))
+        XCTAssertEqual(route.analysisID, .kraken2)
+        XCTAssertEqual(route.tool, "kraken2")
+        XCTAssertNotNil(route.databaseURL)
+    }
+
     /// The metadata names the tool and wins over a folder name that starts with another tool's prefix.
     func testRoute_theMetadataWinsOverANamePrefix() throws {
         let dir = try makeTempDir()
