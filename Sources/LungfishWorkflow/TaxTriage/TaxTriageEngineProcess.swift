@@ -53,12 +53,11 @@ struct TaxTriageEngineProcess: Sendable {
         environment: [String: String],
         onStdoutLine: @escaping @Sendable (String) -> Void
     ) async throws -> Outcome {
-        let handle = try await processManager.spawn(
+        let (handle, stop) = try await processManager.spawnStoppable(
             executable: executable,
             arguments: arguments,
             workingDirectory: workingDirectory,
             environment: environment,
-            drainGracePeriod: nil,
             terminationGracePeriod: terminationGracePeriod
         )
         logger.info("Nextflow process started with PID \(handle.pid)")
@@ -71,12 +70,13 @@ struct TaxTriageEngineProcess: Sendable {
             let lines = await (stdout, stderr)
             return Outcome(exitCode: await handle.waitForExit(), stdoutLines: lines.0, stderrLines: lines.1)
         }
-        let processManager = processManager
         return await withTaskCancellationHandler {
             await streaming.value
         } onCancel: {
-            // Runs at once when the task was cancelled during the launch, so no cancel is lost.
-            Task { await processManager.terminate(id: handle.id) }
+            // Runs at once when the task was cancelled during the launch, so no cancel is lost. It
+            // stops the run on the cancelling thread, as runAndWait does, so the TERM and the KILL
+            // after the grace never wait for the cooperative pool or the actor.
+            stop()
         }
     }
 

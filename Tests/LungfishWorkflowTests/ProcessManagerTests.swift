@@ -313,6 +313,33 @@ final class ProcessManagerTests: XCTestCase {
         XCTAssertTrue(childExited, "Terminating a workflow process must terminate descendant tool processes")
     }
 
+    func testAStoppableSpawnStopsATermTrappingTreeAfterItsGrace() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let scriptURL = tempDir.appendingPathComponent("traps-term.sh")
+        try "#!/bin/sh\ntrap '' TERM\nwhile true; do sleep 0.1; done\n"
+            .write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+
+        let (handle, stop) = try await ProcessManager.shared.spawnStoppable(
+            executable: scriptURL,
+            arguments: [],
+            workingDirectory: tempDir,
+            environment: nil,
+            terminationGracePeriod: .seconds(1)
+        )
+        addTeardownBlock { stop() }
+        let clock = ContinuousClock()
+        let stoppedAt = clock.now
+        DispatchQueue.global().async { stop() }
+        let status = await handle.waitForExit()
+        let waited = clock.now - stoppedAt
+
+        XCTAssertNotEqual(status, 0, "a stopped run is not a success")
+        XCTAssertGreaterThanOrEqual(waited, .milliseconds(900), "a tree that traps TERM keeps its whole grace")
+        XCTAssertLessThan(waited, .seconds(10), "the KILL comes at the grace")
+        XCTAssertFalse(Self.isProcessRunning(pid: handle.pid), "no process of the tree is left")
+    }
+
     func testRunAndWaitCancellationTerminatesProcessTree() async throws {
         let tempDir = try makeTemporaryDirectory()
         let rootPIDFile = tempDir.appendingPathComponent("root.pid")

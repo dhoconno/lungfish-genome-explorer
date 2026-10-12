@@ -141,7 +141,30 @@ public actor ProcessManager: ProcessManaging {
         drainGracePeriod: Duration?,
         terminationGracePeriod: Duration? = nil
     ) async throws -> ProcessHandle {
-        try await launch(
+        try await spawnStoppable(
+            executable: executable,
+            arguments: arguments,
+            workingDirectory: workingDirectory,
+            environment: environment,
+            drainGracePeriod: drainGracePeriod,
+            terminationGracePeriod: terminationGracePeriod
+        ).handle
+    }
+
+    /// ``spawn(executable:arguments:workingDirectory:environment:drainGracePeriod:terminationGracePeriod:)``
+    /// with the run's stop as well. Call `stop` from the task's cancellation
+    /// handler, as ``runAndWait`` binds the run's cancel, so a cancel reaches
+    /// the run at once on the cancelling thread, with no task and no hop onto
+    /// this actor. `stop` does nothing once the run is over.
+    func spawnStoppable(
+        executable: URL,
+        arguments: [String],
+        workingDirectory: URL,
+        environment: [String: String]?,
+        drainGracePeriod: Duration? = nil,
+        terminationGracePeriod: Duration? = nil
+    ) async throws -> (handle: ProcessHandle, stop: @Sendable () -> Void) {
+        let entry = try await launch(
             executable: executable,
             arguments: arguments,
             workingDirectory: workingDirectory,
@@ -149,7 +172,9 @@ public actor ProcessManager: ProcessManaging {
             keepsOutput: false,
             drainGracePeriod: drainGracePeriod,
             terminationGracePeriod: terminationGracePeriod
-        ).handle
+        )
+        let run = entry.run
+        return (entry.handle, { run.cancel() })
     }
 
     /// Starts a process with ``ToolProcess/start(_:onEvent:onLaunch:)`` and
