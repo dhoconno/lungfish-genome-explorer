@@ -26,7 +26,7 @@ SCRIPT = ROOT / "scripts/testing/preferences-leaks.py"
 ALLOWED = ROOT / "scripts/testing/preferences-leaks-allowed.txt"
 
 # The allowed list may only shrink. Lower this number with it, never raise it.
-SEEDED_ROWS = 74
+SEEDED_ROWS = 73
 
 # The eleven classes the owner named, moved onto TestDefaultsSuite by the first milestone of Q10.
 ELEVEN = {
@@ -42,6 +42,10 @@ ELEVEN = {
     "WorkflowOperationDialogStateTests": "Tests/LungfishAppWorkflowTests/WorkflowOperationDialogStateTests.swift",
     "WorkflowRunAgainStateTests": "Tests/LungfishAppWorkflowTests/WorkflowRunAgainStateTests.swift",
 }
+
+# A12 removed the in-process Kraken2 and EsViritu launch and the hidden keys that these two classes
+# set in a suite, so they hold no suite now (Phase 2.9, landing 5). They still must build none by hand.
+HOLD_NO_SUITE_AFTER_A12 = {"ClassifierCLIRouteRowTests", "ClassifierLaunchRouteTests"}
 
 
 def load_script():
@@ -447,7 +451,8 @@ class ShippedAllowedListTests(unittest.TestCase):
             with self.subTest(name=name):
                 text = (ROOT / relative).read_text(encoding="utf-8")
                 self.assertNotIn("UserDefaults(suiteName:", text)
-                self.assertIn(f'(prefix: "{name}"', text)
+                if name not in HOLD_NO_SUITE_AFTER_A12:
+                    self.assertIn(f'(prefix: "{name}"', text)
                 self.assertNotIn(relative, listed)
 
     def test_the_helper_and_its_test_exist(self):

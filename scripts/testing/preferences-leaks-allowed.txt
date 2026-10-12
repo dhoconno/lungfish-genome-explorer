@@ -8,8 +8,7 @@
 # only shrinks. Move a file onto TestDefaultsSuite (Tests/Support/LungfishTestSupport) and delete
 # its rows in the same commit, and `preferences-leaks.py lint` fails on a row whose file no longer
 # builds its prefix by hand and on a test file that calls UserDefaults(suiteName:) and has no row.
-# Never add a row. The prefix (none) is a suite named by a bare UUID. The ClassifierCLIGUIParity
-# row registers values only and removes its own plist, so it writes none, but it builds by hand.
+# Never add a row. The prefix (none) is a suite named by a bare UUID.
 # The org.example.test row covers the fork suites that LungfishAppIdentity builds from the
 # namespace AppIdentityTests makes, so lint, which looks for UserDefaults(suiteName:) in Tests,
 # cannot see them.
@@ -17,7 +16,6 @@
 # One row per file: <prefix> <path from the repository root>.
 
 (none)                                  Tests/LungfishCoreTests/ManagedStorageConfigStoreTests.swift
-ClassifierCLIGUIParityReplayTests       Tests/LungfishAppTests/ClassifierCLIGUIParityReplayTests+Rows.swift
 FeaturesYAMLMenuPath                    Tests/LungfishAppViewTests/FeaturesYAMLMenuPathTests.swift
 GenotypeInspectorPresentationTests      Tests/LungfishAppTests/GenotypeInspectorPresentationTests.swift
 LungfishGenotypeMatrixFontCacheTests    Tests/LungfishGenotypeUITests/GenotypeMatrixCellFontCacheRegressionTests.swift
