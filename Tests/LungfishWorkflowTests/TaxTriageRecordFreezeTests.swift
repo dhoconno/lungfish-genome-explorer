@@ -615,10 +615,12 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
     // MARK: - BIO T14, an ignored task failure
 
     /// BIO T14. Nextflow exits 0 when TaxTriage ignores an errored task. The failure is in `taxtriage-result.json`
-    /// and in the GUI log, while the sample's step has exit 0 and no stderr, the failure text appears nowhere in the
-    /// record, and the run is `completed`. Plan decision T8 keeps the run `completed`. If lane B2 puts the failures into
-    /// the record, the assertions on stderr and on the record text flip.
-    func testAnIgnoredTaskFailureLeavesExitZeroEmptyStderrAndACompletedRun() async throws {
+    /// and in the GUI log. At the base the sample's step had exit 0 and no stderr, the failure text appeared nowhere in
+    /// the record, and the run was `completed`. Plan decision T8 keeps the run `completed` and gives the record one
+    /// warning line per failure. Lane B2 flipped the assertions on stderr and on the record text, and the test's name
+    /// with them. The step of the sample whose task failed holds the warning line the sample's own record holds, and
+    /// the other sample's step holds none.
+    func testAnIgnoredTaskFailureLeavesExitZeroAWarningLineAndACompletedRun() async throws {
         let failure = TaxTriageIgnoredFailure(
             processPath: "NFCORE_TAXTRIAGE:TAXTRIAGE:MINIMAP2_ALIGN",
             processName: "MINIMAP2_ALIGN",
@@ -637,11 +639,15 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         let envelope = try record(in: batchRoot)
         let steps = sampleSteps(envelope)
         XCTAssertEqual(steps.map(\.exitStatus), [0, 0])
-        XCTAssertTrue(steps.allSatisfy { ($0.stderr ?? "").isEmpty }, "the ignored failure is not the step's stderr")
+        XCTAssertEqual(
+            steps.map(\.stderr),
+            [TaxTriageRecordFacts.warningLines(for: [failure]).joined(separator: "\n"), nil],
+            "flipped by B2 (T8), the failure is one warning line on its sample's step"
+        )
         XCTAssertEqual(envelope.status, .completed)
         let text = try String(contentsOf: batchRoot.appendingPathComponent(ProvenanceRecorder.provenanceFilename), encoding: .utf8)
         for word in ["MINIMAP2_ALIGN", "Killed"] {
-            XCTAssertFalse(text.contains(word), "the record does not hold \(word)")
+            XCTAssertTrue(text.contains(word), "flipped by B2 (T8), the record holds \(word) in the warning line")
         }
     }
 }

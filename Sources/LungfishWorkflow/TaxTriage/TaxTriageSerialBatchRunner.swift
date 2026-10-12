@@ -250,6 +250,10 @@ public struct TaxTriageSerialBatchRunner: Sendable {
         wallTime: TimeInterval,
         stderr: String?
     ) async {
+        // One warning line for each task failure TaxTriage ignored in the sample, the lines the sample's own
+        // record holds, while the sample and the batch stay completed (T8).
+        let stderrLines = ([stderr ?? ""] + TaxTriageRecordFacts.warningLines(for: result.ignoredFailures))
+            .filter { !$0.isEmpty }
         await ProvenanceRecorder.shared.recordStep(
             runID: runID,
             toolName: "taxtriage",
@@ -266,7 +270,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
             ),
             exitCode: exitCode,
             wallTime: wallTime,
-            stderr: stderr
+            stderr: stderrLines.isEmpty ? stderr : stderrLines.joined(separator: "\n")
         )
     }
 
