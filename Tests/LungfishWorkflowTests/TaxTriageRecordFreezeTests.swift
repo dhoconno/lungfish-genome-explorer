@@ -403,8 +403,10 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
     /// never finds a TaxTriage plan, while it finds the same fields once they sit under that key. Each sample of a
     /// several-sample app run writes a record of one sample, so its dictionary holds one key.
     /// Plan decision T7 moves the plan of a record of one sample to `resolvedDefaults.readSetPlan` and lets the reader
-    /// accept `read_set_plans[<sample>]`. Lane B2 flips the assertions marked FLIPS, on the record of one sample, and a
-    /// pooled record of several samples keeps the keyed form.
+    /// accept `read_set_plans[<sample>]`. Lane B2 flips the assertions marked FLIPS, which are the three on the record
+    /// of one sample (its keyed plan, its resolved defaults and what the reader finds). A writer keeps one home for a
+    /// plan, so the keyed plan of that record goes with the move. A pooled record of several samples keeps the keyed
+    /// form, so its two assertions stay.
     func testPlansAreKeyedBySampleInTheExplicitOptionsAndTheReaderNeverFindsThem() async throws {
         let fixtures = try makeFixtures()
         let mixed = try await planned(fixtures.mixedRoot, as: "mixed", in: fixtures)
@@ -427,7 +429,10 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
 
         let oneSample = TaxTriagePipeline().provenanceParameters(for: config([mixed]))
         let single = try await savedRecord(parameters: oneSample, as: "single-record")
-        XCTAssertEqual(Set(try XCTUnwrap(single.options.explicit["read_set_plans"]?.dictionaryValue).keys), ["mixed"])
+        XCTAssertEqual(
+            Set(try XCTUnwrap(single.options.explicit["read_set_plans"]?.dictionaryValue).keys), ["mixed"],
+            "FLIPS: a record of one sample keeps no keyed plan once its plan is in resolvedDefaults (T7)"
+        )
         XCTAssertTrue(single.options.resolvedDefaults.isEmpty, "FLIPS: nothing is in the resolved defaults")
         XCTAssertNil(single.options.explicit["readSetPlan"])
         XCTAssertNil(single.readSetPlan, "FLIPS: the reader finds no TaxTriage plan")
