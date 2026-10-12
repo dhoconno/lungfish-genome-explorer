@@ -244,6 +244,26 @@ final class BundleTranslationClampTests: XCTestCase {
         XCTAssertEqual(context.codingGenomePositions.count, 45)
     }
 
+    // MARK: - Residue numbers
+
+    /// A residue is numbered in the whole protein, not from the first codon that was read. The chromosome ends at
+    /// 120, so the first 10 coding bases are missing and the first whole codon read, W, is residue 5 of
+    /// M A K R W H E F P D.
+    func testTheTableConsequenceOfAClippedReverseCDSNumbersTheResidueInTheWholeProtein() async throws {
+        let viewer = makeViewer(with: try await makeBundle())
+        viewer.cachedBundleAnnotations = [clippedReverseCDS]
+
+        let predicted = viewer.fallbackConsequenceForTableVariant(
+            chromosome: "chr1", position: 117, ref: "A", alt: "G"
+        )
+
+        XCTAssertEqual(predicted.aaChange, "W5R")
+        XCTAssertTrue(
+            try XCTUnwrap(predicted.consequence).hasSuffix("missense_variant W5R"),
+            "\(String(describing: predicted.consequence))"
+        )
+    }
+
     // MARK: - A window onto part of a chromosome
 
     /// The viewer's cached window cuts a CDS at either end, so it reports where its bases start. A window that

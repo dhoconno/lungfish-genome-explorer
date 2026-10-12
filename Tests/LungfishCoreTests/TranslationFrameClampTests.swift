@@ -250,6 +250,127 @@ final class TranslationFrameClampTests: XCTestCase {
         XCTAssertEqual(result.protein, "QYGS")
     }
 
+    // MARK: - Residue numbers
+
+    private struct ResidueCase {
+        let name: String
+        let annotation: SequenceAnnotation
+        let bases: String
+        let codonsBeforeFirstRead: Int
+    }
+
+    /// The first whole codon that was read is residue (codonsBeforeFirstRead + 1) of the whole protein. So the
+    /// protein that was read is the whole protein from that residue on, and no codon comes before it when nothing
+    /// was lost.
+    func testCodonsBeforeTheFirstReadNumberTheResiduesOfTheWholeProtein() throws {
+        let whole = "MAKRWHEFPDQYGS"
+        let cases = [
+            ResidueCase(
+                name: "one segment cut by 10 bases",
+                annotation: SequenceAnnotation(
+                    type: .cds, name: "r1", intervals: [AnnotationInterval(start: 100, end: 130, phase: 0)],
+                    strand: .reverse
+                ),
+                bases: record(length: 120, [(start: 100, bases: plusStrand(ofCoding: 10..<30))]),
+                codonsBeforeFirstRead: 4
+            ),
+            ResidueCase(
+                name: "5'-most segment dropped",
+                annotation: SequenceAnnotation(
+                    type: .cds,
+                    name: "r2",
+                    intervals: [
+                        AnnotationInterval(start: 100, end: 115),
+                        AnnotationInterval(start: 200, end: 229, phase: 0)
+                    ],
+                    strand: .reverse
+                ),
+                bases: record(length: 190, [(start: 100, bases: plusStrand(ofCoding: 29..<44))]),
+                codonsBeforeFirstRead: 10
+            ),
+            ResidueCase(
+                name: "5'-most segment cut by 20 bases",
+                annotation: SequenceAnnotation(
+                    type: .cds,
+                    name: "r3",
+                    intervals: [
+                        AnnotationInterval(start: 100, end: 112),
+                        AnnotationInterval(start: 200, end: 230, phase: 0)
+                    ],
+                    strand: .reverse
+                ),
+                bases: record(
+                    length: 210,
+                    [
+                        (start: 100, bases: plusStrand(ofCoding: 30..<42)),
+                        (start: 200, bases: plusStrand(ofCoding: 20..<30))
+                    ]
+                ),
+                codonsBeforeFirstRead: 7
+            ),
+            ResidueCase(
+                name: "nothing lost",
+                annotation: SequenceAnnotation(
+                    type: .cds, name: "r4", intervals: [AnnotationInterval(start: 100, end: 144, phase: 0)],
+                    strand: .reverse
+                ),
+                bases: record(length: 150, [(start: 100, bases: plusStrand(ofCoding: 0..<44))]),
+                codonsBeforeFirstRead: 0
+            )
+        ]
+
+        for residueCase in cases {
+            let provider = clamping(residueCase.bases)
+            let layout = try XCTUnwrap(
+                TranslationEngine.codingLayout(
+                    annotation: residueCase.annotation,
+                    segmentProvider: { start, end in
+                        provider(start, end).map { TranslationEngine.SegmentRead(start: start, sequence: $0) }
+                    }
+                ),
+                residueCase.name
+            )
+            let result = try XCTUnwrap(
+                TranslationEngine.translateCDS(annotation: residueCase.annotation, sequenceProvider: provider),
+                residueCase.name
+            )
+
+            XCTAssertEqual(layout.codonsBeforeFirstRead, residueCase.codonsBeforeFirstRead, residueCase.name)
+            XCTAssertTrue(
+                whole.dropFirst(layout.codonsBeforeFirstRead).hasPrefix(result.protein),
+                "\(residueCase.name) read \(result.protein) of \(whole)"
+            )
+        }
+    }
+
+    /// The count starts at the first whole codon of the full CDS, which a phase on the 5'-most segment moves. Here p
+    /// is 1 and 29 bases are gone, so the frame starts at base 2 of the bases read. That is base 31 of the full CDS,
+    /// and its first whole codon starts at base 1, so 10 whole codons come before the first one that was read.
+    func testCodonsBeforeTheFirstReadCountFromTheFirstWholeCodonOfTheFullCDS() throws {
+        let annotation = SequenceAnnotation(
+            type: .cds,
+            name: "phase-one-residues",
+            intervals: [
+                AnnotationInterval(start: 100, end: 115),
+                AnnotationInterval(start: 200, end: 229, phase: 1)
+            ],
+            strand: .reverse
+        )
+        let provider = clamping(record(length: 190, [(start: 100, bases: plusStrand(ofCoding: 29..<44))]))
+
+        let layout = try XCTUnwrap(
+            TranslationEngine.codingLayout(
+                annotation: annotation,
+                segmentProvider: { start, end in
+                    provider(start, end).map { TranslationEngine.SegmentRead(start: start, sequence: $0) }
+                }
+            )
+        )
+
+        XCTAssertEqual(layout.phaseOffset, 2)
+        XCTAssertEqual(layout.codonsBeforeFirstRead, 10)
+    }
+
     // MARK: - A segment that fails
 
     /// One CDS of three segments on the given strand. In transcription order they hold coding bases

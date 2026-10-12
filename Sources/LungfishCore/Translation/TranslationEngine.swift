@@ -254,6 +254,10 @@ public enum TranslationEngine {
 
         /// Bases to skip before the first whole codon.
         package let phaseOffset: Int
+
+        /// Whole codons of the full CDS before the first whole codon that was read. The first codon read is
+        /// residue codonsBeforeFirstRead + 1 of the protein.
+        package var codonsBeforeFirstRead: Int = 0
     }
 
     /// One segment of a CDS as its provider returned it.
@@ -357,14 +361,26 @@ public enum TranslationEngine {
             }
         }
 
+        // p is the phase of the segment the read loop meets first, whether or not it could be read.
+        let fivePrimePhase = ordered.first(where: { $0.length > 0 })?.phase
+        let phaseOffset = frameOffset(
+            first: first,
+            fivePrimePhase: fivePrimePhase,
+            basesDroppedBeforeFirst: droppedBeforeFirst
+        )
+
+        // The first whole codon of the full CDS starts at its base p. The first whole codon that was read starts at
+        // base (r + offset) of the full CDS. Under the rule above the codons between the two are whole, so the
+        // distance is a multiple of three, and it is 0 when nothing was lost.
+        let codonsBeforeFirstRead = max(
+            0, (droppedBeforeFirst + first.fivePrimeLoss + phaseOffset - (fivePrimePhase ?? 0)) / 3
+        )
+
         return CodingLayout(
             codingSequence: codingSequence,
             genomicPositions: genomicPositions,
-            phaseOffset: frameOffset(
-                first: first,
-                fivePrimePhase: ordered.first(where: { $0.length > 0 })?.phase,
-                basesDroppedBeforeFirst: droppedBeforeFirst
-            )
+            phaseOffset: phaseOffset,
+            codonsBeforeFirstRead: codonsBeforeFirstRead
         )
     }
 

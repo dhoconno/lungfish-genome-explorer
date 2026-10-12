@@ -468,7 +468,7 @@ extension SequenceViewerView {
 
             let refAA = context.codonTable.translate(refCodon)
             let altAA = context.codonTable.translate(altCodon)
-            let aminoIndex = ((codonStart - context.phaseOffset) / 3) + 1
+            let aminoIndex = context.codonsBeforeFirstRead + ((codonStart - context.phaseOffset) / 3) + 1
 
             let effect: String
             if refAA == altAA {
@@ -561,7 +561,7 @@ extension SequenceViewerView {
 
             let refAA = context.codonTable.translate(refCodon)
             let altAA = context.codonTable.translate(altCodon)
-            let aaIndex = ((codonStart - context.phaseOffset) / 3) + 1
+            let aaIndex = context.codonsBeforeFirstRead + ((codonStart - context.phaseOffset) / 3) + 1
 
             let effect: String
             if refAA == altAA {
@@ -652,7 +652,8 @@ extension SequenceViewerView {
             codingBases: Array(layout.codingSequence.uppercased()),
             codingGenomePositions: layout.genomicPositions,
             phaseOffset: layout.phaseOffset,
-            codonTable: .standard
+            codonTable: .standard,
+            codonsBeforeFirstRead: layout.codonsBeforeFirstRead
         )
         cachedCDSCodingContexts[annotation.id] = context
         return context

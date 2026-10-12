@@ -29,6 +29,34 @@ final class VariantTableExportResolverSnapshotTests: XCTestCase {
         XCTAssertEqual(resolved.aaChange, "M1T")
     }
 
+    func testFrozenResolverNumbersTheResidueOfAClippedReverseCDSInTheWholeProtein() {
+        // The reverse-strand CDS [100,130) of M A K R W H E F P D. The chromosome ends at 120, so the 10 coding
+        // bases at the 5' end are gone. The frame starts at base 2 of the 20 that were read, and the first whole
+        // codon read, W, is residue 5 because 4 whole codons come before it.
+        let snapshot = VariantTableExportResolverSnapshot(
+            features: [
+                .init(
+                    chromosome: "chr1",
+                    intervals: [.init(start: 100, end: 130)],
+                    label: "clipped",
+                    isReverse: true,
+                    codingBases: Array("GTTGGCATGAATTCCCGGAT"),
+                    codingGenomePositions: Array((100..<120).reversed()),
+                    phaseOffset: 2,
+                    codonTable: .standard,
+                    codonsBeforeFirstRead: 4
+                )
+            ],
+            variantChromosomeAliasMap: [:]
+        )
+        let row = makeRow(chromosome: "chr1", position: 117, ref: "A", alt: "G")
+
+        let resolved = snapshot.resolve(row)
+
+        XCTAssertEqual(resolved.consequence, "clipped: missense_variant W5R")
+        XCTAssertEqual(resolved.aaChange, "W5R")
+    }
+
     func testRecordedInfoWinsWhileCodingFeatureUsesReferenceAlias() {
         let snapshot = VariantTableExportResolverSnapshot(
             features: [

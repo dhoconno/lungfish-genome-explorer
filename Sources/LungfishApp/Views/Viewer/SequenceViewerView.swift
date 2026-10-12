@@ -783,6 +783,8 @@ public class SequenceViewerView: NSView {
         let codingGenomePositions: [Int]
         let phaseOffset: Int
         let codonTable: CodonTable
+        /// Whole codons of the full CDS before the first codon that was read (`TranslationEngine.CodingLayout`).
+        var codonsBeforeFirstRead: Int = 0
     }
 
     // MARK: - Annotation Track Layout Constants

@@ -42,7 +42,8 @@ extension SequenceViewerView {
                 codingBases: context?.codingBases,
                 codingGenomePositions: context?.codingGenomePositions,
                 phaseOffset: context?.phaseOffset ?? 0,
-                codonTable: context?.codonTable ?? .standard
+                codonTable: context?.codonTable ?? .standard,
+                codonsBeforeFirstRead: context?.codonsBeforeFirstRead ?? 0
             )
         }
         var referenceAliases: [String: String] = [:]

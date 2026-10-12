@@ -33,6 +33,10 @@ struct VariantTableExportResolverSnapshot: Sendable {
         let codingGenomePositions: [Int]?
         let phaseOffset: Int
         let codonTable: CodonTable
+
+        /// Whole codons of the full CDS before the first whole codon that was read. The first codon read is
+        /// residue `codonsBeforeFirstRead + 1` of the protein.
+        var codonsBeforeFirstRead: Int = 0
     }
 
     let features: [CodingFeature]
@@ -86,7 +90,8 @@ struct VariantTableExportResolverSnapshot: Sendable {
                     codingBases: context.bases,
                     codingGenomePositions: context.positions,
                     phaseOffset: context.phaseOffset,
-                    codonTable: feature.codonTable
+                    codonTable: feature.codonTable,
+                    codonsBeforeFirstRead: feature.codonsBeforeFirstRead
                 )
             )
         }
@@ -276,7 +281,7 @@ struct VariantTableExportResolverSnapshot: Sendable {
 
             let refAA = feature.codonTable.translate(String(refCodonChars).uppercased())
             let altAA = feature.codonTable.translate(String(altCodonChars).uppercased())
-            let aaIndex = ((codonStart - feature.phaseOffset) / 3) + 1
+            let aaIndex = feature.codonsBeforeFirstRead + ((codonStart - feature.phaseOffset) / 3) + 1
             let effect: String
             if refAA == altAA { effect = "synonymous_variant" }
             else if altAA == "*" { effect = "stop_gained" }
