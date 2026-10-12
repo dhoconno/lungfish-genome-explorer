@@ -488,6 +488,7 @@ public actor TaxTriagePipeline {
             // E10. The task was cancelled before the spawn, so no engine ran and no log was written.
             try await recordCancellation(
                 runID: runID, config: profileAdjustedConfig, command: provenanceCommand,
+                pipelineSource: pipelineProjectSource.pipelineSource,
                 wallTime: runClock.elapsed, logFile: logFile
             )
         } catch {
@@ -536,6 +537,7 @@ public actor TaxTriagePipeline {
             await recordTaxTriageProvenanceStep(
                 runID: runID,
                 config: profileAdjustedConfig,
+                pipelineSource: pipelineProjectSource.pipelineSource,
                 command: provenanceCommand,
                 outputFiles: [],
                 exitCode: exitCode,
