@@ -19,10 +19,12 @@ extension FASTQOperationPlanner {
 
     /// Writes the record of a grouped result unless its folder already holds one that names every output.
     ///
-    /// The record holds one step for each invocation, with the argv the dispatcher ran. The run command
-    /// is that argv when there was one invocation. When there were several, no `lungfish-cli` command
-    /// runs them as a group, so the run command is the shell that runs them in order, and the
-    /// reproducible command is the same script in both shapes. A call with no invocation writes
+    /// The record holds one step for each invocation, with the argv the dispatcher launched. With one
+    /// invocation the run command is that argv. With several, the dispatcher launched each one by its own
+    /// argv and no shell ran, so the run command is the shell form of those commands, `/bin/sh -lc` with the
+    /// commands joined by ` && `. That is the run-level command that reproduces the run
+    /// (`docs/contracts/RECORDING-PROVENANCE.md`) in the form a reader gives a record that holds only a
+    /// command line, and the reproducible command is the same script. A call with no invocation writes
     /// nothing, because a record of a finished result must name the command that made it.
     func ensureGroupedResultProvenance(
         originalRequest: FASTQOperationLaunchRequest,
@@ -59,7 +61,8 @@ extension FASTQOperationPlanner {
             )
         }
         let script = Self.script(for: commandLines)
-        // The shell form is what `AssembleCommand` and `CLISequenceInputMaterialization` record for several commands.
+        // No shell ran. The run command of several invocations is their shell form, as `AssembleCommand`
+        // and `CLISequenceInputMaterialization` record several commands.
         let runArgv = commandLines.count == 1 ? commandLines[0] : ["/bin/sh", "-lc", script]
         var parameters = Dictionary(
             uniqueKeysWithValues: resolvedRequest.batchManifestParameters.map { key, value in

@@ -12,8 +12,9 @@
 // each input. Before decision D2 of Phase 2.8 the record of those several commands named
 // `lungfish-cli gui fastq-grouped-result --operation <kind>`, a command no leaf defines, and
 // listed one step that held the same false command. D2 gives the record one step for each
-// command, with the real `lungfish-cli` argv, and makes the run command the shell that runs
-// them in order. The cases of one command are unchanged.
+// command, with the real `lungfish-cli` argv, and makes the run command the shell form of those
+// commands, although the dispatcher launched each by its argv and no shell ran. The cases of one
+// command are unchanged.
 //
 // Each test here builds the record from a fixture and reads it back, so a change to the record
 // shows as a changed value.
@@ -115,8 +116,8 @@ final class FASTQOperationGroupedRecordTests: XCTestCase {
         let record = try writeRecord(for: run)
         let script = scriptText(of: run.commands)
 
-        // The run is the shell that runs both commands in order, which is the script the record
-        // already held as its reproducible command.
+        // The run command is the shell form of both commands, the script the record already held as its
+        // reproducible command. No shell ran.
         XCTAssertEqual(record.argv, ["/bin/sh", "-lc", script])
         XCTAssertEqual(record.reproducibleCommand, script)
         XCTAssertTrue(script.contains(" && "), "The two commands are one script")
