@@ -350,15 +350,15 @@ public actor ClassifierReadResolver {
         let candidates: [URL]
         switch tool {
         case .esviritu:
-            // EsViritu BAM locations vary by pipeline version:
+            // EsViritu BAM locations vary by pipeline version. The database row's bam_path comes first (C4),
+            // read only from inside the result root, then:
             //   Current: {sampleId}/bams/{sampleId}.third.filt.sorted.bam
             //   Legacy:  {sampleId}.sorted.bam (next to the result DB)
             //   Legacy:  {sampleId}_temp/{sampleId}.sorted.bam
-            // We also scan the sample's bams/ subdirectory for any *.sorted.bam
-            // to handle unexpected naming variations.
+            // We also scan the sample's bams/ subdirectory for any *.sorted.bam to handle naming variations.
             var urls: [URL] = []
             if let sampleId {
-                // Current layout: per-sample subdir with bams/ child
+                urls += Self.esVirituRecordedBAMCandidates(sampleId: sampleId, resultDir: resultDir)
                 let bamsDir = resultDir.appendingPathComponent("\(sampleId)/bams")
                 if fm.fileExists(atPath: bamsDir.path) {
                     // Prefer the specific pattern first, then scan for any .sorted.bam

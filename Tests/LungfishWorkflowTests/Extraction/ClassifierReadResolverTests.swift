@@ -382,6 +382,49 @@ final class ClassifierReadResolverTests: XCTestCase {
         return url
     }
 
+    /// The BAM the resolver picks for `sampleId` in the EsViritu result at `resultPath`.
+    private func resolveEsVirituBAM(_ sampleId: String, resultPath: URL) async throws -> URL {
+        try await ClassifierReadResolver().testingResolveBAMURL(
+            tool: .esviritu,
+            sampleId: sampleId,
+            resultPath: resultPath
+        )
+    }
+
+    /// Asserts that resolving `sampleId` ends in `bamNotFound` for that sample.
+    private func assertEsVirituBAMNotFound(
+        _ sampleId: String,
+        resultPath: URL,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        do {
+            let url = try await resolveEsVirituBAM(sampleId, resultPath: resultPath)
+            XCTFail("Expected bamNotFound, resolved \(url.path)", file: file, line: line)
+        } catch ClassifierExtractionError.bamNotFound(let notFound) {
+            XCTAssertEqual(notFound, sampleId, file: file, line: line)
+        } catch {
+            XCTFail("Expected bamNotFound, got \(error)", file: file, line: line)
+        }
+    }
+
+    /// Asserts that `url` and `expected` name the same file, whatever symlinks (`/var` is `/private/var`) lead there.
+    private func assertSameFile(
+        _ url: URL,
+        _ expected: URL,
+        _ message: String = "",
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(
+            url.resolvingSymlinksInPath().path,
+            expected.resolvingSymlinksInPath().path,
+            message,
+            file: file,
+            line: line
+        )
+    }
+
     /// Row 434. A one-folder result leaves its BAM at `<root>/bams/<sample>.third.filt.sorted.bam`, which no
     /// layout lookup for a sample id reaches. The database row records that path.
     func testResolveBAMURL_esviritu_oneFolderResult_usesRecordedBAMPath() async throws {
@@ -390,12 +433,115 @@ final class ClassifierReadResolverTests: XCTestCase {
         defer { TestTempDirectory.cleanup(root) }
         let bam = try writeStandInBAM(recorded, under: root)
 
-        let resolved = try await ClassifierReadResolver().testingResolveBAMURL(
-            tool: .esviritu,
-            sampleId: "S1",
-            resultPath: resultPath
+        assertSameFile(try await resolveEsVirituBAM("S1", resultPath: resultPath), bam)
+    }
+
+    /// A batch result records `<sample>/bams/...`, which the layout lookups also reach, so it still resolves.
+    func testResolveBAMURL_esviritu_batchResult_usesRecordedBAMPath() async throws {
+        let recorded = "S1/bams/S1.third.filt.sorted.bam"
+        let (root, resultPath) = try makeEsVirituResult(sampleId: "S1", bamPath: recorded)
+        defer { TestTempDirectory.cleanup(root) }
+        let bam = try writeStandInBAM(recorded, under: root)
+
+        assertSameFile(try await resolveEsVirituBAM("S1", resultPath: resultPath), bam)
+    }
+
+    /// Decision C4 tries the recorded path first, so it wins over a BAM that a layout lookup also reaches.
+    func testResolveBAMURL_esviritu_recordedPathBeatsLayoutLookups() async throws {
+        let recorded = "bams/S1.third.filt.sorted.bam"
+        let (root, resultPath) = try makeEsVirituResult(sampleId: "S1", bamPath: recorded)
+        defer { TestTempDirectory.cleanup(root) }
+        let bam = try writeStandInBAM(recorded, under: root)
+        try writeStandInBAM("S1/bams/S1.third.filt.sorted.bam", under: root)
+
+        assertSameFile(try await resolveEsVirituBAM("S1", resultPath: resultPath), bam)
+    }
+
+    /// A recorded path that leaves the result root is not read, as a `..` step or as an absolute path. The
+    /// resolver falls back to its layout lookups, which find the legacy BAM beside the database.
+    func testResolveBAMURL_esviritu_recordedPathOutsideRoot_fallsBackToLayoutLookups() async throws {
+        let outside = try TestTempDirectory.make(prefix: "esviritu-outside")
+        defer { TestTempDirectory.cleanup(outside) }
+        let outsideBAM = try writeStandInBAM("S1.third.filt.sorted.bam", under: outside)
+
+        for recorded in ["../\(outside.lastPathComponent)/S1.third.filt.sorted.bam", outsideBAM.path] {
+            let (root, resultPath) = try makeEsVirituResult(sampleId: "S1", bamPath: recorded)
+            defer { TestTempDirectory.cleanup(root) }
+            let legacy = try writeStandInBAM("S1.sorted.bam", under: root)
+
+            assertSameFile(try await resolveEsVirituBAM("S1", resultPath: resultPath), legacy, recorded)
+        }
+    }
+
+    /// A row that records no path, a path with no file and a path that names a folder all fall back to the
+    /// layout lookups.
+    func testResolveBAMURL_esviritu_recordedPathNotAFile_fallsBackToLayoutLookups() async throws {
+        for recorded in [nil, "bams/S1.third.filt.sorted.bam", "bams"] as [String?] {
+            let (root, resultPath) = try makeEsVirituResult(sampleId: "S1", bamPath: recorded)
+            defer { TestTempDirectory.cleanup(root) }
+            try FileManager.default.createDirectory(
+                at: root.appendingPathComponent("bams"),
+                withIntermediateDirectories: true
+            )
+            let legacy = try writeStandInBAM("S1.sorted.bam", under: root)
+
+            assertSameFile(try await resolveEsVirituBAM("S1", resultPath: resultPath), legacy, recorded ?? "nil")
+        }
+    }
+
+    /// A recorded symlink that points at a BAM inside the root resolves to that BAM. Only a symlink that leaves
+    /// the root is refused.
+    func testResolveBAMURL_esviritu_recordedSymlinkInsideRoot_resolvesToItsTarget() async throws {
+        let recorded = "bams/S1.third.filt.sorted.bam"
+        let (root, resultPath) = try makeEsVirituResult(sampleId: "S1", bamPath: recorded)
+        defer { TestTempDirectory.cleanup(root) }
+        let target = try writeStandInBAM("store/S1.bam", under: root)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("bams"),
+            withIntermediateDirectories: true
         )
-        XCTAssertEqual(resolved.standardizedFileURL.path, bam.standardizedFileURL.path)
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent(recorded),
+            withDestinationURL: target
+        )
+
+        assertSameFile(try await resolveEsVirituBAM("S1", resultPath: resultPath), target)
+    }
+
+    /// A recorded file that is a symlink to a BAM outside the result root is not read. No layout lookup finds a
+    /// BAM for the sample, so the resolver ends at `bamNotFound`.
+    func testResolveBAMURL_esviritu_recordedSymlinkLeavingRoot_throwsBamNotFound() async throws {
+        let outside = try TestTempDirectory.make(prefix: "esviritu-outside")
+        defer { TestTempDirectory.cleanup(outside) }
+        let outsideBAM = try writeStandInBAM("S1.bam", under: outside)
+        let recorded = "bams/S1.third.filt.sorted.bam"
+        let (root, resultPath) = try makeEsVirituResult(sampleId: "S1", bamPath: recorded)
+        defer { TestTempDirectory.cleanup(root) }
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("bams"),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent(recorded),
+            withDestinationURL: outsideBAM
+        )
+
+        await assertEsVirituBAMNotFound("S1", resultPath: resultPath)
+    }
+
+    /// The same holds when the symlink is a folder on the way to the BAM, here `<root>/bams`.
+    func testResolveBAMURL_esviritu_recordedPathThroughFolderSymlinkLeavingRoot_throwsBamNotFound() async throws {
+        let outside = try TestTempDirectory.make(prefix: "esviritu-outside")
+        defer { TestTempDirectory.cleanup(outside) }
+        try writeStandInBAM("S1.third.filt.sorted.bam", under: outside)
+        let (root, resultPath) = try makeEsVirituResult(sampleId: "S1", bamPath: "bams/S1.third.filt.sorted.bam")
+        defer { TestTempDirectory.cleanup(root) }
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("bams"),
+            withDestinationURL: outside
+        )
+
+        await assertEsVirituBAMNotFound("S1", resultPath: resultPath)
     }
 
     // MARK: - extractViaBAM end-to-end (real samtools)
