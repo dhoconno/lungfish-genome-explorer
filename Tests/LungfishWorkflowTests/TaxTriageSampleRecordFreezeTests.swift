@@ -466,6 +466,40 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         )
     }
 
+    /// RT5 and E9 (follow-up review fix 1). The receipt of an install that ended with a failure adds nothing to the
+    /// identity, so a record never names a catalog entry, a version or a source that the folder does not have. The
+    /// receipt is the one the test before it writes, with its catalog entry and requested version as the fixture
+    /// holds them, and with the top-level exit status 1.
+    func testAReceiptOfAFailedInstallAddsNothingToTheIdentity() throws {
+        let database = try makeDatabase()
+        let fixture = ProvenanceCompatCorpus.repositoryRoot.appendingPathComponent(
+            "Tests/Fixtures/provenance-compat/cases/s1-db-receipt-kraken2-viral/managed-storage/databases/kraken2/viral/.lungfish-provenance.json"
+        )
+        var receipt = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as? [String: Any])
+        var options = try XCTUnwrap(receipt["options"] as? [String: Any])
+        var resolved = try XCTUnwrap(options["resolvedDefaults"] as? [String: Any])
+        func typed(_ value: String) -> [String: Any] { ["type": "string", "value": value] }
+        resolved["intendedFinalPath"] = typed(database.standardizedFileURL.path)
+        resolved["requestedSourceURL"] = typed("https://genome-idx.s3.amazonaws.com/kraken/k2_viral_20240904.tar.gz")
+        resolved["databaseSourcePolicy"] = typed("unpinnedArchive")
+        options["resolvedDefaults"] = resolved
+        receipt["options"] = options
+        receipt["exitStatus"] = 1
+        try JSONSerialization.data(withJSONObject: receipt)
+            .write(to: database.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+
+        XCTAssertEqual(
+            ProvenanceRecorder.loadEnvelope(from: database)?.exitStatus,
+            1,
+            "the receipt loads with its failed status"
+        )
+        XCTAssertEqual(
+            Set(TaxTriageRecordFacts.databaseIdentity(at: database).keys),
+            ["databasePath", "databaseIdentityStatus", "databaseCoreFileSizes"],
+            "a failed install names no catalog entry, version or source"
+        )
+    }
+
     /// RT2. A step of a sample's read set plan, a split or an interleave the resolver wrote, is recorded as Kraken 2
     /// records it, before the pipeline's own split and join steps, with its files and their digests.
     func testAStepOfTheReadSetPlanIsRecordedBeforeTheRunsOwnSteps() async throws {
