@@ -22,16 +22,16 @@ import LungfishTestSupport
 final class GenotypeCohortIdentityExportTests: XCTestCase {
     typealias Pins = GenotypeCohortListingPinTests
 
-    static let incompleteID = "31D2B132-01DD-5F19-BC0A-8878472F012F"
-    static let needsReviewID = "DF4CA8E2-BF22-50FC-8C94-BDB45C58A1F5"
-    static let homozygousID = "5FD26AEC-1025-5049-AE30-F43C219E9A7A"
-    static let recombinantsID = "048C9D06-A36A-5243-BEEC-7F2F591D780A"
-    static let errorsID = "3C5638B5-3D64-5064-AC68-20AE371E14D2"
-    static let errorsSecondID = "8E1DCABA-DFBD-53C8-ADAF-9AD629D5260A"
-    static let errorsUserScopeID = "BCB2419C-DE8D-5124-9463-9E07F479276A"
-    static let brandNewID = "89FDCF67-C549-5109-AD54-2654973702E2"
+    static let incompleteID = "31d2b132-01dd-5f19-bc0a-8878472f012f"
+    static let needsReviewID = "df4ca8e2-bf22-50fc-8c94-bdb45c58a1f5"
+    static let homozygousID = "5fd26aec-1025-5049-ae30-f43c219e9a7a"
+    static let recombinantsID = "048c9d06-a36a-5243-beec-7f2f591d780a"
+    static let errorsID = "3c5638b5-3d64-5064-ac68-20ae371e14d2"
+    static let errorsSecondID = "8e1dcaba-dfbd-53c8-adaf-9ad629d5260a"
+    static let errorsUserScopeID = "bcb2419c-de8d-5124-9463-9e07f479276a"
+    static let brandNewID = "89fdcf67-c549-5109-ad54-2654973702e2"
     /// A stored id no derivation produces, for a cohort the sidecar names apart from the others.
-    static let storedElsewhereID = "6A1F0C52-3B7D-4E0A-9C58-0D2B7E41A9F3"
+    static let storedElsewhereID = "6a1f0c52-3b7d-4e0a-9c58-0d2b7e41a9f3"
 
     /// The ids of the five cohorts of `Pins.makeBundle`, in file order.
     static let fiveIDs = [incompleteID, needsReviewID, homozygousID, recombinantsID, errorsID]
@@ -301,7 +301,7 @@ final class GenotypeCohortIdentityExportTests: XCTestCase {
     }
 
     private static func storedIDs(in bundle: URL) throws -> [String?] {
-        try cohortObjects(in: bundle).map { ($0["id"] as? String)?.uppercased() }
+        try cohortObjects(in: bundle).map { ($0["id"] as? String)?.lowercased() }
     }
 
     /// A patch sidecar holding `cohorts`, each with the stored id `ids[i]` or none.

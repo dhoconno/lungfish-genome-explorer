@@ -375,7 +375,7 @@ struct LabKeyExporter {
     /// decision O2), so deleting, dismissing, restoring or renaming one cohort
     /// never renumbers another. It is the id the sidecar stores with the
     /// cohort, else the id derived from the cohort's scope and name (decision
-    /// G2), written as a UUID in upper case. A sidecar saved before Phase 2.8
+    /// G2), written as a UUID in lower case. A sidecar saved before Phase 2.8
     /// stores none, this command never writes the file, and the next save by
     /// the app or by `genotype apply-annotations` stores the derived value. The
     /// predicate is serialized
@@ -411,7 +411,7 @@ struct LabKeyExporter {
             }
             let count = subjects.filter { cohort.predicate.evaluate($0) }.count
             return [
-                cohortIDs[offset].uuidString,
+                cohortIDs[offset].uuidString.lowercased(),
                 cohort.name,
                 predicateJSON,
                 createdAt,

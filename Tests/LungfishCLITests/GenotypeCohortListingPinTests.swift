@@ -29,11 +29,11 @@ final class GenotypeCohortListingPinTests: XCTestCase {
 
     static let noDismissalSmartCohortsCSV = """
     cohort_id,cohort_name,predicate_json,created_at,sample_count
-    31D2B132-01DD-5F19-BC0A-8878472F012F,Incomplete haplotypes,"{""kind"":""needsHaplotypeReview""}",2026-05-22T10:00:00Z,2
-    DF4CA8E2-BF22-50FC-8C94-BDB45C58A1F5,Needs review,"{""children"":[{""kind"":""needsHaplotypeReview""},{""kind"":""qcStatus"",""set"":[""lowSupport"",""review""]},{""kind"":""hasAnalystFlag"",""value"":""needsReview""}],""kind"":""any""}",2026-05-22T10:00:00Z,2
-    5FD26AEC-1025-5049-AE30-F43C219E9A7A,Homozygous,"{""kind"":""isHomozygousAcrossAll""}",2026-05-22T10:00:00Z,0
-    048C9D06-A36A-5243-BEEC-7F2F591D780A,Recombinants,"{""kind"":""hasRegionalRecombinant""}",2026-05-22T10:00:00Z,0
-    3C5638B5-3D64-5064-AC68-20AE371E14D2,Errors at MHC-A,"{""kind"":""hasErrorAt"",""locus"":""MHC-A""}",2026-05-22T10:00:00Z,0
+    31d2b132-01dd-5f19-bc0a-8878472f012f,Incomplete haplotypes,"{""kind"":""needsHaplotypeReview""}",2026-05-22T10:00:00Z,2
+    df4ca8e2-bf22-50fc-8c94-bdb45c58a1f5,Needs review,"{""children"":[{""kind"":""needsHaplotypeReview""},{""kind"":""qcStatus"",""set"":[""lowSupport"",""review""]},{""kind"":""hasAnalystFlag"",""value"":""needsReview""}],""kind"":""any""}",2026-05-22T10:00:00Z,2
+    5fd26aec-1025-5049-ae30-f43c219e9a7a,Homozygous,"{""kind"":""isHomozygousAcrossAll""}",2026-05-22T10:00:00Z,0
+    048c9d06-a36a-5243-beec-7f2f591d780a,Recombinants,"{""kind"":""hasRegionalRecombinant""}",2026-05-22T10:00:00Z,0
+    3c5638b5-3d64-5064-ac68-20ae371e14d2,Errors at MHC-A,"{""kind"":""hasErrorAt"",""locus"":""MHC-A""}",2026-05-22T10:00:00Z,0
 
     """
 

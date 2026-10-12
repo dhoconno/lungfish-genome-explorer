@@ -31,8 +31,9 @@ extension GenotypeCohortSmartFilter {
     /// The array is compact JSON with the minimal escapes of RFC 8259, so Python's
     /// `json.dumps([scope, name], separators=(",", ":"), ensure_ascii=False)`
     /// gives the same bytes, and `uuid.uuid5` over them gives the same id.
-    /// Compare the text of ids without regard to case, because Swift writes the
-    /// digits in upper case and Python in lower case.
+    /// `genotype export-labkey` writes the id in lower case, as Python prints
+    /// it. The sidecar JSON holds Foundation's upper case text, and a UUID
+    /// parses from either.
     ///
     /// - Parameter ordinal: The place of the cohort among those with its scope
     ///   and name, starting at 1.
