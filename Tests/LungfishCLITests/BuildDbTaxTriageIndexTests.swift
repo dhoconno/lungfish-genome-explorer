@@ -69,10 +69,17 @@ final class BuildDbTaxTriageIndexTests: XCTestCase {
         try await BuildDbCommand.TaxTriageSubcommand.parse([result.path] + arguments).run()
     }
 
-    private func index(_ result: URL, layout: AnalysisRunLayout) async throws -> AnalysisResultIndex {
+    private func index(
+        _ result: URL, layout: AnalysisRunLayout, recordedFiles: [ProvenanceFileDescriptor] = []
+    ) async throws -> AnalysisResultIndex {
         try await TaxTriageResultIndexer().buildIndex(
-            AnalysisResultIndexRequest(toolID: .taxtriage, resultDirectory: result, layout: layout)
+            AnalysisResultIndexRequest(toolID: .taxtriage, resultDirectory: result, layout: layout, recordedFiles: recordedFiles)
         )
+    }
+
+    /// Each of `relatives` under `folder` with the digest and size its bytes have, as a launch's step records it.
+    private func recordedOutputs(_ relatives: [String], in folder: URL) throws -> [ProvenanceFileDescriptor] {
+        try relatives.map { try ProvenanceFileDescriptor.file(url: folder.appendingPathComponent($0), role: .output) }
     }
 
     /// The samples of the database's rows, each where its first row was written.
@@ -96,6 +103,18 @@ final class BuildDbTaxTriageIndexTests: XCTestCase {
 
     private func exists(_ relative: String, in directory: URL) -> Bool {
         FileManager.default.fileExists(atPath: directory.appendingPathComponent(relative).path)
+    }
+
+    /// Writes `folder`'s own record, as a batch sample keeps it, with one taxtriage step whose outputs are `outputs`.
+    private func writeSampleRecord(in folder: URL, outputs: [ProvenanceFileDescriptor]) throws {
+        let record = ProvenanceEnvelope(
+            workflowName: "TaxTriage",
+            toolName: "taxtriage",
+            toolVersion: "fixture",
+            options: ProvenanceOptions(),
+            steps: [ProvenanceStep(toolName: "taxtriage", toolVersion: "fixture", outputs: outputs)]
+        )
+        try ProvenanceWriter(signingProvider: nil).write(record, to: folder)
     }
 
     // MARK: - BIO 8
@@ -141,12 +160,14 @@ final class BuildDbTaxTriageIndexTests: XCTestCase {
     // MARK: - T5, the executor path
 
     /// The executor's index keeps `top/`, removes the rest of the cleanup list, writes no record at the root, and its
-    /// removal step names each removed file with its digest after the build step.
+    /// removal step names each removed file after the build step, with the digest the launch's step recorded, which
+    /// the finalize passes in the request (T5 as amended).
     func testTheExecutorsIndexKeepsTopAndRecordsItsRemovalAfterTheBuild() async throws {
         let result = root.appendingPathComponent("taxtriage-batch-1", isDirectory: true)
         try makeMini(at: result)
+        let recorded = try recordedOutputs(Self.removedSeed, in: result)
 
-        let index = try await index(result, layout: .sharedBatchRoot)
+        let index = try await index(result, layout: .sharedBatchRoot, recordedFiles: recorded)
 
         XCTAssertEqual(index.outputs.map(\.url.lastPathComponent), ["taxtriage.sqlite"])
         XCTAssertEqual(index.outputs.map(\.role), [.index])
@@ -157,7 +178,11 @@ final class BuildDbTaxTriageIndexTests: XCTestCase {
         XCTAssertEqual(removed.count, removal.inputs.count, "every removed file is inside the result, \(removal.inputs.map(\.path))")
         XCTAssertEqual(Set(removed), Set(Self.removedSeed))
         XCTAssertEqual(removed.count, Self.removedSeed.count, "each file once")
-        XCTAssertTrue(removal.inputs.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
+        XCTAssertEqual(
+            removal.inputs.sorted { $0.path < $1.path },
+            recorded.map { $0.withRole(.input) }.sorted { $0.path < $1.path },
+            "each removed file with the digest and size the launch's step recorded"
+        )
         XCTAssertEqual(removal.outputs, [])
         for relative in Self.removedSeed {
             XCTAssertFalse(exists(relative, in: result), relative)
@@ -176,7 +201,9 @@ final class BuildDbTaxTriageIndexTests: XCTestCase {
     func testAForceRebuildAfterTheExecutorsCleanupKeepsEverySamplesRows() async throws {
         let batch = root.appendingPathComponent("taxtriage-batch-2", isDirectory: true)
         try makeODR(at: batch.appendingPathComponent("A", isDirectory: true))
-        try makeMini(at: batch.appendingPathComponent("B", isDirectory: true), topOnly: true)
+        let sampleB = batch.appendingPathComponent("B", isDirectory: true)
+        try makeMini(at: sampleB, topOnly: true)
+        try writeSampleRecord(in: sampleB, outputs: try recordedOutputs(Self.removedSeed, in: sampleB))
         let outside = root.appendingPathComponent("outside", isDirectory: true)
         try makeMini(at: outside)
         try FileManager.default.createSymbolicLink(at: batch.appendingPathComponent("C"), withDestinationURL: outside)
@@ -194,5 +221,39 @@ final class BuildDbTaxTriageIndexTests: XCTestCase {
 
         try await buildDb(batch, ["--force", "--no-cleanup", "-q"])
         XCTAssertEqual(try rowSamples(in: batch), ["SRR12486983", "SRR35517702"], "B keeps its rows")
+    }
+
+    /// 2.8 T5 as amended (rulings.md, BIO and SWIFT F2). The sample's own record names `count/S.fastq.gz` with a
+    /// digest its bytes do not have and `map/S.taxid.tsv` with a size they do not have, and no record names the other
+    /// files the cleanup removes. The removal step names `count/S.fastq.gz` with the digest the record holds, so the
+    /// cleanup read no removed file to hash it, and it names neither the file whose size changed nor a file that no
+    /// record names. Every file of the cleanup list is gone.
+    func testTheRemovalStepCarriesTheRecordedDigestAndHashesNothing() async throws {
+        let batch = root.appendingPathComponent("taxtriage-batch-3", isDirectory: true)
+        let sample = batch.appendingPathComponent("S", isDirectory: true)
+        try makeMini(at: sample)
+        let count = sample.appendingPathComponent("count/S.fastq.gz")
+        let map = sample.appendingPathComponent("map/S.taxid.tsv")
+        let seeded = String(repeating: "0", count: 64)
+        let countSize = try ProvenanceFileHasher.fileSize(of: count)
+        try writeSampleRecord(in: sample, outputs: [
+            ProvenanceFileDescriptor(path: count.path, checksumSHA256: seeded, fileSize: countSize, role: .output),
+            ProvenanceFileDescriptor(
+                path: map.path, checksumSHA256: String(repeating: "1", count: 64),
+                fileSize: try ProvenanceFileHasher.fileSize(of: map) + 1, role: .output
+            ),
+        ])
+
+        let index = try await index(batch, layout: .batchRoot)
+
+        let removal = try XCTUnwrap(index.steps.last)
+        XCTAssertEqual(removal.toolName, BuildDbCommand.TaxTriageSubcommand.cleanupRemovalToolName)
+        XCTAssertEqual(removal.inputs.map { relative($0.path, to: batch) }, ["S/count/S.fastq.gz"], "\(removal.inputs.map(\.path))")
+        XCTAssertEqual(removal.inputs.first?.checksumSHA256, seeded, "the digest the record holds, never a second hash")
+        XCTAssertEqual(removal.inputs.first?.fileSize, countSize)
+        XCTAssertEqual(removal.inputs.first?.role, .input)
+        for relative in Self.removedSeed {
+            XCTAssertFalse(exists("S/\(relative)", in: batch), relative)
+        }
     }
 }

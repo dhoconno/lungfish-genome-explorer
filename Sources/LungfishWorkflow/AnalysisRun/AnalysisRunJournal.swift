@@ -168,6 +168,7 @@ final class AnalysisRunJournal: Sendable {
             toolID: toolID,
             indexing: indexing,
             finalizeShare: finalizeShare,
+            recordedSteps: { self.recordedSteps },
             log: { level, message in self.log(level, message) },
             progress: { fraction, message in self.emit(.progress(fraction: fraction, message: message)) }
         )

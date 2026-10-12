@@ -137,6 +137,7 @@ public struct AnalysisRunFinalizeContext: Sendable {
     public let toolID: AnalysisToolID
     private let indexing: (any AnalysisResultIndexing)?
     private let finalizeShare: Double
+    private let recordedStepsHandler: @Sendable () -> [ProvenanceStep]
     private let logHandler: @Sendable (CLIEventLogLevel, String) -> Void
     private let progressHandler: @Sendable (Double, String) -> Void
 
@@ -149,6 +150,7 @@ public struct AnalysisRunFinalizeContext: Sendable {
         toolID: AnalysisToolID,
         indexing: (any AnalysisResultIndexing)?,
         finalizeShare: Double = 0,
+        recordedSteps: @escaping @Sendable () -> [ProvenanceStep] = { [] },
         log: @escaping @Sendable (CLIEventLogLevel, String) -> Void = { _, _ in },
         progress: @escaping @Sendable (Double, String) -> Void = { _, _ in }
     ) {
@@ -158,8 +160,16 @@ public struct AnalysisRunFinalizeContext: Sendable {
         self.toolID = toolID
         self.indexing = indexing
         self.finalizeShare = AnalysisRunJournal.clampedShare(finalizeShare)
+        self.recordedStepsHandler = recordedSteps
         self.logHandler = log
         self.progressHandler = progress
+    }
+
+    /// The steps the units handed to the root record, such as a launch's step with the digest and
+    /// size of each file it wrote. A finalize whose index build removes files passes their
+    /// descriptors to ``buildIndex(recordedFiles:)`` (2.8 T5 as amended in 2.9).
+    public var recordedSteps: [ProvenanceStep] {
+        recordedStepsHandler()
     }
 
     /// Writes a log line to the run's events. A warning line also becomes one of the run's warnings.
@@ -184,11 +194,13 @@ public struct AnalysisRunFinalizeContext: Sendable {
 
     /// Builds the viewer index of the result in process, through the index builder the executor
     /// was given for this analysis kind (E6). Add the index's outputs and steps to the
-    /// finalization so the root record names them.
+    /// finalization so the root record names them. `recordedFiles` are files the run's records
+    /// already name with a digest and a size, which a cleanup of the build names as it removes
+    /// them, reading none of them again (2.8 T5 as amended in 2.9).
     ///
     /// - Throws: ``AnalysisRunError/noResultIndexer(_:)`` when the executor has no index builder,
     ///   or the builder's error.
-    public func buildIndex() async throws -> AnalysisResultIndex {
+    public func buildIndex(recordedFiles: [ProvenanceFileDescriptor] = []) async throws -> AnalysisResultIndex {
         guard let indexing else {
             throw AnalysisRunError.noResultIndexer(toolID)
         }
@@ -198,6 +210,7 @@ public struct AnalysisRunFinalizeContext: Sendable {
                 toolID: toolID,
                 resultDirectory: rootDirectory,
                 layout: layout,
+                recordedFiles: recordedFiles,
                 log: logHandler
             )
         )

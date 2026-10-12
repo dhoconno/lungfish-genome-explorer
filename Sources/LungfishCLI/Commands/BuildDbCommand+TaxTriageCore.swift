@@ -16,7 +16,8 @@
 //   `BuildDbTaxTriageCleanupFreezeTests` pins the rows, the record and the removed paths of that order.
 // - `.recordedRemoval`, the executor's. `performRecordedCleanup` runs after the record, keeps `top/`, removes the
 //   other seven folders, `count/` and the fastp FASTQ files of each result folder that is no symbolic link, and
-//   returns one removal step naming each removed file, so the run's record names it after the build step.
+//   returns one removal step naming each removed file that a record names, with that record's digest and size,
+//   so the run's record names it after the build step. It hashes no file it removes (2.8 T5 as amended in 2.9).
 //
 // The parsers in BuildDbCommand.swift are instance methods that read no parsed option, so the core runs them on
 // an instance of its own.
@@ -90,7 +91,9 @@ extension BuildDbCommand {
         /// The `build-db taxtriage` core. Builds `taxtriage.sqlite` in `resultURL` from the result folder's
         /// reports, or from those of each serial sample folder under it, records the run beside the database
         /// and returns what it built. A database that exists is kept unless `options.force`. Unless
-        /// `options.noCleanup`, `cleanup` says which cleanup runs.
+        /// `options.noCleanup`, `cleanup` says which cleanup runs. A `.recordedRemoval` cleanup names
+        /// each file it removes with the descriptor that the record of the file's folder, `recordedFiles`
+        /// or the build's own record holds for it, in that order.
         ///
         /// A cancel of the caller's task ends the build with `CancellationError` at its next check, before
         /// each sample folder is read or cleaned up, before the database is written, after the samtools pass
@@ -100,6 +103,7 @@ extension BuildDbCommand {
             in resultURL: URL,
             options: BuildDbRunOptions,
             cleanup: Cleanup = .legacy,
+            recordedFiles: [ProvenanceFileDescriptor] = [],
             events: BuildDbEventSink
         ) async throws -> Build {
             let core = Self()
@@ -213,8 +217,12 @@ extension BuildDbCommand {
                 return Build(result: built, removal: nil)
             }
             // T5. After the record, so the run's record names the removal after the build step that read
-            // what it removes (2.8 P1).
-            return Build(result: built, removal: try core.performRecordedCleanup(resultURL: resultURL, events: events))
+            // what it removes (2.8 P1). The build's own steps name what it read with a digest too.
+            let recorded = recordedFiles + (built.record?.steps ?? []).flatMap { $0.inputs + $0.outputs }
+            return Build(
+                result: built,
+                removal: try core.performRecordedCleanup(resultURL: resultURL, recorded: recorded, events: events)
+            )
         }
 
         // MARK: - Post-Build Cleanup
@@ -234,21 +242,31 @@ extension BuildDbCommand {
             events.text("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
         }
 
-        /// T5's cleanup on the executor path. In the result folder and each serial sample folder that is no
-        /// symbolic link, it removes `count/`, the fastp FASTQ files and the seven folders of
-        /// ``removedFolderNames``, never `top/` and never a symbolic link among them. It returns one removal
-        /// step that names each removed file with the digest and size it had, read just before it went,
-        /// because a completed record holds both for every local file (`ProvenanceRunBuilder`), or nil
-        /// when it removed nothing.
-        private func performRecordedCleanup(resultURL: URL, events: BuildDbEventSink) throws -> ProvenanceStep? {
+        /// T5's cleanup on the executor path, as amended in Phase 2.9. In the result folder and each serial
+        /// sample folder that is no symbolic link, it removes `count/`, the fastp FASTQ files and the seven
+        /// folders of ``removedFolderNames``, never `top/` and never a symbolic link among them, and reads no
+        /// file it removes (SWIFT F1). It returns one removal step that names each removed file a record
+        /// already names, with the digest and size that record holds for it, the record of the file's folder
+        /// first and then `recorded`. A file that no record names, or whose size on disk is not the size its
+        /// record holds, goes unnamed, because P1 excuses a missing file only by the digest of a record that
+        /// names it. It returns nil when it names nothing.
+        private func performRecordedCleanup(
+            resultURL: URL,
+            recorded: [ProvenanceFileDescriptor],
+            events: BuildDbEventSink
+        ) throws -> ProvenanceStep? {
             let fm = FileManager.default
             let removalClock = ProvenanceRunClock()
+            let named = Self.byResolvedPath(recorded)
             var removed: [ProvenanceFileDescriptor] = []
             var freedBytes: Int64 = 0
 
             for cleanupRoot in [resultURL] + serialTaxTriageResultDirectories(in: resultURL) {
                 try Task.checkCancellation()
                 guard !Self.isSymbolicLink(cleanupRoot) else { continue }
+                let folderNamed = Self.byResolvedPath(
+                    ProvenanceRecorder.loadEnvelope(from: cleanupRoot).map(Self.fileDescriptors(of:)) ?? []
+                )
                 var files = Self.fastpFASTQFiles(in: cleanupRoot.appendingPathComponent("fastp"))
                 var folders: [URL] = []
                 for name in ["count"] + Self.removedFolderNames {
@@ -258,16 +276,19 @@ extension BuildDbCommand {
                     files += Self.regularFiles(under: folder)
                 }
                 for file in files {
-                    let descriptor: ProvenanceFileDescriptor
+                    let key = Self.resolvedPath(file)
+                    let size = try? ProvenanceFileHasher.fileSize(of: file)
                     do {
-                        descriptor = try ProvenanceFileDescriptor.file(url: file, role: .input)
                         try fm.removeItem(at: file)
                     } catch {
                         events.warning("Warning: could not remove \(file.path): \(error.localizedDescription)")
                         continue
                     }
-                    removed.append(descriptor)
-                    freedBytes += Int64(descriptor.fileSize ?? 0)
+                    freedBytes += Int64(size ?? 0)
+                    let candidates = [folderNamed[key], named[key]].compactMap { $0 }
+                    if let size, let descriptor = candidates.first(where: { $0.fileSize == size }) {
+                        removed.append(descriptor.withRole(.input))
+                    }
                 }
                 for folder in folders {
                     try? fm.removeItem(at: folder)
@@ -277,7 +298,7 @@ extension BuildDbCommand {
             events.text("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
             return RecordedRemovalStep.step(
                 toolName: Self.cleanupRemovalToolName,
-                api: "BuildDbCommand.TaxTriageSubcommand.performRecordedCleanup(resultURL:events:)",
+                api: "BuildDbCommand.TaxTriageSubcommand.performRecordedCleanup(resultURL:recorded:events:)",
                 removing: removed.filter { !fm.fileExists(atPath: $0.path) },
                 clock: removalClock
             )
@@ -313,6 +334,32 @@ extension BuildDbCommand {
 
         private static func isSymbolicLink(_ url: URL) -> Bool {
             (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true
+        }
+
+        /// Every file `record` names, at run level and in its steps.
+        private static func fileDescriptors(of record: ProvenanceEnvelope) -> [ProvenanceFileDescriptor] {
+            var descriptors = record.files + record.outputs
+            if let output = record.output {
+                descriptors.append(output)
+            }
+            return descriptors + record.steps.flatMap { $0.inputs + $0.outputs }
+        }
+
+        /// The first of `descriptors` with a digest and a size for each path, keyed as
+        /// ``resolvedPath(_:)`` keys a file, so a record's `/private/var` path meets a folder's `/var` one.
+        private static func byResolvedPath(_ descriptors: [ProvenanceFileDescriptor]) -> [String: ProvenanceFileDescriptor] {
+            var byPath: [String: ProvenanceFileDescriptor] = [:]
+            for descriptor in descriptors where descriptor.checksumSHA256 != nil && descriptor.fileSize != nil {
+                let key = resolvedPath(URL(fileURLWithPath: descriptor.path))
+                if byPath[key] == nil {
+                    byPath[key] = descriptor
+                }
+            }
+            return byPath
+        }
+
+        private static func resolvedPath(_ url: URL) -> String {
+            url.resolvingSymlinksInPath().path
         }
 
         private func performCleanupForSingleResult(resultURL: URL) -> Int64 {

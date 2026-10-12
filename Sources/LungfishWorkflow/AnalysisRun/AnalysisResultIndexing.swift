@@ -21,17 +21,23 @@ public struct AnalysisResultIndexRequest: Sendable {
     /// The result folder, the batch root when the layout has one.
     public let resultDirectory: URL
     public let layout: AnalysisRunLayout
+    /// Files the run's records already name with a digest and a size, such as the outputs of a step
+    /// a unit handed to the root record. A builder whose cleanup removes one of them names it with
+    /// that descriptor and reads no removed file to hash it (2.8 T5 as amended in 2.9, P1).
+    public let recordedFiles: [ProvenanceFileDescriptor]
     private let logHandler: @Sendable (CLIEventLogLevel, String) -> Void
 
     public init(
         toolID: AnalysisToolID,
         resultDirectory: URL,
         layout: AnalysisRunLayout,
+        recordedFiles: [ProvenanceFileDescriptor] = [],
         log: @escaping @Sendable (CLIEventLogLevel, String) -> Void = { _, _ in }
     ) {
         self.toolID = toolID
         self.resultDirectory = resultDirectory
         self.layout = layout
+        self.recordedFiles = recordedFiles
         self.logHandler = log
     }
 

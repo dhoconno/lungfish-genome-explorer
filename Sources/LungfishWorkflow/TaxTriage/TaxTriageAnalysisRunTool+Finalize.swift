@@ -21,7 +21,8 @@ extension TaxTriageAnalysisRunTool {
     ///
     /// A result in a project or a batch root then gets its viewer index in process, `taxtriage.sqlite`
     /// through the index builder the executor was given, with the build's steps and the recorded
-    /// removal step of its cleanup, which keeps `top/` (2.8 T5 and row 258, B12 M2). A plain `--output`
+    /// removal step of its cleanup, which keeps `top/` (2.8 T5 and row 258, B12 M2) and names each
+    /// removed file with the digest a record already holds (T5 as amended in 2.9). A plain `--output`
     /// keeps its folder as the command has always left it, with no index and no cleanup, as a Kraken2
     /// result outside a project does. An index that cannot be built leaves a warning and the result,
     /// since the viewer builds the index when the result opens.
@@ -40,7 +41,11 @@ extension TaxTriageAnalysisRunTool {
 
         context.progress(0, Self.databaseStageMessage)
         do {
-            let index = try await context.buildIndex()
+            // T5 as amended. The cleanup names each file it removes with the digest a record already
+            // holds, the steps the units handed to the root record or a batch sample's own record,
+            // which the cleanup reads in the sample's folder. It hashes nothing.
+            let recorded = context.recordedSteps.flatMap { $0.inputs + $0.outputs }
+            let index = try await context.buildIndex(recordedFiles: recorded)
             finalization.outputs += index.outputs
             finalization.steps += index.steps
             finalization.warnings += index.warnings
