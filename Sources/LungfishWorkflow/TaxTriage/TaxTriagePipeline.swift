@@ -482,7 +482,7 @@ public actor TaxTriagePipeline {
                     }
                 ),
                 in: scratch,
-                hooks: NextflowEngineHooks(progress: reader)
+                hooks: NextflowEngineHooks(progress: reader, cleanup: engine.containerCleanup(probe: containerRuntimeProbe))
             )
         } catch is CancellationError {
             // E10. The task was cancelled before the spawn, so no engine ran and no log was written.

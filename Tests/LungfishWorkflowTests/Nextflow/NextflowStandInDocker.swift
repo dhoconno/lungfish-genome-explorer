@@ -11,6 +11,7 @@
 import Foundation
 import LungfishCore
 @testable import LungfishWorkflow
+import Synchronization
 
 /// A stand-in `docker` in a folder of its own, with the files that drive and record it.
 struct NextflowStandInDocker {
@@ -172,11 +173,22 @@ struct NextflowStandInDocker {
     }
 }
 
-/// A Docker probe whose daemon answers and whose CLI is the stand-in, or none.
-struct StandInDockerProbe: ContainerRuntimeProbing {
+/// A Docker probe whose daemon answers and whose CLI is the stand-in, or none, counting how often the CLI is
+/// looked up.
+final class StandInDockerProbe: ContainerRuntimeProbing, Sendable {
     let dockerPath: String?
+    private let lookups = Mutex(0)
 
-    func dockerCLIPath() -> String? { dockerPath }
+    init(dockerPath: String?) {
+        self.dockerPath = dockerPath
+    }
+
+    var cliLookups: Int { lookups.withLock { $0 } }
+
+    func dockerCLIPath() -> String? {
+        lookups.withLock { $0 += 1 }
+        return dockerPath
+    }
 
     func dockerDaemon(dockerPath: String, timeout: TimeInterval) async -> DockerDaemonProbe {
         DockerDaemonProbe(reachable: true, clientVersion: "28.3.2", serverVersion: "28.3.2", detail: nil)

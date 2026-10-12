@@ -8,8 +8,9 @@
 // with a probe whose daemon answers and whose `docker` is `NextflowStandInDocker`, so it needs no Docker. The
 // cancelled cases use the engine that waits until a signal ends it, so a cancel ends its tree at once.
 //
-// At the base of the lane TaxTriage gave its engine no container cleanup, so no `docker` ran on a cancel. The
-// parts of the order that only the cleanup can show sit in `XCTExpectFailure` blocks, XCTest's known issue.
+// At the base of the lane TaxTriage gave its engine no container cleanup, so no `docker` ran on a cancel, and
+// the parts of the order that only the cleanup can show sat in `XCTExpectFailure` blocks, XCTest's known issue.
+// `NextflowDockerContainerCleanup`, which TaxTriage now gives a docker run's engine, made them plain assertions.
 
 import Foundation
 import LungfishCore
@@ -62,9 +63,7 @@ final class TaxTriageContainerCleanupTests: XCTestCase {
         XCTAssertEqual(record?.exitStatus, 125)
         XCTAssertFalse(engineTestProcessIsRunning(engineID), "no process of the tree outlives the run")
         XCTAssertFalse(FileManager.default.fileExists(atPath: work.path), "the scratch goes once the record is written")
-        XCTExpectFailure("At the base TaxTriage gives its engine no container cleanup, so no docker runs") {
-            assertTheCleanupStoppedOnlyTheRunsContainers(docker, ids: ids)
-        }
+        assertTheCleanupStoppedOnlyTheRunsContainers(docker, ids: ids)
     }
 
     func testACancelledDockerRunNeverWaitsPastTheCleanupBound() async throws {
@@ -93,11 +92,9 @@ final class TaxTriageContainerCleanupTests: XCTestCase {
         XCTAssertEqual(record?.status, .cancelled, "a cleanup that runs out its bound still leaves the record")
         XCTAssertEqual(record?.exitStatus, 125)
         XCTAssertLessThan(waited, .seconds(6), "N5, a docker that hangs holds the run no longer than the 1.5 s bound, \(waited)")
-        XCTExpectFailure("At the base TaxTriage gives its engine no container cleanup, so no docker runs") {
-            XCTAssertNotNil(hungPID, "the cleanup asks docker for the containers")
-            XCTAssertGreaterThanOrEqual(waited, .milliseconds(1400), "the run waits for the cleanup up to its bound")
-            XCTAssertTrue(stopped, "the docker that hangs is stopped, so none outlives the cleanup")
-        }
+        XCTAssertNotNil(hungPID, "the cleanup asks docker for the containers")
+        XCTAssertGreaterThanOrEqual(waited, .milliseconds(1400), "the run waits for the cleanup up to its bound")
+        XCTAssertTrue(stopped, "the docker that hangs is stopped, so none outlives the cleanup")
     }
 
     // MARK: - Runs that call no docker

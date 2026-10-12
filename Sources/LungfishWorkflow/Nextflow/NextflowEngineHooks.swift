@@ -76,7 +76,7 @@ package struct NextflowTraceProgress: Sendable, Equatable {
 }
 
 /// Stops a cancelled run's task containers after the host tree is gone, never past `bound` (N5).
-/// S10 implements it by the containers' bind mounts of the run's own work folder.
+/// ``NextflowDockerContainerCleanup`` implements it for a docker run, by the containers' mounts of its work folder.
 package protocol NextflowContainerCleanup: Sendable {
     func stopContainers(boundTo workDirectory: URL, within bound: Duration) async
 }
