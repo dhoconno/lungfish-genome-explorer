@@ -95,7 +95,7 @@ public struct FakeClassificationCondaFixture {
     /// The reads the fake report holds at its one taxon. The default is Bracken's default
     /// threshold, so a run that asks for a profile reaches the fake Bracken as it reaches the real
     /// one. A report that holds fewer reads makes the fake Bracken fail as est_abundance.py does.
-    public static let defaultRankReads = 10
+    public static let defaultRankReads = BrackenProfileRequest.automaticDefault.threshold
 
     public init(
         reportRank: ReportRank = .species,
