@@ -129,13 +129,17 @@ public actor ProcessManager: ProcessManaging {
     }
 
     /// ``spawn(executable:arguments:workingDirectory:environment:)`` with the
-    /// drain grace period set, or ToolProcess's default when it is nil.
+    /// drain grace period and the termination grace period set, each
+    /// ToolProcess's default when it is nil. The termination grace is how
+    /// long a stopped tree has between SIGTERM and SIGKILL, so an engine that
+    /// cleans up on SIGTERM, such as Nextflow, gets the time it needs.
     func spawn(
         executable: URL,
         arguments: [String],
         workingDirectory: URL,
         environment: [String: String]?,
-        drainGracePeriod: Duration?
+        drainGracePeriod: Duration?,
+        terminationGracePeriod: Duration? = nil
     ) async throws -> ProcessHandle {
         try await launch(
             executable: executable,
@@ -143,7 +147,8 @@ public actor ProcessManager: ProcessManaging {
             workingDirectory: workingDirectory,
             environment: environment,
             keepsOutput: false,
-            drainGracePeriod: drainGracePeriod
+            drainGracePeriod: drainGracePeriod,
+            terminationGracePeriod: terminationGracePeriod
         ).handle
     }
 
@@ -159,7 +164,8 @@ public actor ProcessManager: ProcessManaging {
         workingDirectory: URL,
         environment: [String: String]?,
         keepsOutput: Bool,
-        drainGracePeriod: Duration?
+        drainGracePeriod: Duration?,
+        terminationGracePeriod: Duration? = nil
     ) async throws -> ProcessEntry {
         let handleId = UUID()
 
@@ -196,6 +202,9 @@ public actor ProcessManager: ProcessManaging {
         )
         if let drainGracePeriod {
             spec.drainGracePeriod = drainGracePeriod
+        }
+        if let terminationGracePeriod {
+            spec.terminationGracePeriod = terminationGracePeriod
         }
 
         let (stdoutStream, stdoutContinuation) = AsyncStream.makeStream(of: String.self)

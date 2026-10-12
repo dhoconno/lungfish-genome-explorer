@@ -8,9 +8,11 @@
 // in its TERM-trapping mode, where the engine and a heartbeat child it forks trap TERM and go on, so
 // only a KILL after a grace ends the tree.
 //
-// Today's defects are pinned with `XCTExpectFailure`, XCTest's known issue. Each block states what
-// a cancel must do, so the class passes while the defect stands and turns red once it is fixed,
-// until the block becomes a plain assertion.
+// At the base of the lane each defect sat in an `XCTExpectFailure` block, XCTest's known issue.
+// The fix made them plain assertions. A cancel stops the whole tree with TERM, then KILL after a
+// 4 s grace, before the run returns. It records `cancelled` with exit 125 and no output, and the
+// launch scratch goes only once the tree is gone. A cancel during the finish wins, and a serial
+// batch stops at its next sample and saves its record as cancelled.
 //
 // The cases start processes and the GUI case runs on `OperationCenter.shared`, so the class runs
 // serially. Its name ends in ReplayTests, which sends it to the integration tier (`REPLAY_SUITES` in
@@ -70,22 +72,19 @@ final class TaxTriagePipelineCancelReplayTests: XCTestCase {
         let step = record?.steps.first { $0.toolName == "TaxTriage" }
         let ended = try engine.launches().first
 
-        XCTExpectFailure("T4: today a cancel ends the reads at once, so the run records failed with exit -1") {
-            XCTAssertTrue(outcome.failure is CancellationError, "\(String(describing: outcome.failure))")
-            XCTAssertEqual(record?.status, .cancelled, "the record says cancelled, from the request")
-            XCTAssertEqual(record?.exitStatus, 125, "a cancel records exit 125, never the signal that ended the engine")
-            XCTAssertEqual(step?.exitStatus, 125)
-            XCTAssertEqual(step?.outputs.map(\.path) ?? ["no step"], [], "a cancel hashes no partial output")
-        }
-        XCTExpectFailure("T5: today a cancel sends no signal, so the engine and its child outlive the run") {
-            XCTAssertFalse(treeRunsAfterTheRun, "no process of the engine tree may outlive the run")
-            XCTAssertEqual(Set(ended?.trappedSignals ?? []), ["TERM"], "the engine gets TERM first")
-            XCTAssertEqual(Set(ended?.childTrappedSignals ?? []), ["TERM"], "its child gets TERM too")
-            XCTAssertGreaterThanOrEqual(waited, .milliseconds(3500), "the tree has its 4 s grace before KILL")
-        }
-        XCTExpectFailure("T5: today the run removes the launch scratch while the engine's child still runs") {
-            XCTAssertFalse(workWentWhileTheChildRan, "the scratch goes only once the tree is gone")
-        }
+        // T4, which recorded failed with exit -1.
+        XCTAssertTrue(outcome.failure is CancellationError, "\(String(describing: outcome.failure))")
+        XCTAssertEqual(record?.status, .cancelled, "the record says cancelled, from the request")
+        XCTAssertEqual(record?.exitStatus, 125, "a cancel records exit 125, never the signal that ended the engine")
+        XCTAssertEqual(step?.exitStatus, 125)
+        XCTAssertEqual(step?.outputs.map(\.path) ?? ["no step"], [], "a cancel hashes no partial output")
+        // T5, where the engine and its child outlived the run and got no signal.
+        XCTAssertFalse(treeRunsAfterTheRun, "no process of the engine tree may outlive the run")
+        XCTAssertEqual(Set(ended?.trappedSignals ?? []), ["TERM"], "the engine gets TERM first")
+        XCTAssertEqual(Set(ended?.childTrappedSignals ?? []), ["TERM"], "its child gets TERM too")
+        XCTAssertGreaterThanOrEqual(waited, .milliseconds(3500), "the tree has its 4 s grace before KILL")
+        // T5, where the launch scratch went while the engine's child still ran.
+        XCTAssertFalse(workWentWhileTheChildRan, "the scratch goes only once the tree is gone")
         XCTAssertLessThan(waited, .seconds(30))
         XCTAssertNil(ended?.exitStatus, "a launch a signal ended, or one still running, records no exit status")
         XCTAssertFalse(
@@ -111,12 +110,11 @@ final class TaxTriagePipelineCancelReplayTests: XCTestCase {
         let resultFile = config.outputDirectory.appendingPathComponent("taxtriage-result.json")
 
         XCTAssertEqual(try engine.launches().map(\.exitStatus), [0], "the engine completed")
-        XCTExpectFailure("T10: today a cancel during the finish is ignored and the run completes") {
-            XCTAssertTrue(outcome.failure is CancellationError, "\(String(describing: outcome.failure))")
-            XCTAssertEqual(record?.status, .cancelled)
-            XCTAssertEqual(record?.exitStatus, 125)
-            XCTAssertFalse(FileManager.default.fileExists(atPath: resultFile.path), "a cancelled run writes no result")
-        }
+        // T10, where a cancel during the finish was ignored and the run completed.
+        XCTAssertTrue(outcome.failure is CancellationError, "\(String(describing: outcome.failure))")
+        XCTAssertEqual(record?.status, .cancelled)
+        XCTAssertEqual(record?.exitStatus, 125)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: resultFile.path), "a cancelled run writes no result")
     }
 
     // MARK: - The serial batch runner
@@ -134,11 +132,10 @@ final class TaxTriagePipelineCancelReplayTests: XCTestCase {
 
         XCTAssertTrue(outcome.failure is CancellationError, "\(String(describing: outcome.failure))")
         XCTAssertEqual(try engine.launches().count, 1, "the batch stops before its next sample")
-        XCTExpectFailure("T9: today the batch run is begun and never completed or saved") {
-            XCTAssertEqual(record?.status, .cancelled, "the batch records the cancel")
-            XCTAssertEqual(record?.steps.map(\.exitStatus) ?? [], [125], "one step, the cancelled sample, exit 125")
-            XCTAssertEqual(record?.steps.first?.outputs.count, 0, "a cancel hashes no partial output")
-        }
+        // T9, where the batch run was begun and never completed or saved.
+        XCTAssertEqual(record?.status, .cancelled, "the batch records the cancel")
+        XCTAssertEqual(record?.steps.map(\.exitStatus) ?? [], [125], "one step, the cancelled sample, exit 125")
+        XCTAssertEqual(record?.steps.first?.outputs.count, 0, "a cancel hashes no partial output")
     }
 
     // MARK: - The Tools menu route
@@ -194,16 +191,14 @@ final class TaxTriagePipelineCancelReplayTests: XCTestCase {
             "the launch must make one analysis folder"
         )
         let record = try ProvenanceEnvelopeReader.load(from: analysis)
-        XCTExpectFailure("T4 and T5: today the row settles at once while the engine tree runs on, and the record says failed") {
-            XCTAssertFalse(treeRunsWhenTheRowSettles, "the row settles only once the engine tree is gone")
-            XCTAssertEqual(record?.status, .cancelled, "the run's record says cancelled")
-        }
+        // T4 and T5, where the row settled at once while the tree ran on, and the record said failed.
+        XCTAssertFalse(treeRunsWhenTheRowSettles, "the row settles only once the engine tree is gone")
+        XCTAssertEqual(record?.status, .cancelled, "the run's record says cancelled")
     }
 
     // MARK: - Helpers
 
-    /// The engine for one case, stopped in teardown so no stand-in outlives the case, because
-    /// today's cancel sends no signal.
+    /// The engine for one case, stopped in teardown so no stand-in outlives a case that fails.
     private func makeEngine(_ behaviour: TaxTriageStandInEngine.Behaviour) throws -> TaxTriageStandInEngine {
         let engine = try TaxTriageStandInEngine(
             root: scratch.appendingPathComponent("engine", isDirectory: true),

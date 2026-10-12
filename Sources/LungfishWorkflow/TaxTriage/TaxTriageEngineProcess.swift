@@ -1,4 +1,4 @@
-// TaxTriageEngineProcess.swift - The launch scratch and the output lines of TaxTriage's Nextflow engine
+// TaxTriageEngineProcess.swift - The launch, cancel, scratch and output lines of TaxTriage's Nextflow engine
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -8,6 +8,91 @@ import LungfishIO
 import os.log
 
 private let logger = Logger(subsystem: "com.lungfish.workflow", category: "TaxTriagePipeline")
+
+// MARK: - TaxTriageEngineProcess
+
+/// Runs TaxTriage's Nextflow engine for ``TaxTriagePipeline`` and streams its output lines.
+///
+/// A cancel of the calling task stops the whole engine tree on the host, the launcher, Nextflow's
+/// JVM and every task wrapper (Phase 2.8 decision T11). ToolProcess sends TERM to the process group
+/// and the descendant tree, then KILL to whatever is left after ``terminationGracePeriod`` (T12),
+/// and ``run(executable:arguments:workingDirectory:environment:onStdoutLine:)`` returns only once
+/// the tree is gone. So nothing the caller removes afterwards, the launch scratch with `work/`
+/// among it (T13), goes while the engine runs. Containers run by Docker are outside the host tree
+/// and are not stopped here.
+struct TaxTriageEngineProcess: Sendable {
+    /// Nextflow's grace on the in-process route, which fits inside the 6 s the app's transport
+    /// gives the CLI (T12).
+    static let defaultTerminationGracePeriod: Duration = .seconds(4)
+
+    /// How the engine ended, read once its whole tree is gone.
+    struct Outcome: Sendable {
+        /// The exit status, the number of the signal that ended the engine, or -1 when none was
+        /// reported. A cancel is read from the task, never from this.
+        let exitCode: Int32
+        let stdoutLines: [String]
+        let stderrLines: [String]
+    }
+
+    let processManager: ProcessManager
+    let terminationGracePeriod: Duration
+
+    init(processManager: ProcessManager, terminationGracePeriod: Duration = Self.defaultTerminationGracePeriod) {
+        self.processManager = processManager
+        self.terminationGracePeriod = terminationGracePeriod
+    }
+
+    /// Launches the engine, hands each stdout line to `onStdoutLine` as it arrives, and returns once
+    /// the engine and every process of its tree have ended, after a cancel too.
+    ///
+    /// - Throws: The launch failure. Nothing runs then.
+    func run(
+        executable: URL,
+        arguments: [String],
+        workingDirectory: URL,
+        environment: [String: String],
+        onStdoutLine: @escaping @Sendable (String) -> Void
+    ) async throws -> Outcome {
+        let handle = try await processManager.spawn(
+            executable: executable,
+            arguments: arguments,
+            workingDirectory: workingDirectory,
+            environment: environment,
+            drainGracePeriod: nil,
+            terminationGracePeriod: terminationGracePeriod
+        )
+        logger.info("Nextflow process started with PID \(handle.pid)")
+
+        // Not a child task, so a cancel of the caller ends neither the reads nor the wait early
+        // (inventory T4). The streams end only once the run is over and the tree is gone.
+        let streaming = Task {
+            async let stdout = Self.lines(of: handle.standardOutput, onLine: onStdoutLine)
+            async let stderr = Self.lines(of: handle.standardError, onLine: nil)
+            let lines = await (stdout, stderr)
+            return Outcome(exitCode: await handle.waitForExit(), stdoutLines: lines.0, stderrLines: lines.1)
+        }
+        let processManager = processManager
+        return await withTaskCancellationHandler {
+            await streaming.value
+        } onCancel: {
+            // Runs at once when the task was cancelled during the launch, so no cancel is lost.
+            Task { await processManager.terminate(id: handle.id) }
+        }
+    }
+
+    /// Every line of `stream`, each handed to `onLine` as it arrives.
+    private static func lines(
+        of stream: AsyncStream<String>,
+        onLine: (@Sendable (String) -> Void)?
+    ) async -> [String] {
+        var lines: [String] = []
+        for await line in stream {
+            lines.append(line)
+            onLine?(line)
+        }
+        return lines
+    }
+}
 
 // MARK: - Engine launch
 

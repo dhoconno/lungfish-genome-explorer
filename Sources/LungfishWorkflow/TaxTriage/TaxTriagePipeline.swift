@@ -453,14 +453,21 @@ public actor TaxTriagePipeline {
         )
         let provenanceCommand = [micromambaPath.path] + micromambaArgs
 
-        let handle: ProcessHandle
+        // Track completed processes for progress estimation
+        let tracker = CompletedProcessTracker()
+        let engine: TaxTriageEngineProcess.Outcome
         do {
-            handle = try await processManager.spawn(
+            engine = try await TaxTriageEngineProcess(processManager: processManager).run(
                 executable: micromambaPath,
                 arguments: micromambaArgs,
                 workingDirectory: scratch.launchDirectory,
                 environment: environment
-            )
+            ) { line in
+                // Parse Nextflow progress from stdout
+                if let progressFraction = self.parseNextflowProcessLine(line, tracker: tracker) {
+                    progress?(0.10 + progressFraction * 0.80, line.trimmingCharacters(in: .whitespaces))
+                }
+            }
         } catch {
             let spawnMessage = "Failed to spawn Nextflow: \(error.localizedDescription)"
             let spawnLog = launchMetadata + "\n--- launcher error ---\n" + spawnMessage + "\n"
@@ -490,43 +497,9 @@ public actor TaxTriagePipeline {
             )
         }
 
-        logger.info("Nextflow process started with PID \(handle.pid)")
-
-        // Track completed processes for progress estimation
-        let tracker = CompletedProcessTracker()
-
-        // Process stdout and stderr concurrently
-        var stdoutLines: [String] = []
-        var stderrLines: [String] = []
-
-        async let stdoutCollection: [String] = {
-            var lines: [String] = []
-            for await line in handle.standardOutput {
-                lines.append(line)
-                // Parse Nextflow progress from stdout
-                if let progressFraction = parseNextflowProcessLine(
-                    line, tracker: tracker
-                ) {
-                    let mapped = 0.10 + progressFraction * 0.80
-                    progress?(mapped, line.trimmingCharacters(in: .whitespaces))
-                }
-            }
-            return lines
-        }()
-
-        async let stderrCollection: [String] = {
-            var lines: [String] = []
-            for await line in handle.standardError {
-                lines.append(line)
-            }
-            return lines
-        }()
-
-        stdoutLines = await stdoutCollection
-        stderrLines = await stderrCollection
-
-        // Wait for exit
-        let exitCode = await handle.waitForExit()
+        let exitCode = engine.exitCode
+        let stdoutLines = engine.stdoutLines
+        let stderrLines = engine.stderrLines
 
         // Write combined log
         let combinedLog = launchMetadata
@@ -535,6 +508,14 @@ public actor TaxTriagePipeline {
             + "\n--- stderr ---\n"
             + stderrLines.joined(separator: "\n")
         try? combinedLog.write(to: logFile, atomically: true, encoding: .utf8)
+
+        // The engine tree is gone. A cancel wins over how the engine ended (2.7 E5).
+        if Task.isCancelled {
+            try await recordCancellation(
+                runID: runID, config: profileAdjustedConfig, command: provenanceCommand,
+                wallTime: runClock.elapsed, logFile: logFile
+            )
+        }
 
         if exitCode != 0 {
             // Nextflow reports lock/cache-DB failures on stdout, so fall back to
@@ -605,6 +586,14 @@ public actor TaxTriagePipeline {
             runClock: runClock
         )
 
+        // A cancel during the finish wins too (T10), so no result is written.
+        if Task.isCancelled {
+            try await recordCancellation(
+                runID: runID, config: profileAdjustedConfig, command: provenanceCommand,
+                wallTime: runClock.elapsed, logFile: logFile
+            )
+        }
+
         // Save the result for later reference
         do {
             try result.save()
@@ -650,6 +639,39 @@ public actor TaxTriagePipeline {
         logger.info("TaxTriage pipeline complete: \(sampleCount, privacy: .public) sample(s), \(runtimeStr, privacy: .public)s")
 
         return result
+    }
+
+    /// Records the cancel of a run and throws `CancellationError` (2.7 E5). The status and the
+    /// exit status 125 come from the cancel request, never from how the engine ended, and the
+    /// step names no output, so nothing partial is hashed. The engine tree is gone by now, so the
+    /// run's deferred cleanup, the launch scratch among it, runs only after this (T13).
+    private func recordCancellation(
+        runID: UUID,
+        config: TaxTriageConfig,
+        command: [String],
+        wallTime: TimeInterval,
+        logFile: URL
+    ) async throws -> Never {
+        let message = TaxTriagePipelineError.cancelled.localizedDescription
+        await recordTaxTriageProvenanceStep(
+            runID: runID,
+            config: config,
+            command: command,
+            outputFiles: [],
+            exitCode: AnalysisRunExitCode.cancelled,
+            wallTime: wallTime,
+            stderr: message
+        )
+        await ProvenanceRecorder.shared.completeRun(runID, status: .cancelled)
+        try await saveTaxTriageProvenanceOrThrow(
+            runID: runID,
+            outputDirectory: config.outputDirectory,
+            description: "cancelled run",
+            exitCode: AnalysisRunExitCode.cancelled,
+            stderr: message,
+            logFile: logFile
+        )
+        throw CancellationError()
     }
 
     nonisolated func prepareExecutionConfig(for config: TaxTriageConfig) throws -> PreparedExecutionConfig {

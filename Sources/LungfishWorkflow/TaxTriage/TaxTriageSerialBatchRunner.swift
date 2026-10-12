@@ -55,7 +55,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
         var sampleFailures: [TaxTriageSampleFailure] = []
 
         for (index, sample) in config.samples.enumerated() {
-            try Task.checkCancellation()
+            try await throwIfCancelled(runID: runID, root: root)
 
             let directoryName = uniqueDirectoryName(for: sample.sampleId, usedNames: &usedDirectoryNames)
             let sampleOutputDirectory = root.appendingPathComponent(directoryName, isDirectory: true)
@@ -88,6 +88,18 @@ public struct TaxTriageSerialBatchRunner: Sendable {
                     wallTime: sampleClock.elapsed,
                     stderr: nil
                 )
+            } catch _ where Task.isCancelled {
+                // A cancel, from the request and never from how the engine ended, ends the batch
+                // at the next sample, with this sample recorded as cancelled, not failed (T9, E5).
+                await recordSampleFailureProvenance(
+                    runID: runID,
+                    sample: sample,
+                    config: sampleConfig,
+                    outputDirectory: sampleOutputDirectory,
+                    wallTime: sampleClock.elapsed,
+                    error: TaxTriagePipelineError.cancelled,
+                    exitCode: AnalysisRunExitCode.cancelled
+                )
             } catch {
                 let failure = TaxTriageSampleFailure(
                     sampleID: sample.sampleId,
@@ -109,6 +121,8 @@ public struct TaxTriageSerialBatchRunner: Sendable {
                 )
             }
         }
+        // A cancel after the last sample wins too, so no aggregate is written (T10).
+        try await throwIfCancelled(runID: runID, root: root)
 
         guard !sampleResults.isEmpty else {
             await ProvenanceRecorder.shared.completeRun(runID, status: .failed)
@@ -194,6 +208,15 @@ public struct TaxTriageSerialBatchRunner: Sendable {
         Self.uniqueDirectoryName(for: sampleID, usedNames: &usedNames)
     }
 
+    /// Ends a cancelled batch with its record saved as cancelled (T9). The status comes from the
+    /// cancel request, never from how an engine ended (2.7 E5).
+    private func throwIfCancelled(runID: UUID, root: URL) async throws {
+        guard Task.isCancelled else { return }
+        await ProvenanceRecorder.shared.completeRun(runID, status: .cancelled)
+        try await ProvenanceRecorder.shared.save(runID: runID, to: root)
+        throw CancellationError()
+    }
+
     private func provenanceParameters(for config: TaxTriageConfig) -> [String: ParameterValue] {
         var parameters: [String: ParameterValue] = [
             "workflow": .string("taxtriage-serial-batch"),
@@ -253,7 +276,8 @@ public struct TaxTriageSerialBatchRunner: Sendable {
         config: TaxTriageConfig,
         outputDirectory: URL,
         wallTime: TimeInterval,
-        error: Error
+        error: Error,
+        exitCode: Int32 = 1
     ) async {
         var failedConfig = config
         failedConfig.samples = [sample]
@@ -266,7 +290,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
             command: sampleCommand(for: failedConfig),
             inputs: inputRecords(for: sample),
             outputs: [],
-            exitCode: 1,
+            exitCode: exitCode,
             wallTime: wallTime,
             stderr: error.localizedDescription
         )
