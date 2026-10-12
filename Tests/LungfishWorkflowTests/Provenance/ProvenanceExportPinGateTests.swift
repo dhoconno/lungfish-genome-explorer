@@ -661,7 +661,7 @@ final class ProvenanceExportPinGateTests: XCTestCase {
     }
 }
 
-/// The golden provenance records, the 44 records with 100 steps that
+/// The golden provenance records, the 44 records with 101 steps that
 /// `ProvenanceExportPinAssessmentRecordTests` assesses, and copies of them restored to the shape they
 /// were written in.
 enum GoldenProvenanceRecords {

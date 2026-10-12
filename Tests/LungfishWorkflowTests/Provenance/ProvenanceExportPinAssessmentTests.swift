@@ -219,7 +219,8 @@ final class ProvenanceExportPinAssessmentRecordTests: XCTestCase {
             "2 kraken2 [-] noEnvironmentRecorded -",
             "3 lungfish-kraken2-index [-] noEnvironmentRecorded -",
             "4 gzip [-] noEnvironmentRecorded -",
-            "5 Lungfish Classification Result Sidecar [-] noEnvironmentRecorded -",
+            "5 Lungfish Kraken2 Output Removal [-] noEnvironmentRecorded -",
+            "6 Lungfish Classification Result Sidecar [-] noEnvironmentRecorded -",
         ],
         "genotype/bundle/lungfish-provenance.json": [
             "1 minimap2 [minimap2] pinnedToLock -",
@@ -328,7 +329,7 @@ final class ProvenanceExportPinAssessmentRecordTests: XCTestCase {
         let assessments = try Self.goldenAssessments()
         let steps = assessments.values.flatMap { $0 }
         XCTAssertEqual(assessments.count, 44)
-        XCTAssertEqual(steps.count, 100)
+        XCTAssertEqual(steps.count, 101)
         let counts = steps.reduce(into: [String: Int]()) { counts, step in
             let row = Self.row(step).split(separator: " ")
             counts[String(row[row.count - 2]), default: 0] += 1
@@ -336,8 +337,10 @@ final class ProvenanceExportPinAssessmentRecordTests: XCTestCase {
         // Phase 2.6 lane P5a. The six steps whose export lacked the build or the channel are pinned to the lock.
         // Phase 2.7 lane B5. The 26 demux tool steps record the version the environment that ran them holds,
         // so none reads as an unknown version legacy spelling any more and all 26 are pinned to the lock.
+        // Phase 2.8 lane B3. The Kraken2 golden gains the Lungfish Kraken2 Output Removal step, a Swift step
+        // that records no environment, so one more step reads as no environment recorded.
         XCTAssertEqual(counts, [
-            "noEnvironmentRecorded": 52,
+            "noEnvironmentRecorded": 53,
             "pinnedToLock": 40,
             "versionUnknown.recordedAppVersion": 8
         ])
