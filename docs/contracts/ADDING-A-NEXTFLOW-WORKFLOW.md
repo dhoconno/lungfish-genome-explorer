@@ -212,7 +212,7 @@ The Operations row is the entry of `OperationCenter` that a launch begins and en
 | Row title and first detail | `TaxTriage (N sample[s])`, `Starting TaxTriage pipeline…` | `<W> (N sample[s])`, `Starting <W>…` |
 | Docker wait | `Docker daemon unavailable. Launching Docker Desktop...`, `Docker daemon ready`, and on a failure `Docker Desktop is not running or daemon is unreachable. Start Docker Desktop and retry.` | The same words, because the engine's one wait reports them for every workflow (section 3). A lane that rewords them does so for every workflow and both surfaces in one commit (decision E15 of Phase 2.7) |
 | Before the engine | `Checking prerequisites...`, `Generating samplesheet...` | `Checking Nextflow and Docker…`, `Writing the samplesheet…` |
-| A task | A line that holds `process >`, such as `[aa/000001] Submitted process > <path>`, as the raw line | `Running <process> (<tag>)`, with the last part of the process name as `<process>` |
+| A task | A line that holds `process >`, such as `[aa/000001] Submitted process > <path>`, as the raw line | `Running <process> (<tag>)`, or `Running <process>` for a task with no tag, where `<process>` is the last part of the process name, such as `Running KRAKEN2_KRAKEN2 (SRR12486989)` and `Running DOWNLOAD_TAXDUMP` |
 | After the engine | `Collecting output files...`, `TaxTriage pipeline complete` | `Collecting output files…`, `<W> complete` |
 | Database | `Building TaxTriage database…` | `Building <W> database…`, on the last share of the bar |
 | Ignored tasks | One warning line per cause, beginning `Some TaxTriage tasks failed` | `Some <W> tasks failed`, one warning line per cause, and the row reads Completed with Warnings |
@@ -223,7 +223,7 @@ The Operations row is the entry of `OperationCenter` that a launch begins and en
 
 The TaxTriage column is today's text. TaxTriage's strings stay as they are until a lane changes them on both routes (decision E15 of Phase 2.7), and that lane changes this table in the same commit. U10 does so for the task line, the bar and the overlay.
 
-A task line follows W1. The detail, the log and the overlay show `Running <process> (<tag>)`, and `nextflow.log` keeps the raw line byte for byte (decision N8). A real Nextflow 26.04 with `NXF_ANSI_LOG=false` prints one `[PROCESS <hash>] <process path> (<tag>)` line per task at submission, and no `process >` line and no `[100%]` line. So on a real run the TaxTriage row shows no task line today, and its bar holds at 0.10 through the engine stage.
+A task line follows W1. The detail, the log and the overlay show `Running <process> (<tag>)`, or `Running <process>` for a task with no tag, and `nextflow.log` keeps the raw line byte for byte (decision N8). A real Nextflow 26.04 with `NXF_ANSI_LOG=false` prints one `[PROCESS <hash>] <process path>` line per task at submission, ending in ` (<tag>)` when the task has a tag, and no `process >` line and no `[100%]` line. So on a real run the TaxTriage row shows no task line today, and its bar holds at 0.10 through the engine stage.
 
 The bar follows W2 and W3. The engine takes `[0, 1 - s]` of the bar and the finalize phase, which builds the database, takes `[1 - s, 1]`, where `s` is the descriptor's `finalizeProgressShare`, 0.1 for TaxTriage. U10 applies the share to the app's route and A2 to the command's, and until they land the app holds the bar at 100 percent while the database builds. Inside its share the engine's bar counts the completed rows of `trace.txt` against `expectedTaskCountPerSample` times the samples, and a workflow whose descriptor holds no count keeps the engine's estimate of 15 tasks. The bar never moves back (decision T9 of Phase 2.8). The decision assumes that Nextflow writes rows to `trace.txt` while a run is live, which lane Q15 confirms on a real run. If a real run shows otherwise, the lane that finds it changes this paragraph with the reader.
 
@@ -235,7 +235,7 @@ A new workflow's strings follow five rules.
 
 1. `<W>` comes from the registry's display name and from nothing else.
 2. A string that shows an action in progress ends with the ellipsis character `…`. The center's own `Cancelling...` keeps its three dots, because every operation shares it.
-3. A task line names the process and its tag and never the raw Nextflow line.
+3. A task line names the process, and its tag when it has one, and never the raw Nextflow line.
 4. A line that arrives once the row no longer runs reaches neither the detail nor the bar nor the overlay. The TaxTriage overlay takes such a line today, and `NextflowWorkflowRowPinTests` pins that.
 5. One warning line per cause makes the label. The row then completes plainly with a detail that names the cause, and that detail is logged as no second warning (decision D4 of Phase 2.8).
 
