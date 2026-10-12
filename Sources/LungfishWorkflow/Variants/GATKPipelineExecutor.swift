@@ -147,8 +147,15 @@ public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
             steps: steps,
             parameters: parameters(for: request)
         )
+        var envelope = run.canonicalEnvelope()
+        if let cliCommandLine = request.cliCommandLine, !cliCommandLine.isEmpty {
+            // The run's command is the `lungfish-cli` command that asked for it. The envelope takes the
+            // first GATK command otherwise, and every step keeps the GATK command it ran either way.
+            envelope.argv = cliCommandLine
+            envelope.reproducibleCommand = cliCommandLine.map(shellEscape).joined(separator: " ")
+        }
         let provenanceURL = request.outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), toSidecar: provenanceURL)
+        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: provenanceURL)
         return provenanceURL
     }
 

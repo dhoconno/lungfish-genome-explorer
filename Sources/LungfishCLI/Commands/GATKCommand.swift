@@ -36,17 +36,17 @@ struct GATKCLICommand: AsyncParsableCommand {
 
     static func runOrPreview<Runner: GATKCommandRunning>(
         request: GATKPipelineExecutionRequest,
-        execute: Bool,
+        command: some GATKCLIExecutableSubcommand,
         runner: Runner,
         emit: @escaping (String) -> Void
     ) async throws {
-        guard execute else {
+        guard !command.isDryRun else {
             GATKCLICommand.emit(commands: request.commands, emit: emit)
             return
         }
 
         let executor = GATKPipelineExecutor(runner: runner)
-        let result = try await executor.run(request)
+        let result = try await executor.run(command.recorded(request))
         emit("GATK execution completed with exit code \(result.exitCode).")
         emit("Provenance: \(result.provenanceURL.path)")
     }
@@ -93,7 +93,7 @@ struct GATKCLICommand: AsyncParsableCommand {
     }
 }
 
-protocol GATKCLIExecutableSubcommand {
+protocol GATKCLIExecutableSubcommand: GATKCLICommandLineRecording {
     var execute: Bool { get }
     var dryRun: Bool { get }
 }
@@ -190,7 +190,7 @@ extension GATKCLICommand {
                     runtimeIdentity: runtimeIdentity,
                     packVersion: packVersion
                 ),
-                execute: execute && !dryRun,
+                command: self,
                 runner: runner,
                 emit: emit
             )
@@ -287,7 +287,7 @@ extension GATKCLICommand {
                     runtimeIdentity: runtimeIdentity,
                     packVersion: packVersion
                 ),
-                execute: execute && !dryRun,
+                command: self,
                 runner: runner,
                 emit: emit
             )
@@ -371,7 +371,7 @@ extension GATKCLICommand {
                     runtimeIdentity: runtimeIdentity,
                     packVersion: packVersion
                 ),
-                execute: execute && !dryRun,
+                command: self,
                 runner: runner,
                 emit: emit
             )
@@ -458,7 +458,7 @@ extension GATKCLICommand {
                     runtimeIdentity: runtimeIdentity,
                     packVersion: packVersion
                 ),
-                execute: execute && !dryRun,
+                command: self,
                 runner: runner,
                 emit: emit
             )
@@ -551,7 +551,7 @@ extension GATKCLICommand {
                     runtimeIdentity: runtimeIdentity,
                     packVersion: packVersion
                 ),
-                execute: execute && !dryRun,
+                command: self,
                 runner: runner,
                 emit: emit
             )
@@ -653,7 +653,7 @@ extension GATKCLICommand {
                     runtimeIdentity: runtimeIdentity,
                     packVersion: packVersion
                 ),
-                execute: execute && !dryRun,
+                command: self,
                 runner: runner,
                 emit: emit
             )
@@ -756,7 +756,7 @@ extension GATKCLICommand {
                     runtimeIdentity: runtimeIdentity,
                     packVersion: packVersion
                 ),
-                execute: execute && !dryRun,
+                command: self,
                 runner: runner,
                 emit: emit
             )
@@ -858,7 +858,7 @@ extension GATKCLICommand {
                     runtimeIdentity: runtimeIdentity,
                     packVersion: packVersion
                 ),
-                execute: execute && !dryRun,
+                command: self,
                 runner: runner,
                 emit: emit
             )
@@ -964,7 +964,7 @@ extension GATKCLICommand {
                     runtimeIdentity: runtimeIdentity,
                     packVersion: packVersion
                 ),
-                execute: execute && !dryRun,
+                command: self,
                 runner: runner,
                 emit: emit
             )
@@ -1064,7 +1064,7 @@ extension GATKCLICommand {
                     runtimeIdentity: runtimeIdentity,
                     packVersion: packVersion
                 ),
-                execute: execute && !dryRun,
+                command: self,
                 runner: runner,
                 emit: emit
             )

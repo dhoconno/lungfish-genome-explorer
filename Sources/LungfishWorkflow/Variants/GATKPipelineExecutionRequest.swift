@@ -17,6 +17,11 @@ public struct GATKPipelineExecutionRequest: Sendable, Equatable {
     public let runtimeIdentity: GATKRuntimeIdentity
     public let packID: String?
     public let packVersion: String?
+    /// The `lungfish-cli` command that asked for this run, as argv, or nil when no CLI command did,
+    /// as when the app runs a pipeline itself. The record names it as the run's command, and each
+    /// step keeps the GATK command it ran. A command line names only the files the user chose, so
+    /// the record needs no replay argv beside it.
+    public private(set) var cliCommandLine: [String]?
 
     public init(
         workflowName: String,
@@ -79,6 +84,13 @@ public struct GATKPipelineExecutionRequest: Sendable, Equatable {
 
     public var command: GATKCommand {
         commands[0]
+    }
+
+    /// This request, recorded as run by the `lungfish-cli` command `cliCommandLine`.
+    public func recording(cliCommandLine: [String]) -> GATKPipelineExecutionRequest {
+        var request = self
+        request.cliCommandLine = cliCommandLine
+        return request
     }
 }
 
