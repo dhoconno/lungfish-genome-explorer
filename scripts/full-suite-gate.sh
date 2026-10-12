@@ -238,7 +238,27 @@ mkdir -p "$LOG_DIR"
 if [ -z "$EVIDENCE_DIR" ]; then
     EVIDENCE_DIR="$LOG_DIR/gate-${STAMP}-${SHA}-$$"
 fi
+# Test hygiene (Phase 2.9 lane Q10, decision H1). A test that makes a UserDefaults suite with a
+# plain name leaves ~/Library/Preferences/<name>.plist behind, and removing the file does not
+# last, because the preferences daemon writes it again seconds later. TestDefaultsSuite names its
+# suite by a path in the temporary directory instead. Around every tier the gate lists the
+# UUID-named plists before the tier and again after the tier's processes exit and a short settle,
+# and fails on a new one that some file under Tests builds and
+# scripts/testing/preferences-leaks-allowed.txt does not allow. Another app's plist never fails
+# it, and the allowed list only shrinks (scripts/testing/preferences-leaks.py). A fixture project
+# that carries no copy of the script runs without the check.
+PREFERENCES_LEAKS="$SCRIPT_DIR/testing/preferences-leaks.py"
+PREFERENCES_REPORT=""
+
 run_gate() {
+    local python="${LUNGFISH_RELEASE_PYTHON:-python3}"
+    local preferences_before=""
+    if [ -f "$PREFERENCES_LEAKS" ]; then
+        preferences_before="${EVIDENCE_DIR%/}.preferences-before.json"
+        PREFERENCES_REPORT="${EVIDENCE_DIR%/}.preferences.txt"
+        rm -f "$PREFERENCES_REPORT"
+        "$python" "$PREFERENCES_LEAKS" snapshot --output "$preferences_before" --report "$PREFERENCES_REPORT" || return $?
+    fi
     local command=("${LUNGFISH_RELEASE_PYTHON:-python3}" "$SCRIPT_DIR/release/gate_evidence.py" swift
         --root "$PROJECT_ROOT" --output "$EVIDENCE_DIR" --tier "$EFFECTIVE_TIER"
         --filter "$FILTER" --skip "$SKIP")
@@ -253,6 +273,12 @@ run_gate() {
     else
         "${command[@]}"
         status=$?
+    fi
+    if [ -n "$preferences_before" ]; then
+        local preferences_status=0
+        "$python" "$PREFERENCES_LEAKS" check --before "$preferences_before" --report "$PREFERENCES_REPORT" || preferences_status=$?
+        rm -f "$preferences_before"
+        [ "$status" -eq 0 ] && status=$preferences_status
     fi
     # Record where this run's latest unit evidence lives. release.py and the
     # pre-push hook look for a green unit-tier result under .build/gate-logs
@@ -282,7 +308,13 @@ else
     if [ "$QUIET" -eq 1 ]; then
         run_gate >/dev/null 2>/dev/null
         status=$?
-        [ "$status" -eq 0 ] && echo "GATE PASS ($SHA)" || echo "GATE FAIL ($SHA) - evidence: $EVIDENCE_DIR"
+        if [ "$status" -eq 0 ]; then
+            echo "GATE PASS ($SHA)"
+        else
+            echo "GATE FAIL ($SHA) - evidence: $EVIDENCE_DIR"
+            # A failed preferences check keeps its verdict beside the evidence.
+            [ -n "$PREFERENCES_REPORT" ] && [ -f "$PREFERENCES_REPORT" ] && cat "$PREFERENCES_REPORT"
+        fi
         exit $status
     else
         run_gate

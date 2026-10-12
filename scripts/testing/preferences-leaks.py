@@ -1,0 +1,331 @@
+#!/usr/bin/env python3
+"""Fail a test tier that leaves UUID-named plists behind in ~/Library/Preferences.
+
+Phase 2.9 lane Q10, decision H1. A test that builds UserDefaults(suiteName: "<prefix>-<UUID>")
+makes the system write ~/Library/Preferences/<prefix>-<UUID>.plist, and removePersistentDomain
+only empties that file, so thousands piled up. The preferences daemon writes the emptied file
+again seconds after a test removes it, so cleaning up by hand does not last. The shared helper
+TestDefaultsSuite (Tests/Support/LungfishTestSupport) names its suite by a path in the temporary
+directory, which keeps the plist out of the folder. This script is the check around it.
+scripts/full-suite-gate.sh runs `snapshot` before each tier and `check` after its processes exit.
+
+  snapshot --output FILE   list the UUID-named plists now and write the list to FILE
+  check --before FILE      wait for the system to settle, list them again, and fail on a new one
+                           whose prefix some file under Tests builds and the allowed list lacks
+  lint                     fail when the allowed list names a file that no longer builds its prefix,
+                           or a test file that calls UserDefaults(suiteName:) has no row
+  prefixes                 print each prefix a file under Tests builds, and which file
+
+Only names are compared. A new plist whose prefix no file under Tests builds belongs to another
+app (com.openai.chat.RemoteFeatureFlags-<UUID>.plist) and is counted but never fails the tier.
+
+The allowed list (preferences-leaks-allowed.txt, beside this script) holds one row per test file
+that still builds a "<prefix>-<UUID>" suite by hand. It can only shrink. `lint` fails on a row
+whose file no longer builds that prefix by hand (it moved onto TestDefaultsSuite, so delete the
+row) and on a test file that calls UserDefaults(suiteName:) and has no row, and a row is never
+added: give the new test the helper.
+
+Exit status: 0 clean, 1 a leak, 3 the allowed list is stale or malformed, 4 unusable input.
+LUNGFISH_PREFERENCES_DIR names another folder to list and LUNGFISH_PREFERENCES_SETTLE_SECONDS
+the settle, both for this script's own tests.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import pwd
+import re
+import sys
+import time
+from pathlib import Path
+from typing import NamedTuple
+
+HERE = Path(__file__).resolve().parent
+DEFAULT_TESTS = HERE.parents[1] / "Tests"
+DEFAULT_ALLOWED = HERE / "preferences-leaks-allowed.txt"
+NO_PREFIX = "(none)"
+SKIPPED_DIRECTORIES = {".build", "Fixtures", "Resources"}
+HELPER = "Tests/Support/LungfishTestSupport/TestDefaultsSuite.swift"
+
+EXIT_CLEAN, EXIT_LEAK, EXIT_LIST, EXIT_INPUT = 0, 1, 3, 4
+
+UUID = r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"
+# <prefix>[-.]<UUID>[anything].plist
+PLIST = re.compile(rf"^(?P<prefix>.*?)[-.]?{UUID}.*\.plist$")
+# A Swift string literal whose text up to a UUID interpolation holds no other interpolation, a
+# literal joined to a UUID with +, and a suite named by a bare UUID.
+UUID_LITERAL = re.compile(r'"((?:[^"\\\n]|\\[^(\n])*)\\\(\s*UUID\(\)(?:\.uuidString)?\s*\)')
+JOINED_LITERAL = re.compile(r'"((?:[^"\\\n]|\\[^(\n])*)"\s*\+\s*UUID\(\)(?:\.uuidString)?')
+BARE_SUITE = re.compile(r'\bsuiteName:\s*UUID\(\)(?:\.uuidString)?')
+# The helper's two entry points, with the prefix as a literal.
+HELPER_CALL = re.compile(r'\b(?:TestDefaultsSuite|makeTestDefaultsSuite)\(\s*prefix:\s*"([^"\\\n]*)"')
+
+
+class AllowedListError(Exception):
+    """The allowed list cannot be read."""
+
+
+class Row(NamedTuple):
+    prefix: str
+    file: str
+    line: int
+
+
+def plist_prefix(name: str) -> str | None:
+    """The prefix of a UUID-named plist, "" for a bare UUID, None for any other file."""
+    match = PLIST.match(name)
+    return None if match is None else match.group("prefix")
+
+
+def preferences_directory(option: Path | None) -> Path:
+    if option is not None:
+        return option
+    if os.environ.get("LUNGFISH_PREFERENCES_DIR"):
+        return Path(os.environ["LUNGFISH_PREFERENCES_DIR"])
+    # The real home, as the daemon that writes the files sees it, whatever HOME says.
+    return Path(pwd.getpwuid(os.getuid()).pw_dir) / "Library" / "Preferences"
+
+
+def scan(directory: Path) -> dict[str, str]:
+    """Every UUID-named plist in `directory`, as name -> prefix."""
+    try:
+        names = os.listdir(directory)
+    except FileNotFoundError:
+        return {}
+    found = {}
+    for name in names:
+        prefix = plist_prefix(name)
+        if prefix is not None:
+            found[name] = prefix
+    return found
+
+
+def without_separator(text: str) -> str:
+    return text[:-1] if text.endswith(("-", ".")) else text
+
+
+class Built(NamedTuple):
+    """What the Swift files under Tests build, each prefix with the files that build it."""
+
+    by_hand: dict[str, set[str]]  # "<prefix>-<UUID>" or "<prefix>.<UUID>" in a string literal
+    by_helper: dict[str, set[str]]  # a prefix passed to TestDefaultsSuite
+    suite_files: set[str]  # files that call UserDefaults(suiteName:) themselves
+
+    @property
+    def prefixes(self) -> set[str]:
+        return set(self.by_hand) | set(self.by_helper)
+
+
+def scan_tests(tests_root: Path) -> Built:
+    """Read the Swift files under `tests_root`. A literal that names a temporary folder counts as
+    built by hand too, which only makes the check count more prefixes."""
+    repo = tests_root.parent
+    by_hand: dict[str, set[str]] = {}
+    by_helper: dict[str, set[str]] = {}
+    suite_files: set[str] = set()
+    for folder, folders, files in os.walk(tests_root):
+        folders[:] = sorted(name for name in folders if name not in SKIPPED_DIRECTORIES)
+        for name in sorted(files):
+            if not name.endswith(".swift"):
+                continue
+            path = Path(folder) / name
+            text = path.read_text(encoding="utf-8", errors="replace")
+            relative = path.relative_to(repo).as_posix()
+            for pattern in (UUID_LITERAL, JOINED_LITERAL):
+                for match in pattern.finditer(text):
+                    by_hand.setdefault(without_separator(match.group(1)), set()).add(relative)
+            if BARE_SUITE.search(text):
+                by_hand.setdefault("", set()).add(relative)
+            for match in HELPER_CALL.finditer(text):
+                by_helper.setdefault(match.group(1), set()).add(relative)
+            if "UserDefaults(suiteName:" in text and relative != HELPER:
+                suite_files.add(relative)
+    return Built(by_hand, by_helper, suite_files)
+
+
+def load_allowed(path: Path) -> list[Row]:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise AllowedListError(f"cannot read the allowed list {path}: {error}") from error
+    rows = []
+    for number, raw in enumerate(lines, 1):
+        words = raw.split("#", 1)[0].split()
+        if not words:
+            continue
+        if len(words) != 2:
+            raise AllowedListError(f"{path.name}:{number}: expected '<prefix> <file>', found {raw!r}")
+        rows.append(Row("" if words[0] == NO_PREFIX else words[0], words[1], number))
+    return rows
+
+
+def lint(rows: list[Row], built: Built, repo: Path, label: str = "allowed list") -> list[str]:
+    """Problems that keep the allowed list from being the list of what tests still build by hand.
+
+    A row names a file that still builds its prefix, and a file that calls
+    UserDefaults(suiteName:) itself has a row, so the list can neither keep a file that moved onto
+    TestDefaultsSuite nor miss a new test that did not.
+    """
+    problems = []
+    seen = set()
+    for row in rows:
+        where = f"{label}:{row.line}"
+        shown = row.prefix or NO_PREFIX
+        if (row.prefix, row.file) in seen:
+            problems.append(f"{where}: {shown} {row.file} is listed twice")
+        seen.add((row.prefix, row.file))
+        if not (repo / row.file).is_file():
+            problems.append(f"{where}: {row.file} does not exist, delete the row")
+        elif row.file not in built.by_hand.get(row.prefix, set()):
+            problems.append(
+                f"{where}: {row.file} no longer builds '{shown}-<UUID>' by hand, delete the row"
+            )
+    for file in sorted(built.suite_files - {row.file for row in rows}):
+        problems.append(f"{file} calls UserDefaults(suiteName:) and is not on the {label}, use TestDefaultsSuite instead")
+    return problems
+
+
+def read_snapshot(path: Path, directory: Path) -> set[str]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        names, listed = set(data["names"]), data["directory"]
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise ValueError(f"cannot read the snapshot {path}: {error}") from error
+    if listed != str(directory):
+        raise ValueError(f"the snapshot {path} lists {listed}, not {directory}")
+    return names
+
+
+def group(found: dict[str, str], names: list[str]) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {}
+    for name in names:
+        grouped.setdefault(found[name], []).append(name)
+    return grouped
+
+
+def verdict(directory, before, first, after, built: Built, allowed: set[str]) -> tuple[int, list[str]]:
+    prefixes = built.prefixes
+    new = [name for name in sorted(after) if name not in before]
+    foreign = [n for n in new if after[n] not in prefixes]
+    tolerated = [n for n in new if after[n] in prefixes and after[n] in allowed]
+    leaked = [n for n in new if after[n] in prefixes and after[n] not in allowed]
+    lines = []
+    moved = set(first) ^ set(after)
+    if moved:
+        lines.append(f"preferences-leaks: {len(moved)} plist(s) appeared or went away during the settle")
+    summary = f"{len(new)} new UUID-named plists in {directory}"
+    if not leaked:
+        notes = []
+        if tolerated:
+            notes.append(f"{len(tolerated)} on the allowed list")
+        if foreign:
+            notes.append(f"{len(foreign)} from other apps")
+        lines.append(f"preferences-leaks: PASS - {summary}" + (f" ({', '.join(notes)})" if notes else ""))
+        for prefix, names in sorted(group(after, tolerated).items(), key=lambda item: -len(item[1]))[:10]:
+            lines.append(f"  allowed  {len(names):5d}  {prefix or NO_PREFIX}")
+        return EXIT_CLEAN, lines
+    lines.append(f"preferences-leaks: FAIL - {summary}, {len(leaked)} of them from tests that do not clean up")
+    for prefix, names in sorted(group(after, leaked).items()):
+        files = sorted(built.by_hand.get(prefix, set()) | built.by_helper.get(prefix, set()))
+        lines.append(f"  {len(names):5d}  {names[0]}")
+        lines.append(f"         built by {', '.join(files[:3])}" + (" and others" if len(files) > 3 else ""))
+    lines.append(
+        f"A test that needs a defaults suite uses TestDefaultsSuite ({HELPER}), which keeps the plist "
+        "out of this folder. Never add a prefix to the allowed list."
+    )
+    return EXIT_LEAK, lines
+
+
+def emit(lines: list[str], report: Path | None, failed: bool) -> None:
+    """Print the verdict, and keep a failing one in `report` for a run whose output is discarded."""
+    print("\n".join(lines), file=sys.stderr if failed else sys.stdout)
+    if failed and report is not None:
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def allowed_problems(args) -> tuple[list[Row], list[str]]:
+    rows = load_allowed(args.allowed)
+    return rows, lint(rows, scan_tests(args.tests_root), args.tests_root.parent, args.allowed.name)
+
+
+def command_snapshot(args, sleep) -> int:
+    directory = preferences_directory(args.preferences_dir)
+    _, problems = allowed_problems(args)
+    if problems:
+        emit(["preferences-leaks: the allowed list is stale", *problems], args.report, True)
+        return EXIT_LIST
+    names = sorted(scan(directory))
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps({"schema": 1, "directory": str(directory), "names": names}) + "\n")
+    print(f"preferences-leaks: {len(names)} UUID-named plists in {directory} before the tier")
+    return EXIT_CLEAN
+
+
+def command_check(args, sleep) -> int:
+    directory = preferences_directory(args.preferences_dir)
+    before = read_snapshot(args.before, directory)
+    first = scan(directory)
+    sleep(args.settle)
+    after = scan(directory)
+    allowed = {row.prefix for row in load_allowed(args.allowed)}
+    status, lines = verdict(directory, before, first, after, scan_tests(args.tests_root), allowed)
+    emit(lines, args.report, status != EXIT_CLEAN)
+    return status
+
+
+def command_lint(args, sleep) -> int:
+    rows, problems = allowed_problems(args)
+    if problems:
+        emit(["preferences-leaks: the allowed list is stale", *problems], None, True)
+        return EXIT_LIST
+    print(f"preferences-leaks: {len(rows)} rows on the allowed list, each names a file that still builds its prefix")
+    return EXIT_CLEAN
+
+
+def command_prefixes(args, sleep) -> int:
+    built = scan_tests(args.tests_root)
+    for origin, found in (("by-hand", built.by_hand), ("helper", built.by_helper)):
+        for prefix in sorted(found):
+            for file in sorted(found[prefix]):
+                print(f"{prefix or NO_PREFIX}\t{file}\t{origin}")
+    return EXIT_CLEAN
+
+
+def build_parser() -> argparse.ArgumentParser:
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--preferences-dir", type=Path, help="the folder to list (default ~/Library/Preferences)")
+    common.add_argument("--tests-root", type=Path, default=DEFAULT_TESTS)
+    common.add_argument("--allowed", type=Path, default=DEFAULT_ALLOWED)
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    commands = parser.add_subparsers(dest="command", required=True)
+    snapshot = commands.add_parser("snapshot", parents=[common])
+    snapshot.add_argument("--output", type=Path, required=True)
+    snapshot.add_argument("--report", type=Path, help="also write a stale-list message to this file")
+    check = commands.add_parser("check", parents=[common])
+    check.add_argument("--before", type=Path, required=True)
+    check.add_argument("--settle", type=float, default=float(os.environ.get("LUNGFISH_PREFERENCES_SETTLE_SECONDS", "3")))
+    check.add_argument("--report", type=Path, help="also write the verdict to this file")
+    commands.add_parser("lint", parents=[common])
+    commands.add_parser("prefixes", parents=[common])
+    return parser
+
+
+COMMANDS = {"snapshot": command_snapshot, "check": command_check, "lint": command_lint, "prefixes": command_prefixes}
+
+
+def main(argv: list[str] | None = None, sleep=time.sleep) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        return COMMANDS[args.command](args, sleep)
+    except AllowedListError as error:
+        print(f"preferences-leaks: {error}", file=sys.stderr)
+        return EXIT_LIST
+    except (OSError, ValueError) as error:
+        print(f"preferences-leaks: {error}", file=sys.stderr)
+        return EXIT_INPUT
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,87 @@
+# Test files that still build a "<prefix>-<UUID>" UserDefaults suite by hand, so a tier may leave
+# ~/Library/Preferences/<prefix>-<UUID>.plist behind for them.
+#
+# scripts/testing/preferences-leaks.py reads this list around every tier of
+# scripts/full-suite-gate.sh (decision H1 of Phase 2.9, lane Q10). A new UUID-named plist fails
+# the tier unless its prefix is listed here or no file under Tests builds that prefix. The list
+# only shrinks. Move a file onto TestDefaultsSuite (Tests/Support/LungfishTestSupport) and delete
+# its rows in the same commit, and `preferences-leaks.py lint` fails on a row whose file no longer
+# builds its prefix by hand and on a test file that calls UserDefaults(suiteName:) and has no row.
+# Never add a row. The prefix (none) is a suite named by a bare UUID. The ClassifierCLIGUIParity
+# row registers values only and removes its own plist, so it writes none, but it builds by hand.
+#
+# One row per file: <prefix> <path from the repository root>.
+
+(none)                                  Tests/LungfishCoreTests/ManagedStorageConfigStoreTests.swift
+ClassifierCLIGUIParityReplayTests       Tests/LungfishAppTests/ClassifierCLIGUIParityReplayTests+Rows.swift
+FeaturesYAMLMenuPath                    Tests/LungfishAppViewTests/FeaturesYAMLMenuPathTests.swift
+GenotypeInspectorPresentationTests      Tests/LungfishAppTests/GenotypeInspectorPresentationTests.swift
+LungfishGenotypeMatrixFontCacheTests    Tests/LungfishGenotypeUITests/GenotypeMatrixCellFontCacheRegressionTests.swift
+LungfishTypographyTests                 Tests/LungfishAlignmentUITests/AlignmentResultViewControllerTests.swift
+LungfishTypographyTests                 Tests/LungfishAppTests/FASTQDashboardTests.swift
+LungfishTypographyTests                 Tests/LungfishAppTests/GenotypeCohortSummaryPanelViewTests.swift
+LungfishTypographyTests                 Tests/LungfishAppTests/GenotypeQuickFilterBarViewTests.swift
+LungfishTypographyTests                 Tests/LungfishAppTests/GenotypeResultDisplaySectionTests.swift
+LungfishTypographyTests                 Tests/LungfishAppTests/SettingsAndImportXCUIReadinessTests.swift
+LungfishTypographyTests                 Tests/LungfishAppViewTests/MainMenuStructureTests.swift
+LungfishTypographyTests                 Tests/LungfishAssemblyUITests/AssemblyResultViewControllerTests.swift
+LungfishTypographyTests                 Tests/LungfishEsVirituUITests/EsVirituResultViewControllerSmokeTests.swift
+LungfishTypographyTests                 Tests/LungfishGenotypeUITests/GenotypeAlleleSequenceDetailViewTests.swift
+LungfishTypographyTests                 Tests/LungfishGenotypeUITests/GenotypeCandidateAlleleDetailViewTests.swift
+LungfishTypographyTests                 Tests/LungfishGenotypeUITests/GenotypeKnownAlleleDetailViewTests.swift
+LungfishTypographyTests                 Tests/LungfishGenotypeUITests/GenotypeOutlineVirtualizationTests.swift
+LungfishTypographyTests                 Tests/LungfishGenotypeUITests/GenotypeResultViewportArtifactsAndOutlineTests.swift
+LungfishTypographyTests                 Tests/LungfishGenotypeUITests/GenotypeResultViewportCandidateDetailTests.swift
+LungfishTypographyTests                 Tests/LungfishGenotypeUITests/GenotypeResultViewportLensAndManualHaplotypeTests.swift
+LungfishTypographyTests                 Tests/LungfishGenotypeUITests/GenotypeResultViewportSelectionAndComparisonTests.swift
+LungfishTypographyTests                 Tests/LungfishKitTests/BatchTableViewTests.swift
+LungfishTypographyTests                 Tests/LungfishKitTests/ContentTypographyTests.swift
+LungfishTypographyTests                 Tests/LungfishNaoMgsUITests/NaoMgsResultViewControllerSmokeTests.swift
+LungfishTypographyTests                 Tests/LungfishNvdUITests/NvdResultViewControllerTests.swift
+LungfishTypographyTests                 Tests/LungfishPhylogeneticsUITests/LungfishPhylogeneticsUISmokeTests.swift
+LungfishTypographyTests                 Tests/LungfishTaxTriageUITests/TaxTriageContentTypographyTests.swift
+LungfishTypographyTests                 Tests/LungfishTwelveSUITests/TwelveSAmpliconResultViewControllerTests.swift
+LungfishTypographyTests                 Tests/LungfishTwelveSUITests/TwelveSTableViewTests.swift
+MSADistanceMatrixPaneTests              Tests/LungfishAlignmentUITests/MSADistanceMatrixPaneTests.swift
+MSADistanceMatrixReReviewFixTests       Tests/LungfishAlignmentUITests/MSADistanceMatrixReReviewFixTests.swift
+MSADistanceMatrixReviewFixTests         Tests/LungfishAlignmentUITests/MSADistanceMatrixReviewFixTests.swift
+MSADistanceMatrixThirdReviewFixTests    Tests/LungfishAlignmentUITests/MSADistanceMatrixThirdReviewFixTests.swift
+MetadataColumnPersistenceTests          Tests/LungfishKitTests/MetadataColumnPersistenceTests.swift
+NvdResultViewControllerTests            Tests/LungfishNvdUITests/NvdResultViewControllerTests.swift
+TaxTriageFilterAlignment                Tests/LungfishTaxTriageUITests/TaxTriageDatabaseModeTests.swift
+TaxTriageFilterPane                     Tests/LungfishAppTests/TaxTriageSampleFilterAlignmentPaneTests.swift
+TaxTriageLayoutTests                    Tests/LungfishTaxTriageUITests/TaxTriageResultViewControllerSmokeTests.swift
+ToolsMenuLayout                         Tests/LungfishAppViewTests/ToolsMenuStructureTests.swift
+ToolsMenuSorting                        Tests/LungfishAppViewTests/ToolsMenuStructureTests.swift
+ToolsMenuWorkflows                      Tests/LungfishAppViewTests/ToolsMenuStructureTests.swift
+ToolsMenuWorkflowsDialog                Tests/LungfishAppViewTests/ToolsMenuStructureTests.swift
+WorkflowFeatureAvailability-12S         Tests/LungfishAppViewTests/ImportCenterMenuTests.swift
+WorkflowFeatureAvailability-ONT         Tests/LungfishAppViewTests/ImportCenterMenuTests.swift
+WorkflowRunAgainStateTests              Tests/LungfishAppTests/WorkflowRunAgainControllerTests.swift
+assembly-layout-pref                    Tests/LungfishAssemblyUITests/AssemblyLayoutPreferenceTests.swift
+layout-pref                             Tests/LungfishAppTests/MetagenomicsLayoutPreferenceTests.swift
+lungfish-test                           Tests/LungfishAppTests/AnnotationDrawerSizingTests.swift
+lungfish-test                           Tests/LungfishAppTests/BundleViewerTests.swift
+lungfish-test                           Tests/LungfishAppTests/MSABottomPaneDefaultOpenTests.swift
+lungfish-test                           Tests/LungfishAppTests/MSABottomPaneReReviewFixTests.swift
+lungfish-test                           Tests/LungfishAppTests/MSABottomPaneReviewFixTests.swift
+lungfish-test                           Tests/LungfishAppTests/MSABottomPaneTests.swift
+lungfish-test                           Tests/LungfishAppTests/MSABottomPaneThirdReviewFixTests.swift
+lungfish-test                           Tests/LungfishAppTests/MSADistanceMatrixGUICLIParityTests.swift
+lungfish-test                           Tests/LungfishAppTests/MSADistanceMatrixMenuRoutingTests.swift
+lungfish-test                           Tests/LungfishAppTests/MSAViewportInteractionTests.swift
+lungfish-test                           Tests/LungfishCoreTests/SequenceAppearanceTests.swift
+mapping-layout-pref                     Tests/LungfishAppTests/MappingLayoutPreferenceTests.swift
+org.example.storage-tests               Tests/LungfishCoreTests/ManagedStorageConfigStoreTests.swift
+org.lungfish.tests.AppSettings          Tests/LungfishCoreTests/AppSettingsTests.swift
+org.lungfish.tests.AppSettings.nested   Tests/LungfishCoreTests/AppSettingsTests.swift
+reference-bundle-scroll-direction-pref  Tests/LungfishAppTests/ReferenceBundleScrollDirectionPreferenceTests.swift
+sra-source-preference                   Tests/LungfishCoreTests/Services/SRADownloadSourcePreferenceTests.swift
+sra-window-batch-snapshot               Tests/LungfishAppTests/SRAWindowBatchSnapshotTests.swift
+sra-window-download-cancel              Tests/LungfishAppTests/SRAWindowDownloadCancelTests.swift
+sra-window-download-path                Tests/LungfishAppTests/SRAWindowDownloadSourceTests.swift
+sra-window-download-source              Tests/LungfishAppTests/SRAWindowDownloadSourceTests.swift
+sra-window-download-source-ax           Tests/LungfishAppTests/SRAWindowDownloadSourceTests.swift
+sra-window-failed-import                Tests/LungfishAppTests/SRAWindowFailedImportCleanupTests.swift
+sra-window-shared-defaults              Tests/LungfishAppTests/SRAWindowDownloadSourceTests.swift
+update-tools-deferral                   Tests/LungfishAppTests/UpdateToolsSheetViewModelTests.swift
