@@ -237,12 +237,16 @@ extension TaxTriageCLIGUIParityReplayTests {
               parsed.input.map(Self.resolved) == Self.resolved(bundle.path),
               parsed.input2 == nil,
               parsed.sampleId == samples[0].sampleID,
-              Self.resolved(parsed.outputDir) == Self.resolved(analysis.path),
               parsed.databasePath.map(Self.resolved) == Self.resolved(engine.databasePath.path),
               parsed.nfProfile == engine.profile,
               parsed.maxCpus == engine.maxCpus else {
             violate("the row records the taxtriage run command of the run", run.recordedCommand ?? "nil")
             return
+        }
+        // 2.8 T17. Until A2 changes the command of a one-sample row, Copy CLI Command replays into
+        // the GUI's own folder, so the recorded --output names side A's analysis folder.
+        if Self.resolved(parsed.outputDir) != Self.resolved(analysis.path) {
+            violate("the one-sample row's command writes the GUI's own folder (2.8 T17, until A2)", parsed.outputDir)
         }
     }
 
