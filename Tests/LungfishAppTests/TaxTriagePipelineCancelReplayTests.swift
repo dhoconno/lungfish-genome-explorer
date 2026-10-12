@@ -185,6 +185,22 @@ final class TaxTriagePipelineCancelReplayTests: XCTestCase {
         XCTAssertTrue(settled, "the row did not settle in 30 seconds")
         let item = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == rowID })
         XCTAssertEqual(item.state, .cancelled, "\(item.displayStateLabel): \(item.detail)")
+        // UX 4. The row reads Cancelled with no alert, since OperationCenter.fail returns false once
+        // the cancel has won, and the cancelled sample logs no failure line. At the base the failure
+        // branch logged "Sample 1/1 (G1): Failed - ... exit code -1" on this row.
+        XCTAssertEqual(item.displayStateLabel, "Cancelled")
+        XCTAssertEqual(item.detail, "Cancelled by user")
+        let alerted = await waitUntil(timeout: .seconds(2), pollInterval: .milliseconds(20)) {
+            window.attachedSheet != nil
+        }
+        XCTAssertFalse(alerted, "a cancel shows no alert")
+        XCTAssertFalse(
+            item.logEntries.contains { $0.message.contains(": Failed - ") },
+            "a cancelled sample logs no failure line, \(item.logEntries.map(\.message))"
+        )
+        // UX 2. The worker settles the row inside OperationCenter's 10 s grace, so the row carries
+        // no forced-cancel warning and the worker itself releases the bundle lock.
+        XCTAssertFalse(item.logEntries.contains { $0.level == .warning }, "\(item.logEntries.map(\.message))")
 
         let analysis = try XCTUnwrap(
             Self.visibleFolders(in: project.appendingPathComponent("Analyses", isDirectory: true)).onlyElement,
