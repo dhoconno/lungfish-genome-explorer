@@ -11,7 +11,18 @@ import LungfishWorkflow
 // `BuildDbCommand+EsVirituCore.swift`. It takes the result folder, these options and a
 // `BuildDbEventSink`, builds the database, runs the cleanup, writes the records and returns what it built.
 // The commands wrap them in `BuildDbCLIEvents.report`. `build-db taxtriage` keeps an instance body, because
-// its report parsers are instance methods, and its core waits for TaxTriage on the executor in 2.8.
+// its report parsers are instance methods, and its core waits for TaxTriage on the executor in 2.9 (plan
+// decision T1 of Phase 2.8).
+//
+// A core stops when the task that runs it is cancelled. Only the executor's index step cancels one today,
+// under a cancelled `kraken2 classify` or `esviritu detect`, since a standalone `build-db` ends by the
+// signal. A core checks before each sample folder it reads or cleans up, before it writes the database,
+// before the EsViritu BAM move, after the samtools pass and before it writes the record, and throws
+// `CancellationError` at the first check after the cancel. It then puts back the database of an earlier
+// build and writes no record of a failed build (plan decision E5 of Phase 2.7). A step that finished before
+// the cancel stays done and no record names it, such as a folder the cleanup compacted, a BAM the build
+// moved or a `_temp` folder the cleanup removed. A cancel after the check before the record finds the build
+// complete. `BuildDbCancellationTests` pins the checks, and the TaxTriage core follows the same pattern.
 
 /// The options of one `build-db` run, as a command parses them. `globalOptions` goes into the record's
 /// command line and options, so an in-process caller passes the options it wants the record to name.
