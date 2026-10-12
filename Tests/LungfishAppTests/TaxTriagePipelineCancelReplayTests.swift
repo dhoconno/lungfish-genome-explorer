@@ -210,8 +210,10 @@ final class TaxTriagePipelineCancelReplayTests: XCTestCase {
         let item = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == rowID })
         XCTAssertEqual(item.state, .cancelled, "\(item.displayStateLabel): \(item.detail)")
         // UX 4. The row reads Cancelled with no alert, since OperationCenter.fail returns false once
-        // the cancel has won, and the cancelled sample logs no failure line. At the base the failure
-        // branch logged "Sample 1/1 (G1): Failed - ... exit code -1" on this row.
+        // the cancel has won, and the cancelled sample logs no failure line. This run has one sample,
+        // which skips the batch loop, and only that loop writes a ": Failed - " progress line. So the
+        // base logged none here either, and the failure-line assertion guards against a regression.
+        // A cancelled sample could log one only in a batch of two or more, which the batch cases above run.
         XCTAssertEqual(item.displayStateLabel, "Cancelled")
         XCTAssertEqual(item.detail, "Cancelled by user")
         let alerted = await waitUntil(timeout: .seconds(2), pollInterval: .milliseconds(20)) {
