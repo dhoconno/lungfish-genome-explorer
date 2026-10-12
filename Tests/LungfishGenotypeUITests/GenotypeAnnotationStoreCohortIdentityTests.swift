@@ -143,6 +143,23 @@ final class GenotypeAnnotationStoreCohortIdentityTests: XCTestCase {
         XCTAssertEqual(saved.smartCohorts.map { $0.id?.uuidString }, Self.builtInIDs.map { Optional($0) })
     }
 
+    func testARenamedBuiltInIsNeitherSeededNorRestoredAgainUnderItsOldName() throws {
+        let layout = try makeFreshBundle()
+        defer { TestTempDirectory.cleanup(layout.root) }
+        var renamed = GenotypeAnnotationStore.builtInSmartCohorts[1]
+        renamed.name = "Needs review (strict)"
+        try writeSidecar(layout, cohorts: [renamed])
+
+        let store = try GenotypeAnnotationStore(bundleURL: layout.bundleURL, author: "analyst", seedBuiltInSmartCohorts: true)
+
+        XCTAssertEqual(store.sidecar.smartCohorts.map(\.name), ["Needs review (strict)", "Incomplete haplotypes", "Homozygous", "Recombinants"])
+        XCTAssertEqual(try store.restoreBuiltInSmartCohorts(), [])
+        try store.addSampleNote(sample: "Animal-1", body: "A whole-sidecar save")
+        let ids = try onDisk(layout).smartCohorts.compactMap(\.id)
+        XCTAssertEqual(ids.count, 4)
+        XCTAssertEqual(Set(ids).count, 4, "no id is stored twice")
+    }
+
     // MARK: - Fixtures
 
     private struct Layout {

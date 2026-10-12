@@ -13,11 +13,17 @@ import LungfishWorkflow
 /// `genotype list-cohorts` and `genotype export-labkey` read the file, which
 /// no longer holds a dismissed cohort, so they need no change.
 extension GenotypeAnnotationStore {
-    /// The built-in cohorts a sidecar shows from memory, the ones whose name
-    /// it neither holds nor dismissed.
+    /// The built-in cohorts a sidecar shows from memory, the ones it neither
+    /// holds nor dismissed.
     static func builtInSmartCohortsToSeed(into sidecar: GenotypeAnnotationSidecar) -> [GenotypeCohortSmartFilter] {
-        let skipped = Set(sidecar.smartCohorts.map(\.name) + (sidecar.settings.dismissedBuiltInSmartCohorts ?? []))
-        return builtInSmartCohorts.filter { !skipped.contains($0.name) }
+        let dismissed = Set(sidecar.settings.dismissedBuiltInSmartCohorts ?? [])
+        return builtInSmartCohorts.filter { !dismissed.contains($0.name) && !holds($0, in: sidecar) }
+    }
+
+    /// Whether `sidecar` holds `builtIn`, under its name or, renamed, under its
+    /// fixed id (plan decision G2), so no id is stored twice in one sidecar.
+    private static func holds(_ builtIn: GenotypeCohortSmartFilter, in sidecar: GenotypeAnnotationSidecar) -> Bool {
+        sidecar.smartCohorts.contains { $0.name == builtIn.name || ($0.id != nil && $0.id == builtIn.id) }
     }
 
     /// Whether a cohort has the name and scope of a built-in cohort.
@@ -53,7 +59,7 @@ extension GenotypeAnnotationStore {
 
     /// Brings back every built-in cohort the sidecar lacks and empties the
     /// dismissals, as its own recorded edit. The restored cohorts follow the
-    /// analyst's own, and a cohort the sidecar holds under a built-in's name
+    /// analyst's own, and a cohort the sidecar holds under a built-in's name or id
     /// stays as it is.
     ///
     /// - Returns: The names it brought back. When there is nothing to restore
@@ -83,7 +89,6 @@ extension GenotypeAnnotationStore {
     }
 
     private static func builtInSmartCohortsMissing(from sidecar: GenotypeAnnotationSidecar) -> [GenotypeCohortSmartFilter] {
-        let held = Set(sidecar.smartCohorts.map(\.name))
-        return builtInSmartCohorts.filter { !held.contains($0.name) }
+        builtInSmartCohorts.filter { !holds($0, in: sidecar) }
     }
 }
