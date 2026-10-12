@@ -32,7 +32,9 @@ final class TaxTriagePipelineProvenanceSourceTests: XCTestCase {
         XCTAssertEqual(provenance.name, "TaxTriage")
         XCTAssertEqual(provenance.status, .completed)
         XCTAssertEqual(provenance.parameters["workflow"], .string("taxtriage"))
-        XCTAssertEqual(provenance.parameters["sample_count"], .integer(1))
+        // Moved by A2 M3 (B12 ruling H1): LGE counts the samplesheet rows itself, so the count is a resolved default.
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: outputURL))
+        XCTAssertEqual(record.options.resolvedDefaults["sample_count"], .integer(1), "B12 ruling H1")
         XCTAssertEqual(provenance.parameters["profile"], .string("conda"))
 
         let step = try XCTUnwrap(provenance.steps.first { $0.toolName == "taxtriage" })
