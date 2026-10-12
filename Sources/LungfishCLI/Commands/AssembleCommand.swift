@@ -111,6 +111,11 @@ struct AssembleCommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
+        try await execute(pipeline: ManagedAssemblyPipeline())
+    }
+
+    /// The body of ``run()`` with the pipeline passed in, so a test can run a stand-in assembler.
+    func execute(pipeline: ManagedAssemblyPipeline) async throws {
         let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         warnIfDeprecatedAdvancedOptionsUsed()
@@ -297,7 +302,7 @@ struct AssembleCommand: AsyncParsableCommand {
         let showHumanOutput = !jsonEvents && !globalOptions.quiet
         let result: AssemblyResult
         do {
-            result = try await ManagedAssemblyPipeline().run(
+            result = try await pipeline.run(
                 request: executionRequest,
                 onOutput: { line in
                     events.emitLog(.info, line)
@@ -319,7 +324,7 @@ struct AssembleCommand: AsyncParsableCommand {
                 result: result,
                 originalInputURLs: executionOriginalInputURLs,
                 executionInputURLs: executionInputURLs,
-                argv: CommandLine.arguments,
+                argv: Self.recordedCommandLine(CommandLine.arguments, fallback: canonicalArguments()),
                 startedAt: runClock.startedAt,
                 endedAt: runClock.now,
                 materializationStartedAt: resolvedInputs.materializationStartedAt,

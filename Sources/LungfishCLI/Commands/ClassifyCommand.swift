@@ -157,6 +157,14 @@ struct ClassifyCommand: AsyncParsableCommand {
     }
 
     func run() async throws {
+        try await execute()
+    }
+
+    /// The body of ``run()``. A test passes `adjustServices` to replace the services the run
+    /// reaches for, such as the database registry and the Kraken2 pipeline, so the whole command
+    /// runs in the test's process with a stand-in kraken2, as `esviritu detect` does through
+    /// `execute(pipeline:materializer:installedDatabase:)`.
+    func execute(adjustServices: (inout Kraken2RunServices) -> Void = { _ in }) async throws {
         let eventsOn = globalOptions.outputFormat == .json
         let useColors = globalOptions.useColors
         let quiet = globalOptions.quiet
@@ -170,21 +178,20 @@ struct ClassifyCommand: AsyncParsableCommand {
         let cancelRequested: @Sendable () -> Bool = {
             SIGTERMCancellation.signalCaught || pendingCancel.cancelRequested
         }
-        let tool = Kraken2AnalysisRunTool(
-            request: runRequest,
-            services: Kraken2RunServices(
-                expandInputs: { arguments, recursive in
-                    try CLIClassificationFolderResolver.expandInputArguments(arguments, recursive: recursive)
-                },
-                presentation: eventsOn ? .none : textPresentation(useColors: useColors, quiet: quiet),
-                cancelRequested: cancelRequested
-            )
+        var services = Kraken2RunServices(
+            expandInputs: { arguments, recursive in
+                try CLIClassificationFolderResolver.expandInputArguments(arguments, recursive: recursive)
+            },
+            presentation: eventsOn ? .none : textPresentation(useColors: useColors, quiet: quiet),
+            cancelRequested: cancelRequested
         )
+        adjustServices(&services)
+        let tool = Kraken2AnalysisRunTool(request: runRequest, services: services)
         let request = AnalysisRunRequest(
             inputs: fastqFiles.map { URL(fileURLWithPath: $0).standardizedFileURL },
             destination: destination,
             groupsSamples: batch,
-            commandLine: CommandLine.arguments
+            commandLine: Self.recordedCommandLine(CommandLine.arguments, fallback: canonicalArguments())
         )
         let events = eventsOn
             ? AnalysisRunEvents.jsonLines { printEventLine($0) }
