@@ -8,7 +8,7 @@ The UI-free services that LungfishApp calls to change or read a project. It hold
 
 ## Allowed imports
 
-LungfishCore, LungfishIO, LungfishWorkflow and system frameworks that carry no UI (Foundation, os, CryptoKit, SQLite3, CoreServices, Observation). Never LungfishKit, a leaf UI module, LungfishApp, LungfishCLI, AppKit or SwiftUI. Among the source modules only LungfishApp imports this module. LungfishOperationsTests, LungfishAppTests and LungfishAppViewTests import it with `@testable`. LungfishCLI never imports it.
+LungfishCore, LungfishIO, LungfishWorkflow and system frameworks that carry no UI (Foundation, Darwin, os, CryptoKit, SQLite3, CoreServices, Observation). Never LungfishKit, a leaf UI module, LungfishApp, LungfishCLI, AppKit or SwiftUI. Among the source modules only LungfishApp imports this module. LungfishOperationsTests, LungfishAppTests and LungfishAppViewTests import it with `@testable`. LungfishCLI never imports it.
 
 ## What lives here
 
