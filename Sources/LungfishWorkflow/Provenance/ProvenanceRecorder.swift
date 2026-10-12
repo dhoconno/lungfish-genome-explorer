@@ -251,7 +251,10 @@ public actor ProvenanceRecorder {
     public func canonicalEnvelopes() -> [ProvenanceEnvelope] {
         heldRuns
             .sorted { $0.clock.startedAt > $1.clock.startedAt }
-            .map { $0.canonicalEnvelope(applying: $0.savedOptions) }
+            .map { run in
+                let envelope = run.canonicalEnvelope(applying: run.savedOptions)
+                return run.savedDropsMissingRunLevelFiles ? envelope.droppingMissingRunLevelFiles() : envelope
+            }
     }
 
     // MARK: - Persistence
@@ -304,7 +307,10 @@ public actor ProvenanceRecorder {
             url = try writer.write(envelope, to: directory)
         }
         // The record is on disk, so the options it was written with are the run's until a later save replaces them.
-        _ = modifyRun(runID) { $0.savedOptions = options }
+        _ = modifyRun(runID) {
+            $0.savedOptions = options
+            $0.savedDropsMissingRunLevelFiles = dropMissingRunLevelFiles
+        }
         keepSaved(runID)
         logger.info("Provenance: saved canonical run \(runID) to \(url.path)")
     }
@@ -420,6 +426,9 @@ extension ProvenanceRecorder {
         /// The options the run's latest save passed, nil before a save and after a save that passed none.
         /// The record on disk files the run's parameters under them, and so does the app's export fallback.
         var savedOptions: ProvenanceOptions?
+
+        /// Whether the run's latest save dropped the run-level paths that no longer exist, as Kraken 2's save does.
+        var savedDropsMissingRunLevelFiles = false
 
         /// The record of the run with the caller's `options` of a save in place of its own, or its canonical
         /// record when there are none. The run's parameters merge into the explicit options, so a

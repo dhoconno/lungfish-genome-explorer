@@ -136,4 +136,41 @@ final class TaxTriageExportFallbackTests: XCTestCase {
         XCTAssertEqual(Set(again.explicit.keys), ["limit", "databasePath", "mode"], "the latest save passed no options")
         XCTAssertTrue(again.resolvedDefaults.isEmpty)
     }
+
+    /// A save that drops the run-level files that no longer exist, as Kraken 2's save does after it removes its raw
+    /// output, leaves the removed file out of the fallback's `files` and `outputs` too. The step keeps its record.
+    func testTheFallbackDropsTheRunLevelFilesTheSaveDropped() async throws {
+        let recorder = ProvenanceRecorder(signingProvider: nil)
+        let runID = await recorder.beginRun(name: "Fallback drop", parameters: ["limit": .integer(5)])
+        let raw = root.appendingPathComponent("raw.txt")
+        try Data("raw output".utf8).write(to: raw)
+        await recorder.recordStep(
+            runID: runID, toolName: "tool", toolVersion: "1.0", command: ["tool"],
+            inputs: [],
+            outputs: [FileRecord(path: raw.path, format: .text, role: .output)],
+            exitCode: 0, wallTime: 1
+        )
+        await recorder.completeRun(runID, status: .completed)
+
+        func fallback() async throws -> ProvenanceEnvelope {
+            let envelopes = await recorder.canonicalEnvelopes()
+            return try XCTUnwrap(envelopes.first { $0.id == runID })
+        }
+        let unsaved = try await fallback()
+        XCTAssertTrue(unsaved.outputs.contains { $0.path == raw.path }, "the run-level outputs list the file while it exists")
+
+        try FileManager.default.removeItem(at: raw)
+        let directory = root.appendingPathComponent("saved", isDirectory: true)
+        try await recorder.save(runID: runID, to: directory, dropMissingRunLevelFiles: true)
+
+        let written = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: directory))
+        XCTAssertFalse(written.files.contains { $0.path == raw.path }, "the save dropped the removed file from the files")
+        XCTAssertFalse(written.outputs.contains { $0.path == raw.path }, "the save dropped it from the outputs")
+        XCTAssertTrue(written.steps.flatMap(\.outputs).contains { $0.path == raw.path }, "the step keeps its record")
+
+        let exported = try await fallback()
+        XCTAssertFalse(exported.files.contains { $0.path == raw.path }, "the fallback lists no file the save dropped")
+        XCTAssertFalse(exported.outputs.contains { $0.path == raw.path }, "nor an output the save dropped")
+        XCTAssertTrue(exported.steps.flatMap(\.outputs).contains { $0.path == raw.path }, "the step keeps its record")
+    }
 }
