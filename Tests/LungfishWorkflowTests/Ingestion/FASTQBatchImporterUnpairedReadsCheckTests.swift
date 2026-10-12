@@ -7,19 +7,6 @@ import XCTest
 import LungfishIO
 import LungfishTestSupport
 
-private final class ImportEventCollector: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storage: [ImportLogEvent] = []
-
-    func append(_ event: ImportLogEvent) {
-        lock.withLock { storage.append(event) }
-    }
-
-    var events: [ImportLogEvent] {
-        lock.withLock { storage }
-    }
-}
-
 /// A run's third file, the reads whose mate is missing, joins its `_1` and
 /// `_2` pair by file name (lane F9). These tests cover the check that keeps
 /// the join only when the first reads bear it out (findings F9-S1 and
@@ -484,12 +471,12 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
     func testThePerSampleLogAndTheSampleStartEventNameTheThirdFile() async throws {
         let files = try writeRun("SRR9000008", pairedSpots: [1, 2], unpairedSpots: [3])
         let logs = root.appendingPathComponent("logs", isDirectory: true)
-        let collector = ImportEventCollector()
+        let recorder = ImportLogEventRecorder()
 
         let result = await FASTQBatchImporter.runBatchImport(
             pairs: FASTQBatchImporter.detectPairs(from: files),
             config: config(logDirectory: logs),
-            log: { collector.append($0) }
+            log: { recorder.append($0) }
         )
 
         XCTAssertEqual(result.completed, 1, "Errors: \(result.errors)")
@@ -498,29 +485,29 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
         XCTAssertEqual(entry["r2"] as? String, "SRR9000008_2.fastq")
         XCTAssertEqual(entry["unpaired"] as? String, "SRR9000008.fastq")
 
-        let start = try XCTUnwrap(Self.sampleStartJSON(in: collector.events))
-        XCTAssertEqual(start["r1"] as? String, "SRR9000008_1.fastq")
-        XCTAssertEqual(start["r2"] as? String, "SRR9000008_2.fastq")
-        XCTAssertEqual(start["unpaired"] as? String, "SRR9000008.fastq")
+        let start = try XCTUnwrap(Self.sampleStart(in: recorder.events))
+        XCTAssertEqual(start.r1, "SRR9000008_1.fastq")
+        XCTAssertEqual(start.r2, "SRR9000008_2.fastq")
+        XCTAssertEqual(start.unpaired, "SRR9000008.fastq")
     }
 
     func testAPairsLogAndSampleStartEventHaveNoThirdFile() async throws {
         let files = try writeRun("SRR9000009", pairedSpots: [1, 2], unpairedSpots: [])
         let logs = root.appendingPathComponent("logs", isDirectory: true)
-        let collector = ImportEventCollector()
+        let recorder = ImportLogEventRecorder()
 
         let result = await FASTQBatchImporter.runBatchImport(
             pairs: FASTQBatchImporter.detectPairs(from: files),
             config: config(logDirectory: logs),
-            log: { collector.append($0) }
+            log: { recorder.append($0) }
         )
 
         XCTAssertEqual(result.completed, 1, "Errors: \(result.errors)")
         let entry = try Self.jsonObject(at: logs.appendingPathComponent("SRR9000009.import.log"))
         XCTAssertEqual(Set(entry.keys), ["sample", "r1", "r2", "bundle", "timestamp"], "the log reads as it did")
-        let start = try XCTUnwrap(Self.sampleStartJSON(in: collector.events))
-        XCTAssertNil(start["unpaired"], "the event reads as it did")
-        XCTAssertEqual(start["r2"] as? String, "SRR9000009_2.fastq")
+        let start = try XCTUnwrap(Self.sampleStart(in: recorder.events))
+        XCTAssertNil(start.unpaired, "the event reads as it did")
+        XCTAssertEqual(start.r2, "SRR9000009_2.fastq")
     }
 
     // MARK: - Helpers
@@ -587,12 +574,10 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
         try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
     }
 
-    /// The `sampleStart` event as the CLI prints it.
-    private static func sampleStartJSON(in events: [ImportLogEvent]) -> [String: Any]? {
+    /// The file names of the first `sampleStart` event.
+    private static func sampleStart(in events: [ImportLogEvent]) -> (r1: String, r2: String?, unpaired: String?)? {
         for event in events {
-            guard case .sampleStart = event else { continue }
-            let line = FASTQBatchImporter.encodeLogEvent(event)
-            return try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+            if case let .sampleStart(_, _, _, r1, r2, unpaired) = event { return (r1, r2, unpaired) }
         }
         return nil
     }

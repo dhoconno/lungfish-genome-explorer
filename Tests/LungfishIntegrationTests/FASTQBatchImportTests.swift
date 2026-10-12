@@ -5,21 +5,7 @@
 import XCTest
 @testable import LungfishWorkflow
 @testable import LungfishIO
-
-/// Thread-safe accumulator for log event JSON strings, used to satisfy Swift 6
-/// `@Sendable` closure capture rules in async batch-import tests.
-private final class EventCollector: @unchecked Sendable {
-    private let lock = NSLock()
-    private var _events: [String] = []
-
-    func append(_ event: String) {
-        lock.withLock { _events.append(event) }
-    }
-
-    var events: [String] {
-        lock.withLock { _events }
-    }
-}
+import LungfishTestSupport
 
 final class FASTQBatchImportTests: XCTestCase {
 
@@ -238,32 +224,20 @@ final class FASTQBatchImportTests: XCTestCase {
             logDirectory: nil
         )
 
-        let collector = EventCollector()
+        let recorder = ImportLogEventRecorder()
         let result = await FASTQBatchImporter.runBatchImport(
             pairs: pairs,
             config: config,
-            log: { event in
-                let json = FASTQBatchImporter.encodeLogEvent(event)
-                collector.append(json)
-            }
+            log: { recorder.append($0) }
         )
-        let events = collector.events
+        let kinds = recorder.kinds
 
         XCTAssertEqual(result.completed, 0, "No samples should complete (all skipped)")
         XCTAssertEqual(result.skipped, 1, "The pre-existing bundle should be skipped")
         XCTAssertEqual(result.failed, 0, "No samples should fail")
-        XCTAssertTrue(
-            events.contains(where: { $0.contains("importStart") }),
-            "Should emit importStart event"
-        )
-        XCTAssertTrue(
-            events.contains(where: { $0.contains("sampleSkip") }),
-            "Should emit sampleSkip event for existing bundle"
-        )
-        XCTAssertTrue(
-            events.contains(where: { $0.contains("importComplete") }),
-            "Should emit importComplete event"
-        )
+        XCTAssertTrue(kinds.contains(.importStart), "Should emit importStart event")
+        XCTAssertTrue(kinds.contains(.sampleSkip), "Should emit sampleSkip event for existing bundle")
+        XCTAssertTrue(kinds.contains(.importComplete), "Should emit importComplete event")
     }
 
     func testBatchImportDoesNotReplaceIncompleteBundleWithoutForce() async throws {
@@ -286,13 +260,11 @@ final class FASTQBatchImportTests: XCTestCase {
             logDirectory: nil
         )
 
-        let collector = EventCollector()
+        let recorder = ImportLogEventRecorder()
         let result = await FASTQBatchImporter.runBatchImport(
             pairs: [pair],
             config: config,
-            log: { event in
-                collector.append(FASTQBatchImporter.encodeLogEvent(event))
-            }
+            log: { recorder.append($0) }
         )
 
         XCTAssertEqual(result.completed, 0)
@@ -302,7 +274,10 @@ final class FASTQBatchImportTests: XCTestCase {
         XCTAssertTrue(result.errors.first?.error.contains("--force") == true)
         XCTAssertTrue(FileManager.default.fileExists(atPath: sentinelURL.path))
         XCTAssertEqual(try String(contentsOf: sentinelURL, encoding: .utf8), "existing user data")
-        XCTAssertTrue(collector.events.contains { $0.contains("sampleFailed") && $0.contains("--force") })
+        XCTAssertTrue(recorder.events.contains { event in
+            if case let .sampleFailed(_, error) = event { return error.contains("--force") }
+            return false
+        })
     }
 
     func testBatchImportEmitsImportStartAndComplete() async throws {
@@ -317,28 +292,19 @@ final class FASTQBatchImportTests: XCTestCase {
             logDirectory: nil
         )
 
-        let collector = EventCollector()
+        let recorder = ImportLogEventRecorder()
         let result = await FASTQBatchImporter.runBatchImport(
             pairs: [],
             config: config,
-            log: { event in
-                let json = FASTQBatchImporter.encodeLogEvent(event)
-                collector.append(json)
-            }
+            log: { recorder.append($0) }
         )
-        let events = collector.events
+        let kinds = recorder.kinds
 
         XCTAssertEqual(result.completed, 0)
         XCTAssertEqual(result.skipped, 0)
         XCTAssertEqual(result.failed, 0)
-        XCTAssertTrue(
-            events.contains(where: { $0.contains("importStart") }),
-            "Should always emit importStart"
-        )
-        XCTAssertTrue(
-            events.contains(where: { $0.contains("importComplete") }),
-            "Should always emit importComplete"
-        )
+        XCTAssertTrue(kinds.contains(.importStart), "Should always emit importStart")
+        XCTAssertTrue(kinds.contains(.importComplete), "Should always emit importComplete")
     }
 
     func testConfirmedONTPlatformPersistsPortableSidecarReadType() {
