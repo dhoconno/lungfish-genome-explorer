@@ -252,7 +252,7 @@ sidebar.listed	fixture-ref-testgenome	true
 sidebar.listed	fixture-ref-hepatitisb	true
 sidebar.listed	fixture-ref-simulated-mhc-released	true
 sidebar.listed	fixture-project-sarscov2-mafft	true
-sidebar.listed	fixture-msa-in-project	false
+sidebar.listed	fixture-msa-in-project	true
 sidebar.listed	fixture-msa-compat-record-only	true
 sidebar.listed	fixture-mhcref-compat-record-only	true
 sidebar.listed	fixture-mhcref-mcm-resource	true
@@ -285,9 +285,9 @@ sidebar.listed	nomanifest-lungfishref	true
 sidebar.listed	lower-lungfishfastq	true
 sidebar.listed	upper-lungfishfastq	true
 sidebar.listed	nomanifest-lungfishfastq	true
-sidebar.listed	lower-lungfishmsa	false
-sidebar.listed	upper-lungfishmsa	false
-sidebar.listed	nomanifest-lungfishmsa	false
+sidebar.listed	lower-lungfishmsa	true
+sidebar.listed	upper-lungfishmsa	true
+sidebar.listed	nomanifest-lungfishmsa	true
 sidebar.listed	lower-lungfishtree	true
 sidebar.listed	upper-lungfishtree	true
 sidebar.listed	nomanifest-lungfishtree	true

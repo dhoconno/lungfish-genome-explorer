@@ -100,6 +100,7 @@ folder | Imports | symbol folder | - | Imports | -
       fastqBundle | barcode01-trimmed | symbol doc.text | - | Imports/pooled.lungfishfastq/demux/trimmed/barcode01-trimmed.lungfishfastq | -
   document | primate.lungfish12sref | symbol shippingbox | - | Imports/primate.lungfish12sref | -
     sequence | reference.fa | symbol doc.text | - | Imports/primate.lungfish12sref/reference.fa | -
+  folder | Renamed result | symbol folder | - | Imports/Renamed result | -
   folder | viralrecon notes | symbol folder | - | Imports/viralrecon notes | -
     document | plan.txt | symbol doc.plaintext | - | Imports/viralrecon notes/plan.txt | -
   document | workflow.lungfishflow | symbol shippingbox | - | Imports/workflow.lungfishflow | -

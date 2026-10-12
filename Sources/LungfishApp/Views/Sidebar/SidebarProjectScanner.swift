@@ -540,11 +540,10 @@ enum SidebarProjectScanner {
             if fm.fileExists(atPath: sidecar.path) { return true }
         }
 
-        // Authoritative metadata sidecar: analysis-metadata.json is written at
-        // directory creation time and survives renames.
-        if fm.fileExists(atPath: url.appendingPathComponent(AnalysesFolder.metadataFilename).path) {
-            return true
-        }
+        // Authoritative metadata sidecar, written at creation and kept through renames. Only a folder
+        // inside Analyses/ has a dedicated row, so a folder with metadata elsewhere lists as a plain folder.
+        if fm.fileExists(atPath: url.appendingPathComponent(AnalysesFolder.metadataFilename).path),
+           AnalysesFolder.isInsideAnalysesFolder(url) { return true }
 
         // Content-based fallback: detect renamed analysis directories by their
         // signature files (e.g. manifest.json + hits.sqlite for NAO-MGS).

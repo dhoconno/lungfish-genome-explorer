@@ -245,30 +245,30 @@ final class ClassifierLayoutReaderPinTests: XCTestCase {
         }
     }
 
-    // MARK: - Known defects, left for 2.9
+    // MARK: - Folders outside Analyses
 
-    /// Known defect, risk R11. Any folder with `analysis-metadata.json` outside Analyses leaves the
-    /// sidebar. `SidebarProjectScanner.isMetagenomicsResultDirectory` hides every folder that
-    /// carries metadata, while only the children of Analyses get a dedicated row. A copy of an
-    /// Analyses result placed in another project folder is hidden the same way today. The executor
-    /// does not meet it, because a `--output-dir` it claims gets the metadata only when it sits
-    /// directly under a project's Analyses folder (decision E1b). Anywhere else the folder keeps the
-    /// command line set of files and lists as a plain folder, like the command line output here.
-    /// The scanner change of 2.9 that limits the metadata check to the children of Analyses lists
-    /// the copy as well, and that commit moves the first assertion.
-    func testKnownDefectR11AFolderWithMetadataOutsideAnalysesLeavesTheSidebar() async throws {
+    /// Risk R11. A folder with `analysis-metadata.json` outside Analyses is listed. The scanner once
+    /// hid every folder that carries metadata, while only the children of Analyses get a dedicated
+    /// row, so a copy of an Analyses result placed in another project folder left the sidebar (fixed
+    /// in 2.9). The copy lists as a plain folder, like the command line output beside it. The executor
+    /// never met the defect, because a `--output-dir` it claims gets the metadata only when it sits
+    /// directly under a project's Analyses folder (decision E1b).
+    func testAFolderWithMetadataOutsideAnalysesIsListed() async throws {
         let built = try await buildProject()
         let imports = try XCTUnwrap(SidebarProjectScanner.scanRootNodes(from: built.project).first { $0.title == "Imports" })
         XCTAssertEqual(
             imports.children.map(\.title),
-            [Name.outsideCLIOutput],
-            "Known defect R11. The scan hides \(Name.outsideAnalysesCopy) because it carries metadata"
+            [Name.outsideCLIOutput, Name.outsideAnalysesCopy],
+            "the scan lists \(Name.outsideAnalysesCopy) although it carries metadata"
         )
-        XCTAssertEqual(
-            imports.children.first?.children.map(\.title),
-            ["classification.kreport"],
-            "the sidecar and the hidden files of the command line output stay out of the folder row"
-        )
+        for folder in imports.children {
+            XCTAssertEqual(folder.type, .folder, "\(folder.title) lists as a plain folder")
+            XCTAssertEqual(
+                folder.children.map(\.title),
+                ["classification.kreport"],
+                "the sidecar and the hidden files of \(folder.title) stay out of the folder row"
+            )
+        }
         XCTAssertNotNil(AnalysesFolder.readAnalysisMetadata(from: built.imports.appendingPathComponent(Name.outsideAnalysesCopy)))
         XCTAssertNil(AnalysesFolder.readAnalysisMetadata(from: built.imports.appendingPathComponent(Name.outsideCLIOutput)))
     }

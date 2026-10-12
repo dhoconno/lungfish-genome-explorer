@@ -19,3 +19,5 @@ folder | Analyses | symbol flask | - | Analyses | accessibilityIdentifier=sideba
 folder | Imports | symbol folder | - | Imports | -
   folder | Kraken2 CLI output | symbol folder | - | Imports/Kraken2 CLI output | -
     unknown | classification.kreport | symbol doc.questionmark | - | Imports/Kraken2 CLI output/classification.kreport | -
+  folder | Kraken2 result copied out of Analyses | symbol folder | - | Imports/Kraken2 result copied out of Analyses | -
+    unknown | classification.kreport | symbol doc.questionmark | - | Imports/Kraken2 result copied out of Analyses/classification.kreport | -

@@ -513,6 +513,20 @@ public enum AnalysesFolder {
         return parseDirectoryName(directoryURL.lastPathComponent, url: directoryURL)
     }
 
+    /// Whether `url` lies inside a project's `Analyses/` folder, at any depth.
+    ///
+    /// Only there does a folder with `analysis-metadata.json` get a dedicated row, so the generic
+    /// folder scan leaves a folder out for its metadata only there and lists a copy kept anywhere
+    /// else in the project. The walk upward stops at the project, the nearest `.lungfish` folder, so
+    /// a project inside a folder called `Analyses` does not make its own folders look like results.
+    public static func isInsideAnalysesFolder(_ url: URL) -> Bool {
+        for name in url.standardizedFileURL.pathComponents.dropLast().reversed() {
+            if name == directoryName { return true }
+            if (name as NSString).pathExtension.lowercased() == "lungfish" { return false }
+        }
+        return false
+    }
+
     /// Returns the nearest ancestor of `url` that is recognized as an analysis directory.
     ///
     /// This supports user-created grouping folders under `Analyses/` by walking upward

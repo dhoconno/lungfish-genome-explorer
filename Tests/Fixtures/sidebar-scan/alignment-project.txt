@@ -4,4 +4,5 @@ folder | Inputs | symbol folder | - | Inputs | -
   sequence | sars-cov-2-genomes.fasta | symbol doc.text | - | Inputs/sars-cov-2-genomes.fasta | -
   document | source-metadata.tsv | symbol tablecells | - | Inputs/source-metadata.tsv | -
 folder | Multiple Sequence Alignments | symbol folder | - | Multiple Sequence Alignments | -
+  multipleSequenceAlignmentBundle | sars-cov-2-genomes-mafft | symbol rectangle.grid.1x2 | - | Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa | -
 document | README.md | symbol doc.plaintext | - | README.md | -

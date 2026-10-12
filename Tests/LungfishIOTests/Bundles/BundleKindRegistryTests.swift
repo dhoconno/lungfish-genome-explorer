@@ -248,9 +248,9 @@ final class BundleKindRegistryTests: XCTestCase {
             XCTAssertEqual(symbolRow.split(separator: " ").dropFirst(2).first.map(String.init), d.sidebarSymbolName, label)
             let node = answers["sidebar.scanNode", lower]
             XCTAssertEqual(node.hasSuffix(" atomic"), d.presentation == .atomicPackage, label)
-            // A hidden kind is not listed. The committed alignment is not listed either, but for another reason,
-            // because it carries analysis-metadata.json, which hides a folder outside Analyses/.
-            let notListed = d.presentation == .hiddenPackage || d.id == .multipleSequenceAlignment
+            // A hidden kind is not listed. The committed alignment is listed outside Analyses/ although it
+            // carries analysis-metadata.json, which hid every folder outside Analyses/ before 2.9 (risk R11).
+            let notListed = d.presentation == .hiddenPackage
             XCTAssertEqual(answers["sidebar.listed", lower] == "false", notListed, label)
 
             // Deletion, in every spelling, because the planner lowercases.
