@@ -161,7 +161,7 @@ extension BuildDbCommand {
                 // The move left nothing at the BAMs' old paths in `_temp/`, which the records name, so a
                 // step names each with the digest the move recorded (P1 of Phase 2.8, row 422).
                 cleanupSteps = RecordedRemovalStep.step(
-                    toolName: "Lungfish EsViritu Cleanup",
+                    toolName: "Lungfish EsViritu BAM Relocation Source Removal",
                     api: "BuildDbCommand.EsVirituSubcommand.relocateEsVirituBAMs(resultURL:)",
                     removing: relocationSteps.flatMap(\.inputs).filter { !FileManager.default.fileExists(atPath: $0.path) },
                     clock: cleanupClock

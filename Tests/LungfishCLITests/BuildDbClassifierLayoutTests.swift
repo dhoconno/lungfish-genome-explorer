@@ -87,7 +87,7 @@ final class BuildDbClassifierLayoutTests: XCTestCase {
 
         // P1 of Phase 2.8, row 422. A removal step names the old paths of the moved BAM and index
         // with the digests the move recorded, so the move's inputs are accounted for.
-        let cleanup = try XCTUnwrap(record.steps.first { $0.toolName == "Lungfish EsViritu Cleanup" })
+        let cleanup = try XCTUnwrap(record.steps.first { $0.toolName == "Lungfish EsViritu BAM Relocation Source Removal" })
         XCTAssertEqual(cleanup.resolvedOptions["operation"], .string(RecordedRemovalStep.operation))
         XCTAssertEqual(cleanup.inputs, move.inputs)
         XCTAssertEqual(cleanup.outputs, [])
