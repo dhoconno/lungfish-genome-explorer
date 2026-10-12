@@ -157,7 +157,7 @@ public enum DurableReplace {
     /// file is removed, the name keeps its old file and the error is
     /// rethrown. `beforePublish` and `observe` behave as in the `Data` form.
     @discardableResult
-    public static func replace(
+    package static func replace(
         named name: String,
         in directoryURL: URL,
         recovery: Recovery = .tombstones,

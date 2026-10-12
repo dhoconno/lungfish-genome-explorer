@@ -16,18 +16,18 @@ extension DurableReplace {
     /// disk would end the process (Phase 2.9 lane S12). The writer is valid
     /// only inside `body`, because the publication closes the file when
     /// `body` returns.
-    public struct StageWriter {
+    package struct StageWriter {
         let descriptor: Int32
         let path: String
         let writeBytes: @Sendable (Int32, UnsafeRawPointer, Int) -> Int
 
         /// Appends `data` to the stage file.
-        public func write(_ data: Data) throws {
+        package func write(_ data: Data) throws {
             try data.withUnsafeBytes { try write($0) }
         }
 
         /// Appends `bytes` to the stage file.
-        public func write(_ bytes: UnsafeRawBufferPointer) throws {
+        package func write(_ bytes: UnsafeRawBufferPointer) throws {
             guard var cursor = bytes.baseAddress else { return }
             var remaining = bytes.count
             while remaining > 0 {
