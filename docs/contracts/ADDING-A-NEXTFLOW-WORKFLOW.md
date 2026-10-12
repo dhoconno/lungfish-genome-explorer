@@ -101,6 +101,59 @@ A new workflow adds its builder in `Sources/LungfishWorkflow/Nextflow/` and a te
 
 ## 3. The engine process (S9)
 
+`NextflowEngineProcess` (`Sources/LungfishWorkflow/Nextflow/NextflowEngineProcess.swift`) is the one launch path every Nextflow workflow moves onto. TaxTriage launches through it today, and the last paragraph of this section names the launches that have not moved yet. A workflow gets its engine from its descriptor. `engineConfiguration(profile:)` (`Sources/LungfishWorkflow/Nextflow/NextflowWorkflowDescriptor+Engine.swift`) takes the profile the caller resolved and returns the settings below, and TaxTriage builds its engine with `TaxTriagePipeline.nextflowEngine(processManager:profile:)` in `Sources/LungfishWorkflow/TaxTriage/TaxTriageEngineProcess.swift`. A workflow on the engine never launches Nextflow on its own.
+
+| Setting | Value | What it does |
+|---|---|---|
+| `scratchPrefix` | The descriptor's | Names the launch folder that holds `.nextflow/` and the work folder |
+| `keepWorkEnvironmentKey` | The descriptor's | Keeps the launch folder after the run when the variable is `1` |
+| `waitsForDocker` | True only when `containerRuntime` is `docker` and the profile is the descriptor's | Makes `waitForDocker(probe:progress:)` wait for the daemon, so a conda run or a stand-in run with `local` never waits |
+| `terminationGracePeriod` | 4 s | The time between TERM and KILL on a cancel (decision N6) |
+| `logTailLineCount` | 200 | The lines of each stream the outcome keeps |
+| `tracePollInterval` | 5 s | How often the engine reads the trace file for progress |
+
+### One run, in order
+
+1. `waitForDocker(probe:progress:)` waits for the Docker daemon when the configuration says so. It reports `Docker daemon unavailable. Launching Docker Desktop...` at 0.01, asks macOS to start Docker Desktop with `open -g -a Docker`, polls every 2 s for up to 90 s and reports `Docker daemon ready` at 0.02. A cancel ends the wait at once with `CancellationError`. An `open` that fails ends it at once, and a daemon that has not answered after 90 s ends it then. Either failure reads `Docker Desktop is not running or daemon is unreachable. Start Docker Desktop and retry.`
+2. `makeScratch(contextURL:)` creates the launch folder and its `work/` folder on the volume of the output folder when that volume can host Nextflow's cache, and in the system temp folder otherwise (`NextflowScratchVolumeProbe`).
+3. `run(_:in:hooks:)` checks the task before it does anything, so a cancel that came first launches nothing, writes no log and throws `CancellationError`. It launches the `NextflowEngineLaunch` in the launch folder and returns a `NextflowEngineOutcome` once the engine and every process of its tree have ended.
+4. The caller writes its record, `cancelled` with exit 125 when the task was cancelled, and only then calls `finish(_:_:)`.
+
+### The log
+
+`run` writes `nextflow.log` at the launch's `logFile` while the engine runs. The log holds the launch's `logPreamble`, then `--- stdout ---` and each stdout line as it arrives, then `--- stderr ---` and the stderr lines, which wait in a sidecar in the launch folder until the engine has ended. A launch that fails leaves the preamble and a `--- launcher error ---` part with the words of `NextflowEngineProcess.launchFailureMessage(for:)`. Whatever sits at the log's path is replaced first, so a link left there is never written through. The log is synchronized before `run` returns, so the bytes a step hashes are on disk. A KILL of the CLI or the app leaves the preamble and the stdout so far, with no stderr part.
+
+A write, read-back or `fsync` that fails is in the outcome's `logFailure`. The caller fails a run that ended on its own when it is set, names no output in the failed step, and lets a cancel win over it.
+
+### A cancel
+
+A cancel of the calling task sends TERM to the engine's process group and every descendant, the launcher, Nextflow's JVM and each task wrapper, then KILL to what is left after the 4 s grace. `run` returns only once the tree is gone. The order after that is fixed (decision N5).
+
+1. The host tree goes first.
+2. The `cleanup` hook of `NextflowEngineHooks`, when the caller passes one, stops the run's task containers, which run in Docker Desktop's VM outside the host tree, by their bind mounts of the run's work folder. `run` waits for it at most 1.5 s (`NextflowEngineProcess.containerCleanupBound`), so the grace and the cleanup end inside the 6 s the app gives a cancelled command. TaxTriage passes no cleanup yet, so the task containers of a cancelled run keep running in Docker Desktop until they end.
+3. The caller writes its `cancelled` record.
+4. `finish(_:_:)` removes the launch folder with `.remove`, or leaves it for the abandoned-scratch sweep with `.leaveForSweep`, which decision N7 gives a cancelled executor unit of the CLI. TaxTriage's pipeline passes `.remove`, a cancelled run included. A folder kept with the keep-work variable is never removed.
+
+The cleanup runs in a new task, which starts uncancelled and keeps the caller's task-local values, such as a test's container probe. It unbinds the provenance observer alone, so no `docker` command becomes a step.
+
+### Progress
+
+`NextflowEngineHooks.progress` receives each stdout line once it is in the log, through `NextflowProgressReporting.engineLine`, and each changed reading of the trace file, through `traceProgress`. A reading counts the COMPLETED and CACHED rows and names the last of them. `NextflowProgressReader` (`Sources/LungfishWorkflow/Nextflow/NextflowProgressReader.swift`) turns `process >` lines into the bar from 0.10 to 0.90, against 15 tasks or the descriptor's `expectedTaskCountPerSample` times the sample count.
+
+### What holds this section
+
+| Suite | What it pins |
+|---|---|
+| `Tests/LungfishWorkflowTests/Nextflow/NextflowEngineProcessTests.swift` | The log's bytes, the streamed lines, the tail, a replaced link, the cancel with its grace and cleanup, the cleanup's task-local values and the trace readings, on `/bin/sh` scripts |
+| `Tests/LungfishWorkflowTests/Nextflow/NextflowEngineLogTests.swift` | A failed write that reaches the caller, and a tail that bounds memory |
+| `Tests/LungfishWorkflowTests/Nextflow/NextflowEngineScratchTests.swift` | The volume probe, the keep-work variable and both dispositions |
+| `Tests/LungfishWorkflowTests/Nextflow/NextflowEngineDockerWaitTests.swift` | The wait's words, a cancelled wait and a failed `open`, on a stub probe that never starts Docker Desktop |
+| `Tests/LungfishWorkflowTests/Nextflow/NextflowWorkflowDescriptorEngineTests.swift` | The settings a descriptor gives a launch, and that only its own Docker profile waits |
+| `Tests/LungfishWorkflowTests/Nextflow/NextflowProgressReaderTests.swift` | The progress rule |
+| `Tests/LungfishAppTests/TaxTriageEngineProcessReplayTests.swift` | TaxTriage on the engine with the stand-in, the cancel's order, the log's bytes, a cancel in the wait and before the launch, the log a KILL leaves, and that only the docker profile asks the daemon |
+
+The runners of `lungfish-cli workflow run` and of pbAA clustering still launch Nextflow on their own, with the engine's 4 s grace. Viral Recon moves onto the engine in Phase 2.10 and pbAA in 2.11.
+
 ## 4. The record (B11)
 
 A workflow on this contract records each of its Nextflow steps in one shape, `NextflowRecordFacts` in `Sources/LungfishWorkflow/Nextflow/NextflowRecordFacts.swift` (decision R1). In Phase 2.9 only TaxTriage's pipeline writes it. The sample steps that the app's serial batch record writes by hand (`TaxTriageSerialBatchRunner`) do not take it yet, and Viral Recon and pbAA keep their own records until they move onto the contract. `Tests/LungfishCLITests/ViralReconRecordShapeGapTests.swift` states Viral Recon's gaps.
