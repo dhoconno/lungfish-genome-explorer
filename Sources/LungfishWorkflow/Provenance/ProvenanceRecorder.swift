@@ -244,12 +244,14 @@ public actor ProvenanceRecorder {
         findRun(runID)?.canonicalEnvelope()
     }
 
-    /// The record of every run the recorder holds, as `canonicalEnvelope(for:)` makes it, most recent
-    /// first. The app's export falls back to the latest completed one.
+    /// The record of every run the recorder holds, most recent first. A saved run is the record its latest
+    /// save wrote, with the options that save passed, and a run not saved yet is the record
+    /// `canonicalEnvelope(for:)` makes. The app's export falls back to the latest completed one, so it
+    /// exports the record the save wrote and files each option where that save filed it.
     public func canonicalEnvelopes() -> [ProvenanceEnvelope] {
         heldRuns
             .sorted { $0.clock.startedAt > $1.clock.startedAt }
-            .map { $0.canonicalEnvelope() }
+            .map { $0.canonicalEnvelope(applying: $0.savedOptions) }
     }
 
     // MARK: - Persistence
@@ -290,11 +292,7 @@ public actor ProvenanceRecorder {
             throw ProvenanceError.runNotFound(runID)
         }
         logDeclarationsWithoutObservation(of: run)
-        var envelope = run.canonicalEnvelope()
-        if let options {
-            // The recorder keeps the explicit home, as the doc of `options` says.
-            envelope = envelope.with { $0.options = options.mergingRunParameters(run.parameters, into: .explicit) }
-        }
+        var envelope = run.canonicalEnvelope(applying: options)
         if dropMissingRunLevelFiles {
             envelope = envelope.droppingMissingRunLevelFiles()
         }
@@ -305,6 +303,8 @@ public actor ProvenanceRecorder {
         } else {
             url = try writer.write(envelope, to: directory)
         }
+        // The record is on disk, so the options it was written with are the run's until a later save replaces them.
+        _ = modifyRun(runID) { $0.savedOptions = options }
         keepSaved(runID)
         logger.info("Provenance: saved canonical run \(runID) to \(url.path)")
     }
@@ -415,6 +415,20 @@ extension ProvenanceRecorder {
         /// The parameters the run began with.
         var parameters: [String: ParameterValue] {
             builder.provenanceOptions.explicit
+        }
+
+        /// The options the run's latest save passed, nil before a save and after a save that passed none.
+        /// The record on disk files the run's parameters under them, and so does the app's export fallback.
+        var savedOptions: ProvenanceOptions?
+
+        /// The record of the run with the caller's `options` of a save in place of its own, or its canonical
+        /// record when there are none. The run's parameters merge into the explicit options, so a
+        /// parameter that only the run carries stays in the record. The recorder keeps the explicit home,
+        /// as the doc of `save(runID:to:bundleLayoutRoot:options:dropMissingRunLevelFiles:)` says.
+        func canonicalEnvelope(applying options: ProvenanceOptions?) -> ProvenanceEnvelope {
+            let envelope = canonicalEnvelope()
+            guard let options else { return envelope }
+            return envelope.with { $0.options = options.mergingRunParameters(parameters, into: .explicit) }
         }
 
         /// The record of the run as `save` writes it before the caller's options. The runtime identity
