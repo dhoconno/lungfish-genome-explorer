@@ -59,7 +59,8 @@ extension AppDelegate {
         try? FileManager.default.removeItem(at: materializeTempDir)
         let capturedResult = result
         let capturedConfig = config
-        let capturedDBBuildError = dbBuildErrorDescription
+        // A cancel that stops the build is no failure of the build, and the row reads Cancelled by user (T10).
+        let capturedDBBuildError = Task.isCancelled ? nil : dbBuildErrorDescription
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
                 viewerController.hideProgress()

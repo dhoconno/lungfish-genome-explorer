@@ -389,17 +389,20 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: analysis.appendingPathComponent("taxtriage-result.json").path))
 
         // The row on its way to Cancelled. The bar stays where the database build left it, which is
-        // 1.0 because the bar never moves back (T9), and the build the cancel stopped logs a warning
-        // about the database, the one line of the log that is not information.
+        // 1.0 because the bar never moves back (T9). The build the cancel stopped logs no warning,
+        // because a cancel is no failure (T10).
         XCTAssertEqual(
             Array(run.trace.details.suffix(3)),
             ["Building TaxTriage database\u{2026}", "Cancelling...", "Cancelled by user"]
         )
         XCTAssertEqual(run.trace.bars.last, 1.0)
         XCTAssertEqual(Self.drops(in: run.trace.bars), [])
+        let lines = Self.loggedLines(of: item)
+        XCTAssertTrue(lines.contains("info: Building taxtriage.sqlite from TaxTriage outputs"), "\(lines)")
         XCTAssertEqual(
-            Self.loggedLines(of: item).filter { $0.hasPrefix("warning:") },
-            ["warning: Database build failed: Operation cancelled \u{2014} batch will rebuild lazily on open"]
+            lines.filter { $0.hasPrefix("warning:") || $0.hasPrefix("error:") },
+            [],
+            "a cancel is no failure of the database build"
         )
 
         // After a cancel nothing more is written into the source bundles (T10). The cross-reference
