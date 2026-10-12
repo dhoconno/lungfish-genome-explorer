@@ -60,6 +60,11 @@ extension BuildDbCommand {
         /// sample folder, or of the folder itself when it holds one run, compacts the per-read output unless
         /// `options.noCleanup`, records the run beside the database and returns what it built. A database that
         /// exists is kept unless `options.force`.
+        ///
+        /// A cancel of the caller's task ends the build with `CancellationError` at its next check. The checks
+        /// come before each sample folder is read or compacted and before the database and the record are
+        /// written. The database of an earlier build is put back and no record of a failed build is written,
+        /// so a cancelled build publishes nothing (plan decision E5 of Phase 2.7).
         static func buildDatabase(
             in resultURL: URL,
             options: BuildDbRunOptions,
@@ -105,14 +110,16 @@ extension BuildDbCommand {
                     metadata[key] = value
                 }
 
+                try Task.checkCancellation()
                 try Kraken2Database.create(at: dbURL, rows: rows, metadata: metadata, progress: events.progress)
 
                 events.text(BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: nil).summary)
 
                 if !options.noCleanup {
-                    cleanupSteps = performCleanup(resultURL: resultURL, sampleDirectories: explicitSampleDirectories, events: events)
+                    cleanupSteps = try performCleanup(resultURL: resultURL, sampleDirectories: explicitSampleDirectories, events: events)
                 }
 
+                try Task.checkCancellation()
                 let record = try await BuildDbCommand.recordBuildDbProvenance(
                     tool: .kraken2,
                     resultURL: resultURL,
@@ -135,6 +142,9 @@ extension BuildDbCommand {
                 } catch {
                     events.warning("Warning: could not restore previous Kraken2 database: \(error.localizedDescription)")
                 }
+                // A cancelled build is not a failed one, so it leaves no record of a failure. The cancel
+                // request decides, never the error that the cancel caused (SWIFT X2).
+                guard !Task.isCancelled else { throw error }
                 await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
                     tool: .kraken2,
                     resultURL: resultURL,
@@ -171,6 +181,7 @@ extension BuildDbCommand {
                 var sampleMetadata: [String: String] = [:]
 
                 for dir in explicitSampleDirectories {
+                    try Task.checkCancellation()
                     var isDirectory: ObjCBool = false
                     guard fm.fileExists(atPath: dir.path, isDirectory: &isDirectory), isDirectory.boolValue else {
                         throw ValidationError("--sample-dir must be an existing directory: \(dir.path)")
@@ -208,6 +219,7 @@ extension BuildDbCommand {
             // First pass: batch layout — sample subdirectories containing classification.kreport
             var foundSubdirKreports = false
             for dir in contents.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+                try Task.checkCancellation()
                 let isDir = (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
                 guard isDir else { continue }
 
@@ -411,9 +423,13 @@ extension BuildDbCommand {
         /// Returns the steps of the run's record, the index and gzip of each compacted output and
         /// one removal step that names every removed file with the digest it had, because the
         /// classifier's record names the per-read output it wrote (P1 of Phase 2.8, row 423).
+        ///
+        /// Throws `CancellationError` before it starts on a folder when the caller's task is cancelled, so a
+        /// folder is compacted whole or not at all. The folders it compacted before the cancel stay compacted,
+        /// and a cancelled build records no step for them.
         private static func performCleanup(
             resultURL: URL, sampleDirectories: [URL] = [], events: BuildDbEventSink
-        ) -> [ProvenanceStep] {
+        ) throws -> [ProvenanceStep] {
             let fm = FileManager.default
             var freedBytes: Int64 = 0
             var steps: [ProvenanceStep] = []
@@ -444,6 +460,8 @@ extension BuildDbCommand {
             }
 
             for dir in cleanupDirs {
+                // Outside the `do` below, which turns a failed compaction into a warning.
+                try Task.checkCancellation()
                 let name = dir.lastPathComponent
                 guard !name.hasPrefix(".") else { continue }
 

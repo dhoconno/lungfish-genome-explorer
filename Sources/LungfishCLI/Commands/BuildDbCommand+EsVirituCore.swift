@@ -48,6 +48,12 @@ extension BuildDbCommand {
         /// tables of each sample folder, moves each sample's BAMs from `<sample>_temp` to `bams`, counts their
         /// reads with samtools, runs the cleanup unless `options.noCleanup`, records the run beside the database
         /// and returns what it built. A database that exists is kept unless `options.force`.
+        ///
+        /// A cancel of the caller's task ends the build with `CancellationError` at its next check. The checks
+        /// come before each sample folder is read or cleaned up, before the database is written, before the
+        /// BAMs move, after the read count pass and before the record is written. The database of an earlier
+        /// build is put back and no record of a failed build is written, so a cancelled build publishes
+        /// nothing (plan decision E5 of Phase 2.7).
         static func buildDatabase(
             in resultURL: URL,
             options: BuildDbRunOptions,
@@ -80,6 +86,7 @@ extension BuildDbCommand {
                 let fm = FileManager.default
                 if let sampleDirs = try? fm.contentsOfDirectory(at: resultURL, includingPropertiesForKeys: [.isDirectoryKey]) {
                     for dir in sampleDirs {
+                        try Task.checkCancellation()
                         let isDir = (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
                         guard isDir else { continue }
                         let sampleName = dir.lastPathComponent
@@ -101,6 +108,7 @@ extension BuildDbCommand {
                     }
                 }
                 for sampleName in rootLayoutSamples(in: resultURL) {
+                    try Task.checkCancellation()
                     let cwURL = resultURL.appendingPathComponent("\(sampleName).virus_coverage_windows.tsv")
                     guard fm.fileExists(atPath: cwURL.path), let parsed = try? EsVirituCoverageParser.parse(url: cwURL) else { continue }
                     allWindows.append(contentsOf: parsed.map { w in
@@ -121,6 +129,7 @@ extension BuildDbCommand {
                     "source_dir": resultURL.path,
                 ]
 
+                try Task.checkCancellation()
                 _ = try EsVirituDatabase.create(
                     at: dbURL, rows: rows, coverageWindows: allWindows, metadata: metadata, progress: events.progress
                 )
@@ -129,7 +138,9 @@ extension BuildDbCommand {
 
                 // 4. Relocate BAMs from <sample>/<sample>_temp/ to <sample>/bams/ so the
                 // resolver in updateUniqueReadsInDB and post-cleanup VC can both find them.
-                // The move is a step of the run's record (plan decision E7).
+                // The move is a step of the run's record (plan decision E7). It is a few renames, so one check
+                // before it is enough and a cancel never leaves the BAMs half moved.
+                try Task.checkCancellation()
                 let relocationClock = ProvenanceRunClock()
                 let moved = relocateEsVirituBAMs(resultURL: resultURL)
                 relocationSteps = bamRelocationStep(
@@ -154,9 +165,12 @@ extension BuildDbCommand {
                     provenance: samtoolsProvenance
                 )
 
+                // The pass catches the failure of each samtools call and returns, so this is where a cancel
+                // during the pass ends the build, before the cleanup removes the `_temp` folders.
+                try Task.checkCancellation()
                 let cleanupClock = ProvenanceRunClock()
                 if !options.noCleanup {
-                    performCleanup(resultURL: resultURL, events: events)
+                    try performCleanup(resultURL: resultURL, events: events)
                 }
                 // The move left nothing at the BAMs' old paths in `_temp/`, which the records name, so a
                 // step names each with the digest the move recorded (P1 of Phase 2.8, row 422).
@@ -167,6 +181,7 @@ extension BuildDbCommand {
                     clock: cleanupClock
                 ).map { [$0] } ?? []
 
+                try Task.checkCancellation()
                 let record = try await BuildDbCommand.recordBuildDbProvenance(
                     tool: .esViritu,
                     resultURL: resultURL,
@@ -188,6 +203,9 @@ extension BuildDbCommand {
                 } catch {
                     events.warning("Warning: could not restore previous EsViritu database: \(error.localizedDescription)")
                 }
+                // A cancelled build is not a failed one, so it leaves no record of a failure. The cancel
+                // request decides, never the error that the cancel caused (SWIFT X2).
+                guard !Task.isCancelled else { throw error }
                 await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
                     tool: .esViritu,
                     resultURL: resultURL,
@@ -220,6 +238,7 @@ extension BuildDbCommand {
             var allRows: [EsVirituDetectionRow] = []
 
             for dir in contents {
+                try Task.checkCancellation()
                 let isDir = (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
                 guard isDir else { continue }
 
@@ -236,6 +255,7 @@ extension BuildDbCommand {
             }
 
             for sampleName in rootLayoutSamples(in: resultURL) {
+                try Task.checkCancellation()
                 let tsvURL = resultURL.appendingPathComponent("\(sampleName).detected_virus.info.tsv")
                 allRows.append(contentsOf: try parseDetectionTSV(
                     at: tsvURL, sampleName: sampleName, sampleDir: resultURL, atResultRoot: true
@@ -456,7 +476,10 @@ extension BuildDbCommand {
         /// `*.detected_virus.assembly_summary.tsv`, which the sample record names as outputs and which
         /// hold the coverage breadth behind each detection (plan decision E7 of Phase 2.7, risk R6). Keeps
         /// `esviritu.sqlite` and `bams/`.
-        private static func performCleanup(resultURL: URL, events: BuildDbEventSink) {
+        ///
+        /// Throws `CancellationError` before it removes the `_temp` folder of a sample when the caller's task
+        /// is cancelled. The folders it removed before the cancel stay removed.
+        static func performCleanup(resultURL: URL, events: BuildDbEventSink) throws {
             let fm = FileManager.default
             var freedBytes: Int64 = 0
 
@@ -466,6 +489,7 @@ extension BuildDbCommand {
             ) else { return }
 
             for dir in sampleDirs {
+                try Task.checkCancellation()
                 let isDir = (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
                 guard isDir else { continue }
 
