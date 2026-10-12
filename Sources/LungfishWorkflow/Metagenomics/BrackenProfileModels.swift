@@ -175,7 +175,17 @@ public enum BrackenProfileState: String, Sendable, Codable, Equatable {
 }
 
 /// Machine-readable reason why a requested Bracken profile did not complete.
-public enum BrackenProfileDegradationReason: String, Sendable, Codable, Equatable {
+///
+/// The reason is stored in the `profileOutcome` of `classification-result.json`, and a result
+/// travels between releases. A later release can name a reason this build does not know, so
+/// reading never fails on a raw value. The reader keeps the value as ``unknown(_:)`` and writes it
+/// back exactly as it came, so the result still opens, shows its message and can be saved again.
+///
+/// The raw value is the stored token. Two reasons with the same token are equal, so a known case
+/// and ``unknown(_:)`` holding its token are the same reason. A known case never decodes as
+/// ``unknown(_:)``, and `description` is the token, so a message that interpolates a reason reads
+/// the same for every case.
+public enum BrackenProfileDegradationReason: Sendable, Hashable, Codable, RawRepresentable, CustomStringConvertible {
     case unsupportedRank
     case rankAbsentFromReport
     case distributionUnavailable
@@ -183,6 +193,59 @@ public enum BrackenProfileDegradationReason: String, Sendable, Codable, Equatabl
     case toolFailed
     case outputMissing
     case outputInvalid
+
+    /// A reason this build does not know, held exactly as it was stored.
+    case unknown(String)
+
+    /// The reason stored as `rawValue`. A token this build does not know becomes
+    /// ``unknown(_:)``, so this initializer never fails.
+    public init(rawValue: String) {
+        switch rawValue {
+        case "unsupportedRank": self = .unsupportedRank
+        case "rankAbsentFromReport": self = .rankAbsentFromReport
+        case "distributionUnavailable": self = .distributionUnavailable
+        case "toolUnavailable": self = .toolUnavailable
+        case "toolFailed": self = .toolFailed
+        case "outputMissing": self = .outputMissing
+        case "outputInvalid": self = .outputInvalid
+        default: self = .unknown(rawValue)
+        }
+    }
+
+    /// The stored token.
+    public var rawValue: String {
+        switch self {
+        case .unsupportedRank: return "unsupportedRank"
+        case .rankAbsentFromReport: return "rankAbsentFromReport"
+        case .distributionUnavailable: return "distributionUnavailable"
+        case .toolUnavailable: return "toolUnavailable"
+        case .toolFailed: return "toolFailed"
+        case .outputMissing: return "outputMissing"
+        case .outputInvalid: return "outputInvalid"
+        case .unknown(let token): return token
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self.init(rawValue: try container.decode(String.self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.rawValue == rhs.rawValue
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(rawValue)
+    }
+
+    /// The stored token, which is also what string interpolation shows.
+    public var description: String { rawValue }
 }
 
 /// Durable scientific outcome of the optional profiling phase.
