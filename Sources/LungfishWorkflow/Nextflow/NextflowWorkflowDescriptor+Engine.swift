@@ -11,16 +11,14 @@ extension NextflowWorkflowDescriptor {
     /// The engine settings of one launch with the effective `profile`, the profile the caller resolved
     /// and passes as `-profile`.
     ///
-    /// The engine waits for the Docker daemon only when the workflow's tasks run in Docker and the
-    /// launch keeps the workflow's own profile, so a conda run and a stand-in run with `local` never
-    /// wait. The decision follows the effective profile, never ``containerRuntime`` alone (A16 M1
-    /// review, ruling 2). For TaxTriage it is the check `profile == "docker"` its pipeline has made
-    /// since before 2.9.
+    /// The engine waits for the Docker daemon as ``waitsForDocker(profile:)`` decides, only when the
+    /// workflow's tasks run in Docker and the launch keeps the workflow's own profile, so a conda run
+    /// and a stand-in run with `local` never wait (A16 M1 review, ruling 2).
     package func engineConfiguration(profile: String) -> NextflowEngineConfiguration {
         NextflowEngineConfiguration(
             scratchPrefix: scratchPrefix,
             keepWorkEnvironmentKey: keepWorkEnvironmentKey,
-            waitsForDocker: containerRuntime == .docker && profile == self.profile
+            waitsForDocker: waitsForDocker(profile: profile)
         )
     }
 }
