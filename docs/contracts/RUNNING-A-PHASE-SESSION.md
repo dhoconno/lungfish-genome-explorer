@@ -8,12 +8,22 @@ The rules come from measured sessions. `scripts/llm/session_ledger.py` reads a s
 every API turn per model and never prints message text. Its totals stay within about 1% of Claude Code's own cost
 records. Costs here are API-equivalent estimates. The evidence for each rule is in the tables at the end.
 
+## Every session runs the monitor
+
+The owner asked on 2026-10-11 that the monitor run in every session of this repository, so that each session's lessons
+make the next one cheaper. A phase session follows this whole contract and runs every checkpoint. Any other session
+that spawns subagents, runs builds or lasts more than about an hour makes the Session start checks and runs the monitor
+once, as its last checkpoint, at its end. A short session that spawns no subagent ends with
+`python3 scripts/llm/session_ledger.py --md <file> <session id>` and adds its line to the session table under Evidence.
+Each run compares its figures with the line of the session before it, names the rules that helped, the ones that did
+not and any new rule its numbers support, and the End-of-session duty folds that into this contract.
+
 ## Roles
 
 | Role | Model | Spawned | Reads | Leaves behind |
 |---|---|---|---|---|
 | Manager | the main session, opus | by the owner | the plan, the briefs, `notes.md`, verdict lines of reports | the landed program branch, the plan record, memory notes |
-| Expert panel | opus at effort max | five inventory agents, then five fresh memo agents | the code, then the inventory files | `inv/<FIELD>.md`, `memos/<FIELD>.md` |
+| Expert panel, which leads the session under `docs/contracts/EXPERT-PANEL.md` | opus at effort max | five inventory agents, then five fresh memo agents | the code, then the inventory files | `inv/<FIELD>.md`, `memos/<FIELD>.md` |
 | Lane | opus on the longest chain or for judgment, sonnet for mechanical and documentation work | `isolation: "worktree"` on the program head, or in the worktree of the lane it builds on | its brief, `lane-rules.md` and the files it changes | commits, `lanes/<LANE>/<LANE>.md`, a final message under 150 words |
 | Reviewer | opus at effort max, one fresh agent per lane | after the lane's final message | the lane report and the diff | `reviews/<LANE>.md` with a verdict and numbered fixes |
 | Fix agent | sonnet unless a fix needs judgment | fresh, then EnterWorktree on the lane's worktree | the review file and the lane report | commits, `lanes/<LANE>/<LANE>-fix.md` |
