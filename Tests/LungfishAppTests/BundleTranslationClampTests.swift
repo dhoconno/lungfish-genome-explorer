@@ -264,6 +264,110 @@ final class BundleTranslationClampTests: XCTestCase {
         )
     }
 
+    // MARK: - The variant table export
+
+    /// A snapshot of one CDS that the viewer has not cached, to be read from `bundle`.
+    private func uncachedSnapshot(
+        label: String,
+        intervals: [AnnotationInterval],
+        isReverse: Bool,
+        bundle: ReferenceBundle
+    ) -> VariantTableExportResolverSnapshot {
+        VariantTableExportResolverSnapshot(
+            features: [
+                .init(
+                    chromosome: "chr1",
+                    intervals: intervals,
+                    label: label,
+                    isReverse: isReverse,
+                    codingBases: nil,
+                    codingGenomePositions: nil,
+                    phaseOffset: 0,
+                    codonTable: .standard
+                )
+            ],
+            variantChromosomeAliasMap: [:],
+            referenceBundle: bundle
+        )
+    }
+
+    /// The export prepares a CDS that the viewer has not cached straight from the bundle. The chromosome ends
+    /// inside this CDS, which used to abort the whole export with a read failure. It now reads the bases that
+    /// exist, takes the frame from the same rule as the viewer and numbers the residue in the whole protein.
+    func testTheExportReadsAClippedReverseCDSTheViewerHasNotCached() async throws {
+        let snapshot = uncachedSnapshot(
+            label: "clipped",
+            intervals: clippedReverseCDS.intervals,
+            isReverse: true,
+            bundle: try await makeBundle()
+        )
+
+        let prepared = try snapshot.preparingForBackgroundExport()
+        let resolved = prepared.resolve(
+            AnnotationSearchIndex.SearchResult(
+                name: "variant", chromosome: "chr1", start: 117, end: 118, trackId: "variants", type: "SNP",
+                strand: ".", ref: "A", alt: "G", variantRowId: 1, infoDict: [:]
+            )
+        )
+
+        XCTAssertEqual(prepared.features[0].phaseOffset, 2)
+        XCTAssertEqual(prepared.features[0].codonsBeforeFirstRead, 4)
+        XCTAssertEqual(resolved.aaChange, "W5R")
+        XCTAssertEqual(resolved.consequence, "clipped: missense_variant W5R")
+    }
+
+    /// A CDS that wraps the origin is stored in transcription order, so its 5'-most segment is the one at the high
+    /// end. The export used to sort the segments ascending, join them out of order and take the phase of the lowest
+    /// segment.
+    func testTheExportJoinsAnOriginSpanningCDSInTranscriptionOrder() async throws {
+        let snapshot = uncachedSnapshot(
+            label: "wrapping",
+            intervals: [AnnotationInterval(start: 90, end: 120, phase: 2), AnnotationInterval(start: 0, end: 15)],
+            isReverse: false,
+            bundle: try await makeBundle()
+        )
+
+        let feature = try snapshot.preparingForBackgroundExport().features[0]
+
+        XCTAssertEqual(feature.codingGenomePositions, Array(90..<120) + Array(0..<15))
+        XCTAssertEqual(
+            String(feature.codingBases ?? []),
+            String(chromosome.dropFirst(90)) + String(chromosome.prefix(15))
+        )
+        XCTAssertEqual(feature.phaseOffset, 2)
+    }
+
+    /// A CDS that lies wholly past the end of the chromosome has no bases to read. The export gives it no
+    /// context, as the viewer does, instead of ending with a read failure.
+    func testTheExportGivesNoContextToACDSBeyondTheChromosomeEnd() async throws {
+        let snapshot = uncachedSnapshot(
+            label: "beyond",
+            intervals: [AnnotationInterval(start: 200, end: 230, phase: 0)],
+            isReverse: true,
+            bundle: try await makeBundle()
+        )
+
+        let prepared = try snapshot.preparingForBackgroundExport()
+
+        XCTAssertNil(prepared.features[0].codingBases)
+    }
+
+    /// A read that fails inside the chromosome still ends the export. Only the end of the chromosome clips.
+    func testTheExportStillFailsWhenABundleReadFailsInsideTheChromosome() async throws {
+        let bundle = try await makeBundle()
+        try FileManager.default.removeItem(at: bundle.url.appendingPathComponent("genome/sequence.fa"))
+        let snapshot = uncachedSnapshot(
+            label: "unreadable",
+            intervals: [AnnotationInterval(start: 10, end: 40)],
+            isReverse: false,
+            bundle: bundle
+        )
+
+        XCTAssertThrowsError(try snapshot.preparingForBackgroundExport()) { error in
+            XCTAssertTrue(error is VariantTableExportResolverPreparationError, "\(error)")
+        }
+    }
+
     // MARK: - A window onto part of a chromosome
 
     /// The viewer's cached window cuts a CDS at either end, so it reports where its bases start. A window that

@@ -91,7 +91,7 @@ struct VariantTableExportResolverSnapshot: Sendable {
                     codingGenomePositions: context.positions,
                     phaseOffset: context.phaseOffset,
                     codonTable: feature.codonTable,
-                    codonsBeforeFirstRead: feature.codonsBeforeFirstRead
+                    codonsBeforeFirstRead: context.codonsBeforeFirstRead
                 )
             )
         }
@@ -158,33 +158,67 @@ struct VariantTableExportResolverSnapshot: Sendable {
         return chromosome
     }
 
+    /// Reads the segments of `feature` and finds its frame with the rule the viewer uses
+    /// (`TranslationEngine.codingLayout`), so a CDS the viewer has not cached exports the consequence the screen
+    /// would show. A segment comes from the cached window when it covers the segment and from the bundle otherwise.
+    /// The end of the chromosome clips a range instead of failing it, so a CDS that runs past the end keeps the
+    /// bases that exist and the frame that its missing 5' bases leave. A segment that is missing for any other
+    /// reason gives no context, and a read that fails still ends the export.
     private func codingContext(
         for feature: CodingFeature,
         shouldCancel: @Sendable () -> Bool
-    ) throws -> (bases: [Character], positions: [Int], phaseOffset: Int)? {
-        let sortedIntervals = feature.intervals.sorted { $0.start < $1.start }
-        var exonSequences: [(String, AnnotationInterval)] = []
-        for interval in sortedIntervals {
-            if shouldCancel() { throw CancellationError() }
-            guard interval.start < interval.end else { return nil }
-            guard let sequence = try sequence(
-                chromosome: feature.chromosome, start: interval.start, end: interval.end,
-                featureLabel: feature.label
-            ) else { return nil }
-            exonSequences.append((sequence, interval))
-        }
-        guard !exonSequences.isEmpty else { return nil }
+    ) throws -> (bases: [Character], positions: [Int], phaseOffset: Int, codonsBeforeFirstRead: Int)? {
+        guard !feature.intervals.isEmpty, feature.intervals.allSatisfy({ $0.start < $0.end }) else { return nil }
+        let annotation = SequenceAnnotation(
+            type: .cds,
+            name: feature.label,
+            chromosome: feature.chromosome,
+            intervals: feature.intervals,
+            strand: feature.isReverse ? .reverse : .forward
+        )
 
-        let concatenated = exonSequences.map(\.0).joined()
-        let codingSequence = feature.isReverse ? Self.reverseComplement(concatenated) : concatenated
-        var positions: [Int] = []
-        for (sequence, interval) in exonSequences {
-            positions.append(contentsOf: (0..<sequence.count).map { interval.start + $0 })
+        // The bases the chromosome holds inside the intervals. A layout with fewer lacks a segment it should have.
+        let chromosomeLength = referenceBundle?.chromosome(named: feature.chromosome).map { Int($0.length) }
+        let expectedBases = feature.intervals.reduce(0) { total, interval in
+            total + max(0, min(interval.end, chromosomeLength ?? interval.end) - interval.start)
         }
-        if feature.isReverse { positions.reverse() }
-        let bases = Array(codingSequence.uppercased())
-        guard bases.count == positions.count else { return nil }
-        return (bases, positions, exonSequences.first?.1.phase ?? 0)
+
+        var readFailure: Error?
+        let reader = ClampedSequenceProvider(
+            extent: { _ in chromosomeLength.map { 0..<$0 } },
+            fetch: { chromosome, start, end in
+                do {
+                    return try self.sequence(
+                        chromosome: chromosome, start: start, end: end, featureLabel: feature.label
+                    )
+                } catch {
+                    readFailure = readFailure ?? error
+                    return nil
+                }
+            }
+        )
+        var cancelled = false
+        let layout = TranslationEngine.codingLayout(
+            annotation: annotation,
+            segmentProvider: { start, end in
+                if cancelled || readFailure != nil { return nil }
+                if shouldCancel() {
+                    cancelled = true
+                    return nil
+                }
+                return reader.segment(chromosome: feature.chromosome, start: start, end: end)
+            }
+        )
+        if cancelled { throw CancellationError() }
+        if let readFailure { throw readFailure }
+
+        guard let layout, layout.codingSequence.count == expectedBases else { return nil }
+        return (
+            Array(layout.codingSequence.uppercased()),
+            layout.genomicPositions,
+            layout.phaseOffset,
+            layout.codonsBeforeFirstRead
+        )
     }
 
     private func sequence(
@@ -320,9 +354,5 @@ struct VariantTableExportResolverSnapshot: Sendable {
         case "G": return "C"
         default: return Character(String(base).uppercased())
         }
-    }
-
-    private static func reverseComplement(_ sequence: String) -> String {
-        String(sequence.reversed().map(complement))
     }
 }
