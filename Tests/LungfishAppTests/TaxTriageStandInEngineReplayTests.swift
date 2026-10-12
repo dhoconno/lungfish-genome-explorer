@@ -232,6 +232,22 @@ final class TaxTriageStandInEngineReplayTests: XCTestCase {
         XCTAssertEqual(try engine.launches().map(\.exitStatus), [0])
     }
 
+    func testAWaitingLaunchEndsAtOnceOnTerm() async throws {
+        let engine = try makeEngine(.waitsUntilCancelled)
+        let config = try makeConfig([("S1", 2)], output: "terminated")
+
+        let run = Task { try? await engine.makePipeline().run(config: config) }
+        let started = await engine.waitForLaunch()
+        let launch = try XCTUnwrap(started, "the launch never started")
+        let engineID = try XCTUnwrap(launch.processIdentifier)
+
+        XCTAssertEqual(kill(engineID, SIGTERM), 0)
+        let ended = await waitUntil(timeout: .seconds(30)) { kill(engineID, 0) != 0 }
+        XCTAssertTrue(ended, "a waiting launch must end on TERM")
+        _ = await run.value
+        XCTAssertEqual(try engine.launches().map(\.exitStatus), [nil], "a launch a signal ended records no exit status")
+    }
+
     func testTheTermTrappingLaunchAndItsHeartbeatChildOutliveTermUntilStopped() async throws {
         let engine = try makeEngine(.trapsTermWithHeartbeatChild)
         let config = try makeConfig([("S1", 2)], output: "trapping")
