@@ -11,7 +11,9 @@ import Testing
 /// leading slash and no known root, and a head that ends inside one keeps a partial
 /// root, so the sanitizer that rewrites paths when a record is written cannot
 /// recognise either one and the machine and project folder names stay in a record
-/// that people share (Phase 2.7, ruling 2).
+/// that people share (Phase 2.7, ruling 2). A window that holds no line break keeps
+/// nothing, because it lies inside one line, and `ProvenanceStderrTokenSafetyTests`
+/// pins that rule on project paths (Phase 2.8, decision P4).
 @Suite("Provenance stderr line boundaries")
 struct ProvenanceStderrLineBoundaryTests {
     private static let marker = ProvenanceStderr.truncationMarker
@@ -133,47 +135,32 @@ struct ProvenanceStderrLineBoundaryTests {
         "\(projectRoot)/Analyses/classify-1/part-\(String(format: "%04d", $0)).sorted.bam"
     }
 
-    @Test("one line longer than the tail window is cut at a space, never inside a word")
-    func aLongLineFallsBackToTheNearestSpace() throws {
+    @Test("one line longer than both windows is left out whole, never cut at a space")
+    func aLongLineIsLeftOutWholeAndNotCutAtASpace() throws {
         let text = Self.words.joined(separator: " ")
         #expect(text.count > Self.bound)
-        let kept = try #require(ProvenanceStderr.truncated(text))
-        let (head, tail) = try Self.sides(of: kept)
+        #expect(ProvenanceStderr.truncated(text) == Self.marker)
 
-        let inputWords = Set(Self.words)
-        for word in head.split(separator: " ") + tail.split(separator: " ") {
-            #expect(inputWords.contains(String(word)), "kept a fragment: \(word.prefix(80))")
+        // The short lines on either side of it are kept.
+        let framed = Self.banner + "\n" + text + "\n" + Self.lastLine + "\n"
+        #expect(ProvenanceStderr.truncated(framed) == Self.banner + Self.marker + Self.lastLine + "\n")
+    }
+
+    @Test("the last line is left out when it is longer than the tail window, whatever ends it")
+    func aLongLastLineIsLeftOut() throws {
+        let text = Self.banner + "\n" + Self.words.joined(separator: " ")
+        for ending in ["", "\n", "\r\n"] {
+            let kept = try #require(ProvenanceStderr.truncated(text + ending))
+            #expect(kept == Self.banner + Self.marker, "ending \(ending.debugDescription)")
         }
-        #expect(text.hasPrefix(head))
-        #expect(text.hasSuffix(tail))
-        #expect(kept.count <= Self.bound + Self.marker.count)
-        #expect(head.count > Self.headLength - Self.words[0].count)
-        #expect(tail.count > Self.tailLength - Self.words[0].count)
     }
 
-    @Test("the last line is kept when it is longer than the tail window and ends in a newline")
-    func aLongLastLineWithATrailingNewlineKeepsItsEnd() throws {
-        let text = Self.banner + "\n" + Self.words.joined(separator: " ") + "\n"
-        let kept = try #require(ProvenanceStderr.truncated(text))
-        let (head, tail) = try Self.sides(of: kept)
-
-        #expect(head == Self.banner, "the banner is the one whole line of the head window")
-        #expect(tail.hasSuffix(Self.words[399] + "\n"), "the end of the last line survives")
-        #expect(tail.count > Self.tailLength - Self.words[0].count, "the newline at the very end is not taken as the cut")
-        #expect(inputWords(of: tail).isSubset(of: Set(Self.words)))
-    }
-
-    private func inputWords(of text: String) -> Set<String> {
-        Set(text.split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init))
-    }
-
-    @Test("a window with no line break and no space is cut at the character")
-    func aWindowWithNoBreakAndNoSpaceIsCutAtTheCharacter() throws {
+    @Test("a window with no line break keeps nothing, whatever its characters")
+    func aWindowWithNoLineBreakKeepsNothing() throws {
         let alphabet = Array("abcdefghijklmnopqrstuvwxyz0123456789")
         for count in [Self.bound + 1, 20_000, 55_555] {
             let text = String((0..<count).map { alphabet[($0 * 7 + $0 / 36) % alphabet.count] })
-            let kept = try #require(ProvenanceStderr.truncated(text))
-            #expect(kept == String(text.prefix(Self.headLength)) + Self.marker + String(text.suffix(Self.tailLength)), "\(count)")
+            #expect(ProvenanceStderr.truncated(text) == Self.marker, "\(count)")
         }
     }
 

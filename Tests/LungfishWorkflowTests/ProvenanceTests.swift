@@ -154,9 +154,10 @@ struct ProvenanceRecordingTests {
         let recorder = ProvenanceRecorder()
         let runID = await recorder.beginRun(name: "Truncation Test")
 
-        let longStderr = String(repeating: "a", count: 3_000)
-            + String(repeating: "x", count: 9_000)
-            + String(repeating: "z", count: 8_000)
+        // 200 numbered lines of 100 characters. The head window ends inside line 21, so the step keeps
+        // 20 lines, and the tail window starts inside line 119, so it keeps lines 120 to 200.
+        let lines = (1...200).map { "L" + String(format: "%04d", $0) + String(repeating: "x", count: 94) }
+        let longStderr = lines.joined(separator: "\n") + "\n"
         await recorder.recordStep(
             runID: runID,
             toolName: "test",
@@ -171,10 +172,9 @@ struct ProvenanceRecordingTests {
 
         let run = await recorder.getRun(runID)
         let stored = run?.steps[0].stderr ?? ""
-        let expected = String(repeating: "a", count: 2_048)
+        let expected = lines[0..<20].joined(separator: "\n")
             + "\n... [truncated] ...\n"
-            + String(repeating: "x", count: 192)
-            + String(repeating: "z", count: 8_000)
+            + lines[119...].joined(separator: "\n") + "\n"
         #expect(stored.count < 20_000)
         #expect(stored == expected)
     }

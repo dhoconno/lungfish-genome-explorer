@@ -491,23 +491,18 @@ final class ToolProcessObservationTests: XCTestCase {
         XCTAssertTrue(excerpts[1].earlierBytesDropped)
     }
 
-    /// The recipe that the `StderrExcerpt` doc comment gives a recorder.
-    private static func recorded(_ excerpt: ToolProcessRunObservation.StderrExcerpt) -> String? {
-        let head = String(decoding: excerpt.head, as: UTF8.self)
-        guard excerpt.omittedByteCount > 0 else { return ProvenanceStderr.truncated(head) }
-        let tail = String(decoding: excerpt.tail, as: UTF8.self)
-        return String(head.prefix(ProvenanceStderr.headLength))
-            + ProvenanceStderr.truncationMarker
-            + String(tail.suffix(ProvenanceStderr.tailLength))
-    }
-
-    /// The recipe gives the stderr that `ProvenanceStderr.truncated` gives for
-    /// the whole capture, at each boundary of the limits and for characters of
-    /// one, three and four bytes. Applying `truncated` to the joined head and
-    /// tail does not, because four-byte characters just over the limits join
-    /// to exactly `maxLength` characters, which it keeps whole without the
-    /// marker.
-    func testTheExcerptRecipeKeepsWhatTheWholeCaptureWouldKeep() {
+    /// The excerpt holds the first `headLength` and the last `tailLength`
+    /// characters of the whole capture, at each boundary of the limits and for
+    /// characters of one, three and four bytes, which are the characters that
+    /// `ProvenanceStderr.truncated` cuts its windows from. It no longer states
+    /// that joining those characters gives what `truncated` gives. The cut keeps
+    /// whole lines only and keeps nothing of a window that holds no line break
+    /// (Phase 2.8, decision P4), so a character join of the two windows would
+    /// leave fragments of tokens. Applying `truncated` to the joined head and
+    /// tail does not give the whole capture's cut either, because four-byte
+    /// characters just over the limits join to exactly `maxLength` characters,
+    /// which it keeps whole without the marker.
+    func testTheExcerptHoldsTheCharactersTheCutReads() {
         let captures: [(name: String, text: String)] = [
             ("ascii inside both limits", String(repeating: "a", count: 5_000)),
             ("ascii over maxLength and inside both limits", String(repeating: "a", count: 30_000)),
@@ -520,7 +515,14 @@ final class ToolProcessObservationTests: XCTestCase {
         ]
         for (name, text) in captures {
             let excerpt = ToolProcessRunObservation.StderrExcerpt(captured: Data(text.utf8), earlierBytesDropped: false)
-            XCTAssertEqual(Self.recorded(excerpt), ProvenanceStderr.truncated(text), name)
+            let head = String(decoding: excerpt.head, as: UTF8.self)
+            guard excerpt.omittedByteCount > 0 else {
+                XCTAssertEqual(head, text, name)
+                continue
+            }
+            let tail = String(decoding: excerpt.tail, as: UTF8.self)
+            XCTAssertEqual(String(head.prefix(ProvenanceStderr.headLength)), String(text.prefix(ProvenanceStderr.headLength)), name)
+            XCTAssertEqual(String(tail.suffix(ProvenanceStderr.tailLength)), String(text.suffix(ProvenanceStderr.tailLength)), name)
         }
         let justOver = String(repeating: "\u{1F600}", count: 10_241)
         let excerpt = ToolProcessRunObservation.StderrExcerpt(captured: Data(justOver.utf8), earlierBytesDropped: false)

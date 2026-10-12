@@ -747,14 +747,18 @@ struct ProvenanceBuilderTests {
         #expect(envelope.stderr == "fastp warning\n")
     }
 
-    @Test("Long stderr keeps its head and its tail around the marker")
+    @Test("Long stderr keeps the whole lines of its head and its tail around the marker")
     func longStderrKeepsHeadAndTailAroundMarker() throws {
-        let longStderr = String(repeating: "a", count: 2_048)
-            + String(repeating: "b", count: 5_000)
-            + String(repeating: "c", count: 8_192)
-        let expected = String(repeating: "a", count: 2_048)
+        // 151 lines of 100 characters. The head window ends inside line 21, so the head keeps
+        // 20 lines of a, and the tail window starts inside line 70, so the tail keeps the last
+        // 81 lines, which are lines of c. The 50 lines of b between them are left out.
+        let head = Array(repeating: String(repeating: "a", count: 99), count: 20)
+        let middle = Array(repeating: String(repeating: "b", count: 99), count: 50)
+        let tail = Array(repeating: String(repeating: "c", count: 99), count: 81)
+        let longStderr = (head + middle + tail).joined(separator: "\n") + "\n"
+        let expected = head.joined(separator: "\n")
             + "\n... [truncated] ...\n"
-            + String(repeating: "c", count: 8_192)
+            + tail.joined(separator: "\n") + "\n"
 
         let envelope = try successfulEnvelope(stderr: longStderr)
 
@@ -762,14 +766,11 @@ struct ProvenanceBuilderTests {
         #expect(envelope.stderr?.contains("\n... [truncated] ...\n") == true)
     }
 
-    @Test("Stderr just over the bound keeps the first 2,048 and last 8,192 characters")
+    @Test("Stderr just over the bound is cut, and one line with no break keeps only the marker")
     func stderrJustOverTheBoundIsTruncated() throws {
         let longStderr = String(repeating: "x", count: 10_241)
-        let expected = String(repeating: "x", count: 2_048)
-            + "\n... [truncated] ...\n"
-            + String(repeating: "x", count: 8_192)
 
-        #expect(try successfulEnvelope(stderr: longStderr).stderr == expected)
+        #expect(try successfulEnvelope(stderr: longStderr).stderr == "\n... [truncated] ...\n")
         let atTheBound = String(repeating: "x", count: 10_240)
         #expect(try successfulEnvelope(stderr: atTheBound).stderr == atTheBound)
     }

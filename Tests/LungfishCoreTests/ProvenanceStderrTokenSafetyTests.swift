@@ -96,10 +96,8 @@ struct ProvenanceStderrTokenSafetyTests {
         let listLine = try #require(text.split(separator: "\n").first { $0.count > ProvenanceStderr.tailLength })
         #expect(!listLine.contains(" "), "one token, longer than the tail window")
 
-        withKnownIssue("row 438, a window without a line break is cut at the character") {
-            let kept = try #require(ProvenanceStderr.truncated(text))
-            #expect(Self.fragments(in: kept, of: text, layout) == [])
-        }
+        let kept = try #require(ProvenanceStderr.truncated(text))
+        #expect(Self.fragments(in: kept, of: text, layout) == [])
     }
 
     @Test("a path with a space is never cut at its space", arguments: Position.allCases)
@@ -110,9 +108,55 @@ struct ProvenanceStderrTokenSafetyTests {
         let listLine = try #require(text.split(separator: "\n").first { $0.count > ProvenanceStderr.tailLength })
         #expect(listLine.filter { $0 == " " }.count == 90, "the only spaces are the one inside each path")
 
-        withKnownIssue("row 438, a window without a line break is cut at its nearest space") {
-            let kept = try #require(ProvenanceStderr.truncated(text))
-            #expect(Self.fragments(in: kept, of: text, layout) == [])
+        let kept = try #require(ProvenanceStderr.truncated(text))
+        #expect(Self.fragments(in: kept, of: text, layout) == [])
+    }
+
+    // MARK: A side whose window holds no line break keeps nothing
+
+    @Test("the side whose window holds no line break keeps nothing and the other side keeps its whole lines")
+    func aSideWithoutALineBreakKeepsNothing() throws {
+        let layout = Layout(parent: "/Users/analyst/Projects")
+        let first = Self.stderr(layout, .first)
+        let last = try Self.stderrWithTheTailCutInsideAPath(layout)
+
+        #expect(ProvenanceStderr.truncated(first) == Self.marker + Self.lastLine + "\n", "the head is the long line")
+        #expect(ProvenanceStderr.truncated(last) == Self.banner + Self.marker, "the tail is the long line")
+    }
+
+    @Test("one line longer than the bound keeps only the marker, and a cut twice changes nothing")
+    func oneLongLineKeepsOnlyTheMarker() throws {
+        let alphabet = Array("abcdefghijklmnopqrstuvwxyz0123456789")
+        for count in [ProvenanceStderr.maxLength + 1, 20_000, 55_555] {
+            let line = String((0..<count).map { alphabet[($0 * 7 + $0 / 36) % alphabet.count] })
+            for text in [line, line + "\n", "\n\n" + line + "\r\n"] {
+                let kept = try #require(ProvenanceStderr.truncated(text))
+                #expect(kept == Self.marker, "\(count) characters")
+                #expect(ProvenanceStderr.truncated(kept) == kept)
+                #expect(ProvenanceStderr.normalized(text) == Self.marker, "the marker is not a blank stderr")
+            }
         }
+    }
+
+    @Test("a long line between short lines is left out whole, and the short lines on both sides are kept")
+    func aLongLineInTheMiddleIsLeftOutWhole() throws {
+        let layout = Layout(parent: "/Users/analyst/My Projects")
+        let list = Self.stderr(layout, .last).split(separator: "\n")[1]
+        let text = [Self.banner, String(list), Self.lastLine].joined(separator: "\n") + "\n"
+        #expect(ProvenanceStderr.truncated(text) == Self.banner + Self.marker + Self.lastLine + "\n")
+    }
+
+    @Test("a window that holds only whitespace keeps nothing")
+    func aWindowOfWhitespaceKeepsNothing() throws {
+        let body = (1...200).map { "line \($0) of a log that has text in it" }.joined(separator: "\n")
+        let blanks = String(repeating: " \n", count: 5_000)
+
+        let blankHead = try #require(ProvenanceStderr.truncated(blanks + body))
+        #expect(blankHead.hasPrefix(Self.marker), "nothing is kept of the blank start")
+        #expect(blankHead.hasSuffix("line 200 of a log that has text in it"))
+
+        let blankTail = try #require(ProvenanceStderr.truncated(body + "\n" + blanks))
+        #expect(blankTail.hasPrefix("line 1 of a log that has text in it\n"))
+        #expect(blankTail.hasSuffix(Self.marker), "nothing is kept of the blank end")
     }
 }

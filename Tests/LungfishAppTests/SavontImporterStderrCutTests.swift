@@ -142,17 +142,22 @@ struct SavontImporterStderrCutTests {
         let attempt = try #require(envelope.steps.first { $0.toolName == "savont" })
         #expect(attempt.stderr == stderr, "the attempt keeps its stderr whole, with its paths resolved")
 
-        await withKnownIssue("row 438, the cut ended inside a project path") {
-            #expect(envelope.stderr == ProvenanceStderr.truncated(stderr))
-            let raw = String(decoding: try Data(contentsOf: sidecar), as: UTF8.self)
-            #expect(!raw.contains(layout.outer), "a folder name stays in the saved record")
-            #expect(!raw.contains(layout.projectName), "a folder name stays in the saved record")
-            _ = try await BundleFASTQOperationImporter(destinationDirectory: layout.analysis).importOutputs(
-                at: [layout.output],
-                forResolvedRequest: request,
-                originalRequest: request,
-                outputDirectory: layout.analysis
-            )
-        }
+        // The head has no line break in its window, so it keeps nothing, and the tail keeps the
+        // whole lines that end the stderr.
+        let kept = try #require(envelope.stderr)
+        #expect(kept == ProvenanceStderr.truncated(stderr))
+        #expect(kept.hasPrefix(ProvenanceStderr.truncationMarker))
+        #expect(kept.hasSuffix("[savont] finished clustering\n"))
+        let raw = String(decoding: try Data(contentsOf: sidecar), as: UTF8.self)
+        #expect(!raw.contains(layout.outer), "a folder name stays in the saved record")
+        #expect(!raw.contains(layout.projectName), "a folder name stays in the saved record")
+
+        let imported = try await BundleFASTQOperationImporter(destinationDirectory: layout.analysis).importOutputs(
+            at: [layout.output],
+            forResolvedRequest: request,
+            originalRequest: request,
+            outputDirectory: layout.analysis
+        )
+        #expect(imported == [layout.output])
     }
 }

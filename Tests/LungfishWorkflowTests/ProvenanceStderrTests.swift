@@ -12,9 +12,10 @@ import LungfishTestSupport
 /// so a record that keeps only the start of a long stderr loses the part that
 /// explains a failure. `ProvenanceStderr.truncated` keeps the whole lines inside
 /// the first 2,048 and the last 8,192 characters around a marker that carries no
-/// count, and cuts at the character only where a window holds no line break and
-/// no space. `ProvenanceStderrLineBoundaryTests` in LungfishCoreTests pins where
-/// the cut falls. These tests pin the bound, the marker and the writers that apply it.
+/// count, and keeps nothing of a window that holds no line break. The
+/// `ProvenanceStderrLineBoundaryTests` and `ProvenanceStderrTokenSafetyTests` in
+/// LungfishCoreTests pin where the cut falls. These tests pin the bound, the
+/// marker and the writers that apply it.
 @Suite("Provenance stderr")
 struct ProvenanceStderrTests {
     private static let marker = "\n... [truncated] ...\n"
@@ -60,19 +61,29 @@ struct ProvenanceStderrTests {
         #expect(ProvenanceStderr.normalized("") == nil)
     }
 
-    @Test("stderr over 10,240 characters with no line break and no space keeps the first 2,048 and the last 8,192 around one marker")
+    @Test("stderr over 10,240 characters keeps the whole lines of the first 2,048 and the last 8,192 around one marker")
     func longerStderrKeepsItsHeadAndItsTail() throws {
-        // Distinct characters at every position, so a wrong slice cannot pass by luck.
-        // The text holds no line break and no space, so the cut falls at the character.
+        // Lines of 100 characters with the line number at the start of each, so a wrong slice
+        // cannot pass by luck. The head window ends inside line 21 and the tail window starts
+        // inside line 119, so the head keeps 20 lines and the tail keeps lines 120 to 200.
+        let lines = (1...200).map { "L" + String(format: "%04d", $0) + String(repeating: "x", count: 94) }
+        let text = lines.joined(separator: "\n") + "\n"
+        #expect(text.count == 20_000)
+
+        let kept = try #require(ProvenanceStderr.truncated(text))
+
+        #expect(kept == lines[0..<20].joined(separator: "\n") + Self.marker + lines[119...].joined(separator: "\n") + "\n")
+        #expect(kept.count <= Self.bound + Self.marker.count)
+    }
+
+    @Test("stderr over 10,240 characters with no line break keeps nothing but the marker")
+    func stderrWithNoLineBreakKeepsOnlyTheMarker() throws {
+        // Distinct characters at every position. The text holds no line break, so neither
+        // window holds a line and a cut at the character would leave a fragment of a token.
         let alphabet = Array("abcdefghijklmnopqrstuvwxyz0123456789")
         for count in [Self.bound + 1, Self.bound + 2, 20_000, 123_457] {
             let text = String((0..<count).map { alphabet[($0 * 7 + $0 / 36) % alphabet.count] })
-            let kept = try #require(ProvenanceStderr.truncated(text))
-
-            #expect(kept == String(text.prefix(Self.headLength)) + Self.marker + String(text.suffix(Self.tailLength)), "\(count)")
-            #expect(kept.count == Self.headLength + Self.marker.count + Self.tailLength, "\(count)")
-            #expect(kept.hasPrefix(String(text.prefix(Self.headLength))), "\(count)")
-            #expect(kept.hasSuffix(String(text.suffix(Self.tailLength))), "\(count)")
+            #expect(ProvenanceStderr.truncated(text) == Self.marker, "\(count)")
         }
     }
 
@@ -104,11 +115,18 @@ struct ProvenanceStderrTests {
         let family = "👩‍👩‍👧‍👦"
         let accented = "e\u{301}"
         for unit in [family, accented] {
-            let text = String(repeating: unit, count: 12_000)
+            // Lines of 39 characters and a line feed, so the head window ends inside line 52 and
+            // keeps 51 lines, and the tail window starts inside line 196 and keeps lines 197 to 400.
+            let line = String(repeating: unit, count: 39)
+            let text = String(repeating: line + "\n", count: 400)
+            #expect(text.count == 16_000)
+
             let kept = try #require(ProvenanceStderr.truncated(text))
-            #expect(kept.hasPrefix(String(repeating: unit, count: Self.headLength)))
-            #expect(kept.hasSuffix(String(repeating: unit, count: Self.tailLength)))
-            #expect(kept.count == Self.headLength + Self.marker.count + Self.tailLength)
+
+            let head = Array(repeating: line, count: 51).joined(separator: "\n")
+            let tail = Array(repeating: line, count: 204).joined(separator: "\n") + "\n"
+            #expect(kept == head + Self.marker + tail)
+            #expect(kept.count == head.count + Self.marker.count + tail.count)
         }
     }
 
