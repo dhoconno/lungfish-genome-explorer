@@ -25,11 +25,14 @@ final class LocalWorkflowReplayServiceTests: XCTestCase {
         await fulfillment(of: [cancelSignalled], timeout: 5)
         XCTAssertEqual(runner.cancelCount, 1)
         XCTAssertEqual(center.items.first(where: { $0.id == item.id })?.state, .cancelling)
+        XCTAssertEqual(center.items.first(where: { $0.id == item.id })?.detail, "Cancelling...")
         XCTAssertFalse(center.canStartOperation(on: fixture.request.outputDirectory))
         XCTAssertFalse(center.canStartOperation(on: target))
         runner.finish()
         do { _ = try await task.value; XCTFail("Expected cancellation") } catch {}
         XCTAssertEqual(center.items.first(where: { $0.id == item.id })?.state, .cancelled)
+        XCTAssertEqual(center.items.first(where: { $0.id == item.id })?.detail, "Cancelled by user")
+        XCTAssertNil(center.items.first(where: { $0.id == item.id })?.errorMessage)
         XCTAssertTrue(center.canStartOperation(on: fixture.request.outputDirectory))
         XCTAssertTrue(center.canStartOperation(on: target))
     }
