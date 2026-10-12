@@ -106,8 +106,8 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
     static let recordsNothing: [String: String] = [
         "version": "It prints the build version and the bundled tool reference.",
         "debug": "It diagnoses the installation, the container runtime and workflow logs.",
-        "storage": "It replaces byte-identical duplicates in the channel roots with verified APFS clones.",
-        "conda": "It maintains the installation and its environments.",
+        "storage": "It prints the managed storage roots and replaces byte-identical duplicates in them with verified APFS clones.",
+        "conda": "It maintains the installation, its environments and its reference databases.",
         "conda run": "It runs any tool in a managed environment, so it declares no inputs or outputs to record.",
         "demo": "It lists, describes and installs published demo projects, which carry their own records.",
         "demo fetch": "It downloads and unpacks a demo project, and a record of the download inside it would change every demo tree."
