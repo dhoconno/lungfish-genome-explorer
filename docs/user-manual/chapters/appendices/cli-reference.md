@@ -2390,10 +2390,10 @@ A `--samplesheet` CSV needs exactly the header `sample,fastq_1,fastq_2,platform`
 | `--input <input>` | Input FASTQ file (R1 or single-end), or a `.lungfishfastq` bundle, which is planned whole. A bundle of pairs runs as pairs, and a bundle that mixes pairs with merged or single reads, or holds several files of single reads, gives one single-end file of every read. A file inside a bundle is read as named, except the preview of a virtual bundle, which reads its bundle. `--input` and `--input2` that name every file of one bundle are read as that bundle. |
 | `--input2 <input2>` | Second FASTQ file (R2 for paired-end). |
 | `--recursive` | When `--input` is a directory, include eligible FASTQ files in subfolders. |
-| `--sample <sample>` | Sample identifier (required with `--input`). |
+| `--sample <sample>` | Sample identifier. Required when `--input` names a file or a bundle. An `--input` folder needs none and names each sample after its file, or `<sample>-<file>` when `--sample` is given and the folder holds several files. |
 | `--samplesheet <samplesheet>` | Path to a TaxTriage samplesheet CSV (alternative to `--input`). |
 | `--platform <platform>` | Sequencing platform, one of `illumina`, `oxford`, or `pacbio`. The default is `illumina`. |
-| `-o, --output <output>` | Output directory for results. With several samples, from a `--samplesheet` or an `--input` folder of FASTQ files, all of them run together in one pooled Nextflow run and share this folder. |
+| `-o, --output <output>` | Output directory for results. With several samples, one Nextflow run processes them all and writes their results to this folder. |
 | `--db <db>` | Path to existing Kraken2 database. |
 | `--confidence <confidence>` | Kraken2 confidence threshold. The default is `0.2`. |
 | `--top-hits <top-hits>` | Number of top hits to report. The default is `10`. |

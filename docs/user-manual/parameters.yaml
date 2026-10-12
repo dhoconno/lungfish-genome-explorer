@@ -4509,7 +4509,7 @@ operations:
         default: "10"
         effect: Drops taxa with fewer than this many reads before Bracken redistributes abundance.
       - flag: --output-dir
-        default: the current directory
+        default: ./classification-<db>, where <db> is the --db name in lower case
         effect: Chooses where the report, per-read output, and Bracken profile are written.
     notes: >-
       The wizard always runs Bracken after Kraken2, using rank automatic, read length 150,
@@ -4590,7 +4590,7 @@ operations:
         default: "false"
         effect: When an input is a folder, also picks up eligible FASTQ files inside its subfolders.
       - flag: --output
-        default: the current directory
+        default: ./esviritu-<sample>, where <sample> is the --sample name
         effect: Chooses where the detection tables and coverage files are written.
     notes: >-
       The database is not a control. EsViritu uses the one curated viral database the app

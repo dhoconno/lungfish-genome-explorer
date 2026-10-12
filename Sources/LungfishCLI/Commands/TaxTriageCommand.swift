@@ -104,11 +104,13 @@ extension TaxTriageCommand {
 
         // MARK: - Output Options
 
+        /// The discussion names what ``run()`` does with several samples (decision T2), so
+        /// change them together.
         @Option(
             name: [.customLong("output"), .customShort("o")],
             help: ArgumentHelp(
                 "Output directory for results",
-                discussion: "With several samples, from a --samplesheet or an --input folder of FASTQ files, all of them run together in one pooled Nextflow run and share this folder."
+                discussion: "With several samples, one Nextflow run processes them all and writes their results to this folder."
             )
         )
         var outputDir: String
