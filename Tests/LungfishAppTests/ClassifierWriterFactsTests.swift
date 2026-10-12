@@ -49,7 +49,8 @@ final class ClassifierWriterFactsTests: XCTestCase {
         try assertFacts(.condaClassifyWrapper, of: run.outputDirectory, projectRoot: fixture.root)
     }
 
-    /// The batch record `runClassificationBatch` writes over two completed samples.
+    /// The batch record the in-process `runClassificationBatch` wrote over two completed samples
+    /// (the route went in Phase 2.9, and the legacy record stays pinned).
     func testKraken2BatchRecord() async throws {
         let fixture = try FakeClassificationCondaFixture()
         defer { fixture.cleanup() }
@@ -75,7 +76,8 @@ final class ClassifierWriterFactsTests: XCTestCase {
         try assertFacts(.esVirituPipeline, of: config.outputDirectory, projectRoot: root)
     }
 
-    /// The batch record `runEsVirituBatch` writes over two completed samples.
+    /// The batch record the in-process `runEsVirituBatch` wrote over two completed samples
+    /// (the route went in Phase 2.9, and the legacy record stays pinned).
     func testEsVirituBatchRecord() async throws {
         let root = try TestTempDirectory.make(prefix: "esviritu-batch-facts")
         defer { TestTempDirectory.cleanup(root) }

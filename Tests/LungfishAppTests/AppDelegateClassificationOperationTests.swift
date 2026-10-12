@@ -190,10 +190,9 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         // One `kraken2 classify` per sample (R3, E11). The row used to record
         // one command with the database path in `--db`, no output folder and
         // every input of every sample, which the CLI could not run as the
-        // batch ran. The replay command runs the same `kraken2 classify`.
+        // batch ran.
         let lines = try XCTUnwrap(item.cliCommand).components(separatedBy: "\n")
         XCTAssertEqual(lines.count, 2, "one command per sample")
-        let script = try XCTUnwrap(AppDelegate.classificationBatchReplayCommand(configurations: [first, second]).last)
         for (line, config) in zip(lines, [first, second]) {
             let command = try RecordedCLICommand.parse(line, as: ClassifyCommand.self)
             XCTAssertEqual(command.databaseName, "Viral", "--db is the registry name the CLI resolves")
@@ -208,9 +207,7 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
                 ClassificationCLIInvocationBuilder.build(for: config).arguments,
                 "the line is the builder's kraken2 classify argv for the sample"
             )
-            XCTAssertTrue(script.contains(line), "the replay command runs the same command for the sample")
         }
-        XCTAssertEqual(script.components(separatedBy: "kraken2 classify").count - 1, 2, "one classify per sample")
     }
 
     func testEmptyKraken2BatchRecordsNoCommand() {

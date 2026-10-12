@@ -1,38 +1,13 @@
 import XCTest
 import LungfishTestSupport
 
+/// The EsViritu pipeline is the one `lungfish-cli esviritu detect` runs, so its two source pins stay.
+/// The three pins on the app delegate's in-process launch retired with that launch in Phase 2.9
+/// (E14, lane A12).
 final class EsVirituProvenanceSourceTests: XCTestCase {
-    private var appDelegateSourceURL: URL {
-        URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift")
-    }
-
     private var pipelineSourceURL: URL {
         URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent("Sources/LungfishWorkflow/Metagenomics/EsVirituPipeline.swift")
-    }
-
-    func testAppDelegateWritesRootProvenanceForSingleAndBatchEsVirituResults() throws {
-        let source = combinedAppDelegateSource()
-        let callCount = source.components(separatedBy: "MetagenomicsBatchProvenanceWriter.writeEsVirituBatchProvenance").count - 1
-
-        XCTAssertGreaterThanOrEqual(callCount, 2)
-        XCTAssertTrue(source.contains("MetagenomicsBatchResultStore.saveEsViritu(manifest, to: esvBatchRoot)"))
-        XCTAssertTrue(source.contains("MetagenomicsBatchResultStore.saveEsViritu(manifest, to: batchRoot)"))
-    }
-
-    /// The words of a zero-hit and a hit run moved to `ClassificationCompletionDetail`, which
-    /// `ClassificationCompletionDetailTests` pins. The launch still completes its row with that detail.
-    func testSingleSampleEsVirituCompletionCompletesTheRowWithItsDetail() throws {
-        let source = combinedAppDelegateSource()
-
-        XCTAssertTrue(source.contains("OperationCenter.shared.complete(\n                                id: opID,\n                                detail: completionDetail"))
-    }
-
-    func testBatchEsVirituProgressWritesOperationLogEntries() throws {
-        let source = combinedAppDelegateSource()
-
-        XCTAssertTrue(source.contains(#"OperationCenter.shared.log(id: opID, level: .info, message: "\(samplePrefix): \(message)")"#))
     }
 
     func testEsVirituPipelineRecordsChecksummedFilesAtFinalOutputPaths() throws {

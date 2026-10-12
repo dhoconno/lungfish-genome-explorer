@@ -123,8 +123,8 @@ enum ClassifierLegacyRuns {
 
     // MARK: - Kraken2 batch
 
-    /// A Kraken2 batch of two samples as `runClassificationBatch` leaves it
-    /// when both complete: each sample's pipeline record, the summary TSV from
+    /// A Kraken2 batch of two samples as the in-process `runClassificationBatch` left it
+    /// (the route went in Phase 2.9) when both complete: each sample's pipeline record, the summary TSV from
     /// `ClassificationBatchOutcomePolicy`, the batch manifest, a stand-in for
     /// the `kraken2.sqlite` that `lungfish-cli build-db` writes, and the batch
     /// record with the `/bin/sh -c` replay command as its argv.
@@ -171,13 +171,66 @@ enum ClassifierLegacyRuns {
             manifest: manifest,
             summaryURL: summaryURL,
             sqliteURL: sqliteURL,
-            command: AppDelegate.classificationBatchReplayCommand(configurations: configs),
+            command: legacyBatchReplayCommand(configurations: configs),
             additionalStderr: [],
             additionalInputURLs: configs.flatMap(\.inputFiles),
             additionalSampleDirectories: [],
             context: ClassificationBatchProvenanceContext(configurations: configs, startedAt: startedAt, completedAt: Date())
         )
         return (batchRoot, configs)
+    }
+
+    /// The command the in-process Kraken2 batch recorded, as `AppDelegate.classificationBatchReplayCommand`
+    /// built it until Phase 2.9 (E14): a `set -e` script that holds, for each sample, the guards of its
+    /// database identity and its `kraken2 classify`. The batch record above holds it and
+    /// `ClassifierLegacyRecordPinTests` reads it, so it stays here as a fixture after the launch that
+    /// built it went. Its bytes are the ones the base built (`kraken2-batch.facts.json` pins them).
+    static func legacyBatchReplayCommand(configurations: [ClassificationConfig]) -> [String] {
+        let commands = configurations.map { config -> String in
+            let invocation = ClassificationCLIInvocationBuilder.build(for: config)
+            let classificationCommand = ([CLICommandIdentity.executableName] + invocation.arguments)
+                .map(shellEscape)
+                .joined(separator: " ")
+            return (legacyDatabaseReplayGuards(for: config) + [classificationCommand])
+                .joined(separator: "; ")
+        }
+        return ["/bin/sh", "-c", (["set -e"] + commands).joined(separator: "\n")]
+    }
+
+    /// `--db` is a registry display name, so the script also asserts the exact installation receipt
+    /// the app captured before allowing that lookup.
+    private static func legacyDatabaseReplayGuards(for config: ClassificationConfig) -> [String] {
+        let databasePath = config.databasePath.standardizedFileURL
+        let receiptURL = databasePath.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let receipt = ProvenanceRecorder.loadEnvelope(from: databasePath)
+        let digest = config.databaseDigest
+            ?? receipt?.options.resolvedDefaults["payloadAggregateSHA256"]?.stringValue
+            ?? "__missing_database_digest__"
+        let escapedPath = shellEscape(databasePath.path)
+        let escapedReceipt = shellEscape(receiptURL.path)
+        let escapedDigest = shellEscape(digest)
+        let receiptDigest = "$(/usr/bin/plutil -extract options.resolvedDefaults.payloadAggregateSHA256.value raw -o - \(escapedReceipt))"
+        let receiptPath = "$(/usr/bin/plutil -extract options.resolvedDefaults.intendedFinalPath.value raw -o - \(escapedReceipt))"
+        let receiptExitStatus = "$(/usr/bin/plutil -extract exitStatus raw -o - \(escapedReceipt))"
+        let databaseInfoCommand = [
+            CLICommandIdentity.executableName,
+            "conda",
+            "db",
+            "info",
+            "--no-color",
+            config.databaseName,
+        ].map(shellEscape).joined(separator: " ")
+        let registryPath = "$(\(databaseInfoCommand) | /usr/bin/sed -n "
+            + shellEscape("s/^Location[[:space:]]*:[[:space:]]*//p")
+            + ")"
+        return [
+            "/bin/test -d \(escapedPath)",
+            "/bin/test -f \(escapedReceipt)",
+            "/bin/test \"\(receiptDigest)\" = \(escapedDigest)",
+            "/bin/test \"\(receiptPath)\" = \(escapedPath)",
+            "/bin/test \"\(receiptExitStatus)\" = 0",
+            "/bin/test \"\(registryPath)\" = \(escapedPath)",
+        ]
     }
 
     // MARK: - EsViritu
@@ -195,8 +248,8 @@ enum ClassifierLegacyRuns {
         )
     }
 
-    /// An EsViritu batch of two samples as `runEsVirituBatch` leaves it when
-    /// both complete: each sample's pipeline record, a summary TSV, the batch
+    /// An EsViritu batch of two samples as the in-process `runEsVirituBatch` left it
+    /// (the route went in Phase 2.9) when both complete: each sample's pipeline record, a summary TSV, the batch
     /// manifest, a stand-in for the `esviritu.sqlite` that `lungfish-cli
     /// build-db` writes, and the batch record whose argv folds every input into
     /// one `esviritu detect` (`EsVirituCLIInvocationBuilder.esVirituBatchCLIArguments(for:)`).
