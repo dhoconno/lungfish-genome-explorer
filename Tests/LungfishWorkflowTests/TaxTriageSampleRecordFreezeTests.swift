@@ -140,7 +140,8 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
     func testAPlainSampleRecordsTheArgvThatRanAsItsOneStep() async throws {
         let engine = try makeEngine()
         let reads = try writeFASTQ("S1.fastq", records: 7)
-        let c = config(TaxTriageSample(sampleId: "S1", fastq1: reads), output: "plain", database: try makeDatabase())
+        let database = try makeDatabase()
+        let c = config(TaxTriageSample(sampleId: "S1", fastq1: reads), output: "plain", database: database)
         // TaxTriage writes raw read copies to count/ and trimmed reads to fastp/, which the stand-in does not.
         for seeded in ["count/S1.fastq.gz", "fastp/S1.fastp.fastq.gz", "download/S1.dwnld.references.fasta", "work/ab/cd1234/.command.sh"] {
             let url = c.outputDirectory.appendingPathComponent(seeded)
@@ -191,8 +192,18 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         XCTAssertEqual(namedPaths(record).filter { !FileManager.default.fileExists(atPath: $0) }, [], "every named file exists")
         XCTAssertEqual(Set(record.options.explicit.keys), Self.settingKeys.union(["github_release_version"]))
         XCTAssertEqual(record.options.explicit["profile"], .string(TaxTriageStandInEngine.profile))
-        XCTAssertTrue(record.options.resolvedDefaults.isEmpty, "FLIPS: the database identity is a resolved default (RT5)")
-        XCTAssertFalse(String(describing: record.options).contains("kraken2-db"), "FLIPS: no option names the database (RT5)")
+        // Flipped by B2 (RT5). The database is recorded as E9 records EsViritu's, among the resolved defaults, and the
+        // TaxTriage step names the Nextflow that ran.
+        let resolved = record.options.resolvedDefaults
+        XCTAssertEqual(Set(resolved.keys), ["databasePath", "databaseIdentityStatus", "databaseCoreFileSizes"])
+        XCTAssertEqual(resolved["databasePath"]?.stringValue.map(standardized), standardized(database.path))
+        XCTAssertEqual(resolved["databaseIdentityStatus"], .string("unpinned"))
+        XCTAssertEqual(
+            resolved["databaseCoreFileSizes"],
+            .dictionary(["hash.k2d": .integer(11), "opts.k2d": .integer(7), "taxo.k2d": .integer(5)]),
+            "the size of each core file, and nothing hashed"
+        )
+        XCTAssertEqual(step.resolvedOptions, ["nextflowVersion": .string("25.04.6")], "from the banner the stand-in printed")
     }
 
     // MARK: - BIO T6 and T8, an interleaved sample
@@ -275,15 +286,35 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
 
         let record = run.record
         XCTAssertEqual(record.steps.map(\.toolName), ["TaxTriage"])
-        XCTAssertEqual(
-            Set(record.options.explicit.keys), Self.settingKeys.union(["github_release_version", "read_set_plans"]),
-            "FLIPS: a record of one sample keeps no keyed plan (T7)"
-        )
+        // Flipped by B2 (T7). The record of one sample keeps no keyed plan, and its plan is the resolved default
+        // `readSetPlan`, where the reader finds it.
+        XCTAssertEqual(Set(record.options.explicit.keys), Self.settingKeys.union(["github_release_version"]))
+        let plan = try XCTUnwrap(sample.readSetPlan?.provenanceParameters["readSetPlan"])
+        XCTAssertEqual(record.options.resolvedDefaults["readSetPlan"], plan)
+        XCTAssertEqual(record.readSetPlan?.place, .resolvedDefaults)
+        XCTAssertEqual(record.readSetPlan?.fields["capability"], .string("pairs_only_when_all_paired"))
+        XCTAssertEqual(record.readSetPlan?.fields["singleReadReason"], .string(try XCTUnwrap(sample.readSetPlan?.singleReadReason)))
+    }
+
+    /// BIO T7. A pooled run of several samples, as `taxtriage run --output` runs them in one Nextflow, keeps each
+    /// sample's plan keyed by the sample under `read_set_plans` in the explicit options, because one `readSetPlan`
+    /// cannot hold several samples' plans, and its resolved defaults hold the database alone.
+    func testAPooledRunKeepsItsPlansKeyedBySample() async throws {
+        let engine = try makeEngine()
+        let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("fixtures", isDirectory: true))
+        let mixed = try await planned(fixtures.mixedRoot, as: "mixed", in: fixtures)
+        let plain = TaxTriageSample(sampleId: "plain", fastq1: try writeFASTQ("plain.fastq", records: 4))
+        var c = config(mixed, output: "pooled", database: try makeDatabase())
+        c.samples.append(plain)
+
+        let run = try await run(c, on: engine)
+
+        let record = run.record
+        XCTAssertEqual(record.options.explicit["sample_count"], .integer(2))
         let plans = try XCTUnwrap(record.options.explicit["read_set_plans"]?.dictionaryValue)
-        XCTAssertEqual(Set(plans.keys), ["mixed"])
-        XCTAssertEqual(plans["mixed"]?.dictionaryValue?["capability"], .string("pairs_only_when_all_paired"))
-        XCTAssertNil(record.options.resolvedDefaults["readSetPlan"], "FLIPS: the plan is a resolved default (T7)")
-        XCTAssertNil(record.readSetPlan, "FLIPS: the reader finds the plan in the resolved defaults (T7)")
+        XCTAssertEqual(plans, ["mixed": try XCTUnwrap(mixed.readSetPlan?.provenanceParameters["readSetPlan"])])
+        XCTAssertEqual(Set(record.options.resolvedDefaults.keys), ["databasePath", "databaseIdentityStatus", "databaseCoreFileSizes"])
+        XCTAssertNil(record.options.explicit["readSetPlan"])
     }
 
     /// BIO T9 and T10. A virtual bundle is materialized into the folder its caller named before TaxTriage reads it.
@@ -327,9 +358,114 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         XCTAssertEqual(record.exitStatus, 0)
         let step = try taxTriageStep(record)
         XCTAssertEqual(step.exitStatus, 0)
-        XCTAssertTrue((step.stderr ?? "").isEmpty, "FLIPS: one warning line per ignored failure (T8): \(step.stderr ?? "")")
-        XCTAssertTrue((record.stderr ?? "").isEmpty, "FLIPS: the record's stderr is its last step's (T8)")
-        let text = try String(contentsOf: run.output.appendingPathComponent(ProvenanceRecorder.provenanceFilename), encoding: .utf8)
-        XCTAssertFalse(text.contains("MINIMAP2_ALIGN"), "FLIPS: the record names the failed task (T8)")
+        // Flipped by B2 (T8). One warning line per ignored failure is the step's stderr, and so the record's.
+        let warnings = TaxTriageRecordFacts.warningLines(for: run.result.ignoredFailures)
+        XCTAssertEqual(warnings.count, 1)
+        XCTAssertEqual(step.stderr, warnings.joined(separator: "\n"))
+        XCTAssertEqual(record.stderr, step.stderr, "the record's stderr is its last step's")
+        let line = try XCTUnwrap(warnings.first)
+        XCTAssertTrue(line.hasPrefix("Warning: TaxTriage ignored the failure of "), line)
+        for part in ["MINIMAP2_ALIGN", "for sample S1", "exit status 137"] {
+            XCTAssertTrue(line.contains(part), "\(part) in \(line)")
+        }
+    }
+
+    // MARK: - The facts as values
+
+    /// Decision T8. A warning line names the process, the sample, the exit status, the attempts when there were
+    /// several and the key line of the task's stderr, and a task Nextflow did not name still gives a line.
+    func testAWarningLineNamesTheTaskItsSampleItsExitAndItsDiagnostic() {
+        let named = TaxTriageIgnoredFailure(
+            processPath: "NFCORE_TAXTRIAGE:TAXTRIAGE:MINIMAP2_ALIGN",
+            processName: "MINIMAP2_ALIGN",
+            taskLabel: "A.MINIMAP2_ALIGN (A)",
+            sampleID: "A",
+            exitCode: 137,
+            attempts: 3,
+            diagnostic: "Killed: minimap2 -ax sr -t 14"
+        )
+        let unnamed = TaxTriageIgnoredFailure(processPath: "", processName: "", taskLabel: "", sampleID: nil, exitCode: -1)
+
+        XCTAssertEqual(TaxTriageRecordFacts.warningLines(for: [named, unnamed]), [
+            "Warning: TaxTriage ignored the failure of NFCORE_TAXTRIAGE:TAXTRIAGE:MINIMAP2_ALIGN for sample A, exit status 137 after 3 attempts (Killed: minimap2 -ax sr -t 14)",
+            "Warning: TaxTriage ignored the failure of a task Nextflow did not name, exit status -1",
+        ])
+        XCTAssertNil(TaxTriageRecordFacts.nextflowVersion(inBanner: "Launching jhuapl-bio/taxtriage"))
+        XCTAssertEqual(TaxTriageRecordFacts.nextflowVersion(inBanner: " N E X T F L O W  ~  version 24.10.4\n"), "24.10.4")
+    }
+
+    /// RT5. A database the app installed holds its install receipt, and its identity adds the catalog entry and the
+    /// version that receipt names. A receipt that names another folder adds nothing.
+    func testAnInstalledDatabaseAddsTheCatalogEntryItsReceiptNames() throws {
+        let database = try makeDatabase()
+        let fixture = ProvenanceCompatCorpus.repositoryRoot.appendingPathComponent(
+            "Tests/Fixtures/provenance-compat/cases/s1-db-receipt-kraken2-viral/managed-storage/databases/kraken2/viral/.lungfish-provenance.json"
+        )
+        let receipt = try String(contentsOf: fixture, encoding: .utf8)
+        // The receipt's JSON escapes each slash of a path.
+        func escaped(_ path: String) -> String { path.replacingOccurrences(of: "/", with: "\\/") }
+        let original = escaped("/srv/corpus/.lungfish/databases/kraken2/viral")
+        XCTAssertTrue(receipt.contains(original))
+        let sidecar = database.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+
+        try receipt.replacingOccurrences(of: original, with: escaped(database.standardizedFileURL.path))
+            .write(to: sidecar, atomically: true, encoding: .utf8)
+        let identity = TaxTriageRecordFacts.databaseIdentity(at: database)
+        XCTAssertEqual(identity["databaseCatalogID"], .string("kraken2-viral"))
+        XCTAssertNotNil(identity["databaseCatalogVersion"]?.stringValue)
+        XCTAssertEqual(identity["databaseIdentityStatus"], .string("unpinned"), "a receipt does not pin the folder on this route")
+
+        try receipt.write(to: sidecar, atomically: true, encoding: .utf8)
+        let elsewhere = TaxTriageRecordFacts.databaseIdentity(at: database)
+        XCTAssertNil(elsewhere["databaseCatalogID"], "the receipt names another folder")
+        XCTAssertEqual(Set(elsewhere.keys), ["databasePath", "databaseIdentityStatus", "databaseCoreFileSizes"])
+    }
+
+    /// RT2. A step of a sample's read set plan, a split or an interleave the resolver wrote, is recorded as Kraken 2
+    /// records it, before the pipeline's own split and join steps, with its files and their digests.
+    func testAStepOfTheReadSetPlanIsRecordedBeforeTheRunsOwnSteps() async throws {
+        let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("fixtures", isDirectory: true))
+        let mixed = try await planned(fixtures.mixedRoot, as: "mixed", in: fixtures)
+        let base = try XCTUnwrap(mixed.readSetPlan)
+        let source = try writeFASTQ("mixed-source.fastq", records: 2)
+        let written = try writeFASTQ("mixed-single.fastq", records: 2)
+        let started = Date(timeIntervalSince1970: 1_000)
+        let step = ReadSetStep(
+            kind: .splitByName,
+            inputURLs: [source],
+            outputURLs: [written],
+            pairCount: 0,
+            singleReadCount: 2,
+            startedAt: started,
+            endedAt: started.addingTimeInterval(1.5)
+        )
+        var sample = mixed
+        sample.readSetPlan = ReadSetPlan(
+            inputURL: base.inputURL,
+            capability: base.capability,
+            sourceLayout: base.sourceLayout,
+            layoutReason: base.layoutReason,
+            sequencingPlatform: base.sequencingPlatform,
+            wasMaterialized: base.wasMaterialized,
+            sampleHoldsPairsAndSingleReads: base.sampleHoldsPairsAndSingleReads,
+            runs: base.runs,
+            steps: [step],
+            singleReadReason: base.singleReadReason,
+            composition: base.composition
+        )
+
+        let runID = await ProvenanceRecorder.shared.beginRun(name: "TaxTriage")
+        await TaxTriagePipeline.recordReadSetSteps(runID: runID, config: config(sample, output: "steps", database: try makeDatabase()), splits: [])
+        let recorded = await ProvenanceRecorder.shared.canonicalEnvelope(for: runID)
+        let envelope = try XCTUnwrap(recorded)
+
+        let first = try XCTUnwrap(envelope.steps.first)
+        XCTAssertEqual(first.toolName, "Lungfish Read-Set Split")
+        XCTAssertEqual(first.argv, step.command)
+        XCTAssertEqual(first.resolvedOptions, ["sample": .string("mixed"), "pairs": .integer(0), "singleReads": .integer(2)])
+        XCTAssertEqual(first.inputs.map(\.path), [source.path])
+        XCTAssertEqual(first.outputs.map(\.path), [written.path])
+        XCTAssertTrue((first.inputs + first.outputs).allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
+        XCTAssertEqual(first.wallTimeSeconds, 1.5)
     }
 }

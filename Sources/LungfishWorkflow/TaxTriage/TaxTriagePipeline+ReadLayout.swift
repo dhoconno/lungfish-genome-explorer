@@ -117,7 +117,9 @@ extension TaxTriagePipeline {
     /// sample ID: the capability used, the fragment counts by kind and the
     /// reason mates ran as single reads. A sample whose plan records nothing
     /// new (single reads only, or pairs only) adds nothing, so a run on such a
-    /// sample records what it recorded before.
+    /// sample records what it recorded before. Only a pooled record of several
+    /// samples keeps this keyed form. A record of one sample holds its plan as
+    /// the resolved default `readSetPlan` (``TaxTriageRecordFacts``, T7).
     nonisolated static func readSetProvenanceParameters(for config: TaxTriageConfig) -> [String: ParameterValue] {
         var plans: [String: ParameterValue] = [:]
         for sample in config.samples {
@@ -128,15 +130,38 @@ extension TaxTriagePipeline {
         return plans.isEmpty ? [:] : ["read_set_plans": .dictionary(plans)]
     }
 
-    /// Records the steps that made the files the run reads: the split of each
-    /// interleaved file into R1 and R2, and the `cat` that joined several files
-    /// of one bundle into the one single-end file of a sample
-    /// (``SequenceInputConcatenation``).
+    /// Records the steps that made the files the run reads: the splits and
+    /// interleaves of each sample's read set plan, as Kraken 2 records them,
+    /// the split of each interleaved file into R1 and R2, and the `cat` that
+    /// joined several files of one bundle into the one single-end file of a
+    /// sample (``SequenceInputConcatenation``). The halves of a split are
+    /// scratch the run removes, so the split step names its source and no
+    /// output (decision T6).
     static func recordReadSetSteps(
         runID: UUID,
         config: TaxTriageConfig,
         splits: [InterleavedSampleSplit]
     ) async {
+        for sample in config.samples {
+            for step in sample.readSetPlan?.steps ?? [] {
+                _ = await ProvenanceRecorder.shared.recordStep(
+                    runID: runID,
+                    toolName: step.toolName,
+                    toolVersion: WorkflowRun.currentAppVersion,
+                    command: step.command,
+                    resolvedOptions: [
+                        "sample": .string(sample.sampleId),
+                        "pairs": .integer(step.pairCount),
+                        "singleReads": .integer(step.singleReadCount),
+                    ],
+                    runtimeIdentity: ProvenanceRuntimeIdentity(),
+                    inputs: step.inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) },
+                    outputs: step.outputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) },
+                    exitCode: 0,
+                    wallTime: max(0, step.endedAt.timeIntervalSince(step.startedAt))
+                )
+            }
+        }
         for split in splits {
             _ = await ProvenanceRecorder.shared.recordStep(
                 runID: runID,

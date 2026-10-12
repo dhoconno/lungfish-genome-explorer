@@ -326,10 +326,10 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
     ]
 
     /// BIO T6. A run's parameters hold the sixteen settings and the release version, the ids of the samples split to
-    /// R1 and R2 when there are any, and `read_set_plans` when a plan has something to say. Nothing names the Kraken 2
-    /// database, the Nextflow version or a container image, so a result cannot say which database classified it
-    /// outside the argv of the engine's own step. Lane B2 records more of this as values, and the exact key sets
-    /// below change with it.
+    /// R1 and R2 when there are any, and `read_set_plans` when a plan has something to say. Lane B2 (RT5) adds the
+    /// Kraken 2 database as decision E9 records EsViritu's, its path, the size of each core file it holds (none here,
+    /// the folder does not exist) and the status `unpinned`, which the record keeps among its resolved defaults. No
+    /// parameter names a container image.
     func testTheRunParametersHoldSixteenSettingsAndTheReleaseTag() throws {
         XCTAssertEqual(Self.settingKeys.count, 16)
         let c = config([sample("A")], everySetting: true)
@@ -337,7 +337,8 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
 
         let parameters = pipeline.provenanceParameters(for: c)
 
-        XCTAssertEqual(Set(parameters.keys), Self.settingKeys.union(["github_release_version"]))
+        let databaseKeys: Set<String> = ["databasePath", "databaseIdentityStatus", "databaseCoreFileSizes"]
+        XCTAssertEqual(Set(parameters.keys), Self.settingKeys.union(["github_release_version"]).union(databaseKeys))
         XCTAssertEqual(parameters["workflow"], .string("taxtriage"))
         XCTAssertEqual(parameters["sample_count"], .integer(1))
         XCTAssertEqual(parameters["platform"], .string("ILLUMINA"))
@@ -355,7 +356,14 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         XCTAssertEqual(parameters["output_directory"], .file(c.outputDirectory))
         XCTAssertEqual(parameters["remove_taxids"], .string("9606 10090"))
         XCTAssertEqual(parameters["github_release_version"], .string(TaxTriageConfig.defaultGithubReleaseVersion))
-        XCTAssertFalse(String(describing: parameters).contains("viral-kraken2"), "the database named in the config is in no parameter")
+        XCTAssertEqual(parameters["databasePath"], .string("/db/viral-kraken2"), "flipped by B2 (RT5), the database is named")
+        XCTAssertEqual(parameters["databaseIdentityStatus"], .string("unpinned"))
+        XCTAssertEqual(parameters["databaseCoreFileSizes"], .dictionary([:]))
+        XCTAssertEqual(
+            TaxTriageRecordFacts.recordOptions(fromRunParameters: parameters).resolvedDefaults.keys.sorted(),
+            databaseKeys.sorted(),
+            "the save keeps the database among the resolved defaults"
+        )
 
         let split = TaxTriagePipeline.InterleavedSampleSplit(
             sampleId: "A",
@@ -366,7 +374,10 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
             wallTime: 0
         )
         let withSplit = pipeline.provenanceParameters(for: c, interleavedSplits: [split])
-        XCTAssertEqual(Set(withSplit.keys), Self.settingKeys.union(["github_release_version", "interleaved_samples_split_to_r1_r2"]))
+        XCTAssertEqual(
+            Set(withSplit.keys),
+            Self.settingKeys.union(["github_release_version", "interleaved_samples_split_to_r1_r2"]).union(databaseKeys)
+        )
         XCTAssertEqual(withSplit["interleaved_samples_split_to_r1_r2"], .array([.string("A")]))
     }
 
@@ -388,25 +399,31 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         XCTAssertFalse(String(describing: options).contains("viral-kraken2"))
     }
 
-    /// Saves a run holding `parameters` as the recorder does for a TaxTriage run and reads the record back.
+    /// Saves a run holding `parameters` with the pipeline's own save, as a TaxTriage run saves its record, and reads
+    /// the record back.
     private func savedRecord(parameters: [String: ParameterValue], as name: String) async throws -> ProvenanceEnvelope {
         let runID = await ProvenanceRecorder.shared.beginRun(name: "TaxTriage", parameters: parameters)
         await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
         let directory = root.appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try await ProvenanceRecorder.shared.save(runID: runID, to: directory)
+        try await TaxTriagePipeline().saveTaxTriageProvenanceOrThrow(
+            runID: runID,
+            outputDirectory: directory,
+            description: "completed run",
+            exitCode: -1,
+            stderr: "",
+            logFile: nil
+        )
         return try record(in: directory)
     }
 
-    /// BIO T7. A plan is recorded as `read_set_plans`, keyed by sample id, among the run parameters, and the recorder
-    /// merges the run parameters into `options.explicit`. The one reader of a plan looks for `readSetPlan` only, so it
-    /// never finds a TaxTriage plan, while it finds the same fields once they sit under that key. Each sample of a
-    /// several-sample app run writes a record of one sample, so its dictionary holds one key.
-    /// Plan decision T7 moves the plan of a record of one sample to `resolvedDefaults.readSetPlan` and lets the reader
-    /// accept `read_set_plans[<sample>]`. Lane B2 flips the assertions marked FLIPS, which are the three on the record
-    /// of one sample (its keyed plan, its resolved defaults and what the reader finds). A writer keeps one home for a
-    /// plan, so the keyed plan of that record goes with the move. A pooled record of several samples keeps the keyed
-    /// form, so its two assertions stay.
+    /// BIO T7. A pooled run of several samples records its plans as `read_set_plans`, keyed by sample id, among the run
+    /// parameters, which the recorder merges into `options.explicit`. The one reader of a plan looks for `readSetPlan`
+    /// only, so it does not read the keyed form. Each sample of a several-sample app run writes a record of one sample.
+    /// Plan decision T7, applied by lane B2, records the plan of a record of one sample as the resolved default
+    /// `readSetPlan`, where the reader finds it, and keeps no keyed plan there, because a writer keeps one home for a
+    /// plan. The three assertions on that record were flipped by B2. A pooled record keeps the keyed form, so its two
+    /// assertions stay.
     func testPlansAreKeyedBySampleInTheExplicitOptionsAndTheReaderNeverFindsThem() async throws {
         let fixtures = try makeFixtures()
         let mixed = try await planned(fixtures.mixedRoot, as: "mixed", in: fixtures)
@@ -429,22 +446,11 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
 
         let oneSample = TaxTriagePipeline().provenanceParameters(for: config([mixed]))
         let single = try await savedRecord(parameters: oneSample, as: "single-record")
-        XCTAssertEqual(
-            Set(try XCTUnwrap(single.options.explicit["read_set_plans"]?.dictionaryValue).keys), ["mixed"],
-            "FLIPS: a record of one sample keeps no keyed plan once its plan is in resolvedDefaults (T7)"
-        )
-        XCTAssertTrue(single.options.resolvedDefaults.isEmpty, "FLIPS: nothing is in the resolved defaults")
+        XCTAssertNil(single.options.explicit["read_set_plans"], "flipped by B2 (T7), a record of one sample keeps no keyed plan")
+        XCTAssertEqual(single.options.resolvedDefaults, ["readSetPlan": plans["mixed"]!], "flipped by B2 (T7), the plan is a resolved default")
         XCTAssertNil(single.options.explicit["readSetPlan"])
-        XCTAssertNil(single.readSetPlan, "FLIPS: the reader finds no TaxTriage plan")
-
-        let underItsKey = single.with { copy in
-            copy.options = ProvenanceOptions(
-                explicit: copy.options.explicit,
-                resolvedDefaults: ["readSetPlan": plans["mixed"]!]
-            )
-        }
-        XCTAssertEqual(underItsKey.readSetPlan?.place, .resolvedDefaults)
-        XCTAssertEqual(underItsKey.readSetPlan?.fields["capability"], .string("pairs_only_when_all_paired"))
+        XCTAssertEqual(single.readSetPlan?.place, .resolvedDefaults, "flipped by B2 (T7), the reader finds the plan")
+        XCTAssertEqual(single.readSetPlan?.fields["capability"], .string("pairs_only_when_all_paired"))
     }
 
     // MARK: - BIO T8, T9 and T10, the files a record names that the run removes

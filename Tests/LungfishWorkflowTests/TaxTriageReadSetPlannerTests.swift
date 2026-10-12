@@ -248,14 +248,24 @@ final class TaxTriageReadSetPlannerTests: XCTestCase {
         XCTAssertEqual(plan["mergedReads"], .integer(3))
     }
 
+    /// A run of one sample carries its plan as `readSetPlan`, which its record keeps among the resolved defaults
+    /// (Phase 2.8 decision T7). The keyed `read_set_plans` is only for a pooled run of several samples.
     func testTheRunParametersCarryThePlanOfAMixedSample() async throws {
         let mixed = try await resolved(fixtures.mixedRoot)
         let parameters = TaxTriagePipeline().provenanceParameters(for: config([mixed]))
-        XCTAssertNotNil(parameters["read_set_plans"])
+        XCTAssertNil(parameters["read_set_plans"])
+        XCTAssertEqual(parameters["readSetPlan"], mixed.readSetPlan?.provenanceParameters["readSetPlan"])
+        XCTAssertNotNil(parameters["readSetPlan"])
         XCTAssertEqual(parameters["sample_count"], .integer(1))
+        XCTAssertEqual(
+            TaxTriageRecordFacts.recordOptions(fromRunParameters: parameters).resolvedDefaults["readSetPlan"],
+            parameters["readSetPlan"]
+        )
 
         let single = try await resolved(fixtures.singleRoot)
-        XCTAssertNil(TaxTriagePipeline().provenanceParameters(for: config([single]))["read_set_plans"])
+        let plain = TaxTriagePipeline().provenanceParameters(for: config([single]))
+        XCTAssertNil(plain["read_set_plans"])
+        XCTAssertNil(plain["readSetPlan"])
     }
 
     // MARK: - Steps
