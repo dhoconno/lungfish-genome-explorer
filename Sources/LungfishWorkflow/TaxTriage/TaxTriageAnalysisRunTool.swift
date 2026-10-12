@@ -85,8 +85,8 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
                 label: Self.label(of: launchSamples),
                 value: TaxTriageRunUnit(
                     config: config,
-                    revision: pin.revision,
-                    githubReleaseVersion: pin.releaseVersion,
+                    revision: revision,
+                    githubReleaseVersion: Self.releaseVersion(of: revision, pin: pin),
                     handsFactsToRoot: layout != .batchRoot
                 )
             )
@@ -116,9 +116,24 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
     func launchRevision(pin: PipelineSpec) throws -> String {
         guard let given = request.revision else { return pin.revision }
         guard !given.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw TaxTriageRunRefusal.input("--revision names a TaxTriage commit or tag, so it cannot be blank.")
+            throw TaxTriageRunRefusal.input(
+                "--revision is blank. Name a TaxTriage commit or tag, or leave out --revision to run the pinned version."
+            )
         }
         return given
+    }
+
+    /// The release tag of the revision a launch runs, by the rule of
+    /// `TaxTriageConfig.githubReleaseVersion(for:)` with the pin in place of the bundled lock, so the
+    /// record names the tag today's record names. It is the pin's tag for the pin's commit or tag, the
+    /// revision itself when it starts with `v`, and nil otherwise. A2 M2 replaces it with that function
+    /// once the function takes the pin (A16 M1 review ruling 1).
+    static func releaseVersion(of revision: String, pin: PipelineSpec) -> String? {
+        let trimmed = revision.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed == pin.revision || trimmed == pin.releaseVersion {
+            return pin.releaseVersion
+        }
+        return trimmed.hasPrefix("v") ? trimmed : nil
     }
 
     // MARK: - Samples
@@ -351,17 +366,19 @@ package struct TaxTriageRunUnit: Sendable {
     /// is the `-r` the launch passes, and its output folder is the destination as the plan knows it,
     /// which the unit's run replaces with the folder the executor made for it.
     package let config: TaxTriageConfig
-    /// The commit the lock pins, which the step records (R1).
+    /// The revision the launch runs as `-r`, the `--revision` given or else the commit the lock pins,
+    /// which the step records as its version (R1, A16 M1 review ruling 1). It is never the pin's commit
+    /// when another revision runs.
     package let revision: String
-    /// The release tag the lock pins for that commit, which the step records as `githubReleaseVersion`
-    /// (R1).
-    package let githubReleaseVersion: String
+    /// The release tag of that revision, which the step records as `githubReleaseVersion` (R1). It is
+    /// the lock's tag when the launch runs the pinned commit or tag, and nil when the revision names no tag.
+    package let githubReleaseVersion: String?
     /// Whether the unit's folder is the result folder, a `.singleFolder` or `.sharedBatchRoot` run, so
     /// the root record replaces the pipeline's record and the unit hands every fact of it to the root
     /// record, as `Kraken2RunUnit.handsFactsToRoot` says.
     package let handsFactsToRoot: Bool
 
-    package init(config: TaxTriageConfig, revision: String, githubReleaseVersion: String, handsFactsToRoot: Bool) {
+    package init(config: TaxTriageConfig, revision: String, githubReleaseVersion: String?, handsFactsToRoot: Bool) {
         self.config = config
         self.revision = revision
         self.githubReleaseVersion = githubReleaseVersion

@@ -60,9 +60,18 @@ final class TaxTriageAnalysisRunToolPlanTests: XCTestCase {
         XCTAssertEqual(bundledUnit.revision, bundledPin.revision)
         XCTAssertEqual(bundledUnit.githubReleaseVersion, bundledPin.releaseVersion)
         XCTAssertEqual(bundledUnit.config.revision, bundledPin.revision)
+
+        // The bundled lock keeps today's record bytes, the tag rule of `TaxTriageConfig`.
+        for value in [bundledPin.revision, bundledPin.releaseVersion, "v3.3.9", "main"] {
+            XCTAssertEqual(
+                TaxTriageAnalysisRunTool.releaseVersion(of: value, pin: bundledPin),
+                TaxTriageConfig.githubReleaseVersion(for: value),
+                value
+            )
+        }
     }
 
-    func testAGivenRevisionIsWhatTheLaunchRunsAndTheUnitKeepsThePin() async throws {
+    func testAGivenRevisionIsWhatTheLaunchRunsAndWhatTheStepRecords() async throws {
         let reads = try writeReads("S1.fastq")
         let tool = makeTool(makeRequest(input: reads.path, sample: "S1", revision: "v3.3.9"), lock: Self.lock(Self.customPin))
 
@@ -70,8 +79,22 @@ final class TaxTriageAnalysisRunToolPlanTests: XCTestCase {
         let unit = try XCTUnwrap(planned.units.first?.value)
 
         XCTAssertEqual(unit.config.revision, "v3.3.9")
-        XCTAssertEqual(unit.revision, Self.customPin.revision)
-        XCTAssertEqual(unit.githubReleaseVersion, Self.customPin.releaseVersion)
+        XCTAssertEqual(unit.revision, "v3.3.9", "the step names the revision that ran, never the pin's commit")
+        XCTAssertEqual(unit.githubReleaseVersion, "v3.3.9")
+
+        let cases: [(given: String, tag: String?)] = [
+            ("main", nil),
+            (Self.customPin.revision, "v9.9.9"),
+            ("v9.9.9", "v9.9.9"),
+        ]
+        for (given, tag) in cases {
+            let tool = makeTool(makeRequest(input: reads.path, sample: "S1", revision: given), lock: Self.lock(Self.customPin))
+            let planned = try await plan(tool, .directory(root.appendingPathComponent("out", isDirectory: true)))
+            let unit = try XCTUnwrap(planned.units.first?.value)
+            XCTAssertEqual(unit.config.revision, given, given)
+            XCTAssertEqual(unit.revision, given, given)
+            XCTAssertEqual(unit.githubReleaseVersion, tag, given)
+        }
     }
 
     func testALockWithNoUsableTaxTriagePinRefusesWithN4sWordsAndLeavesNoFolder() async throws {
@@ -143,6 +166,25 @@ final class TaxTriageAnalysisRunToolPlanTests: XCTestCase {
             "a bundle is one sample whatever its name, so a folder of bundles keeps working (T8)"
         )
         XCTAssertTrue(unit.value.config.samples.allSatisfy { $0.fastq2 == nil })
+    }
+
+    func testAMateNameOutsideAFolderOfMatesIsNotRefused() async throws {
+        let output = root.appendingPathComponent("out", isDirectory: true)
+        let lone = try writeReads("S1_R1.fastq")
+        let filePlan = try await plan(makeTool(makeRequest(input: lone.path, sample: "S1")), .directory(output))
+        let fileUnit = try XCTUnwrap(filePlan.units.first?.value)
+        XCTAssertEqual(fileUnit.config.samples.map(\.sampleId), ["S1"], "a file named as a mate is one sample")
+        XCTAssertNil(fileUnit.config.samples.first?.fastq2)
+
+        let folder = root.appendingPathComponent("one-mate", isDirectory: true)
+        try writeReads("S1_R1.fastq", in: folder)
+        try writeReads("S2.fastq", in: folder)
+        let folderPlan = try await plan(makeTool(makeRequest(input: folder.path)), .directory(output))
+        XCTAssertEqual(
+            folderPlan.units.first?.value.config.samples.map(\.sampleId),
+            ["S1_R1", "S2"],
+            "a folder with an R1 and no R2 holds no pair, so T8 does not refuse it"
+        )
     }
 
     // MARK: - Sample folders (T9)
@@ -266,7 +308,7 @@ final class TaxTriageAnalysisRunToolPlanTests: XCTestCase {
             ("no database", makeRequest(input: reads.path, sample: "S1", database: .none), "A Kraken2 database is required: pass --db <path>"),
             ("a missing database", makeRequest(input: reads.path, sample: "S1", database: .at(URL(fileURLWithPath: missing))), "Database not found: \(missing)"),
             ("unparsable extra arguments", makeRequest(input: reads.path, sample: "S1", extraArguments: "--foo 'bar"), "Advanced options contain an unterminated ' quote."),
-            ("a blank revision", makeRequest(input: reads.path, sample: "S1", revision: " "), "--revision names a TaxTriage commit or tag, so it cannot be blank."),
+            ("a blank revision", makeRequest(input: reads.path, sample: "S1", revision: " "), "--revision is blank. Name a TaxTriage commit or tag, or leave out --revision to run the pinned version."),
             ("a confidence above 1", makeRequest(input: reads.path, sample: "S1", confidence: 1.5), "k2_confidence must be between 0.0 and 1.0, got 1.5"),
             ("no top hits", makeRequest(input: reads.path, sample: "S1", topHits: 0), "top_hits_count must be positive, got 0"),
             ("a duplicate in one launch", makeRequest(samplesheet: duplicates.path), "Duplicate sample IDs: S1"),
