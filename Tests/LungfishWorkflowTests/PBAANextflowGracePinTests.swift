@@ -5,8 +5,8 @@
 // Phase 2.9 lane S9, milestone M1, panel decision N6. Every Nextflow engine gets 4 s between TERM and
 // KILL, the time Nextflow needs to stop its tasks and finish its own shutdown, which took 1.8 s on a
 // real cancel (Q15 R3). pbAA clustering launches Nextflow through `ProcessPBAANextflowRunner.runProcess`,
-// which sets no grace, so ToolProcess's 500 ms applies. The case pins that in an `XCTExpectFailure`
-// block, and S9 M3 gives the runner its 4 s and makes it a plain assertion.
+// which set no grace before S9 M3, so ToolProcess's 500 ms applied. S9 M3 gave the runner the engine's
+// 4 s, so the case is a plain assertion.
 
 import Darwin
 import Foundation
@@ -65,11 +65,10 @@ final class PBAANextflowGracePinTests: XCTestCase {
             ((try? String(contentsOf: signalsFile, encoding: .utf8)) ?? "").contains("TERM"),
             "the engine gets TERM first"
         )
-        XCTExpectFailure(
-            "N6. pbAA clustering stops Nextflow with ToolProcess's 500 ms grace, which cuts Nextflow's own shutdown short. S9 M3 gives it the engine's 4 s."
-        ) {
-            XCTAssertGreaterThanOrEqual(waited, .milliseconds(3500), "the engine has the 4 s grace before KILL")
-        }
+        // N6. Before S9 M3 pbAA clustering stopped Nextflow with ToolProcess's 500 ms grace, which
+        // cut Nextflow's own shutdown short.
+        XCTAssertGreaterThanOrEqual(waited, .milliseconds(3500), "the engine has the 4 s grace before KILL")
+        XCTAssertLessThan(waited, .seconds(10), "the KILL comes at the grace, \(waited)")
     }
 
     /// A stand-in for Nextflow while it shuts down. It records each TERM and keeps running, so only a

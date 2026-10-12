@@ -566,11 +566,14 @@ public struct ProcessPBAANextflowRunner: PBAANextflowRunning {
         workingDirectory: URL?,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) async throws -> PBAAProcessResult {
+        // The Nextflow engine's 4 s between TERM and KILL, so Nextflow can stop its tasks and finish
+        // its own shutdown (Phase 2.9, decision N6).
         let spec = ToolProcessSpec(
             executableURL: executableURL,
             arguments: arguments,
             environment: environment,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            terminationGracePeriod: NextflowEngineProcess.terminationGracePeriod
         )
         let result: ToolProcessResult
         do {

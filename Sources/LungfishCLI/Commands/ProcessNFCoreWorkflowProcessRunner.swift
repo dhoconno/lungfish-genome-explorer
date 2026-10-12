@@ -51,7 +51,9 @@ struct ProcessNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning {
 ///
 /// The engine runs on ``ToolProcess`` as the leader of its own process group,
 /// so cancelling the calling task stops the engine and everything it started,
-/// such as Nextflow's JVM and its task processes.
+/// such as Nextflow's JVM and its task processes. The tree gets TERM and then
+/// KILL after the Nextflow engine's 4 s grace, so Nextflow can stop its tasks
+/// and finish its own shutdown (Phase 2.9, decision N6).
 enum WorkflowEngineProcess {
     /// How long the engine's process group has to empty after the engine
     /// exits. Nextflow and Snakemake can leave a child running for a moment,
@@ -96,7 +98,8 @@ enum WorkflowEngineProcess {
             environment: environment,
             workingDirectory: workingDirectory,
             stdout: .file(stdoutURL),
-            stderr: .file(stderrURL)
+            stderr: .file(stderrURL),
+            terminationGracePeriod: NextflowEngineProcess.terminationGracePeriod
         )
         let result: ToolProcessResult
         do {
