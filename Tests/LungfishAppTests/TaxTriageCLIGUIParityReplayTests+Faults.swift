@@ -175,7 +175,11 @@ extension TaxTriageParityHarness {
     /// No process of a stand-in launch outlives the side's run (QA checklist 2).
     func leftoverProcessViolations(run: TaxTriageParitySideRun, violate: (String, String) -> Void) {
         for launch in run.launches {
-            let alive = [launch.processIdentifier, launch.childProcessIdentifier].compactMap { $0 }.filter(Self.isRunning)
+            guard let engineID = launch.processIdentifier else {
+                violate("the stand-in records the process of each launch", "launch \(launch.folder.lastPathComponent) has no pid")
+                continue
+            }
+            let alive = [engineID, launch.childProcessIdentifier].compactMap { $0 }.filter(Self.isRunning)
             if !alive.isEmpty {
                 violate("no stand-in process outlives the run", "launch \(launch.folder.lastPathComponent) leaves \(alive) running")
             }
