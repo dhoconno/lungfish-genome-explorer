@@ -55,7 +55,9 @@ final class RowDetailRecorder {
 }
 
 /// A defaults suite whose four route keys name the CLI route, the settings side C launches with
-/// (panel decision E10).
+/// (panel decision E10). The keys are registered values, which stay in memory, so the suite writes
+/// no plist into ~/Library/Preferences. `ClassifierLaunchRouteSettings` reads a route with
+/// `object(forKey:)`, which sees registered values.
 @MainActor
 struct ClassifierParityCLIRoutes {
     let settings: ClassifierLaunchRouteSettings
@@ -64,14 +66,18 @@ struct ClassifierParityCLIRoutes {
     init() throws {
         suiteName = "ClassifierCLIGUIParityReplayTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        for path in ClassifierLaunchPath.allCases {
-            defaults.set(ClassifierLaunchRoute.cli.rawValue, forKey: path.defaultsKey)
-        }
+        defaults.register(defaults: Dictionary(uniqueKeysWithValues: ClassifierLaunchPath.allCases.map {
+            ($0.defaultsKey, ClassifierLaunchRoute.cli.rawValue as Any)
+        }))
         settings = ClassifierLaunchRouteSettings(defaults: defaults)
     }
 
+    /// The suite holds only registered values, so nothing was written and there is nothing to
+    /// remove. If the system wrote this suite's plist anyway, this removes that one file. The name
+    /// holds a fresh UUID, so it never names a plist that an earlier run left behind.
     func remove() {
-        settings.defaults.removePersistentDomain(forName: suiteName)
+        guard let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first else { return }
+        try? FileManager.default.removeItem(at: library.appendingPathComponent("Preferences/\(suiteName).plist"))
     }
 }
 
