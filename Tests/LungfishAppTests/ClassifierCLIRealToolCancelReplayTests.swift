@@ -565,7 +565,8 @@ private final class ChildExitWatcher: Sendable {
     }
 
     /// Waits up to `timeout` seconds, off the main actor, for the process to exit. The files of
-    /// `project` are read the moment it has, before anything the app does next.
+    /// `project` are read as soon as the kernel reports the exit. The app learns of the exit through
+    /// its own transport at the same time, so this is early but not ordered before the app.
     @concurrent
     func waitForExit(timeout: Int, snapshotting project: URL) async -> Exit? {
         var event = kevent()
