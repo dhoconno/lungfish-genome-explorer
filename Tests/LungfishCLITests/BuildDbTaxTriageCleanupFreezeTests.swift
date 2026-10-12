@@ -189,7 +189,8 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
     }
 
     /// BIO T12. The record the command writes into a folder that has none names its sources before the cleanup runs,
-    /// so it names `top/SRR35517702.top_report.tsv`, which the same command then deletes. The other sources stay.
+    /// so it names `top/SRR35517702.top_report.tsv`, which the same command then deletes. The other sources stay. The
+    /// database's own record beside `taxtriage.sqlite` lists the same sources.
     func testTheRecordItWritesNamesASourceThatItsOwnCleanupDeletes() async throws {
         let result = root.appendingPathComponent("taxtriage", isDirectory: true)
         try makeSampleResult(at: result)
@@ -211,6 +212,8 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
         XCTAssertEqual(step.outputs.map { relative($0.path, to: result) }, ["taxtriage.sqlite"])
         let sidecar = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(fromSidecar: result.appendingPathComponent("taxtriage.sqlite.lungfish-provenance.json")))
         XCTAssertEqual(sidecar.workflowName, "lungfish build-db taxtriage")
+        let sidecarInputs = try XCTUnwrap(sidecar.steps.last).inputs.map { relative($0.path, to: result) }.sorted()
+        XCTAssertEqual(sidecarInputs, inputs, "the database's own record names the same sources, top/ among them")
     }
 
     // MARK: - A batch root
@@ -218,7 +221,9 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
     /// BIO T11 and T12. The app's several-sample layout, a root with one folder per sample. The root record that the
     /// batch runner writes names every file of every sample folder except `work`, `download` and `workflow-source`,
     /// `build-db taxtriage` leaves that record alone, deletes the cleanup list inside each sample folder, and the record
-    /// then names those files and no longer finds them. A provenance check of such a result finds them missing.
+    /// then names those files and no longer finds them. A provenance check of such a result finds them missing. The
+    /// command runs with the argv the app passes. The record beside the database is then the only `build-db` record in
+    /// that root, and it names the top report that the cleanup of the same command deleted.
     func testTheRootRecordOfABatchNamesFilesThatTheCleanupThenRemoves() async throws {
         let batch = root.appendingPathComponent("taxtriage-batch", isDirectory: true)
         let mini = fixture("taxtriage-mini")
@@ -242,7 +247,7 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
         XCTAssertTrue(named.isSuperset(of: ["A/count/SRR35517702.fastq.gz", "A/top/SRR35517702.top_report.tsv", "B/mergedkrakenreport/SRR35517702.merged.report.txt"]))
         XCTAssertTrue(named.allSatisfy { exists($0, in: batch) }, "every name exists before build-db runs")
 
-        try await buildDb(batch)
+        try await buildDb(batch, ["--force"])
 
         XCTAssertEqual(try Data(contentsOf: recordURL), recordBefore, "build-db leaves a record of another workflow alone")
         XCTAssertEqual(try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: batch)).workflowName, "TaxTriage Serial Batch")
@@ -255,5 +260,15 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
         let database = try TaxTriageDatabase(at: batch.appendingPathComponent("taxtriage.sqlite"))
         XCTAssertEqual(try database.fetchSamples().map(\.sample), ["SRR12486983", "SRR35517702", "SRR35517703", "SRR35517705"])
         XCTAssertTrue(exists("taxtriage.sqlite.lungfish-provenance.json", in: batch), "its own record is beside the database")
+
+        let sidecar = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(
+            fromSidecar: batch.appendingPathComponent("taxtriage.sqlite.lungfish-provenance.json")))
+        let build = try XCTUnwrap(sidecar.steps.last)
+        XCTAssertEqual(Array(build.argv.dropFirst()), ["build-db", "taxtriage", batch.path, "--force"], "the app's invocation")
+        let sources = build.inputs.map { relative($0.path, to: batch) }
+        XCTAssertEqual(
+            sources.filter { !exists($0, in: batch) }, ["A/top/SRR35517702.top_report.tsv"],
+            "the database record of the app's batch names the top report its own cleanup deleted, top/ stays under T5 in 2.9"
+        )
     }
 }
