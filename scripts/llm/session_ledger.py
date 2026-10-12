@@ -54,9 +54,11 @@ PRICES = {
     "fable": {"in": 2.05, "out": 19.2, "read": 0.205, "w5m": 5.05, "w1h": 5.05},
     "haiku": {"in": 0.8, "out": 4.0, "read": 0.08, "w5m": 1.0, "w1h": 1.6},
 }
-ROLE_RULES = [
+ROLE_RULES = [  # first match wins, so fix agents, landings and monitors stay out of the lane and review rows
     ("lane", re.compile(r"^lane\b", re.I)),
-    ("llm", re.compile(r"\bllm\b|efficien", re.I)),
+    ("fix", re.compile(r"^fix(?:es)?\b|\bfix agent", re.I)),
+    ("landing", re.compile(r"^land(?:ing)?\b", re.I)),
+    ("llm", re.compile(r"\bllm\b|efficien|\bmonitor\b", re.I)),
     ("review", re.compile(r"\breview|\baudit|\bverif|\bcheck(?:er)?\b|second opinion", re.I)),
     ("gate", re.compile(r"\bgate\b|golden|full.suite|unit tier|ratchet", re.I)),
     ("walk", re.compile(r"gui walk|\bwalk\b|computer.use|screenshot", re.I)),

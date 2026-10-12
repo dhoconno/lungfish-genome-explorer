@@ -210,11 +210,17 @@ class OrchestrationTests(LedgerTestCase):
     def test_roles_follow_the_agent_descriptions(self):
         role = self.ledger.role_of
         self.assertEqual(role('Lane A6 executor core', 'sub'), 'lane')
-        self.assertEqual(role('Fix agent for lane A6', 'sub'), 'lane')
-        self.assertEqual(role('Land S1, A4, A5, A7', 'sub'), 'lane')
+        self.assertEqual(role('Lane B3 continuation under R1', 'sub'), 'lane')
+        self.assertEqual(role('Fix agent for lane A6', 'sub'), 'fix')
+        self.assertEqual(role('Fix agent for TF-W, fresh', 'sub'), 'fix')
+        self.assertEqual(role('Land S1, A4, A5, A7', 'sub'), 'landing')
+        self.assertEqual(role('Landing 6a of Phase 2.8', 'sub'), 'landing')
         self.assertEqual(role('Swift review of lane S1', 'sub'), 'review')
+        self.assertEqual(role('BIO check of B6 fix 3', 'sub'), 'review')
         self.assertEqual(role('Architecture expert inventory', 'sub'), 'design')
+        self.assertEqual(role('R1 vote, QA expert', 'sub'), 'design')
         self.assertEqual(role('LLM monitor checkpoint 3', 'sub'), 'llm')
+        self.assertEqual(role('Monitor checkpoint 2', 'sub'), 'llm')
         self.assertEqual(role('anything', 'main'), 'main')
 
 
