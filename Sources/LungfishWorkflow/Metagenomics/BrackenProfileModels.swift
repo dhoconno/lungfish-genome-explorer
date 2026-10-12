@@ -231,8 +231,8 @@ public enum BrackenProfileDegradationReason: Sendable, Hashable, Codable, RawRep
     case outputInvalid
 
     /// No taxon at the resolved rank has enough reads to pass Bracken's threshold, so Bracken was
-    /// not run. Builds before Phase 2.9 never wrote it. 2026.10.15 and later read it as
-    /// ``unknown(_:)`` and open the result, and 2026.10.14 does not open it.
+    /// not run. Builds before Phase 2.9 never wrote it. 2026.10.15 reads it as ``unknown(_:)`` and
+    /// opens the result, and 2026.10.14 does not open it.
     case belowThreshold
 
     /// A reason this build does not know, held exactly as it was stored.
