@@ -120,9 +120,12 @@ extension GenotypeAnnotationSidecar {
         GenotypeCohortSmartFilter.resolvedIDs(of: smartCohorts)
     }
 
-    /// Stores the derived id of every smart cohort that stores none. A save
-    /// calls it before any edit of the cohorts applies, so a cohort that is
-    /// renamed afterwards keeps its id. Calling it again changes nothing.
+    /// Stores the derived id of every smart cohort that stores none. Calling it
+    /// again changes nothing. `genotype apply-annotations` calls it before the
+    /// patch applies. The app's whole-sidecar save calls it after its edit,
+    /// which stores the ids the export derived before the edit only because no
+    /// app edit renames a cohort or removes part of a group of one scope and
+    /// name. An edit that does must call it on the sidecar before it applies.
     public mutating func storeSmartCohortIDs() {
         let ids = resolvedSmartCohortIDs
         for index in smartCohorts.indices where smartCohorts[index].id == nil {

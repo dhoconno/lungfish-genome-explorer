@@ -8,9 +8,10 @@ import LungfishTestSupport
 /// Phase 2.8 decisions O2 and G2 in the app. A smart cohort stores an optional
 /// `id`. The four built-in cohorts carry fixed ids equal to the derivation from
 /// their scope and name. Opening a bundle writes no id, and the next save of the
-/// whole sidecar stores the derived id of every cohort that stores none, before
-/// any edit of the cohorts applies, so deleting, restoring or renaming one cohort
-/// never changes another cohort's id.
+/// whole sidecar stores the derived id of every cohort that stores none. It
+/// derives over the edited cohorts, which gives each cohort the id the export
+/// derived before the edit because no app edit renames a cohort or removes part
+/// of a group of one scope and name.
 @MainActor
 final class GenotypeAnnotationStoreCohortIdentityTests: XCTestCase {
     private static let builtInNames = ["Incomplete haplotypes", "Needs review", "Homozygous", "Recombinants"]
