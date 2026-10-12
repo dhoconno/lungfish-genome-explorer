@@ -910,10 +910,12 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         let readyURL = temp.appendingPathComponent("ready")
         let rootPIDURL = temp.appendingPathComponent("root.pid")
         let childPIDURL = temp.appendingPathComponent("child.pid")
+        // The child ignores TERM and sleeps for 60 s, far longer than the runner's 6 s grace, so only
+        // the kill after the grace ends it before waitForProcessExit gives up.
         let script = """
         #!/bin/sh
         echo $$ > '\(rootPIDURL.path)'
-        /bin/sh -c 'trap "" TERM HUP; sleep 3 & wait' &
+        /bin/sh -c 'trap "" TERM HUP; sleep 60 & wait' &
         child=$!
         echo "$child" > '\(childPIDURL.path)'
         touch '\(readyURL.path)'

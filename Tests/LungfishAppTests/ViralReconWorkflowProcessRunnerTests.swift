@@ -67,6 +67,41 @@ final class ViralReconWorkflowProcessRunnerTests: XCTestCase {
         XCTAssertEqual(result.exitCode, 125, "the CLI's own exit code after its cleanup")
     }
 
+    /// A CLI that ignores SIGTERM is killed when the 6 s grace runs out, so the run ends inside the
+    /// ten seconds OperationCenter waits before it forces a cancelling row to read Cancelled, and the
+    /// CLI is gone. The CLI itself ignores the signal, so the run cannot end early through the drain
+    /// path, which stops a child that holds the output once the root has exited. Only the SIGKILL ends it.
+    func testACancelKillsACLIThatIgnoresSIGTERMWhenTheGraceRunsOut() async throws {
+        let ready = scratch.appendingPathComponent("ready")
+        let pidFile = scratch.appendingPathComponent("pid")
+        let cli = try writeCLI(
+            """
+            trap '' TERM
+            echo $$ > "$2"
+            : > "$1"
+            while :; do sleep 1; done
+            """
+        )
+        let runner = ProcessViralReconWorkflowProcessRunner(executableURL: cli)
+        let directory = scratch!
+        let run = Task {
+            try await runner.runLungfishCLI(
+                arguments: [ready.path, pidFile.path], workingDirectory: directory, outputHandler: nil
+            )
+        }
+        try await waitForFile(ready)
+        let pid = try XCTUnwrap(Int32(String(contentsOf: pidFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)))
+        let cancelStart = Date()
+        runner.cancel()
+        _ = try await run.value
+        let elapsed = Date().timeIntervalSince(cancelStart)
+
+        XCTAssertGreaterThanOrEqual(elapsed, 5.5, "the CLI was killed before its 6 s grace ran out")
+        XCTAssertLessThan(elapsed, 10, "the CLI outlived the ten seconds OperationCenter waits")
+        XCTAssertNotEqual(kill(pid, 0), 0, "the CLI still runs after the run returned")
+    }
+
     /// A cancel that comes before the launch starts no process. The run reports the cancelled exit code,
     /// and the route reads the row's state to see that the user cancelled.
     func testACancelBeforeTheLaunchStartsNoProcess() async throws {
