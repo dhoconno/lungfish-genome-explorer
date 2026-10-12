@@ -177,8 +177,8 @@ final class NextflowDockerContainerCleanupTests: XCTestCase {
         ], "a line that cannot be read, and an id that is not one, are left out")
         XCTAssertEqual(
             NextflowDockerContainerCleanup.containerIDs(in: "\(id)\n  \n--all\n\(String(repeating: "e5", count: 6))\n"),
-            [id, String(repeating: "e5", count: 6)],
-            "only ids reach docker as arguments"
+            [id],
+            "only full ids reach docker as arguments, so the 12-digit token is left out"
         )
         XCTAssertEqual(
             NextflowDockerContainerCleanup.inspectArguments(for: [id]),

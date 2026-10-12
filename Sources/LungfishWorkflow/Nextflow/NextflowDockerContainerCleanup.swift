@@ -191,10 +191,10 @@ extension NextflowDockerContainerCleanup {
             .filter { isContainerID($0) }
     }
 
-    /// Whether `text` is a container id as Docker prints one, 12 to 64 lowercase hexadecimal digits, so nothing
-    /// else, such as an option, ever reaches `docker` as an argument.
+    /// Whether `text` is a full container id as `--no-trunc` and `{{.Id}}` print one, 64 lowercase
+    /// hexadecimal digits, so no option, name or id prefix ever reaches `docker` as an argument.
     package static func isContainerID(_ text: some StringProtocol) -> Bool {
-        (12...64).contains(text.count) && text.allSatisfy { $0.isHexDigit && !$0.isUppercase }
+        text.count == 64 && text.allSatisfy { $0.isHexDigit && !$0.isUppercase }
     }
 
     /// The containers in the lines ``inspectFormat`` prints. A line that cannot be read is left out, which can only
