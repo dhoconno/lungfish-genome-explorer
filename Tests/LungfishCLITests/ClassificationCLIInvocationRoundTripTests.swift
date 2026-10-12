@@ -100,6 +100,24 @@ final class ClassificationCLIInvocationRoundTripTests: XCTestCase {
         XCTAssertEqual(try parsed.resolveReadFormat(inputURLs: [URL(fileURLWithPath: "/tmp/x.fastq")]).format, .unpaired)
     }
 
+    /// Row 424 of Phase 2.7. A run inside another process records the command its parsed options
+    /// spell, and a record takes its explicit options from that command. A parse cannot tell a typed
+    /// default from an untyped one, so the command of a line the app built must be that line,
+    /// or the record lists an option nobody gave (the read format beside `--paired`).
+    func testTheCanonicalCommandOfALineTheAppBuiltIsThatLine() throws {
+        let configs: [(name: String, config: ClassificationConfig)] = [
+            ("a pair of files", makeConfig()),
+            ("a pair of files with a Bracken profile", makeConfig(goal: .profile, brackenProfileRequest: .automaticDefault)),
+            ("an interleaved file", makeSingleFileConfig(interleavedInput: true)),
+            ("a single-read file", makeSingleFileConfig(interleavedInput: false)),
+        ]
+        for (name, config) in configs {
+            let line = ClassificationCLIInvocationBuilder.build(for: config).arguments
+            let canonical = try ClassifyCommand.parse(Array(line.dropFirst(2))).canonicalArguments()
+            XCTAssertEqual(Array(canonical.dropFirst()), line, name)
+        }
+    }
+
     func testPairedFlagConflictsWithOtherReadFormats() throws {
         let parsed = try ClassifyCommand.parse(["--db", "Viral", "--paired", "--read-format", "interleaved", "/tmp/a.fastq"])
         XCTAssertThrowsError(try parsed.resolveReadFormat(inputURLs: [URL(fileURLWithPath: "/tmp/a.fastq")]))

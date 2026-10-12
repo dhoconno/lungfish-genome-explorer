@@ -75,7 +75,7 @@ final class ClassifyCommandRecordedCommandLineTests: XCTestCase {
                  "--bracken-level", "G", "--bracken-threshold", "5", "--format", "json"],
                 [CLICommandIdentity.executableName, "kraken2", "classify", "--db", "Viral", "--db-digest", digest,
                  "--preset", "precise", "--output-dir", "/tmp/out", "--confidence", "0.35", "--min-hit-groups", "3",
-                 "--threads", "6", "--read-format", "auto", "--paired", "--unpaired", "/tmp/m.fastq", "--recursive",
+                 "--threads", "6", "--paired", "--unpaired", "/tmp/m.fastq", "--recursive",
                  "--memory-mapping", "--quick", "--extra-args", "--report-zero-counts", "--profile",
                  "--bracken-read-length", "100", "--bracken-threshold", "5", "--bracken-level", "G",
                  "--format", "json", "a_R1.fastq", "a_R2.fastq"]
@@ -88,6 +88,13 @@ final class ClassifyCommandRecordedCommandLineTests: XCTestCase {
             (
                 ["a.fastq", "--db", "Viral"],
                 [CLICommandIdentity.executableName, "kraken2", "classify", "--db", "Viral", "--read-format", "auto", "a.fastq"]
+            ),
+            // `--paired` stands for the read format only when the format is the default, so a typed
+            // format beside it is kept and the replay meets the same conflict.
+            (
+                ["a_R1.fastq", "a_R2.fastq", "--db", "Viral", "--paired", "--read-format", "interleaved"],
+                [CLICommandIdentity.executableName, "kraken2", "classify", "--db", "Viral", "--read-format", "interleaved",
+                 "--paired", "a_R1.fastq", "a_R2.fastq"]
             ),
         ]
         for testCase in cases {

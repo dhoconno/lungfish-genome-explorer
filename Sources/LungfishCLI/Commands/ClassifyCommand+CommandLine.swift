@@ -17,10 +17,13 @@ extension ClassifyCommand {
         return namesThisCommand ? arguments : fallback()
     }
 
-    /// The `kraken2 classify` command that runs these options again, in the order of
-    /// ``ClassificationCLIInvocationBuilder``. The read format is always pinned, as that builder
-    /// pins it, and any other option that has a default is spelled out only when it differs from
-    /// it, because the root record takes the options it names from this command line.
+    /// The `kraken2 classify` command that runs these options again, written as
+    /// ``ClassificationCLIInvocationBuilder`` writes a line, so the command of a line the app
+    /// built is that line. A parse cannot tell a typed default from an untyped one, so the read
+    /// format is written unless `--paired` stands for it, the Bracken read length and threshold
+    /// are written under `--profile`, and any other option only when it differs from its default.
+    /// The root record takes its explicit options from this command line, so a run given neither
+    /// the read format nor `--paired` records the read format as given.
     func canonicalArguments() -> [String] {
         let bracken = BrackenProfileRequest.automaticDefault
         var arguments = [CLICommandIdentity.executableName, "kraken2", "classify", "--db", databaseName]
@@ -32,7 +35,7 @@ extension ClassifyCommand {
         if let confidence { arguments += ["--confidence", String(confidence)] }
         if let minHitGroups { arguments += ["--min-hit-groups", String(minHitGroups)] }
         if let threads = globalOptions.threads { arguments += ["--threads", String(threads)] }
-        arguments += ["--read-format", readFormat.rawValue]
+        if !pairedEnd || readFormat != .auto { arguments += ["--read-format", readFormat.rawValue] }
         if pairedEnd { arguments.append("--paired") }
         for file in unpaired { arguments += ["--unpaired", file] }
         if recursive { arguments.append("--recursive") }
