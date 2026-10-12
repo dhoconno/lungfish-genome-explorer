@@ -11,11 +11,12 @@
 // inputs cannot share one execution representation, so the planner splits it into one command for
 // each input. Before decision D2 of Phase 2.8 the record of those several commands named
 // `lungfish-cli gui fastq-grouped-result --operation <kind>`, a command no leaf defines, and
-// listed one step that held the same false command.
+// listed one step that held the same false command. D2 gives the record one step for each
+// command, with the real `lungfish-cli` argv, and makes the run command the shell that runs
+// them in order. The cases of one command are unchanged.
 //
 // Each test here builds the record from a fixture and reads it back, so a change to the record
-// shows as a changed value. The tests whose names say "Today" freeze what the record holds
-// before D2 and move in the commit that applies it.
+// shows as a changed value.
 
 import Foundation
 import XCTest
@@ -109,32 +110,107 @@ final class FASTQOperationGroupedRecordTests: XCTestCase {
         XCTAssertEqual(singlePlans.count, 1)
     }
 
-    func testTodayTwoInvocationsRecordTheGroupingCommandThatNoLeafDefines() throws {
+    func testTwoInvocationsRecordOneStepForEachRealCommandAndAShellRunCommand() throws {
         let run = try makeMixedFormatRun()
         let record = try writeRecord(for: run)
-        let kind = run.request.batchManifestOperationKind
-        let falseCommand = ["lungfish-cli", "gui", "fastq-grouped-result", "--operation", kind]
         let script = scriptText(of: run.commands)
 
-        XCTAssertEqual(record.argv, falseCommand)
+        // The run is the shell that runs both commands in order, which is the script the record
+        // already held as its reproducible command.
+        XCTAssertEqual(record.argv, ["/bin/sh", "-lc", script])
         XCTAssertEqual(record.reproducibleCommand, script)
-        XCTAssertTrue(script.contains(" && "), "The two commands are one script today")
+        XCTAssertTrue(script.contains(" && "), "The two commands are one script")
         XCTAssertEqual(record.toolName, "lungfish gui grouped FASTQ operation")
-        XCTAssertEqual(record.workflowName, "\(kind) grouped FASTQ operation")
+        XCTAssertEqual(record.workflowName, "\(run.request.batchManifestOperationKind) grouped FASTQ operation")
+        XCTAssertEqual(record.status, .completed)
+        XCTAssertEqual(record.exitStatus, 0)
 
-        // One step holds the false command and every file of the run. Neither real command is a step.
-        XCTAssertEqual(record.steps.count, 1)
-        let step = try XCTUnwrap(record.steps.first)
-        XCTAssertEqual(step.argv, falseCommand)
-        XCTAssertEqual(step.reproducibleCommand, script)
-        XCTAssertEqual(step.inputs.map { tail($0.path, 1) }, ["sequences.fasta", "reads.fastq"])
-        XCTAssertEqual(step.outputs.map { tail($0.path, 1) }, ["reads.fastq", "reads.fastq"])
-        XCTAssertFalse(record.steps.contains { $0.argv.contains("length-filter") })
+        // One step for each command, in the order they ran, with its real argv and no file.
+        XCTAssertEqual(record.steps.map(\.argv), run.commands)
+        XCTAssertEqual(
+            record.steps.map(\.reproducibleCommand),
+            run.commands.map { $0.map(shellEscape).joined(separator: " ") }
+        )
+        XCTAssertEqual(record.steps.map(\.exitStatus), [0, 0])
+        XCTAssertTrue(record.steps.allSatisfy { $0.toolName == "lungfish gui grouped FASTQ operation" })
+        XCTAssertTrue(record.steps.allSatisfy { $0.inputs.isEmpty && $0.outputs.isEmpty })
 
-        // The shipped parser refuses the run command, which is the defect.
-        XCTAssertThrowsError(try RecordedCLICommand.parse(falseCommand.map(shellEscape).joined(separator: " ")))
+        // The run lists every file, because the record is not told which command read or wrote which.
+        XCTAssertEqual(
+            record.files.filter { $0.role == .input }.map { tail($0.path, 1) },
+            ["sequences.fasta", "reads.fastq"]
+        )
+        XCTAssertEqual(record.outputs.map { tail($0.path, 2) }, [
+            "filtered-sequences.\(FASTQBundle.directoryExtension)/reads.fastq",
+            "filtered-reads.\(FASTQBundle.directoryExtension)/reads.fastq",
+        ])
+        XCTAssertEqual(record.output?.path, record.outputs.first?.path)
+
+        // No argv names the grouping command that no leaf defines.
+        let words = ([record.argv] + record.steps.map(\.argv)).flatMap { $0 }
+        XCTAssertFalse(words.contains("gui"))
+        XCTAssertFalse(words.contains("fastq-grouped-result"))
 
         try assertCanonicalAndComplete(record, in: run.group)
+    }
+
+    func testEveryStepOfAMixedFormatGroupIsACommandTheShippedParserAccepts() throws {
+        let run = try makeMixedFormatRun()
+        let planner = FASTQOperationPlanner()
+        // The invocations the service builds, one for each plan, from the real builder.
+        let invocations = try planner.makeExecutionPlans(
+            originalRequest: run.request,
+            resolvedRequest: run.request,
+            baseOutputDirectory: run.group
+        ).map { plan in
+            try FASTQOperationCLIInvocationBuilder().buildInvocation(
+                for: plan.resolvedRequest,
+                outputTargetPath: plan.outputTarget.path
+            )
+        }
+        XCTAssertEqual(invocations.count, 2)
+
+        try planner.ensureGroupedResultProvenance(
+            originalRequest: run.request,
+            resolvedRequest: run.request,
+            invocations: invocations,
+            outputURLs: run.outputs,
+            outputDirectory: run.group
+        )
+        let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: run.group))
+
+        XCTAssertEqual(record.steps.count, 2)
+        for step in record.steps {
+            XCTAssertEqual(step.argv.first, CLICommandIdentity.executableName)
+            let parsed = try RecordedCLICommand.parse(step.reproducibleCommand)
+            XCTAssertTrue(parsed is FastqLengthFilterSubcommand, "Parsed \(type(of: parsed))")
+        }
+        // The shell the run names runs those same commands.
+        XCTAssertEqual(
+            record.argv,
+            ["/bin/sh", "-lc", record.steps.map(\.reproducibleCommand).joined(separator: " && ")]
+        )
+    }
+
+    // MARK: - No command
+
+    func testNoInvocationWritesNoRecordBecauseNoCommandRan() throws {
+        let run = try makeSingleInvocationRun()
+
+        XCTAssertThrowsError(
+            try FASTQOperationPlanner().ensureGroupedResultProvenance(
+                originalRequest: run.request,
+                resolvedRequest: run.request,
+                invocations: [],
+                outputURLs: run.outputs,
+                outputDirectory: run.group
+            )
+        ) { error in
+            guard case ProvenanceRehydrationError.missingSourceProvenance = error else {
+                return XCTFail("Expected missing source provenance, got \(error)")
+            }
+        }
+        XCTAssertNil(ProvenanceRecorder.loadEnvelope(from: run.group))
     }
 
     // MARK: - Keeping a record
