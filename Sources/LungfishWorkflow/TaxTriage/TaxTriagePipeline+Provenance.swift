@@ -117,9 +117,9 @@ extension TaxTriagePipeline {
 /// executor's root record takes the same values when `taxtriage run` moves to it, so one writer puts them in each record
 /// (Phase 2.8 lane B2, decisions T6 to T8 of `docs/plans/2026-10-11-phase-2-8.md`).
 ///
-/// - Every TaxTriage step is the tool `taxtriage` at the revision, with the release tag beside it (RT4). Those facts
-///   and the version of the Nextflow that ran are the step's ``NextflowRecordFacts``, the one shape every Nextflow step
-///   records (Phase 2.9 lane B11, decision R1), which ``nextflowFacts(revision:)`` gives.
+/// - Every TaxTriage step is the tool `taxtriage` at the revision, with the release tag beside it (RT4). With the
+///   Nextflow version they are the step's ``NextflowRecordFacts`` (``nextflowFacts(revision:)``, decision R1), which
+///   the sample steps of a serial batch record (`TaxTriageSerialBatchRunner.recordSampleProvenance`) do not take yet.
 /// - The settings the run was asked for are explicit options.
 /// - The plan of a record of one sample is the resolved default `readSetPlan`, the home decision E13 of Phase 2.7 names
 ///   (T7). A pooled record of several samples keeps its plans keyed by sample under `read_set_plans` in the explicit
@@ -284,7 +284,7 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
         )
     }
 
-    /// The log among `outputFiles` that holds the banner Nextflow printed, the first file named `nextflow.log`, or nil.
+    /// The log LGE keeps of the engine, the first of `outputFiles` named `nextflow.log`, banner or not, or nil.
     static func nextflowLog(among outputFiles: [URL]) -> URL? {
         outputFiles.first { $0.lastPathComponent == "nextflow.log" }
     }

@@ -5,8 +5,8 @@
 // Phase 2.9 lane B11, milestone M1. `NextflowRecordFacts` holds the engine and pipeline facts of one Nextflow step in
 // one shape for every workflow (decision R1), and `TaxTriageRecordFacts` takes its step's facts from it. The extraction
 // moves no record fact, which `TaxTriageRecordFreezeTests` and `TaxTriageSampleRecordFreezeTests` show unchanged. These
-// tests pin the shape, its TaxTriage client and the gap milestone M2 closes, the version line of Nextflow 26 that a
-// real run prints (R1).
+// tests pin the shape, its TaxTriage client and the gap milestone M2 closes, the version line TaxTriage prints under
+// Nextflow 26 in a real run (R1).
 
 import XCTest
 import LungfishTestSupport
@@ -43,8 +43,8 @@ final class NextflowRecordFactsTests: XCTestCase {
         "Launching `jhuapl-bio/taxtriage` [silly_euler] DSL2 - revision: \(commit) [main]",
     ]
 
-    /// The lines around the version in the log of R1, the real pooled TaxTriage run on Nextflow 26.04.6 of Phase 2.9
-    /// lane Q15, up to the first task line.
+    /// Lines 86 to 93 of the log of R1, the real pooled TaxTriage run on Nextflow 26.04.6 of Phase 2.9 lane Q15,
+    /// without line 92, the `[WORKDIR]` line that names that Mac's scratch folder.
     private static let nextflow26Lines = [
         "No taxdump provided, downloading the latest taxdump from NCBI",
         "Nextflow version: 26.04.6",
@@ -114,9 +114,9 @@ final class NextflowRecordFactsTests: XCTestCase {
         XCTAssertNil(NextflowRecordFacts.nextflowVersion(inLog: ""))
     }
 
-    /// R1, the gap milestone M2 closes. Nextflow 26.04.6 prints no `N E X T F L O W` banner but the line
-    /// `Nextflow version: 26.04.6`, so the TaxTriage step of a real run records empty resolved options today, as R1's
-    /// record shows. FLIPS in M2, which reads both forms and finds `26.04.6` here.
+    /// The gap milestone M2 closes. Nextflow 26.04.6 prints no `N E X T F L O W` banner, and the version a real run's
+    /// log holds is the line `Nextflow version: 26.04.6` that TaxTriage's workflow prints, so its step records empty
+    /// resolved options today, as R1's record shows. FLIPS in M2, which reads both lines and finds `26.04.6` here.
     func testTheVersionLineOfNextflow26IsNotReadYet() throws {
         let log = try writeLog(Self.nextflow26Lines)
 
