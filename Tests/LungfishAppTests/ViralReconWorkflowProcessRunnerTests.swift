@@ -177,10 +177,10 @@ final class ViralReconWorkflowProcessRunnerTests: XCTestCase {
 
         XCTAssertEqual(result.exitCode, 0)
         XCTAssertTrue(result.didStreamOutput)
-        XCTAssertEqual(streamed.lines.filter { $0.isStandardOutput }.count, 300, "every stdout line is streamed")
-        XCTAssertEqual(streamed.lines.filter { !$0.isStandardOutput }.count, 300, "every stderr line is streamed")
-        XCTAssertEqual(streamed.lines.first { $0.isStandardOutput }, .standardOutput("out line 1"))
-        XCTAssertEqual(streamed.lines.last { $0.isStandardOutput }, .standardOutput("out line 300"))
+        let expectedOut = (1...300).map { ViralReconWorkflowProcessOutput.standardOutput("out line \($0)") }
+        let expectedErr = (1...300).map { ViralReconWorkflowProcessOutput.standardError("err line \($0)") }
+        XCTAssertEqual(streamed.lines.filter { $0.isStandardOutput }, expectedOut, "stdout reaches the handler whole and in order")
+        XCTAssertEqual(streamed.lines.filter { !$0.isStandardOutput }, expectedErr, "stderr reaches the handler whole and in order")
 
         let marker = "[Earlier output was left out. Only the last \(limit) bytes were kept.]\n"
         for (text, name) in [(result.standardOutput, "out"), (result.standardError, "err")] {
