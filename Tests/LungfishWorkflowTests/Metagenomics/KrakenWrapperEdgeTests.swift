@@ -8,6 +8,10 @@
 // classifies nothing. With R1 plain and R2 gzip, it reads the gzip bytes as
 // one read. It exits 0 both times. The kraken2 step's replay argv also named
 // files the run stages and then deletes.
+//
+// Since Phase 2.8 lane B3 (03f17ba81, owner ruling O1) a run keeps the files it
+// stages with its kept inputs, so these cases hold that each staged file stays,
+// as its staging step names it, with the digest that step recorded (P1).
 
 import Foundation
 import XCTest
@@ -48,7 +52,6 @@ final class KrakenWrapperEdgeTests: XCTestCase {
             XCTAssertEqual(seen.map(Self.isGzip), [r1IsGzip, r1IsGzip], "\(label): both mates in the compression of R1")
             XCTAssertEqual(try Self.plainText(of: seen[1]), ReadSetFixtures.fastq(["q1/2", "q2/2"]), "\(label): R2 unchanged")
             XCTAssertEqual(try ClassificationPipeline.lineCount(of: result.outputURL), 2, "\(label): kraken2 classifies both pairs")
-            XCTAssertEqual(stagedInputs(of: config), [], "\(label): the staged copy is removed after the run")
 
             let provenance = try XCTUnwrap(ProvenanceRecorder.load(from: config.outputDirectory))
             let staging = try XCTUnwrap(
@@ -56,6 +59,10 @@ final class KrakenWrapperEdgeTests: XCTestCase {
                 "\(label): the copy is recorded"
             )
             XCTAssertEqual(staging.inputs.map(\.path), [r2.path], label)
+            XCTAssertEqual(
+                Set(stagedInputs(of: config)), keptStagedFiles(of: provenance),
+                "\(label): the staged copy stays with the kept inputs, as its step names it (O1)"
+            )
             let kraken = try XCTUnwrap(provenance.steps.first { $0.toolName == "kraken2" })
             XCTAssertTrue(kraken.dependsOn.contains(staging.id), label)
             XCTAssertEqual(result.config.inputFiles, [r1, r2], "\(label): the result names the files the user gave")
@@ -84,7 +91,11 @@ final class KrakenWrapperEdgeTests: XCTestCase {
 
             XCTAssertEqual(result.fragmentComposition?.fragmentCount, 5, label)
             XCTAssertEqual(try kraken2.inputsSeen().map(Self.isGzip), Array(repeating: r1IsGzip, count: 4), "\(label): every input in the compression of R1")
-            XCTAssertEqual(stagedInputs(of: config), [], "\(label): every staged file is removed")
+            let provenance = try XCTUnwrap(ProvenanceRecorder.load(from: config.outputDirectory), label)
+            XCTAssertEqual(
+                Set(stagedInputs(of: config)), keptStagedFiles(of: provenance),
+                "\(label): every staged file stays with the kept inputs, as its step names it (O1)"
+            )
         }
     }
 
@@ -101,7 +112,11 @@ final class KrakenWrapperEdgeTests: XCTestCase {
         XCTAssertFalse(try kraken2.argv().contains("--paired"))
         XCTAssertEqual(try kraken2.inputsSeen().map(Self.isGzip), [true, true])
         XCTAssertEqual(try ClassificationPipeline.lineCount(of: result.outputURL), 4, "every read of both files")
-        XCTAssertEqual(stagedInputs(of: config), [])
+        let provenance = try XCTUnwrap(ProvenanceRecorder.load(from: config.outputDirectory))
+        XCTAssertEqual(
+            Set(stagedInputs(of: config)), keptStagedFiles(of: provenance),
+            "the staged copy stays with the kept inputs, as its step names it (O1)"
+        )
     }
 
     /// Files that share R1's compression stage nothing, and their kraken2
@@ -222,6 +237,27 @@ final class KrakenWrapperEdgeTests: XCTestCase {
         (try? FileManager.default.contentsOfDirectory(
             atPath: config.outputDirectory.appendingPathComponent(KrakenReadSetPlanner.inputsDirectoryName).path
         )) ?? []
+    }
+
+    /// The names of the files the staging steps of `provenance` wrote, the
+    /// copies in R1's compression and the single-read copies and mates. The
+    /// run keeps them with its kept inputs (O1 of Phase 2.8), so each still
+    /// holds the digest its step recorded (P1), which this checks.
+    private func keptStagedFiles(
+        of provenance: WorkflowRun, file: StaticString = #filePath, line: UInt = #line
+    ) -> Set<String> {
+        let stagingTools = [
+            ClassificationPipeline.inputCompressionStagingToolName,
+            ClassificationPipeline.singleReadMateStagingToolName,
+        ]
+        let staged = provenance.steps.filter { stagingTools.contains($0.toolName) }.flatMap(\.outputs)
+        for record in staged {
+            XCTAssertEqual(
+                ProvenanceRecorder.sha256(of: URL(fileURLWithPath: record.path)), record.sha256,
+                "\(record.path) holds the digest its staging step recorded", file: file, line: line
+            )
+        }
+        return Set(staged.map { URL(fileURLWithPath: $0.path).lastPathComponent })
     }
 
     private func gzipCopy(of file: URL, into directory: URL) throws -> URL {
