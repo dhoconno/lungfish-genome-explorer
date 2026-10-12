@@ -190,16 +190,22 @@ extension AppDelegate {
     // MARK: - Launch
 
     /// Runs the Kraken2 `configs` through `lungfish-cli kraken2 classify` with today's row,
-    /// progress, labels and end of run (E15). A launch with no project open takes the in-process route.
+    /// progress, labels and end of run (E15). A launch with no project open is refused with the
+    /// `No Project Open` sheet and starts nothing (decision L1).
     func runClassificationThroughCLI(
         configs: [ClassificationConfig],
         viewerController: ViewerViewController,
         routeContext explicitRouteContext: OperationRouteContext? = nil,
         cliURLOverride: URL? = nil
     ) {
+        guard !configs.isEmpty else { return }
         let routeContext = explicitRouteContext ?? currentOperationRouteContext()
         guard let projectURL = routeContext?.projectURL else {
-            runClassification(configs: configs, viewerController: viewerController, routeContext: routeContext)
+            refuseClassifierLaunchWithoutProject(
+                tool: FASTQOperationToolID.kraken2.title,
+                viewerController: viewerController,
+                routeContext: routeContext
+            )
             return
         }
         guard let launch = ClassifierCLIRouteLaunch.kraken2(configs: configs, projectURL: projectURL) else { return }
@@ -207,16 +213,22 @@ extension AppDelegate {
     }
 
     /// Runs the EsViritu `configs` through `lungfish-cli esviritu detect` with today's row,
-    /// progress, labels and end of run (E15). A launch with no project open takes the in-process route.
+    /// progress, labels and end of run (E15). A launch with no project open is refused with the
+    /// `No Project Open` sheet and starts nothing (decision L1).
     func runEsVirituThroughCLI(
         configs: [EsVirituConfig],
         viewerController: ViewerViewController,
         routeContext explicitRouteContext: OperationRouteContext? = nil,
         cliURLOverride: URL? = nil
     ) {
+        guard !configs.isEmpty else { return }
         let routeContext = explicitRouteContext ?? currentOperationRouteContext()
         guard let projectURL = routeContext?.projectURL else {
-            runEsViritu(configs: configs, viewerController: viewerController, routeContext: routeContext)
+            refuseClassifierLaunchWithoutProject(
+                tool: FASTQOperationToolID.esViritu.title,
+                viewerController: viewerController,
+                routeContext: routeContext
+            )
             return
         }
         guard let launch = ClassifierCLIRouteLaunch.esViritu(configs: configs, projectURL: projectURL) else { return }

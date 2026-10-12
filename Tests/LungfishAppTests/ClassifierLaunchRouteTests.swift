@@ -76,7 +76,10 @@ final class ClassifierLaunchRouteTests: XCTestCase {
         XCTAssertEqual(routes.route(for: .kraken2Batch), .cli)
     }
 
-    func testTheCLIRouteNeedsAnOpenProject() {
+    /// Decision L1. Both routes write their result into the open project's Analyses folder, so a
+    /// launch with no project open takes neither, whatever its key says. The launch is refused
+    /// (ClassifierNoProjectRefusalTests).
+    func testALaunchWithNoProjectTakesNoRouteWhateverItsKeySays() {
         let delegate = makeAppDelegateWithTemporaryState()
         for path in ClassifierLaunchPath.allCases {
             defaults.set("cli", forKey: path.defaultsKey)
@@ -87,14 +90,20 @@ final class ClassifierLaunchRouteTests: XCTestCase {
 
         for path in ClassifierLaunchPath.allCases {
             XCTAssertEqual(delegate.classifierLaunchRoute(for: path, routeContext: project, routes: routes), .cli, path.rawValue)
-            XCTAssertEqual(
-                delegate.classifierLaunchRoute(for: path, routeContext: noProject, routes: routes), .legacy,
-                "\(path.rawValue): --project needs a project, so a launch without one keeps today's route"
+            XCTAssertNil(
+                delegate.classifierLaunchRoute(for: path, routeContext: noProject, routes: routes),
+                "\(path.rawValue): a launch without a project is refused and takes no route"
+            )
+            defaults.set("legacy", forKey: path.defaultsKey)
+            XCTAssertEqual(delegate.classifierLaunchRoute(for: path, routeContext: project, routes: routes), .legacy, path.rawValue)
+            XCTAssertNil(
+                delegate.classifierLaunchRoute(for: path, routeContext: noProject, routes: routes),
+                "\(path.rawValue): the legacy key does not keep a launch without a project on the in-process route"
             )
         }
         let unset = ClassifierLaunchRouteSettings(defaults: UserDefaults(suiteName: "\(suiteName!)-unset")!)
         XCTAssertEqual(delegate.classifierLaunchRoute(for: .kraken2Single, routeContext: project, routes: unset), .cli)
-        XCTAssertEqual(delegate.classifierLaunchRoute(for: .kraken2Single, routeContext: noProject, routes: unset), .legacy)
+        XCTAssertNil(delegate.classifierLaunchRoute(for: .kraken2Single, routeContext: noProject, routes: unset))
     }
 
     // MARK: - Kraken2 argv
