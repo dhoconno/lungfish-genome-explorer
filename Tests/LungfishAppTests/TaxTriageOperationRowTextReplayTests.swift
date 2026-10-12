@@ -361,12 +361,13 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
 
     // MARK: - A cancel while the run finishes
 
-    func testACancelWhileTheDatabaseBuildsReadsCancelledButStillWritesCrossReferencesIntoTheBundles() async throws {
+    func testACancelWhileTheDatabaseBuildsReadsCancelledAndWritesNothingIntoTheBundles() async throws {
         try requireBuiltCLI()
         let engine = try makeEngine()
         let project = try makeProject()
         let first = try makeSourceBundle("S1", in: project, records: 3)
         let second = try makeSourceBundle("S2", in: project, records: 4)
+        let filesBefore = [first.bundle, second.bundle].map(bundleFiles)
 
         let run = try await launch(
             makeConfig(
@@ -401,19 +402,14 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
             ["warning: Database build failed: Operation cancelled \u{2014} batch will rebuild lazily on open"]
         )
 
-        // M3 (T10): after a cancel nothing more is written into the source bundles. Today the
-        // cross-reference sidecars are written before the cancel guard, so both bundles point at the
-        // folder while the row reads Cancelled. The manifests and the batch history, which follow the
-        // guard, are not written.
-        let runFolder = analysis.lastPathComponent
-        XCTAssertEqual(
-            bundleWrites(first.bundle),
-            BundleWrites(references: ["\(runFolder) S1 of 2"], manifestEntries: [], hasManifestFile: false)
-        )
-        XCTAssertEqual(
-            bundleWrites(second.bundle),
-            BundleWrites(references: ["\(runFolder) S2 of 2"], manifestEntries: [], hasManifestFile: false)
-        )
+        // After a cancel nothing more is written into the source bundles (T10). The cross-reference
+        // sidecars follow the cancel guard like the manifests and the batch history, so neither
+        // bundle points at the folder while the row reads Cancelled, and each bundle holds what it
+        // held before the run.
+        let noWrites = BundleWrites(references: [], manifestEntries: [], hasManifestFile: false)
+        XCTAssertEqual(bundleWrites(first.bundle), noWrites)
+        XCTAssertEqual(bundleWrites(second.bundle), noWrites)
+        XCTAssertEqual([first.bundle, second.bundle].map(bundleFiles), filesBefore)
         XCTAssertFalse(FileManager.default.fileExists(atPath: analysis.appendingPathComponent(BatchRunHistoryLog.filename).path))
     }
 
@@ -594,6 +590,11 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         XCTAssertEqual(folders.count, 1, "the launch must make one analysis folder")
         let name = try XCTUnwrap(folders.first?.lastPathComponent)
         return analyses.appendingPathComponent(name, isDirectory: true)
+    }
+
+    /// The names of everything at the top of a source bundle, so a run that writes there shows.
+    private func bundleFiles(_ bundle: URL) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: bundle.path)) ?? []).sorted()
     }
 
     private func bundleWrites(_ bundle: URL) -> BundleWrites {

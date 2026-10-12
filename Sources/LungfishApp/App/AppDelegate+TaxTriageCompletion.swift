@@ -70,14 +70,16 @@ extension AppDelegate {
                         message: Self.classificationDatabaseBuildWarning(dbError)
                     )
                 }
-                Self.writeTaxTriageCrossRefSidecars(result: capturedResult, config: capturedConfig)
                 guard Self.finishTaxTriageOperation(
                     id: opID,
                     result: capturedResult,
                     center: OperationCenter.shared
                 ) else { return }
+                // The guard comes first. A cancel wins (T10), so nothing is written into the
+                // source bundles or their manifests once the row reads Cancelled.
                 // Write cross-reference sidecars into each source bundle so
                 // the sidebar discovers TaxTriage results under all contributors.
+                Self.writeTaxTriageCrossRefSidecars(result: capturedResult, config: capturedConfig)
 
                 // Record in batch run history log
                 BatchRunHistory.recordRun(result: capturedResult, config: capturedConfig)
