@@ -130,7 +130,7 @@ extension NextflowStandInWorkflow {
     # TaxTriage's part of the stand-in Nextflow (NextflowStandInWorkflow.taxTriage).
     workflow_banner() {
       # The four lines TaxTriage's own code prints before Nextflow's [PIPELINE] line, as in lines 66
-      # to 69 of R1's stdout. The version is the stand-in's, never the lock's.
+      # to 69 of R1's stdout. The version is the stand-in's, never the lock's, and the date is R1's.
       printf 'Nextflow version: %s\n' "$engine_version"
       case "$target" in
         ''|/*)
@@ -142,7 +142,7 @@ extension NextflowStandInWorkflow {
           printf 'Repository URL: https://github.com/%s\n' "$target"
           ;;
       esac
-      printf 'Date: %s\n' "$(LC_ALL=C date '+%a %b %d %H:%M:%S %Z %Y')"
+      echo "Date: Mon Oct 12 09:19:02 CDT 2026"
     }
     workflow_prepare_outputs() {
       mkdir -p "$outdir/report" "$outdir/combine" "$outdir/top"
