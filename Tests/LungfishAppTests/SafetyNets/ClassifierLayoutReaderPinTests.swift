@@ -97,9 +97,8 @@ final class ClassifierLayoutReaderPinTests: XCTestCase {
     // MARK: - Identification and routing
 
     /// What `AnalysesFolder.analysisInfo` and `ClassifierDatabaseRouter.route` make of each layout.
-    /// A database of `no` is the lazy index build, and `nil` is a selection that ends silently.
-    /// An entry marked as a known defect pins a wrong value as it is today. It stays until the
-    /// change its comment names lands, and that commit moves the entry to the right value.
+    /// A database of `no` is the lazy index build. Every layout the sidebar lists has a route, because
+    /// the router and the sidebar row identify a folder the same way, through `AnalysesFolder.analysisInfo`.
     private let expectedLayouts: [(name: String, info: String, route: String)] = [
         // Writers of today.
         (Name.cliKraken2, "kraken2 batch=false", "kraken2 database=no result=Analyses/kraken2-golden sample=-"),
@@ -107,24 +106,20 @@ final class ClassifierLayoutReaderPinTests: XCTestCase {
         (Name.windowKraken2Batch, "kraken2 batch=true", "kraken2 database=yes result=Analyses/kraken2-batch-2026-02-09T10-00-00 sample=-"),
         (Name.windowKraken2BatchWithoutIndex, "kraken2 batch=true", "kraken2 database=no result=Analyses/kraken2-batch-2026-02-09T11-00-00 sample=-"),
         (Name.cliEsViritu, "esviritu batch=false", "esviritu database=no result=Analyses/esviritu-golden sample=-"),
-        // Known defect, left for 2.9. The sidebar lists this folder and no route places it. The right
-        // route is "esviritu database=no result=Analyses/HG002 viral detection sample=-", and the router
-        // change of 2.9 that takes the tool from AnalysesFolder.analysisInfo moves it.
-        (Name.cliEsVirituFreeName, "esviritu batch=false", "nil"),
+        // A free name and no metadata. The tables identify it, and the route is the lazy build-db.
+        (Name.cliEsVirituFreeName, "esviritu batch=false", "esviritu database=no result=Analyses/HG002 viral detection sample=-"),
         (Name.importedEsViritu, "esviritu batch=false", "esviritu database=no result=Analyses/esviritu-HG002_import sample=-"),
         (Name.windowEsVirituBatchOfOne, "esviritu batch=true", "esviritu database=yes result=Analyses/esviritu-batch-2026-02-09T12-00-00 sample=-"),
         (Name.windowEsVirituBatchOfOneWithoutIndex, "esviritu batch=true", "esviritu database=no result=Analyses/esviritu-batch-2026-02-09T12-10-00 sample=-"),
-        // Known defect, left for 2.9. The sidebar lists this folder and no route places it. The right
-        // route is "kraken2 database=no result=Analyses/Sample run 12 sample=-", and the router
-        // change of 2.9 that takes the tool from AnalysesFolder.analysisInfo moves it.
-        (Name.probeOnlyKraken2, "kraken2 batch=false", "nil"),
+        // A folder only its sidecar identifies, renamed or copied without metadata.
+        (Name.probeOnlyKraken2, "kraken2 batch=false", "kraken2 database=no result=Analyses/Sample run 12 sample=-"),
         // The executor.
         (Name.executorKraken2Single, "kraken2 batch=false", "kraken2 database=yes result=Analyses/kraken2-2026-02-11T09-00-00 sample=-"),
         (Name.executorKraken2Batch, "kraken2 batch=true", "kraken2 database=yes result=Analyses/kraken2-batch-2026-02-11T10-00-00 sample=-"),
         (Name.executorEsVirituBatch, "esviritu batch=true", "esviritu database=yes result=Analyses/esviritu-batch-2026-02-11T11-00-00 sample=-"),
         (Name.claimedKraken2, "kraken2 batch=false", "kraken2 database=no result=Analyses/Sample A kraken2 sample=-"),
-        // The same files as cliEsVirituFreeName, which routes nil, but with the metadata the executor
-        // writes into a claimed folder. The route is the lazy build-db esviritu on a one-folder root.
+        // The same files as cliEsVirituFreeName, with the metadata the executor writes into a claimed
+        // folder. Both route to the lazy build-db esviritu on a one-folder root.
         (Name.claimedEsViritu, "esviritu batch=false", "esviritu database=no result=Analyses/HG002 esviritu claimed sample=-"),
     ]
 
@@ -278,19 +273,16 @@ final class ClassifierLayoutReaderPinTests: XCTestCase {
         XCTAssertNil(AnalysesFolder.readAnalysisMetadata(from: built.imports.appendingPathComponent(Name.outsideCLIOutput)))
     }
 
-    // `ClassifierDatabaseRouter.routeDirect` ORs the tool in the metadata with the folder-name
-    // prefix, in a fixed tool order, and the doc comment above it says the metadata is
-    // authoritative. The two tests below pin the two faces of that match. Each builds a fresh
-    // project, so the shared snapshot project stays as it is.
+    // `ClassifierDatabaseRouter` takes the tool of a folder from `AnalysesFolder.analysisInfo`, by
+    // exact id, so the metadata is authoritative and a folder name that only starts like a tool names
+    // nothing (2.7 row 445, fixed in 2.9). The two tests below pin the two faces of that rule. Each
+    // builds a fresh project, so the shared snapshot project stays as it is.
 
-    /// Known defect, left for 2.9. A sample folder named like a tool is taken for a result root of
-    /// its own, because the folder name carries the prefix. An EsViritu batch with the sample
-    /// `esviritu_ctrl` routes that sample folder with no database and no sample, and the lazy build
-    /// would then write into the sample folder. The right route is
-    /// `esviritu database=yes result=Analyses/<batch> sample=esviritu_ctrl`, the one the sample
-    /// `HG002` already gets. The router change of 2.9 that treats a child of a classifier batch root
-    /// as a sample moves the first assertion.
-    func testKnownDefectRouterTakesAToolPrefixedSampleFolderAsAResultRoot() throws {
+    /// A sample folder named like a tool is a sample of its batch. An EsViritu batch with the sample
+    /// `esviritu_ctrl` routes that sample folder to the batch with its index, as the sample `HG002`
+    /// does. It once routed as a result root with no database and no sample, and the lazy build would
+    /// then have written into the sample folder.
+    func testRouterNarrowsAToolPrefixedSampleFolderToItsBatch() throws {
         let scratch = try buildScratchAnalyses()
         let batch = try Layouts.windowEsVirituBatch(
             named: Name.windowEsVirituBatchOfOne, timestamp: Layouts.timestamp(of: Name.windowEsVirituBatchOfOne),
@@ -303,8 +295,7 @@ final class ClassifierLayoutReaderPinTests: XCTestCase {
         )
         XCTAssertEqual(
             describe(ClassifierDatabaseRouter.route(for: batch.appendingPathComponent("esviritu_ctrl", isDirectory: true)), paths: scratch.paths),
-            "esviritu database=no result=\(batchPath)/esviritu_ctrl sample=-",
-            "Known defect. The right route is esviritu database=yes result=\(batchPath) sample=esviritu_ctrl"
+            "esviritu database=yes result=\(batchPath) sample=esviritu_ctrl"
         )
         XCTAssertEqual(
             describe(ClassifierDatabaseRouter.route(for: batch.appendingPathComponent(Layouts.sample, isDirectory: true)), paths: scratch.paths),
@@ -313,13 +304,11 @@ final class ClassifierLayoutReaderPinTests: XCTestCase {
         )
     }
 
-    /// Known defect, left for 2.9. A folder name with a tool prefix beats the metadata. A Kraken2
-    /// result that the user renamed `esviritu comparison` is a Kraken2 result to
-    /// `AnalysesFolder.analysisInfo`, which the sidebar row uses, and the router takes it for EsViritu
-    /// because EsViritu comes before Kraken2 in the tool order and the name matches. The right route is
-    /// `kraken2 database=no result=Analyses/esviritu comparison sample=-`. The router change of 2.9
-    /// that gives the metadata strict precedence moves the second assertion.
-    func testKnownDefectRouterLetsANamePrefixOverrideTheMetadata() throws {
+    /// The metadata beats a folder name with a tool prefix. A Kraken2 result that the user renamed
+    /// `esviritu comparison` is a Kraken2 result to `AnalysesFolder.analysisInfo`, which the sidebar row
+    /// uses, and it routes as Kraken2 although EsViritu comes before Kraken2 in the tool order and the
+    /// name starts like EsViritu.
+    func testRouterLetsTheMetadataOverrideAToolPrefixedName() throws {
         let scratch = try buildScratchAnalyses()
         let folder = try Layouts.windowKraken2Single(
             named: "esviritu comparison", timestamp: "2026-02-09T09-00-00", in: scratch.analyses
@@ -331,8 +320,7 @@ final class ClassifierLayoutReaderPinTests: XCTestCase {
         )
         XCTAssertEqual(
             describe(ClassifierDatabaseRouter.route(for: folder), paths: scratch.paths),
-            "esviritu database=no result=Analyses/esviritu comparison sample=-",
-            "Known defect. The right route is kraken2 database=no result=Analyses/esviritu comparison sample=-"
+            "kraken2 database=no result=Analyses/esviritu comparison sample=-"
         )
     }
 

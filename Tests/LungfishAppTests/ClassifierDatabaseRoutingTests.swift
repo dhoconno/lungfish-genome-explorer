@@ -299,15 +299,14 @@ final class ClassifierDatabaseRoutingTests: XCTestCase {
         XCTAssertNil(route)
     }
 
-    // MARK: - Known defect for 2.9
+    // MARK: - A name that starts like a tool
 
-    /// Lane A2 of Phase 2.7 found that `routeDirect` takes any folder whose name starts with a tool
-    /// prefix as a result root. A batch sample named like `esviritu_ctrl`, which the one sanitizer
-    /// keeps as it is (2.7 A9), therefore routes as a result of its own, with no database and no
-    /// sample, instead of as sample `esviritu_ctrl` of its batch. Routing moves in Phase 2.9, so this
-    /// pin holds today's route. The right route is the batch root with `sampleId` `esviritu_ctrl` and
-    /// the batch's `esviritu.sqlite`.
-    func testKnownDefect29BatchSampleNamedLikeAToolRoutesAsAResultRoot() throws {
+    /// A batch sample named like `esviritu_ctrl`, which the one sanitizer keeps as it is (2.7 A9), is a
+    /// sample of its batch. The router once took any folder whose name starts with a tool prefix for a
+    /// result root, so this sample routed as a result of its own with no database and no sample (2.7
+    /// row 445, fixed in 2.9). It routes to the batch root with `sampleId` `esviritu_ctrl` and the
+    /// batch's `esviritu.sqlite`.
+    func testBatchSampleNamedLikeAToolRoutesToItsBatch() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let batchDir = dir.appendingPathComponent("esviritu-batch-2026-10-11T10-00-00")
@@ -317,12 +316,68 @@ final class ClassifierDatabaseRoutingTests: XCTestCase {
 
         let route = try XCTUnwrap(ClassifierDatabaseRouter.route(for: sampleDir))
         XCTAssertEqual(route.tool, "esviritu")
-        XCTAssertEqual(route.resultURL.lastPathComponent, "esviritu_ctrl", "Known defect: the sample folder routes as a root")
-        XCTAssertNil(route.sampleId, "Known defect: the right sample id is esviritu_ctrl")
-        XCTAssertNil(route.databaseURL, "Known defect: the batch's esviritu.sqlite is not found")
+        XCTAssertEqual(route.resultURL.lastPathComponent, batchDir.lastPathComponent, "the sample folder is not a root")
+        XCTAssertEqual(route.sampleId, "esviritu_ctrl")
+        XCTAssertEqual(route.databaseURL?.path, batchDir.appendingPathComponent("esviritu.sqlite").path)
 
         let control = try XCTUnwrap(ClassifierDatabaseRouter.route(for: batchDir.appendingPathComponent("ctrl")))
         XCTAssertEqual(control.sampleId, "ctrl", "A sample whose name has no tool prefix routes to its batch")
         XCTAssertNotNil(control.databaseURL)
+    }
+
+    /// A sample whose name carries the dash form of a tool prefix, `kraken2-blank`, is still a sample of its
+    /// batch, also when its folder holds the tool's own sidecar, which alone identifies a folder as a result.
+    func testBatchSampleNamedWithAToolPrefixAndDashRoutesToItsBatch() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let batchDir = dir.appendingPathComponent("kraken2-batch-2026-10-11T10-00-00")
+        let sampleDir = batchDir.appendingPathComponent("kraken2-blank")
+        try FileManager.default.createDirectory(at: sampleDir, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: sampleDir.appendingPathComponent("classification-result.json").path, contents: Data("{}".utf8))
+        FileManager.default.createFile(atPath: batchDir.appendingPathComponent("kraken2.sqlite").path, contents: Data())
+
+        let route = try XCTUnwrap(ClassifierDatabaseRouter.route(for: sampleDir))
+        XCTAssertEqual(route.analysisID, .kraken2)
+        XCTAssertEqual(route.resultURL.lastPathComponent, batchDir.lastPathComponent)
+        XCTAssertEqual(route.sampleId, "kraken2-blank")
+        XCTAssertNotNil(route.databaseURL)
+    }
+
+    /// A folder named like a tool is no result on that account. Only the metadata, a name the registry
+    /// reads or the tool's own files make one (2.7 row 445).
+    func testRoute_aFolderNamedLikeAToolIsNotAResult() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        for name in ["esviritu_ctrl", "kraken2 notes", "taxtriage", "esviritu"] {
+            let folder = dir.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            XCTAssertNil(ClassifierDatabaseRouter.route(for: folder), name)
+        }
+    }
+
+    /// A folder that is a grouping folder named like a tool does not make the results inside it samples.
+    func testRoute_aResultInsideAFolderNamedLikeAToolKeepsItsOwnRoute() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let group = dir.appendingPathComponent("kraken2-runs")
+        let result = group.appendingPathComponent("kraken2-2026-10-11T10-00-00")
+        try FileManager.default.createDirectory(at: result, withIntermediateDirectories: true)
+
+        let route = try XCTUnwrap(ClassifierDatabaseRouter.route(for: result))
+        XCTAssertEqual(route.resultURL.lastPathComponent, result.lastPathComponent)
+        XCTAssertNil(route.sampleId)
+    }
+
+    /// The metadata names the tool and wins over a folder name that starts with another tool's prefix.
+    func testRoute_theMetadataWinsOverANamePrefix() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let resultDir = dir.appendingPathComponent("esviritu-2026-10-11T10-00-00")
+        try FileManager.default.createDirectory(at: resultDir, withIntermediateDirectories: true)
+        try AnalysesFolder.writeAnalysisMetadata(AnalysesFolder.AnalysisMetadata(tool: "taxtriage", isBatch: false), to: resultDir)
+
+        let route = try XCTUnwrap(ClassifierDatabaseRouter.route(for: resultDir))
+        XCTAssertEqual(route.analysisID, .taxtriage)
+        XCTAssertEqual(route.tool, "taxtriage")
     }
 }

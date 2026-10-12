@@ -246,8 +246,8 @@ enum ClassifierLayoutFixtures {
     /// `esviritu detect --output D` under the executor, when D is a folder the user named directly
     /// under a project's Analyses folder (decision E1b). The executor claims D through the same
     /// path as a Kraken2 `--output-dir`, so D gets the metadata (`esviritu`, not a batch) beside the
-    /// command line set of files, and no index. The same files route as nothing today, as
-    /// `cliEsVirituFreeName` does, and route to the lazy `build-db esviritu` once they carry metadata.
+    /// command line set of files, and no index. `cliEsVirituFreeName` holds the same files without
+    /// metadata, and both route to the lazy `build-db esviritu`.
     @discardableResult
     static func claimedEsViritu(named name: String, timestamp: String, in analyses: URL) throws -> URL {
         let folder = try cliEsViritu(named: name, in: analyses)

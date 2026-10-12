@@ -507,51 +507,6 @@ extension RoutingSafetyNetTable {
                     )
                 )
             },
-            RoutingRow(family: .classifiers, name: "Known defect for 2.9, Kraken2 folder known only by its sidecar opens nothing", type: .classificationResult) { context in
-                // Known defect for 2.9. The scanner lists it from classification-result.json. The router
-                // needs a tool prefix in the name or metadata, so it finds neither and the selection ends
-                // silently. The right ending is the database build placeholder for Kraken2. The router
-                // change of 2.9 that takes the tool from AnalysesFolder.analysisInfo reaches it, and that
-                // commit moves this row.
-                let result = try Layouts.probeOnlyKraken2(
-                    named: Name.probeOnlyKraken2, in: context.url("Analyses", isDirectory: true)
-                )
-                return RoutingRowFixture(
-                    item: try RoutingSafetyNetItems.scannedAnalysis(result),
-                    expected: nothing()
-                )
-            },
-            RoutingRow(family: .classifiers, name: "Known defect for 2.9, EsViritu folder known only by its tables opens nothing", type: .esvirituResult) { context in
-                // Known defect for 2.9. The command line writes this layout when `--output` has a free
-                // name. The scanner lists it and no route places it. The right ending is the database
-                // build placeholder for EsViritu. The router change of 2.9 that takes the tool from
-                // AnalysesFolder.analysisInfo reaches it, and that commit moves this row.
-                let result = try Layouts.cliEsViritu(
-                    named: Name.cliEsVirituFreeName, in: context.url("Analyses", isDirectory: true)
-                )
-                return RoutingRowFixture(
-                    item: try RoutingSafetyNetItems.scannedAnalysis(result),
-                    expected: nothing()
-                )
-            },
-            RoutingRow(family: .classifiers, name: "Kraken2 sidecar folder as an analysis result is unsupported", type: .analysisResult) { context in
-                // The "Unsupported analysis" ending for a folder the router cannot place. It needs an
-                // item typed as a generic analysis result that carries the Kraken2 tool id. The
-                // scanner types a Kraken2 folder as a classification result, so only a hand-built
-                // item reaches this ending. The scanned row of the same folder is the row above.
-                let result = try Layouts.probeOnlyKraken2(
-                    named: Name.probeOnlyKraken2, in: context.url("Analyses", isDirectory: true)
-                )
-                let item = SidebarItem(title: result.lastPathComponent, type: .analysisResult, url: result)
-                item.userInfo["analysisTool"] = "kraken2"
-                return RoutingRowFixture(
-                    item: item,
-                    expected: RoutingObservation(
-                        status: "Unsupported analysis: kraken2. Inspect or reveal \(Name.probeOnlyKraken2) from the sidebar.",
-                        provenance: "analysisResult \(context.render(result))"
-                    )
-                )
-            },
         ]
     }
 }
