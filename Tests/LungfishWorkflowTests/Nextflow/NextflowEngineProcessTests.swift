@@ -151,6 +151,36 @@ final class NextflowEngineProcessTests: XCTestCase {
         )
     }
 
+    func testTheLogReplacesALinkAtItsPathAndNeverWritesThroughIt() async throws {
+        let run = try EngineScriptRun.make(in: root, body: "echo line")
+        let outside = root.appendingPathComponent("outside.txt")
+        try "keep".write(to: outside, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: run.launch.logFile, withDestinationURL: outside)
+
+        let outcome = try await NextflowEngineProcess(configuration: .forTests())
+            .run(run.launch, in: run.scratch, hooks: NextflowEngineHooks())
+
+        XCTAssertEqual(outcome.exitCode, 0)
+        XCTAssertNil(outcome.logFailure)
+        XCTAssertEqual(try String(contentsOf: outside, encoding: .utf8), "keep", "the link's target is never written")
+        let attributes = try FileManager.default.attributesOfItem(atPath: run.launch.logFile.path)
+        XCTAssertEqual(attributes[.type] as? FileAttributeType, .typeRegular, "the link is replaced by the log itself")
+        XCTAssertEqual(run.log(), EngineScriptRun.preamble + "\n--- stdout ---\nline\n--- stderr ---\n")
+    }
+
+    func testTheLogNeverTruncatesAFileAHardLinkShares() async throws {
+        let run = try EngineScriptRun.make(in: root, body: "echo line")
+        try "an earlier run's log".write(to: run.launch.logFile, atomically: true, encoding: .utf8)
+        let shared = root.appendingPathComponent("shared.log")
+        try FileManager.default.linkItem(at: run.launch.logFile, to: shared)
+
+        _ = try await NextflowEngineProcess(configuration: .forTests())
+            .run(run.launch, in: run.scratch, hooks: NextflowEngineHooks())
+
+        XCTAssertEqual(try String(contentsOf: shared, encoding: .utf8), "an earlier run's log", "the other name keeps its bytes")
+        XCTAssertEqual(run.log(), EngineScriptRun.preamble + "\n--- stdout ---\nline\n--- stderr ---\n")
+    }
+
     func testALaunchThatFailsLeavesTheLauncherErrorInTheLog() async throws {
         let run = try EngineScriptRun.make(in: root, body: "exit 0")
         let launch = NextflowEngineLaunch(

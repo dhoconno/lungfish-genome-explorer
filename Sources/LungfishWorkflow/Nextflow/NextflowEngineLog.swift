@@ -40,17 +40,19 @@ struct NextflowEngineLog: Sendable {
 
     /// Creates the log at its final name with the preamble, and the empty stderr sidecar.
     ///
+    /// Each file is new. Whatever sits at its path goes first, so a symbolic or hard link left there,
+    /// in a reused output folder or one copied from a bundle, is replaced and never written through,
+    /// as the atomic write before 2.9 replaced it (SWIFT 6).
+    ///
     /// - Throws: ``NextflowEngineError/logNotWritable(path:reason:)`` when either file cannot be created.
     static func create(at logFile: URL, preamble: String, stderrSidecar: URL, tailLineCount: Int) throws -> NextflowEngineLog {
-        let logDescriptor = Darwin.open(logFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o644)
-        guard logDescriptor >= 0 else {
-            throw NextflowEngineError.logNotWritable(path: logFile.path, reason: String(cString: strerror(errno)))
-        }
-        let sidecarDescriptor = Darwin.open(stderrSidecar.path, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
-        guard sidecarDescriptor >= 0 else {
-            let reason = String(cString: strerror(errno))
+        let logDescriptor = try openNewFile(at: logFile, access: O_WRONLY, mode: 0o644)
+        let sidecarDescriptor: Int32
+        do {
+            sidecarDescriptor = try openNewFile(at: stderrSidecar, access: O_RDWR, mode: 0o600)
+        } catch {
             Darwin.close(logDescriptor)
-            throw NextflowEngineError.logNotWritable(path: stderrSidecar.path, reason: reason)
+            throw error
         }
         var log = NextflowEngineLog(
             logFile: logFile,
@@ -61,6 +63,19 @@ struct NextflowEngineLog: Sendable {
         )
         log.openingFailure = log.write(preamble, part: "preamble")
         return log
+    }
+
+    /// Removes whatever is at `url`, then creates a new file there that no link can redirect, the
+    /// flags `DurableAtomicFileStore` creates its files with.
+    private static func openNewFile(at url: URL, access: Int32, mode: mode_t) throws -> Int32 {
+        if Darwin.unlink(url.path) != 0, errno != ENOENT {
+            throw NextflowEngineError.logNotWritable(path: url.path, reason: String(cString: strerror(errno)))
+        }
+        let descriptor = Darwin.open(url.path, access | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, mode)
+        guard descriptor >= 0 else {
+            throw NextflowEngineError.logNotWritable(path: url.path, reason: String(cString: strerror(errno)))
+        }
+        return descriptor
     }
 
     /// Writes the stdout heading, once the engine has launched.
