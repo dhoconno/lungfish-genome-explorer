@@ -76,7 +76,7 @@ final class TaxTriageRunSIGTERMReplayTests: XCTestCase {
         XCTAssertEqual(child.terminationReason, .exit, "the SIGTERM ended the command \(how) instead of cancelling the run")
         let outcome = (try? String(contentsOf: folder.appendingPathComponent("outcome"), encoding: .utf8)) ?? "no outcome"
         XCTAssertEqual(outcome, "exit 125", "a cancelled `taxtriage run` exits with CLIExitCode.cancelled")
-        XCTAssertLessThan(waited, .seconds(10), "the command outlasted the window's 10 s grace")
+        XCTAssertLessThan(waited, .seconds(6), "the command outlasted the CLI's 6 s grace (T12), after which the app kills it")
 
         // The pipeline's own cancel ran, so it recorded the cancel and stopped the engine.
         let record = try ProvenanceEnvelopeReader.load(from: folder.appendingPathComponent("output", isDirectory: true))
