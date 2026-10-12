@@ -28,7 +28,8 @@ final class NextflowWorkflowDescriptorEngineTests: XCTestCase {
             toolID: taxTriage.toolID, lockPipelineID: taxTriage.lockPipelineID, profile: taxTriage.profile,
             containerRuntime: .hostOnly, releaseEnvironment: taxTriage.releaseEnvironment,
             parameterSchemaPath: taxTriage.parameterSchemaPath, workDirectoryOption: taxTriage.workDirectoryOption,
-            traceFileName: taxTriage.traceFileName, scratchPrefix: taxTriage.scratchPrefix,
+            traceFileName: taxTriage.traceFileName, argumentLayout: taxTriage.argumentLayout,
+            scratchPrefix: taxTriage.scratchPrefix,
             keepWorkEnvironmentKey: taxTriage.keepWorkEnvironmentKey,
             expectedTaskCountPerSample: taxTriage.expectedTaskCountPerSample,
             finalizeProgressShare: taxTriage.finalizeProgressShare
