@@ -215,7 +215,7 @@ The Operations row is the entry of `OperationCenter` that a launch begins and en
 | A task | A line that holds `process >`, such as `[aa/000001] Submitted process > <path>`, as the raw line | `Running <process> (<tag>)`, or `Running <process>` for a task with no tag, where `<process>` is the last part of the process name, such as `Running KRAKEN2_KRAKEN2 (SRR12486989)` and `Running DOWNLOAD_TAXDUMP` |
 | After the engine | `Collecting output files...`, `TaxTriage pipeline complete` | `Collecting output files…`, `<W> complete` |
 | Database | `Building TaxTriage database…` | `Building <W> database…`, on the last share of the bar |
-| Ignored tasks | One warning line per cause, beginning `Some TaxTriage tasks failed` | `Some <W> tasks failed`, one warning line per cause, and the row reads Completed with Warnings |
+| Ignored tasks | One warning line for all ignored tasks, `Some TaxTriage tasks failed` and one clause per failed process, then what is missing and what to change | One warning line for all ignored tasks, `Some <W> tasks failed` and one clause per failed process, and the row reads Completed with Warnings |
 | Failure | The sheet `TaxTriage Failed` with the error as its text and no detail | The sheet `<W> Failed` with the error as its text and the log tail as its detail |
 | Cancel | `Cancelling...`, then Cancelled with `Cancelled by user`, no sheet | The same, from `OperationCenter`, and the overlay shows the row's own `Cancelling...` and takes no later engine line |
 | CLI closing line | `TaxTriage completed in <t>s` or `TaxTriage completed with warnings in <t>s` | `<W> completed in <t>s` or `<W> completed with warnings in <t>s` |
@@ -237,7 +237,7 @@ A new workflow's strings follow five rules.
 2. A string of the workflow's own that names a step in progress ends with the ellipsis character `…`. A task line takes the form W1 sets, and the words every workflow shares, the Docker wait's and the center's `Cancelling...`, keep their three dots until a words lane changes them for every operation.
 3. A task line names the process, and its tag when it has one, and never the raw Nextflow line.
 4. A line that arrives once the row no longer runs reaches neither the detail nor the bar nor the overlay. The TaxTriage overlay takes such a line today, and `NextflowWorkflowRowPinTests` pins that.
-5. One warning line per cause makes the label. The row then completes plainly with a detail that names the cause, and that detail is logged as no second warning (decision D4 of Phase 2.8).
+5. Only the run's own outcome makes a warning line, one for all ignored tasks, one for failed samples and one for a failed database build, and these lines alone make the label Completed with Warnings. Docker lines and task lines are information lines, and the engine's standard error stays in `nextflow.log`, so no line of standard error makes the label, as every line of the CLI's standard error does on the Viral Recon and Local Workflow rows today. The row then completes plainly with a detail that names the causes, and that detail is logged as no second warning (decision D4 of Phase 2.8).
 
 ### What each row shows today
 
@@ -249,7 +249,7 @@ Four rows start a Nextflow workflow today, and they do not read alike. Only TaxT
 | First detail | `Starting TaxTriage pipeline…` | `<platform> · N sample(s) · <reference>` | `Running <engine> workflow` | `Preparing...` |
 | Nextflow output in the row | A `process >` line becomes the detail, the log line and the overlay, and moves the bar | None. The CLI writes Nextflow's output into the run bundle's logs folder when the engine ends, and the row logs each line the CLI itself prints as it arrives. The bar stays at 0 | None. The CLI writes Nextflow's output into the run bundle's logs folder, and the row logs the CLI's own lines after the run | Read after the run |
 | Completed detail | The summary of the result, one line per fact, or with ignored tasks the headline and the report count | `Viral Recon completed. Output: <folder>. Run bundle: <bundle>` | `Local workflow completed. Run bundle: <bundle>` | Not read |
-| Warning lines | One per ignored task cause and one for failed samples | Every stderr line of the CLI | Every stderr line, logged after the run | Not read |
+| Warning lines | One for all ignored tasks, one for failed samples, and one when the database build fails | Every stderr line of the CLI | Every stderr line, logged after the run | Not read |
 | Failure | The sheet `TaxTriage Failed` with the error as its text and no detail | `Viral Recon failed with exit code N.` and the last 40 stderr lines as the detail, no sheet | `Local workflow failed with exit code N`, and the whole stderr as the error detail | Not read |
 | Cancel | `Cancelling...`, then `Cancelled by user` | The same words. The app ends the CLI's process tree with a grace of 0, so Nextflow gets no time to shut down until S16 (decision N14) | A first run has no Cancel button | The engine's 4 s grace, which pbAA's own runner applies (section 3) |
 
