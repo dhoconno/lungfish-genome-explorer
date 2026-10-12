@@ -289,7 +289,7 @@ extension TaxTriageParityHarness {
         let help = TaxTriageCommand.RunSubcommand.helpMessage(columns: 1000)
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
-        let sentence = "With several samples, one Nextflow run processes them all"
+        let sentence = "Without --project or --batch, one Nextflow run processes every sample"
         if !help.contains(sentence) {
             violate("the help of taxtriage run names the pooled run", "no \"\(sentence)\" in the help")
         }

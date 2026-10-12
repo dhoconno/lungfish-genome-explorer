@@ -35,7 +35,7 @@ extension TaxTriageCommand {
             name: .customLong("input"),
             help: ArgumentHelp(
                 "Input FASTQ file (R1 or single-end) or .lungfishfastq bundle",
-                discussion: "A bundle is planned whole. A bundle of pairs runs as pairs, and a bundle that mixes pairs with merged or single reads, or holds several files of single reads, gives one single-end file of every read. A file inside a bundle is read as named, except the preview of a virtual bundle, which reads its bundle. --input and --input2 that name every file of one bundle are read as that bundle."
+                discussion: "A bundle is planned whole. A bundle of pairs runs as pairs, and a bundle that mixes pairs with merged or single reads, or holds several files of single reads, gives one single-end file of every read. A file inside a bundle is read as named, except the preview of a virtual bundle, which reads its bundle. --input and --input2 that name every file of one bundle are read as that bundle. A folder gives one sample of each FASTQ file or bundle in it. A folder that holds paired reads is refused, since the folder route pairs no R1 and R2 files. Use --samplesheet to pair them."
             )
         )
         var input: String?
@@ -54,7 +54,7 @@ extension TaxTriageCommand {
 
         @Option(
             name: .customLong("sample"),
-            help: "Sample identifier (required with --input)"
+            help: "Sample name, required with an --input file or bundle and with --input2. With an --input folder, each sample is named after its file, behind this name when given"
         )
         var sampleId: String?
 
@@ -78,7 +78,7 @@ extension TaxTriageCommand {
             name: [.customLong("output"), .customShort("o")],
             help: ArgumentHelp(
                 "Output directory for results",
-                discussion: "With several samples, one Nextflow run processes them all and writes their results to this folder. With --batch, each sample runs alone in its own folder inside it. Not with --project."
+                discussion: "Without --project or --batch, one Nextflow run processes every sample and writes their results to this folder, and the folder keeps every file TaxTriage wrote. With --batch, each sample runs alone in its own folder inside it. Not with --project."
             )
         )
         var outputDir: String?
@@ -88,7 +88,7 @@ extension TaxTriageCommand {
             name: .customLong("project"),
             help: ArgumentHelp(
                 "The .lungfish project the run belongs to. The result lands in its Analyses/taxtriage-batch-<timestamp>/ folder, where the app's TaxTriage runs put it",
-                discussion: "One sample runs in that folder itself. Several samples each run alone, in a folder named after the sample and made safe for a folder name. Not with --output."
+                discussion: "One sample runs in that folder itself. Several samples each run alone, in a folder named after the sample and made safe for a folder name. The run then builds taxtriage.sqlite for the viewer and removes the intermediate files the viewer does not read, keeping top/. Not with --output."
             )
         )
         var project: String?
@@ -97,7 +97,7 @@ extension TaxTriageCommand {
             name: .customLong("batch"),
             help: ArgumentHelp(
                 "Run each sample alone, in its own Nextflow run and folder of one batch result",
-                discussion: "Without --batch, a plain --output runs every sample in one Nextflow run. --batch pairs no R1 and R2 files by name, so give pairs in a --samplesheet. Give --output or --project."
+                discussion: "Without --batch, a plain --output runs every sample in one Nextflow run. --batch pairs no R1 and R2 files by name, so give pairs in a --samplesheet. The batch result gets taxtriage.sqlite and loses its intermediate files as a --project result does. Give --output or --project."
             )
         )
         var batch: Bool = false
@@ -179,7 +179,7 @@ extension TaxTriageCommand {
 
         @Option(
             name: .customLong("revision"),
-            help: "TaxTriage pipeline revision/branch (defaults to Lungfish's pinned TaxTriage revision)"
+            help: "The TaxTriage commit or tag to run. Without it, LGE runs the commit its tool lock pins"
         )
         var revision: String?
 
