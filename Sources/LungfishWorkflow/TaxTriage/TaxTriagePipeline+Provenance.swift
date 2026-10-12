@@ -75,7 +75,7 @@ extension TaxTriagePipeline {
         let stderrLines = ([stderr ?? ""] + warnings).filter { !$0.isEmpty }
         await ProvenanceRecorder.shared.recordStep(
             runID: runID,
-            toolName: "TaxTriage",
+            toolName: TaxTriageRecordFacts.toolName,
             toolVersion: config.revision,
             githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: config.revision),
             command: command,
@@ -115,6 +115,7 @@ extension TaxTriagePipeline {
 /// executor's root record takes the same values when `taxtriage run` moves to it, so one writer puts them in each record
 /// (Phase 2.8 lane B2, decisions T6 to T8 of `docs/plans/2026-10-11-phase-2-8.md`).
 ///
+/// - Every TaxTriage step is the tool `taxtriage` at the revision, with the release tag beside it (RT4).
 /// - The settings the run was asked for are explicit options.
 /// - The plan of a record of one sample is the resolved default `readSetPlan`, the home decision E13 of Phase 2.7 names
 ///   (T7). A pooled record of several samples keeps its plans keyed by sample under `read_set_plans` in the explicit
@@ -125,6 +126,8 @@ extension TaxTriagePipeline {
 /// The R1 and R2 halves of an interleaved file are scratch that the run removes, so no fact names one (T6). The record
 /// names the durable interleaved file instead.
 struct TaxTriageRecordFacts: Sendable, Equatable {
+    /// The one tool name of a TaxTriage step, the name the batch record of a serial run already gives each sample.
+    static let toolName = "taxtriage"
     /// The status of a TaxTriage database's identity. No digest pins it, and no database folder is hashed per run.
     static let databaseIdentityStatus = "unpinned"
     /// The workflow name of a database install receipt, the record an install writes into the database folder.

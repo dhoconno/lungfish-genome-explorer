@@ -349,7 +349,7 @@ final class TaxTriageStandInEngineReplayTests: XCTestCase {
 
         let provenance = try XCTUnwrap(ProvenanceRecorder.load(from: outputDirectory), file: file, line: line)
         XCTAssertEqual(provenance.status, .completed, file: file, line: line)
-        let step = try XCTUnwrap(provenance.steps.first { $0.toolName == "TaxTriage" }, file: file, line: line)
+        let step = try XCTUnwrap(provenance.steps.first { $0.toolName == "taxtriage" }, file: file, line: line)
         XCTAssertEqual(step.exitCode, 0, file: file, line: line)
         XCTAssertEqual(
             step.command,

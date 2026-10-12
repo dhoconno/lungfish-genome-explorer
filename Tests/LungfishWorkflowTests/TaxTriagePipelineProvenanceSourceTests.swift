@@ -35,7 +35,7 @@ final class TaxTriagePipelineProvenanceSourceTests: XCTestCase {
         XCTAssertEqual(provenance.parameters["sample_count"], .integer(1))
         XCTAssertEqual(provenance.parameters["profile"], .string("conda"))
 
-        let step = try XCTUnwrap(provenance.steps.first { $0.toolName == "TaxTriage" })
+        let step = try XCTUnwrap(provenance.steps.first { $0.toolName == "taxtriage" })
         XCTAssertEqual(step.toolVersion, "fixture-revision")
         XCTAssertEqual(step.exitCode, 0)
         XCTAssertNotNil(step.wallTime)

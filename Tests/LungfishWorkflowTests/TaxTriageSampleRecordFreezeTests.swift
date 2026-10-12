@@ -156,14 +156,14 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         XCTAssertEqual(record.steps.count, 1)
         let step = try taxTriageStep(record)
         let revision = TaxTriageConfig.defaultRevision
-        XCTAssertEqual(step.toolName, "TaxTriage", "FLIPS: one tool name, taxtriage (RT4)")
+        XCTAssertEqual(step.toolName, "taxtriage", "flipped by B2 (RT4), one tool name, as the batch record names it")
         XCTAssertEqual(step.toolVersion, revision, "the version is the revision, a commit")
         XCTAssertEqual(step.githubReleaseVersion, TaxTriageConfig.defaultGithubReleaseVersion)
         XCTAssertEqual(step.argv, [engine.micromamba.path, "run", "-n", "nextflow", "nextflow"] + run.launch.arguments)
         XCTAssertNil(step.durableReplayArgv)
         XCTAssertEqual(step.exitStatus, 0)
         XCTAssertTrue((step.stderr ?? "").isEmpty, "\(step.stderr ?? "")")
-        XCTAssertEqual(record.toolName, "TaxTriage", "FLIPS: the first step names the record's tool (RT4)")
+        XCTAssertEqual(record.toolName, "taxtriage", "flipped by B2 (RT4), the first step names the record's tool")
         XCTAssertEqual(record.toolVersion, revision)
         XCTAssertEqual(record.argv, step.argv)
 
@@ -230,7 +230,7 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: splitRoot.path), "the run removes the halves")
 
         let record = run.record
-        XCTAssertEqual(record.steps.map(\.toolName), ["Lungfish TaxTriage Interleaved Split", "TaxTriage"])
+        XCTAssertEqual(record.steps.map(\.toolName), ["Lungfish TaxTriage Interleaved Split", "taxtriage"])
         let split = record.steps[0]
         XCTAssertEqual(split.inputs.map { standardized($0.path) }, [standardized(sample.fastq1.path)])
         XCTAssertEqual(split.outputs.count, 0)
@@ -260,7 +260,7 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         let run = try await run(c, on: engine)
 
         let record = run.record
-        XCTAssertEqual(record.steps.map(\.toolName), [SequenceInputConcatenation.toolName, "TaxTriage"])
+        XCTAssertEqual(record.steps.map(\.toolName), [SequenceInputConcatenation.toolName, "taxtriage"])
         let cat = record.steps[0]
         XCTAssertEqual(cat.inputs.map { standardized($0.path) }, concatenation.memberURLs.map { standardized($0.path) })
         XCTAssertEqual(cat.outputs.map { standardized($0.path) }, [standardized(sample.fastq1.path)])
@@ -285,7 +285,7 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         let run = try await run(c, on: engine)
 
         let record = run.record
-        XCTAssertEqual(record.steps.map(\.toolName), ["TaxTriage"])
+        XCTAssertEqual(record.steps.map(\.toolName), ["taxtriage"])
         // Flipped by B2 (T7). The record of one sample keeps no keyed plan, and its plan is the resolved default
         // `readSetPlan`, where the reader finds it.
         XCTAssertEqual(Set(record.options.explicit.keys), Self.settingKeys.union(["github_release_version"]))
@@ -332,7 +332,7 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         let run = try await run(c, on: engine)
 
         let record = run.record
-        XCTAssertEqual(record.steps.map(\.toolName), ["TaxTriage"], "no step records the materialization")
+        XCTAssertEqual(record.steps.map(\.toolName), ["taxtriage"], "no step records the materialization")
         let step = try taxTriageStep(record)
         XCTAssertEqual(step.inputs.map { standardized($0.path) }, [standardized(sample.fastq1.path)], "the materialized file")
         XCTAssertTrue(step.inputs.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
