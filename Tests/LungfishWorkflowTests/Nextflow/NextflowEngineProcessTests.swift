@@ -317,6 +317,32 @@ final class NextflowEngineProcessTests: XCTestCase {
         XCTAssertTrue(cancelled, "a cleanup still running at the bound is cancelled")
     }
 
+    func testTheContainerCleanupKeepsTheCallersTaskLocalsButNoProvenanceObserver() async throws {
+        let run = try EngineScriptRun.make(in: root, body: """
+        echo $$ > "$CONTROL/engine.pid"
+        wait_for stop
+        """)
+        let cleanup = TaskLocalRecordingCleanup()
+        let observed = ObservedRuns()
+        let engine = NextflowEngineProcess(configuration: .forTests())
+
+        let running = Task {
+            try await EngineTestSeam.$marker.withValue("seam") {
+                try await ToolProcessObservation.$observer.withValue(observed.observer) {
+                    try await engine.run(run.launch, in: run.scratch, hooks: NextflowEngineHooks(cleanup: cleanup))
+                }
+            }
+        }
+        let started = await waitUntil(timeout: .seconds(30)) { run.pid("engine.pid") != nil }
+        XCTAssertTrue(started, "the engine never started")
+        running.cancel()
+        _ = try await running.value
+        let seen = try XCTUnwrap(cleanup.seen, "a cancelled run calls the cleanup")
+
+        XCTAssertEqual(seen.marker, "seam", "the cleanup keeps the caller's task-local seams, such as S11's probe")
+        XCTAssertFalse(seen.observerBound, "the cleanup unbinds the provenance observer, so no docker command becomes a step")
+    }
+
     func testARunThatEndsOnItsOwnStopsNoContainers() async throws {
         let run = try EngineScriptRun.make(in: root, body: "echo done\nexit 3")
         let cleanup = RecordingContainerCleanup()
@@ -387,6 +413,28 @@ final class NextflowEngineProcessTests: XCTestCase {
     private static func lines(in url: URL) -> [String] {
         ((try? String(contentsOf: url, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
     }
+}
+
+/// A task-local seam of the kind S11's probe is, which the engine's cleanup must keep.
+private enum EngineTestSeam {
+    @TaskLocal static var marker: String?
+}
+
+/// A container cleanup that records the task-local values it runs with.
+private final class TaskLocalRecordingCleanup: NextflowContainerCleanup, Sendable {
+    struct Seen: Sendable {
+        let marker: String?
+        let observerBound: Bool
+    }
+
+    private let recorded = Mutex<Seen?>(nil)
+
+    func stopContainers(boundTo workDirectory: URL, within bound: Duration) async {
+        let seen = Seen(marker: EngineTestSeam.marker, observerBound: ToolProcessObservation.observer != nil)
+        recorded.withLock { $0 = seen }
+    }
+
+    var seen: Seen? { recorded.withLock { $0 } }
 }
 
 /// Counts the ToolProcess runs built while its observer is bound.

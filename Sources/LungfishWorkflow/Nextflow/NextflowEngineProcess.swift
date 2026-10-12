@@ -198,13 +198,14 @@ package struct NextflowEngineProcess: Sendable {
     }
 
     /// Reads the trace file every `interval` and hands the reporter each new reading, until it is
-    /// cancelled. Returns the last reading it handed over.
+    /// cancelled. Returns the last reading it handed over. The poll is a plain task, so it keeps the
+    /// caller's task-local values and no detached task sits in the engine.
     private static func pollTrace(
         _ traceFile: URL,
         every interval: Duration,
         reporter: any NextflowProgressReporting
     ) -> Task<NextflowTraceProgress?, Never> {
-        Task.detached {
+        Task {
             var lastReading: NextflowTraceProgress?
             while true {
                 do {

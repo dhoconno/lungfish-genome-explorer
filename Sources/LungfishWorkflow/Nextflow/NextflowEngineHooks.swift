@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import Synchronization
 
 /// What the engine calls while a run is live, always off the main actor.
@@ -84,19 +85,24 @@ extension NextflowEngineProcess {
     /// Calls the cleanup and returns once it has ended or `bound` has passed, whichever is first (N5).
     ///
     /// The calling task is cancelled, and a cancelled task launches no process, so the cleanup runs in
-    /// a detached task, which also leaves out any provenance observer the caller bound around its
-    /// launch. A cleanup still running at the bound is cancelled and left to end on its own.
+    /// a new unstructured task, which starts uncancelled and keeps the caller's task-local values
+    /// except the provenance observer, which it unbinds. A cleanup still running at the bound is
+    /// cancelled and left to end on its own.
     static func stopContainers(
         with cleanup: any NextflowContainerCleanup,
         boundTo workDirectory: URL,
         within bound: Duration
     ) async {
         let ended = NextflowOneShotSignal()
-        let work = Task.detached {
-            await cleanup.stopContainers(boundTo: workDirectory, within: bound)
+        let work = Task {
+            // A plain task starts uncancelled and keeps the caller's task-local seams, such as a test's
+            // probe. Only the provenance observer is unbound, so no docker command becomes a step.
+            await ToolProcessObservation.$observer.withValue(nil) {
+                await cleanup.stopContainers(boundTo: workDirectory, within: bound)
+            }
             ended.fire()
         }
-        let timer = Task.detached {
+        let timer = Task {
             try? await Task.sleep(for: bound)
             ended.fire()
         }
