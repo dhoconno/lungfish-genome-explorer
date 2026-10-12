@@ -277,12 +277,14 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
     /// if the record had stated it. The same bytes found by a lookup read Not recorded, and now so do these.
     func testAVerifiedRecordThatStatesNoStatusReadsNotRecorded() throws {
         let bytes = try recordBytes("fastq-trim-cancelled") { $0.removeValue(forKey: "status") }
-        let (_, sidecar) = try makeProject(bytes)
+        let (project, sidecar) = try makeProject(bytes)
         let envelope = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: sidecar), sidecarURL: sidecar)
         let model = ProvenanceInspectorViewModel()
+        let before = try projectSnapshot(project)
 
         model.configureVerifiedSources([verifiedSource(envelope, sidecar: sidecar)])
 
+        XCTAssertEqual(try projectSnapshot(project), before, "Reading a verified record never writes into the project.")
         XCTAssertEqual(envelope.status, .completed, "The decoder derives completed from the exit status 0.")
         XCTAssertEqual(model.summary.runStatus, .notRecorded)
         XCTAssertTrue(model.copyableText.contains("Run Status: Not recorded"), model.copyableText)
