@@ -298,11 +298,7 @@ public enum MetagenomicsBatchProvenanceWriter {
             toolName: "TaxTriage",
             toolVersion: revision,
             githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: revision, pin: pin),
-            tool: ProvenanceToolIdentity(
-                name: "TaxTriage",
-                version: revision,
-                kind: "nextflow"
-            ),
+            tool: ProvenanceToolIdentity(name: "TaxTriage", version: revision, kind: "nextflow"),
             argv: command,
             options: taxTriageOptions(for: result.config, pin: pin),
             runtimeIdentity: taxTriageRuntimeIdentity(),
