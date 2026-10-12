@@ -183,6 +183,7 @@ final class ClassifierCLIRealToolCancelReplayTests: XCTestCase {
         try assertHidden(command.folder, in: project)
 
         await assertNothingWritten(after: ended.project, in: project)
+        XCTAssertNil(run.window.attachedSheet, "a cancel shows no alert, also after the quiet period")
         try assertListedOnceItsRecordIsGone(command.folder, in: project)
     }
 
