@@ -256,7 +256,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
             .filter { !$0.isEmpty }
         await ProvenanceRecorder.shared.recordStep(
             runID: runID,
-            toolName: "taxtriage",
+            toolName: TaxTriageRecordFacts.toolName,
             toolVersion: result.config.revision,
             githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: result.config.revision),
             command: sampleCommand(for: result.config),
@@ -288,7 +288,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
         failedConfig.outputDirectory = outputDirectory
         await ProvenanceRecorder.shared.recordStep(
             runID: runID,
-            toolName: "taxtriage",
+            toolName: TaxTriageRecordFacts.toolName,
             toolVersion: failedConfig.revision,
             githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: failedConfig.revision),
             command: sampleCommand(for: failedConfig),
