@@ -2,14 +2,18 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.7 lane F3. The command the Operations panel records for the wizard's Kraken2 config,
-// `kraken2 classify` since decision E11, parsed by the shipped parser and run whole the way
-// `ClassifyCommand.run` runs it since lane A8: `Kraken2AnalysisRunTool` through
-// `AnalysisRunExecutor`. The config the executor hands `ClassificationPipeline` is rendered, as
-// the gui and cli columns render theirs, a stand-in kraken2 lets the run complete, and the
-// read-set plan is read from the root record through the one reader from its one home (E13), as
-// the EsViritu column reads it.
+// Phase 2.7 lane F3, wired to the command in Phase 2.8 lane Q4. The command the Operations panel
+// records for the wizard's Kraken2 config, `kraken2 classify` since decision E11, is parsed by the
+// shipped parser and run whole by `ClassifyCommand.execute`, the body `run()` calls. The column
+// replaces only the registry, the materializer and the pipeline, so the input expansion, the
+// destination, the cancel source, the events and the executor are the command's own and a change
+// to that wiring shows in the table. `--format json` gives the command no text presentation and
+// prints its events as JSON lines on standard output, where the column reads the `failed` one.
+// The config the executor hands `ClassificationPipeline` is rendered, as the gui and cli columns
+// render theirs, a stand-in kraken2 lets the run complete, and the read-set plan is read from the
+// root record through the one reader from its one home (E13), as the EsViritu column reads it.
 
+import ArgumentParser
 import Foundation
 import XCTest
 @testable import LungfishApp
@@ -26,49 +30,25 @@ extension ClassifierReadSetParityTests {
         let recorded = AppDelegate.classificationCLICommand(for: await kraken2WizardConfig(sample, run: run))
         let arguments = try RecordedCLICommand.arguments(of: recorded)
         XCTAssertEqual(Array(arguments.prefix(2)), ["kraken2", "classify"], "the row records kraken2 classify (E11)")
-        let command = try ClassifyCommand.parse(Array(arguments.dropFirst(2)))
+        let command = try ClassifyCommand.parse(Array(arguments.dropFirst(2)) + ["--format", "json"])
         let kraken2 = try StandInKraken2(root: run.appendingPathComponent("tool", isDirectory: true), database: databaseURL)
         let database = MetagenomicsDatabaseInfo(
             name: command.databaseName, tool: "kraken2", version: "1", sizeBytes: 1, catalogID: "kraken2-viral",
             installationRecipe: nil, payloadDigest: nil, description: "", path: databaseURL,
             status: .ready, recommendedRAM: 1
         )
-        var request = command.runRequest
-        request.commandPath = ["kraken2", "classify"]
-        let pipeline = ClassificationPipeline(condaManager: kraken2.condaManager)
         let handed = HandedConfig()
-        let tool = Kraken2AnalysisRunTool(request: request, services: Kraken2RunServices(
-            expandInputs: { arguments, recursive in
-                try CLIClassificationFolderResolver.expandInputArguments(arguments, recursive: recursive)
-            },
-            database: { _ in database },
-            availableDatabases: { [database] },
-            materializer: materializer(for: row),
-            runPipeline: { config, progress in
-                handed.set(config)
-                return config.goal == .profile
-                    ? try await pipeline.profile(config: config, progress: progress)
-                    : try await pipeline.classify(config: config, progress: progress)
-            }
-        ))
-        let failure = FailureReason()
         let output = URL(fileURLWithPath: try XCTUnwrap(command.outputDir), isDirectory: true)
-        let report = await AnalysisRunExecutor(
-            services: AnalysisRunServices(writer: ProvenanceWriter(signingProvider: nil))
-        ).execute(
-            tool,
-            AnalysisRunRequest(
-                inputs: command.fastqFiles.map { URL(fileURLWithPath: $0).standardizedFileURL },
-                destination: .directory(output),
-                groupsSamples: command.batch,
-                commandLine: [CLICommandIdentity.executableName] + arguments
-            ),
-            events: AnalysisRunEvents { line in
-                if case .failed(let message, _)? = line.event { failure.set(message) }
-            }
+        let (status, failure) = try await Self.executeWhole(
+            command,
+            eventsIn: run,
+            database: database,
+            materializer: materializer(for: row),
+            pipeline: ClassificationPipeline(condaManager: kraken2.condaManager),
+            handed: handed
         )
-        guard report.exitCode == 0 else {
-            return "\(report.exitCode == 3 ? "refused" : "exit \(report.exitCode)"): \(mask(failure.value ?? report.message))"
+        guard status == 0 else {
+            return "\(status == 3 ? "refused" : "exit \(status)"): \(mask(failure ?? "no reason"))"
         }
         let argv = try XCTUnwrap(handed.value, "the executor handed the pipeline no config").kraken2Arguments()
         let start = (argv.firstIndex(of: "--report-minimizer-data") ?? argv.endIndex - 1) + 1
@@ -83,6 +63,61 @@ extension ClassifierReadSetParityTests {
             planText = "outside resolvedDefaults, in \(plan.place)"
         }
         return try render(argv: argv, inputs: Array(argv[start...]), planText: planText, mask: mask)
+    }
+
+    /// Runs `command` whole through `ClassifyCommand.execute`, the body `run()` calls, and returns
+    /// its exit status with the reason on the last `failed` event it printed. `adjustServices`
+    /// replaces the registry lookup, the materializer and the pipeline, which hands `handed` the
+    /// config it was given, and leaves every other service as the command builds it. The events are
+    /// the JSON lines `--format json` prints on standard output, which goes to a file in `folder`
+    /// while the command runs, and the lines that are not events are skipped.
+    private nonisolated static func executeWhole(
+        _ command: ClassifyCommand,
+        eventsIn folder: URL,
+        database: MetagenomicsDatabaseInfo,
+        materializer: any CLISequenceInputMaterializing & Sendable,
+        pipeline: ClassificationPipeline,
+        handed: HandedConfig
+    ) async throws -> (status: Int32, failure: String?) {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let eventsFile = folder.appendingPathComponent("events-\(UUID().uuidString).jsonl")
+        FileManager.default.createFile(atPath: eventsFile.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: eventsFile)
+        fflush(stdout)
+        let savedStdout = dup(STDOUT_FILENO)
+        dup2(handle.fileDescriptor, STDOUT_FILENO)
+        var status: Int32 = 0
+        var thrown: Error?
+        do {
+            try await command.execute { services in
+                services.database = { _ in database }
+                services.availableDatabases = { [database] }
+                services.materializer = materializer
+                services.runPipeline = { config, progress in
+                    handed.set(config)
+                    return config.goal == .profile
+                        ? try await pipeline.profile(config: config, progress: progress)
+                        : try await pipeline.classify(config: config, progress: progress)
+                }
+            }
+        } catch let exit as ExitCode {
+            status = exit.rawValue
+        } catch {
+            thrown = error
+        }
+        fflush(stdout)
+        dup2(savedStdout, STDOUT_FILENO)
+        close(savedStdout)
+        try handle.close()
+        if let thrown { throw thrown }
+        let decoder = CLIEventLineDecoder()
+        let failures = String(decoding: try Data(contentsOf: eventsFile), as: UTF8.self)
+            .split(separator: "\n")
+            .compactMap { line -> String? in
+                guard case .failed(let message, _)? = (try? decoder.decodeLine(String(line)))?.event else { return nil }
+                return message
+            }
+        return (status, failures.last)
     }
 }
 
