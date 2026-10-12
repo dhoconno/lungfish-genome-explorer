@@ -379,70 +379,6 @@ final class FASTQBatchImporterTests: XCTestCase {
 
     // MARK: - Structured Logging
 
-    func testLogEventJSONEncodingSampleComplete() {
-        let event = ImportLogEvent.sampleComplete(
-            sample: "TestSample",
-            bundle: "TestSample.lungfishfastq",
-            durationSeconds: 42.5,
-            originalBytes: 1_000_000,
-            finalBytes: 500_000
-        )
-        let json = FASTQBatchImporter.encodeLogEvent(event)
-
-        XCTAssertTrue(json.hasPrefix("{"), "Should be a JSON object")
-        XCTAssertTrue(json.contains("\"sampleComplete\""), "Should contain event type")
-        XCTAssertTrue(json.contains("\"TestSample\""), "Should contain sample name")
-        XCTAssertTrue(json.contains("42.5") || json.contains("42"), "Should contain duration")
-        XCTAssertTrue(json.contains("1000000"), "Should contain original bytes")
-        XCTAssertTrue(json.contains("500000"), "Should contain final bytes")
-        XCTAssertTrue(json.contains("timestamp"), "Should contain timestamp")
-
-        // Verify parseable as JSON
-        let data = json.data(using: .utf8)!
-        XCTAssertNoThrow(try JSONSerialization.jsonObject(with: data))
-    }
-
-    func testLogEventImportStart() {
-        let event = ImportLogEvent.importStart(sampleCount: 10, recipeName: "Illumina VSP2")
-        let json = FASTQBatchImporter.encodeLogEvent(event)
-
-        XCTAssertTrue(json.contains("\"importStart\""))
-        XCTAssertTrue(json.contains("10"))
-        XCTAssertTrue(json.contains("Illumina VSP2"))
-
-        let data = json.data(using: .utf8)!
-        let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        XCTAssertNotNil(parsed)
-        XCTAssertEqual(parsed?["event"] as? String, "importStart")
-        XCTAssertEqual(parsed?["sampleCount"] as? Int, 10)
-        XCTAssertEqual(parsed?["recipeName"] as? String, "Illumina VSP2")
-    }
-
-    func testLogEventImportStartNoRecipe() {
-        let event = ImportLogEvent.importStart(sampleCount: 3, recipeName: nil)
-        let json = FASTQBatchImporter.encodeLogEvent(event)
-
-        XCTAssertTrue(json.contains("\"importStart\""))
-        // recipeName key should be absent when nil
-        XCTAssertFalse(json.contains("recipeName"))
-    }
-
-    func testLogEventNoticeJSONEncoding() throws {
-        let event = ImportLogEvent.notice(
-            sample: "Sample1",
-            message: "Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads."
-        )
-        let json = FASTQBatchImporter.encodeLogEvent(event)
-        let parsed = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
-
-        XCTAssertEqual(parsed["event"] as? String, "notice")
-        XCTAssertEqual(parsed["sample"] as? String, "Sample1")
-        XCTAssertEqual(
-            parsed["message"] as? String,
-            "Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads."
-        )
-    }
-
     func testIngestionNoticeAndResultUseTheSameClumpingResolution() async throws {
         final class InvocationRecorder: @unchecked Sendable {
             private let lock = NSLock()
@@ -516,31 +452,6 @@ final class FASTQBatchImporterTests: XCTestCase {
         }
     }
 
-    func testLogEventSampleSkip() {
-        let event = ImportLogEvent.sampleSkip(sample: "S1", reason: "Bundle already exists")
-        let json = FASTQBatchImporter.encodeLogEvent(event)
-        XCTAssertTrue(json.contains("\"sampleSkip\""))
-        XCTAssertTrue(json.contains("Bundle already exists"))
-    }
-
-    func testLogEventSampleFailed() {
-        let event = ImportLogEvent.sampleFailed(sample: "Bad", error: "Tool not found")
-        let json = FASTQBatchImporter.encodeLogEvent(event)
-        XCTAssertTrue(json.contains("\"sampleFailed\""))
-        XCTAssertTrue(json.contains("Tool not found"))
-    }
-
-    func testLogEventImportComplete() {
-        let event = ImportLogEvent.importComplete(
-            completed: 8, skipped: 2, failed: 1, totalDurationSeconds: 300.0
-        )
-        let json = FASTQBatchImporter.encodeLogEvent(event)
-        XCTAssertTrue(json.contains("\"importComplete\""))
-        XCTAssertTrue(json.contains("\"completed\""))
-        XCTAssertTrue(json.contains("\"skipped\""))
-        XCTAssertTrue(json.contains("\"failed\""))
-    }
-
     func testRecipeReadDeltaEventsEmitDeduplicationAndHumanScrubSummaries() throws {
         let info = RecipeAppliedInfo(
             recipeID: "vsp2-target-enrichment",
@@ -576,11 +487,6 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertEqual(outputReads, 720)
         XCTAssertEqual(readsRemoved, 280)
         XCTAssertEqual(percentRemoved, 28.0, accuracy: 0.001)
-
-        let json = FASTQBatchImporter.encodeLogEvent(events[0])
-        XCTAssertTrue(json.contains("\"recipeReadDelta\""))
-        XCTAssertTrue(json.contains("\"inputReads\":1000"))
-        XCTAssertTrue(json.contains("\"readsRemoved\":280"))
     }
 
     // MARK: - ImportConfig Construction

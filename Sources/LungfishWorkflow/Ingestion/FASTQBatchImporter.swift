@@ -19,7 +19,7 @@ public enum ImportLogEvent: Sendable {
         sample: String, platform: String, source: String, confidence: String,
         readClass: String?, evidence: [String], message: String
     )
-    /// `unpaired` names a run's third file joined to the pair, and the JSON omits it otherwise.
+    /// `unpaired` names a run's third file joined to the pair and is nil otherwise.
     case sampleStart(sample: String, index: Int, total: Int, r1: String, r2: String?, unpaired: String? = nil)
     case stepStart(sample: String, step: String, stepIndex: Int, totalSteps: Int)
     case stepComplete(sample: String, step: String, durationSeconds: Double)
@@ -440,96 +440,6 @@ public enum FASTQBatchImporter {
     }
 
     // MARK: - Structured Logging
-
-    /// Encodes a log event to a single JSON line.
-    public static func encodeLogEvent(_ event: ImportLogEvent) -> String {
-        var dict: [String: Any] = ["timestamp": ISO8601DateFormatter().string(from: Date())]
-
-        switch event {
-        case .importStart(let sampleCount, let recipeName):
-            dict["event"] = "importStart"
-            dict["sampleCount"] = sampleCount
-            if let name = recipeName { dict["recipeName"] = name }
-
-        case .platformResolved(let sample, let platform, let source, let confidence, let readClass, let evidence, let message):
-            dict["event"] = "platformResolved"
-            dict["sample"] = sample
-            dict["platform"] = platform
-            dict["source"] = source
-            dict["confidence"] = confidence
-            if let readClass { dict["readClass"] = readClass }
-            dict["evidence"] = evidence
-            dict["message"] = message
-
-        case .sampleStart(let sample, let index, let total, let r1, let r2, let unpaired):
-            dict["event"] = "sampleStart"
-            dict["sample"] = sample
-            dict["index"] = index
-            dict["total"] = total
-            dict["r1"] = r1
-            if let r2 { dict["r2"] = r2 }
-            if let unpaired { dict["unpaired"] = unpaired }
-
-        case .stepStart(let sample, let step, let stepIndex, let totalSteps):
-            dict["event"] = "stepStart"
-            dict["sample"] = sample
-            dict["step"] = step
-            dict["stepIndex"] = stepIndex
-            dict["totalSteps"] = totalSteps
-
-        case .stepComplete(let sample, let step, let durationSeconds):
-            dict["event"] = "stepComplete"
-            dict["sample"] = sample
-            dict["step"] = step
-            dict["durationSeconds"] = durationSeconds
-
-        case .notice(let sample, let message):
-            dict["event"] = "notice"
-            dict["sample"] = sample
-            dict["message"] = message
-
-        case .recipeReadDelta(let sample, let label, let inputReads, let outputReads, let readsRemoved, let percentRemoved):
-            dict["event"] = "recipeReadDelta"
-            dict["sample"] = sample
-            dict["label"] = label
-            dict["inputReads"] = inputReads
-            dict["outputReads"] = outputReads
-            dict["readsRemoved"] = readsRemoved
-            dict["percentRemoved"] = percentRemoved
-
-        case .sampleComplete(let sample, let bundle, let durationSeconds, let originalBytes, let finalBytes):
-            dict["event"] = "sampleComplete"
-            dict["sample"] = sample
-            dict["bundle"] = bundle
-            dict["durationSeconds"] = durationSeconds
-            dict["originalBytes"] = originalBytes
-            dict["finalBytes"] = finalBytes
-
-        case .sampleSkip(let sample, let reason):
-            dict["event"] = "sampleSkip"
-            dict["sample"] = sample
-            dict["reason"] = reason
-
-        case .sampleFailed(let sample, let error):
-            dict["event"] = "sampleFailed"
-            dict["sample"] = sample
-            dict["error"] = error
-
-        case .importComplete(let completed, let skipped, let failed, let totalDurationSeconds):
-            dict["event"] = "importComplete"
-            dict["completed"] = completed
-            dict["skipped"] = skipped
-            dict["failed"] = failed
-            dict["totalDurationSeconds"] = totalDurationSeconds
-        }
-
-        if let data = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]),
-           let line = String(data: data, encoding: .utf8) {
-            return line
-        }
-        // Fallback: plain string if JSON encoding fails
-        return "{\"event\":\"error\",\"message\":\"JSON encoding failed\"}"
-    }
 
     /// Writes a human-readable progress message to stderr.
     public static func printProgress(_ message: String) {
