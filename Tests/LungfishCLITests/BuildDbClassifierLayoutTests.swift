@@ -84,6 +84,13 @@ final class BuildDbClassifierLayoutTests: XCTestCase {
         for output in record.outputs {
             XCTAssertTrue(FileManager.default.fileExists(atPath: output.path), "The record names \(output.path)")
         }
+
+        // P1 of Phase 2.8, row 422. A removal step names the old paths of the moved BAM and index
+        // with the digests the move recorded, so the move's inputs are accounted for.
+        let cleanup = try XCTUnwrap(record.steps.first { $0.toolName == "Lungfish EsViritu Cleanup" })
+        XCTAssertEqual(cleanup.resolvedOptions["operation"], .string(RecordedRemovalStep.operation))
+        XCTAssertEqual(cleanup.inputs, move.inputs)
+        XCTAssertEqual(cleanup.outputs, [])
     }
 
     /// R4. A batch sample folder takes the sanitized id (`Patient_07`), and build-db reads a sample folder

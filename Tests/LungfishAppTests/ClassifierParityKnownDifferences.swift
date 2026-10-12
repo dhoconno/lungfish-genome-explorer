@@ -188,16 +188,6 @@ enum ClassifierParityKnownDifferences {
     private static let namedFiles: [ClassifierParityKnownDifference] = [
         namedFile(.a, [.k1: 1, .k3: 2, .k4: 1, .e1: 2, .e3: 2], "<project>/.tmp/* that does not exist",
                   "BIO D4, BIO D5. The GUI's materialized scratch input, which it deletes after the run", closedBy: retire),
-        // Landing 2 found both still matching after A7 landed. A7 records the move as a step of its
-        // own (E7), and build-db marks duplicates in place after it, a recorded step too, but the
-        // records written before them keep the old path and digest. Side C shows the same through
-        // the CLI route's finalize (ClassifierParityKnownDifferences+RouteC).
-        namedFile(.a, [.e1: 6, .e2: 6, .e3: 20], "*/*_temp/*.third.filt.sorted.bam* that does not exist",
-                  "build-db esviritu moves the BAM and its index to bams/ and then marks duplicates in place, both recorded steps, so the records written before them still name them in _temp/",
-                  closedBy: bamRelocation),
-        namedFile(.a, [.e1: 3, .e2: 3, .e3: 10], "*/bams/*.third.filt.sorted.bam with another digest",
-                  "build-db esviritu marks duplicates in the BAM in bams/ after the move, so it holds other bytes than the digest the records written before the markdup state, the digest from before it",
-                  closedBy: bamRelocation),
     ]
 
     /// One line per found difference that no entry declares, and per entry that matches another

@@ -134,6 +134,12 @@ final class BuildDbSamtoolsProvenanceTracker {
                 throw MarkdupError.corruptOutput(reason: "output BAM missing or empty at \(tempBamURL.path)")
             }
 
+            // The markdup output replaces the BAM in place and its old index goes, so a step names
+            // them, since earlier steps name their earlier bytes (P1 of Phase 2.8, row 422).
+            let replaced = [originalInput] + [finalBaiURL, finalCsiURL].compactMap { url in
+                fm.fileExists(atPath: url.path) ? try? descriptor(url: url, format: nil, role: .index) : nil
+            }
+            let replacementClock = ProvenanceRunClock()
             try? fm.removeItem(at: finalBaiURL)
             try? fm.removeItem(at: finalCsiURL)
             _ = try fm.replaceItemAt(bamURL, withItemAt: tempBamURL)
@@ -153,6 +159,12 @@ final class BuildDbSamtoolsProvenanceTracker {
                 pipelineResult: pipelineResult,
                 invocations: invocations
             )
+            if let removal = RecordedRemovalStep.step(
+                toolName: "Lungfish Markdup Replacement", api: "FileManager.replaceItemAt(_:withItemAt:)",
+                removing: replaced, clock: replacementClock
+            ) {
+                collector.recordedSteps.append(removal)
+            }
 
             let total = try await countReads(bamURL: bamURL, accession: nil, flagFilter: 0x004)
             let nonDuplicate = try await countReads(bamURL: bamURL, accession: nil, flagFilter: 0x404)

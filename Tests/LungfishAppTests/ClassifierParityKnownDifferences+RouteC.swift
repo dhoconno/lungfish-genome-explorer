@@ -15,25 +15,12 @@
 import Foundation
 
 extension ClassifierParityKnownDifferences {
-    static let routeC: [ClassifierParityKnownDifference] = aAgainstC + commandFacts
-
-    /// The BAM relocation and duplicate marking of `build-db esviritu`, which the legacy GUI's
-    /// build-db step and the CLI route's finalize share.
-    static let bamRelocation = "2.8, build-db esviritu records the moved and deduplicated BAM. The core moves EsViritu's BAM and its index from _temp/ to bams/ and then marks duplicates in place, both recorded steps, so the records written before them name _temp/ and the digest from before the markdup. Both routes run the core, so its fix moves sides A, C and C' together"
+    static let routeC: [ClassifierParityKnownDifference] = aAgainstC
 
     private static func aAgainstC(
         _ counts: [ClassifierParityCase: Int], _ id: String, _ reason: String, closedBy: String = retire
     ) -> ClassifierParityKnownDifference {
         ClassifierParityKnownDifference(counts: counts, scope: .pair(.a, .c), id: id, reason: reason, closedBy: closedBy)
-    }
-
-    /// A fixed fact the command's run does not hold, on side C and on side C'.
-    private static func commandFact(
-        _ counts: [ClassifierParityCase: Int], _ id: String, _ reason: String, closedBy: String
-    ) -> [ClassifierParityKnownDifference] {
-        [ClassifierParitySide.c, .cPrime].map {
-            ClassifierParityKnownDifference(counts: counts, scope: .side($0), id: id, reason: reason, closedBy: closedBy)
-        }
     }
 
     // MARK: A against C
@@ -122,15 +109,4 @@ extension ClassifierParityKnownDifferences {
         aAgainstC([.k3: 1, .e1: 1, .e2: 1, .e3: 1], "record *: stderr",
             "The GUI record keeps EsViritu's log as the run's stderr, and the root record keeps it on the EsViritu step"),
     ]
-
-    // MARK: Facts of the command's runs
-
-    /// Review F2 fix 5 asked side C to hold the named-file fact with nothing declared. These are
-    /// defects of code both routes share, so they show on side C and side C' as on side A.
-    private static let commandFacts: [ClassifierParityKnownDifference] = [
-        commandFact([.e1: 8, .e2: 8, .e3: 24], "fact: record * names *_temp/*.third.filt.sorted.bam* that does not exist",
-            "build-db esviritu moves EsViritu's BAM and its index from _temp/ to bams/ and then marks duplicates in place, both recorded steps (A7, E7), so every record written before them still names the BAM and its index in _temp/", closedBy: bamRelocation),
-        commandFact([.e1: 5, .e2: 5, .e3: 14], "fact: record * names */bams/*.third.filt.sorted.bam* with another digest",
-            "build-db esviritu marks duplicates in the BAM in bams/ after the move, so the BAM and its index hold other bytes than the digest the records written before the markdup state, the digest of the file from before it", closedBy: bamRelocation),
-    ].flatMap { $0 }
 }

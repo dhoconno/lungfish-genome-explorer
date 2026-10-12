@@ -67,6 +67,7 @@ extension BuildDbCommand {
             let samtoolsProvenance = BuildDbSamtoolsProvenanceCollector()
             let databaseSnapshot = try BuildDbDatabaseSnapshot.capture(dbURL: dbURL)
             var relocationSteps: [ProvenanceStep] = []
+            var cleanupSteps: [ProvenanceStep] = []
 
             do {
                 // 1. Enumerate sample subdirectories containing detection TSVs
@@ -153,9 +154,18 @@ extension BuildDbCommand {
                     provenance: samtoolsProvenance
                 )
 
+                let cleanupClock = ProvenanceRunClock()
                 if !options.noCleanup {
                     performCleanup(resultURL: resultURL, events: events)
                 }
+                // The move left nothing at the BAMs' old paths in `_temp/`, which the records name, so a
+                // step names each with the digest the move recorded (P1 of Phase 2.8, row 422).
+                cleanupSteps = RecordedRemovalStep.step(
+                    toolName: "Lungfish EsViritu Cleanup",
+                    api: "BuildDbCommand.EsVirituSubcommand.relocateEsVirituBAMs(resultURL:)",
+                    removing: relocationSteps.flatMap(\.inputs).filter { !FileManager.default.fileExists(atPath: $0.path) },
+                    clock: cleanupClock
+                ).map { [$0] } ?? []
 
                 let record = try await BuildDbCommand.recordBuildDbProvenance(
                     tool: .esViritu,
@@ -166,7 +176,7 @@ extension BuildDbCommand {
                     globalOptions: options.globalOptions,
                     runClock: runClock,
                     inputRecords: provenanceInputs,
-                    additionalSteps: relocationSteps + samtoolsProvenance.steps,
+                    additionalSteps: relocationSteps + samtoolsProvenance.steps + cleanupSteps,
                     writesFolderRecord: options.writesFolderRecord,
                     events: events
                 )
@@ -188,7 +198,7 @@ extension BuildDbCommand {
                     runClock: runClock,
                     inputRecords: provenanceInputs,
                     error: error,
-                    additionalSteps: relocationSteps + samtoolsProvenance.steps,
+                    additionalSteps: relocationSteps + samtoolsProvenance.steps + cleanupSteps,
                     includeOutputRecords: false,
                     writesFolderRecord: options.writesFolderRecord,
                     events: events
