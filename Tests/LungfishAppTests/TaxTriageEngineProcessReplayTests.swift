@@ -1,0 +1,350 @@
+// TaxTriageEngineProcessReplayTests.swift - Pins of TaxTriage's engine process before it moves onto the shared engine
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+//
+// Phase 2.9 lane S9, milestone M1, panel decisions N5 to N9. Milestone M2 moves TaxTriage onto
+// `NextflowEngineProcess` (Sources/LungfishWorkflow/Nextflow), so these cases pin, on
+// `TaxTriageStandInEngine`, what the move keeps and what it fixes.
+//
+// Plain pins of today's behaviour, which M2 keeps.
+// - A cancel stops the whole tree after the 4 s grace and records `cancelled` with exit 125, in the
+//   order host tree, then record, then scratch (N5, N6, N7).
+// - `nextflow.log` holds the launch metadata, then `--- stdout ---` and the stdout lines, then
+//   `--- stderr ---` and the stderr lines (N8, today's bytes).
+//
+// `XCTExpectFailure` pins of today's defects, which M2 fixes and turns into plain assertions.
+// - E9. A cancel during the Docker wait is swallowed by `try?` on its sleep.
+// - E10. A cancel before the launch still starts the engine.
+// - A KILL leaves no `nextflow.log`, because the log is written once the engine returns (Q15 R3).
+//
+// The cases start processes, so the class runs serially. Its name ends in ReplayTests, which sends it
+// to the integration tier (`REPLAY_SUITES` in scripts/full-suite-gate.sh).
+
+import Darwin
+import Foundation
+import LungfishCore
+import LungfishIO
+import LungfishTestSupport
+@testable import LungfishWorkflow
+import Synchronization
+import XCTest
+
+final class TaxTriageEngineProcessReplayTests: XCTestCase {
+    private var scratch: URL!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        scratch = try TestTempDirectory.make(prefix: "taxtriage-engine-pins")
+    }
+
+    override func tearDown() async throws {
+        TestTempDirectory.cleanup(scratch)
+        try await super.tearDown()
+    }
+
+    // MARK: - Plain pins
+
+    func testACancelStopsTheTreeAfterTheGraceThenRecordsTheCancelThenRemovesTheScratch() async throws {
+        let engine = try makeEngine(.trapsTermWithHeartbeatChild)
+        let config = try makeConfig([("C1", 2)], output: "order")
+
+        let run = Task { try await engine.makePipeline().run(config: config) }
+        let started = await engine.waitForLaunch()
+        let launch = try XCTUnwrap(started, "the launch never started")
+        let engineID = try XCTUnwrap(launch.processIdentifier)
+        let childID = try XCTUnwrap(launch.childProcessIdentifier)
+        let watcher = Self.watchCancelOrder(
+            record: config.outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+            scratch: launch.workingDirectory,
+            tree: [engineID, childID]
+        )
+
+        let clock = ContinuousClock()
+        let cancelledAt = clock.now
+        run.cancel()
+        let outcome = await run.result
+        let waited = clock.now - cancelledAt
+        let treeRunsAfterTheRun = Self.isRunning(engineID) || Self.isRunning(childID)
+        let order = await watcher.value
+        let record = try ProvenanceEnvelopeReader.load(from: config.outputDirectory)
+        let step = record?.steps.first { $0.toolName == "taxtriage" }
+
+        XCTAssertTrue(outcome.failure is CancellationError, "\(String(describing: outcome.failure))")
+        XCTAssertGreaterThanOrEqual(waited, .milliseconds(3500), "the tree has its 4 s grace before KILL (N6)")
+        XCTAssertFalse(treeRunsAfterTheRun, "no process of the engine tree outlives the run")
+        XCTAssertEqual(record?.status, .cancelled, "the record says cancelled, from the request")
+        XCTAssertEqual(record?.exitStatus, 125, "a cancel records exit 125, never the signal that ended the engine")
+        XCTAssertEqual(step?.exitStatus, 125)
+        XCTAssertEqual(step?.outputs.map(\.path) ?? ["no step"], [], "a cancel hashes no partial output")
+        // N5 and N7. The host tree goes first, then the record is written, then the scratch goes.
+        XCTAssertEqual(order.treeRanWhenTheRecordAppeared, false, "the record is written only once the tree is gone")
+        XCTAssertEqual(order.recordMissingWhenTheScratchWent, false, "the scratch goes only once the record is written")
+    }
+
+    func testTheLogHoldsTheLaunchMetadataThenEachStreamUnderItsHeading() async throws {
+        let engine = try makeEngine(.failsSamples(["L2"]))
+        let completed = try makeConfig([("L1", 2)], output: "completed")
+        let failed = try makeConfig([("L2", 2)], output: "failed")
+
+        _ = try await engine.makePipeline().run(config: completed)
+        let failure = await Task { try await engine.makePipeline().run(config: failed) }.result
+
+        XCTAssertNotNil(failure.failure, "the failing sample fails its run")
+        let task = "NFCORE_TAXTRIAGE:TAXTRIAGE:KRAKEN2_KRAKEN2"
+        let banner = ["N E X T F L O W  ~  version 25.04.6", "Launching jhuapl-bio/taxtriage [stand-in] DSL2"]
+        XCTAssertEqual(
+            try Self.log(in: completed.outputDirectory),
+            try Self.launchMetadata(in: completed.outputDirectory)
+                + "\n--- stdout ---\n"
+                + (banner + [
+                    "[aa/000001] Submitted process > \(task) (L1)",
+                    "[aa/000001] process > \(task) (L1) [100%] 1 of 1",
+                    "-[nf-core/taxtriage] Pipeline completed successfully-",
+                ]).joined(separator: "\n")
+                + "\n--- stderr ---\n",
+            "a completed run logs its stdout lines and an empty stderr part"
+        )
+        XCTAssertEqual(
+            try Self.log(in: failed.outputDirectory),
+            try Self.launchMetadata(in: failed.outputDirectory)
+                + "\n--- stdout ---\n"
+                + (banner + [
+                    "[aa/000001] Submitted process > \(task) (L2)",
+                    "-[nf-core/taxtriage] Pipeline completed with errors-",
+                ]).joined(separator: "\n")
+                + "\n--- stderr ---\n"
+                + "ERROR ~ Error executing process > '\(task) (L2)'",
+            "a failed run logs both streams, each line once, with no line break after the last"
+        )
+    }
+
+    // MARK: - Pins of today's defects
+
+    func testACancelDuringTheDockerWaitEndsTheRunAtOnce() async throws {
+        let engine = try makeEngine(.completes)
+        var config = try makeConfig([("D1", 2)], output: "docker")
+        config.profile = "docker"
+        let probe = UnreachableDockerProbe()
+        let home = engine.home
+        let pipeline = TaxTriagePipeline(
+            condaManager: engine.condaManager,
+            homeDirectoryProvider: { home },
+            appIdentity: .preview,
+            containerRuntimeProbe: probe
+        )
+
+        let outcome = await Task {
+            try await pipeline.run(config: config) { _, message in
+                // The wait says this before it runs `open`, so the cancel lands first and the run
+                // never asks macOS to start Docker Desktop.
+                if message == "Docker daemon unavailable. Launching Docker Desktop..." {
+                    withUnsafeCurrentTask { $0?.cancel() }
+                }
+            }
+        }.result
+
+        XCTAssertEqual(try engine.launches().count, 0, "no engine starts once the run is cancelled")
+        XCTExpectFailure(
+            "E9. The wait swallows the cancel with try? on its sleep, asks the daemon without a pause until its 90 s count runs out and fails as a missing prerequisite. S9 M2 moves TaxTriage onto the engine's wait."
+        ) {
+            XCTAssertTrue(outcome.failure is CancellationError, "\(String(describing: outcome.failure))")
+            XCTAssertLessThanOrEqual(probe.daemonQueries, 2, "a cancelled wait stops asking the daemon")
+        }
+    }
+
+    func testACancelBeforeTheLaunchStartsNoEngine() async throws {
+        let engine = try makeEngine(.completes)
+        let config = try makeConfig([("E1", 2)], output: "early")
+        let observed = LaunchedStages()
+
+        let outcome = await Task {
+            try await ToolProcessObservation.$observer.withValue(observed.observer) {
+                try await engine.makePipeline().run(config: config) { _, message in
+                    // The last progress line before the launch, after the prerequisites and the samplesheet.
+                    if message == "Starting TaxTriage pipeline..." {
+                        withUnsafeCurrentTask { $0?.cancel() }
+                    }
+                }
+            }
+        }.result
+        let record = try ProvenanceEnvelopeReader.load(from: config.outputDirectory)
+
+        XCTAssertTrue(outcome.failure is CancellationError, "\(String(describing: outcome.failure))")
+        XCTAssertEqual(record?.status, .cancelled, "a cancelled run records the cancel")
+        XCTAssertEqual(record?.exitStatus, 125)
+        XCTExpectFailure(
+            "E10. Nothing checks the task between the prerequisites and the launch, so the engine starts and is stopped at once. S9 M2 checks the task before the spawn."
+        ) {
+            XCTAssertEqual(observed.launchedCount(label: "micromamba"), 0, "a cancel before the launch starts no engine")
+        }
+    }
+
+    func testTheLogHoldsTheLinesSoFarWhileTheEngineRuns() async throws {
+        let engine = try makeEngine(.waitsUntilCancelled)
+        let config = try makeConfig([("K1", 2)], output: "kill")
+        let logFile = config.outputDirectory.appendingPathComponent("nextflow.log")
+        let linesSoFar = "\n--- stdout ---\nN E X T F L O W  ~  version 25.04.6\nLaunching jhuapl-bio/taxtriage [stand-in] DSL2"
+
+        let run = Task { try await engine.makePipeline().run(config: config) }
+        let started = await engine.waitForLaunch()
+        XCTAssertNotNil(started, "the launch never started")
+        // The stand-in prints both lines once it is marked started, then waits for the cancel.
+        let streamed = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(50)) {
+            (try? String(contentsOf: logFile, encoding: .utf8))?.hasSuffix(linesSoFar) == true
+        }
+        let logWhileRunning = try? String(contentsOf: logFile, encoding: .utf8)
+        let metadata = try Self.launchMetadata(in: config.outputDirectory)
+        run.cancel()
+        _ = await run.result
+
+        XCTExpectFailure(
+            "A KILL of the CLI or the app leaves no nextflow.log, because the log is written once the engine returns (Q15 R3). S9 M2 streams each line into it."
+        ) {
+            XCTAssertTrue(streamed, "each stdout line reaches nextflow.log while the engine runs, so a KILL leaves it")
+            // Compared as a Bool, so the expected failure does not print the whole launch metadata.
+            XCTAssertTrue(
+                logWhileRunning == metadata + linesSoFar,
+                "the log holds the launch metadata and the stdout so far, and no stderr part, which joins only at the end (API risk 3)"
+            )
+        }
+    }
+
+    // MARK: - Helpers
+
+    /// The engine for one case, stopped in teardown so no stand-in outlives a case that fails.
+    private func makeEngine(_ behaviour: TaxTriageStandInEngine.Behaviour) throws -> TaxTriageStandInEngine {
+        let engine = try TaxTriageStandInEngine(
+            root: scratch.appendingPathComponent("engine", isDirectory: true),
+            behaviour: behaviour
+        )
+        addTeardownBlock { await engine.stopLeftoverProcesses() }
+        return engine
+    }
+
+    /// A stand-in run of one single-end FASTQ per sample into `output` under the scratch folder.
+    private func makeConfig(_ samples: [(id: String, records: Int)], output: String) throws -> TaxTriageConfig {
+        TaxTriageConfig(
+            samples: try samples.map {
+                TaxTriageSample(sampleId: $0.id, fastq1: try writeFASTQ("\($0.id).fastq", records: $0.records))
+            },
+            outputDirectory: scratch.appendingPathComponent(output, isDirectory: true),
+            kraken2DatabasePath: try makeDatabaseFolder(),
+            maxCpus: 2,
+            profile: TaxTriageStandInEngine.profile
+        )
+    }
+
+    /// A FASTQ of `records` four-line records whose names never pair, so no input reads as interleaved.
+    private func writeFASTQ(_ name: String, records: Int) throws -> URL {
+        let folder = scratch.appendingPathComponent("reads", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent(name)
+        let stem = url.deletingPathExtension().lastPathComponent
+        let text = (1...records).map { "@\(stem)-read-\($0)\nACGTACGTAC\n+\nIIIIIIIIII\n" }.joined()
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    /// A Kraken2 database folder. The stand-in never reads it, but the pipeline checks it exists.
+    private func makeDatabaseFolder() throws -> URL {
+        let folder = scratch.appendingPathComponent("kraken2-db", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
+
+    private static func log(in outputDirectory: URL) throws -> String {
+        try String(contentsOf: outputDirectory.appendingPathComponent("nextflow.log"), encoding: .utf8)
+    }
+
+    /// The launch metadata the pipeline writes before the launch, the first part of its log.
+    private static func launchMetadata(in outputDirectory: URL) throws -> String {
+        try String(contentsOf: outputDirectory.appendingPathComponent("taxtriage-launch-command.txt"), encoding: .utf8)
+    }
+
+    /// Whether `pid` names a process that has not exited. A zombie only waits to be reaped, so it has exited.
+    nonisolated private static func isRunning(_ pid: Int32) -> Bool {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&name, UInt32(name.count), &info, &size, nil, 0) == 0, size > 0 else { return false }
+        return Int32(info.kp_proc.p_stat) != SZOMB
+    }
+
+    /// What the watcher of a cancel saw, each nil when its moment never came.
+    private struct CancelOrder: Sendable {
+        var treeRanWhenTheRecordAppeared: Bool?
+        var recordMissingWhenTheScratchWent: Bool?
+    }
+
+    /// Polls every 5 ms until the record has appeared and the scratch has gone, or 60 s pass. It reads
+    /// the record before the tree and the scratch before the record, so a process that ends, or a
+    /// record that is written, between two reads never reads as the defect.
+    nonisolated private static func watchCancelOrder(record: URL, scratch: String, tree: [Int32]) -> Task<CancelOrder, Never> {
+        Task.detached {
+            var order = CancelOrder()
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(60))
+            while clock.now < deadline {
+                if order.treeRanWhenTheRecordAppeared == nil, FileManager.default.fileExists(atPath: record.path) {
+                    order.treeRanWhenTheRecordAppeared = tree.contains { isRunning($0) }
+                }
+                if order.recordMissingWhenTheScratchWent == nil, !FileManager.default.fileExists(atPath: scratch) {
+                    order.recordMissingWhenTheScratchWent = !FileManager.default.fileExists(atPath: record.path)
+                }
+                if order.treeRanWhenTheRecordAppeared != nil, order.recordMissingWhenTheScratchWent != nil {
+                    return order
+                }
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+            return order
+        }
+    }
+}
+
+/// A Docker probe whose daemon never answers, counting how often it is asked.
+private final class UnreachableDockerProbe: ContainerRuntimeProbing, Sendable {
+    private let queries = Mutex(0)
+
+    var daemonQueries: Int { queries.withLock { $0 } }
+
+    func dockerCLIPath() -> String? { "/usr/local/bin/docker" }
+
+    func dockerDaemon(dockerPath: String, timeout: TimeInterval) async -> DockerDaemonProbe {
+        queries.withLock { $0 += 1 }
+        return DockerDaemonProbe(
+            reachable: false,
+            clientVersion: "28.3.2",
+            serverVersion: nil,
+            detail: "Cannot connect to the Docker daemon"
+        )
+    }
+
+    func appleContainerRuntime() async -> AppleContainerProbe {
+        AppleContainerProbe(frameworkAvailable: false, runtimeReady: false, detail: nil)
+    }
+}
+
+/// The stages of the ToolProcess runs built while its observer is bound, by label and whether each
+/// process was spawned.
+private final class LaunchedStages: Sendable {
+    private let stages = Mutex<[(label: String, launched: Bool)]>([])
+
+    var observer: ToolProcessObserver {
+        ToolProcessObserver { observation in
+            let entries = observation.stages.map { stage in (label: stage.label, launched: stage.ending.launched) }
+            self.stages.withLock { $0 += entries }
+        }
+    }
+
+    func launchedCount(label: String) -> Int {
+        stages.withLock { $0.filter { $0.label == label && $0.launched }.count }
+    }
+}
+
+private extension Result {
+    /// The error of a failed result, else nil.
+    var failure: Failure? {
+        if case .failure(let error) = self { return error }
+        return nil
+    }
+}
