@@ -65,6 +65,32 @@ final class BrackenThresholdPreflightLiveConformanceTests: XCTestCase {
         }
     }
 
+    /// The preflight decides as the managed Bracken does, on the same bytes, for every case. Bracken
+    /// exits 0 exactly when the preflight passes, and when Bracken finds no reads the preflight
+    /// degrades with `belowThreshold`.
+    func testThePreflightDecidesAsTheManagedBrackenDoes() async throws {
+        let live = try await LiveBracken.make()
+        let resolution = BrackenDatabaseCapabilities.resolve(
+            catalogID: nil, installationRecipe: nil, request: .automaticDefault
+        )
+        XCTAssertEqual(resolution.rank, .species)
+        XCTAssertEqual(resolution.threshold, Self.threshold)
+
+        for testCase in Self.cases {
+            let outcome = try live.run(report: testCase.report, threshold: Self.threshold)
+            let tree = try KreportParser.parse(text: testCase.report)
+            let failure = BrackenReportCheck.failure(in: tree, resolution: resolution)
+            XCTAssertEqual(
+                failure == nil, outcome.status == 0,
+                "\(testCase.name): the preflight \(failure?.1 ?? "passes") and Bracken exited \(outcome.status)"
+            )
+            XCTAssertEqual(outcome.status == 0, testCase.kept, testCase.name)
+            if outcome.status != 0 {
+                XCTAssertEqual(failure?.0, .belowThreshold, testCase.name)
+            }
+        }
+    }
+
     // MARK: - Reports
 
     /// A Kraken2 report of one viral species at rank S. `species` is its clade count and `direct`

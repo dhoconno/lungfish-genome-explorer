@@ -1529,11 +1529,9 @@ public actor ClassificationPipeline {
             // at argument parsing, and never silently rewrite D to K: they are
             // distinct ranks and a report routinely contains both.
             failure = (.unsupportedRank, diagnostic)
-        } else if tree.nodes(at: resolution.rank).isEmpty {
-            failure = (
-                .rankAbsentFromReport,
-                "The Kraken report has no rows at resolved rank \(resolution.rank.code) (\(resolution.rank.displayName))."
-            )
+        } else if let reportFailure = BrackenReportCheck.failure(in: tree, resolution: resolution) {
+            // No row at the rank, or no row that reaches the threshold: Bracken's own check.
+            failure = reportFailure
         } else if let diagnostic = brackenDistributionDiagnostic(at: distributionURL) {
             failure = (.distributionUnavailable, diagnostic)
         } else {

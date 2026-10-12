@@ -168,6 +168,42 @@ public enum BrackenDatabaseCapabilities {
     }
 }
 
+/// What the Kraken report allows Bracken to estimate, decided before Bracken runs.
+///
+/// The rules are those of the managed Bracken's own check in `est_abundance.py`. It keeps a taxon
+/// whose rank code is the resolved level and whose clade count, the reads of the taxon and of
+/// everything below it (column 2 of the report), is not below the threshold. A taxon at the
+/// threshold is kept. A strain below a species (rank S1) is not at species level, and a taxon
+/// above the level counts for nothing, however many reads it holds. Bracken exits 1 with "no reads
+/// found" when it keeps none, and this check finds that case first. The live pin is
+/// `BrackenThresholdPreflightLiveConformanceTests`, which holds each rule against the managed tool
+/// one read below the threshold, at it and one read above.
+enum BrackenReportCheck {
+
+    /// The reason the report cannot be profiled at `resolution` with the message that goes with
+    /// it, or nil when Bracken has at least one taxon to estimate.
+    static func failure(
+        in tree: TaxonTree,
+        resolution: BrackenProfileResolution
+    ) -> (BrackenProfileDegradationReason, String)? {
+        let atRank = tree.nodes(at: resolution.rank)
+        guard !atRank.isEmpty else {
+            return (
+                .rankAbsentFromReport,
+                "The Kraken report has no rows at resolved rank \(resolution.rank.code) (\(resolution.rank.displayName))."
+            )
+        }
+        let most = atRank.map(\.readsClade).max() ?? 0
+        guard most < resolution.threshold else { return nil }
+        let rank = resolution.rank.displayName.lowercased()
+        return (
+            .belowThreshold,
+            "No \(rank) reaches the Bracken threshold of \(resolution.threshold) reads. "
+                + "The \(rank) with the most reads has \(most)."
+        )
+    }
+}
+
 public enum BrackenProfileState: String, Sendable, Codable, Equatable {
     case notRequested
     case completed
@@ -194,6 +230,11 @@ public enum BrackenProfileDegradationReason: Sendable, Hashable, Codable, RawRep
     case outputMissing
     case outputInvalid
 
+    /// No taxon at the resolved rank has enough reads to pass Bracken's threshold, so Bracken was
+    /// not run. Builds before Phase 2.9 never wrote it. 2026.10.15 and later read it as
+    /// ``unknown(_:)`` and open the result, and 2026.10.14 does not open it.
+    case belowThreshold
+
     /// A reason this build does not know, held exactly as it was stored.
     case unknown(String)
 
@@ -208,6 +249,7 @@ public enum BrackenProfileDegradationReason: Sendable, Hashable, Codable, RawRep
         case "toolFailed": self = .toolFailed
         case "outputMissing": self = .outputMissing
         case "outputInvalid": self = .outputInvalid
+        case "belowThreshold": self = .belowThreshold
         default: self = .unknown(rawValue)
         }
     }
@@ -222,6 +264,7 @@ public enum BrackenProfileDegradationReason: Sendable, Hashable, Codable, RawRep
         case .toolFailed: return "toolFailed"
         case .outputMissing: return "outputMissing"
         case .outputInvalid: return "outputInvalid"
+        case .belowThreshold: return "belowThreshold"
         case .unknown(let token): return token
         }
     }

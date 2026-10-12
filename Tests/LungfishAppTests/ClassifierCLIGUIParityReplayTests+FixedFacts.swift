@@ -155,12 +155,17 @@ extension ClassifierCLIGUIParityReplayTests {
         }
     }
 
-    /// What Bracken did, from the fixtures alone (F2 bio ruling 1). K5's report has no species
-    /// row, so the preflight degrades the profile with exit 2 before Bracken runs. K6's one
-    /// species holds five reads, under the threshold of ten, so Bracken runs and its
-    /// est_abundance finds no reads. The installed `bracken` driver then exits 1, not 0 as the
-    /// ruling read it, so the pipeline degrades with `toolFailed`, on both routes alike. Every
-    /// other profile runs Bracken at species level.
+    /// The words K6 degrades with, from its fixture alone. Its one species holds five reads, under
+    /// the threshold of ten.
+    static let lowSignalMessage = "No species reaches the Bracken threshold of 10 reads. The species with the most reads has 5."
+
+    /// What Bracken did, from the fixtures alone (F2 bio ruling 1, row 255 of the Phase 2.8 plan).
+    /// K5's report has no species row, so the preflight degrades the profile with exit 2 before
+    /// Bracken runs. K6's one species holds five reads, under the threshold of ten. Until Phase 2.9
+    /// Bracken ran there, est_abundance found no reads, the installed `bracken` driver exited 1 and
+    /// the pipeline degraded with `toolFailed`. The preflight now takes its count, comparison and
+    /// rank from est_abundance's own check, so K6 degrades with `belowThreshold` and exit 2 before
+    /// Bracken runs, on both routes alike. Every other profile runs Bracken at species level.
     private func brackenViolations(
         _ parityCase: ClassifierParityCase,
         folder: URL,
@@ -190,9 +195,12 @@ extension ClassifierCLIGUIParityReplayTests {
                 violate("records the Bracken preflight with exit 2 and its reason", steps.map(stepText).joined(separator: ", "))
             }
         case .k6:
-            degradedReason = .toolFailed
-            if !ran("bracken", exit: 1, saying: "Error: no reads found. Please check your Kraken report") {
-                violate("records Bracken's exit 1 and its no reads found", steps.map(stepText).joined(separator: ", "))
+            degradedReason = .belowThreshold
+            if !bracken.isEmpty {
+                violate("runs no Bracken", bracken.map { $0.joined(separator: " ") }.joined(separator: "; "))
+            }
+            if !ran("Lungfish Bracken Preflight", exit: 2, saying: Self.lowSignalMessage) {
+                violate("records the Bracken preflight with exit 2 and its reason", steps.map(stepText).joined(separator: ", "))
             }
         default:
             degradedReason = nil
@@ -303,17 +311,13 @@ extension ClassifierCLIGUIParityReplayTests {
                 // unclassified line, so both controls complete with a degraded Bracken profile:
                 // no alert, the viewer loads the result, the folder stays, and one warning line
                 // names the reason.
-                // K6's reason is Bracken's stderr, which names its scratch report first.
+                // Both reasons come from the preflight, so both are the same words on every route.
+                // K6 held Bracken's stderr until Phase 2.9, which named its scratch report first.
                 let reason = parityCase == .k5
                     ? "The Kraken report has no rows at resolved rank S (Species)."
-                    : "Error: no reads found. Please check your Kraken report"
+                    : Self.lowSignalMessage
                 check("state", row.stateLabel, "Completed with Warnings")
-                let detail = "\(classified); Bracken profiling degraded at resolved rank S: "
-                if parityCase == .k5 {
-                    check("completion detail", row.completionDetail, detail + reason)
-                } else if !row.completionDetail.hasPrefix(detail) || !row.completionDetail.contains(reason) {
-                    check("completion detail", row.completionDetail, detail + "<Bracken's stderr with> " + reason)
-                }
+                check("completion detail", row.completionDetail, "\(classified); Bracken profiling degraded at resolved rank S: " + reason)
                 let warnings = row.logLines.filter { $0.level == "warning" || $0.level == "error" }
                 if warnings.count != 1 || warnings.first?.message.contains(reason) != true {
                     violations.append(ClassifierParityDifference(

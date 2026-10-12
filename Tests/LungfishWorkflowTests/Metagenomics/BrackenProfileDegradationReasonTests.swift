@@ -14,13 +14,14 @@ import XCTest
 
 final class BrackenProfileDegradationReasonTests: XCTestCase {
 
-    /// The raw value Phase 2.9 writes. Once a build knows it, these tests still hold, because they
-    /// read its token and never its case. `futureReason` is the token for the case check.
+    /// The raw value Phase 2.9 writes. This build knows it, and these tests still hold, because
+    /// they read its token and never its case. `futureReason` is the token for the case check.
     private let laterReason = "belowThreshold"
     private let futureReason = "aReasonNoReleaseNamesYet"
     private let message = "No taxon at species level reaches the threshold of 10 reads."
 
-    /// The seven tokens released builds wrote. Each is stored in sidecars already on disk, so a
+    /// The eight tokens builds write. The first seven are stored in sidecars that released builds
+    /// wrote, and `belowThreshold` is stored in the ones the Preview after 2026.10.15 writes. A
     /// change to one is a defect. Adding a reason adds a row.
     private let releasedTokens: [(BrackenProfileDegradationReason, String)] = [
         (.unsupportedRank, "unsupportedRank"),
@@ -30,6 +31,7 @@ final class BrackenProfileDegradationReasonTests: XCTestCase {
         (.toolFailed, "toolFailed"),
         (.outputMissing, "outputMissing"),
         (.outputInvalid, "outputInvalid"),
+        (.belowThreshold, "belowThreshold"),
     ]
 
     private var folder: URL!
@@ -55,7 +57,7 @@ final class BrackenProfileDegradationReasonTests: XCTestCase {
     // MARK: - The reason
 
     func testEachReleasedReasonKeepsItsTokenAndNeverDecodesAsUnknown() throws {
-        XCTAssertEqual(releasedTokens.count, 7)
+        XCTAssertEqual(releasedTokens.count, 8)
         for (reason, token) in releasedTokens {
             XCTAssertEqual(reason.rawValue, token)
             XCTAssertEqual(BrackenProfileDegradationReason(rawValue: token), reason)
