@@ -41,8 +41,9 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
     ]
 
     /// The settings a record keeps among its explicit options. Moved by B11 M2 (R5): `classifiers` is a resolved
-    /// default, because the launch passes no `--classifiers`.
-    static let explicitSettingKeys = settingKeys.subtracting(["classifiers"])
+    /// default, because the launch passes no `--classifiers`. Moved by A2 M3 (B12 ruling H1): `sample_count` is a
+    /// resolved default, because LGE counts the samplesheet rows itself.
+    static let explicitSettingKeys = settingKeys.subtracting(["classifiers", "sample_count"])
 
     private func makeEngine(_ behaviour: TaxTriageStandInEngine.Behaviour = .completes) throws -> TaxTriageStandInEngine {
         let engine = try TaxTriageStandInEngine(root: root.appendingPathComponent("engine", isDirectory: true), behaviour: behaviour)
@@ -256,7 +257,8 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         XCTAssertEqual(namedPaths(record).filter { !FileManager.default.fileExists(atPath: $0) }, [], "every named file exists")
         XCTAssertEqual(record.toolName, "Lungfish TaxTriage Interleaved Split", "the first step names the record's tool")
         XCTAssertEqual(record.toolVersion, WorkflowRun.currentAppVersion)
-        XCTAssertEqual(record.options.explicit["interleaved_samples_split_to_r1_r2"], .array([.string("inter")]))
+        XCTAssertEqual(record.options.resolvedDefaults["interleaved_samples_split_to_r1_r2"], .array([.string("inter")]))
+        XCTAssertNil(record.options.explicit["interleaved_samples_split_to_r1_r2"], "B12 ruling H2")
     }
 
     // MARK: - BIO T6, T7 and T10, a joined and a materialized sample
@@ -324,7 +326,7 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         let run = try await run(c, on: engine)
 
         let record = run.record
-        XCTAssertEqual(record.options.explicit["sample_count"], .integer(2))
+        XCTAssertEqual(record.options.resolvedDefaults["sample_count"], .integer(2), "B12 ruling H1")
         let plans = try XCTUnwrap(record.options.explicit["read_set_plans"]?.dictionaryValue)
         XCTAssertEqual(plans, ["mixed": try XCTUnwrap(mixed.readSetPlan?.provenanceParameters["readSetPlan"])])
         XCTAssertEqual(

@@ -54,7 +54,8 @@ extension ProvenanceEnvelope {
     /// A value that is not an object is no plan, and the reader goes on to the next place.
     ///
     /// Last come the plans a TaxTriage record keeps by sample (``readSetPlansBySample``). One of them
-    /// is the record's plan only when the record says it ran one sample (`sample_count` 1) and keeps
+    /// is the record's plan only when the record says it ran one sample (`sample_count` 1 among its
+    /// resolved defaults, or among the explicit options of a released record) and keeps
     /// that sample's plan. A pooled record of several samples has no one plan, even when only one of
     /// its samples kept a plan, so it reads nil here and gives each sample's plan by its id.
     public var readSetPlan: RecordedReadSetPlan? {
@@ -74,7 +75,8 @@ extension ProvenanceEnvelope {
             return RecordedReadSetPlan(fields: fields, place: .nestedRunParameters)
         }
         let bySample = readSetPlansBySample
-        if bySample.count == 1, options.explicit["sample_count"]?.numberValue == 1 {
+        let sampleCount = options.resolvedDefaults["sample_count"] ?? options.explicit["sample_count"]
+        if bySample.count == 1, sampleCount?.numberValue == 1 {
             return bySample.values.first
         }
         return nil

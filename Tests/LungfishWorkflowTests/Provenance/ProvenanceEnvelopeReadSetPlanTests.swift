@@ -102,6 +102,20 @@ struct ProvenanceEnvelopeReadSetPlanTests {
         RecordedReadSetPlan(fields: fields(marker), place: .explicitOptionsKeyedBySample(sampleID: sample))
     }
 
+    @Test("a sample count among the resolved defaults decides a keyed plan, as B12 ruling H3 reads it")
+    func sampleCountAmongTheResolvedDefaults() {
+        let one = Self.envelope(
+            explicit: Self.keyed(["S1": Self.plan("kept")], sampleCount: nil),
+            resolvedDefaults: ["sample_count": .integer(1)]
+        )
+        #expect(one.readSetPlan == Self.keyedPlan("kept", sample: "S1"))
+        let two = Self.envelope(
+            explicit: Self.keyed(["S1": Self.plan("kept")], sampleCount: nil),
+            resolvedDefaults: ["sample_count": .integer(2)]
+        )
+        #expect(two.readSetPlan == nil)
+    }
+
     @Test("a released TaxTriage record of one sample gives the plan it kept by its sample id")
     func aReleasedTaxTriageRecordOfOneSampleGivesItsKeyedPlan() {
         let options = Self.keyed(["S1": Self.plan("keyed")], sampleCount: 1)

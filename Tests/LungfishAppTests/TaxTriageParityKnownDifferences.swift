@@ -182,7 +182,7 @@ enum TaxTriageParityKnownDifferences {
     /// X4 and X6, a failed pooled run and a cancel, beside the folders of a completed GUI run.
     private static let faultLayout: [TaxTriageParityKnownDifference] = [
         pair([.x4: 1], "terminal: A and B end differently",
-             "Side A's serial batch keeps the sample that completed and reads Completed with Warnings. Side B's pooled run, one Nextflow for both samples (2.8 T2), fails as a whole when one sample fails, and taxtriage run ends with the pipeline's error, exit 1 in the shipped binary",
+             "Side A's serial batch keeps the sample that completed and reads Completed with Warnings. Side B's pooled run, one Nextflow for both samples (2.8 T2), fails as a whole when one sample fails, and taxtriage run ends with the executor's workflow error, exit 64 (exit 1 in the shipped binary)",
              closedBy: perSample),
         // A2 closed X4's and X6's analysis-metadata.json and X6's run record. The executor claims
         // the folder with both before the run and keeps them for a failed or cancelled run (E5).
@@ -199,7 +199,7 @@ enum TaxTriageParityKnownDifferences {
         record([.x4: 1], "outputs[*taxtriage-result.json|output]", "As files", closedBy: perSample),
         record([.x4: 1], "status", "The batch completes with the sample that completed, the pooled run fails", closedBy: perSample),
         record([.x4: 1], "readStatus", "As status", closedBy: perSample),
-        record([.x4: 1], "exitStatus", "As status, 0 against the pipeline's 1", closedBy: perSample),
+        record([.x4: 1], "exitStatus", "As status, 0 against the executor's workflow error 64", closedBy: perSample),
         record([.x4: 1], "opsStats.completedRunCount", "As status, one completed run against none", closedBy: perSample),
         record([.x4: 1], "output.sha256",
                "As output.path, the batch result against the failed run's nextflow.log, a file only one tree holds", closedBy: perSample),

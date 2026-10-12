@@ -50,7 +50,8 @@ final class TaxTriageAnalysisRunToolReplayTests: XCTestCase {
             .string("S1"),
             "the executor's step names the launch's one sample (B12, 2.8 row 256)"
         )
-        XCTAssertEqual(record.options.explicit["sample_count"], .integer(1))
+        XCTAssertEqual(record.options.resolvedDefaults["sample_count"], .integer(1))
+        XCTAssertNil(record.options.explicit["sample_count"])
         XCTAssertEqual(record.options.resolvedDefaults["databaseIdentityStatus"], .string("unpinned"))
     }
 

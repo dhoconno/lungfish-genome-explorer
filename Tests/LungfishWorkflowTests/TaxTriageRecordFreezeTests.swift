@@ -501,7 +501,12 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         let recorded = await ProvenanceRecorder.shared.canonicalEnvelope(for: runID)
         let envelope = try XCTUnwrap(recorded)
 
-        XCTAssertEqual(envelope.options.explicit["interleaved_samples_split_to_r1_r2"], .array([.string("inter")]))
+        // The recorder's canonical envelope merges every run parameter, so it reads the key wherever the save files it.
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["interleaved_samples_split_to_r1_r2"]
+                ?? envelope.options.explicit["interleaved_samples_split_to_r1_r2"],
+            .array([.string("inter")])
+        )
         let step = try XCTUnwrap(envelope.steps.first)
         XCTAssertEqual(envelope.steps.count, 1)
         XCTAssertEqual(step.toolName, "Lungfish TaxTriage Interleaved Split")
