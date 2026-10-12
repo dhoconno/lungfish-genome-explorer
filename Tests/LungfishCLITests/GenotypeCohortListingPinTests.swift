@@ -9,7 +9,13 @@ import LungfishTestSupport
 /// smart cohorts of a bundle whose sidecar holds the four built-in cohorts and
 /// one of the analyst's own. Both commands read only the file. Plan decision
 /// S13 records a deleted built-in in the sidecar settings, and these pins show
-/// that a bundle with no dismissal prints as it did before.
+/// that a bundle with no dismissal prints as it did before. The sidecars here
+/// store no cohort id, as every sidecar saved before Phase 2.8 stores none, so
+/// the export derives each `cohort_id` from the cohort's scope and name (plan
+/// decisions O2 and G2). The expected ids are Python `uuid.uuid5` values of
+/// `json.dumps([scope, name], separators=(",", ":"), ensure_ascii=False)` under
+/// the namespace `EAE6B16C-E0F3-4099-B3D7-DB52CED9199C`, so they share no code
+/// with the Swift derivation.
 final class GenotypeCohortListingPinTests: XCTestCase {
     static let noDismissalListing = """
     starred\tname\tscope\tmatches\tdescription
@@ -23,11 +29,11 @@ final class GenotypeCohortListingPinTests: XCTestCase {
 
     static let noDismissalSmartCohortsCSV = """
     cohort_id,cohort_name,predicate_json,created_at,sample_count
-    1,Incomplete haplotypes,"{""kind"":""needsHaplotypeReview""}",2026-05-22T10:00:00Z,2
-    2,Needs review,"{""children"":[{""kind"":""needsHaplotypeReview""},{""kind"":""qcStatus"",""set"":[""lowSupport"",""review""]},{""kind"":""hasAnalystFlag"",""value"":""needsReview""}],""kind"":""any""}",2026-05-22T10:00:00Z,2
-    3,Homozygous,"{""kind"":""isHomozygousAcrossAll""}",2026-05-22T10:00:00Z,0
-    4,Recombinants,"{""kind"":""hasRegionalRecombinant""}",2026-05-22T10:00:00Z,0
-    5,Errors at MHC-A,"{""kind"":""hasErrorAt"",""locus"":""MHC-A""}",2026-05-22T10:00:00Z,0
+    31D2B132-01DD-5F19-BC0A-8878472F012F,Incomplete haplotypes,"{""kind"":""needsHaplotypeReview""}",2026-05-22T10:00:00Z,2
+    DF4CA8E2-BF22-50FC-8C94-BDB45C58A1F5,Needs review,"{""children"":[{""kind"":""needsHaplotypeReview""},{""kind"":""qcStatus"",""set"":[""lowSupport"",""review""]},{""kind"":""hasAnalystFlag"",""value"":""needsReview""}],""kind"":""any""}",2026-05-22T10:00:00Z,2
+    5FD26AEC-1025-5049-AE30-F43C219E9A7A,Homozygous,"{""kind"":""isHomozygousAcrossAll""}",2026-05-22T10:00:00Z,0
+    048C9D06-A36A-5243-BEEC-7F2F591D780A,Recombinants,"{""kind"":""hasRegionalRecombinant""}",2026-05-22T10:00:00Z,0
+    3C5638B5-3D64-5064-AC68-20AE371E14D2,Errors at MHC-A,"{""kind"":""hasErrorAt"",""locus"":""MHC-A""}",2026-05-22T10:00:00Z,0
 
     """
 
@@ -48,6 +54,26 @@ final class GenotypeCohortListingPinTests: XCTestCase {
 
         let csv = try await Self.exportLabKeySmartCohorts(bundle, root: root)
 
+        XCTAssertEqual(csv, Self.noDismissalSmartCohortsCSV)
+    }
+
+    /// The sidecar the app saves after Phase 2.8 stores each cohort's id, which
+    /// for these cohorts is the id the older sidecar derives. Both commands
+    /// print what they printed for the older sidecar.
+    func testASidecarThatStoresTheDerivedIdsPrintsTheSameListingAndTheSameCSV() async throws {
+        let root = try TestTempDirectory.make(prefix: "cohort-listing-stored")
+        defer { TestTempDirectory.cleanup(root) }
+        let stored = (Self.builtInCohorts + [Self.analystCohort]).map { cohort -> GenotypeCohortSmartFilter in
+            var copy = cohort
+            copy.id = GenotypeCohortSmartFilter.derivedID(scope: cohort.scope, name: cohort.name)
+            return copy
+        }
+        let bundle = try Self.makeBundle(in: root, smartCohorts: stored)
+
+        let listing = try await Self.listCohorts(bundle)
+        let csv = try await Self.exportLabKeySmartCohorts(bundle, root: root)
+
+        XCTAssertEqual(listing, Self.noDismissalListing)
         XCTAssertEqual(csv, Self.noDismissalSmartCohortsCSV)
     }
 
@@ -80,9 +106,9 @@ final class GenotypeCohortListingPinTests: XCTestCase {
         XCTAssertEqual(listing, expected)
     }
 
-    /// `cohort_id` is the row's position, so the rows after the dismissed one
-    /// renumber, as they do for any cohort deleted from the file. Every other
-    /// column of every other row is unchanged.
+    /// `cohort_id` names the cohort and not its place in the file (plan
+    /// decision O2), so the rows after the dismissed one keep their ids and the
+    /// export is the export without that cohort, row for row.
     func testExportLabKeyOfABundleWithADismissedBuiltInDiffersOnlyByThatCohort() async throws {
         let root = try TestTempDirectory.make(prefix: "cohort-labkey-dismissed")
         defer { TestTempDirectory.cleanup(root) }
@@ -94,18 +120,14 @@ final class GenotypeCohortListingPinTests: XCTestCase {
             .filter { !$0.contains(",Homozygous,") }
         let rows = csv.split(separator: "\n")
         XCTAssertEqual(rows.first, Self.noDismissalSmartCohortsCSV.split(separator: "\n").first)
-        XCTAssertEqual(rows.count, baseRows.count + 1)
-        for (offset, pair) in zip(rows.dropFirst(), baseRows).enumerated() {
-            let (row, baseRow) = pair
-            XCTAssertEqual(row.split(separator: ",", maxSplits: 1).first, Substring(String(offset + 1)))
-            XCTAssertEqual(row.split(separator: ",", maxSplits: 1).last, baseRow.split(separator: ",", maxSplits: 1).last)
-        }
+        XCTAssertEqual(Array(rows.dropFirst()), Array(baseRows))
     }
 
     // MARK: - Fixture
 
-    /// The built-in smart cohorts exactly as the app writes them with a
-    /// bundle's first edit. The command line holds no copy of this list.
+    /// The built-in smart cohorts as an older Lungfish wrote them with a
+    /// bundle's first edit, with no stored id. The command line holds no copy of
+    /// this list.
     static let builtInCohorts: [GenotypeCohortSmartFilter] = [
         GenotypeCohortSmartFilter(
             name: "Incomplete haplotypes",

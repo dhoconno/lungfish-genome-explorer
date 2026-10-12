@@ -14,6 +14,13 @@ import LungfishWorkflow
 /// without a locus or slot). Matrix comments and semantic reviews instead
 /// retain one current value for each exact matrix target.
 ///
+/// Smart cohorts (plan decisions O2 and G2) are the same cohort when both
+/// store an id and the ids are equal, so a cohort renamed in the patch is not
+/// added a second time. When either stores none they are the same cohort when
+/// the name and scope match, as before. The bundle's cohorts store their
+/// derived ids before the patch applies, and the rewritten sidecar stores the
+/// derived id of every cohort that still has none.
+///
 /// Pipeline output files in the bundle are never touched. Only the sidecar
 /// (`annotations.json` peer to `genotype-result.json`) is rewritten.
 struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
@@ -230,6 +237,9 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
     ) throws -> MergeResult {
         var merged = existing
         try merged.promoteToCurrentSchema()
+        // The bundle's cohorts store their derived ids before the patch applies,
+        // so a patch that renames one of them still names the same cohort.
+        merged.storeSmartCohortIDs()
         var validatedPatch = patch
         try validatedPatch.promoteToCurrentSchema()
         var appended = AnnotationCategoryCounts()
@@ -263,10 +273,10 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
                         key: callStatusFlagKey,
                         appended: &appended.callStatusFlags,
                         skipped: &skipped.callStatusFlags)
-        Self.mergeArray(into: &merged.smartCohorts, from: validatedPatch.smartCohorts,
-                        key: { $0.name + "|" + $0.scope },
-                        appended: &appended.smartCohorts,
-                        skipped: &skipped.smartCohorts)
+        Self.mergeSmartCohorts(into: &merged.smartCohorts, from: validatedPatch.smartCohorts,
+                               appended: &appended.smartCohorts,
+                               skipped: &skipped.smartCohorts)
+        merged.storeSmartCohortIDs()
         Self.mergeMatrixStyles(
             into: &merged.matrixStyles,
             from: validatedPatch.matrixStyles,
@@ -321,6 +331,36 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
                 skipped += 1
             }
         }
+    }
+
+    /// Appends the patch cohorts the bundle does not hold. Two cohorts are the
+    /// same when both store an id and the ids are equal, and otherwise when
+    /// their name and scope match, as before the cohorts had ids.
+    private static func mergeSmartCohorts(
+        into destination: inout [GenotypeCohortSmartFilter],
+        from source: [GenotypeCohortSmartFilter],
+        appended: inout Int,
+        skipped: inout Int
+    ) {
+        for cohort in source {
+            if destination.contains(where: { isSameSmartCohort($0, cohort) }) {
+                skipped += 1
+            } else {
+                destination.append(cohort)
+                appended += 1
+            }
+        }
+    }
+
+    static func isSameSmartCohort(_ existing: GenotypeCohortSmartFilter, _ incoming: GenotypeCohortSmartFilter) -> Bool {
+        if let existingID = existing.id, let incomingID = incoming.id {
+            return existingID == incomingID
+        }
+        return smartCohortKey(existing) == smartCohortKey(incoming)
+    }
+
+    static func smartCohortKey(_ cohort: GenotypeCohortSmartFilter) -> String {
+        cohort.name + "|" + cohort.scope
     }
 
     private static func mergeMatrixStyles(

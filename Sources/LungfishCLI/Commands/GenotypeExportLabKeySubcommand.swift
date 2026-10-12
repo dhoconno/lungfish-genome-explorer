@@ -19,7 +19,10 @@ import LungfishWorkflow
 ///   * `allele_read_counts.csv`  — per-sample per-allele unique read counts
 ///   * `overrides.csv`           — analyst overrides (audit-friendly subset)
 ///   * `audit_log.csv`           — full audit trail
-///   * `smart_cohorts.csv`       — saved smart cohorts in the bundle
+///   * `smart_cohorts.csv`       — saved smart cohorts in the bundle, each
+///                                 under a `cohort_id` that never changes
+///                                 when another cohort is deleted, restored
+///                                 or renamed
 ///
 /// The haplotype calls are the workbook's effective calls, resolved by
 /// `GenotypeExcelSnapshotBuilder.effectiveCalls`, so LabKey, the Excel report
@@ -368,12 +371,17 @@ struct LabKeyExporter {
 
     // MARK: Smart cohorts
 
-    /// `cohort_id` is the row's position in this export, so it names a cohort
-    /// only within one export, and deleting a cohort renumbers the rows after
-    /// it. The predicate is serialized
+    /// `cohort_id` names the cohort and not its place in the file (plan
+    /// decision O2), so deleting, dismissing, restoring or renaming one cohort
+    /// never renumbers another. It is the id the sidecar stores with the
+    /// cohort, else the id derived from the cohort's scope and name (decision
+    /// G2), written as a UUID in upper case. A sidecar saved before Phase 2.8
+    /// stores none, this command never writes the file, and the next save by
+    /// the app or by `genotype apply-annotations` stores the derived value. The
+    /// predicate is serialized
     /// as JSON exactly as it lives in the sidecar so analysts can round-trip
     /// it into Lungfish. `sample_count` is the number of bundle samples the
-    /// predicate currently matches — useful for sanity-checking the cohort
+    /// predicate currently matches, useful for sanity-checking the cohort
     /// before LabKey ingestion.
     func buildCohortRows() -> [[String]] {
         let subjects: [GenotypeCohortSubject]
@@ -392,6 +400,7 @@ struct LabKeyExporter {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
 
+        let cohortIDs = sidecar.resolvedSmartCohortIDs
         return sidecar.smartCohorts.enumerated().map { (offset, cohort) -> [String] in
             let predicateJSON: String
             if let data = try? encoder.encode(cohort.predicate),
@@ -402,7 +411,7 @@ struct LabKeyExporter {
             }
             let count = subjects.filter { cohort.predicate.evaluate($0) }.count
             return [
-                String(offset + 1),
+                cohortIDs[offset].uuidString,
                 cohort.name,
                 predicateJSON,
                 createdAt,
