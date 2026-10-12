@@ -21,7 +21,9 @@
 // and compares the two side roots, every provenance record by its facts and the terminal state
 // (TaxTriageCLIGUIParityReplayTests+Compare.swift). TaxTriageParityKnownDifferences declares every
 // difference of A against B with its count, and the case fails on any other. Lane Q1b adds sides
-// C and C' to the same cases.
+// C and C' to the same cases (TaxTriageCLIGUIParityReplayTests+RouteC.swift): C runs the routed
+// `taxtriage run --project` through the built `lungfish-cli`, and C' the argv C's root record
+// names, rebased. C against C' declares nothing (2.7 T2).
 //
 // The stand-in starts processes and side A runs on `OperationCenter.shared`, so the class name ends
 // in ReplayTests, which sends it to the serial replay tier. `TaxTriageParityEngine` takes the
@@ -33,6 +35,7 @@ import AppKit
 import Foundation
 import XCTest
 @testable import LungfishApp
+import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishTestSupport
@@ -141,6 +144,21 @@ final class TaxTriageCLIGUIParityReplayTests: XCTestCase {
         if !parityCase.organismReportsHaveRows {
             try Self.emptyOrganismReport(of: engine)
         }
+        if parityCase.materializesVirtualBundle {
+            try Self.linkManagedEnvironment("seqkit", into: engine)
+        }
         return .standIn(engine, databasePath: database)
+    }
+
+    /// Links the managed environment `name` of this Mac's tool root into the stand-in's conda root,
+    /// which the built `lungfish-cli` of sides C and C' reads as its own, so the CLI materializes a
+    /// virtual bundle with the managed seqkit as the in-process sides do. The link is read only.
+    private static func linkManagedEnvironment(_ name: String, into engine: TaxTriageStandInEngine) throws {
+        let managed = ManagedStorageConfigStore().currentCondaRootURL().appendingPathComponent("envs/\(name)", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: managed.path) else { return }
+        try FileManager.default.createSymbolicLink(
+            at: engine.condaRoot.appendingPathComponent("envs/\(name)", isDirectory: true),
+            withDestinationURL: managed
+        )
     }
 }

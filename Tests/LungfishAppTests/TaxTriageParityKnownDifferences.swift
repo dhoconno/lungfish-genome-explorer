@@ -48,7 +48,7 @@ struct TaxTriageParityKnownDifference: Sendable {
 enum TaxTriageParityKnownDifferences {
     static let all: [TaxTriageParityKnownDifference] =
         layout + pooledLayout + records + pooledRecords + facts + faultLayout + faultRecords + faultFacts
-            + executorLayout + executorRecords
+            + executorLayout + executorRecords + routeC
 
     /// The legacy GUI route stays in process through 2.9 (2.8 T1), so a difference that comes from
     /// it closes when the route runs through lungfish-cli.

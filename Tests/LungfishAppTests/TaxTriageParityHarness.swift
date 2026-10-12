@@ -46,7 +46,8 @@ struct TaxTriageParityHarness {
         let projectA = try parityCase.makeProject(in: root(.a))
         let pristine = caseRoot.appendingPathComponent("pristine", isDirectory: true)
             .appendingPathComponent(projectA.lastPathComponent, isDirectory: true)
-        for copy in [root(.b).appendingPathComponent(projectA.lastPathComponent, isDirectory: true), pristine] {
+        let copies = [TaxTriageParitySide.b, .c, .cPrime].map { root($0).appendingPathComponent(projectA.lastPathComponent, isDirectory: true) }
+        for copy in copies + [pristine] {
             try FileManager.default.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
             try FileManager.default.copyItem(at: projectA, to: copy)
         }
@@ -56,19 +57,30 @@ struct TaxTriageParityHarness {
         if parityCase.rebuildsAfterTheCleanup { runA = await rebuildAfterTheCleanup(runA) }
         var runB = await runReplay(of: runA, parityCase, root: root(.b), engine: engine)
         if parityCase.rebuildsAfterTheCleanup { runB = await rebuildAfterTheCleanup(runB) }
+        // Lane Q1b. Side C's routed command and side C' replaying the argv C's record names, both
+        // through the built lungfish-cli (TaxTriageCLIGUIParityReplayTests+RouteC.swift).
+        var runC = await runRoutedSide(parityCase, root: root(.c), engine: engine)
+        if parityCase.rebuildsAfterTheCleanup { runC = await rebuildAfterTheCleanup(runC) }
+        var runCPrime = await runRecordedArgv(of: runC, parityCase, root: root(.cPrime), engine: engine)
+        if parityCase.rebuildsAfterTheCleanup { runCPrime = await rebuildAfterTheCleanup(runCPrime) }
+        let runs = [runA, runB, runC, runCPrime]
 
         var found: [TaxTriageParityScope: [TaxTriageParityDifference]] = [:]
-        for run in [runA, runB] {
+        for run in runs {
             found[.side(run.side)] = try fixedFactViolations(parityCase, run: run, engine: engine, pristineProject: pristine)
         }
-        if parityCase.runsGUISide {
-            found[.pair(.a, .b)] = try TaxTriageParityComparison.differences(
-                reference: runA,
-                candidate: runB,
-                bundlePaths: parityCase.bundlePaths
-            )
+        func differences(_ reference: TaxTriageParitySideRun, _ candidate: TaxTriageParitySideRun) throws -> [TaxTriageParityDifference] {
+            try TaxTriageParityComparison.differences(reference: reference, candidate: candidate, bundlePaths: parityCase.bundlePaths)
         }
-        try dumpIfRequested(parityCase, caseRoot: caseRoot, runs: [runA, runB], found: found)
+        if parityCase.runsGUISide {
+            found[.pair(.a, .b)] = try differences(runA, runB)
+            found[.pair(.a, .c)] = try differences(runA, runC)
+        }
+        // The acceptance (2.7 T2). The record comparison lets the candidate add facts, so C and C'
+        // are compared both ways.
+        found[.pair(.c, .cPrime)] = try differences(runC, runCPrime)
+        found[.pair(.cPrime, .c)] = try differences(runCPrime, runC)
+        try dumpIfRequested(parityCase, caseRoot: caseRoot, runs: runs, found: found)
 
         for scope in Self.scopes {
             let failures = TaxTriageParityKnownDifferences.failures(found: found[scope] ?? [], parityCase: parityCase, scope: scope)
@@ -78,9 +90,13 @@ struct TaxTriageParityHarness {
         }
     }
 
-    /// Every side's fixed facts, then A against B, frozen at the base, which may only shrink
-    /// (2.7 T2).
-    static let scopes: [TaxTriageParityScope] = [.side(.a), .side(.b), .pair(.a, .b)]
+    /// Every side's fixed facts, then A against B, frozen at the base, and A against C, the
+    /// declared changes of the route's switch, both of which may only shrink, and C against C'
+    /// both ways, the acceptance, which declares nothing (2.7 T2).
+    static let scopes: [TaxTriageParityScope] = [
+        .side(.a), .side(.b), .side(.c), .side(.cPrime),
+        .pair(.a, .b), .pair(.a, .c), .pair(.c, .cPrime), .pair(.cPrime, .c),
+    ]
 
     // MARK: - Dump
 

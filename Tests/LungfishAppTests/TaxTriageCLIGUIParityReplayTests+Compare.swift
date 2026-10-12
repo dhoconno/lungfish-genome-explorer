@@ -16,8 +16,10 @@
 // - The terminal state, in the words of a row.
 //
 // The masks and the fact rules are the classifier parity's own static helpers, so a change to
-// them moves the counts of both classes. The A against C mask of each side's own LGE version
-// (ruling R1 of Phase 2.8) is left to lane Q1b, which adds side C.
+// them moves the counts of both classes. Lane Q1b added side C, whose `--project` run names its
+// folder by the second it started, so records pair with the candidate's analysis folder named as
+// the reference's, and for A against C only a step's toolVersion is left out when each side holds
+// its own process's LGE version there (ruling R1 of Phase 2.8, `withoutOwnLGEVersion`).
 
 import Foundation
 import XCTest
@@ -40,6 +42,16 @@ enum TaxTriageParityComparison {
     typealias Value = ProvenanceCompatFacts.Value
     /// The classifier parity's masks and fact rules, shared so both parities mask alike.
     typealias Rules = ClassifierParityComparison
+
+    /// LGE's own version as side A's steps record it, `Lungfish <version> (<build>)` and the
+    /// version alone (`WorkflowRun.currentAppVersion` and `currentAppReleaseVersion`). Side A runs
+    /// the GUI path in this process, so both read the XCTest host's bundle. The classifier parity
+    /// kept these until it retired its side A, and only this parity still has one.
+    static let sideALGEVersions = [WorkflowRun.currentAppVersion, WorkflowRun.currentAppReleaseVersion]
+
+    /// The same two shapes on side C, which runs the SwiftPM `lungfish-cli`. Its embedded plist
+    /// holds no version, so it names `LungfishAppVersion.short` and the build `dev`.
+    static let sideCLGEVersions = ["Lungfish \(LungfishAppVersion.short) (dev)", LungfishAppVersion.short]
 
     /// How `candidate` differs from `reference`.
     static func differences(
@@ -90,7 +102,18 @@ enum TaxTriageParityComparison {
         _ candidate: TaxTriageParitySideRun,
         bundlePaths: [String]
     ) throws -> [TaxTriageParityDifference] {
-        let policy = Rules.maskPolicy(sideRoots: [reference.root, candidate.root])
+        var policy = Rules.maskPolicy(sideRoots: [reference.root, candidate.root])
+        // The run record that a cancelled or failed run keeps (E5) names the process that wrote
+        // it and when that process started, which no two runs share (lane Q1b, X6 of C against C').
+        let processMask = OutputEquivalence.Mask(name: "runRecordProcess") { text, _ in
+            text.replacingOccurrences(
+                of: "\"(processIdentifier|processStartTime)\" : [0-9]+",
+                with: "\"$1\" : \"<PROCESS>\"",
+                options: .regularExpression
+            )
+        }
+        policy.records.append(processMask)
+        policy.payloads.append(processMask)
         let fileManager = FileManager.default
         var found: [TaxTriageParityDifference] = []
 
@@ -185,15 +208,23 @@ enum TaxTriageParityComparison {
         _ reference: TaxTriageParitySideRun,
         _ candidate: TaxTriageParitySideRun
     ) throws -> [TaxTriageParityDifference] {
-        // Records pair by their path relative to the side root.
-        let candidateRecords = Set(Rules.recordPaths(under: candidate.root))
-        let context = FactContext(reference: reference, candidate: candidate)
+        // Records pair by their path relative to the side root, with the candidate's analysis
+        // folder named as the reference's.
+        let rename = folderRename(reference, candidate)
+        let candidateRecords = Dictionary(
+            Rules.recordPaths(under: candidate.root).map { path in
+                (rename.map { path.replacingOccurrences(of: $0.from, with: $0.to) } ?? path, path)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let context = FactContext(reference: reference, candidate: candidate, rename: rename)
         var found: [TaxTriageParityDifference] = []
-        for path in Rules.recordPaths(under: reference.root) where candidateRecords.contains(path) {
+        for path in Rules.recordPaths(under: reference.root) {
+            guard let candidatePath = candidateRecords[path] else { continue }
             var missing: [(path: String, detail: String)] = []
             collectMissing(
                 try factsTree(of: reference, record: path),
-                try factsTree(of: candidate, record: path),
+                Rules.renaming(try factsTree(of: candidate, record: candidatePath), rename),
                 path: "",
                 into: &missing,
                 context: context
@@ -244,26 +275,64 @@ enum TaxTriageParityComparison {
     struct FactContext {
         let reference: TaxTriageParitySideRun
         let candidate: TaxTriageParitySideRun
+        /// The candidate's analysis folder and the reference's, when the two runs named them
+        /// differently (`folderRename`).
+        var rename: (from: String, to: String)? = nil
 
         /// Whether a recorded path names a file in the project that both projects hold, whose
         /// content the folder comparison owns.
         func namesFileInBothTrees(_ recordedPath: String) -> Bool {
-            guard let relative = projectRelative(recordedPath) else { return false }
+            guard let (relative, candidateRelative) = projectRelative(recordedPath) else { return false }
             return FileManager.default.fileExists(atPath: reference.project.appendingPathComponent(relative).path)
-                && FileManager.default.fileExists(atPath: candidate.project.appendingPathComponent(relative).path)
+                && FileManager.default.fileExists(atPath: candidate.project.appendingPathComponent(candidateRelative).path)
         }
 
         /// Whether a recorded path names a file in the project that neither project holds any more.
         func namesFileInNeitherTree(_ recordedPath: String) -> Bool {
-            guard let relative = projectRelative(recordedPath) else { return false }
+            guard let (relative, candidateRelative) = projectRelative(recordedPath) else { return false }
             return !FileManager.default.fileExists(atPath: reference.project.appendingPathComponent(relative).path)
-                && !FileManager.default.fileExists(atPath: candidate.project.appendingPathComponent(relative).path)
+                && !FileManager.default.fileExists(atPath: candidate.project.appendingPathComponent(candidateRelative).path)
         }
 
-        private func projectRelative(_ recordedPath: String) -> String? {
+        /// The path in the reference's project and the same file in the candidate's.
+        private func projectRelative(_ recordedPath: String) -> (String, String)? {
             let token = "<project>/"
-            return recordedPath.hasPrefix(token) ? String(recordedPath.dropFirst(token.count)) : nil
+            guard recordedPath.hasPrefix(token) else { return nil }
+            let relative = String(recordedPath.dropFirst(token.count))
+            return (relative, rename.map { relative.replacingOccurrences(of: $0.to, with: $0.from) } ?? relative)
         }
+    }
+
+    /// The candidate's analysis folder and the reference's, as `Analyses/<name>`, when the two
+    /// runs named them differently. A run with `--project` names its folder by the second it
+    /// started (side C and C').
+    static func folderRename(
+        _ reference: TaxTriageParitySideRun,
+        _ candidate: TaxTriageParitySideRun
+    ) -> (from: String, to: String)? {
+        guard let referenceName = reference.analysisPath.map({ ($0 as NSString).lastPathComponent }),
+              let candidateName = candidate.analysisPath.map({ ($0 as NSString).lastPathComponent }),
+              referenceName != candidateName else { return nil }
+        return ("Analyses/\(candidateName)", "Analyses/\(referenceName)")
+    }
+
+    /// `step` without its `toolVersion` when the pair is side A against side C and each of the two
+    /// steps holds its own process's LGE version there, in the same shape (ruling R1 of Phase
+    /// 2.8). Side A records in the XCTest host and side C in the SwiftPM `lungfish-cli`, so no lane
+    /// can make the two stamps agree. The classifier parity's values are matched exactly, so a
+    /// third-party version or another LGE version still shows, and every other pair compares the
+    /// key as it is.
+    static func withoutOwnLGEVersion(_ step: Value, beside candidateStep: Value?, context: FactContext) -> Value {
+        guard context.reference.side == .a, context.candidate.side == .c,
+              case .object(var members) = step,
+              case .object(let candidateMembers)? = candidateStep,
+              case .string(let versionA)? = members["toolVersion"],
+              case .string(let versionC)? = candidateMembers["toolVersion"],
+              zip(sideALGEVersions, sideCLGEVersions).contains(where: { $0.0 == versionA && $0.1 == versionC }) else {
+            return step
+        }
+        members["toolVersion"] = nil
+        return .object(members)
     }
 
     /// Adds to `found` every leaf of `reference` that `candidate` lacks or holds with another
@@ -299,7 +368,9 @@ enum TaxTriageParityComparison {
             }
             let candidateByKey = Dictionary(Rules.keyedElements(candidateItems, key), uniquingKeysWith: { first, _ in first })
             for (elementKey, element) in Rules.keyedElements(items, key) {
-                collectMissing(element, candidateByKey[elementKey], path: "\(path)[\(elementKey)]", into: &found, context: context)
+                let match = candidateByKey[elementKey]
+                let compared = Rules.stepArrays.contains(last) ? withoutOwnLGEVersion(element, beside: match, context: context) : element
+                collectMissing(compared, match, path: "\(path)[\(elementKey)]", into: &found, context: context)
             }
         case (.string(let textA), .string(let textB)) where !Rules.sameFact(reference, candidate):
             // Long texts such as a tool's log, shown from the first character that differs once masked.

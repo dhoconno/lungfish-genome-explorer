@@ -79,7 +79,7 @@ extension TaxTriageParityHarness {
             rowViolations(parityCase, samples: samples, row: row, run: run, analysis: analysis, engine: engine, violate: violate)
         }
         if parityCase.rebuildsAfterTheCleanup {
-            rebuildViolations(run: run, violate: violate)
+            rebuildViolations(run: run, keepsTop: parityCase.keepsTop(on: run.side), violate: violate)
         }
         if parityCase == .x8 {
             pooledRequestViolations(parityCase, analysis: analysis, violate: violate)
@@ -90,8 +90,9 @@ extension TaxTriageParityHarness {
     // MARK: - Launches
 
     /// What the stand-in received while the side ran. The GUI route runs one Nextflow per sample,
-    /// as a replayed command of one sample does, and side B's pooled command runs one Nextflow for
-    /// every sample of the request (2.8 T2).
+    /// as a replayed command of one sample and a `--project` run of sides C and C' do, and side
+    /// B's pooled command and X8's plain `--output` run one Nextflow for every sample of the
+    /// request (2.8 T2).
     private func launchViolations(
         _ parityCase: TaxTriageParityCase,
         samples: [TaxTriageParitySampleFacts],
@@ -100,7 +101,7 @@ extension TaxTriageParityHarness {
         engine: TaxTriageParityEngine,
         violate: (String, String) -> Void
     ) {
-        let pooled = run.side == .b && parityCase.pooledInputFolder != nil
+        let pooled = parityCase.runsPooled(on: run.side)
         let expected = pooled ? [samples.map(\.sampleID).sorted()] : samples.map { [$0.sampleID] }
         let launched = run.launches.map { Set($0.fastqRecords.map(\.sample)).sorted() }
         if launched.map({ $0.joined(separator: ",") }).sorted() != expected.map({ $0.joined(separator: ",") }).sorted() {

@@ -171,17 +171,24 @@ struct TaxTriageParitySampleFacts: Sendable {
     }
 }
 
-/// The sides of a TaxTriage parity case (2.7 T2). Lane Q1b adds C and C'.
+/// The sides of a TaxTriage parity case (2.7 T2).
 enum TaxTriageParitySide: String, CaseIterable, Sendable, CustomStringConvertible {
     /// Today's GUI route through `AppDelegate`, run on `OperationCenter.shared`.
     case a = "A"
     /// The command side A's row recorded, rebased onto a fresh root and run in this process.
     case b = "B"
+    /// The routed command, the `taxtriage run --project` that the GUI route through `lungfish-cli`
+    /// runs from 2.10 (2.8 T1, T4 and T17), run by the built `lungfish-cli` on the case's engine
+    /// (lane Q1b, TaxTriageCLIGUIParityReplayTests+RouteC.swift).
+    case c = "C"
+    /// The argv side C's root record names, rebased onto a fresh root and run by the built
+    /// `lungfish-cli` that side C ran.
+    case cPrime = "C'"
 
     var description: String { rawValue }
 
     /// The folder of the side's root, a name a recorded command needs no quote for.
-    var folderName: String { rawValue }
+    var folderName: String { self == .cPrime ? "C-prime" : rawValue }
 
     /// Whether the side runs a GUI route and so has an Operations panel row.
     var hasRow: Bool { self == .a }
@@ -275,9 +282,13 @@ struct TaxTriageParityEngine: Sendable {
     let processWait: Duration
     let makePipeline: @Sendable () -> TaxTriagePipeline
     let standIn: TaxTriageStandInEngine?
+    /// What the built `lungfish-cli` of sides C and C' adds to its environment to launch this
+    /// engine, nothing on a managed root.
+    var cliEnvironment: [String: String] = [:]
 
     /// The stand-in engine of 2.8 TF-G with the `local` profile, one CPU (QA 6) and a 30-second
-    /// wait.
+    /// wait. The built `lungfish-cli` finds it as the managed Nextflow of its conda root, with a
+    /// storage root and a home of its own inside the engine, so no side writes to the real ones.
     static func standIn(_ engine: TaxTriageStandInEngine, databasePath: URL) -> TaxTriageParityEngine {
         TaxTriageParityEngine(
             root: engine.root,
@@ -286,7 +297,13 @@ struct TaxTriageParityEngine: Sendable {
             maxCpus: 1,
             processWait: .seconds(30),
             makePipeline: { engine.makePipeline() },
-            standIn: engine
+            standIn: engine,
+            cliEnvironment: [
+                "LUNGFISH_CONDA_ROOT": engine.condaRoot.path,
+                "LUNGFISH_STORAGE_ROOT": engine.root.appendingPathComponent("storage", isDirectory: true).path,
+                "LUNGFISH_CONDA_SHARED_PKGS": "0",
+                "CFFIXED_USER_HOME": engine.home.path,
+            ]
         )
     }
 

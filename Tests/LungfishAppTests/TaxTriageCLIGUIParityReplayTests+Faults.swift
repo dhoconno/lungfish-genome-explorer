@@ -254,14 +254,22 @@ extension TaxTriageParityHarness {
 
     /// X7 on every side, today's rebuild after the cleanup (2.8 row 258). The cleanup deleted
     /// `top/`, where the sample's only rows came from, so the `--force` rebuild of the single
-    /// result fails and keeps the database it had.
-    func rebuildViolations(run: TaxTriageParitySideRun, violate: (String, String) -> Void) {
+    /// result fails and keeps the database it had. On a side whose run keeps `top/` (sides C and
+    /// C', the executor's finalize of 2.8 T5), the run built the database and the rebuild
+    /// completes.
+    func rebuildViolations(run: TaxTriageParitySideRun, keepsTop: Bool, violate: (String, String) -> Void) {
         guard let rebuild = run.rebuild else {
             violate("the result is rebuilt after the cleanup", "no rebuild ran")
             return
         }
         if let firstBuild = rebuild.firstBuild, firstBuild != .completed {
             violate("the app's build-db builds the database first", "\(firstBuild)")
+        }
+        if keepsTop {
+            if rebuild.firstBuild != nil || !rebuild.topBefore || rebuild.outcome != .completed {
+                violate("the run builds the database, its cleanup keeps top/ and the --force rebuild completes", "\(rebuild)")
+            }
+            return
         }
         if rebuild.topBefore {
             violate("the cleanup deleted top/ before the rebuild", "\(rebuild)")
