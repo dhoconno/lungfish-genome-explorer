@@ -916,7 +916,6 @@ features:
       - Sources/LungfishApp/App/AppDelegate+ClassificationOperationBegin.swift
       - Sources/LungfishApp/App/AppDelegate+ClassificationCLIRoute.swift
       - Sources/LungfishApp/App/AppDelegate+ClassifierLaunchRouting.swift
-      - Sources/LungfishApp/App/ClassifierLaunchRoute.swift
       - Sources/LungfishApp/Services/CLIClassifierRunner.swift
       - Sources/LungfishCLI/Commands/ClassifyCommand.swift
       - Sources/LungfishWorkflow/Metagenomics/KrakenReadSetPlanner.swift
@@ -926,13 +925,14 @@ features:
       - lungfish-cli kraken2 classify
       - lungfish-cli conda classify
     operation_type: classification
-    provenance: one root record written by AnalysisRunExecutor, named lungfish.classify, over the step records of ClassificationPipeline, and on the legacy route a ProvenanceRecorder run saved by ClassificationPipeline
+    provenance: one root record written by AnalysisRunExecutor, named lungfish.classify, over the step records of ClassificationPipeline
     tests:
       - Tests/LungfishWorkflowTests/Metagenomics/ClassificationPipelineTests.swift
       - Tests/LungfishCLITests/ClassificationCLIInvocationRoundTripTests.swift
       - Tests/LungfishWorkflowTests/Metagenomics/KrakenWrapperEdgeTests.swift
       - Tests/LungfishAppTests/ClassifierCLIRouteRowTests.swift
       - Tests/LungfishAppTests/ClassifierLaunchRouteTests.swift
+      - Tests/LungfishAppTests/ClassifierNoProjectRefusalTests.swift
       - Tests/LungfishAppTests/ClassifierCLIGUIParityReplayTests.swift
     notes: >-
       Runs Kraken2 taxonomic classification with Bracken abundance estimation on
@@ -947,11 +947,10 @@ features:
       `conda classify` still parses and replays. Since 2.7 (E10) the Tools menu
       launch runs `lungfish-cli kraken2 classify` with --project and --format
       json, and --batch for several samples, and shows the command's events in
-      the row the in-process route showed, with the same title, labels and end
-      of run. A launch with no project open, or one whose hidden key
-      ClassifierLaunchRoute.kraken2.single or ClassifierLaunchRoute.kraken2.batch
-      holds legacy or false, still runs the pipeline in process until that
-      route goes in 2.9 (E14).
+      a row with the title, labels and end of run the in-process route had.
+      That route and its hidden keys went in 2.9 (E14), so every launch takes
+      this one. A launch with no project open shows the No Project Open sheet
+      and runs nothing (L1).
   classify.esviritu:
     title: EsViritu viral detection
     entry_points:
@@ -965,7 +964,6 @@ features:
       - Sources/LungfishApp/App/AppDelegate+ClassificationOperationBegin.swift
       - Sources/LungfishApp/App/AppDelegate+ClassificationCLIRoute.swift
       - Sources/LungfishApp/App/AppDelegate+ClassifierLaunchRouting.swift
-      - Sources/LungfishApp/App/ClassifierLaunchRoute.swift
       - Sources/LungfishApp/Services/CLIClassifierRunner.swift
       - Sources/LungfishEsVirituUI/EsVirituResultViewController.swift
       - Sources/LungfishCLI/Commands/EsVirituCommand.swift
@@ -974,25 +972,25 @@ features:
     cli:
       - lungfish-cli esviritu detect
     operation_type: classification
-    provenance: one root record written by AnalysisRunExecutor, named lungfish.esviritu.detect, over the step records of EsVirituPipeline, and on the legacy route a ProvenanceRecorder run saved by EsVirituPipeline
+    provenance: one root record written by AnalysisRunExecutor, named lungfish.esviritu.detect, over the step records of EsVirituPipeline
     tests:
       - Tests/LungfishWorkflowTests/Metagenomics/EsVirituPipelineTests.swift
       - Tests/LungfishCLITests/EsVirituReadFormatCLITests.swift
       - Tests/LungfishEsVirituUITests/EsVirituResultViewControllerSmokeTests.swift
       - Tests/LungfishAppTests/ClassifierCLIRouteRowTests.swift
       - Tests/LungfishAppTests/ClassifierLaunchRouteTests.swift
+      - Tests/LungfishAppTests/ClassifierNoProjectRefusalTests.swift
       - Tests/LungfishAppTests/ClassifierCLIGUIParityReplayTests.swift
     notes: >-
       Runs EsViritu viral metagenomics detection and presents per-sample viral
       assemblies with coverage sparklines and segment completeness. Since 2.7
       (E10) the Tools menu launch runs `lungfish-cli esviritu detect` with
       --project and --format json, and --batch for several samples, and shows
-      the command's events in the row the in-process route showed, with the same
-      title, labels and end of run. A batch row now records that command and
-      offers Copy CLI Command. A launch with no project open, or one whose
-      hidden key ClassifierLaunchRoute.esviritu.single or
-      ClassifierLaunchRoute.esviritu.batch holds legacy or false, still runs the
-      pipeline in process until that route goes in 2.9 (E14).
+      the command's events in a row with the title, labels and end of run the
+      in-process route had. A batch row records that command and offers Copy
+      CLI Command. The in-process route and its hidden keys went in 2.9 (E14),
+      so every launch takes this one. A launch with no project open shows the
+      No Project Open sheet and runs nothing (L1).
   classify.taxtriage:
     title: TaxTriage taxonomic triage
     entry_points:
