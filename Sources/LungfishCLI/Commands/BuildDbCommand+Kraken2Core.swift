@@ -63,8 +63,11 @@ extension BuildDbCommand {
         ///
         /// A cancel of the caller's task ends the build with `CancellationError` at its next check. The checks
         /// come before each sample folder is read or compacted and before the database and the record are
-        /// written. The database of an earlier build is put back and no record of a failed build is written,
-        /// so a cancelled build publishes nothing (plan decision E5 of Phase 2.7).
+        /// written, so a folder whose compaction has started is finished first. The database of an earlier
+        /// build is put back and no record of a failed build is written, so a cancelled build leaves no
+        /// database and no record (plan decision E5 of Phase 2.7). The folders compacted before the cancel stay
+        /// compacted, with their result sidecar updated, and no record names that step. A cancel after the check
+        /// before the record is not seen, and the build completes.
         static func buildDatabase(
             in resultURL: URL,
             options: BuildDbRunOptions,

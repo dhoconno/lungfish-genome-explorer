@@ -52,8 +52,11 @@ extension BuildDbCommand {
         /// A cancel of the caller's task ends the build with `CancellationError` at its next check. The checks
         /// come before each sample folder is read or cleaned up, before the database is written, before the
         /// BAMs move, after the read count pass and before the record is written. The database of an earlier
-        /// build is put back and no record of a failed build is written, so a cancelled build publishes
-        /// nothing (plan decision E5 of Phase 2.7).
+        /// build is put back and no record of a failed build is written, so a cancelled build leaves no
+        /// database and no record (plan decision E5 of Phase 2.7). A step that finished before the cancel stays
+        /// done and no record names it. Moved BAMs stay in `bams`, rewritten in place where markdup ran, and the
+        /// `_temp` folders the cleanup removed stay removed. A cancel after the check before the record is not
+        /// seen, and the build completes.
         static func buildDatabase(
             in resultURL: URL,
             options: BuildDbRunOptions,
