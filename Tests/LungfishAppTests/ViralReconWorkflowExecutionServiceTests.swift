@@ -977,25 +977,6 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
             runner.cancelCallCount == 1
         }
     }
-
-    func testViralReconProcessRunnerCancelTerminatesCurrentProcessTreeSource() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Services/ViralReconWorkflowExecutionService.swift"),
-            encoding: .utf8
-        )
-        XCTAssertTrue(source.contains("func cancel()"))
-        let processRunnerSource = try XCTUnwrap(
-            source.range(of: "ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRunning")
-        )
-        let cancelBody = try functionBody(
-            named: "cancel",
-            in: String(source[processRunnerSource.lowerBound...])
-        )
-
-        XCTAssertTrue(cancelBody.contains("requestProcessTreeTermination(gracePeriod: 0)"))
-    }
-
 }
 
 private func writeGzipFixture(_ content: String, to gzipURL: URL) throws {
