@@ -138,6 +138,30 @@ final class TaxTriagePipelineCancelReplayTests: XCTestCase {
         XCTAssertEqual(record?.steps.first?.outputs.count, 0, "a cancel hashes no partial output")
     }
 
+    func testACancelInTheLastSampleAfterACompletedOneWritesNoBatchResult() async throws {
+        let engine = try makeEngine(.completes)
+        let config = try makeConfig([("P1", 2), ("P2", 3)], output: "partial")
+
+        let run = Task {
+            try await engine.makeRunner().run(config: config, progress: { _, message in
+                // The runner says this once the first sample has completed, before the second launches.
+                if message == "Sample 2/2 (P2): Starting TaxTriage" {
+                    withUnsafeCurrentTask { $0?.cancel() }
+                }
+            })
+        }
+        let outcome = await run.result
+        let record = try ProvenanceEnvelopeReader.load(from: config.outputDirectory)
+        let batchResult = config.outputDirectory.appendingPathComponent("taxtriage-result.json")
+
+        // At the base the batch returned a partial result, so the app's end of run wrote
+        // cross-references into the source bundles and logged the cancelled sample as failed.
+        XCTAssertTrue(outcome.failure is CancellationError, "\(String(describing: outcome.failure))")
+        XCTAssertEqual(record?.status, .cancelled, "the cancel wins over the completed first sample")
+        XCTAssertEqual(record?.steps.map(\.exitStatus) ?? [], [0, 125], "the completed sample, then the cancelled one")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: batchResult.path), "a cancelled batch writes no aggregate result")
+    }
+
     // MARK: - The Tools menu route
 
     func testCancellingTheToolsMenuRunSettlesItsRowOnlyOnceTheEngineTreeIsGone() async throws {
