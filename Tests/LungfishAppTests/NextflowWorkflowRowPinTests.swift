@@ -249,20 +249,29 @@ final class NextflowWorkflowRowPinTests: XCTestCase {
 
     // MARK: - Local Workflow
 
-    /// A first run registers no cancel callback, so the row has no Cancel button and a cancel
-    /// request does nothing (the inventory's Local Workflow column, S16's fix).
-    func testALocalWorkflowFirstRunShowsNoCancelButtonAndIgnoresACancel() async throws {
-        let runner = PinLocalWorkflowRunner(exitCode: 0)
+    /// A first run registers a cancel callback, so its row offers Cancel (S16, fact ruling F8, since a
+    /// first run registered none before). A cancel reads `Cancelling...`, reaches the runner once, and
+    /// the row ends `Cancelled by user` with no error and no warning. The run throws
+    /// `CancellationError`, which the window controller ignores, so no sheet opens.
+    func testALocalWorkflowFirstRunOffersCancelAndEndsCancelledByUser() async throws {
+        let runner = PinLocalWorkflowRunner(exitCode: 125, standardError: "Workflow cancelled\n")
+        runner.blocksUntilCancelled = true
         let run = try makeLocalWorkflowRun(runner: runner)
         var running: OperationCenter.Item?
-        var afterCancel: OperationCenter.Item?
+        var cancelling: OperationCenter.Item?
         runner.onRun = {
             running = run.center.items.first
-            if let id = running?.id { run.center.cancel(id: id) }
-            afterCancel = run.center.items.first
+            guard let id = running?.id else { return }
+            run.center.cancel(id: id)
+            cancelling = run.center.items.first
         }
 
-        _ = try await run.service.run(run.request, bundleRoot: run.analyses)
+        do {
+            _ = try await run.service.run(run.request, bundleRoot: run.analyses)
+            XCTFail("a cancelled run ends by throwing CancellationError")
+        } catch is CancellationError {
+            // The window controller ignores it, as it does for a replay.
+        }
 
         let item = try XCTUnwrap(running)
         XCTAssertEqual(item.title, "Local Workflow")
@@ -270,10 +279,19 @@ final class NextflowWorkflowRowPinTests: XCTestCase {
         XCTAssertEqual(item.operationType, .workflow)
         XCTAssertEqual(item.state, .running)
         XCTAssertEqual(item.displayStateLabel, "Running")
-        XCTAssertFalse(item.isCancellable, "a first run registers no cancel callback")
-        XCTAssertFalse(OperationRowAction.cancel.isAvailable(for: item), "so its row shows no Cancel button")
-        XCTAssertEqual(afterCancel?.state, .running, "a cancel request leaves the row running")
-        XCTAssertEqual(afterCancel?.detail, "Running Nextflow workflow")
+        XCTAssertTrue(item.isCancellable, "a first run registers a cancel callback")
+        XCTAssertTrue(OperationRowAction.cancel.isAvailable(for: item), "so its row shows a Cancel button")
+        let during = try XCTUnwrap(cancelling)
+        XCTAssertEqual(during.state, .cancelling)
+        XCTAssertEqual(during.detail, "Cancelling...")
+        XCTAssertEqual(runner.cancelCount, 1, "the row's cancel callback reaches the runner once")
+        let ended = try XCTUnwrap(run.center.items.first)
+        XCTAssertEqual(ended.state, .cancelled)
+        XCTAssertEqual(ended.displayStateLabel, "Cancelled")
+        XCTAssertEqual(ended.detail, "Cancelled by user")
+        XCTAssertNil(ended.errorMessage)
+        XCTAssertNil(ended.errorDetail)
+        XCTAssertFalse(ended.hasWarnings)
     }
 
     /// The row's end words. The sentence names the run bundle, stderr lines are warning lines that
@@ -579,11 +597,15 @@ private final class PinViralReconRunner: ViralReconWorkflowProcessRunning {
 }
 
 /// A `lungfish-cli workflow run` that shows the case the row while it runs and returns a fixed
-/// result. On exit 0 it writes the completed run bundle the app verifies, as the command does.
+/// result, or waits for the row's cancel callback first. On exit 0 it writes the completed run bundle
+/// the app verifies, as the command does.
 @MainActor
 private final class PinLocalWorkflowRunner: LocalWorkflowCLIProcessRunning {
     let result: LocalWorkflowCLIProcessResult
     var onRun: (@MainActor () -> Void)?
+    var blocksUntilCancelled = false
+    private(set) var cancelCount = 0
+    private var barrier: CheckedContinuation<Void, Never>?
 
     init(exitCode: Int32, standardOutput: String = "", standardError: String = "") {
         result = LocalWorkflowCLIProcessResult(exitCode: exitCode, standardOutput: standardOutput, standardError: standardError)
@@ -595,11 +617,18 @@ private final class PinLocalWorkflowRunner: LocalWorkflowCLIProcessRunning {
         outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
     ) async throws -> LocalWorkflowCLIProcessResult {
         onRun?()
+        if blocksUntilCancelled {
+            await withCheckedContinuation { barrier = $0 }
+        }
         if result.exitCode == 0 { try Self.writeCompletedBundle(arguments: arguments) }
         return result
     }
 
-    func cancel() {}
+    func cancel() {
+        cancelCount += 1
+        barrier?.resume()
+        barrier = nil
+    }
 
     private static func writeCompletedBundle(arguments: [String]) throws {
         guard let bundleIndex = arguments.firstIndex(of: "--bundle-path"),

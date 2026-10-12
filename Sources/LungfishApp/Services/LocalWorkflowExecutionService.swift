@@ -135,13 +135,10 @@ final class LocalWorkflowExecutionService {
             try beforeRegister()
         }
         let commandPreview = Self.cliCommandPreview(for: request, bundleURL: bundleURL, prepareOnly: false)
-        let cancelWorker: (@Sendable () -> Void)?
-        if replay {
-            cancelWorker = { [weak self] in
-                Task { @MainActor in self?.processRunner.cancel() }
-            }
-        } else {
-            cancelWorker = nil
+        // Every run offers Cancel, a first run as well as a replay. The runner gives the CLI SIGTERM and
+        // a grace to stop the engine and record its run as cancelled, and the row then reads Cancelled.
+        let cancelWorker: @Sendable () -> Void = { [weak self] in
+            Task { @MainActor in self?.processRunner.cancel() }
         }
         // A refused row launches nothing, and the panel already shows it.
         guard case .started(let operationID) = Self.beginLocalWorkflowOperation(
@@ -168,7 +165,7 @@ final class LocalWorkflowExecutionService {
                 arguments: request.cliArguments(bundlePath: bundleURL),
                 workingDirectory: replay ? bundleRoot : bundleURL
             )
-            if replay, operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling {
+            if operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling {
                 operationCenter.acknowledgeCancellation(id: operationID)
                 throw CancellationError()
             }
@@ -191,7 +188,7 @@ final class LocalWorkflowExecutionService {
                     detail: "Local workflow completed. Run bundle: \(bundleURL.path)",
                     bundleURLs: [bundleURL]
                 )
-                if replay, operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelled {
+                if operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelled {
                     throw CancellationError()
                 }
             } else {
@@ -207,7 +204,7 @@ final class LocalWorkflowExecutionService {
             }
         } catch {
             let state = operationCenter.items.first(where: { $0.id == operationID })?.state
-            let cancellationAccepted = replay && (state == .cancelling || state == .cancelled)
+            let cancellationAccepted = state == .cancelling || state == .cancelled
             if state?.isActive == true {
                 _ = operationCenter.fail(
                     id: operationID,
