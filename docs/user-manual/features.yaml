@@ -1013,9 +1013,11 @@ features:
     tests:
       - Tests/LungfishWorkflowTests/TaxTriagePipelineTests.swift
       - Tests/LungfishCLITests/TaxTriageRunOptionsTests.swift
+      - Tests/LungfishAppTests/TaxTriageNoProjectRefusalTests.swift
     notes: >-
       Runs multi-level TaxTriage clinical triage and shows a confidence view,
-      batch overview, and strain comparison across samples.
+      batch overview, and strain comparison across samples. A launch with no
+      project open shows the No Project Open sheet and runs nothing (L1).
   classify.esviritu-cli-route:
     title: Run EsViritu from the command line into a project
     entry_points:
