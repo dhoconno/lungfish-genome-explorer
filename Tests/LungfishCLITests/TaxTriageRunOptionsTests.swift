@@ -41,6 +41,18 @@ final class TaxTriageRunOptionsTests: XCTestCase {
         XCTAssertEqual(args[index + 1], "9606 10090")
     }
 
+    /// The root record names the argv this process ran, with or without the word `run`, which
+    /// `taxtriage` takes as its default subcommand and the app's row leaves out. A test runner's
+    /// argv falls back to the canonical command (2.9 Q1b, C against C').
+    func testTheRootRecordNamesTheTypedArgvWithOrWithoutTheRunWord() {
+        let typed = ["/opt/lungfish/lungfish-cli", "taxtriage", "--input", "S1.fastq", "--project", "P.lungfish"]
+        XCTAssertEqual(TaxTriageCommand.RunSubcommand.recordedCommandLine(typed, fallback: ["unused"]), typed)
+        let withRun = ["/opt/lungfish/lungfish-cli", "taxtriage", "run", "--input", "S1.fastq"]
+        XCTAssertEqual(TaxTriageCommand.RunSubcommand.recordedCommandLine(withRun, fallback: ["unused"]), withRun)
+        let runner = ["/usr/bin/xctest", "-XCTest", "LungfishCLITests.TaxTriageRunOptionsTests", "taxtriage"]
+        XCTAssertEqual(TaxTriageCommand.RunSubcommand.recordedCommandLine(runner, fallback: ["lungfish-cli"]), ["lungfish-cli"])
+    }
+
     func testRemoveTaxidsDefaultsToNothingOnTheCLI() throws {
         let config = try parse([]).makeConfigForTesting()
         XCTAssertNil(config.removeTaxids)

@@ -403,11 +403,13 @@ extension TaxTriageCommand {
         }
 
         /// The argv the root record names, the one this process was started with when it ran this
-        /// leaf, else ``canonicalArguments()`` (a test runs the command inside another process).
+        /// leaf, as `taxtriage run` or as `taxtriage` and an option, which runs `run` as the default
+        /// subcommand the way the app's row spells it, else ``canonicalArguments()`` (a test runs
+        /// the command inside another process).
         static func recordedCommandLine(_ arguments: [String], fallback: @autoclosure () -> [String]) -> [String] {
             if let index = arguments.firstIndex(of: "taxtriage"),
                arguments.indices.contains(index + 1),
-               arguments[index + 1] == "run" {
+               arguments[index + 1] == "run" || arguments[index + 1].hasPrefix("-") {
                 return arguments
             }
             return fallback()
