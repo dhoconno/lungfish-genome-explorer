@@ -870,7 +870,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         let result: NativeToolResult
         do {
             result = try await native.runProcess(executableURL: executable, arguments: command.arguments,
-                workingDirectory: command.workingDirectory, environment: environment, timeout: 86400,
+                workingDirectory: command.workingDirectory, environment: environment, timeout: .infinity,
                 toolName: Self.toolDisplayName)
             try persist("04-design-completed.json", ["status": "completed", "argv": result.arguments,
                 "stdout": result.stdout, "stderr": result.stderr, "exitStatus": result.exitCode])
@@ -897,7 +897,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let audit: NativeToolResult
             do {
                 audit = try await native.runProcess(executableURL: executable, arguments: auditArguments,
-                    workingDirectory: command.workingDirectory, environment: environment, timeout: 86400,
+                    workingDirectory: command.workingDirectory, environment: environment, timeout: .infinity,
                     toolName: "\(Self.toolDisplayName) panel-audit")
                 try persist("06-audit-completed.json", ["status": "completed", "argv": audit.arguments,
                     "stdout": audit.stdout, "stderr": audit.stderr, "exitStatus": audit.exitCode])

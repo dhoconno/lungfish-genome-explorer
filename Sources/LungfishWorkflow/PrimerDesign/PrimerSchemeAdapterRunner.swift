@@ -174,7 +174,7 @@ extension PrimerSchemeAdapterExecution {
         let result = try await NativeToolRunner.shared.runProcess(
             executableURL: command.executableURL, arguments: command.arguments,
             workingDirectory: command.workingDirectoryURL, environment: command.environment,
-            timeout: 86_400, toolName: "LGE \(command.request.engine.rawValue) primer adapter",
+            timeout: .infinity, toolName: "LGE \(command.request.engine.rawValue) primer adapter",
             maxStderrBytes: 4 * 1_024 * 1_024)
         return .init(
             argv: result.arguments.isEmpty ? [command.executableURL.path] + command.arguments : result.arguments,

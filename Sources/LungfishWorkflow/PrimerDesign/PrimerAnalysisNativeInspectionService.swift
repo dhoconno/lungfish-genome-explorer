@@ -119,7 +119,7 @@ public struct PrimerAnalysisNativeInspectionService: Sendable {
             evidence.capabilities = capabilities
             let arguments = Array(evidence.nativeArgv.dropFirst())
             let result = try await runner.runProcess(executableURL: executableURL, arguments: arguments,
-                workingDirectory: workingDirectory, timeout: 86400,
+                workingDirectory: workingDirectory, timeout: .infinity,
                 toolName: audit ? "PrimalScheme3 panel-audit" : "PrimalScheme3 panel-history")
             evidence.nativeResult = result
             guard result.exitCode == 0 else {
