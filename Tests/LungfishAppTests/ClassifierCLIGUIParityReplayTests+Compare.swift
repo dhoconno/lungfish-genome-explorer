@@ -24,6 +24,8 @@
 //   comparison owns, and of a file neither tree holds any more, which the named-file fact of
 //   each side reports. Such a file's bytes can hold the run's own folder, as the header of
 //   EsViritu's BAM does before the BAM moves to bams/, so two runs cannot share its digest.
+//   For side A against side C only, a step's toolVersion is left out when each side holds its
+//   own LGE version there (`withoutOwnLGEVersion`, ruling R1 of Phase 2.8).
 // - The terminal state, in the words of a row. Exit 0 reads Completed, or Completed with Warnings
 //   when a Bracken profile degraded (E4), exit 125 Cancelled and any other end Failed.
 // - When the two runs named their analysis folders differently, as two runs with `--project`
@@ -387,6 +389,41 @@ enum ClassifierParityComparison {
     /// Fact names a real run measures, which no two runs share.
     static let measuredFacts: Set<String> = ["wallTimeSeconds", "wallTime", "totalWallTimeSeconds", "peakMemoryBytes"]
 
+    /// The arrays of a record's steps, whose elements pair by tool name.
+    static let stepArrays: Set<String> = ["steps", "legacyRunSteps", "canonicalRunSteps"]
+
+    /// LGE's own version as side A's steps record it, `Lungfish <version> (<build>)` and the
+    /// version alone (`WorkflowRun.currentAppVersion` and `currentAppReleaseVersion`). Side A runs
+    /// the GUI path in this process, so both read the XCTest host's bundle.
+    static let sideALGEVersions = [WorkflowRun.currentAppVersion, WorkflowRun.currentAppReleaseVersion]
+
+    /// The same two shapes on side C, which runs the SwiftPM `lungfish-cli`. Its embedded plist
+    /// holds no version, so it names `LungfishAppVersion.short` and the build `dev`.
+    static let sideCLGEVersions = ["Lungfish \(LungfishAppVersion.short) (dev)", LungfishAppVersion.short]
+
+    /// `step` without its `toolVersion` when the pair is side A against side C and each of the two
+    /// steps holds its own side's LGE version there, in the same shape (ruling R1 of Phase 2.8).
+    /// The two stamps name the process that wrote the record, not the route, so no lane can make
+    /// them agree. The values match exactly, so a third-party tool's version, another LGE version
+    /// or a changed shape still shows, and every other pair compares the key as it is.
+    static func withoutOwnLGEVersion(
+        _ step: Value,
+        beside candidateStep: Value?,
+        reference: ClassifierParitySide,
+        candidate: ClassifierParitySide
+    ) -> Value {
+        guard reference == .a, candidate == .c,
+              case .object(var members) = step,
+              case .object(let candidateMembers)? = candidateStep,
+              case .string(let versionA)? = members["toolVersion"],
+              case .string(let versionC)? = candidateMembers["toolVersion"],
+              zip(sideALGEVersions, sideCLGEVersions).contains(where: { $0.0 == versionA && $0.1 == versionC }) else {
+            return step
+        }
+        members["toolVersion"] = nil
+        return .object(members)
+    }
+
     /// Arrays whose elements are matched by identity rather than by position. A file's identity
     /// is its path with UUIDs masked, so the materialized input of two runs pairs up.
     static func elementKey(forArrayAt path: String) -> ((Value, Int) -> String)? {
@@ -397,7 +434,7 @@ enum ClassifierParityComparison {
                 return maskedUUIDs("\(members["path"].map(text) ?? "?")|\(members["role"].map(text) ?? "?")")
             }
         }
-        if ["steps", "legacyRunSteps", "canonicalRunSteps"].contains(last) {
+        if stepArrays.contains(last) {
             return { element, occurrence in
                 guard case .object(let members) = element else { return "?" }
                 return "\(members["toolName"].map(text) ?? "?")#\(occurrence)"
@@ -438,7 +475,11 @@ enum ClassifierParityComparison {
             }
             let candidateByKey = Dictionary(keyedElements(candidateItems, key), uniquingKeysWith: { first, _ in first })
             for (elementKey, element) in keyedElements(items, key) {
-                collectMissing(element, candidateByKey[elementKey], path: "\(path)[\(elementKey)]", into: &found, context: context)
+                let match = candidateByKey[elementKey]
+                let compared = stepArrays.contains(last)
+                    ? withoutOwnLGEVersion(element, beside: match, reference: context.reference.side, candidate: context.candidate.side)
+                    : element
+                collectMissing(compared, match, path: "\(path)[\(elementKey)]", into: &found, context: context)
             }
         case (.string(let textA), .string(let textB)) where !sameFact(reference, candidate):
             // Long texts such as a tool's log, shown from the first character that differs
