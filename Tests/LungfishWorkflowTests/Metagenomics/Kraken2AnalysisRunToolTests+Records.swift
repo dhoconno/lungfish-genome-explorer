@@ -243,6 +243,52 @@ extension Kraken2AnalysisRunToolTests {
         XCTAssertNil(record.options.defaults["preset"])
     }
 
+    // MARK: - Kept staged inputs (ruling R1 of Phase 2.8)
+
+    /// A merge sample keeps the header-only mate staged beside its merged reads (O1). The batch
+    /// root names it as an input and an output, the roles the app's batch record gives it, with
+    /// the digest and size the staging step recorded in the sample's record, as a one-folder root
+    /// names it through the pipeline's steps.
+    func testABatchRootNamesEachSamplesKeptStagedInputWithItsStagingDigest() async throws {
+        let inputs = [fixtures.singleRoot.path, fixtures.mergeDerivative.path]
+
+        let run = await execute(
+            request(inputs), .project(fixtures.projectURL), batch: true,
+            argv: command(inputs + ["--batch", "--project", fixtures.projectURL.path]),
+            indexing: StubKraken2Indexer()
+        )
+
+        XCTAssertEqual(run.report.status, .completed, run.report.message)
+        let batchRoot = try XCTUnwrap(run.report.analysisDirectory)
+        let manifest = try XCTUnwrap(MetagenomicsBatchResultStore.loadClassification(from: batchRoot))
+        var staged: [ProvenanceFileDescriptor] = []
+        for sample in manifest.samples {
+            let folder = batchRoot.appendingPathComponent(sample.resultDirectory, isDirectory: true)
+            let kept = folder.appendingPathComponent(KrakenReadSetPlanner.inputsDirectoryName).path + "/"
+            let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: folder), sample.sampleId)
+            staged += record.steps.flatMap(\.outputs).filter {
+                $0.path.hasPrefix(kept) && FileManager.default.fileExists(atPath: $0.path)
+            }
+        }
+        XCTAssertTrue(staged.contains { $0.path.hasSuffix(".emptymate.fastq") }, "the merge sample keeps its mate: \(staged.map(\.path))")
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: XCTUnwrap(run.report.recordURL)))
+        for file in staged {
+            for role in [FileRole.input, .output] {
+                let named = record.files.first { $0.path == file.path && $0.role == role }
+                XCTAssertEqual(named?.checksumSHA256, file.checksumSHA256, "\(file.path) as \(role)")
+                XCTAssertEqual(named?.fileSize, file.fileSize, "\(file.path) as \(role)")
+                XCTAssertEqual(named?.format, .fastq, "\(file.path) as \(role)")
+            }
+            let output = record.outputs.first { $0.path == file.path && $0.role == .output }
+            XCTAssertEqual(output?.checksumSHA256, file.checksumSHA256, file.path)
+        }
+        XCTAssertEqual(
+            record.output.map { URL(fileURLWithPath: $0.path).lastPathComponent },
+            Kraken2AnalysisRunTool.batchSummaryFilename,
+            "the summary stays the run's output"
+        )
+    }
+
     // MARK: - Helpers
 
     /// A failed or cancelled run keeps its folder, its root record with `status`, and its run

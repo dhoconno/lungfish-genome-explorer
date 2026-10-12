@@ -176,6 +176,17 @@ public struct ProvenanceRunBuilder: Sendable {
         return replacing(outputs: outputs + [descriptor])
     }
 
+    /// Records a local output from the descriptor a step of this run took when it wrote the
+    /// file, such as a staged input a batch's sample keeps, so the file is not read again. It
+    /// needs what a consumed-input snapshot needs, an absolute local path, a complete SHA-256
+    /// and a size.
+    func recordedOutputSnapshot(_ descriptor: ProvenanceFileDescriptor) throws -> Self {
+        guard Self.isCompleteLocalSnapshot(descriptor) else {
+            throw ProvenanceBuilderError.incompleteFileDescriptor(descriptor.path)
+        }
+        return replacing(outputs: outputs + [descriptor])
+    }
+
     /// Adds a local output that will be atomically relocated from the descriptor's
     /// `originPath` after provenance is written. The origin must exist and match
     /// the descriptor's recorded checksum and size at the time it is added.
@@ -315,21 +326,27 @@ public struct ProvenanceRunBuilder: Sendable {
     private func validateConsumedInputSnapshotDescriptor(
         _ descriptor: ProvenanceFileDescriptor
     ) throws {
+        guard Self.isCompleteLocalSnapshot(descriptor),
+              descriptor.role != .output else {
+            throw ProvenanceBuilderError
+                .invalidConsumedInputSnapshotDescriptor(descriptor.path)
+        }
+    }
+
+    /// Whether a descriptor names a local file by its absolute path with a complete SHA-256 and
+    /// a size, as the snapshot of a file the run already read or wrote must.
+    private static func isCompleteLocalSnapshot(_ descriptor: ProvenanceFileDescriptor) -> Bool {
         let checksum = descriptor.checksumSHA256 ?? ""
         let isCompleteSHA256 = checksum.count == 64
             && checksum.unicodeScalars.allSatisfy {
                 CharacterSet(charactersIn: "0123456789abcdefABCDEF")
                     .contains($0)
             }
-        guard !descriptor.path.isEmpty,
-              !descriptor.path.contains("://"),
-              descriptor.path.hasPrefix("/"),
-              isCompleteSHA256,
-              descriptor.fileSize != nil,
-              descriptor.role != .output else {
-            throw ProvenanceBuilderError
-                .invalidConsumedInputSnapshotDescriptor(descriptor.path)
-        }
+        return !descriptor.path.isEmpty
+            && !descriptor.path.contains("://")
+            && descriptor.path.hasPrefix("/")
+            && isCompleteSHA256
+            && descriptor.fileSize != nil
     }
 
     private func validateRelocatedOutputDescriptor(_ descriptor: ProvenanceFileDescriptor) throws {

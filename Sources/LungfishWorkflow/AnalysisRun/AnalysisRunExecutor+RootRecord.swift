@@ -32,9 +32,10 @@ extension AnalysisRunExecutor {
     /// and the finalize recorded merged in and hold the read-set plan under `resolvedDefaults`
     /// (E13), its status and exit status say how the run ended, and its stderr
     /// holds the reason a run did not complete and every warning. A completed run lists the
-    /// finalize's outputs, which are hashed here once. Every other descriptor is one the tool
-    /// already took, so a failed or cancelled run hashes nothing, and a cancelled run's record is
-    /// written within the grace its command has after the cancel.
+    /// finalize's outputs, which are hashed here once, and the files the finalize names as a step
+    /// of the run recorded them, which are not. Every other descriptor is one the tool already
+    /// took, so a failed or cancelled run hashes nothing, and a cancelled run's record is written
+    /// within the grace its command has after the cancel.
     ///
     /// A completed run whose record cannot be built or written becomes a failed run. A record of a
     /// run that did not complete is tried with what the tool recorded, then without it, so a
@@ -55,6 +56,7 @@ extension AnalysisRunExecutor {
                 inputs: inputs,
                 steps: steps,
                 outputs: ending == .completed ? input.finalization?.outputs ?? [] : [],
+                recordedFiles: ending == .completed ? input.finalization?.recordedFiles ?? [] : [],
                 warnings: journal.warnings,
                 replayArgv: replayArgv
             )
@@ -73,6 +75,7 @@ extension AnalysisRunExecutor {
                     inputs: attempt.0,
                     steps: attempt.1,
                     outputs: [],
+                    recordedFiles: [],
                     warnings: journal.warnings,
                     replayArgv: replayArgv
                 ),
@@ -90,6 +93,7 @@ extension AnalysisRunExecutor {
         inputs: [ProvenanceFileDescriptor],
         steps: [ProvenanceStep],
         outputs: [AnalysisRunOutput],
+        recordedFiles: [ProvenanceFileDescriptor],
         warnings: [String],
         replayArgv: [String]?
     ) throws -> ProvenanceEnvelope {
@@ -117,6 +121,12 @@ extension AnalysisRunExecutor {
         for output in outputs {
             builder = try builder.output(output.url, format: output.format, role: output.role)
         }
+        // After the finalize's outputs, so the run's output stays the first of them.
+        for descriptor in recordedFiles {
+            builder = descriptor.role == .input
+                ? try Self.adding(recordedInput: descriptor, to: builder)
+                : try Self.adding(recordedOutput: descriptor, to: builder)
+        }
 
         let stderr = ([ending.message(displayName: input.identity.displayName)].compactMap { $0 } + warnings)
             .joined(separator: "\n")
@@ -142,5 +152,19 @@ extension AnalysisRunExecutor {
             return snapshot
         }
         return try builder.input(descriptor)
+    }
+
+    /// Adds an output a step of the run already hashed, such as a staged input a batch's sample
+    /// keeps, with that step's digest and size and without hashing it again, as
+    /// ``adding(recordedInput:to:)`` adds an input. A remote reference or a folder with a
+    /// checksum goes in as it is.
+    static func adding(
+        recordedOutput descriptor: ProvenanceFileDescriptor,
+        to builder: ProvenanceRunBuilder
+    ) throws -> ProvenanceRunBuilder {
+        if let snapshot = try? builder.recordedOutputSnapshot(descriptor) {
+            return snapshot
+        }
+        return try builder.output(descriptor)
     }
 }

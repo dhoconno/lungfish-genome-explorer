@@ -136,7 +136,8 @@ extension Kraken2AnalysisRunTool {
             artifacts: [
                 CLIEventArtifact(kind: "tsv", path: summaryURL.path, role: CLIEventArtifact.Role.batchSummary),
                 CLIEventArtifact(kind: "json", path: manifestURL.path, role: CLIEventArtifact.Role.batchManifest),
-            ]
+            ],
+            recordedFiles: Self.keptStagedInputs(of: completed.map { $0.report.directory })
         )
         var indexError: String?
         context.progress(Self.batchIndexMessage)
@@ -175,6 +176,40 @@ extension Kraken2AnalysisRunTool {
         finalization.warnings += index.warnings
         finalization.artifacts += index.outputs.map {
             CLIEventArtifact(kind: "sqlite", path: $0.url.path, role: CLIEventArtifact.Role.classificationDatabase)
+        }
+    }
+
+    /// The files each completed sample of a batch keeps in its `.lungfish-classify-inputs/`
+    /// folder, such as the header-only mate staged beside a merge bundle's merged reads (O1), as
+    /// an input of the run and an output of it, the roles the app's batch record gives them. Each
+    /// keeps the digest and size the step that wrote it recorded in the sample's record, so the
+    /// root record reads no file again (ruling R1 of Phase 2.8). A one-folder root already names
+    /// them through the pipeline's steps.
+    static func keptStagedInputs(of sampleDirectories: [URL]) -> [ProvenanceFileDescriptor] {
+        sampleDirectories.flatMap { directory -> [ProvenanceFileDescriptor] in
+            guard let record = ProvenanceRecorder.loadEnvelope(from: directory) else { return [] }
+            let folder = directory.appendingPathComponent(KrakenReadSetPlanner.inputsDirectoryName, isDirectory: true)
+            let prefix = folder.resolvingSymlinksInPath().standardizedFileURL.path + "/"
+            // The last step that wrote a path holds its digest, in the order the paths first appear.
+            var written: [String: ProvenanceFileDescriptor] = [:]
+            var order: [String] = []
+            for file in record.steps.flatMap(\.outputs) where FileManager.default.fileExists(atPath: file.path) {
+                guard URL(fileURLWithPath: file.path).resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(prefix) else {
+                    continue
+                }
+                if written.updateValue(file, forKey: file.path) == nil { order.append(file.path) }
+            }
+            return order.compactMap { written[$0] }.flatMap { file in
+                [FileRole.input, .output].map { role in
+                    ProvenanceFileDescriptor(
+                        path: file.path,
+                        checksumSHA256: file.checksumSHA256,
+                        fileSize: file.fileSize,
+                        format: file.format,
+                        role: role
+                    )
+                }
+            }
         }
     }
 

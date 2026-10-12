@@ -26,6 +26,11 @@ public struct AnalysisRunFinalization: Sendable {
     /// Options the finalize adds to the root record, merged after the plan's and the units' by
     /// the rule ``AnalysisRootRecordOptions`` states. Nil adds none.
     public var options: AnalysisRootRecordOptions?
+    /// Run-level files a step of the run already hashed, such as the staged inputs each sample
+    /// of a batch keeps. The root record of a completed run names each with the digest and size
+    /// that step recorded and never hashes it again, as an input when its role is input and as
+    /// an output otherwise.
+    public var recordedFiles: [ProvenanceFileDescriptor]
 
     public init(
         outputs: [AnalysisRunOutput] = [],
@@ -34,7 +39,8 @@ public struct AnalysisRunFinalization: Sendable {
         artifacts: [CLIEventArtifact] = [],
         completionDetail: String? = nil,
         warnings: [String] = [],
-        options: AnalysisRootRecordOptions? = nil
+        options: AnalysisRootRecordOptions? = nil,
+        recordedFiles: [ProvenanceFileDescriptor] = []
     ) {
         self.outputs = outputs
         self.steps = steps
@@ -43,5 +49,6 @@ public struct AnalysisRunFinalization: Sendable {
         self.completionDetail = completionDetail
         self.warnings = warnings
         self.options = options
+        self.recordedFiles = recordedFiles
     }
 }
