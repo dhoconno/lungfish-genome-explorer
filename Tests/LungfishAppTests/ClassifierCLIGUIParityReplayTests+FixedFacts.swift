@@ -84,15 +84,16 @@ extension ClassifierCLIGUIParityReplayTests {
                 esVirituViolations(expected, folder: folder, facts: facts, violate: violate)
             }
             if let reads = expected.materializedReads {
-                // A Kraken2 batch through the executor keeps the materialized inputs of its samples
-                // at the batch root.
-                let ownInputs = materializedInputs(in: folder)
-                let kept = ownInputs.isEmpty && parityCase.isBatch && parityCase.tool == .kraken2
-                    ? materializedInputs(in: analysis)
-                    : ownInputs
+                // A Kraken2 batch through the executor keeps the materialized inputs of all its
+                // samples at the batch root, so a sample's own are the files its own kraken2 reads.
+                var kept = materializedInputs(in: folder)
+                if kept.isEmpty, parityCase.isBatch, parityCase.tool == .kraken2 {
+                    let read = Set(invocations(of: "kraken2", in: facts).joined().map { ($0 as NSString).lastPathComponent })
+                    kept = materializedInputs(in: analysis).filter { read.contains($0.lastPathComponent) }
+                }
                 let counts = try kept.map { try ClassifierParityFixtures.fastqRecordCount($0) }
                 if parityCase.tool == .kraken2, kept.isEmpty {
-                    violate("keeps its materialized input", "no FASTQ under the sample's materialization folders")
+                    violate("keeps its materialized input", "no FASTQ under the sample's materialization folders, or at the batch root that its kraken2 reads")
                 }
                 if !kept.isEmpty, counts.reduce(0, +) != reads || counts.contains(where: { [10, 100].contains($0) }) {
                     violate("materialized \(reads) reads, never 10 or 100", "\(zip(kept.map(\.lastPathComponent), counts).map { "\($0) \($1)" })")
