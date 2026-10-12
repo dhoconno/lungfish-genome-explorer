@@ -14,7 +14,8 @@ final class TaxTriageCompletionStateTests: XCTestCase {
 
     private func result(
         ignoredFailures: [TaxTriageIgnoredFailure],
-        sampleFailures: [TaxTriageSampleFailure] = []
+        sampleFailures: [TaxTriageSampleFailure] = [],
+        reportFiles: [URL] = []
     ) -> TaxTriageResult {
         let config = TaxTriageConfig(
             samples: [
@@ -28,6 +29,7 @@ final class TaxTriageCompletionStateTests: XCTestCase {
             runtime: 10,
             exitCode: 0,
             outputDirectory: config.outputDirectory,
+            reportFiles: reportFiles,
             ignoredFailures: ignoredFailures,
             sampleFailures: sampleFailures
         )
@@ -123,16 +125,31 @@ final class TaxTriageCompletionStateTests: XCTestCase {
     // docs/plans/2026-10-11-phase-2-8.md) flip them one at a time. The row text of a whole run is
     // pinned in `TaxTriageOperationRowTextReplayTests`.
 
-    func testOneFailedSampleReadsAPluralNounToday() throws {
+    func testOneFailedSampleReadsASingularNoun() throws {
         let item = try finishedRow(result(ignoredFailures: [], sampleFailures: [sampleFailure("SRR12486989")]))
 
         XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
-        // M3 (T9): `1 failed sample (0 reports)` and `1 TaxTriage sample failed (...)`.
-        XCTAssertEqual(item.detail, "1 failed samples (0 reports)")
+        // T9: one item reads in the singular and zero stays plural.
+        XCTAssertEqual(item.detail, "1 failed sample (0 reports)")
         XCTAssertEqual(
             warningLines(of: item),
-            ["1 TaxTriage samples failed (SRR12486989: boom SRR12486989)", "1 failed samples (0 reports)"]
+            ["1 TaxTriage sample failed (SRR12486989: boom SRR12486989)", "1 failed sample (0 reports)"]
         )
+    }
+
+    func testTheReportCountReadsSingularForOneAndPluralOtherwise() throws {
+        func detail(reports count: Int) throws -> String {
+            let files = (0..<count).map { URL(fileURLWithPath: "/tmp/taxtriage-batch/report-\($0).html") }
+            return try finishedRow(result(
+                ignoredFailures: [],
+                sampleFailures: [sampleFailure("SRR12486989")],
+                reportFiles: files
+            )).detail
+        }
+
+        XCTAssertEqual(try detail(reports: 0), "1 failed sample (0 reports)")
+        XCTAssertEqual(try detail(reports: 1), "1 failed sample (1 report)")
+        XCTAssertEqual(try detail(reports: 2), "1 failed sample (2 reports)")
     }
 
     func testSixFailedSamplesListFiveAndCountTheRest() throws {
@@ -151,13 +168,13 @@ final class TaxTriageCompletionStateTests: XCTestCase {
         let item = try finishedRow(finished)
 
         let headline = try XCTUnwrap(finished.erroredProcessesHeadline)
-        XCTAssertEqual(item.detail, "\(headline); 1 failed samples (0 reports)")
+        XCTAssertEqual(item.detail, "\(headline); 1 failed sample (0 reports)")
         // M3 (T9): one warning line per cause, so the detail is no third line.
         XCTAssertEqual(
             warningLines(of: item),
             [
                 try XCTUnwrap(finished.erroredProcessesMessage),
-                "1 TaxTriage samples failed (SRR12486989: boom SRR12486989)",
+                "1 TaxTriage sample failed (SRR12486989: boom SRR12486989)",
                 item.detail,
             ]
         )

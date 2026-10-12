@@ -138,7 +138,7 @@ extension AppDelegate {
             center.log(
                 id: opID,
                 level: .warning,
-                message: "\(result.sampleFailures.count) TaxTriage samples failed (\(preview)\(suffix))"
+                message: "\(Self.counted(result.sampleFailures.count, "TaxTriage sample")) failed (\(preview)\(suffix))"
             )
         }
 
@@ -147,13 +147,18 @@ extension AppDelegate {
             warningSummaries.append(headline)
         }
         if result.hasSampleFailures {
-            warningSummaries.append("\(result.sampleFailures.count) failed samples")
+            warningSummaries.append(Self.counted(result.sampleFailures.count, "failed sample"))
         }
         guard result.completedWithErrors, !warningSummaries.isEmpty else {
             return center.complete(id: opID, detail: result.summary)
         }
-        let detail = "\(warningSummaries.joined(separator: "; ")) (\(result.reportFiles.count) reports)"
+        let detail = "\(warningSummaries.joined(separator: "; ")) (\(Self.counted(result.reportFiles.count, "report")))"
         return center.completeWithWarning(id: opID, detail: detail)
+    }
+
+    /// `1 report` or `2 reports`, a count and its noun in the number it takes. Zero stays plural.
+    private static func counted(_ count: Int, _ noun: String) -> String {
+        "\(count) \(noun)\(count == 1 ? "" : "s")"
     }
 
     /// Writes TaxTriage cross-reference sidecars into each source bundle directory.

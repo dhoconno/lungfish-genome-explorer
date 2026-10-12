@@ -233,8 +233,9 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         XCTAssertEqual(item.state, .completed)
         XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
         let headline = "TaxTriage completed with errors: MINIMAP2_ALIGN failed for S1 (killed, usually for running out of memory)"
-        // M3 (T8): the headline becomes `Some TaxTriage tasks failed`. M3 (T9): `(1 reports)` follows the singular rule too.
-        XCTAssertEqual(item.detail, "\(headline) (1 reports)")
+        // M3 (T8): the headline becomes `Some TaxTriage tasks failed`. The report count follows the
+        // singular rule (T9).
+        XCTAssertEqual(item.detail, "\(headline) (1 report)")
 
         // M3 (T9): one warning line per cause and no information line. Today the paragraph is the
         // pipeline's last progress message at info, then a warning, and the detail is a third line
@@ -250,7 +251,7 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
 
     // MARK: - A failed sample
 
-    func testOneFailedSampleOfTwoReadsPluralWordsAndWritesIntoBothBundles() async throws {
+    func testOneFailedSampleOfTwoReadsSingularWordsAndWritesIntoBothBundles() async throws {
         try requireBuiltCLI()
         let engine = try makeEngine(.failsSamples(["S2"]))
         let project = try makeProject()
@@ -272,12 +273,11 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         XCTAssertEqual(item.state, .completed)
         XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
         XCTAssertEqual(item.title, "TaxTriage (2 samples)")
-        // M3 (T9): `1 failed sample`.
-        XCTAssertEqual(item.detail, "1 failed samples (1 reports)")
+        // One item reads in the singular (T9).
+        XCTAssertEqual(item.detail, "1 failed sample (1 report)")
         let lines = Self.loggedLines(of: item)
         // The runner logs the sample's error at info, and the finish repeats it in one warning
-        // line. M3 (T9): `1 TaxTriage sample failed`. The detail is the second warning line,
-        // because `completeWithWarning` appends it.
+        // line. The detail is the second warning line, because `completeWithWarning` appends it.
         let failurePrefix = "info: Sample 2/2 (S2): Failed - "
         let error = try XCTUnwrap(
             lines.first { $0.hasPrefix(failurePrefix) }.map { String($0.dropFirst(failurePrefix.count)) },
@@ -285,7 +285,7 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         )
         XCTAssertEqual(
             lines.filter { $0.hasPrefix("warning:") },
-            ["warning: 1 TaxTriage samples failed (S2: \(error))", "warning: 1 failed samples (1 reports)"]
+            ["warning: 1 TaxTriage sample failed (S2: \(error))", "warning: 1 failed sample (1 report)"]
         )
 
         // Two samples record no command, because no single `taxtriage run` repeats the serial batch.
