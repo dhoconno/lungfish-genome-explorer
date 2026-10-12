@@ -103,6 +103,34 @@ A new workflow adds its builder in `Sources/LungfishWorkflow/Nextflow/` and a te
 
 ## 4. The record (B11)
 
+A workflow on this contract records each of its Nextflow steps in one shape, `NextflowRecordFacts` in `Sources/LungfishWorkflow/Nextflow/NextflowRecordFacts.swift` (decision R1). In Phase 2.9 only TaxTriage's pipeline writes it. The sample steps that the app's serial batch record writes by hand (`TaxTriageSerialBatchRunner`) do not take it yet, and Viral Recon and pbAA keep their own records until they move onto the contract. `Tests/LungfishCLITests/ViralReconRecordShapeGapTests.swift` states Viral Recon's gaps.
+
+| Fact | Where the record holds it | Where the value comes from |
+|---|---|---|
+| Pipeline | The step's `toolName`, the lock's pipeline id, such as `taxtriage` | The descriptor's `lockPipelineID`, through the pin |
+| Revision | The step's `toolVersion`, the revision that ran | The lock's pin through `NextflowRecordFacts(pin:pipelineSource:)`, or the revision the user picked in its place (section 1), which TaxTriage records through `TaxTriageRecordFacts.nextflowFacts(revision:pipelineSource:)` |
+| Release tag | The step's `githubReleaseVersion`, left out when no tag names the revision | The pin's `releaseVersion` for the pin's own revision or that tag. TaxTriage also records a revision that is itself a `v` tag as its own tag (`TaxTriageConfig.githubReleaseVersion(for:)`) |
+| Launch source | The step's resolved option `pipelineSource`, `remote` or `snapshot` | The launch target, the repository with `-r` or LGE's snapshot folder without it |
+| Nextflow version | The step's resolved option `nextflowVersion`, left out when the log names none | The run's own log, read by `NextflowRecordFacts.nextflowVersion(inLog:)` |
+| Settings | Explicit options for what the user chose, resolved defaults for a value LGE passed unasked or the pipeline used by default | The request and the descriptor |
+| Databases | Resolved defaults, each with a status from `DatabaseIdentityStatus` | The install receipt, or a digest LGE checked |
+| Fetched data | A `NextflowDatabaseEntry` of status `liveSnapshot` with the fetch date and the kept files that list what the run fetched | The pipeline's kept outputs, which the executor's root record names (lane B12) |
+| Command | On the executor route the run's command is LGE's own command and the step's command is the reproducible argv with `-r`. Until a workflow moves there, its step records the argv that ran | The executor tool (section 7) |
+
+A setting is explicit only when the user chose it. TaxTriage's launch passes no `--classifiers`, so its record keeps `classifiers` among the resolved defaults (decision R5).
+
+A database status is one of three words. A digest LGE checked makes a database `pinned`. A database that no digest pins is `unpinned`, and `DatabaseIdentityStatus.status(ofRecordedWord:)` reads Kraken 2's word for the same fact, `unresolved-bounded-metadata`, as `unpinned`. A database the run fetched from a live source is `liveSnapshot`. Writers keep their words until a Preview ships the tolerant reader (decision R3). TaxTriage fetches its references from NCBI during a run and keeps `combine/<sample>.combined.gcfmap.tsv` for each sample, so the executor's root record names those files and the fetch date in its `liveSnapshot` entry (decision R4, lane B12).
+
+Nextflow 25.04 starts its output with the banner `N E X T F L O W  ~  version 25.04.6`. Nextflow 26.04.6, as LGE launches it, prints no version on its standard output. TaxTriage's workflow prints the line `Nextflow version: 26.04.6` from `workflow.nextflow.version`, so a TaxTriage record names the engine that ran. The parser counts either line only at the start of a line, so a path or an argument in the preamble LGE writes above the engine's output never stands in. A new workflow whose code prints no such line records no Nextflow version. The engine's own log in the launch folder holds the version, and keeping it is an engine choice for a later phase.
+
+### Rules for a new workflow's record
+
+| Rule | What it means |
+|---|---|
+| Lock pin | A run takes its repository from the lock, and its revision from the lock unless the user picks another (section 1). A lock with no pin refuses the run (decision N4). The record names the revision that ran, and the lock's tag only for the pin's own revision or that tag. No test asserts the lock's Nextflow version from a stand-in run, whose banner is the stand-in's own |
+| No patch | LGE never edits a pipeline's code. Both launch sources run the code of the recorded revision, so `pipelineSource` says where the code came from and nothing more. The snapshot is a `git archive` of the revision, so a pin bump checks that the revision's `.gitattributes` holds no `export-ignore` or `export-subst` line, which would make the snapshot differ from the commit. A workflow that ever needs a patch records each patched file's SHA-256 before and after it |
+| Pooled run | On the executor route (section 7) a plain `--output` runs every sample in one Nextflow run, and `--project` or `--batch` runs one per sample (Phase 2.9 decision T5). The two give the same reports today because no sample is a control. LGE writes no control column and passes neither `--negative` nor `--positive`, the options that name a control at TaxTriage's pinned commit. A run whose extra arguments name a control, and any workflow that scores samples against controls, needs a pooled run that holds those controls, and its record names every sample of the run |
+
 ## 5. The registry row and the words (U9)
 
 ## 6. The stand-in for tests (Q9)
