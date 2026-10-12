@@ -8,16 +8,19 @@
 // with the invocation's subcommand and arguments. This class freezes that
 // route before the dispatcher is reworked. It holds one cell for each of the
 // ten request kinds, and the classify kind has three cells, one for each tool
-// the request names. A cell pins the first word the dispatcher passes the CLI,
-// every word of the row command, what the shipped parser
-// (`LungfishCLI.parseAsRoot`, through `RecordedCLICommand`) makes of the row,
-// and the output kind the planner gives the request.
+// the request names. A cell that builds pins the first word the dispatcher
+// passes the CLI, every word of the row command, what the shipped parser
+// (`LungfishCLI.parseAsRoot`, through `RecordedCLICommand`) makes of the row and
+// of the dispatcher's argv, and the output kind the planner gives the request.
 //
-// The EsViritu and TaxTriage cells name rows the CLI refuses today. The dialog
-// writes their input paths as bare words, and `esviritu detect` and
-// `taxtriage run` take them with `--input`. `taxtriage run` also needs
-// `--output`. `XCTExpectFailure` holds both as known issues, so each pin fails
-// when a repair makes its row parse.
+// The three classify cells hold decision D1 of Phase 2.8. The classification,
+// EsViritu and TaxTriage wizards the dialog embeds start their runs through
+// their own routes, so no production path hands a `.classify` request to the
+// builder, and the builder throws for it. The row of such a request records no
+// command, and no subcommand of several words can reach the CLI as one
+// argument. Before D1 the Kraken2 row spelled `conda classify`, which the
+// dispatcher passed as one argument, and the CLI refused the EsViritu and
+// TaxTriage rows.
 
 import ArgumentParser
 import Foundation
@@ -33,22 +36,17 @@ import LungfishWorkflow
 final class FASTQOperationDispatchFreezeTests: XCTestCase {
     // MARK: - The table
 
-    /// What the shipped parser makes of a row.
-    private enum Reading {
-        /// The row parses to this command type.
-        case parses(any ParsableCommand.Type)
-        /// The CLI refuses the row today, for this reason.
-        case refusedToday(String)
+    private enum Outcome {
+        /// The builder writes `subcommand` as the first word, the row holds `words`, and the shipped parser makes `command` of the row.
+        case builds(subcommand: String, words: [String], command: any ParsableCommand.Type)
+        /// The builder throws this error, and the row holds no command.
+        case refuses(FASTQOperationCLIInvocationError)
     }
 
     private struct Cell {
         let name: String
         let request: FASTQOperationLaunchRequest
-        /// `FASTQCLIInvocation.subcommand`, the first word the dispatcher passes the CLI.
-        let subcommand: String
-        /// Every word of the row command after `lungfish-cli`.
-        let words: [String]
-        let reading: Reading
+        let outcome: Outcome
         let outputKind: FASTQOperationExecutionOutputKind
     }
 
@@ -107,25 +105,31 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
             Cell(
                 name: "refreshQCSummary",
                 request: .refreshQCSummary(inputURLs: [Self.reads]),
-                subcommand: "fastq",
-                words: ["fastq", "qc-summary", reads, "--output", "<derived>"],
-                reading: .parses(FastqQCSummarySubcommand.self),
+                outcome: .builds(
+                    subcommand: "fastq",
+                    words: ["fastq", "qc-summary", reads, "--output", "<derived>"],
+                    command: FastqQCSummarySubcommand.self
+                ),
                 outputKind: .jsonReport
             ),
             Cell(
                 name: "derivative",
                 request: .derivative(request: .subsampleProportion(0.5), inputURLs: [Self.reads], outputMode: .perInput),
-                subcommand: "fastq",
-                words: ["fastq", "subsample", reads, "--proportion", "0.5", "-o", "<derived>"],
-                reading: .parses(FastqSubsampleSubcommand.self),
+                outcome: .builds(
+                    subcommand: "fastq",
+                    words: ["fastq", "subsample", reads, "--proportion", "0.5", "-o", "<derived>"],
+                    command: FastqSubsampleSubcommand.self
+                ),
                 outputKind: .fastqFile
             ),
             Cell(
                 name: "ontFluidigmSampleSplit",
                 request: .ontFluidigmSampleSplit(inputFASTQURL: Self.reads, barcodeDefinitionsURL: Self.barcodes, threads: 2),
-                subcommand: "fastq",
-                words: ["fastq", "ont-fluidigm-samples", reads, "--barcodes", barcodes, "--output", "<derived>", "--threads", "2"],
-                reading: .parses(FastqONTFluidigmSamplesSubcommand.self),
+                outcome: .builds(
+                    subcommand: "fastq",
+                    words: ["fastq", "ont-fluidigm-samples", reads, "--barcodes", barcodes, "--output", "<derived>", "--threads", "2"],
+                    command: FastqONTFluidigmSamplesSubcommand.self
+                ),
                 outputKind: .directory
             ),
             Cell(
@@ -138,90 +142,96 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
                     maxReadsPerSlice: 1000,
                     maxBytesPerCutadapt: 1_000_000
                 ),
-                subcommand: "fastq",
-                words: [
-                    "fastq", "ont-pacbio-barcode-demux", reads, "--barcodes", barcodes, "--output", "<derived>",
-                    "--threads", "2", "--chunk-jobs", "2", "--max-reads-per-slice", "1000",
-                    "--max-bytes-per-cutadapt", "1000000",
-                ],
-                reading: .parses(FastqONTPacBioBarcodeDemuxSubcommand.self),
+                outcome: .builds(
+                    subcommand: "fastq",
+                    words: [
+                        "fastq", "ont-pacbio-barcode-demux", reads, "--barcodes", barcodes, "--output", "<derived>",
+                        "--threads", "2", "--chunk-jobs", "2", "--max-reads-per-slice", "1000",
+                        "--max-bytes-per-cutadapt", "1000000",
+                    ],
+                    command: FastqONTPacBioBarcodeDemuxSubcommand.self
+                ),
                 outputKind: .directory
             ),
             Cell(
                 name: "map",
                 request: .map(inputURLs: [Self.reads], referenceURL: Self.reference, outputMode: .perInput),
-                subcommand: "map",
-                words: ["map", reads, "--reference", reference],
-                reading: .parses(MapCommand.self),
+                outcome: .builds(
+                    subcommand: "map",
+                    words: ["map", reads, "--reference", reference],
+                    command: MapCommand.self
+                ),
                 outputKind: .directory
             ),
             Cell(
                 name: "assemble",
                 request: .assemble(request: assembly, outputMode: .perInput),
-                subcommand: "assemble",
-                words: [
-                    "assemble", reads, "--json-events", "--assembler", "spades", "--read-type", "illumina-short-reads",
-                    "--project-name", "demo", "--threads", "2", "--output", "<derived>",
-                ],
-                reading: .parses(AssembleCommand.self),
+                outcome: .builds(
+                    subcommand: "assemble",
+                    words: [
+                        "assemble", reads, "--json-events", "--assembler", "spades", "--read-type", "illumina-short-reads",
+                        "--project-name", "demo", "--threads", "2", "--output", "<derived>",
+                    ],
+                    command: AssembleCommand.self
+                ),
                 outputKind: .directory
             ),
             Cell(
                 name: "classify, Kraken2",
                 request: .classify(tool: .kraken2, inputURLs: [Self.reads], databaseName: "kraken-db"),
-                subcommand: "conda classify",
-                words: ["conda", "classify", reads, "--db", "kraken-db"],
-                reading: .parses(ClassifyCommand.self),
+                outcome: .refuses(.classifierLaunchHasNoDialogCommand(tool: .kraken2)),
                 outputKind: .directory
             ),
             Cell(
                 name: "classify, EsViritu",
                 request: .classify(tool: .esViritu, inputURLs: [Self.reads], databaseName: "esv-db"),
-                subcommand: "esviritu",
-                words: ["esviritu", "detect", reads, "--db", "esv-db"],
-                reading: .refusedToday("esviritu detect takes its reads with --input, and the dialog writes them as bare words"),
+                outcome: .refuses(.classifierLaunchHasNoDialogCommand(tool: .esViritu)),
                 outputKind: .directory
             ),
             Cell(
                 name: "classify, TaxTriage",
                 request: .classify(tool: .taxTriage, inputURLs: [Self.reads], databaseName: "tax-db"),
-                subcommand: "taxtriage",
-                words: ["taxtriage", "run", reads, "--db", "tax-db"],
-                reading: .refusedToday("taxtriage run needs --output and takes its reads with --input, and the dialog's row has neither"),
+                outcome: .refuses(.classifierLaunchHasNoDialogCommand(tool: .taxTriage)),
                 outputKind: .directory
             ),
             Cell(
                 name: "savont",
                 request: .savont(request: savont),
-                subcommand: "fastq",
-                words: [
-                    "fastq", "savont-cluster", reads, "--output", "<derived>", "--threads", "2",
-                    "--quality-value-cutoff", "90", "--min-cluster-size", "3",
-                ],
-                reading: .parses(FastqSavontClusterSubcommand.self),
+                outcome: .builds(
+                    subcommand: "fastq",
+                    words: [
+                        "fastq", "savont-cluster", reads, "--output", "<derived>", "--threads", "2",
+                        "--quality-value-cutoff", "90", "--min-cluster-size", "3",
+                    ],
+                    command: FastqSavontClusterSubcommand.self
+                ),
                 outputKind: .fastqFile
             ),
             Cell(
                 name: "pbaa",
                 request: .pbaa(request: pbaa),
-                subcommand: "fastq",
-                words: [
-                    "fastq", "pbaa-cluster", reads, "--guide", guide, "--output-dir", out,
-                    "--output-name", "sample", "--threads", "4", "--seed", "7",
-                ],
-                reading: .parses(FastqPBAAClusterSubcommand.self),
+                outcome: .builds(
+                    subcommand: "fastq",
+                    words: [
+                        "fastq", "pbaa-cluster", reads, "--guide", guide, "--output-dir", out,
+                        "--output-name", "sample", "--threads", "4", "--seed", "7",
+                    ],
+                    command: FastqPBAAClusterSubcommand.self
+                ),
                 outputKind: .directory
             ),
             Cell(
                 name: "ontGenotyping",
                 request: .ontGenotyping(request: genotyping),
-                subcommand: "fastq",
-                words: [
-                    "fastq", "genotype", reads, "--mode", "ont-sample-bundles", "--read-type", "ont",
-                    "--reference", reference, "--output-dir", out, "--output-name", "genotype",
-                    "--analysis-name", "genotype", "--threads", "2", "--sort-threads", "4", "--min-support", "1",
-                ],
-                reading: .parses(FastqGenotypingSubcommand.self),
+                outcome: .builds(
+                    subcommand: "fastq",
+                    words: [
+                        "fastq", "genotype", reads, "--mode", "ont-sample-bundles", "--read-type", "ont",
+                        "--reference", reference, "--output-dir", out, "--output-name", "genotype",
+                        "--analysis-name", "genotype", "--threads", "2", "--sort-threads", "4", "--min-support", "1",
+                    ],
+                    command: FastqGenotypingSubcommand.self
+                ),
                 outputKind: .directory
             ),
         ]
@@ -262,35 +272,52 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
         XCTAssertEqual(kinds.count, 10)
     }
 
-    func testEachCellRecordsTheRowCommandItsInvocationSpells() throws {
+    func testEachCellBuildsTheInvocationAndRecordsTheRowCommandItPins() throws {
         for cell in try cells() {
-            let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(for: cell.request)
-            XCTAssertEqual(invocation.subcommand, cell.subcommand, cell.name)
-            let row = try XCTUnwrap(try rowCommand(for: cell.request), cell.name)
-            XCTAssertEqual(
-                row,
-                FASTQOperationCLIInvocationBuilder.commandLine(for: invocation),
-                "\(cell.name), the row is the invocation's command line"
-            )
-            XCTAssertEqual(try RecordedCLICommand.arguments(of: row), cell.words, cell.name)
+            let row = try rowCommand(for: cell.request)
+            switch cell.outcome {
+            case .builds(let subcommand, let words, _):
+                let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(for: cell.request)
+                XCTAssertEqual(invocation.subcommand, subcommand, cell.name)
+                let recorded = try XCTUnwrap(row, cell.name)
+                XCTAssertEqual(
+                    recorded,
+                    FASTQOperationCLIInvocationBuilder.commandLine(for: invocation),
+                    "\(cell.name), the row is the invocation's command line"
+                )
+                XCTAssertEqual(try RecordedCLICommand.arguments(of: recorded), words, cell.name)
+            case .refuses(let error):
+                XCTAssertThrowsError(try FASTQOperationCLIInvocationBuilder().buildInvocation(for: cell.request), cell.name) {
+                    XCTAssertEqual($0 as? FASTQOperationCLIInvocationError, error, cell.name)
+                }
+                XCTAssertNil(row, "\(cell.name), a request with no command records none")
+            }
         }
     }
 
-    func testTheShippedParserReadsEachRowAsItsCommand() throws {
+    func testTheShippedParserReadsEachRowAndEachDispatcherArgvAsItsCommand() throws {
         for cell in try cells() {
+            guard case .builds(_, _, let commandType) = cell.outcome else { continue }
+            let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(for: cell.request)
             let row = try XCTUnwrap(try rowCommand(for: cell.request), cell.name)
-            switch cell.reading {
-            case .parses(let commandType):
-                let parsed = try RecordedCLICommand.parse(row)
-                XCTAssertTrue(
-                    Swift.type(of: parsed) == commandType,
-                    "\(cell.name), parsed \(Swift.type(of: parsed)), expected \(commandType), from: \(row)"
-                )
-            case .refusedToday(let reason):
-                try XCTExpectFailure(reason) {
-                    XCTAssertNoThrow(try RecordedCLICommand.parse(row), "\(cell.name), from: \(row)")
-                }
-            }
+            let fromRow = try RecordedCLICommand.parse(row)
+            XCTAssertTrue(
+                Swift.type(of: fromRow) == commandType,
+                "\(cell.name), parsed \(Swift.type(of: fromRow)), expected \(commandType), from: \(row)"
+            )
+            // The dispatcher starts the CLI with `[subcommand] + arguments`, so a
+            // subcommand of several words reaches it as one argument. The
+            // `conda classify` rows did, and the CLI would have refused them.
+            XCTAssertFalse(
+                invocation.subcommand.contains(where: \.isWhitespace),
+                "\(cell.name), the subcommand \(invocation.subcommand) is one word"
+            )
+            let argv = [invocation.subcommand] + invocation.arguments
+            let fromArgv = try LungfishCLI.parseAsRoot(LungfishCLI.normalizedArgumentsForParsing(argv))
+            XCTAssertTrue(
+                Swift.type(of: fromArgv) == commandType,
+                "\(cell.name), the dispatcher's argv parsed \(Swift.type(of: fromArgv)), expected \(commandType)"
+            )
         }
     }
 

@@ -255,21 +255,13 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             }
             return FASTQCLIInvocation(subcommand: "assemble", arguments: arguments)
 
-        case .classify(let tool, let inputURLs, let databaseName, let extraArguments):
-            var arguments = inputURLs.map(\.path) + ["--db", databaseName]
-            if !extraArguments.isEmpty {
-                arguments += ["--extra-args", AdvancedCommandLineOptions.join(extraArguments)]
-            }
-            switch tool {
-            case .kraken2:
-                return FASTQCLIInvocation(subcommand: "conda classify", arguments: arguments)
-            case .esViritu:
-                return FASTQCLIInvocation(subcommand: "esviritu", arguments: ["detect"] + arguments)
-            case .taxTriage:
-                return FASTQCLIInvocation(subcommand: "taxtriage", arguments: ["run"] + arguments)
-            default:
-                return FASTQCLIInvocation(subcommand: "conda classify", arguments: arguments)
-            }
+        case .classify(let tool, _, _, _):
+            // Decision D1 of Phase 2.8. The classification, EsViritu and TaxTriage wizards the
+            // dialog embeds start their runs through their own routes, so a `.classify` request
+            // is dialog state and no production path hands it to this builder. It used to write
+            // `conda classify`, which the dispatcher passes as one argument, and two rows the
+            // CLI refuses (`esviritu detect` and `taxtriage run` with bare input paths).
+            throw FASTQOperationCLIInvocationError.classifierLaunchHasNoDialogCommand(tool: tool)
 
         case .pbaa(let request):
             let outputDirectoryPath = outputTargetPath == "<derived>"
@@ -681,18 +673,25 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
 }
 
 /// Why `FASTQOperationCLIInvocationBuilder` cannot write a `lungfish-cli`
-/// command for a request whose input lacks a value the command needs. The
+/// command for a request, because its input lacks a value the command needs
+/// or because the dialog never starts the request through the CLI. The
 /// Operations rows and derivative manifests that record the command record
-/// none, a CLI parity gap the tests pin, and a dialog run fails with the
-/// description before the CLI starts.
+/// none, and a dialog run fails with the description before the CLI starts.
+/// A missing input value is a CLI parity gap the tests pin.
 enum FASTQOperationCLIInvocationError: Error, LocalizedError, Equatable {
     /// A relative contaminant reference whose input is in no bundle to resolve it in.
     case contaminantReferenceNeedsBundle(reference: String)
+    /// A `.classify` request. The classification, EsViritu and TaxTriage wizards the
+    /// dialog embeds start their runs through their own routes and record their own
+    /// commands, so the request is dialog state only (decision D1 of Phase 2.8).
+    case classifierLaunchHasNoDialogCommand(tool: FASTQOperationToolID)
 
     var errorDescription: String? {
         switch self {
         case .contaminantReferenceNeedsBundle(let reference):
             return "The contaminant reference \(reference) is a relative path, and the input is in no .lungfishfastq bundle to resolve it in. Choose the reference by its full path."
+        case .classifierLaunchHasNoDialogCommand(let tool):
+            return "The FASTQ operations dialog writes no lungfish-cli command for a \(tool.title) launch. The classification, EsViritu and TaxTriage wizards start these runs and record their own commands."
         }
     }
 }

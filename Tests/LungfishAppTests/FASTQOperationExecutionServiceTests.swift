@@ -4266,21 +4266,6 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(Array(invocation.arguments.suffix(2)), ["--extra-args", "--length_required 75"])
     }
 
-    func testClassificationInvocationIncludesExtraArgs() throws {
-        let baseInput = [URL(fileURLWithPath: "/tmp/input.fastq")]
-
-        let kraken2 = try FASTQOperationExecutionService().buildInvocation(
-            for: .classify(
-                tool: .kraken2,
-                inputURLs: baseInput,
-                databaseName: "kraken-db",
-                extraArguments: ["--minimum-base-quality", "20"]
-            )
-        )
-
-        XCTAssertEqual(Array(kraken2.arguments.suffix(2)), ["--extra-args", "--minimum-base-quality 20"])
-    }
-
     func testDerivativeLaunchRejectsAdapterRequestsThatNeedMultipleAdapterShapes() {
         let request = FASTQOperationLaunchRequest.derivative(
             request: .adapterTrim(
@@ -4370,92 +4355,50 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         }
     }
 
-    func testClassificationLaunchesMapToRegisteredCLICommands() throws {
+    /// Decision D1 of Phase 2.8. The classification, EsViritu and TaxTriage
+    /// wizards start their runs through their own routes, so the builder
+    /// writes no command for a `.classify` request. It used to write
+    /// `conda classify`, which the dispatcher passed as one argument, and two
+    /// rows the CLI refuses. Extra arguments, which the old rows carried as
+    /// `--extra-args`, change nothing.
+    func testClassificationLaunchesHaveNoCLICommandBecauseTheirWizardsRunThem() {
         let baseInput = [URL(fileURLWithPath: "/tmp/input.fastq")]
-
-        let kraken2 = try FASTQOperationExecutionService().buildInvocation(
-            for: .classify(tool: .kraken2, inputURLs: baseInput, databaseName: "kraken-db")
-        )
-        XCTAssertEqual(kraken2.subcommand, "conda classify")
-
-        let esviritu = try FASTQOperationExecutionService().buildInvocation(
-            for: .classify(tool: .esViritu, inputURLs: baseInput, databaseName: "esv-db")
-        )
-        XCTAssertEqual(esviritu.subcommand, "esviritu")
-
-        let taxtriage = try FASTQOperationExecutionService().buildInvocation(
-            for: .classify(tool: .taxTriage, inputURLs: baseInput, databaseName: "tax-db")
-        )
-        XCTAssertEqual(taxtriage.subcommand, "taxtriage")
+        for tool in [FASTQOperationToolID.kraken2, .esViritu, .taxTriage] {
+            for extraArguments in [[], ["--minimum-base-quality", "20"]] {
+                XCTAssertThrowsError(try FASTQOperationExecutionService().buildInvocation(
+                    for: .classify(tool: tool, inputURLs: baseInput, databaseName: "db", extraArguments: extraArguments)
+                ), tool.title) { error in
+                    XCTAssertEqual(error as? FASTQOperationCLIInvocationError, .classifierLaunchHasNoDialogCommand(tool: tool))
+                    XCTAssertTrue(error.localizedDescription.contains(tool.title), error.localizedDescription)
+                }
+            }
+        }
     }
 
-    func testExecuteEsVirituClassificationBridgesFASTAInputToSyntheticFASTQ() async throws {
-        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecEsViritu")
+    /// A `.classify` request stops at the builder, so the CLI never starts for
+    /// it. EsViritu and TaxTriage bridge a FASTA input to a synthetic FASTQ
+    /// first and Kraken2 keeps the FASTA native, so a FASTA input reaches the
+    /// builder for each of the three tools.
+    func testExecuteRefusesClassificationLaunchesBeforeAnyCLICommandStarts() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecClassifyRefused")
         defer { try? FileManager.default.removeItem(at: tempDir) }
-
         let fastaURL = tempDir.appendingPathComponent("reads.fasta")
-        try """
-        >seq1
-        AACCGGTTAACC
-        >seq2
-        TTGGCCAATTGG
-        """.write(to: fastaURL, atomically: true, encoding: .utf8)
+        try ">seq1\nAACCGGTTAACC\n".write(to: fastaURL, atomically: true, encoding: .utf8)
 
-        let runner = SpyCommandRunner { invocation, _ in
-            XCTAssertEqual(invocation.subcommand, "esviritu")
-            XCTAssertEqual(invocation.arguments.first, "detect")
-
-            let bridgedInputURL = URL(fileURLWithPath: try XCTUnwrap(invocation.arguments[safe: 1]))
-            XCTAssertEqual(SequenceFormat.from(url: bridgedInputURL), .fastq)
-
-            let bridgedContents = try readRepositorySource(bridgedInputURL)
-            XCTAssertTrue(bridgedContents.contains("@seq1"))
-            XCTAssertTrue(bridgedContents.contains("IIIIIIIIIIII"))
-
-            return FASTQCLIExecutionResult(outputURLs: [])
+        for tool in [FASTQOperationToolID.kraken2, .esViritu, .taxTriage] {
+            let runner = SpyCommandRunner()
+            let service = FASTQOperationExecutionService(commandRunner: runner, directImporter: SpyDirectImporter())
+            do {
+                _ = try await service.execute(
+                    request: .classify(tool: tool, inputURLs: [fastaURL], databaseName: "db"),
+                    workingDirectory: tempDir
+                )
+                XCTFail("a \(tool.title) launch must not run")
+            } catch {
+                XCTAssertEqual(error as? FASTQOperationCLIInvocationError, .classifierLaunchHasNoDialogCommand(tool: tool))
+            }
+            XCTAssertTrue(runner.invocations.isEmpty, "the CLI never started for \(tool.title)")
         }
-        let importer = SpyDirectImporter()
-        let service = FASTQOperationExecutionService(
-            commandRunner: runner,
-            directImporter: importer
-        )
-
-        _ = try await service.execute(
-            request: .classify(tool: .esViritu, inputURLs: [fastaURL], databaseName: "esv-db"),
-            workingDirectory: tempDir
-        )
-
-        XCTAssertEqual(runner.invocations.count, 1)
-    }
-
-    func testExecuteKraken2ClassificationPreservesNativeFASTAInput() async throws {
-        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecKrakenFASTA")
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        let fastaURL = tempDir.appendingPathComponent("reads.fasta")
-        try """
-        >seq1
-        AACCGGTTAACC
-        """.write(to: fastaURL, atomically: true, encoding: .utf8)
-
-        let runner = SpyCommandRunner { invocation, _ in
-            XCTAssertEqual(invocation.subcommand, "conda classify")
-            XCTAssertEqual(invocation.arguments.first, fastaURL.path)
-            XCTAssertEqual(SequenceFormat.from(url: URL(fileURLWithPath: invocation.arguments[0])), .fasta)
-            return FASTQCLIExecutionResult(outputURLs: [])
-        }
-        let importer = SpyDirectImporter()
-        let service = FASTQOperationExecutionService(
-            commandRunner: runner,
-            directImporter: importer
-        )
-
-        _ = try await service.execute(
-            request: .classify(tool: .kraken2, inputURLs: [fastaURL], databaseName: "kraken-db"),
-            workingDirectory: tempDir
-        )
-
-        XCTAssertEqual(runner.invocations.count, 1)
     }
 
     // MARK: - MB-2 review round 1: planner split predicate is unchanged; real per-bundle splitting moved upstream
