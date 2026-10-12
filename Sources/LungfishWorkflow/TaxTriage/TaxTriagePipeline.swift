@@ -628,12 +628,12 @@ public actor TaxTriagePipeline {
             logFile: logFile
         )
 
+        // The paragraph of errored tasks is the result's to report, so the last progress message is
+        // the same short line for every run. Each caller logs the paragraph once, at warning level.
         if let warning = result.erroredProcessesMessage {
             logger.warning("\(warning, privacy: .public)")
-            progress?(1.0, warning)
-        } else {
-            progress?(1.0, "TaxTriage pipeline complete")
         }
+        progress?(1.0, "TaxTriage pipeline complete")
 
         let runtimeStr = String(format: "%.1f", result.runtime)
         logger.info("TaxTriage pipeline complete: \(sampleCount, privacy: .public) sample(s), \(runtimeStr, privacy: .public)s")

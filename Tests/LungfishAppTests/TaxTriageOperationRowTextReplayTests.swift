@@ -1,4 +1,4 @@
-// TaxTriageOperationRowTextReplayTests.swift - The TaxTriage Operations row, its words and its bar, as the app writes them today
+// TaxTriageOperationRowTextReplayTests.swift - The TaxTriage Operations row, its words and its bar, as the app writes them
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
@@ -9,8 +9,11 @@
 // log lines with their levels, the failure alert, the command Copy CLI Command copies and what the
 // run wrote into the source bundles.
 //
-// Every pin states today's behaviour, defects included. The fixes of milestone M3 flip them one at a
-// time, and a comment marked "M3" names the fix that changes the line beside it.
+// Milestone M1 pinned the row as the app wrote it before the fixes, defects included. Each fix of
+// milestone M3 flipped its pins in the commit that made it, so the cases now state the fixed row:
+// the bar never moves back, one item reads in the singular, each cause logs one warning line that
+// makes the label, the headline reads `Some TaxTriage tasks failed`, and a cancel writes nothing
+// more into the source bundles and shows no alert.
 //
 // The class runs on `OperationCenter.shared`, starts processes and sets LUNGFISH_CLI_PATH for the
 // GUI's `build-db` step, so it runs serially. Its name ends in ReplayTests, which sends it to the
@@ -238,13 +241,27 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         XCTAssertEqual(item.detail, "\(headline) (1 report)")
 
         // One warning line per cause (T9), and the warning line makes the label (T8, D4). The row
-        // completes plainly, so the detail is no second warning line. M3 (T9): the information line
-        // is the pipeline's last progress message, and the pipeline stops sending the paragraph
-        // as one.
+        // completes plainly, so the detail is no second warning line. The pipeline's last progress
+        // message is `TaxTriage pipeline complete` where a run with errored tasks used to send the
+        // paragraph, so the paragraph is no information line either, and the row and the overlay
+        // of the viewer end on the short message.
         let paragraph = "\(headline). Results that depend on the failed steps, such as alignments and TASS scores, are missing for the samples named."
             + " Raise Max memory, or list the host in Exclude host taxa (9606 for human) so the host genome is not downloaded as an alignment reference."
-        let lines = Self.loggedLines(of: item).filter { $0.contains("MINIMAP2_ALIGN") }
-        XCTAssertEqual(lines, ["info: \(paragraph)", "warning: \(paragraph)"])
+        let lines = Self.loggedLines(of: item)
+        XCTAssertEqual(lines.filter { $0.contains("MINIMAP2_ALIGN") }, ["warning: \(paragraph)"], "\(lines)")
+        XCTAssertEqual(
+            Array(lines.suffix(3)),
+            [
+                "info: TaxTriage pipeline complete",
+                "info: Building taxtriage.sqlite from TaxTriage outputs",
+                "warning: \(paragraph)",
+            ]
+        )
+        XCTAssertEqual(
+            Array(run.trace.details.suffix(3)),
+            ["TaxTriage pipeline complete", "Building TaxTriage database\u{2026}", item.detail]
+        )
+        XCTAssertEqual(run.viewer.overlayLines.last, "TaxTriage pipeline complete")
 
         // The bar never moves back (T9).
         XCTAssertEqual(Self.drops(in: run.trace.bars), [], "\(run.trace.bars)")
