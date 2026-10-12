@@ -2267,7 +2267,7 @@ With `--format json`, standard output holds version 2 events only. Otherwise, an
 | `--db <db>` | Database name (for example, 'Viral', 'Standard-8'). |
 | `--db-digest <db-digest>` | SHA-256 the database's install receipt must hold, checked before anything is written. It takes 64 hexadecimal digits, in lower or upper case, with or without a `sha256:` prefix. A digest that is not 64 hexadecimal digits is refused with exit status 3. The run is refused with exit status 126 when the database has no install receipt that checks out, or when its receipt holds another digest. The command checks the receipt's own digest against the files the receipt lists and does not hash the database folder. When the digest matches, the run's record lists the database as a reference. |
 | `--preset <preset>` | Sensitivity preset, one of `sensitive`, `balanced`, or `precise`. The default is `balanced`. |
-| `-o, --output-dir <output-dir>` | Output directory. The default is the current folder. |
+| `-o, --output-dir <output-dir>` | Output directory. The default is `./classification-<db>`, where `<db>` is the `--db` name in lower case. |
 | `--project <project>` | The `.lungfish` project to write a new `Analyses/kraken2-<timestamp>/` folder in, as the app does. With `--batch` the folder is `Analyses/kraken2-batch-<timestamp>/`. A run made this way also gets the viewer index, and the bundle a sample was read from records the run in its analysis history. It cannot be combined with `--output-dir`. |
 | `--batch` | Group the inputs into samples by their R1 and R2 names and classify each sample in its own folder of one batch result. Without it, every input is one sample in one folder. A batch pairs the files by their names, so it takes no `--paired`, `--unpaired` or `--read-format paired`. A batch completes as long as one sample completes, and each failed sample is a warning. |
 | `--paired` | Input files are paired-end reads. |
@@ -2344,7 +2344,7 @@ lungfish-cli esviritu detect [<options>]
 | `-i, --input <input>` | Input FASTQ file(s) or `.lungfishfastq` bundle(s). Provide two files for paired-end. |
 | `-s, --sample <sample>` | Sample name for output file prefixes. Required without `--batch`. |
 | `--db <db>` | Path to EsViritu database directory. The default is `auto-detect`. |
-| `-o, --output <output>` | Output directory. The default is the current folder. |
+| `-o, --output <output>` | Output directory. The default is `./esviritu-<sample>`, where `<sample>` is the `--sample` name. |
 | `--project <project>` | The `.lungfish` project the run belongs to. The result lands in its `Analyses/esviritu-batch-<timestamp>/` folder with one folder per sample, where the app's EsViritu runs put it. Each sample folder is named after the sample, made safe for a folder name, and EsViritu names its tables after that folder. The result gets the batch summary, the batch manifest and `esviritu.sqlite`, and each source bundle records the run. It cannot be combined with `--output`. |
 | `--batch` | Group the inputs into samples by their file names, as the app's EsViritu dialog does, and run each sample into its own folder of one batch result. Each sample's read layout is planned from its files, so `--batch` takes `--read-format auto` and no `--sample`. A batch completes as long as one sample completes, and each failed sample is a warning. Give `--output` or `--project`. |
 | `--paired` | Input files are paired-end reads. |
@@ -2393,7 +2393,7 @@ A `--samplesheet` CSV needs exactly the header `sample,fastq_1,fastq_2,platform`
 | `--sample <sample>` | Sample identifier (required with `--input`). |
 | `--samplesheet <samplesheet>` | Path to a TaxTriage samplesheet CSV (alternative to `--input`). |
 | `--platform <platform>` | Sequencing platform, one of `illumina`, `oxford`, or `pacbio`. The default is `illumina`. |
-| `-o, --output <output>` | Output directory for results. |
+| `-o, --output <output>` | Output directory for results. With several samples, from a `--samplesheet` or an `--input` folder of FASTQ files, all of them run together in one pooled Nextflow run and share this folder. |
 | `--db <db>` | Path to existing Kraken2 database. |
 | `--confidence <confidence>` | Kraken2 confidence threshold. The default is `0.2`. |
 | `--top-hits <top-hits>` | Number of top hits to report. The default is `10`. |

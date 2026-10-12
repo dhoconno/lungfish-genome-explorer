@@ -97,9 +97,10 @@ extension EsVirituCommand {
         )
         var databasePath: String?
 
+        /// The help names the folder ``resultDestination()`` computes, so change them together.
         @Option(
             name: [.customLong("output"), .customShort("o")],
-            help: "Output directory (default: current directory)"
+            help: "Output directory (default: ./esviritu-<sample>)"
         )
         var outputDir: String?
 

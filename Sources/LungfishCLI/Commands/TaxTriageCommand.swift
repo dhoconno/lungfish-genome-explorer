@@ -106,7 +106,10 @@ extension TaxTriageCommand {
 
         @Option(
             name: [.customLong("output"), .customShort("o")],
-            help: "Output directory for results"
+            help: ArgumentHelp(
+                "Output directory for results",
+                discussion: "With several samples, from a --samplesheet or an --input folder of FASTQ files, all of them run together in one pooled Nextflow run and share this folder."
+            )
         )
         var outputDir: String
 

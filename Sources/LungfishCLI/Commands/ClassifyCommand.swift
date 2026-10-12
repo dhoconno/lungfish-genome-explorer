@@ -58,7 +58,11 @@ struct ClassifyCommand: AsyncParsableCommand {
     @Option(name: .customLong("preset"), help: "Sensitivity preset: sensitive, balanced, precise")
     var preset: ClassificationPresetArgument = .balanced
 
-    @Option(name: [.customLong("output-dir"), .customShort("o")], help: "Output directory (default: current directory)")
+    /// The help names the folder ``outputDirectoryURL`` computes, so change them together.
+    @Option(
+        name: [.customLong("output-dir"), .customShort("o")],
+        help: "Output directory (default: ./classification-<db>, with <db> in lower case)"
+    )
     var outputDir: String?
 
     @Option(
