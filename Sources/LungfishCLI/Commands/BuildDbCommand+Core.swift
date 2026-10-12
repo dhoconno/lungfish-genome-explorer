@@ -11,8 +11,11 @@ import LungfishWorkflow
 // `BuildDbCommand+EsVirituCore.swift`. It takes the result folder, these options and a
 // `BuildDbEventSink`, builds the database, runs the cleanup, writes the records and returns what it built.
 // The commands wrap them in `BuildDbCLIEvents.report`. `build-db taxtriage` keeps an instance body, because
-// its report parsers are instance methods, and its core waits for TaxTriage on the executor in 2.9 (plan
-// decision T1 of Phase 2.8).
+// its report parsers are instance methods. Its leaf moved to `BuildDbCommand+TaxTriageCore.swift` as it was
+// (lane A1 of Phase 2.9), with the index, `build(resultURL:events:)`, and the cleanup,
+// `performCleanup(resultURL:events:)`, as two functions that run in today's order, the cleanup between the
+// unique-read pass and the record. Its static `buildDatabase(in:options:events:)` core waits for TaxTriage on
+// the executor in 2.9 (plan decision T1 of Phase 2.8).
 //
 // A core stops when the task that runs it is cancelled. Only the executor's index step cancels one today,
 // under a cancelled `kraken2 classify` or `esviritu detect`, since a standalone `build-db` ends by the
