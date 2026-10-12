@@ -303,7 +303,7 @@ struct TaxTriageParitySideRun {
     }
 }
 
-extension TaxTriageCLIGUIParityReplayTests {
+extension TaxTriageParityHarness {
     /// Side A. Hands the wizard's config to `runTaxTriage` with the GUI's runner seam bound to
     /// the engine, keeps every detail of the row and every line of the viewer's overlay, waits
     /// for the row to finish and reads it.
@@ -315,7 +315,7 @@ extension TaxTriageCLIGUIParityReplayTests {
         let side = TaxTriageParitySide.a
         let project = root.appendingPathComponent(ClassifierParityFixtures.projectName, isDirectory: true)
         let config = parityCase.wizardConfig(project: project, engine: engine)
-        let delegate = makeAppDelegateWithTemporaryState()
+        let delegate = testCase.makeAppDelegateWithTemporaryState()
         let viewer = OverlayRecordingViewer()
         // A failed run shows its alert as a sheet on the viewer's window, so the viewer gets a
         // window, never ordered front, whose sheet the row outcome reads.

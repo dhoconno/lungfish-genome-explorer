@@ -25,7 +25,7 @@ import LungfishIO
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
-extension TaxTriageCLIGUIParityReplayTests {
+extension TaxTriageParityHarness {
     /// The fixed facts `run` does not hold, one difference each.
     func fixedFactViolations(
         _ parityCase: TaxTriageParityCase,
