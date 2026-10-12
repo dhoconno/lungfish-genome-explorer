@@ -617,13 +617,30 @@ enum ClassifierReadSetParityTable {
     /// handoff in the terms of a command run. A record holds a read-set plan only when the plan
     /// records something (`RecordedReadSetPlan`), so `records nothing` reads as `none`. A refusal
     /// is the command's exit 3 with the reason on its `failed` event, so it names no error type.
+    /// The run keeps the header-only mate it stages, so that mate is no longer `absent`.
     static func executorValue(of frozen: String) -> String {
         let refused = "refused: "
         if frozen.hasPrefix(refused) {
             let reason = frozen.dropFirst(refused.count).split(separator: " ", maxSplits: 1).last ?? ""
             return refused + reason
         }
-        return frozen.replacingOccurrences(of: "| plan: \(recordsNothing)", with: "| plan: \(unplanned)")
+        return keepingStagedMate(in: frozen).replacingOccurrences(of: "| plan: \(recordsNothing)", with: "| plan: \(unplanned)")
+    }
+
+    /// The pipeline keeps the header-only mate it stages beside a file of single reads (decision O1 of
+    /// Phase 2.8, lane B3), where it removed the mate once kraken2 had read it. The gui and cli routes
+    /// stage nothing, so their frozen value has `absent` for the mate. After a command run the mate
+    /// exists and holds one record for each single read, under the same name, so the executor route
+    /// reads the names of the file before it. A value with no staged mate stays as it is.
+    private static func keepingStagedMate(in frozen: String) -> String {
+        let readsMarker = " | reads: "
+        let planMarker = " | plan: "
+        guard let start = frozen.range(of: readsMarker), let end = frozen.range(of: planMarker),
+              start.upperBound <= end.lowerBound else { return frozen }
+        var files = frozen[start.upperBound..<end.lowerBound].components(separatedBy: " / ")
+        guard files.count == 4, files[3] == "absent" else { return frozen }
+        files[3] = files[2]
+        return String(frozen[..<start.upperBound]) + files.joined(separator: " / ") + frozen[end.lowerBound...]
     }
 
     private static let imports = "<project>/Imports"
