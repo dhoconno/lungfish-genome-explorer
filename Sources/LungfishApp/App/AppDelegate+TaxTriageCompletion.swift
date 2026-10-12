@@ -22,8 +22,7 @@ extension AppDelegate {
         result: TaxTriageResult,
         config: TaxTriageConfig,
         routeContext: OperationRouteContext?,
-        viewerController: ViewerViewController,
-        materializeTempDir: URL
+        viewerController: ViewerViewController
     ) async throws {
         // Build the SQLite database from the Nextflow outputs before the
         // operation completes, so the batch can be opened immediately.
@@ -54,9 +53,6 @@ extension AppDelegate {
             resultDirectory: result.outputDirectory
         )
 
-        // Covered by the `defer` from creation; do not fail
-        // an otherwise-successful run over a cleanup error.
-        try? FileManager.default.removeItem(at: materializeTempDir)
         let capturedResult = result
         let capturedConfig = config
         // A cancel that stops the build is no failure of the build, and the row reads Cancelled by user (T10).

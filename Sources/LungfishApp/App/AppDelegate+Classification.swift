@@ -1806,10 +1806,7 @@ extension AppDelegate {
             let task = Task.detached { [weak self, makeRunner = TaxTriageLaunchSeam.makeRunner] in
                 do {
                     // Materialize each sample's inputs into the result's inputs folder, which keeps them, because
-                    // the records name them (O1). The project temp folder below now holds nothing.
-                    let materializeTempDir = try ProjectTempDirectory.createFromContext(
-                        prefix: "taxtriage-", contextURL: config.samples.first?.fastq1 ?? config.outputDirectory)
-                    defer { try? FileManager.default.removeItem(at: materializeTempDir) }
+                    // the records name them (O1).
                     let resolvedConfig = try await self?.resolvedTaxTriageConfig(
                         config,
                         tempDirectory: TaxTriageReadSetPlanner.materializationDirectory(in: config.outputDirectory),
@@ -1847,8 +1844,7 @@ extension AppDelegate {
                         result: result,
                         config: config,
                         routeContext: routeContext,
-                        viewerController: viewerController,
-                        materializeTempDir: materializeTempDir
+                        viewerController: viewerController
                     )
                 } catch {
                     let errorDesc = error.localizedDescription
