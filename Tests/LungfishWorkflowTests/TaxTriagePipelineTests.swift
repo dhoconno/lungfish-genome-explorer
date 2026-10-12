@@ -1349,9 +1349,9 @@ final class TaxTriagePipelineTests: XCTestCase {
             contentsOf: exportedProject.appendingPathComponent("bin/download_fastas.py"),
             encoding: .utf8
         )
-        XCTAssertTrue(exportedDownloadScript.contains("return line.rstrip()"))
-        XCTAssertTrue(exportedDownloadScript.contains("bb = os.path.basename(utl.rstrip('/'))"))
-        XCTAssertTrue(exportedDownloadScript.contains("return utl.rstrip('/')+\"/\"+bb+\"_genomic.fna.gz\""))
+        // Flipped by B11 M2 (T6, F3). LGE patches no pipeline code, so the snapshot holds the commit's bytes.
+        let committed = try runCommand("/usr/bin/git", ["show", "\(revision):bin/download_fastas.py"], workingDirectory: repoURL)
+        XCTAssertEqual(exportedDownloadScript, committed, "the commit's script, not the cache's edit and no patch")
     }
 
     func testPreparePipelineProjectSourceFetchesMissingRevisionFromDirtyCacheOrigin() async throws {
@@ -1384,25 +1384,6 @@ final class TaxTriagePipelineTests: XCTestCase {
             encoding: .utf8
         )
         XCTAssertTrue(cachedWorkflow.contains("DIRTY_LOCAL_CACHE()"))
-    }
-
-    func testPatchedTaxTriageDownloadScriptContentIgnoresUnrelatedRstripUsage() {
-        let content = """
-        def normalize(line):
-            return line.rstrip()
-
-        def get_url(utl, id):
-            bb = os.path.basename(utl)
-            return utl+"/"+bb+"_genomic.fna.gz"
-        """
-
-        let pipeline = TaxTriagePipeline()
-        let patched = pipeline.patchedTaxTriageDownloadScriptContent(from: content)
-
-        XCTAssertNotNil(patched)
-        XCTAssertTrue(patched?.contains("return line.rstrip()") == true)
-        XCTAssertTrue(patched?.contains("bb = os.path.basename(utl.rstrip('/'))") == true)
-        XCTAssertTrue(patched?.contains("return utl.rstrip('/')+\"/\"+bb+\"_genomic.fna.gz\"") == true)
     }
 
     func testSanitizeIgnoredFailuresSuppressesBenignEmptyReferenceAlignmentWarning() throws {

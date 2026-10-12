@@ -878,7 +878,6 @@ public actor TaxTriagePipeline {
                 from: cachedRepositoryURL,
                 to: exportDirectory
             )
-            patchTaxTriageDownloadScript(in: exportDirectory)
             return PreparedPipelineProjectSource(
                 launchTarget: exportDirectory.path,
                 revision: nil,
@@ -989,59 +988,6 @@ public actor TaxTriagePipeline {
     func cachedTaxTriageRepositoryURL() -> URL {
         appIdentity.nextflowHomeURL(homeDirectory: homeDirectoryProvider())
             .appendingPathComponent("assets/jhuapl-bio/taxtriage", isDirectory: true)
-    }
-
-    /// Patches the TaxTriage download_fastas.py script to fix a bug where
-    /// `os.path.basename()` returns empty string for paths with trailing slashes.
-    ///
-    /// The NCBI assembly_summary_refseq.txt has FTP paths with trailing slashes
-    /// (e.g., `https://...GCF_000845245.1_ViralProj14559/`). Python's `os.path.basename()`
-    /// returns `""` for such paths, causing the constructed download URL to be
-    /// `https://.../_genomic.fna.gz` (missing the assembly name) → HTTP 404.
-    ///
-    /// Fix: strip trailing slashes before calling basename.
-    /// Upstream issue: https://github.com/jhuapl-bio/taxtriage
-    private func patchTaxTriageDownloadScript(in projectRoot: URL) {
-        let scriptPath = projectRoot.appendingPathComponent("bin/download_fastas.py")
-
-        guard FileManager.default.fileExists(atPath: scriptPath.path) else { return }
-
-        do {
-            let content = try String(contentsOf: scriptPath, encoding: .utf8)
-            guard let patchedContent = patchedTaxTriageDownloadScriptContent(from: content) else {
-                return
-            }
-
-            try patchedContent.write(to: scriptPath, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptPath.path)
-            logger.info("Patched TaxTriage download_fastas.py to fix trailing-slash URL bug")
-        } catch {
-            logger.warning("Failed to patch TaxTriage download script: \(error.localizedDescription)")
-        }
-    }
-
-    nonisolated func patchedTaxTriageDownloadScriptContent(from content: String) -> String? {
-        let oldBasenameLine = "bb = os.path.basename(utl)"
-        let newBasenameLine = "bb = os.path.basename(utl.rstrip('/'))"
-        let oldReturnLine = "return utl+\"/\"+bb+\"_genomic.fna.gz\""
-        let newReturnLine = "return utl.rstrip('/')+\"/\"+bb+\"_genomic.fna.gz\""
-
-        let needsBasenamePatch = content.contains(oldBasenameLine)
-        let needsReturnPatch = content.contains(oldReturnLine)
-
-        guard needsBasenamePatch || needsReturnPatch else {
-            return nil
-        }
-
-        var patched = content
-        if needsBasenamePatch {
-            patched = patched.replacingOccurrences(of: oldBasenameLine, with: newBasenameLine)
-        }
-        if needsReturnPatch {
-            patched = patched.replacingOccurrences(of: oldReturnLine, with: newReturnLine)
-        }
-
-        return patched == content ? nil : patched
     }
 
     nonisolated func buildNextflowArguments(config: TaxTriageConfig) -> [String] {
