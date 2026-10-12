@@ -133,10 +133,12 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
 
     /// BIO T3, T4 and T11. A sample of one file of single reads records one step, the TaxTriage step, whose argv is
     /// the one that launched the engine, the managed micromamba with `run -n nextflow nextflow` and the Nextflow
-    /// arguments with `-c`, `-with-trace` and `-w`, and no durable argv. Its tool is `TaxTriage` at the revision with
-    /// the release tag beside it, and as the first step it names the record's tool. Its outputs are every file of the
-    /// result folder except `work`, `download` and `workflow-source`, which the run prunes, plus
-    /// `taxtriage-result.json`, each an existing file with its digest, `count/` and the fastp FASTQ among them.
+    /// arguments with `-c`, `-with-trace` and `-w`, and no durable argv. Its tool is `taxtriage` (RT4, flipped by B2)
+    /// at the revision with the release tag beside it, and as the first step it names the record's tool. Its outputs
+    /// are every file of the result folder except `work`, `download` and `workflow-source`, which the run prunes, plus
+    /// `taxtriage-result.json`, each an existing file with its digest, `count/` and the fastp FASTQ among them. Its
+    /// resolved defaults name the Kraken 2 database as E9 does, and the step's resolved options the Nextflow that ran
+    /// (RT5, added by B2).
     func testAPlainSampleRecordsTheArgvThatRanAsItsOneStep() async throws {
         let engine = try makeEngine()
         let reads = try writeFASTQ("S1.fastq", records: 7)
@@ -272,10 +274,10 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         XCTAssertEqual(record.toolVersion, WorkflowRun.currentAppVersion)
     }
 
-    /// BIO T7. A bundle that mixes pairs and single reads runs as single reads, and its plan says why. The plan is
-    /// recorded keyed by the sample under `read_set_plans` in the explicit options, the resolved defaults are empty,
-    /// and the one reader of a plan finds none.
-    func testAMixedSampleRecordsItsPlanKeyedBySampleInTheExplicitOptions() async throws {
+    /// BIO T7. A bundle that mixes pairs and single reads runs as single reads, and its plan says why. The record of
+    /// one sample holds the plan as the resolved default `readSetPlan`, where the reader finds it, and keeps no keyed
+    /// plan (decision T7, flipped by B2).
+    func testAMixedSampleRecordsItsPlanAsTheResolvedDefault() async throws {
         let engine = try makeEngine()
         let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("fixtures", isDirectory: true))
         let sample = try await planned(fixtures.mixedRoot, as: "mixed", in: fixtures)
@@ -341,9 +343,10 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
 
     // MARK: - BIO T14, an ignored task failure
 
-    /// BIO T14. When TaxTriage ignores a failed task, Nextflow exits 0 and the result lists the failure, while the
-    /// TaxTriage step has exit 0 and an empty stderr, the record is `completed` and no text of the failure is in it.
-    func testAnIgnoredTaskFailureLeavesExitZeroAnEmptyStderrAndACompletedRecord() async throws {
+    /// BIO T14 and decision T8. When TaxTriage ignores a failed task, Nextflow exits 0 and the result lists the
+    /// failure. The TaxTriage step has exit 0 and one warning line per ignored failure as its stderr, which the record
+    /// repeats, and the record stays `completed` (flipped by B2).
+    func testAnIgnoredTaskFailureLeavesExitZeroAWarningLineAndACompletedRecord() async throws {
         let engine = try makeEngine(.reportsErroredTasks)
         let reads = try writeFASTQ("S1.fastq", records: 3)
         let c = config(TaxTriageSample(sampleId: "S1", fastq1: reads), output: "errored", database: try makeDatabase())
