@@ -79,7 +79,6 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         for (key, reason) in Self.reasons.sorted(by: { $0.key < $1.key }) {
             XCTAssertFalse(reason.isEmpty, "\(key) has an empty reason")
             XCTAssertTrue(paths.contains(key) || groups.contains(key), "\(key) has a reason and is no registered command")
-            guard paths.contains(key) else { continue }
             let entry = ScientificProvenancePolicy.cliCommand(path: key.split(separator: " ").map(String.init))
             XCTAssertNil(entry, "\(key) has a reason to record nothing and a policy entry, so delete one of them")
         }
