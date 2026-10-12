@@ -183,8 +183,8 @@ func updateUniqueReadsInDB(
         collector: provenance
     )
 
-    // Step 1: Run markdup on each unique BAM file
-    let uniqueBAMPaths = Set(rowsToProcess.map { bamPathResolver(resultURL, $0.sample, $0.bamRelPath) })
+    // Step 1: Run markdup on each unique BAM file in path order, so the recorded steps repeat
+    let uniqueBAMPaths = Set(rowsToProcess.map { bamPathResolver(resultURL, $0.sample, $0.bamRelPath) }).sorted()
     events.text("Running markdup on \(uniqueBAMPaths.count) BAM file(s)...")
     var marked = 0
     for bamFullPath in uniqueBAMPaths {
