@@ -161,6 +161,35 @@ final class GenotypeAnnotationStoreCohortIdentityTests: XCTestCase {
         XCTAssertEqual(Set(ids).count, 4, "no id is stored twice")
     }
 
+    // MARK: - A cohort edit that is the first save
+
+    func testADeleteThatIsTheFirstSaveStoresTheIDsTheExportDerivedBeforeIt() throws {
+        let layout = try makeFreshBundle()
+        defer { TestTempDirectory.cleanup(layout.root) }
+        let derived = try writeOlderSidecarWithTwins(layout)
+        let store = try GenotypeAnnotationStore(bundleURL: layout.bundleURL, author: "analyst", seedBuiltInSmartCohorts: true)
+
+        try store.deleteSmartCohort(name: "Other", scope: "bundle")
+
+        let saved = try onDisk(layout)
+        XCTAssertEqual(saved.smartCohorts.map(\.name), ["Errors", "Errors", "Late"] + Self.builtInNames)
+        XCTAssertEqual(Array(saved.smartCohorts.prefix(3).map(\.id)), [derived[0], derived[2], derived[3]].map { Optional($0) })
+        XCTAssertEqual(saved.smartCohorts.dropFirst(3).map { $0.id?.uuidString }, Self.builtInIDs.map { Optional($0) })
+    }
+
+    func testANewCohortThatIsTheFirstSaveKeepsEveryIDTheExportDerived() throws {
+        let layout = try makeFreshBundle()
+        defer { TestTempDirectory.cleanup(layout.root) }
+        let derived = try writeOlderSidecarWithTwins(layout)
+        let store = try GenotypeAnnotationStore(bundleURL: layout.bundleURL, author: "analyst", seedBuiltInSmartCohorts: true)
+
+        try store.saveSmartCohort(Self.cohort("New"))
+
+        let saved = try onDisk(layout)
+        XCTAssertEqual(Array(saved.smartCohorts.prefix(4).map(\.id)), derived.map { Optional($0) })
+        XCTAssertEqual(saved.smartCohorts.last?.id, GenotypeCohortSmartFilter.derivedID(scope: "bundle", name: "New"))
+    }
+
     // MARK: - Fixtures
 
     private struct Layout {
@@ -191,6 +220,15 @@ final class GenotypeAnnotationStoreCohortIdentityTests: XCTestCase {
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-08-01T00:00:00Z")
         sidecar.smartCohorts = cohorts
         try sidecar.encoded().write(to: layout.annotationURL)
+    }
+
+    /// Writes an older sidecar that holds two cohorts of one scope and name apart,
+    /// and returns the ids the export derives from it.
+    private func writeOlderSidecarWithTwins(_ layout: Layout) throws -> [UUID] {
+        var twin = Self.cohort("Errors")
+        twin.predicate = .hasErrorAtAnyLocus
+        try writeSidecar(layout, cohorts: [Self.cohort("Errors"), Self.cohort("Other"), twin, Self.cohort("Late")])
+        return try onDisk(layout).resolvedSmartCohortIDs
     }
 
     private func onDisk(_ layout: Layout) throws -> GenotypeAnnotationSidecar {
