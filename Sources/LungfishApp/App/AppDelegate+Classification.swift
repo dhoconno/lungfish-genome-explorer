@@ -1785,19 +1785,19 @@ extension AppDelegate {
         // create the batch-style parent directory and point outputDirectory at it.
         var config = config
         let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        guard let projectURL = routeContext?.projectURL else {
+            refuseClassifierLaunchWithoutProject(tool: FASTQOperationToolID.taxTriage.title, viewerController: viewerController, routeContext: routeContext)
+            return
+        }
         guard canWriteProjectOutputs(
-            projectURL: routeContext?.projectURL,
+            projectURL: projectURL,
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "TaxTriage"
         ) else { return }
         var createdTaxTriageDirectory: URL?
-        if let projectURL = routeContext?.projectURL {
-            if let batchDir = try? AnalysesFolder.createAnalysisDirectory(
-                tool: "taxtriage", in: projectURL, isBatch: true
-            ) {
-                config.outputDirectory = batchDir
-                createdTaxTriageDirectory = batchDir
-            }
+        if let batchDir = try? AnalysesFolder.createAnalysisDirectory(tool: "taxtriage", in: projectURL, isBatch: true) {
+            config.outputDirectory = batchDir
+            createdTaxTriageDirectory = batchDir
         }
 
         Self.beginTaxTriageOperation(config: config, routeContext: routeContext) { opID in
