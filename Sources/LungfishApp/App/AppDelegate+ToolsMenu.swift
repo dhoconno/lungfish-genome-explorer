@@ -898,7 +898,7 @@ extension AppDelegate {
     }
 
     /// Runs a planned mapping request for every bundle in `plan`,
-    /// SEQUENTIALLY (matching `runClassificationBatch`'s precedent) rather
+    /// SEQUENTIALLY (as the classifier batches ran) rather
     /// than N concurrent `Task.detached` mappers -- an unbounded fan-out
     /// would otherwise spawn N mappers each requesting up to
     /// `processorCount` threads plus N reference-index rebuilds

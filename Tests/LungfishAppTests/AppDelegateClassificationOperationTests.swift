@@ -145,7 +145,7 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
 
     // MARK: - Kraken2 batch
 
-    func testKraken2BatchRowRecordsOneConfiguredCommandPerSampleMatchingTheReplayCommand() throws {
+    func testKraken2BatchRowRecordsOneConfiguredCommandPerSample() throws {
         let reporter = RecordingOperationReporter()
         let routeContext = makeRouteContext()
         let firstInput = importURL("Sample 1.lungfishfastq")
