@@ -481,15 +481,15 @@
       "format" : "text",
       "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
       "role" : "report",
-      "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-      "size" : 56
+      "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+      "size" : 59
     },
     {
       "format" : "text",
       "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
       "role" : "input",
-      "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-      "size" : 56
+      "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+      "size" : 59
     },
     {
       "format" : "unknown",
@@ -531,15 +531,15 @@
       "format" : "text",
       "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
       "role" : "report",
-      "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-      "size" : 56
+      "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+      "size" : 59
     },
     {
       "format" : "text",
       "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
       "role" : "input",
-      "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-      "size" : 56
+      "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+      "size" : 59
     },
     {
       "format" : "text",
@@ -574,8 +574,8 @@
       "format" : "text",
       "path" : "<project>/Analyses/kraken2-batch/classification-batch-summary.tsv",
       "role" : "report",
-      "sha256" : "5a72d0e0195804eb72a1abe9a5e4497b3417e8522e84143e5b332a91d0409dbd",
-      "size" : 270
+      "sha256" : "06a96fde90b898ba3cdfe8c696b7de2ba4034ecdbc21aee552f6291f51d22560",
+      "size" : 274
     },
     {
       "format" : "json",
@@ -1021,16 +1021,16 @@
     "format" : "text",
     "path" : "<project>/Analyses/kraken2-batch/classification-batch-summary.tsv",
     "role" : "output",
-    "sha256" : "5a72d0e0195804eb72a1abe9a5e4497b3417e8522e84143e5b332a91d0409dbd",
-    "size" : 270
+    "sha256" : "06a96fde90b898ba3cdfe8c696b7de2ba4034ecdbc21aee552f6291f51d22560",
+    "size" : 274
   },
   "outputs" : [
     {
       "format" : "text",
       "path" : "<project>/Analyses/kraken2-batch/classification-batch-summary.tsv",
       "role" : "report",
-      "sha256" : "5a72d0e0195804eb72a1abe9a5e4497b3417e8522e84143e5b332a91d0409dbd",
-      "size" : 270
+      "sha256" : "06a96fde90b898ba3cdfe8c696b7de2ba4034ecdbc21aee552f6291f51d22560",
+      "size" : 274
     },
     {
       "format" : "json",
@@ -1048,8 +1048,8 @@
       "format" : "text",
       "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
       "role" : "report",
-      "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-      "size" : 56
+      "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+      "size" : 59
     },
     {
       "format" : "text",
@@ -1084,8 +1084,8 @@
       "format" : "text",
       "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
       "role" : "report",
-      "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-      "size" : 56
+      "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+      "size" : 59
     },
     {
       "format" : "text",
@@ -1261,8 +1261,8 @@
           "format" : "text",
           "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
           "role" : "report",
-          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-          "size" : 56
+          "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+          "size" : 59
         },
         {
           "format" : "text",
@@ -1379,8 +1379,8 @@
           "format" : "text",
           "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
           "role" : "input",
-          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-          "size" : 56
+          "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+          "size" : 59
         },
         {
           "format" : "unknown",
@@ -1461,8 +1461,8 @@
           "format" : "text",
           "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
           "role" : "input",
-          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-          "size" : 56
+          "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+          "size" : 59
         },
         {
           "format" : "unknown",
@@ -1666,8 +1666,8 @@
           "format" : "text",
           "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
           "role" : "report",
-          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-          "size" : 56
+          "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+          "size" : 59
         },
         {
           "format" : "text",
@@ -1771,8 +1771,8 @@
           "format" : "text",
           "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
           "role" : "report",
-          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-          "size" : 56
+          "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+          "size" : 59
         },
         {
           "format" : "text",
@@ -1889,8 +1889,8 @@
           "format" : "text",
           "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
           "role" : "input",
-          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-          "size" : 56
+          "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+          "size" : 59
         },
         {
           "format" : "unknown",
@@ -1971,8 +1971,8 @@
           "format" : "text",
           "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
           "role" : "input",
-          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-          "size" : 56
+          "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+          "size" : 59
         },
         {
           "format" : "unknown",
@@ -2176,8 +2176,8 @@
           "format" : "text",
           "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
           "role" : "report",
-          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-          "size" : 56
+          "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+          "size" : 59
         },
         {
           "format" : "text",
@@ -2263,8 +2263,8 @@
           "format" : "text",
           "path" : "<project>/Analyses/kraken2-batch/SampleA/classification.kreport",
           "role" : "report",
-          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-          "size" : 56
+          "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+          "size" : 59
         },
         {
           "format" : "text",
@@ -2299,8 +2299,8 @@
           "format" : "text",
           "path" : "<project>/Analyses/kraken2-batch/SampleB/classification.kreport",
           "role" : "report",
-          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-          "size" : 56
+          "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+          "size" : 59
         },
         {
           "format" : "text",
@@ -2337,8 +2337,8 @@
           "format" : "text",
           "path" : "<project>/Analyses/kraken2-batch/classification-batch-summary.tsv",
           "role" : "report",
-          "sha256" : "5a72d0e0195804eb72a1abe9a5e4497b3417e8522e84143e5b332a91d0409dbd",
-          "size" : 270
+          "sha256" : "06a96fde90b898ba3cdfe8c696b7de2ba4034ecdbc21aee552f6291f51d22560",
+          "size" : 274
         },
         {
           "format" : "json",

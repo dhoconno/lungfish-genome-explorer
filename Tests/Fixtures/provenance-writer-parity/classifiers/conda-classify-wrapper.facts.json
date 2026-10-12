@@ -282,8 +282,8 @@
       "format" : "text",
       "path" : "<project>/output/classification.kreport",
       "role" : "report",
-      "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-      "size" : 56
+      "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+      "size" : 59
     },
     {
       "format" : "text",
@@ -337,8 +337,8 @@
       "format" : "text",
       "path" : "<project>/output/classification.kreport",
       "role" : "input",
-      "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-      "size" : 56
+      "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+      "size" : 59
     },
     {
       "format" : "unknown",
@@ -553,16 +553,16 @@
     "format" : "text",
     "path" : "<project>/output/classification.kreport",
     "role" : "output",
-    "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-    "size" : 56
+    "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+    "size" : 59
   },
   "outputs" : [
     {
       "format" : "text",
       "path" : "<project>/output/classification.kreport",
       "role" : "report",
-      "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-      "size" : 56
+      "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+      "size" : 59
     },
     {
       "format" : "text",
@@ -804,8 +804,8 @@
           "format" : "text",
           "path" : "<project>/output/classification.kreport",
           "role" : "report",
-          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-          "size" : 56
+          "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+          "size" : 59
         },
         {
           "format" : "text",
@@ -922,8 +922,8 @@
           "format" : "text",
           "path" : "<project>/output/classification.kreport",
           "role" : "input",
-          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-          "size" : 56
+          "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+          "size" : 59
         },
         {
           "format" : "unknown",
@@ -1004,8 +1004,8 @@
           "format" : "text",
           "path" : "<project>/output/classification.kreport",
           "role" : "input",
-          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-          "size" : 56
+          "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+          "size" : 59
         },
         {
           "format" : "unknown",
@@ -1209,8 +1209,8 @@
           "format" : "text",
           "path" : "<project>/output/classification.kreport",
           "role" : "report",
-          "sha256" : "73b5733324dde6546552e76dabe2ac7e85a068b93a063b96eda720195d31db33",
-          "size" : 56
+          "sha256" : "4b960e2c5a1f9c38bdbdea78bb1f0000d7ab0997e85af44cafc7570a2a32b5ac",
+          "size" : 59
         },
         {
           "format" : "text",

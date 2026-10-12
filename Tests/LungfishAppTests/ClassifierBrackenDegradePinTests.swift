@@ -34,7 +34,7 @@ final class ClassifierBrackenDegradePinTests: XCTestCase {
         // The warning line names the reason, which the fake Bracken wrote to stderr. Lanes A8 and A10 keep it.
         XCTAssertEqual(
             gui.metadata.completionDetail,
-            "1 of 1 reads classified; Bracken profiling degraded at resolved rank S: synthetic bracken failure"
+            "10 of 10 reads classified; Bracken profiling degraded at resolved rank S: synthetic bracken failure"
         )
         XCTAssertEqual(gui.record.status, .completed)
         XCTAssertEqual(gui.record.exitStatus, 0)

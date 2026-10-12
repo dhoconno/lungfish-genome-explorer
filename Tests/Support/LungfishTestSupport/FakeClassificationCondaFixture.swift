@@ -92,8 +92,14 @@ public struct FakeClassificationCondaFixture {
     private let reportRank: ReportRank
     private let distributionState: DistributionState
 
+    /// The reads the fake report holds at its one taxon. The default is Bracken's default
+    /// threshold, so a run that asks for a profile reaches the fake Bracken as it reaches the real
+    /// one. A report that holds fewer reads makes the fake Bracken fail as est_abundance.py does.
+    public static let defaultRankReads = 10
+
     public init(
         reportRank: ReportRank = .species,
+        rankReads: Int = FakeClassificationCondaFixture.defaultRankReads,
         distributionState: DistributionState = .valid,
         krakenVersion: String = "2.1.3",
         krakenBehavior: KrakenBehavior = .success,
@@ -117,6 +123,7 @@ public struct FakeClassificationCondaFixture {
         let bundledMicromamba = root.appendingPathComponent("bundled-micromamba")
         try Self.scriptBody(
             reportRank: reportRank,
+            rankReads: rankReads,
             krakenVersion: krakenVersion,
             krakenBehavior: krakenBehavior,
             brackenBehavior: brackenBehavior,
@@ -280,6 +287,7 @@ public struct FakeClassificationCondaFixture {
 
     private static func scriptBody(
         reportRank: ReportRank,
+        rankReads: Int,
         krakenVersion: String,
         krakenBehavior: KrakenBehavior,
         brackenBehavior: BrackenBehavior,
@@ -383,8 +391,8 @@ public struct FakeClassificationCondaFixture {
             done
             mkdir -p "$(dirname "$report")" "$(dirname "$output")"
             cat > "$report" <<'REPORT'
-        100.00\t1\t0\tR\t1\troot
-        100.00\t1\t1\t\(reportRank.rawValue)\t\(reportRank.taxID)\t  \(reportRank.name)
+        100.00\t\(rankReads)\t0\tR\t1\troot
+        100.00\t\(rankReads)\t\(rankReads)\t\(reportRank.rawValue)\t\(reportRank.taxID)\t  \(reportRank.name)
         REPORT
             printf 'C\tread1\t\(reportRank.taxID)\t4\t0:4\n' > "$output"
             echo "processed 1 sequence" >&2
@@ -409,6 +417,9 @@ public struct FakeClassificationCondaFixture {
             fi
             output=""
             reportOutput=""
+            input=""
+            level=""
+            threshold=""
             while [ "$#" -gt 0 ]; do
               if [ "$1" = "-o" ]; then
                 shift
@@ -416,9 +427,25 @@ public struct FakeClassificationCondaFixture {
               elif [ "$1" = "-w" ]; then
                 shift
                 reportOutput="$1"
+              elif [ "$1" = "-i" ]; then
+                shift
+                input="$1"
+              elif [ "$1" = "-l" ]; then
+                shift
+                level="$1"
+              elif [ "$1" = "-t" ]; then
+                shift
+                threshold="$1"
               fi
               shift
             done
+            # est_abundance.py keeps a taxon at the level only when its clade reads (column 2) are
+            # not below the threshold, and exits 1 with this line when it keeps none.
+            kept=$(awk -F '\\t' -v level="$level" -v threshold="$threshold" '$4 == level && $2 + 0 >= threshold + 0 { n++ } END { print n + 0 }' "$input")
+            if [ "$kept" = "0" ]; then
+              echo "Error: no reads found. Please check your Kraken report" >&2
+              exit 1
+            fi
             mkdir -p "$(dirname "$output")"
             if [ -n "$reportOutput" ]; then
               mkdir -p "$(dirname "$reportOutput")"
