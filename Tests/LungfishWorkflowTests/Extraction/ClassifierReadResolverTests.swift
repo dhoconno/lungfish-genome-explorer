@@ -6,6 +6,7 @@ import XCTest
 import SQLite3
 @testable import LungfishWorkflow
 import LungfishIO
+import LungfishTestSupport
 
 final class ClassifierReadResolverTests: XCTestCase {
 
@@ -342,6 +343,59 @@ final class ClassifierReadResolverTests: XCTestCase {
         } catch {
             XCTFail("Expected unsupportedBAMTool, got \(error)")
         }
+    }
+
+    // MARK: - resolveBAMURL, the EsViritu database row (decision C4, row 434)
+
+    /// A one-folder EsViritu result in a `TestTempDirectory`. `esviritu.sqlite` holds one detection row for
+    /// `sampleId` that records `bamPath`. The caller writes the BAM files.
+    private func makeEsVirituResult(
+        sampleId: String,
+        bamPath: String?
+    ) throws -> (root: URL, resultPath: URL) {
+        let root = try TestTempDirectory.make(prefix: "esviritu-recorded-bam")
+        let resultPath = root.appendingPathComponent("esviritu.sqlite")
+        try EsVirituDatabase.create(
+            at: resultPath,
+            rows: [EsVirituDetectionRow(
+                sample: sampleId, virusName: "Test virus", description: nil, contigLength: 1_000, segment: nil,
+                accession: "NC_000001.1", assembly: "ASM_\(sampleId)", assemblyLength: 1_000, kingdom: nil,
+                phylum: nil, tclass: nil, torder: nil, family: nil, genus: nil, species: nil, subspecies: nil,
+                rpkmf: 1, readCount: 10, uniqueReads: 10, coveredBases: 900, meanCoverage: 5,
+                avgReadIdentity: 0.99, pi: nil, filteredReadsInSample: 100,
+                bamPath: bamPath, bamIndexPath: bamPath.map { $0 + ".bai" }
+            )],
+            metadata: ["tool": "test"]
+        )
+        return (root, resultPath)
+    }
+
+    /// Writes a stand-in BAM, which only has to exist, at `relativePath` under `root`.
+    @discardableResult
+    private func writeStandInBAM(_ relativePath: String, under root: URL) throws -> URL {
+        let url = root.appendingPathComponent(relativePath)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data([0x1F, 0x8B]).write(to: url)
+        return url
+    }
+
+    /// Row 434. A one-folder result leaves its BAM at `<root>/bams/<sample>.third.filt.sorted.bam`, which no
+    /// layout lookup for a sample id reaches. The database row records that path.
+    func testResolveBAMURL_esviritu_oneFolderResult_usesRecordedBAMPath() async throws {
+        let recorded = "bams/S1.third.filt.sorted.bam"
+        let (root, resultPath) = try makeEsVirituResult(sampleId: "S1", bamPath: recorded)
+        defer { TestTempDirectory.cleanup(root) }
+        let bam = try writeStandInBAM(recorded, under: root)
+
+        let resolved = try await ClassifierReadResolver().testingResolveBAMURL(
+            tool: .esviritu,
+            sampleId: "S1",
+            resultPath: resultPath
+        )
+        XCTAssertEqual(resolved.standardizedFileURL.path, bam.standardizedFileURL.path)
     }
 
     // MARK: - extractViaBAM end-to-end (real samtools)
