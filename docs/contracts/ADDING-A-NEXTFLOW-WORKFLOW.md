@@ -234,7 +234,7 @@ One Docker wait in the engine process serves every workflow that runs on Docker.
 A new workflow's strings follow five rules.
 
 1. `<W>` comes from the registry's display name and from nothing else.
-2. A string that shows an action in progress ends with the ellipsis character `…`. The center's own `Cancelling...` keeps its three dots, because every operation shares it.
+2. A string of the workflow's own that names a step in progress ends with the ellipsis character `…`. A task line takes the form W1 sets, and the words every workflow shares, the Docker wait's and the center's `Cancelling...`, keep their three dots until a words lane changes them for every operation.
 3. A task line names the process, and its tag when it has one, and never the raw Nextflow line.
 4. A line that arrives once the row no longer runs reaches neither the detail nor the bar nor the overlay. The TaxTriage overlay takes such a line today, and `NextflowWorkflowRowPinTests` pins that.
 5. One warning line per cause makes the label. The row then completes plainly with a detail that names the cause, and that detail is logged as no second warning (decision D4 of Phase 2.8).
