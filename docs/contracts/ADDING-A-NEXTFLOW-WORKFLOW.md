@@ -186,6 +186,86 @@ Nextflow 25.04 starts its output with the banner `N E X T F L O W  ~  version 25
 
 ## 5. The registry row and the words (U9)
 
+A Nextflow workflow shows itself to a user in two places. The registry row names it once, and the Operations row is what the user watches while it runs. Every string of the Operations row spells the workflow's name as the registry row does, so a new workflow takes its words from one field. This section states the registry row's other fields, the words of the Operations row from its first detail to the closing line of the command, the rules those words follow, and what each of the four rows a user can start shows today. It rests on panel decisions N13, W1, W2 and W3 of the Phase 2.9 plan (`docs/plans/2026-10-12-phase-2-9.md`).
+
+### The registry row's other fields
+
+`AnalysisToolRegistry` holds one `AnalysisToolDescriptor` per analysis kind (`Sources/LungfishIO/Analysis/AnalysisToolRegistry.swift` and `AnalysisToolDescriptor.swift` beside it). Section 1 covers `runsTools` and `provisioning`, which the agreement test reads. The table lists them again so that one row shows a whole entry.
+
+| Field | What it holds | TaxTriage | Viral Recon |
+|---|---|---|---|
+| `id` | The analysis kind, which the descriptor's `toolID` repeats | `.taxtriage` | `.viralrecon` |
+| `displayName` | The workflow's name in every string a person reads, written `<W>` below | `TaxTriage` | `Viral Recon` |
+| `sidebarSymbolName` | The sidebar symbol, or nil for the generic circle | `t.circle` | `v.circle` |
+| `runsTools` | The managed tools the workflow launches, by lock id | `nextflow` | `nextflow` |
+| `provisioning` | `.lockedPipeline` with the descriptor's `lockPipelineID` | `taxtriage` | `nf-core-viralrecon` |
+| `classifierBatchBadge`, `buildDatabaseToken`, `outputStem` | The badge of a classifier batch, the word `lungfish-cli build-db` takes and the stem of an output name, each nil when the kind has none | `TT`, `taxtriage`, `taxtriage` | nil |
+
+The display name is the only place that spells a workflow's name for a person. `NextflowWorkflowDescriptor.workflowName` reads it from this row, the refusal of section 1 puts it in its sentence, and the Operations row takes it as `<W>`. A string that spells the name itself drifts from the registry the first time the name changes, so no row string does.
+
+### The Operations row and its words
+
+The Operations row is the entry of `OperationCenter` that a launch begins and ends. The table sets a new workflow's words beside TaxTriage's. `<W>` is the display name above, `N` is a count, `<t>` is a runtime in seconds with one decimal, and `[s]` is the plural ending.
+
+| Moment | TaxTriage today | A new workflow |
+|---|---|---|
+| Row title and first detail | `TaxTriage (N sample[s])`, `Starting TaxTriage pipeline…` | `<W> (N sample[s])`, `Starting <W>…` |
+| Docker wait | `Docker daemon unavailable. Launching Docker Desktop...`, `Docker daemon ready` | `Starting Docker Desktop…`, `Docker Desktop is running` |
+| Before the engine | `Checking prerequisites...`, `Generating samplesheet...` | `Checking Nextflow and Docker…`, `Writing the samplesheet…` |
+| A task | A line that holds `process >`, such as `[aa/000001] Submitted process > <path>`, as the raw line | `Running <process> (<tag>)`, with the last part of the process name as `<process>` |
+| After the engine | `Collecting output files...`, `TaxTriage pipeline complete` | `Collecting output files…`, `<W> complete` |
+| Database | `Building TaxTriage database…` | `Building <W> database…`, on the last share of the bar |
+| Ignored tasks | One warning line per cause, beginning `Some TaxTriage tasks failed` | `Some <W> tasks failed`, one warning line per cause, and the row reads Completed with Warnings |
+| Failure | The sheet `TaxTriage Failed` with the error as its text and no detail | The sheet `<W> Failed` with the error as its text and the log tail as its detail |
+| Cancel | `Cancelling...`, then Cancelled with `Cancelled by user`, no sheet | The same, from `OperationCenter`, and the overlay shows the row's own `Cancelling...` and takes no later engine line |
+| CLI closing line | `TaxTriage completed in <t>s` or `TaxTriage completed with warnings in <t>s` | `<W> completed in <t>s` or `<W> completed with warnings in <t>s` |
+| Copy CLI Command | `--output` names the app's own folder, so a replay writes into it | The argv the row ran, with `--project`, so a replay makes a new folder |
+
+The TaxTriage column is today's text. TaxTriage's strings stay as they are until a lane changes them on both routes (decision E15 of Phase 2.7), and that lane changes this table in the same commit. U10 does so for the task line, the bar and the overlay.
+
+A task line follows W1. The detail, the log and the overlay show `Running <process> (<tag>)`, and `nextflow.log` keeps the raw line byte for byte (decision N8). A real Nextflow 26.04 with `NXF_ANSI_LOG=false` prints one `[PROCESS <hash>] <process path> (<tag>)` line per task at submission, and no `process >` line and no `[100%]` line. So on a real run the TaxTriage row shows no task line today, and its bar holds at 0.10 through the engine stage.
+
+The bar follows W2 and W3. The engine takes `[0, 1 - s]` of the bar and the finalize phase, which builds the database, takes `[1 - s, 1]`, where `s` is the descriptor's `finalizeProgressShare`, 0.1 for TaxTriage. U10 applies the share to the app's route and A2 to the command's, and until they land the app holds the bar at 100 percent while the database builds. Inside its share the engine's bar counts the completed rows of `trace.txt` against `expectedTaskCountPerSample` times the samples, and a workflow whose descriptor holds no count keeps the engine's estimate of 15 tasks. The bar never moves back (decision T9 of Phase 2.8). The decision assumes that Nextflow writes rows to `trace.txt` while a run is live, which lane Q15 confirms on a real run. If a real run shows otherwise, the lane that finds it changes this paragraph with the reader.
+
+One Docker wait in the engine process serves every workflow that runs on Docker. A cancel ends it, and a failed attempt to open Docker Desktop fails the run at once (decision N9).
+
+### Rules for the words
+
+A new workflow's strings follow five rules.
+
+1. `<W>` comes from the registry's display name and from nothing else.
+2. A string that shows an action in progress ends with the ellipsis character `…`. The center's own `Cancelling...` keeps its three dots, because every operation shares it.
+3. A task line names the process and its tag and never the raw Nextflow line.
+4. A line that arrives once the row no longer runs reaches neither the detail nor the bar nor the overlay. The TaxTriage overlay takes such a line today, and `NextflowWorkflowRowPinTests` pins that.
+5. One warning line per cause makes the label. The row then completes plainly with a detail that names the cause, and that detail is logged as no second warning (decision D4 of Phase 2.8).
+
+### What each row shows today
+
+Four rows start a Nextflow workflow today, and they do not read alike. Only TaxTriage streams Nextflow's output into its row. Viral Recon's row does not move in Phase 2.9 (decision N13). S16 moves its runner onto `CLIProcessLauncher` with a 6 s grace and a bounded output tail (decision N14), so the pins named below land first and show any change to the row in a test diff.
+
+| | TaxTriage | Viral Recon | Local Workflow | pbAA |
+|---|---|---|---|---|
+| Title | `TaxTriage (N sample[s])` | `Viral Recon` | `Local Workflow` | `pbAA Amplicon Clustering` |
+| First detail | `Starting TaxTriage pipeline…` | `<platform> · N sample(s) · <reference>` | `Running <engine> workflow` | `Preparing...` |
+| Nextflow output in the row | A `process >` line becomes the detail, the log line and the overlay, and moves the bar | The log only, as the lines arrive. The bar stays at 0 | The log only, after the run | Read after the run |
+| Completed detail | The summary of the result, one line per fact, or with ignored tasks the headline and the report count | `Viral Recon completed. Output: <folder>. Run bundle: <bundle>` | `Local workflow completed. Run bundle: <bundle>` | Not read |
+| Warning lines | One per ignored task cause and one for failed samples | Every stderr line of the CLI | Every stderr line, logged after the run | Not read |
+| Failure | The sheet `TaxTriage Failed` with the error as its text and no detail | `Viral Recon failed with exit code N.` and the last 40 stderr lines as the detail, no sheet | `Local workflow failed with exit code N`, and the whole stderr as the error detail | Not read |
+| Cancel | `Cancelling...`, then `Cancelled by user` | The same words, and the CLI's process tree ends with a grace of 0 | A first run has no Cancel button | The tool's default grace |
+
+A new workflow takes the right column of the Operations row table and not one of these four. Viral Recon's row waits for the move of its runner to the executor and the engine process (decisions N13 and X2), and pbAA takes the engine process as a later move (decision N15).
+
+### What holds this section
+
+| Suite | What it pins |
+|---|---|
+| `Tests/LungfishAppTests/NextflowWorkflowRowPinTests.swift` | The title and first detail of each row above, Viral Recon's row for a launch, a clean end, stderr warning lines, a failure with its 40-line tail and a cancel, Local Workflow's first run with no Cancel button and its end words, TaxTriage's title for one and several samples, and TaxTriage's overlay after `Cancelling...` |
+| `Tests/LungfishAppTests/TaxTriageOperationRowTextReplayTests.swift` | TaxTriage's clean, ignored task, failed sample, failed and cancelled rows on the stand-in engine |
+| `Tests/LungfishAppTests/ViralReconWorkflowExecutionServiceOperationTests.swift` | Viral Recon's recorded row, its bundle lock and its command |
+| `Tests/LungfishCLITests/TaxTriageRunTextOutputTests.swift` | The last progress line and the closing line of `taxtriage run`, for a clean run and for a run that ignored errored tasks |
+
+A new workflow adds a row test in the shape of `NextflowWorkflowRowPinTests` on the stand-in of section 6, and a CLI test in the shape of `TaxTriageRunTextOutputTests`, before it changes a word.
+
 ## 6. The stand-in for tests (Q9)
 
 ## 7. The executor tool (A2)
