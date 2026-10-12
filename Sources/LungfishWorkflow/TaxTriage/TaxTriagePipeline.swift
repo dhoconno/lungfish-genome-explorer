@@ -457,8 +457,12 @@ public actor TaxTriagePipeline {
         )
         let provenanceCommand = [micromambaPath.path] + micromambaArgs
 
-        // Track completed processes for progress estimation
-        let tracker = CompletedProcessTracker()
+        // The engine's stdout lines move the bar from 0.10 to 0.90 (W1).
+        let reader = NextflowProgressReader(
+            expectedTasksPerSample: NextflowWorkflowDescriptor.taxTriage.expectedTaskCountPerSample,
+            sampleCount: sampleCount,
+            report: { fraction, message in progress?(fraction, message) }
+        )
         let engine: TaxTriageEngineProcess.Outcome
         do {
             engine = try await TaxTriageEngineProcess(processManager: processManager).run(
@@ -467,10 +471,7 @@ public actor TaxTriagePipeline {
                 workingDirectory: scratch.launchDirectory,
                 environment: environment
             ) { line in
-                // Parse Nextflow progress from stdout
-                if let progressFraction = self.parseNextflowProcessLine(line, tracker: tracker) {
-                    progress?(0.10 + progressFraction * 0.80, line.trimmingCharacters(in: .whitespaces))
-                }
+                reader.engineLine(line)
             }
         } catch {
             let spawnMessage = "Failed to spawn Nextflow: \(error.localizedDescription)"
