@@ -134,6 +134,37 @@ public enum DurableReplace {
         beforePublish: ((URL) throws -> Void)? = nil,
         observe: ((Publication) throws -> Void)? = nil
     ) throws -> Publication {
+        try replace(
+            named: name,
+            in: directoryURL,
+            recovery: recovery,
+            beforePublish: beforePublish,
+            observe: observe,
+            writing: { stage in try stage.write(data) }
+        )
+    }
+
+    /// Publishes the bytes that `body` streams into the stage file as `name`
+    /// in `directoryURL`, swapping out any regular file the name holds.
+    ///
+    /// This is ``replace(_:named:in:recovery:beforePublish:observe:)`` for a
+    /// file too large to hold in memory (Phase 2.9 lane S12). `body` runs once,
+    /// synchronously, with the open stage file, and writes it in bounded
+    /// chunks through ``StageWriter``, which reports a failed write, a full
+    /// disk among them, as a thrown ``ReplaceError`` and never as an
+    /// Objective-C exception. The stage file is synced after `body` returns,
+    /// so the name never holds a partial file. When `body` throws, the stage
+    /// file is removed, the name keeps its old file and the error is
+    /// rethrown. `beforePublish` and `observe` behave as in the `Data` form.
+    @discardableResult
+    public static func replace(
+        named name: String,
+        in directoryURL: URL,
+        recovery: Recovery = .tombstones,
+        beforePublish: ((URL) throws -> Void)? = nil,
+        observe: ((Publication) throws -> Void)? = nil,
+        writing body: (StageWriter) throws -> Void
+    ) throws -> Publication {
         guard isSinglePathComponent(name) else {
             throw ReplaceError.invalidFileName(name)
         }
@@ -150,11 +181,11 @@ public enum DurableReplace {
         let transaction = joined ?? Transaction()
         do {
             let publication = try folder.publish(
-                data,
                 recovery: recovery,
                 beforePublish: beforePublish,
                 observe: observe,
-                transaction: transaction
+                transaction: transaction,
+                writing: body
             )
             if joined == nil {
                 try transaction.commit(operations: operations)
@@ -316,6 +347,8 @@ public enum DurableReplace {
         package var fullFlush: @Sendable (Int32) -> Int32
         package var removeEntry: @Sendable (Int32, String) -> Int32
         package var checkpoint: @Sendable (Step) throws -> Void
+        /// `write(2)` on the stage file, so a test can fail a write with `ENOSPC`.
+        package var writeBytes: @Sendable (Int32, UnsafeRawPointer, Int) -> Int
 
         package init(
             rename: PortableRename.Operations = .current,
@@ -325,7 +358,8 @@ public enum DurableReplace {
             removeEntry: @escaping @Sendable (Int32, String) -> Int32 = { descriptor, name in
                 name.withCString { Darwin.unlinkat(descriptor, $0, 0) }
             },
-            checkpoint: @escaping @Sendable (Step) throws -> Void = { _ in }
+            checkpoint: @escaping @Sendable (Step) throws -> Void = { _ in },
+            writeBytes: @escaping @Sendable (Int32, UnsafeRawPointer, Int) -> Int = { Darwin.write($0, $1, $2) }
         ) {
             self.rename = rename
             self.syncFile = syncFile
@@ -333,6 +367,7 @@ public enum DurableReplace {
             self.fullFlush = fullFlush
             self.removeEntry = removeEntry
             self.checkpoint = checkpoint
+            self.writeBytes = writeBytes
         }
     }
 
@@ -423,17 +458,17 @@ extension DurableReplace {
         }
 
         func publish(
-            _ data: Data,
             recovery: Recovery,
             beforePublish: ((URL) throws -> Void)?,
             observe: ((Publication) throws -> Void)?,
-            transaction: Transaction
+            transaction: Transaction,
+            writing body: (StageWriter) throws -> Void
         ) throws -> Publication {
             if case .restoring(let asideInfixes) = recovery {
                 try recoverMissingEntry(asideInfixes: asideInfixes)
             }
             let stageName = ".\(name)\(DurableReplace.stageInfix)\(UUID().uuidString)"
-            let staged = try stage(data, as: stageName)
+            let staged = try stage(as: stageName, writing: body)
 
             let existing: EntryKind
             do {
@@ -514,7 +549,7 @@ extension DurableReplace {
         }
 
         /// Creates, writes and syncs the stage file. A failure removes it.
-        private func stage(_ data: Data, as stageName: String) throws -> Identity {
+        private func stage(as stageName: String, writing body: (StageWriter) throws -> Void) throws -> Identity {
             let stageURL = url(of: stageName)
             let file = stageName.withCString {
                 Darwin.openat(descriptor, $0, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, mode_t(0o666))
@@ -524,7 +559,7 @@ extension DurableReplace {
             }
             defer { Darwin.close(file) }
             do {
-                try Self.writeAll(data, to: file, path: stageURL.path)
+                try body(StageWriter(descriptor: file, path: stageURL.path, writeBytes: operations.writeBytes))
                 try operations.checkpoint(.staged)
                 guard operations.syncFile(file) == 0 else {
                     throw ReplaceError.systemFailure(path: stageURL.path, operation: "fsync the stage file", code: errno)
@@ -698,26 +733,6 @@ extension DurableReplace {
             if modified.tv_sec != current.modified.tv_sec { return modified.tv_sec > current.modified.tv_sec }
             if modified.tv_nsec != current.modified.tv_nsec { return modified.tv_nsec > current.modified.tv_nsec }
             return entry > current.entry
-        }
-
-        private static func writeAll(_ data: Data, to file: Int32, path: String) throws {
-            try data.withUnsafeBytes { buffer in
-                guard var cursor = buffer.baseAddress else { return }
-                var remaining = buffer.count
-                while remaining > 0 {
-                    let count = Darwin.write(file, cursor, remaining)
-                    if count < 0, errno == EINTR { continue }
-                    guard count > 0 else {
-                        throw ReplaceError.systemFailure(
-                            path: path,
-                            operation: "write the stage file",
-                            code: count < 0 ? errno : EIO
-                        )
-                    }
-                    remaining -= count
-                    cursor = cursor.advanced(by: count)
-                }
-            }
         }
     }
 }

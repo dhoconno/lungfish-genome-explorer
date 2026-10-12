@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 
 /// The files a tool reads for the sequence inputs a user chose, each paired
@@ -274,6 +275,15 @@ public struct ResolvedSequenceInputs: Sendable, Equatable {
     /// samtools read as one file. A plain member that does not end in a
     /// newline gets one, so its last record and the next file's first stay
     /// apart.
+    ///
+    /// The bytes are streamed in chunks of at most ``joinChunkSize`` into a
+    /// hidden stage file beside the final name, synced, and published through
+    /// ``DurableReplace``, so a reader never finds a partial file under the
+    /// final name, and a failed write (a full disk, say) throws a Swift error
+    /// where `FileHandle.write(_:)` raised an Objective-C exception. The
+    /// sidecar goes first, in the same transaction, so a join that stops
+    /// between the two leaves a sidecar with no file, which nothing reads,
+    /// and never a file with no lineage. A join that throws leaves neither.
     private static func concatenate(
         _ members: [URL],
         of bundleURL: URL,
@@ -283,37 +293,49 @@ public struct ResolvedSequenceInputs: Sendable, Equatable {
         guard compression.count == 1, let gzipped = compression.first else {
             throw ResolvedSequenceInputsError.mixedCompression(bundlePath: bundleURL.standardizedFileURL.path)
         }
-        let fileManager = FileManager.default
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let outputURL = directory.appendingPathComponent(
-            "concatenated-\(UUID().uuidString).\(gzipped ? "fastq.gz" : "fastq")"
-        )
-        guard fileManager.createFile(atPath: outputURL.path, contents: nil) else {
-            throw ResolvedSequenceInputsError.concatenationFailed(path: outputURL.path)
-        }
-        let output = try FileHandle(forWritingTo: outputURL)
-        defer { try? output.close() }
-        for member in members {
-            let input = try FileHandle(forReadingFrom: member)
-            defer { try? input.close() }
-            var lastByte: UInt8?
-            while true {
-                let chunk = input.readData(ofLength: 4 * 1024 * 1024)
-                if chunk.isEmpty { break }
-                output.write(chunk)
-                lastByte = chunk.last
-            }
-            if !gzipped, let lastByte, lastByte != UInt8(ascii: "\n") {
-                output.write(Data([UInt8(ascii: "\n")]))
-            }
-        }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let outputName = "concatenated-\(UUID().uuidString).\(gzipped ? "fastq.gz" : "fastq")"
         let concatenation = SequenceInputConcatenation(
             bundleURL: bundleURL,
             memberURLs: members,
-            outputURL: outputURL
+            outputURL: directory.appendingPathComponent(outputName)
         )
-        try concatenation.save()
+        do {
+            try DurableReplace.transaction {
+                try concatenation.save()
+                try DurableReplace.replace(named: outputName, in: directory, recovery: .none) { stage in
+                    for member in members {
+                        try append(member, to: stage, endingWithLineBreak: !gzipped)
+                    }
+                }
+            }
+        } catch {
+            concatenation.removeOutput()
+            throw error
+        }
         return concatenation
+    }
+
+    /// The most bytes of a member held in memory at once while joining.
+    private static let joinChunkSize = 4 * 1024 * 1024
+
+    /// Streams `member` into `stage`. With `endingWithLineBreak`, a member
+    /// that does not end in a newline gets one.
+    private static func append(
+        _ member: URL,
+        to stage: DurableReplace.StageWriter,
+        endingWithLineBreak: Bool
+    ) throws {
+        let input = try FileHandle(forReadingFrom: member)
+        defer { try? input.close() }
+        var lastByte: UInt8?
+        while let chunk = try input.read(upToCount: joinChunkSize), !chunk.isEmpty {
+            try stage.write(chunk)
+            lastByte = chunk.last
+        }
+        if endingWithLineBreak, let lastByte, lastByte != UInt8(ascii: "\n") {
+            try stage.write(Data([UInt8(ascii: "\n")]))
+        }
     }
 
     /// Removes what this call wrote into the materialization directory: the
@@ -505,10 +527,17 @@ public struct SequenceInputConcatenation: Codable, Sendable, Equatable {
         return try? JSONDecoder().decode(SequenceInputConcatenation.self, from: data)
     }
 
+    /// Publishes the sidecar through ``DurableReplace``, so its name holds a
+    /// complete old or new record at every step and the bytes are synced.
     public func save() throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(self).write(to: Self.sidecarURL(for: outputURL), options: .atomic)
+        let sidecar = Self.sidecarURL(for: outputURL)
+        try DurableReplace.replace(
+            try encoder.encode(self),
+            named: sidecar.lastPathComponent,
+            in: sidecar.deletingLastPathComponent()
+        )
     }
 
     /// Removes the concatenated file and its sidecar.

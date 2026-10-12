@@ -4,6 +4,7 @@
 
 import Darwin
 import Foundation
+import Synchronization
 import XCTest
 import LungfishCore
 import LungfishTestSupport
@@ -27,7 +28,7 @@ final class ResolvedSequenceInputsDurabilityTests: XCTestCase {
         joinDirectory = root.appendingPathComponent("analysis/.lungfish-map-inputs", isDirectory: true)
     }
 
-    override func tearDown() {
+    override func tearDownWithError() throws {
         TestTempDirectory.cleanup(root)
     }
 
@@ -173,10 +174,10 @@ final class ResolvedSequenceInputsDurabilityTests: XCTestCase {
 
     // MARK: - The failure at the base
 
-    /// The base opens the final name first and streams into it, so a member
-    /// that cannot be read after the first one leaves the first member's bytes
-    /// under a name that looks like a complete joined file, with no sidecar.
-    /// (An I/O error in the write itself never reaches Swift at the base,
+    /// The base opened the final name first and streamed into it, so a member
+    /// that could not be read after the first one left the first member's bytes
+    /// under a name that looked like a complete joined file, with no sidecar.
+    /// (An I/O error in the write itself never reached Swift at the base,
     /// because `FileHandle.write(_:)` raises an Objective-C exception.)
     func testAnErrorAfterTheFirstMemberLeavesNothingUnderTheFinalName() throws {
         try XCTSkipIf(getuid() == 0, "root reads a file whatever its mode")
@@ -186,10 +187,122 @@ final class ResolvedSequenceInputsDurabilityTests: XCTestCase {
 
         XCTAssertThrowsError(try ResolvedSequenceInputs.concatenateMultiFileBundle(bundle, into: joinDirectory))
 
-        let left = (try? FileManager.default.contentsOfDirectory(atPath: joinDirectory.path)) ?? []
-        XCTExpectFailure("Row 259: the base leaves the partial joined file under its final name") {
-            XCTAssertEqual(left, [], "a failed join leaves no file behind")
+        XCTAssertEqual(try folderEntries(), [], "a failed join leaves no file behind")
+    }
+
+    // MARK: - Faults
+
+    /// `ENOSPC` on the second write into a joined file's stage, after its
+    /// first member went out. The base raised an Objective-C exception here.
+    func testAWriteErrorMidStreamThrowsAndLeavesNothingBehind() throws {
+        let (bundle, _) = try makeMultiFileBundle([Self.text("a1"), Self.text("b1"), Self.text("c1")], gzipped: false)
+        let tally = Tally()
+        let operations = DurableReplace.Operations(writeBytes: { descriptor, bytes, count in
+            if Self.path(of: descriptor).contains(".fastq.lungfish-stage-"), tally.add("joinedWrites") == 2 {
+                errno = ENOSPC
+                return -1
+            }
+            return Darwin.write(descriptor, bytes, count)
+        })
+
+        XCTAssertThrowsError(
+            try DurableReplace.$overrideOperations.withValue(operations) {
+                try ResolvedSequenceInputs.concatenateMultiFileBundle(bundle, into: joinDirectory)
+            }
+        ) { error in
+            guard case .systemFailure(_, let operation, let code)? = error as? DurableReplace.ReplaceError else {
+                return XCTFail("expected a system failure, got \(error)")
+            }
+            XCTAssertEqual(operation, "write the stage file")
+            XCTAssertEqual(code, ENOSPC)
         }
+        XCTAssertEqual(tally["joinedWrites"], 2, "the write after the failure never ran")
+        XCTAssertEqual(try folderEntries(), [], "neither the file, its sidecar nor a stage file is left")
+    }
+
+    func testNoJoinedFileIsVisibleUnderItsFinalNameWhileMembersAreStillStreaming() throws {
+        let (bundle, _) = try makeMultiFileBundle([Self.text("a1"), Self.text("b1"), Self.text("c1")], gzipped: false)
+        let tally = Tally()
+        let directory = joinDirectory.path
+        let operations = DurableReplace.Operations(writeBytes: { descriptor, bytes, count in
+            if Self.path(of: descriptor).contains(".fastq.lungfish-stage-"), tally.add("joinedWrites") == 2 {
+                tally.note((try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? [])
+            }
+            return Darwin.write(descriptor, bytes, count)
+        })
+
+        let output = try DurableReplace.$overrideOperations.withValue(operations) {
+            try XCTUnwrap(ResolvedSequenceInputs.concatenateMultiFileBundle(bundle, into: joinDirectory))
+        }.outputURL
+
+        let during = tally.noted
+        XCTAssertFalse(during.contains(output.lastPathComponent), "the final name appears only when the file is whole")
+        XCTAssertTrue(during.contains { $0.hasPrefix(".") && $0.contains(DurableReplace.stageInfix) }, "the bytes stream into a hidden stage")
+        XCTAssertTrue(during.contains(output.lastPathComponent + ".sources.json"), "the sidecar is published first")
+    }
+
+    func testAFaultAtAnyStepOfEitherPublicationLeavesNoFileAndNoSidecar() throws {
+        let (bundle, _) = try makeMultiFileBundle([Self.text("a1"), Self.text("b1")], gzipped: false)
+        for step in DurableReplace.Step.allCases {
+            // The sidecar is the first publication and the joined file the second.
+            // One flush follows the pair.
+            for occurrence in (step == .flushed ? [1] : [1, 2]) {
+                let tally = Tally()
+                let operations = DurableReplace.Operations(checkpoint: { reached in
+                    if reached == step, tally.add("reached") == occurrence { throw Refusal() }
+                })
+
+                XCTAssertThrowsError(
+                    try DurableReplace.$overrideOperations.withValue(operations) {
+                        try ResolvedSequenceInputs.concatenateMultiFileBundle(bundle, into: joinDirectory)
+                    },
+                    "\(step) #\(occurrence)"
+                ) { XCTAssertTrue($0 is Refusal, "\(step) #\(occurrence): \($0)") }
+                XCTAssertEqual(try folderEntries(), [], "\(step) #\(occurrence)")
+            }
+        }
+    }
+
+    func testAJoinPublishesTheSidecarAndTheFileInOneTransactionWithOneFlush() throws {
+        let (bundle, _) = try makeMultiFileBundle([Self.text("a1"), Self.text("b1")], gzipped: false)
+        let tally = Tally()
+        let operations = DurableReplace.Operations(
+            syncFile: { tally.add("syncFile"); return Darwin.fsync($0) },
+            fullFlush: { tally.add("fullFlush"); return Darwin.fcntl($0, F_FULLFSYNC) },
+            checkpoint: { tally.add($0.rawValue) }
+        )
+
+        _ = try DurableReplace.$overrideOperations.withValue(operations) {
+            try ResolvedSequenceInputs.concatenateMultiFileBundle(bundle, into: joinDirectory)
+        }
+
+        XCTAssertEqual(tally["published"], 2, "the sidecar and the joined file")
+        XCTAssertEqual(tally["syncFile"], 2, "both are synced before they are published")
+        XCTAssertEqual(tally["folderSynced"], 2)
+        XCTAssertEqual(tally["flushed"], 1)
+        XCTAssertEqual(tally["fullFlush"], 1, "one full flush for the volume")
+    }
+
+    func testSavingASidecarAgainReplacesTheEarlierRecordWithoutALeftover() throws {
+        try FileManager.default.createDirectory(at: joinDirectory, withIntermediateDirectories: true)
+        let output = joinDirectory.appendingPathComponent("concatenated-fixed.fastq")
+        let bundle = root.appendingPathComponent("b.lungfishfastq")
+        let first = SequenceInputConcatenation(
+            bundleURL: bundle,
+            memberURLs: [root.appendingPathComponent("m1.fastq")],
+            outputURL: output
+        )
+        let second = SequenceInputConcatenation(
+            bundleURL: bundle,
+            memberURLs: [root.appendingPathComponent("m1.fastq"), root.appendingPathComponent("m2.fastq")],
+            outputURL: output
+        )
+
+        try first.save()
+        try PortableRename.simulatingUnsupportedFlags { try second.save() }
+
+        XCTAssertEqual(SequenceInputConcatenation.load(for: output), second)
+        XCTAssertEqual(try folderEntries(), ["concatenated-fixed.fastq.sources.json"])
     }
 
     // MARK: - Fixtures
@@ -237,6 +350,35 @@ final class ResolvedSequenceInputsDurabilityTests: XCTestCase {
         try Self.text("preview").write(to: bundle.appendingPathComponent("preview.fastq"))
         try FASTQSourceFileManifest(files: entries).save(to: bundle)
         return (bundle, urls)
+    }
+
+    private struct Refusal: Error {}
+
+    /// Counts named events and keeps one directory listing, safely across the
+    /// threads a seam closure can run on.
+    private final class Tally: Sendable {
+        private let state = Mutex<(counts: [String: Int], noted: [String])>((counts: [:], noted: []))
+
+        @discardableResult
+        func add(_ key: String) -> Int {
+            state.withLock { state in
+                state.counts[key, default: 0] += 1
+                return state.counts[key, default: 0]
+            }
+        }
+
+        subscript(_ key: String) -> Int { state.withLock { $0.counts[key, default: 0] } }
+
+        func note(_ names: [String]) { state.withLock { $0.noted = names } }
+
+        var noted: [String] { state.withLock { $0.noted } }
+    }
+
+    /// The path a descriptor names, or an empty string.
+    private nonisolated static func path(of descriptor: Int32) -> String {
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard Darwin.fcntl(descriptor, F_GETPATH, &buffer) != -1 else { return "" }
+        return buffer.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }
     }
 
     /// One four-line record per name, ACGT with quality IIII.
