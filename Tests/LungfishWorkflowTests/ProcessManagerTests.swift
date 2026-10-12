@@ -315,19 +315,23 @@ final class ProcessManagerTests: XCTestCase {
 
     func testAStoppableSpawnStopsATermTrappingTreeAfterItsGrace() async throws {
         let tempDir = try makeTemporaryDirectory()
+        let trappedPIDFile = tempDir.appendingPathComponent("trapped.pid")
         let scriptURL = tempDir.appendingPathComponent("traps-term.sh")
-        try "#!/bin/sh\ntrap '' TERM\nwhile true; do sleep 0.1; done\n"
+        try "#!/bin/sh\ntrap '' TERM\necho $$ > \"$1\"\nwhile true; do sleep 0.1; done\n"
             .write(to: scriptURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
 
         let (handle, stop) = try await ProcessManager.shared.spawnStoppable(
             executable: scriptURL,
-            arguments: [],
+            arguments: [trappedPIDFile.path],
             workingDirectory: tempDir,
             environment: nil,
             terminationGracePeriod: .seconds(1)
         )
         addTeardownBlock { stop() }
+        // The script writes its PID once TERM is trapped. A stop before that would end the shell
+        // by TERM's default action and never reach the grace.
+        _ = try await waitForPIDFile(trappedPIDFile)
         let clock = ContinuousClock()
         let stoppedAt = clock.now
         DispatchQueue.global().async { stop() }
