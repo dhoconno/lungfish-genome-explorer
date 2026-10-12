@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+@testable import LungfishOperations
 
 @MainActor
 final class VariantHoverDetailsTests: XCTestCase {

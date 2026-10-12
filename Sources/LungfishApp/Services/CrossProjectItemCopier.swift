@@ -14,6 +14,7 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishOperations
 import LungfishWorkflow
 import os.log
 

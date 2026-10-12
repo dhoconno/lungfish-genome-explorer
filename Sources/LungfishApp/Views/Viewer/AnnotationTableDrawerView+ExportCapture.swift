@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import LungfishIO
+import LungfishOperations
 import LungfishWorkflow
 
 struct AnnotationTablePendingExport: @unchecked Sendable {

@@ -35,6 +35,11 @@ let package = Package(
             name: "LungfishWorkflow",
             targets: ["LungfishWorkflow"]
         ),
+        // UI-free services extracted from LungfishApp, imported by LungfishApp only
+        .library(
+            name: "LungfishOperations",
+            targets: ["LungfishOperations"]
+        ),
         // macOS Application UI components
         .library(
             name: "LungfishApp",
@@ -209,6 +214,29 @@ let package = Package(
             resources: [
                 .copy("Resources")
             ]
+        ),
+
+        // MARK: - LungfishOperations (UI-free services extracted from LungfishApp)
+        .target(
+            name: "LungfishOperations",
+            dependencies: [
+                "LungfishCore",
+                "LungfishIO",
+                "LungfishWorkflow",
+            ],
+            path: "Sources/LungfishOperations",
+            exclude: ["AGENTS.md"]
+        ),
+        .testTarget(
+            name: "LungfishOperationsTests",
+            dependencies: [
+                "LungfishOperations",
+                "LungfishCore",
+                "LungfishIO",
+                "LungfishWorkflow",
+                "LungfishTestSupport",
+            ],
+            path: "Tests/LungfishOperationsTests"
         ),
 
         // MARK: - LungfishKit (shared UI kernel)
@@ -407,6 +435,7 @@ let package = Package(
                 "LungfishCore",
                 "LungfishIO",
                 "LungfishWorkflow",
+                "LungfishOperations",
                 "LungfishKit",
                 "LungfishTwelveSUI",
                 "LungfishAlignmentUI",
@@ -430,7 +459,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishAppTests",
-            dependencies: ["LungfishApp", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI", "LungfishGenotypeUI", "LungfishPhylogeneticsUI", "LungfishTestSupport", "LungfishKitTestSupport", .product(name: "ViewInspector", package: "ViewInspector")],
+            dependencies: ["LungfishApp", "LungfishOperations", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI", "LungfishGenotypeUI", "LungfishPhylogeneticsUI", "LungfishTestSupport", "LungfishKitTestSupport", .product(name: "ViewInspector", package: "ViewInspector")],
             path: "Tests/LungfishAppTests",
             resources: [
                 .copy("Fixtures")
@@ -438,7 +467,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishAppViewTests",
-            dependencies: ["LungfishApp", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI", "LungfishGenotypeUI", "LungfishPhylogeneticsUI", "LungfishTestSupport", "LungfishKitTestSupport", .product(name: "ViewInspector", package: "ViewInspector")],
+            dependencies: ["LungfishApp", "LungfishOperations", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI", "LungfishGenotypeUI", "LungfishPhylogeneticsUI", "LungfishTestSupport", "LungfishKitTestSupport", .product(name: "ViewInspector", package: "ViewInspector")],
             path: "Tests/LungfishAppViewTests"
         ),
         .testTarget(

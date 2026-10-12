@@ -15,6 +15,7 @@ import XCTest
 @testable import LungfishCLI
 import LungfishKit
 import LungfishKitTestSupport
+@testable import LungfishOperations
 
 @MainActor
 final class AnnotationTableDrawerViewOperationTests: XCTestCase {

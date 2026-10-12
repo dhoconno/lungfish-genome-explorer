@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 @testable import LungfishApp
 import LungfishIO
+@testable import LungfishOperations
 
 final class AnnotationTableExportQueryTests: XCTestCase {
     private final class CancellationProbe: @unchecked Sendable {

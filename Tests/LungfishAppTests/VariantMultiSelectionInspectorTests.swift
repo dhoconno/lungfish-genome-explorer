@@ -3,6 +3,7 @@ import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishKit
+@testable import LungfishOperations
 import LungfishWorkflow
 @testable import LungfishApp
 

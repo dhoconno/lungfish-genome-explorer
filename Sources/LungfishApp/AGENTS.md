@@ -8,7 +8,7 @@ The composition root of the macOS app. It wires windows, menus, the sidebar, the
 
 ## Allowed imports
 
-LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit and the nine leaf UI modules, plus AppKit and SwiftUI. Never Sparkle (that stays in the Lungfish executable) and never LungfishCLI. Leaves and LungfishKit must never import this module (memory file project_module_architecture.md).
+LungfishCore, LungfishIO, LungfishWorkflow, LungfishOperations, LungfishKit and the nine leaf UI modules, plus AppKit and SwiftUI. Never Sparkle (that stays in the Lungfish executable) and never LungfishCLI. Leaves and LungfishKit must never import this module (memory file project_module_architecture.md).
 
 ## The six composition-root families
 

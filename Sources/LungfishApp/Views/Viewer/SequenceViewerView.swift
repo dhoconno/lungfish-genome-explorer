@@ -11,6 +11,7 @@ import Quartz
 import PDFKit
 import os.log
 import LungfishKit
+import LungfishOperations
 import CryptoKit
 import Darwin
 

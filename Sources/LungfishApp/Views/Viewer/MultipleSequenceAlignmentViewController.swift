@@ -6,6 +6,7 @@ import AppKit
 import LungfishKit
 import LungfishCore
 import LungfishIO
+import LungfishOperations
 
 private enum MultipleSequenceAlignmentAccessibilityID {
     static let root = "multiple-sequence-alignment-bundle-view"

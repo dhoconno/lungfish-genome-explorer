@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishCore
+import LungfishOperations
 import os
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "AIAssistantPanel")

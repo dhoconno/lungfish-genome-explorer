@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
+@testable import LungfishOperations
 @testable import LungfishWorkflow
 
 /// Proves a Viral Recon run is discoverable end to end: the ingest step writes

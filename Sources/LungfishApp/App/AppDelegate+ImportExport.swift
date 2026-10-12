@@ -6,6 +6,7 @@ import AppKit
 import SwiftUI
 import LungfishCore
 import LungfishIO
+import LungfishOperations
 import LungfishPhylogeneticsUI
 import LungfishWorkflow
 import SQLite3

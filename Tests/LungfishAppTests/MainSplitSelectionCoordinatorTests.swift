@@ -4,6 +4,7 @@ import LungfishCore
 import LungfishIO
 @testable import LungfishApp
 import LungfishKit
+@testable import LungfishOperations
 
 @MainActor
 final class MainSplitSelectionCoordinatorTests: XCTestCase {

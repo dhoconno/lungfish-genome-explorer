@@ -2,6 +2,7 @@ import CryptoKit
 import Darwin
 import Foundation
 import LungfishIO
+@testable import LungfishOperations
 import LungfishWorkflow
 import XCTest
 @testable import LungfishApp

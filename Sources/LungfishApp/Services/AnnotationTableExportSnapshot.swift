@@ -1,4 +1,5 @@
 import Foundation
+import LungfishOperations
 import LungfishWorkflow
 
 enum AnnotationTableExportScope: String, Codable, Sendable {

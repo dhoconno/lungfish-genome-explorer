@@ -7,6 +7,7 @@ import Testing
 import LungfishCore
 @testable import LungfishApp
 @testable import LungfishIO
+@testable import LungfishOperations
 @testable import LungfishWorkflow
 
 /// Row 438 of the Phase 2.7 plan, decision P4 of Phase 2.8. The importer accepts a Savont

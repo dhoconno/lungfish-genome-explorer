@@ -1,5 +1,6 @@
 import XCTest
 import LungfishCore
+@testable import LungfishOperations
 import LungfishWorkflow
 @testable import LungfishApp
 

@@ -1,5 +1,6 @@
 import Foundation
 import LungfishIO
+import LungfishOperations
 
 enum AnnotationTableExportQueryError: LocalizedError {
     case cancelled

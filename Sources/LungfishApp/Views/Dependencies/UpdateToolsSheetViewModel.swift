@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishCore
+import LungfishOperations
 import LungfishWorkflow
 import os.log
 

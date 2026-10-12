@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishApp
+@testable import LungfishOperations
 @testable import LungfishWorkflow
 
 /// Counts calls from a `@Sendable` closure without tripping strict concurrency.

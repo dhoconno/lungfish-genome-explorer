@@ -6,6 +6,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+@testable import LungfishOperations
 @testable import LungfishPhylogeneticsUI
 
 // Disambiguate DocumentType: LungfishApp.DocumentType (file format type used by DocumentManager)

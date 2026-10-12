@@ -91,7 +91,7 @@ The folder name decides first, because it costs nothing. A Kraken2 result is nam
 
 ## Deletion
 
-`ProjectDeletionPlanner` in `Sources/LungfishApp/Services/ProjectDeletionPlanner.swift` treats a folder that holds `analysis-metadata.json`, a result file such as `classification-result.json` or `mapping-result.json`, or another of its twelve marker files as one project object. A folder under `Analyses/` that holds a `manifest.json` counts as one object too.
+`ProjectDeletionPlanner` in `Sources/LungfishOperations/ProjectDeletionPlanner.swift` treats a folder that holds `analysis-metadata.json`, a result file such as `classification-result.json` or `mapping-result.json`, or another of its twelve marker files as one project object. A folder under `Analyses/` that holds a `manifest.json` counts as one object too.
 
 ## A bundle's analysis history
 

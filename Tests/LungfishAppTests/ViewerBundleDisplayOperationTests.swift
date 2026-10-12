@@ -14,6 +14,7 @@ import XCTest
 @testable import LungfishCLI
 import LungfishKit
 import LungfishKitTestSupport
+@testable import LungfishOperations
 import LungfishWorkflow
 
 @MainActor

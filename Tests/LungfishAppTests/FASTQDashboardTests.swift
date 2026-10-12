@@ -7,6 +7,7 @@ import AppKit
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+@testable import LungfishOperations
 @testable import LungfishWorkflow
 import LungfishTestSupport
 

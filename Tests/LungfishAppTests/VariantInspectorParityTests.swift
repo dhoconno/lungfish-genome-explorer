@@ -4,6 +4,7 @@ import LungfishKit
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+@testable import LungfishOperations
 
 @MainActor
 final class VariantInspectorParityTests: XCTestCase {

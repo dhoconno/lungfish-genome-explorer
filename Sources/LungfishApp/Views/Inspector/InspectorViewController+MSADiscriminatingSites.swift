@@ -6,6 +6,7 @@ import AppKit
 import LungfishCore
 import LungfishIO
 import LungfishKit
+import LungfishOperations
 import UniformTypeIdentifiers
 
 extension InspectorViewController {

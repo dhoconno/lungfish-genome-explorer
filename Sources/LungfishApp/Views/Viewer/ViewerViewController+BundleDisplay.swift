@@ -9,6 +9,7 @@ import AppKit
 import LungfishCore
 import LungfishIO
 import LungfishKit
+import LungfishOperations
 import os.log
 
 /// Logger for bundle display operations

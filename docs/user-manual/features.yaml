@@ -451,7 +451,7 @@ features:
     viewport_class: none
     sources:
       - Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift
-      - Sources/LungfishApp/Services/FASTQStatisticsService.swift
+      - Sources/LungfishOperations/FASTQStatisticsService.swift
       - Sources/LungfishKit/FASTQDisplayNameResolver.swift
     module: [LungfishApp, LungfishKit]
     notes: >-
@@ -1593,7 +1593,7 @@ features:
       - Sources/LungfishApp/Views/Inspector/Sections/MSADiscriminatingSitesSection.swift
       - Sources/LungfishApp/Views/Inspector/Sections/MSADiscriminatingSitesInspectorModel.swift
       - Sources/LungfishApp/Views/Inspector/InspectorViewController+MSADiscriminatingSites.swift
-      - Sources/LungfishApp/Services/MSADiscriminatingSitesRequest.swift
+      - Sources/LungfishOperations/MSADiscriminatingSitesRequest.swift
       - Sources/LungfishWorkflow/MSA/DiscriminatingSitesAnalysis.swift
       - Sources/LungfishWorkflow/MSA/DiscriminatingSitesExclusionAligner.swift
       - Sources/LungfishWorkflow/MSA/DiscriminatingSitesReportFormatter.swift
@@ -2093,7 +2093,7 @@ features:
     sources:
       - Sources/LungfishApp/Views/Inspector/InspectorView.swift
       - Sources/LungfishApp/Views/Inspector/InspectorViewModel.swift
-      - Sources/LungfishApp/Services/AI/AIAssistantService.swift
+      - Sources/LungfishOperations/AI/AIAssistantService.swift
     module: [LungfishApp]
     notes: >-
       Chat panel that answers questions about the active dataset, suggests

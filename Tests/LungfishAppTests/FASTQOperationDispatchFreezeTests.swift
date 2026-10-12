@@ -32,6 +32,7 @@ import XCTest
 import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
+@testable import LungfishOperations
 import LungfishWorkflow
 
 @MainActor

@@ -26,6 +26,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishIO
 import LungfishKit
+@testable import LungfishOperations
 import LungfishTestSupport
 @testable import LungfishWorkflow
 

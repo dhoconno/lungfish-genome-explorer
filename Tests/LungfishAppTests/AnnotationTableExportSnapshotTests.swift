@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+@testable import LungfishOperations
 @testable import LungfishWorkflow
 
 final class AnnotationTableExportSnapshotTests: XCTestCase {

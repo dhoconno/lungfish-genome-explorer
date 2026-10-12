@@ -8,6 +8,7 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishGenotypeUI
+import LungfishOperations
 import LungfishPhylogeneticsUI
 
 /// Mode for applying color changes.

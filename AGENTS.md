@@ -35,22 +35,25 @@ Modules form a stack. Each row imports only rows above it.
 | 1 | LungfishCore |
 | 2 | LungfishIO |
 | 3 | LungfishWorkflow |
-| 4 | LungfishKit |
-| 5 | The nine leaves (LungfishAlignmentUI, LungfishAssemblyUI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI) |
-| 6 | LungfishApp |
-| 7 | Lungfish (app executable) |
+| 4 | LungfishOperations |
+| 5 | LungfishKit |
+| 6 | The nine leaves (LungfishAlignmentUI, LungfishAssemblyUI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI) |
+| 7 | LungfishApp |
+| 8 | Lungfish (app executable) |
 
 LungfishCLI sits beside the UI stack and imports only Core, IO and Workflow. LungfishCLIExecutable wraps it as `lungfish-cli`.
 
 1. LungfishKit and the leaves never import LungfishApp. A leaf exposes callbacks and the App wires them.
-2. LungfishCLI never imports LungfishKit or any UI target.
+2. LungfishCLI never imports LungfishKit, LungfishOperations or any UI target.
 3. Logic the CLI must also run belongs in LungfishWorkflow or below. New feature UI belongs in a leaf, not in LungfishApp.
+4. LungfishOperations imports only Core, IO and Workflow, and among the source modules only LungfishApp imports it. It holds the UI-free services that LungfishApp calls. A type or member that LungfishApp uses from it takes `package` access. Declarations that were already `public` in LungfishApp kept that access when they moved, and no move adds a `public` declaration.
 
 ## Where to find things
 
 | Looking for | Start at |
 |---|---|
 | Tool execution and pinned tool versions | `Sources/LungfishCore/Process/ToolProcess.swift` (the one primitive, see `docs/contracts/RUNNING-A-TOOL.md`), its adapters `Sources/LungfishWorkflow/Native/NativeToolRunner.swift`, `Sources/LungfishWorkflow/Conda/CondaManager.swift` and `Sources/LungfishWorkflow/ProcessManager.swift`, and `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`. The lock entry, the probe table in `Sources/LungfishWorkflow/Dependencies/ManagedToolVersionProbe.swift` and the `NativeTool` case must agree, and `docs/contracts/RUNNING-A-TOOL.md` says how to add a managed tool. An analysis kind is a different id, set in `Sources/LungfishIO/Analysis/AnalysisToolRegistry.swift` |
+| UI-free App services (FASTQ derivatives, annotation search, bundle browsing, variant mutations, project search) | `Sources/LungfishOperations`, with the module guide `Sources/LungfishOperations/AGENTS.md` |
 | Operations panel and bundle locks | `Sources/LungfishKit/OperationCenter.swift` |
 | Running `lungfish-cli` from the app | `Sources/LungfishKit/CLIProcessLauncher.swift`, `Sources/LungfishKit/CLISubprocessTransport.swift` and `Sources/LungfishApp/Services/OperationCenterCLIBridge.swift` |
 | FASTQ operations dialog execution | `Sources/LungfishApp/Services/FASTQOperationExecutionService.swift`, with `FASTQOperationPlanner`, `FASTQOperationCLIInvocationBuilder` and `FASTQOperationOutputImporter` beside it |

@@ -28,7 +28,7 @@ OUT_DIR="$PROJECT_ROOT/docs/reports/baselines"
 mkdir -p "$OUT_DIR"
 OUT="$OUT_DIR/${LABEL}-${SHA}.md"
 
-LEAF_FILE="Sources/LungfishApp/Services/ProjectDeletionPlanner.swift"
+LEAF_FILE="Sources/LungfishOperations/ProjectDeletionPlanner.swift"
 
 # Time a command; echo elapsed whole+fractional seconds to stdout.
 time_cmd() {

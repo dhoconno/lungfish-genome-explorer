@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 import LungfishIO
+@testable import LungfishOperations
 
 final class CLIMSAActionCommandBuilderTests: XCTestCase {
     func testDistanceMatrixExportUsesMSADistanceWithModelAndForce() {

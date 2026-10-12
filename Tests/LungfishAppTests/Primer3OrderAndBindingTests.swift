@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import LungfishIO
+@testable import LungfishOperations
 import LungfishWorkflow
 import SwiftUI
 import ViewInspector

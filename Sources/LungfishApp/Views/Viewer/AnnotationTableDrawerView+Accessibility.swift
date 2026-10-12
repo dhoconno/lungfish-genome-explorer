@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishKit
+import LungfishOperations
 
 /// The row commands the drawer last derived for one row, shared by every
 /// cell of that row. The table asks for a row's cells one column at a time,

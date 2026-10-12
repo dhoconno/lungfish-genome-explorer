@@ -5,6 +5,7 @@
 import SwiftUI
 import LungfishCore
 import LungfishIO
+import LungfishOperations
 
 /// A fixed variant-table value carried with selection notifications so the
 /// Inspector presents the same resolved text as the table.

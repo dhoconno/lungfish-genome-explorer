@@ -5,6 +5,7 @@
 import SwiftUI
 import LungfishCore
 import LungfishKit
+import LungfishOperations
 import AppKit
 
 /// Inspector section displaying file attachments with add/remove/reveal actions.

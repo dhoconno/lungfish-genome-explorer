@@ -13,6 +13,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
+@testable import LungfishOperations
 @testable import LungfishWorkflow
 
 final class FASTQDerivativeMaterializationTests: XCTestCase {

@@ -6,6 +6,7 @@ import Foundation
 import CryptoKit
 import LungfishCore
 import LungfishIO
+import LungfishOperations
 import LungfishWorkflow
 import os.log
 

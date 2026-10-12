@@ -1,0 +1,620 @@
+import XCTest
+@testable import LungfishOperations
+@testable import LungfishIO
+import LungfishTestSupport
+@testable import LungfishWorkflow
+
+@MainActor
+final class FASTQBundleMergeServiceTests: XCTestCase {
+    private enum FixtureError: Error {
+        case provenanceWriteFailed
+    }
+
+    private func requireManagedTool(_ tool: NativeTool) async throws {
+        guard (try? await NativeToolRunner.shared.toolPath(for: tool)) != nil else {
+            throw XCTSkip("Managed \(tool.rawValue) is not available")
+        }
+    }
+
+    func testMergeCreatesVirtualBundleForSingleEndPhysicalInputs() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let first = try makeBundle(
+            root: root,
+            name: "A",
+            fastqName: "reads.fastq",
+            contents: "@r1\nACGT\n+\nIIII\n",
+            pairing: .singleEnd,
+            statistics: .placeholder(readCount: 1, baseCount: 4),
+            sequencingPlatform: .oxfordNanopore,
+            assemblyReadType: .ontReads
+        )
+        let second = try makeBundle(
+            root: root,
+            name: "B",
+            fastqName: "reads.fastq",
+            contents: "@r2\nTTTT\n+\nIIII\n",
+            pairing: .singleEnd,
+            statistics: .placeholder(readCount: 1, baseCount: 4),
+            sequencingPlatform: .oxfordNanopore,
+            assemblyReadType: .ontReads
+        )
+
+        let mergedURL = try await FASTQBundleMergeService.merge(
+            sourceBundleURLs: [first, second],
+            outputDirectory: root,
+            bundleName: "Merged Reads"
+        )
+
+        XCTAssertTrue(FASTQSourceFileManifest.exists(in: mergedURL))
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: mergedURL.appendingPathComponent("preview.fastq").path
+            )
+        )
+
+        let manifest = try XCTUnwrap(try? FASTQSourceFileManifest.load(from: mergedURL))
+        XCTAssertEqual(manifest.files.count, 2)
+
+        let resolvedFASTQs = try XCTUnwrap(FASTQBundle.resolveAllFASTQURLs(for: mergedURL))
+        XCTAssertEqual(resolvedFASTQs.count, 2)
+
+        let mergedMetadata = FASTQMetadataStore.load(for: mergedURL)
+        XCTAssertEqual(mergedMetadata?.computedStatistics?.readCount, 2)
+        XCTAssertEqual(mergedMetadata?.computedStatistics?.baseCount, 8)
+        XCTAssertEqual(mergedMetadata?.sequencingPlatform, .oxfordNanopore)
+        XCTAssertEqual(mergedMetadata?.assemblyReadType, .ontReads)
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: mergedURL))
+        assertMergeProvenance(
+            provenance,
+            expectedWorkflowName: "lungfish fastq merge",
+            expectedBundleName: "Merged Reads",
+            expectedOutputBundle: mergedURL,
+            expectedOutputFilenames: [
+                FASTQSourceFileManifest.filename,
+                "preview.fastq",
+                FASTQBundleCSVMetadata.filename,
+                FASTQMetadataStore.metadataURL(for: mergedURL).lastPathComponent,
+            ],
+            disallowedPathFragments: ["fastq-merge-"]
+        )
+    }
+
+    func testMergeCreatesMaterializedBundleForInterleavedInputs() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let firstContents = "@r1/1\nACGT\n+\nIIII\n@r1/2\nTGCA\n+\nIIII\n"
+        let secondContents = "@r2/1\nCCCC\n+\nIIII\n@r2/2\nGGGG\n+\nIIII\n"
+
+        let first = try makeBundle(
+            root: root,
+            name: "A",
+            fastqName: "reads.fastq",
+            contents: firstContents,
+            pairing: .interleaved
+        )
+        let second = try makeBundle(
+            root: root,
+            name: "B",
+            fastqName: "reads.fastq",
+            contents: secondContents,
+            pairing: .interleaved
+        )
+
+        let mergedURL = try await FASTQBundleMergeService.merge(
+            sourceBundleURLs: [first, second],
+            outputDirectory: root,
+            bundleName: "Merged Interleaved"
+        )
+
+        XCTAssertFalse(FASTQSourceFileManifest.exists(in: mergedURL))
+
+        let mergedFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: mergedURL))
+        XCTAssertEqual(mergedFASTQ.lastPathComponent, "reads.fastq")
+        XCTAssertEqual(
+            FASTQMetadataStore.load(for: mergedFASTQ)?.ingestion?.pairingMode,
+            .interleaved
+        )
+        XCTAssertEqual(
+            try String(contentsOf: mergedFASTQ, encoding: .utf8),
+            firstContents + secondContents
+        )
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: mergedURL))
+        assertMergeProvenance(
+            provenance,
+            expectedWorkflowName: "lungfish fastq merge",
+            expectedBundleName: "Merged Interleaved",
+            expectedOutputBundle: mergedURL,
+            expectedOutputFilenames: [
+                "reads.fastq",
+                FASTQMetadataStore.metadataURL(for: mergedFASTQ).lastPathComponent,
+                FASTQBundleCSVMetadata.filename,
+            ],
+            disallowedPathFragments: ["fastq-merge-", "interleaved-"]
+        )
+    }
+
+    func testMergeProvenanceRecordsBothPairedMatesAndReformatStep() async throws {
+        try await requireManagedTool(.reformat)
+
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let first = try makePairedBundle(
+            root: root,
+            name: "A",
+            r1Contents: "@a1/1\nACGT\n+\nIIII\n",
+            r2Contents: "@a1/2\nTGCA\n+\nIIII\n"
+        )
+        let second = try makePairedBundle(
+            root: root,
+            name: "B",
+            r1Contents: "@b1/1\nCCCC\n+\nIIII\n",
+            r2Contents: "@b1/2\nGGGG\n+\nIIII\n"
+        )
+
+        let mergedURL = try await FASTQBundleMergeService.merge(
+            sourceBundleURLs: [first.bundleURL, second.bundleURL],
+            outputDirectory: root,
+            bundleName: "Merged Paired"
+        )
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: mergedURL))
+        let mergedFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: mergedURL))
+        assertProvenanceInputs(
+            provenance,
+            include: [
+                first.r1URL.path,
+                first.r2URL.path,
+                second.r1URL.path,
+                second.r2URL.path,
+            ]
+        )
+        let reformatSteps = provenance.steps.filter { step in
+            step.toolName == "reformat.sh" || step.argv.contains { $0.contains("reformat.sh") }
+        }
+        XCTAssertEqual(reformatSteps.count, 2)
+        let mergedFASTQPath = canonicalPath(mergedFASTQ.path)
+        for step in reformatSteps {
+            XCTAssertTrue(step.argv.contains { $0.contains("in1=") })
+            XCTAssertTrue(step.argv.contains { $0.contains("in2=") })
+            XCTAssertTrue(step.argv.contains { $0.contains("out=") })
+            XCTAssertNil(step.durableReplayArgv)
+            XCTAssertTrue(step.outputs.isEmpty)
+            XCTAssertNotNil(step.stderr)
+
+            let exactNativeText = (step.argv + [step.reproducibleCommand]).joined(separator: "\n")
+            XCTAssertTrue(exactNativeText.contains("fastq-merge-"))
+            XCTAssertTrue(exactNativeText.contains("interleaved-"))
+        }
+
+        let mergeStep = try XCTUnwrap(
+            provenance.steps.first { $0.toolName == "lungfish fastq merge" }
+        )
+        XCTAssertTrue(provenance.outputs.contains { canonicalPath($0.path) == mergedFASTQPath })
+        XCTAssertTrue(mergeStep.outputs.contains { canonicalPath($0.path) == mergedFASTQPath })
+        XCTAssertTrue(mergeStep.durableReplayArgv?.contains(mergedURL.path) == true)
+    }
+
+    func testMergeProvenanceRecordsDerivedBundleManifestAndPayloadInputs() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let rootBundle = try makeBundle(
+            root: root,
+            name: "Root",
+            fastqName: "reads.fastq",
+            contents: "@r1\nACGT\n+\nIIII\n@r2\nTTTT\n+\nIIII\n",
+            pairing: .singleEnd
+        )
+        let derived = try makeDerivedFullBundle(
+            root: root,
+            name: "Derived",
+            rootBundleURL: rootBundle,
+            fastqName: "derived.fastq",
+            contents: "@r1\nACGT\n+\nIIII\n"
+        )
+        let physical = try makeBundle(
+            root: root,
+            name: "Physical",
+            fastqName: "reads.fastq",
+            contents: "@r3\nCCCC\n+\nIIII\n",
+            pairing: .singleEnd
+        )
+
+        let mergedURL = try await FASTQBundleMergeService.merge(
+            sourceBundleURLs: [derived.bundleURL, physical],
+            outputDirectory: root,
+            bundleName: "Merged Derived"
+        )
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: mergedURL))
+        assertProvenanceInputs(
+            provenance,
+            include: [
+                derived.manifestURL.path,
+                derived.fastqURL.path,
+                physical.appendingPathComponent("reads.fastq").path,
+            ]
+        )
+    }
+
+    func testMergeRemovesPartialFASTQBundleWhenProvenanceWriteFails() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let first = try makeBundle(
+            root: root,
+            name: "A",
+            fastqName: "reads.fastq",
+            contents: "@r1\nACGT\n+\nIIII\n",
+            pairing: .singleEnd
+        )
+        let second = try makeBundle(
+            root: root,
+            name: "B",
+            fastqName: "reads.fastq",
+            contents: "@r2\nTTTT\n+\nIIII\n",
+            pairing: .singleEnd
+        )
+        let expectedOutput = root.appendingPathComponent("Failed Merge.lungfishfastq", isDirectory: true)
+
+        do {
+            _ = try await FASTQBundleMergeService.merge(
+                sourceBundleURLs: [first, second],
+                outputDirectory: root,
+                bundleName: "Failed Merge",
+                provenanceWriter: BundleMergeProvenanceSidecarWriter { _, _ in
+                    XCTAssertFalse(
+                        FileManager.default.fileExists(atPath: expectedOutput.path),
+                        "FASTQ merges must not expose the final bundle before provenance is complete."
+                    )
+                    throw FixtureError.provenanceWriteFailed
+                }
+            )
+            XCTFail("Expected merge to fail when provenance cannot be written")
+        } catch FixtureError.provenanceWriteFailed {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: expectedOutput.path))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    // MARK: - What the read-set resolver needs (Phase 2.1 lane L3, re-review F8-N2)
+
+    /// Combining an interleaved root with a merge recipe's root, which holds
+    /// merged reads and pairs and records their counts, writes one file of
+    /// pairs and merged reads. The combined bundle records the counts of that
+    /// file by role, in the form the merge recipe wrote, and the label that
+    /// follows them, so the resolver plans it from its counts. Before, it
+    /// recorded only `interleaved` and no count, so a bounded scan that saw
+    /// only pairs could plan the merged reads as pairs.
+    func testCombiningKeepsTheCountsOfEveryInputByRole() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixtures = try ReadSetFixtures(in: root)
+
+        let combined = try await FASTQBundleMergeService.merge(
+            sourceBundleURLs: [fixtures.interleavedRoot, fixtures.mixedRoot],
+            outputDirectory: fixtures.importsURL,
+            bundleName: "Combined"
+        )
+
+        let file = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: combined))
+        XCTAssertEqual(
+            try ReadSetFixtures.readNames(in: file),
+            ["i1/1", "i1/2", "i2/1", "i2/2", "m1", "m2", "m3", "p1/1", "p1/2", "p2/1", "p2/2"]
+        )
+        let sidecar = try XCTUnwrap(FASTQMetadataStore.load(for: file))
+        let roles = try XCTUnwrap(sidecar.readClassification)
+        XCTAssertEqual(Set(roles.files.map(\.filename)), [file.lastPathComponent])
+        XCTAssertEqual(roles.pairedReadCount, 8)
+        XCTAssertEqual(roles.mergedReadCount, 3)
+        XCTAssertEqual(roles.unpairedReadCount, 0)
+        XCTAssertEqual(sidecar.ingestion?.pairingMode, .singleEnd)
+
+        let plan = try await ReadSetResolver(materializationDirectory: root.appendingPathComponent("plan", isDirectory: true))
+            .plan(for: combined, capability: .pairsOnlyWhenAllPaired)
+        XCTAssertTrue(plan.sampleHoldsPairsAndSingleReads)
+        XCTAssertEqual(plan.composition.pairedFragments, 4)
+        XCTAssertEqual(plan.composition.mergedReads, 3)
+        XCTAssertNotNil(plan.singleReadReason)
+    }
+
+    /// A root recorded single-end whose file holds pairs is scanned by the
+    /// resolver, which plans its pairs as pairs. Combining it used to link its
+    /// file into a chunked root, whose chunks the resolver reads as single
+    /// reads, so its pairs ran as single reads. It is now joined into one
+    /// file whose counts are recorded.
+    func testCombiningARootWhoseFileHoldsPairsKeepsThemPairs() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let single = try makeBundle(
+            root: root,
+            name: "Single",
+            fastqName: "reads.fastq",
+            contents: ReadSetFixtures.fastq(["s1", "s2"]),
+            pairing: .singleEnd
+        )
+        let mixed = try makeBundle(
+            root: root,
+            name: "Mixed",
+            fastqName: "reads.fastq",
+            contents: ReadSetFixtures.fastq(["m1", "p1/1", "p1/2"]),
+            pairing: .singleEnd
+        )
+
+        let combined = try await FASTQBundleMergeService.merge(
+            sourceBundleURLs: [single, mixed],
+            outputDirectory: root,
+            bundleName: "Combined"
+        )
+
+        XCTAssertFalse(FASTQSourceFileManifest.exists(in: combined))
+        let file = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: combined))
+        let roles = try XCTUnwrap(FASTQMetadataStore.load(for: file)?.readClassification)
+        XCTAssertEqual(roles.pairedReadCount, 2)
+        XCTAssertEqual(roles.unpairedReadCount, 3)
+        let plan = try await ReadSetResolver(materializationDirectory: root.appendingPathComponent("plan", isDirectory: true))
+            .plan(for: combined, capability: .bothInOneRunAsSeparateFiles)
+        XCTAssertEqual(plan.matePairs.map(\.pairCount), [1])
+        XCTAssertEqual(plan.singleReads.map(\.readCount), [3])
+    }
+
+    /// A plain input whose last line has no newline gets one in the joined
+    /// file, so its last record and the next input's first stay apart, the
+    /// rule `ResolvedSequenceInputs` joins files by. Before, the two lines
+    /// ran together and every record after them fell out of step.
+    func testCombiningKeepsRecordsApartWhenAnInputDoesNotEndInANewline() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = try makeBundle(
+            root: root,
+            name: "A",
+            fastqName: "reads.fastq",
+            contents: "@r1/1\nACGT\n+\nIIII\n@r1/2\nTGCA\n+\nIIII",
+            pairing: .interleaved
+        )
+        let second = try makeBundle(
+            root: root,
+            name: "B",
+            fastqName: "reads.fastq",
+            contents: "@r2/1\nCCCC\n+\nIIII\n@r2/2\nGGGG\n+\nIIII\n",
+            pairing: .interleaved
+        )
+
+        let combined = try await FASTQBundleMergeService.merge(
+            sourceBundleURLs: [first, second],
+            outputDirectory: root,
+            bundleName: "Combined"
+        )
+
+        let file = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: combined))
+        XCTAssertEqual(try ReadSetFixtures.readNames(in: file), ["r1/1", "r1/2", "r2/1", "r2/2"])
+        XCTAssertEqual(try FASTQPairInterleaver.countRecords(in: file), 4)
+    }
+
+    /// The R1 and R2 files of a paired input are checked by name before
+    /// reformat.sh interleaves them by position, by the rule the materializer
+    /// applies to the files of one recorded pair. An R2 file out of step with
+    /// its R1 stops the merge and leaves no bundle. Before, reformat.sh paired
+    /// each R1 read with whatever R2 read stood beside it.
+    func testCombiningRefusesAPairedInputWhoseMateFilesAreOutOfStep() async throws {
+        try await requireManagedTool(.reformat)
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = try makePairedBundle(
+            root: root,
+            name: "A",
+            r1Contents: "@a1/1\nACGT\n+\nIIII\n",
+            r2Contents: "@a1/2\nTGCA\n+\nIIII\n"
+        )
+        let second = try makePairedBundle(
+            root: root,
+            name: "B",
+            r1Contents: "@b1/1\nCCCC\n+\nIIII\n@b2/1\nAAAA\n+\nIIII\n",
+            r2Contents: "@b2/2\nGGGG\n+\nIIII\n@b1/2\nTTTT\n+\nIIII\n"
+        )
+
+        do {
+            _ = try await FASTQBundleMergeService.merge(
+                sourceBundleURLs: [first.bundleURL, second.bundleURL],
+                outputDirectory: root,
+                bundleName: "Combined"
+            )
+            XCTFail("an R2 file out of step with its R1 must stop the merge")
+        } catch let error as FASTQPairInterleaver.InterleaveError {
+            guard case .mateNameMismatch(let recordNumber, _, let r1Name, _, let r2Name) = error else {
+                return XCTFail("unexpected error \(error)")
+            }
+            XCTAssertEqual(recordNumber, 1)
+            XCTAssertEqual([r1Name, r2Name], ["b1/1", "b2/2"])
+        }
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("Combined.\(FASTQBundle.directoryExtension)").path
+        ))
+    }
+
+    private func assertProvenanceInputs(
+        _ provenance: ProvenanceEnvelope,
+        include expectedPaths: [String],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let inputPaths = Set(provenance.files.filter { $0.role == .input }.map(\.path))
+        for expectedPath in expectedPaths {
+            XCTAssertTrue(inputPaths.contains(expectedPath), "Missing input \(expectedPath)", file: file, line: line)
+        }
+    }
+
+    private func assertMergeProvenance(
+        _ provenance: ProvenanceEnvelope,
+        expectedWorkflowName: String,
+        expectedBundleName: String,
+        expectedOutputBundle: URL,
+        expectedOutputFilenames: Set<String>,
+        disallowedPathFragments: [String],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(provenance.workflowName, expectedWorkflowName, file: file, line: line)
+        XCTAssertEqual(provenance.toolName, "lungfish-app", file: file, line: line)
+        XCTAssertFalse(provenance.toolVersion.isEmpty, file: file, line: line)
+        XCTAssertEqual(provenance.exitStatus, 0, file: file, line: line)
+        XCTAssertNotNil(provenance.wallTimeSeconds, file: file, line: line)
+        XCTAssertEqual(provenance.options.explicit["bundleName"]?.stringValue, expectedBundleName, file: file, line: line)
+        XCTAssertEqual(
+            provenance.options.explicit["outputBundle"]?.fileValue?.path,
+            expectedOutputBundle.path,
+            file: file,
+            line: line
+        )
+
+        let outputPaths = provenance.outputs.map(\.path)
+        let adjacentMetadataURL = FASTQMetadataStore.metadataURL(for: expectedOutputBundle).standardizedFileURL
+        for filename in expectedOutputFilenames {
+            XCTAssertTrue(
+                outputPaths.contains { path in
+                    (path.hasPrefix(expectedOutputBundle.path) && path.hasSuffix("/\(filename)"))
+                        || (
+                            filename == adjacentMetadataURL.lastPathComponent
+                                && path == adjacentMetadataURL.path
+                        )
+                },
+                "Missing provenance output for \(filename)",
+                file: file,
+                line: line
+            )
+        }
+        XCTAssertTrue(
+            provenance.outputs.allSatisfy {
+                $0.path.hasPrefix(expectedOutputBundle.path) || $0.path == adjacentMetadataURL.path
+            },
+            "All output records must point at the final bundle or its adjacent metadata sidecar",
+            file: file,
+            line: line
+        )
+        for record in provenance.files {
+            XCTAssertNotNil(record.checksumSHA256, "Missing checksum for \(record.path)", file: file, line: line)
+            XCTAssertNotNil(record.fileSize, "Missing file size for \(record.path)", file: file, line: line)
+        }
+
+        let provenanceText = (
+            provenance.argv
+            + [provenance.reproducibleCommand]
+            + provenance.files.map(\.path)
+            + provenance.steps.flatMap { $0.argv + [$0.reproducibleCommand] + $0.inputs.map(\.path) + $0.outputs.map(\.path) }
+        )
+        .joined(separator: "\n")
+        for fragment in disallowedPathFragments {
+            XCTAssertFalse(provenanceText.contains(fragment), file: file, line: line)
+        }
+    }
+
+    private func makeTempDirectory() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBundleMergeServiceTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    private func canonicalPath(_ path: String) -> String {
+        path.replacingOccurrences(of: "/private/var/", with: "/var/")
+    }
+
+    private func makeBundle(
+        root: URL,
+        name: String,
+        fastqName: String,
+        contents: String,
+        pairing: IngestionMetadata.PairingMode,
+        statistics: FASTQDatasetStatistics? = nil,
+        sequencingPlatform: LungfishIO.SequencingPlatform? = nil,
+        assemblyReadType: FASTQAssemblyReadType? = nil
+    ) throws -> URL {
+        let bundleURL = root.appendingPathComponent(
+            "\(name).\(FASTQBundle.directoryExtension)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let fastqURL = bundleURL.appendingPathComponent(fastqName)
+        try contents.write(to: fastqURL, atomically: true, encoding: .utf8)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(
+                computedStatistics: statistics,
+                ingestion: IngestionMetadata(pairingMode: pairing),
+                sequencingPlatform: sequencingPlatform,
+                assemblyReadType: assemblyReadType
+            ),
+            for: fastqURL
+        )
+
+        return bundleURL
+    }
+
+    private func makePairedBundle(
+        root: URL,
+        name: String,
+        r1Contents: String,
+        r2Contents: String
+    ) throws -> (bundleURL: URL, r1URL: URL, r2URL: URL) {
+        let bundleURL = root.appendingPathComponent(
+            "\(name).\(FASTQBundle.directoryExtension)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let r1URL = bundleURL.appendingPathComponent("reads_R1.fastq")
+        let r2URL = bundleURL.appendingPathComponent("reads_R2.fastq")
+        try r1Contents.write(to: r1URL, atomically: true, encoding: .utf8)
+        try r2Contents.write(to: r2URL, atomically: true, encoding: .utf8)
+        for url in [r1URL, r2URL] {
+            FASTQMetadataStore.save(
+                PersistedFASTQMetadata(ingestion: IngestionMetadata(pairingMode: .pairedEnd)),
+                for: url
+            )
+        }
+        return (bundleURL, r1URL, r2URL)
+    }
+
+    private func makeDerivedFullBundle(
+        root: URL,
+        name: String,
+        rootBundleURL: URL,
+        fastqName: String,
+        contents: String
+    ) throws -> (bundleURL: URL, manifestURL: URL, fastqURL: URL) {
+        let bundleURL = root.appendingPathComponent(
+            "\(name).\(FASTQBundle.directoryExtension)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let fastqURL = bundleURL.appendingPathComponent(fastqName)
+        try contents.write(to: fastqURL, atomically: true, encoding: .utf8)
+
+        let operation = FASTQDerivativeOperation(kind: .subsampleCount, count: 1)
+        let manifest = FASTQDerivedBundleManifest(
+            name: name,
+            parentBundleRelativePath: "../\(rootBundleURL.lastPathComponent)",
+            rootBundleRelativePath: "../\(rootBundleURL.lastPathComponent)",
+            rootFASTQFilename: "reads.fastq",
+            payload: .full(fastqFilename: fastqName),
+            lineage: [operation],
+            operation: operation,
+            cachedStatistics: .empty,
+            pairingMode: .singleEnd
+        )
+        try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
+        return (
+            bundleURL,
+            bundleURL.appendingPathComponent(FASTQBundle.derivedManifestFilename),
+            fastqURL
+        )
+    }
+}

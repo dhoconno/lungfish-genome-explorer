@@ -1,5 +1,6 @@
 import Foundation
 import LungfishCore
+import LungfishOperations
 import LungfishWorkflow
 
 enum AnnotationTableExportService {

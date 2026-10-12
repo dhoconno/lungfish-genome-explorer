@@ -13,6 +13,7 @@ import LungfishIO
 import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
+@testable import LungfishOperations
 
 final class ProvenanceStepCopySitesAppTests: XCTestCase {
     private typealias Facts = StepCopyFacts

@@ -216,7 +216,7 @@ The program should produce shippable increments. A milestone is not complete whe
 
 - `Sources/LungfishWorkflow/Metagenomics/`
 - `Sources/LungfishApp/Views/Metagenomics/`
-- `Sources/LungfishApp/Services/MetagenomicsImportHelperClient.swift`
+- `Sources/LungfishOperations/MetagenomicsImportHelperClient.swift`
 - `Sources/LungfishApp/App/MetagenomicsImportHelper.swift`
 - `Sources/LungfishCLI/Commands/ClassifyCommand.swift`
 - `Sources/LungfishCLI/Commands/NaoMgsCommand.swift`

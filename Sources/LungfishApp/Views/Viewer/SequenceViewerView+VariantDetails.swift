@@ -1,6 +1,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishOperations
 
 extension SequenceViewerView {
     func invalidateVariantFormatHoverCache() {

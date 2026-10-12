@@ -259,7 +259,7 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains("lungfish-cli"))
 
         for relativePath in [
-            "Sources/LungfishApp/Services/BuiltInPrimerSchemeService.swift",
+            "Sources/LungfishOperations/BuiltInPrimerSchemeService.swift",
             "Sources/LungfishWorkflow/ONTGenotyping/MCMHaplotypingPreset.swift",
             "Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingKnowledgePack.swift",
         ] {

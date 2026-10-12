@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import LungfishIO
 import LungfishKit
+import LungfishOperations
 import LungfishWorkflow
 
 @MainActor

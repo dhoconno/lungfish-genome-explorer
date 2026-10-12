@@ -4,6 +4,7 @@
 
 import Foundation
 import AppKit
+import LungfishOperations
 import LungfishWorkflow
 import os.log
 import LungfishCore

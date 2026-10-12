@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
+@testable import LungfishOperations
 
 // MARK: - SampleSectionViewModelTests
 

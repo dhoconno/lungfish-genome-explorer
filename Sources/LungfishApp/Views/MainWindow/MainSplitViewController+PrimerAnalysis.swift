@@ -3,6 +3,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishKit
+import LungfishOperations
 import LungfishWorkflow
 
 extension MainSplitViewController {

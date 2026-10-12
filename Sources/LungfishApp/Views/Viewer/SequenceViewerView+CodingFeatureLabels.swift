@@ -1,5 +1,6 @@
 import Foundation
 import LungfishCore
+import LungfishOperations
 
 extension SequenceViewerView {
     /// Keep each CDS's gene, product and accession together, including overlapping products.

@@ -1,6 +1,7 @@
 import SwiftUI
 import LungfishCore
 import LungfishIO
+import LungfishOperations
 import LungfishWorkflow
 
 struct ViralReconWizardSheet: View {

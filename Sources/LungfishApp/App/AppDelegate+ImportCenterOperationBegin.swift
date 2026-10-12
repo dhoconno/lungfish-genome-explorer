@@ -5,6 +5,7 @@
 import AppKit
 import LungfishIO
 import LungfishKit
+import LungfishOperations
 import LungfishWorkflow
 
 /// The begin helpers for the Import Center and sequence export launches

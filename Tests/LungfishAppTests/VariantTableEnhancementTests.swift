@@ -6,6 +6,7 @@ import XCTest
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishApp
+@testable import LungfishOperations
 
 @MainActor
 final class VariantTableEnhancementTests: XCTestCase {

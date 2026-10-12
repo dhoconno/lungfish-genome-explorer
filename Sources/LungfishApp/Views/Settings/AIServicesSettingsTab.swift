@@ -4,6 +4,7 @@
 
 import SwiftUI
 import LungfishCore
+import LungfishOperations
 
 /// AI Services preferences: API key management, model selection, enable/disable.
 struct AIServicesSettingsTab: View {

@@ -1,6 +1,7 @@
 import XCTest
 import ViewInspector
 @testable import LungfishApp
+@testable import LungfishOperations
 @testable import LungfishWorkflow
 import AppKit
 import SwiftUI

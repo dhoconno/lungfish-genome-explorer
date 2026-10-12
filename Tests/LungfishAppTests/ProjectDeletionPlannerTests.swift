@@ -6,6 +6,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishGenotypeUI
 import LungfishIO
+@testable import LungfishOperations
 import LungfishTestSupport
 
 final class ProjectDeletionPlannerTests: XCTestCase {

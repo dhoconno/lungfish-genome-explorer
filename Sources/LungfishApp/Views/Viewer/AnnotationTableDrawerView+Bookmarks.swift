@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishIO
+import LungfishOperations
 import LungfishWorkflow
 import UniformTypeIdentifiers
 import os.log

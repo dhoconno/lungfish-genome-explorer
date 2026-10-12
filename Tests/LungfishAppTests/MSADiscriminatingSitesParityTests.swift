@@ -18,6 +18,7 @@ import XCTest
 @testable import LungfishCLI
 @testable import LungfishIO
 import LungfishKit
+@testable import LungfishOperations
 import LungfishTestSupport
 import LungfishWorkflow
 

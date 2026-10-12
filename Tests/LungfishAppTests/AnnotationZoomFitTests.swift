@@ -2,6 +2,7 @@ import AppKit
 import XCTest
 @testable import LungfishApp
 import LungfishCore
+@testable import LungfishOperations
 
 @MainActor
 final class AnnotationZoomFitTests: XCTestCase {

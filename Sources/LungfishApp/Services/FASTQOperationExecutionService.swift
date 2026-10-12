@@ -2,6 +2,7 @@ import Foundation
 import LungfishCore
 import LungfishKit
 import LungfishIO
+import LungfishOperations
 import LungfishWorkflow
 
 struct FASTQCLIInvocation: Sendable, Equatable {

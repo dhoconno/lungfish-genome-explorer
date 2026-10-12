@@ -5,6 +5,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+@testable import LungfishOperations
 import LungfishTestSupport
 import SwiftUI
 import XCTest

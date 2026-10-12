@@ -8,6 +8,7 @@ import LungfishAssemblyUI
 import LungfishCore
 import LungfishIO
 import LungfishGenotypeUI
+import LungfishOperations
 import LungfishWorkflow
 import os.log
 import LungfishKit

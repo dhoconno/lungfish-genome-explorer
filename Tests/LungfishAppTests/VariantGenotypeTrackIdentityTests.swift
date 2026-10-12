@@ -7,6 +7,7 @@ import XCTest
 import LungfishCore
 import LungfishKit
 @testable import LungfishApp
+@testable import LungfishOperations
 
 private final class VariantSelectionNotificationCapture: @unchecked Sendable {
     private let lock = NSLock()

@@ -6,6 +6,7 @@ import AppKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
+@testable import LungfishOperations
 
 @MainActor
 final class SequenceViewerContextMenuTests: XCTestCase {

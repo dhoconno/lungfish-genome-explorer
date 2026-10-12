@@ -7,6 +7,7 @@ import SwiftUI
 import LungfishCore
 import LungfishIO
 import LungfishKit
+import LungfishOperations
 import os.log
 
 extension AnnotationTableDrawerView {

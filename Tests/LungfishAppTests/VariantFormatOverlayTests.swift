@@ -6,6 +6,7 @@ import XCTest
 import SQLite3
 @testable import LungfishApp
 @testable import LungfishIO
+@testable import LungfishOperations
 
 final class VariantFormatOverlayTests: XCTestCase {
     func testLegacyNullRawFieldsRecoverFromRetainedVCFWithoutMutatingSources() async throws {

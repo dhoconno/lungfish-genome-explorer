@@ -6,6 +6,7 @@ import AppKit
 import Foundation
 import os.log
 import UserNotifications
+import LungfishOperations
 import LungfishWorkflow
 import LungfishIO
 import LungfishCore

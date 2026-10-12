@@ -9,6 +9,7 @@ import LungfishGenotypeUI
 import LungfishIO
 import os.log
 import LungfishKit
+import LungfishOperations
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "MainWindowController")
 

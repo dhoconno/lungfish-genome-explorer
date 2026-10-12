@@ -4,6 +4,7 @@ import XCTest
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishApp
+@testable import LungfishOperations
 @testable import LungfishWorkflow
 import LungfishTestSupport
 
@@ -718,7 +719,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         // The drawer runs the argv ReferenceBundleManualAnnotationService
         // builds, which the Inspector delete and its provenance share.
         let builderSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Services/ReferenceBundleManualAnnotationService.swift"),
+            contentsOf: root.appendingPathComponent("Sources/LungfishOperations/ReferenceBundleManualAnnotationService.swift"),
             encoding: .utf8
         )
 

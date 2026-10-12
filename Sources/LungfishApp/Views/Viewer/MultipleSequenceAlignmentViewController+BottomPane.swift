@@ -7,6 +7,7 @@ import LungfishKit
 import LungfishCore
 import LungfishIO
 import LungfishAlignmentUI
+import LungfishOperations
 
 extension MultipleSequenceAlignmentViewController: AnnotationTableDrawerDelegate {
     func annotationDrawer(

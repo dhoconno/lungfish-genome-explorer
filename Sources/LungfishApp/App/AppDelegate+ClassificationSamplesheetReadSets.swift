@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishIO
+import LungfishOperations
 import LungfishWorkflow
 
 /// The EsViritu and TaxTriage launches in AppDelegate+Classification.swift

@@ -664,7 +664,7 @@ final class OperationRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Services/MetagenomicsImportHelperClient.swift")
+            .appendingPathComponent("Sources/LungfishOperations/MetagenomicsImportHelperClient.swift")
         let source = try readRepositorySource(serviceURL)
 
         XCTAssertTrue(source.contains("NativeProcessCancellationHandle"))

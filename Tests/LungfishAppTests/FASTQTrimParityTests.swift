@@ -13,6 +13,7 @@
 import ArgumentParser
 import Foundation
 import LungfishIO
+@testable import LungfishOperations
 import LungfishTestSupport
 @testable import LungfishApp
 @testable import LungfishCLI

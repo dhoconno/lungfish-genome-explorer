@@ -6,6 +6,7 @@ import AppKit
 import LungfishKit
 import LungfishCore
 import LungfishIO
+import LungfishOperations
 import LungfishWorkflow
 import os.log
 

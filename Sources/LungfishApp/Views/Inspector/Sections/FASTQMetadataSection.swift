@@ -5,6 +5,7 @@
 import SwiftUI
 import LungfishCore
 import LungfishIO
+import LungfishOperations
 import LungfishWorkflow
 
 // MARK: - FASTQMetadataSectionViewModel

@@ -2,6 +2,7 @@ import AppKit
 import XCTest
 import LungfishCore
 @testable import LungfishApp
+@testable import LungfishOperations
 
 @MainActor
 final class VariantTrackVisibilityTests: XCTestCase {

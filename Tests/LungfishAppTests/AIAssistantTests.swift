@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishCore
 @testable import LungfishApp
+@testable import LungfishOperations
 
 actor MockHTTPClient: HTTPClient {
     private let responses: [Data]

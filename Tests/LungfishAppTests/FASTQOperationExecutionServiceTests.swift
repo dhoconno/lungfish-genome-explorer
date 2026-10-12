@@ -1,5 +1,6 @@
 import Darwin
 import XCTest
+@testable import LungfishOperations
 import LungfishTestSupport
 @testable import LungfishApp
 import LungfishCore
