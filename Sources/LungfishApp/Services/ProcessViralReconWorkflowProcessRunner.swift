@@ -5,13 +5,45 @@
 import Foundation
 import LungfishCore
 import LungfishKit
+import LungfishWorkflow
+import os
 
+/// Runs `lungfish-cli workflow run` for the two routes that start a Nextflow workflow from the app, Viral
+/// Recon and Local Workflow, on ``CLIProcessLauncher`` like every other app runner of the CLI.
+///
+/// A cancel gives the CLI SIGTERM and ``terminationGracePeriod`` to stop Nextflow and record its run as
+/// cancelled before ToolProcess sends SIGKILL to the CLI's tree. The runner returns once the tree is
+/// gone, with the CLI's own exit code when it stopped by itself. The route reads the row's state to tell
+/// a cancel from a failure, so a cancelled run returns a result and does not throw.
+///
+/// Every line the CLI writes is handed to the route as it arrives. The result keeps only the last
+/// ``defaultOutputTailLimit`` bytes of each stream, so a run that logs for hours holds a bounded amount
+/// in memory. The route writes that tail to the run bundle's `logs` folder and reads its last lines for
+/// the failure detail. When a stream was cut, its text says so on its first line.
+///
+/// One runner serves one run at a time, as ``CLIRunCancellation`` does. Each production attempt makes
+/// its own runner.
 final class ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRunning {
-    private let executableURL: URL?
-    private let cancellationHandle = NativeProcessCancellationHandle()
+    /// The time the CLI has between SIGTERM and SIGKILL after a cancel, to stop Nextflow and record its
+    /// run as cancelled. It nests inside the ten seconds OperationCenter waits before it forces a
+    /// cancelling row to read Cancelled, as the classifier route's grace does.
+    static let terminationGracePeriod: Duration = .seconds(6)
+    /// How long the run waits for a descendant that holds the CLI's output open after the CLI exited.
+    /// Short, so a cancel stays inside the ten seconds.
+    static let drainGracePeriod: Duration = .milliseconds(500)
+    /// The most bytes the result keeps of each stream, the last ones.
+    static let defaultOutputTailLimit = ToolProcessSpec.defaultStderrCaptureLimit
 
-    init(executableURL: URL? = nil) {
+    private let executableURL: URL?
+    private let outputTailLimit: Int
+    private let cancellation = CLIRunCancellation()
+
+    init(
+        executableURL: URL? = nil,
+        outputTailLimit: Int = ProcessViralReconWorkflowProcessRunner.defaultOutputTailLimit
+    ) {
         self.executableURL = executableURL
+        self.outputTailLimit = outputTailLimit
     }
 
     func runLungfishCLI(
@@ -20,217 +52,99 @@ final class ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRun
         outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
     ) async throws -> ViralReconWorkflowProcessResult {
         try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        let process = Process()
-        process.environment = ManagedStorageConfigStore().subprocessEnvironment()
-        let collector = ProcessOutputCollector(outputHandler: outputHandler)
-        if let cliURL = executableURL ?? Self.lungfishCLIURL() {
-            process.executableURL = cliURL
-            process.arguments = arguments
-        } else {
+        guard let cliURL = executableURL ?? CLIBinaryLocator.cliBinaryPath() else {
             throw LungfishCLIRunner.RunError.cliNotFound
         }
-        process.currentDirectoryURL = workingDirectory
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        cancellationHandle.store(process)
+        var spec = CLIProcessLauncher.spec(
+            executableURL: cliURL,
+            arguments: arguments,
+            standardOutput: .captured,
+            terminationGracePeriod: Self.terminationGracePeriod,
+            drainGracePeriod: Self.drainGracePeriod
+        )
+        spec.workingDirectory = workingDirectory
+        spec.stdout = .capture(limit: outputTailLimit)
+        spec.stderr = .capture(limit: outputTailLimit)
 
-        stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            collector.append(data, source: .standardOutput)
-        }
-        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            collector.append(data, source: .standardError)
-        }
+        let relay = ProcessOutputRelay(outputHandler)
+        let outcome = await CLIProcessLauncher.run(
+            spec,
+            cancellation: cancellation,
+            onStdoutLine: { relay.send(.standardOutput($0)) },
+            onStderrLine: { relay.send(.standardError($0)) }
+        )
 
-        let termination = ProcessTermination()
-        process.terminationHandler = { process in
-            stdoutPipe.fileHandleForReading.readabilityHandler = nil
-            stderrPipe.fileHandleForReading.readabilityHandler = nil
-            collector.append(
-                stdoutPipe.fileHandleForReading.readDataToEndOfFile(),
-                source: .standardOutput
+        switch outcome {
+        case .launchFailed(let reason):
+            throw LungfishCLIRunner.RunError.launchFailed(reason)
+        case .cancelled(let exit?), .exited(let exit):
+            return result(of: exit, didStreamOutput: relay.didSend)
+        case .cancelled(nil):
+            // A cancel came before the launch, so nothing ran.
+            return ViralReconWorkflowProcessResult(
+                exitCode: AnalysisRunExitCode.cancelled,
+                standardOutput: "",
+                standardError: "",
+                didStreamOutput: false
             )
-            collector.append(
-                stderrPipe.fileHandleForReading.readDataToEndOfFile(),
-                source: .standardError
-            )
-            collector.flushPendingLines()
-            termination.finish(process.terminationStatus)
         }
+    }
 
-        do {
-            try process.run()
-            cancellationHandle.terminateIfRequested()
-        } catch {
-            cancellationHandle.clear(process)
-            stdoutPipe.fileHandleForReading.readabilityHandler = nil
-            stderrPipe.fileHandleForReading.readabilityHandler = nil
-            throw error
+    /// Stops the CLI, whether it is running or about to start. It returns at once.
+    func cancel() {
+        cancellation.cancel()
+    }
+
+    private func result(of exit: CLIProcessExit, didStreamOutput: Bool) -> ViralReconWorkflowProcessResult {
+        var standardError = Self.tail(of: exit.stderr, limit: outputTailLimit)
+        if let incomplete = exit.incompleteOutput {
+            // A descendant kept the output open after the CLI exited, so the text may miss its last
+            // lines. The exit code stays the truth about the run. The reason reads as a warning line.
+            if !standardError.isEmpty, !standardError.hasSuffix("\n") { standardError += "\n" }
+            standardError += incomplete + "\n"
         }
-
-        let exitCode = await termination.wait()
-        cancellationHandle.clear(process)
         return ViralReconWorkflowProcessResult(
-            exitCode: exitCode,
-            standardOutput: collector.standardOutput,
-            standardError: collector.standardError,
-            didStreamOutput: collector.didStreamOutput
+            exitCode: exit.status,
+            standardOutput: Self.tail(of: exit.stdout, limit: outputTailLimit),
+            standardError: standardError,
+            didStreamOutput: didStreamOutput
         )
     }
 
-    private static func lungfishCLIURL() -> URL? {
-        CLIBinaryLocator.cliBinaryPath()
-    }
-
-    func cancel() {
-        cancellationHandle.requestProcessTreeTermination(gracePeriod: 0)
+    /// The text of a stream as the result keeps it. ToolProcess keeps the last `limit` bytes of a
+    /// stream, which can begin inside a line, so a cut stream loses that partial line and says where it
+    /// was cut. A stream that fits is returned as it is.
+    static func tail(of text: String, limit: Int) -> String {
+        guard text.utf8.count >= limit else { return text }
+        let afterPartialLine = String(text.drop(while: { !$0.isNewline }).dropFirst())
+        return "[Earlier output was left out. Only the last \(limit) bytes were kept.]\n" + afterPartialLine
     }
 }
 
-private final class ProcessOutputCollector: @unchecked Sendable {
-    private let lock = NSLock()
-    private var standardOutputData = Data()
-    private var standardErrorData = Data()
-    private var pendingStandardOutput = ""
-    private var pendingStandardError = ""
-    private var streamedOutput = false
-    private let outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
+/// Hands each line the CLI writes to the route's handler on the main actor, in the order the CLI wrote
+/// them, and remembers whether it handed over any. The route logs the whole output itself after the run
+/// when none was streamed.
+private final class ProcessOutputRelay: Sendable {
+    private let handler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
+    private let sent = OSAllocatedUnfairLock(initialState: false)
 
-    init(outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?) {
-        self.outputHandler = outputHandler
+    init(_ handler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?) {
+        self.handler = handler
     }
 
-    var standardOutput: String {
-        lock.withLock {
-            String(data: standardOutputData, encoding: .utf8) ?? ""
-        }
+    var didSend: Bool {
+        sent.withLock { $0 }
     }
 
-    var standardError: String {
-        lock.withLock {
-            String(data: standardErrorData, encoding: .utf8) ?? ""
-        }
-    }
-
-    var didStreamOutput: Bool {
-        lock.withLock {
-            streamedOutput
-        }
-    }
-
-    func append(_ data: Data, source: ViralReconWorkflowProcessOutput.Source) {
-        guard !data.isEmpty else { return }
-        let lines: [String]
-        lock.lock()
-        switch source {
-        case .standardOutput:
-            standardOutputData.append(data)
-            lines = Self.completeLines(from: data, pending: &pendingStandardOutput)
-        case .standardError:
-            standardErrorData.append(data)
-            lines = Self.completeLines(from: data, pending: &pendingStandardError)
-        }
-        lock.unlock()
-
-        for line in lines {
-            emit(line, source: source)
-        }
-    }
-
-    func flushPendingLines() {
-        let outputLine: String?
-        let errorLine: String?
-        lock.lock()
-        outputLine = pendingStandardOutput.isEmpty ? nil : pendingStandardOutput
-        errorLine = pendingStandardError.isEmpty ? nil : pendingStandardError
-        pendingStandardOutput = ""
-        pendingStandardError = ""
-        lock.unlock()
-
-        if let outputLine {
-            emit(outputLine, source: .standardOutput)
-        }
-        if let errorLine {
-            emit(errorLine, source: .standardError)
-        }
-    }
-
-    private func emit(_ line: String, source: ViralReconWorkflowProcessOutput.Source) {
-        guard let outputHandler else { return }
-        let output: ViralReconWorkflowProcessOutput
-        switch source {
-        case .standardOutput:
-            output = .standardOutput(line)
-        case .standardError:
-            output = .standardError(line)
-        }
-        lock.withLock {
-            streamedOutput = true
-        }
+    func send(_ output: ViralReconWorkflowProcessOutput) {
+        guard let handler else { return }
+        sent.withLock { $0 = true }
+        // The main queue keeps the lines in order, and every line is queued before the run returns, so
+        // the route sees them all before it reads the result.
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
-                outputHandler(output)
+                handler(output)
             }
         }
-    }
-
-    private static func completeLines(from data: Data, pending: inout String) -> [String] {
-        guard let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty else {
-            return []
-        }
-
-        pending += chunk
-        let components = pending.components(separatedBy: .newlines)
-        let completeComponents = components.prefix(max(0, components.count - 1))
-        if pending.last?.isNewline == true {
-            pending = ""
-            return Array(completeComponents)
-        }
-
-        pending = components.last ?? ""
-        return Array(completeComponents)
-    }
-}
-
-private final class ProcessTermination: @unchecked Sendable {
-    private let lock = NSLock()
-    private var exitCode: Int32?
-    private var continuation: CheckedContinuation<Int32, Never>?
-
-    func finish(_ code: Int32) {
-        let continuationToResume: CheckedContinuation<Int32, Never>?
-        lock.lock()
-        exitCode = code
-        continuationToResume = continuation
-        continuation = nil
-        lock.unlock()
-        continuationToResume?.resume(returning: code)
-    }
-
-    func wait() async -> Int32 {
-        await withCheckedContinuation { continuation in
-            let code: Int32?
-            lock.lock()
-            code = exitCode
-            if code == nil {
-                self.continuation = continuation
-            }
-            lock.unlock()
-            if let code {
-                continuation.resume(returning: code)
-            }
-        }
-    }
-}
-
-private extension ViralReconWorkflowProcessOutput {
-    enum Source {
-        case standardOutput
-        case standardError
     }
 }

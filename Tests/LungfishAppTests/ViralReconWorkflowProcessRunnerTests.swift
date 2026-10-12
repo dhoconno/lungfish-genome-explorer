@@ -11,6 +11,7 @@ import Foundation
 import XCTest
 @testable import LungfishApp
 import LungfishTestSupport
+import LungfishWorkflow
 
 @MainActor
 final class ViralReconWorkflowProcessRunnerTests: XCTestCase {
@@ -59,16 +60,128 @@ final class ViralReconWorkflowProcessRunnerTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(cancelStart), 2, "cancel() only asks for the stop and never waits")
         let result = try await run.value
 
-        // Known issue (S16, F8). The runner cancels with a grace of 0, so SIGKILL follows SIGTERM at once
-        // and the CLI is gone before it writes the marker. The commit that gives the runner its 6 s grace
-        // removes this wrapper. Without it this case fails at the base with exit 9 and no marker.
-        XCTExpectFailure("A cancel kills the CLI with no grace today") {
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: marker.path),
+            "the CLI got no time between SIGTERM and SIGKILL to clean up"
+        )
+        XCTAssertEqual(result.exitCode, 125, "the CLI's own exit code after its cleanup")
+    }
+
+    /// A cancel that comes before the launch starts no process. The run reports the cancelled exit code,
+    /// and the route reads the row's state to see that the user cancelled.
+    func testACancelBeforeTheLaunchStartsNoProcess() async throws {
+        let ran = scratch.appendingPathComponent("ran")
+        let cli = try writeCLI(": > \"$1\"")
+        let runner = ProcessViralReconWorkflowProcessRunner(executableURL: cli)
+
+        runner.cancel()
+        let result = try await runner.runLungfishCLI(arguments: [ran.path], workingDirectory: scratch, outputHandler: nil)
+
+        XCTAssertEqual(result.exitCode, AnalysisRunExitCode.cancelled)
+        XCTAssertEqual(result.standardOutput, "")
+        XCTAssertEqual(result.standardError, "")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ran.path), "nothing may run after a cancel")
+    }
+
+    // MARK: - Result
+
+    /// The CLI runs in the working directory, which the runner creates, with the arguments it is given.
+    /// Its exit code and both streams come back whole when they fit, and with no handler nothing counts
+    /// as streamed.
+    func testTheRunnerReturnsTheExitCodeAndBothStreamsOfACLIRunInTheWorkingDirectory() async throws {
+        let cli = try writeCLI(
+            """
+            : > here
+            echo "args: $*"
+            echo oops >&2
+            exit 3
+            """
+        )
+        let work = scratch.appendingPathComponent("work", isDirectory: true)
+        let runner = ProcessViralReconWorkflowProcessRunner(executableURL: cli)
+
+        let result = try await runner.runLungfishCLI(
+            arguments: ["workflow", "run"],
+            workingDirectory: work,
+            outputHandler: nil
+        )
+
+        XCTAssertEqual(result.exitCode, 3)
+        XCTAssertEqual(result.standardOutput, "args: workflow run\n")
+        XCTAssertEqual(result.standardError, "oops\n")
+        XCTAssertFalse(result.didStreamOutput)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: work.appendingPathComponent("here").path),
+            "the CLI did not run in the working directory"
+        )
+    }
+
+    /// Every line reaches the handler, but the result keeps only the last bytes of each stream, so a run
+    /// that logs for hours holds a bounded amount. A cut stream starts with a line that says so and then
+    /// a whole line, never the fragment the cut left.
+    func testTheResultKeepsTheLastBytesOfEachStreamWhileEveryLineIsStreamed() async throws {
+        let cli = try writeCLI(
+            """
+            i=1
+            while [ $i -le 300 ]; do
+              echo "out line $i"
+              echo "err line $i" >&2
+              i=$((i + 1))
+            done
+            """
+        )
+        let limit = 1000
+        let runner = ProcessViralReconWorkflowProcessRunner(executableURL: cli, outputTailLimit: limit)
+        let streamed = StreamedLines()
+
+        let result = try await runner.runLungfishCLI(
+            arguments: [],
+            workingDirectory: scratch,
+            outputHandler: { streamed.lines.append($0) }
+        )
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.didStreamOutput)
+        XCTAssertEqual(streamed.lines.filter { $0.isStandardOutput }.count, 300, "every stdout line is streamed")
+        XCTAssertEqual(streamed.lines.filter { !$0.isStandardOutput }.count, 300, "every stderr line is streamed")
+        XCTAssertEqual(streamed.lines.first { $0.isStandardOutput }, .standardOutput("out line 1"))
+        XCTAssertEqual(streamed.lines.last { $0.isStandardOutput }, .standardOutput("out line 300"))
+
+        let marker = "[Earlier output was left out. Only the last \(limit) bytes were kept.]\n"
+        for (text, name) in [(result.standardOutput, "out"), (result.standardError, "err")] {
+            XCTAssertTrue(text.hasPrefix(marker), "the \(name) stream does not say it was cut: \(text.prefix(80))")
+            XCTAssertLessThan(text.utf8.count, limit + marker.utf8.count, "the \(name) stream is not bounded")
+            XCTAssertTrue(text.hasSuffix("\(name) line 300\n"), "the \(name) stream lost its last line")
             XCTAssertTrue(
-                FileManager.default.fileExists(atPath: marker.path),
-                "the CLI got no time between SIGTERM and SIGKILL to clean up"
+                text.dropFirst(marker.count).hasPrefix("\(name) line "),
+                "the \(name) stream starts with a fragment: \(text.dropFirst(marker.count).prefix(40))"
             )
-            XCTAssertEqual(result.exitCode, 125, "the CLI's own exit code after its cleanup")
+            XCTAssertFalse(text.contains("\(name) line 1\n"), "the \(name) stream kept its first line")
         }
+    }
+
+    /// A CLI that exits cleanly while a child it started still holds the output open was cut short
+    /// by the drain grace. The exit code stays the truth about the run. The reason joins standard error,
+    /// so the row logs it as a warning line and the user sees that the text may miss its last lines.
+    func testACleanExitWhoseOutputAChildKeptOpenKeepsItsExitCodeAndGainsAWarningLine() async throws {
+        let cli = try writeCLI(
+            """
+            echo finished
+            sleep 30 &
+            exit 0
+            """
+        )
+        let runner = ProcessViralReconWorkflowProcessRunner(executableURL: cli)
+
+        let result = try await runner.runLungfishCLI(arguments: [], workingDirectory: scratch, outputHandler: nil)
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.standardOutput, "finished\n")
+        XCTAssertTrue(
+            result.standardError.contains("The output of lungfish-cli is incomplete"),
+            "standard error was: \(result.standardError)"
+        )
+        XCTAssertTrue(result.standardError.hasSuffix("\n"))
     }
 
     // MARK: - Helpers
@@ -88,5 +201,18 @@ final class ViralReconWorkflowProcessRunnerTests: XCTestCase {
             try await Task.sleep(nanoseconds: 25_000_000)
         }
         XCTFail("Timed out waiting for \(url.path)")
+    }
+}
+
+/// The lines a run hands its handler, in order. The handler runs on the main actor, so this does too.
+@MainActor
+private final class StreamedLines {
+    var lines: [ViralReconWorkflowProcessOutput] = []
+}
+
+private extension ViralReconWorkflowProcessOutput {
+    var isStandardOutput: Bool {
+        if case .standardOutput = self { return true }
+        return false
     }
 }
