@@ -573,9 +573,11 @@ extension TaxTriageCommand {
 
         @OptionGroup var globalOptions: GlobalOptions
 
-        /// Injection point for tests; the default runs `docker version`, the
-        /// same probe the app's wizard row and `debug container` use.
-        nonisolated(unsafe) static var containerRuntimeProbe: any ContainerRuntimeProbing = SystemContainerRuntimeProbe()
+        /// The probe `run()` hands the pipeline. The default runs `docker
+        /// version`, the same probe the app's wizard row and `debug container`
+        /// use. Only a test binds another, for one scope with
+        /// `$containerRuntimeProbe.withValue`, so nothing can assign it.
+        @TaskLocal static var containerRuntimeProbe: any ContainerRuntimeProbing = SystemContainerRuntimeProbe()
 
         /// The container-runtime lines of the report. The verdict is the
         /// Docker daemon's alone, matching the wizard row and `debug

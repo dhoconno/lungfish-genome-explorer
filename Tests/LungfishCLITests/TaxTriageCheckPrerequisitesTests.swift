@@ -20,17 +20,6 @@ private struct StubProbe: ContainerRuntimeProbing {
 
 final class TaxTriageCheckPrerequisitesTests: XCTestCase {
     private typealias Subcommand = TaxTriageCommand.CheckPrerequisitesSubcommand
-    private var originalProbe: (any ContainerRuntimeProbing)!
-
-    override func setUp() {
-        super.setUp()
-        originalProbe = Subcommand.containerRuntimeProbe
-    }
-
-    override func tearDown() {
-        Subcommand.containerRuntimeProbe = originalProbe
-        super.tearDown()
-    }
 
     /// The runtime line is red when the Docker daemon is down even though
     /// the Apple Containerization runtime is ready, because the pipeline
@@ -85,14 +74,36 @@ final class TaxTriageCheckPrerequisitesTests: XCTestCase {
         XCTAssertTrue(readyLines[0].contains("Container runtime: Docker Desktop (running)"), readyLines[0])
     }
 
-    /// The subcommand's injection point is what `run()` hands the pipeline.
-    func testSubcommandExposesInjectableProbe() {
+    /// The subcommand's injection point is what `run()` hands the pipeline. It is a task-local
+    /// value, so a test binds a probe for one scope and nothing outside the scope sees it, and the
+    /// default is the system probe that runs `docker version`.
+    func testSubcommandProbeIsATaskLocalBoundForOneScope() {
         let stub = StubProbe(
             dockerPath: nil,
             daemon: DockerDaemonProbe(reachable: false, clientVersion: nil, serverVersion: nil, detail: nil),
             apple: AppleContainerProbe(frameworkAvailable: false, runtimeReady: false, detail: nil)
         )
-        Subcommand.containerRuntimeProbe = stub
-        XCTAssertNil(Subcommand.containerRuntimeProbe.dockerCLIPath())
+        XCTAssertTrue(Subcommand.containerRuntimeProbe is SystemContainerRuntimeProbe, "the default is the system probe")
+        Subcommand.$containerRuntimeProbe.withValue(stub) {
+            XCTAssertNil(Subcommand.containerRuntimeProbe.dockerCLIPath())
+            XCTAssertTrue(Subcommand.containerRuntimeProbe is StubProbe)
+        }
+        XCTAssertTrue(Subcommand.containerRuntimeProbe is SystemContainerRuntimeProbe, "the binding ends with its scope")
+    }
+
+    /// A bound probe reaches the code `run()` awaits, since the task-local value travels with the
+    /// task into everything it awaits and into the tasks it starts.
+    func testTheBoundProbeReachesAwaitedAndStartedTasks() async {
+        let stub = StubProbe(
+            dockerPath: "/usr/local/bin/docker",
+            daemon: DockerDaemonProbe(reachable: true, clientVersion: "28.3.2", serverVersion: "28.3.2", detail: nil),
+            apple: AppleContainerProbe(frameworkAvailable: false, runtimeReady: false, detail: nil)
+        )
+        let seen = await Subcommand.$containerRuntimeProbe.withValue(stub) {
+            let awaited = Subcommand.containerRuntimeProbe.dockerCLIPath()
+            let started = await Task { Subcommand.containerRuntimeProbe.dockerCLIPath() }.value
+            return [awaited, started]
+        }
+        XCTAssertEqual(seen, ["/usr/local/bin/docker", "/usr/local/bin/docker"])
     }
 }
