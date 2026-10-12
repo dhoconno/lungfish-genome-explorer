@@ -330,9 +330,10 @@ enum SidebarScanSafetyNetProjects {
         try SafetyNetFiles.write("{}", to: analyses.appendingPathComponent("run-a1b2c3.lungfishrun/run.json"))
     }
 
-    /// Folders outside Analyses. These are hidden result folders, standalone
-    /// NAO-MGS and NVD bundles, opaque packages, staging folders and FASTQ
-    /// bundles, one demultiplexed and one whose derivatives still hold
+    /// Folders outside Analyses. These are result folders the scan hides by their
+    /// tool name and sidecar, a renamed result with metadata that lists as a plain
+    /// folder, standalone NAO-MGS and NVD bundles, opaque packages, staging folders
+    /// and FASTQ bundles, one demultiplexed and one whose derivatives still hold
     /// results in the layout used before the Analyses folder.
     static func writeRegularFolderEdges(in project: URL) async throws {
         try SafetyNetFiles.write(#"{"name":"Analysis Naming"}"#, to: project.appendingPathComponent("metadata.json"))
