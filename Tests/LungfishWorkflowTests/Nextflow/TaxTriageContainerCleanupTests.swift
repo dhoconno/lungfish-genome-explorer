@@ -97,6 +97,64 @@ final class TaxTriageContainerCleanupTests: XCTestCase {
         XCTAssertTrue(stopped, "the docker that hangs is stopped, so none outlives the cleanup")
     }
 
+    // MARK: - The executor route
+
+    /// R4c. `taxtriage run` runs its launch as a unit of the analysis run executor, whose cancelled record is
+    /// the root record. A cancel there stops the run's containers after the tree and before that record, as on
+    /// the app's route, because the pipeline body both routes share gives the engine the cleanup. The scratch
+    /// then stays for the abandoned-scratch sweep (N7, A2 review fix 1).
+    func testACancelOnTheExecutorRouteStopsItsContainersBeforeTheRootRecord() async throws {
+        let engine = try makeEngine(.waitsUntilCancelled)
+        let docker = try NextflowStandInDocker.make(in: root)
+        let settings = try makeConfig(sample: "E1", output: "unused", profile: "docker")
+        let output = root.appendingPathComponent("executor", isDirectory: true)
+        let pipeline = makePipeline(engine, docker: docker)
+        let tool = TaxTriageAnalysisRunTool(
+            request: TaxTriageRunRequest(input: settings.samples[0].fastq1.path, sampleID: "E1", settings: settings),
+            services: TaxTriageRunServices(
+                makePipeline: { pipeline },
+                expandInputs: { arguments, _ in arguments.map { URL(fileURLWithPath: $0) } },
+                materializer: ReadSetFixtures.StubMaterializer(readsByBundlePath: [:])
+            )
+        )
+        let request = AnalysisRunRequest(
+            inputs: [],
+            destination: .directory(output),
+            groupsSamples: false,
+            commandLine: ["lungfish-cli", "taxtriage", "run"]
+        )
+
+        let run = Task { await AnalysisRunExecutor(services: AnalysisRunServices()).execute(tool, request, events: .discarding) }
+        let started = await engine.waitForLaunch()
+        let launch = try XCTUnwrap(started, "the launch never started")
+        let engineID = try XCTUnwrap(launch.processIdentifier)
+        let work = URL(fileURLWithPath: try XCTUnwrap(launch.workDirectory, "the launch names no work folder"), isDirectory: true)
+        // The sweep removes a scratch a cancelled run leaves, and this case removes its own.
+        addTeardownBlock { try? FileManager.default.removeItem(at: work.deletingLastPathComponent()) }
+        let holdingFolder = work.deletingLastPathComponent().deletingLastPathComponent()
+        let ids = ["a1", "b2", "c3", "d4"].map { String(repeating: $0, count: 32) }
+        try docker.serve([
+            .init(id: ids[0], status: "running", mountSources: [holdingFolder.path, work.appendingPathComponent("aa/000001").path]),
+            .init(id: ids[1], status: "running", mountSources: [root.appendingPathComponent("other-run/work/aa/000001").path]),
+            .init(id: ids[2], status: "exited", mountSources: [work.appendingPathComponent("bb/000002").path]),
+            .init(id: ids[3], status: "running", mountSources: [holdingFolder.path]),
+        ])
+        try docker.watch(pids: [engineID], record: output.appendingPathComponent(ProvenanceRecorder.provenanceFilename), scratch: work)
+
+        run.cancel()
+        let report = await run.value
+        let record = try ProvenanceEnvelopeReader.load(from: output)
+
+        XCTAssertEqual(report.status, .cancelled, report.message ?? "")
+        XCTAssertEqual(report.exitCode, 125)
+        XCTAssertEqual(record?.workflowName, TaxTriageAnalysisRunTool.workflowName, "the executor writes the cancelled run's record")
+        XCTAssertEqual(record?.status, .cancelled, "the root record follows the cleanup")
+        XCTAssertEqual(record?.exitStatus, 125)
+        XCTAssertFalse(engineTestProcessIsRunning(engineID), "no process of the tree outlives the run")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: work.path), "a cancelled executor launch leaves its scratch for the sweep (N7)")
+        assertTheCleanupStoppedOnlyTheRunsContainers(docker, ids: ids)
+    }
+
     // MARK: - Runs that call no docker
 
     func testACompletedDockerRunCallsNoDocker() async throws {
