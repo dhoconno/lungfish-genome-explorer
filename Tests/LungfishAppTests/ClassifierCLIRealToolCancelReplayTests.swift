@@ -16,8 +16,8 @@
 //   first kraken2 progress event and kraken2's `classify` is alive under the command. The row
 //   must read Cancelled with no alert. The command must end the run itself inside the transport's
 //   grace with the exit status 125 (read from the process, which the transport drops), a
-//   `cancelled` run record and root record, a folder that stays hidden, no process left, and no
-//   byte written into the project after it exits.
+//   `cancelled` run record and root record, a folder that stays hidden, no process of the run
+//   left once the grace ends, and no byte written into the project after it exits.
 // - Failure. K1's own bundle, and a database registry of its own that names a folder of text
 //   files in a Kraken2 database's file names, so kraken2 itself fails on it. The row must read
 //   Failed with the log tail of kraken2 in its alert, the command must exit with the workflow
@@ -144,6 +144,20 @@ final class ClassifierCLIRealToolCancelReplayTests: XCTestCase {
         OperationCenter.shared.cancel(id: run.id)
         let exitOrNil = await watcher.waitForExit(timeout: 30, snapshotting: project)
         let ended = try XCTUnwrap(exitOrNil, "the command did not exit after the cancel")
+
+        // The whole tool tree goes inside the grace, as the command does. A `classify` left running
+        // ends by itself about ten seconds after the cancel, inside the 30 s wait, so the wait alone
+        // cannot see it.
+        let processesGone = await waitUntil(timeout: Self.patience, pollInterval: .milliseconds(100)) {
+            await Self.commandLines(mentioning: scratchName)?.isEmpty == true
+        }
+        let goneBy = ContinuousClock.now
+        XCTAssertTrue(processesGone, "a process of the cancelled run is still alive")
+        XCTAssertLessThan(
+            goneBy - cancelRequestedAt, CLIClassifierRunner.terminationGracePeriod,
+            "a process of the cancelled run outlived the grace"
+        )
+
         let finished = await waitUntil(timeout: Self.patience) { self.item(run.id).map { !$0.state.isActive } ?? true }
         try demand(finished, "the row did not finish after the cancel")
 
@@ -168,10 +182,6 @@ final class ClassifierCLIRealToolCancelReplayTests: XCTestCase {
         XCTAssertEqual(record.exitStatus, 125)
         try assertHidden(command.folder, in: project)
 
-        let processesGone = await waitUntil(timeout: Self.patience, pollInterval: .milliseconds(100)) {
-            await Self.commandLines(mentioning: scratchName).isEmpty
-        }
-        XCTAssertTrue(processesGone, "a process of the cancelled run is still alive")
         await assertNothingWritten(after: ended.project, in: project)
         try assertListedOnceItsRecordIsGone(command.folder, in: project)
     }
@@ -415,11 +425,12 @@ final class ClassifierCLIRealToolCancelReplayTests: XCTestCase {
     // MARK: - The process table and the file system
 
     /// The command line of every process whose command line names `token`, from `ps`, read off
-    /// the main actor.
+    /// the main actor. Nil when `ps` failed, so a check that wants no process fails closed.
     @concurrent
-    private static func commandLines(mentioning token: String) async -> [String] {
-        guard let listing = try? ProcessRunner.run(URL(fileURLWithPath: "/bin/ps"), ["-axo", "command="], timeout: 20) else {
-            return []
+    private static func commandLines(mentioning token: String) async -> [String]? {
+        guard let listing = try? ProcessRunner.run(URL(fileURLWithPath: "/bin/ps"), ["-axo", "command="], timeout: 20),
+              listing.status == 0 else {
+            return nil
         }
         return listing.stdout.split(separator: "\n").map(String.init).filter { $0.contains(token) }
     }
@@ -428,7 +439,7 @@ final class ClassifierCLIRealToolCancelReplayTests: XCTestCase {
     /// names the case's folder too, so it is told apart by its program.
     @concurrent
     private static func isKraken2Running(mentioning token: String) async -> Bool {
-        await commandLines(mentioning: token).contains { line in
+        (await commandLines(mentioning: token) ?? []).contains { line in
             let program = line.split(separator: " ", maxSplits: 1).first.map(String.init) ?? ""
             return (program as NSString).lastPathComponent == "classify"
         }
