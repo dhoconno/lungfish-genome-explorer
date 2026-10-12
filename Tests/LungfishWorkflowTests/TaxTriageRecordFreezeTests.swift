@@ -449,7 +449,8 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
     /// `.lungfish-interleaved-split`. The run removes that folder when it ends. The step and the run's files name the
     /// durable interleaved file, never a half as a file. (The TaxTriage step's own input list is not reachable without
     /// the engine.) Plan decision T6 keeps the halves scratch and has the record cite only the durable file, so the
-    /// assertion on the folder in the argv may flip with lane B2.
+    /// assertion on the folder in the argv may flip with lane B2. The split is also the first step the run records,
+    /// so the record names it as the run's own tool, version and argv until lane B2 gives it one tool name (RT4).
     func testTheInterleavedSplitStepNamesItsSourceAndNoOutputs() async throws {
         let fixtures = try makeFixtures()
         let interleaved = try await planned(fixtures.interleavedRoot, as: "inter", in: fixtures)
@@ -478,6 +479,12 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         let step = try XCTUnwrap(envelope.steps.first)
         XCTAssertEqual(envelope.steps.count, 1)
         XCTAssertEqual(step.toolName, "Lungfish TaxTriage Interleaved Split")
+        XCTAssertEqual(
+            envelope.toolName, "Lungfish TaxTriage Interleaved Split",
+            "may flip with B2 (RT4), the first recorded step names the run's tool"
+        )
+        XCTAssertEqual(envelope.toolVersion, WorkflowRun.currentAppVersion)
+        XCTAssertEqual(envelope.argv, step.argv)
         XCTAssertEqual(step.inputs.map { URL(fileURLWithPath: $0.path).standardizedFileURL }, [split.source.standardizedFileURL])
         XCTAssertEqual(step.outputs.count, 0, "the halves are not the step's outputs")
         XCTAssertEqual(step.argv.count, 4)
