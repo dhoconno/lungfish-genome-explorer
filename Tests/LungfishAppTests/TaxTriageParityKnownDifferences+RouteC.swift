@@ -69,6 +69,9 @@ extension TaxTriageParityKnownDifferences {
         pairAC([.x4: 1], "terminal: A and C end differently",
                "Side C's batch completes with the sample that completed and exits 0 with the failed sample as a warning (warnOnFailedUnits), but its batch root holds no aggregate result to read the warning from, so its end reads Completed where the row reads Completed with Warnings",
                closedBy: guiRoute),
+        pairAC([.x6: 3], "project: only in C: .tmp/taxtriage-run-<UUID>/*",
+               "As on side B. Side C's cancelled taxtriage run --project leaves its launch scratch in the project's .tmp/ for the abandoned-scratch sweep (N7, A2 review fix 1), where the GUI's in-process route removes it after its own cancelled record (T13)",
+               closedBy: guiRoute),
     ]
 
     // MARK: Records
@@ -84,6 +87,9 @@ extension TaxTriageParityKnownDifferences {
         recordC(everyCase, "workflowName", "TaxTriage or TaxTriage Serial Batch against lungfish.taxtriage.run, the executor's root record"),
         recordC([.x1: 1, .x2: 1, .x5: 1, .x6: 1, .x7: 1], "stderr",
                 "The pipeline's record keeps the run's stderr, the executor's the run's warnings or its own cancel words, as on side B (B12)"),
+        recordC([.x6: 1], "steps[taxtriage#1].reproducibleCommand",
+                "As on side B. Side C keeps its scratch for the sweep (N7), so the reader's re-root reads its command from the -w folder on, and side A's from the --outdir folder on",
+                closedBy: readerReroot),
         recordC([.x1: 3, .x2: 3, .x3: 3, .x4: 3, .x5: 3, .x7: 3], "*teps[Lungfish TaxTriage Index#1]",
                 "The GUI's build-db step adds its lungfish-app taxtriage index step to the result's record, in steps, canonicalRunSteps and legacyRunSteps (O1). The executor's finalize records its index and removal steps under its own names"),
         recordC([.x1: 2, .x2: 2, .x5: 2, .x7: 2], "files[*|log]",

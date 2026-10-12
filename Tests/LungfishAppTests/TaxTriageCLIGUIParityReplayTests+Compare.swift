@@ -105,9 +105,12 @@ enum TaxTriageParityComparison {
         var policy = Rules.maskPolicy(sideRoots: [reference.root, candidate.root])
         // The run record that a cancelled or failed run keeps (E5) names the process that wrote
         // it and when that process started, which no two runs share (lane Q1b, X6 of C against C').
+        // The launch scratch a cancelled executor launch leaves for the sweep (N7) names its creating
+        // process in .lungfish-temp-origin.json and its folder's inode in .lungfish-owned-work-directory.json,
+        // which no two runs share either (A2 review fix 1).
         let processMask = OutputEquivalence.Mask(name: "runRecordProcess") { text, _ in
             text.replacingOccurrences(
-                of: "\"(processIdentifier|processStartTime)\" : [0-9]+",
+                of: "\"(processIdentifier|processStartTime|pid|inode)\" : [0-9]+",
                 with: "\"$1\" : \"<PROCESS>\"",
                 options: .regularExpression
             )
