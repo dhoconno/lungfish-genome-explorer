@@ -295,7 +295,10 @@ extension TaxTriageCommand {
             // The listener starts before the task, so a SIGTERM caught before then cancels the task
             // as soon as it exists, and a second SIGTERM ends the command at once.
             let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
-            let executor = AnalysisRunExecutor(services: AnalysisRunServices(cancelRequested: cancelRequested))
+            let executor = AnalysisRunExecutor(services: AnalysisRunServices(
+                indexing: TaxTriageResultIndexer(),
+                cancelRequested: cancelRequested
+            ))
             let task = Task { await executor.execute(tool, request, events: events) }
             pendingCancel.attach(task)
             let report = await task.value

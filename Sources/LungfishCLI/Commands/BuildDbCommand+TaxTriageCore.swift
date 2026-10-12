@@ -2,20 +2,24 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// The `build-db taxtriage` leaf moved here from BuildDbCommand.swift with no logic edit (Phase 2.9, lane A1), so
-// that TaxTriage on the analysis run executor can take it over in one file. Two functions do its work.
+// The `build-db taxtriage` leaf moved here from BuildDbCommand.swift (Phase 2.9, lane A1), and TaxTriage on the
+// analysis run executor builds its viewer index through it (lane A2, `TaxTriageResultIndexer`). The core is the
+// static `buildDatabase(in:options:cleanup:events:)`, as the Kraken2 and EsViritu leaves have theirs. It keeps an
+// existing database unless `--force`, captures the record's input list, resolves the taxonomy rows of the result
+// folder and of each serial sample folder in byte order (BIO 8), writes `taxtriage.sqlite`, recomputes unique reads
+// from the BAMs and writes the records. A failure puts the database of an earlier build back and writes a failure
+// record, and a cancel writes none. Its cleanup takes one of two forms (decision T5 of Phase 2.8).
 //
-// - The index is `build(resultURL:events:)`. It keeps an existing database unless `--force`, captures the record's
-//   input list, resolves the taxonomy rows of the result folder, writes `taxtriage.sqlite`, recomputes unique
-//   reads from the BAMs, runs the cleanup unless `--no-cleanup`, and then writes the records. A failure puts the
-//   database of an earlier build back and writes a failure record.
-// - The cleanup is `performCleanup(resultURL:events:)`. It removes `count/`, the fastp FASTQ files and eight
-//   intermediate folders, `top/` among them, from the result folder and from each serial sample folder under it.
+// - `.legacy`, the command's, which the app's in-process TaxTriage route runs after each run. `performCleanup`
+//   removes `count/`, the fastp FASTQ files and eight intermediate folders, `top/` among them, between the
+//   unique-read pass and the record, so the record names sources that are gone. It records no step.
+//   `BuildDbTaxTriageCleanupFreezeTests` pins the rows, the record and the removed paths of that order.
+// - `.recordedRemoval`, the executor's. `performRecordedCleanup` runs after the record, keeps `top/`, removes the
+//   other seven folders, `count/` and the fastp FASTQ files of each result folder that is no symbolic link, and
+//   returns one removal step naming each removed file, so the run's record names it after the build step.
 //
-// `run` calls the index, the index calls the cleanup between the unique-read pass and the record, as it always
-// has, so the record names sources that the cleanup has already removed. The folder helpers move with them
-// because they are private. The report parsers stay in BuildDbCommand.swift as instance methods.
-// `BuildDbTaxTriageCleanupFreezeTests` pins the rows, the record and the removed paths of that order.
+// The parsers in BuildDbCommand.swift are instance methods that read no parsed option, so the core runs them on
+// an instance of its own.
 
 import ArgumentParser
 import Foundation
@@ -54,32 +58,69 @@ extension BuildDbCommand {
 
         func run() async throws {
             let resultURL = URL(fileURLWithPath: resultDir)
+            let options = BuildDbRunOptions(force: force, noCleanup: noCleanup, globalOptions: globalOptions)
             try await BuildDbCLIEvents(globalOptions: globalOptions).report(
                 database: resultURL.appendingPathComponent("taxtriage.sqlite")
             ) { events in
-                try await build(resultURL: resultURL, events: events)
+                try await Self.buildDatabase(in: resultURL, options: options, events: events).result
             }
         }
 
-        /// Builds `taxtriage.sqlite` in the result folder and returns what it built.
-        private func build(resultURL: URL, events: BuildDbEventSink) async throws -> BuildDbRunResult {
+        /// How a build's cleanup treats `top/` and what it records (decision T5 of Phase 2.8).
+        enum Cleanup: Sendable {
+            /// The command's cleanup, which the app's in-process route runs. It removes `top/` too, before
+            /// the record, and records nothing. The legacy route keeps it until that route goes.
+            case legacy
+            /// The analysis run executor's. It runs after the record, keeps `top/`, so a `--force`
+            /// rebuild still reads a sample whose only rows come from there, and names each file it
+            /// removes in one removal step.
+            case recordedRemoval
+        }
+
+        /// What one build left in its result folder, and the removal step of a `.recordedRemoval`
+        /// cleanup that removed anything.
+        struct Build: Sendable {
+            let result: BuildDbRunResult
+            let removal: ProvenanceStep?
+        }
+
+        /// The tool name of the removal step a `.recordedRemoval` cleanup records.
+        static let cleanupRemovalToolName = "Lungfish TaxTriage Intermediate Removal"
+
+        /// The `build-db taxtriage` core. Builds `taxtriage.sqlite` in `resultURL` from the result folder's
+        /// reports, or from those of each serial sample folder under it, records the run beside the database
+        /// and returns what it built. A database that exists is kept unless `options.force`. Unless
+        /// `options.noCleanup`, `cleanup` says which cleanup runs.
+        ///
+        /// A cancel of the caller's task ends the build with `CancellationError` at its next check, before
+        /// each sample folder is read or cleaned up, before the database is written, after the samtools pass
+        /// and before the record. The database of an earlier build is put back and no record of a failed
+        /// build is written (plan decision E5 of Phase 2.7). A folder the cleanup finished stays cleaned.
+        static func buildDatabase(
+            in resultURL: URL,
+            options: BuildDbRunOptions,
+            cleanup: Cleanup = .legacy,
+            events: BuildDbEventSink
+        ) async throws -> Build {
+            let core = Self()
             let runClock = ProvenanceRunClock()
             let dbURL = resultURL.appendingPathComponent("taxtriage.sqlite")
 
             // Skip if exists (unless --force)
-            if !force && FileManager.default.fileExists(atPath: dbURL.path) {
+            if !options.force && FileManager.default.fileExists(atPath: dbURL.path) {
                 let existing = BuildDbRunResult(databaseURL: dbURL, rowCount: nil, record: nil)
                 events.text(existing.summary)
-                return existing
+                return Build(result: existing, removal: nil)
             }
 
             let provenanceInputs = BuildDbCommand.buildDbInputRecords(tool: .taxTriage, resultURL: resultURL)
             let samtoolsProvenance = BuildDbSamtoolsProvenanceCollector()
             let databaseSnapshot = try BuildDbDatabaseSnapshot.capture(dbURL: dbURL)
 
+            let built: BuildDbRunResult
             do {
                 // 1. Locate a supported taxonomy report
-                let resolvedInput = try resolveTaxonomyRows(resultURL: resultURL)
+                let resolvedInput = try core.resolveTaxonomyRows(resultURL: resultURL)
                 let rows = resolvedInput.rows
                 let accessionMap = resolvedInput.accessionMap
 
@@ -96,6 +137,7 @@ extension BuildDbCommand {
                     TaxTriageDatabase.tassScaleMetadataKey: TaxTriageDatabase.currentTASSScale,
                 ]
 
+                try Task.checkCancellation()
                 try TaxTriageDatabase.create(
                     at: dbURL, rows: rows, accessionMap: accessionMap, metadata: metadata, progress: events.progress
                 )
@@ -119,58 +161,158 @@ extension BuildDbCommand {
                     events: events,
                     provenance: samtoolsProvenance
                 )
+                try Task.checkCancellation()
 
-                if !noCleanup {
-                    performCleanup(resultURL: resultURL, events: events)
+                if !options.noCleanup, cleanup == .legacy {
+                    try core.performCleanup(resultURL: resultURL, events: events)
                 }
 
+                try Task.checkCancellation()
                 let record = try await BuildDbCommand.recordBuildDbProvenance(
                     tool: .taxTriage,
                     resultURL: resultURL,
                     dbURL: dbURL,
-                    force: force,
-                    noCleanup: noCleanup,
-                    globalOptions: globalOptions,
+                    force: options.force,
+                    noCleanup: options.noCleanup,
+                    globalOptions: options.globalOptions,
                     runClock: runClock,
                     inputRecords: provenanceInputs,
-                    additionalSteps: samtoolsProvenance.steps, events: events
+                    additionalSteps: samtoolsProvenance.steps,
+                    writesFolderRecord: options.writesFolderRecord,
+                    events: events
                 )
                 try databaseSnapshot.discard()
-                return BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: record)
+                built = BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: record)
             } catch {
                 do {
                     try databaseSnapshot.restore()
                 } catch {
                     events.warning("Warning: could not restore previous TaxTriage database: \(error.localizedDescription)")
                 }
+                // A cancelled build is not a failed one, so it leaves no record of a failure (SWIFT X2).
+                guard !Task.isCancelled else { throw error }
                 await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
                     tool: .taxTriage,
                     resultURL: resultURL,
                     dbURL: dbURL,
-                    force: force,
-                    noCleanup: noCleanup,
-                    globalOptions: globalOptions,
+                    force: options.force,
+                    noCleanup: options.noCleanup,
+                    globalOptions: options.globalOptions,
                     runClock: runClock,
                     inputRecords: provenanceInputs,
                     error: error,
                     additionalSteps: samtoolsProvenance.steps,
-                    includeOutputRecords: false, events: events
+                    includeOutputRecords: false,
+                    writesFolderRecord: options.writesFolderRecord,
+                    events: events
                 )
                 throw error
             }
+
+            guard !options.noCleanup, cleanup == .recordedRemoval else {
+                return Build(result: built, removal: nil)
+            }
+            // T5. After the record, so the run's record names the removal after the build step that read
+            // what it removes (2.8 P1).
+            return Build(result: built, removal: try core.performRecordedCleanup(resultURL: resultURL, events: events))
         }
 
         // MARK: - Post-Build Cleanup
 
-        private func performCleanup(resultURL: URL, events: BuildDbEventSink) {
+        /// The intermediate folders a cleanup removes whole. The `.legacy` cleanup also removes `top/`.
+        static let removedFolderNames = ["filterkraken", "get", "map", "samtools", "bedtools", "mergedsubspecies", "mergedkrakenreport"]
+
+        private func performCleanup(resultURL: URL, events: BuildDbEventSink) throws {
             var freedBytes: Int64 = 0
 
             let cleanupRoots = [resultURL] + serialTaxTriageResultDirectories(in: resultURL)
             for cleanupRoot in cleanupRoots {
+                try Task.checkCancellation()
                 freedBytes += performCleanupForSingleResult(resultURL: cleanupRoot)
             }
 
             events.text("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
+        }
+
+        /// T5's cleanup on the executor path. In the result folder and each serial sample folder that is no
+        /// symbolic link, it removes `count/`, the fastp FASTQ files and the seven folders of
+        /// ``removedFolderNames``, never `top/` and never a symbolic link among them. It returns one removal
+        /// step that names each removed file with the digest and size it had, read just before it went,
+        /// because a completed record holds both for every local file (`ProvenanceRunBuilder`), or nil
+        /// when it removed nothing.
+        private func performRecordedCleanup(resultURL: URL, events: BuildDbEventSink) throws -> ProvenanceStep? {
+            let fm = FileManager.default
+            let removalClock = ProvenanceRunClock()
+            var removed: [ProvenanceFileDescriptor] = []
+            var freedBytes: Int64 = 0
+
+            for cleanupRoot in [resultURL] + serialTaxTriageResultDirectories(in: resultURL) {
+                try Task.checkCancellation()
+                guard !Self.isSymbolicLink(cleanupRoot) else { continue }
+                var files = Self.fastpFASTQFiles(in: cleanupRoot.appendingPathComponent("fastp"))
+                var folders: [URL] = []
+                for name in ["count"] + Self.removedFolderNames {
+                    let folder = cleanupRoot.appendingPathComponent(name, isDirectory: true)
+                    guard fm.fileExists(atPath: folder.path), !Self.isSymbolicLink(folder) else { continue }
+                    folders.append(folder)
+                    files += Self.regularFiles(under: folder)
+                }
+                for file in files {
+                    let descriptor: ProvenanceFileDescriptor
+                    do {
+                        descriptor = try ProvenanceFileDescriptor.file(url: file, role: .input)
+                        try fm.removeItem(at: file)
+                    } catch {
+                        events.warning("Warning: could not remove \(file.path): \(error.localizedDescription)")
+                        continue
+                    }
+                    removed.append(descriptor)
+                    freedBytes += Int64(descriptor.fileSize ?? 0)
+                }
+                for folder in folders {
+                    try? fm.removeItem(at: folder)
+                }
+            }
+
+            events.text("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
+            return RecordedRemovalStep.step(
+                toolName: Self.cleanupRemovalToolName,
+                api: "BuildDbCommand.TaxTriageSubcommand.performRecordedCleanup(resultURL:events:)",
+                removing: removed.filter { !fm.fileExists(atPath: $0.path) },
+                clock: removalClock
+            )
+        }
+
+        /// The fastp FASTQ files a cleanup removes, the files directly in `fastpDir` named as FASTQ or gzip,
+        /// never its reports or a file in a subfolder.
+        private static func fastpFASTQFiles(in fastpDir: URL) -> [URL] {
+            guard !isSymbolicLink(fastpDir),
+                  let contents = try? FileManager.default.contentsOfDirectory(
+                      at: fastpDir, includingPropertiesForKeys: [.isRegularFileKey]
+                  ) else { return [] }
+            return contents
+                .filter { file in
+                    let ext = file.pathExtension.lowercased()
+                    let named = ext == "fastq" || ext == "gz" || file.lastPathComponent.hasSuffix(".fastp.fastq.gz")
+                    return named && (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+                }
+                .sorted { $0.lastPathComponent.utf8.lexicographicallyPrecedes($1.lastPathComponent.utf8) }
+        }
+
+        /// Every regular file under `folder`, in byte order of its path. A symbolic link is not followed
+        /// and not listed, and goes with its folder.
+        private static func regularFiles(under folder: URL) -> [URL] {
+            guard let enumerator = FileManager.default.enumerator(
+                at: folder, includingPropertiesForKeys: [.isRegularFileKey]
+            ) else { return [] }
+            return enumerator
+                .compactMap { $0 as? URL }
+                .filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
+                .sorted { $0.path.utf8.lexicographicallyPrecedes($1.path.utf8) }
+        }
+
+        private static func isSymbolicLink(_ url: URL) -> Bool {
+            (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true
         }
 
         private func performCleanupForSingleResult(resultURL: URL) -> Int64 {
@@ -255,6 +397,7 @@ extension BuildDbCommand {
                 var sources: [TaxonomySource] = []
 
                 for sampleResultURL in serialResults {
+                    try Task.checkCancellation()
                     guard let parsed = try parseSingleTaxTriageResult(resultURL: sampleResultURL) else { continue }
                     let directoryName = sampleResultURL.lastPathComponent
                     rows.append(contentsOf: parsed.rows.map { prefixBAMPaths(in: $0, with: directoryName) })
@@ -311,6 +454,9 @@ extension BuildDbCommand {
             return (parsed.rows, parsed.accessionMap, "top report fallback", .topReport)
         }
 
+        /// The serial sample folders of a batch root, each a folder that holds a supported report, in byte
+        /// order of their names, the order of every sample order (BIO 8, 2.7 E8), so `S10` comes before `S2`
+        /// and `B` before `a`.
         private func serialTaxTriageResultDirectories(in resultURL: URL) -> [URL] {
             let fm = FileManager.default
             guard let children = try? fm.contentsOfDirectory(
@@ -340,7 +486,7 @@ extension BuildDbCommand {
 
                     return !taxTriageTopReportFiles(in: child.appendingPathComponent("top")).isEmpty
                 }
-                .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+                .sorted { $0.lastPathComponent.utf8.lexicographicallyPrecedes($1.lastPathComponent.utf8) }
         }
 
         private func prefixBAMPaths(in row: TaxTriageTaxonomyRow, with directoryName: String) -> TaxTriageTaxonomyRow {

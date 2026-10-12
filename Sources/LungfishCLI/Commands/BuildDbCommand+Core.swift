@@ -5,17 +5,15 @@
 import Foundation
 import LungfishWorkflow
 
-// The `build-db kraken2` and `build-db esviritu` bodies are cores that a caller in process can run, such as
-// the analysis run executor's index step (plan decision E6 of Phase 2.7). Each is a static
-// `buildDatabase(in:options:events:)` on its leaf, in `BuildDbCommand+Kraken2Core.swift` and
-// `BuildDbCommand+EsVirituCore.swift`. It takes the result folder, these options and a
-// `BuildDbEventSink`, builds the database, runs the cleanup, writes the records and returns what it built.
-// The commands wrap them in `BuildDbCLIEvents.report`. `build-db taxtriage` keeps an instance body, because
-// its report parsers are instance methods. Its leaf moved to `BuildDbCommand+TaxTriageCore.swift` as it was
-// (lane A1 of Phase 2.9), with the index, `build(resultURL:events:)`, and the cleanup,
-// `performCleanup(resultURL:events:)`, as two functions that run in today's order, the cleanup between the
-// unique-read pass and the record. Its static `buildDatabase(in:options:events:)` core waits for TaxTriage on
-// the executor in 2.9 (plan decision T1 of Phase 2.8).
+// The `build-db kraken2`, `build-db esviritu` and `build-db taxtriage` bodies are cores that a caller in
+// process can run, such as the analysis run executor's index step (plan decision E6 of Phase 2.7). Each is a
+// static `buildDatabase(in:options:...)` on its leaf, in `BuildDbCommand+Kraken2Core.swift`,
+// `BuildDbCommand+EsVirituCore.swift` and `BuildDbCommand+TaxTriageCore.swift`. It takes the result folder,
+// these options and a `BuildDbEventSink`, builds the database, runs the cleanup, writes the records and
+// returns what it built. The commands wrap them in `BuildDbCLIEvents.report`. The TaxTriage core also takes
+// the form of its cleanup (decision T5 of Phase 2.8). The command keeps today's, which removes `top/` before
+// the record, and TaxTriage on the executor (lane A2 of Phase 2.9) runs the one that keeps `top/`, comes
+// after the record and returns a removal step.
 //
 // A core stops when the task that runs it is cancelled. Only the executor's index step cancels one today,
 // under a cancelled `kraken2 classify` or `esviritu detect`, since a standalone `build-db` ends by the

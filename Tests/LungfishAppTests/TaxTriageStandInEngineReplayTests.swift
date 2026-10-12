@@ -126,7 +126,7 @@ final class TaxTriageStandInEngineReplayTests: XCTestCase {
 
         // What today's code wrote. The record names `top/S1.top_report.tsv`, which the GUI's
         // `build-db taxtriage` step then deletes with the rest of `top/`
-        // (`performCleanupForSingleResult` in BuildDbCommand.swift), so after a GUI run the record
+        // (`performCleanupForSingleResult` in BuildDbCommand+TaxTriageCore.swift), so after a GUI run the record
         // names a file that is gone (O1, ARCH 5). Pinned as today's fact.
         try Self.assertResult(
             in: analysis,
