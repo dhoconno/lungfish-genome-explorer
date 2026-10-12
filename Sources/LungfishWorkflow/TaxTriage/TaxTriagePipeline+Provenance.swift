@@ -60,8 +60,9 @@ extension TaxTriagePipeline {
     }
 
     /// Records the TaxTriage step. A run that ended 0 names its result among `outputFiles`, and each task failure
-    /// that TaxTriage ignored in it adds a warning line to the step's stderr (T8). The step's resolved options hold the
-    /// version of the Nextflow that ran, from the banner in the log among `outputFiles`.
+    /// that TaxTriage ignored in it adds a warning line to the step's stderr (T8). The step's tool, version, tag and
+    /// resolved options are the run's Nextflow facts (``TaxTriageRecordFacts/nextflowFacts(revision:)``), whose resolved
+    /// options hold the version of the Nextflow that ran, from the banner in the log among `outputFiles`.
     func recordTaxTriageProvenanceStep(
         runID: UUID,
         config: TaxTriageConfig,
@@ -73,13 +74,14 @@ extension TaxTriagePipeline {
     ) async {
         let warnings = exitCode == 0 ? TaxTriageRecordFacts.ignoredFailureWarnings(inResultAmong: outputFiles) : []
         let stderrLines = ([stderr ?? ""] + warnings).filter { !$0.isEmpty }
+        let nextflow = TaxTriageRecordFacts.nextflowFacts(revision: config.revision)
         await ProvenanceRecorder.shared.recordStep(
             runID: runID,
-            toolName: TaxTriageRecordFacts.toolName,
-            toolVersion: config.revision,
-            githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: config.revision),
+            toolName: nextflow.toolName,
+            toolVersion: nextflow.toolVersion,
+            githubReleaseVersion: nextflow.githubReleaseVersion,
             command: command,
-            resolvedOptions: TaxTriageRecordFacts.engineOptions(logAmong: outputFiles),
+            resolvedOptions: nextflow.resolvedOptions(logFile: TaxTriageRecordFacts.nextflowLog(among: outputFiles)),
             inputs: inputRecords(for: config),
             outputs: outputRecords(for: outputFiles),
             exitCode: exitCode,
@@ -115,7 +117,9 @@ extension TaxTriagePipeline {
 /// executor's root record takes the same values when `taxtriage run` moves to it, so one writer puts them in each record
 /// (Phase 2.8 lane B2, decisions T6 to T8 of `docs/plans/2026-10-11-phase-2-8.md`).
 ///
-/// - Every TaxTriage step is the tool `taxtriage` at the revision, with the release tag beside it (RT4).
+/// - Every TaxTriage step is the tool `taxtriage` at the revision, with the release tag beside it (RT4). Those facts
+///   and the version of the Nextflow that ran are the step's ``NextflowRecordFacts``, the one shape every Nextflow step
+///   records (Phase 2.9 lane B11, decision R1), which ``nextflowFacts(revision:)`` gives.
 /// - The settings the run was asked for are explicit options.
 /// - The plan of a record of one sample is the resolved default `readSetPlan`, the home decision E13 of Phase 2.7 names
 ///   (T7). A pooled record of several samples keeps its plans keyed by sample under `read_set_plans` in the explicit
@@ -270,25 +274,24 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
         return warningLines(for: result.ignoredFailures)
     }
 
-    /// The TaxTriage step's resolved options, the version of the Nextflow that ran as `nextflowVersion`, read from the
-    /// banner it printed into the log among `outputFiles`. Nil when no log there holds a banner.
-    static func engineOptions(logAmong outputFiles: [URL]) -> [String: ParameterValue]? {
-        guard let log = outputFiles.first(where: { $0.lastPathComponent == "nextflow.log" }),
-              let text = try? String(contentsOf: log, encoding: .utf8),
-              let version = nextflowVersion(inBanner: text) else {
-            return nil
-        }
-        return ["nextflowVersion": .string(version)]
+    /// The Nextflow facts of the TaxTriage step of a run at `revision`, the tool `taxtriage` at the revision, with the
+    /// release tag beside it when the lock's pin or a `v` tag names one (RT4, R1).
+    static func nextflowFacts(revision: String) -> NextflowRecordFacts {
+        NextflowRecordFacts(
+            toolName: toolName,
+            toolVersion: revision,
+            githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: revision)
+        )
     }
 
-    /// The version in Nextflow's banner line, `N E X T F L O W  ~  version 25.04.6`, or nil.
+    /// The log among `outputFiles` that holds the banner Nextflow printed, the first file named `nextflow.log`, or nil.
+    static func nextflowLog(among outputFiles: [URL]) -> URL? {
+        outputFiles.first { $0.lastPathComponent == "nextflow.log" }
+    }
+
+    /// The version in Nextflow's banner line, `N E X T F L O W  ~  version 25.04.6`, or nil, as every Nextflow step
+    /// reads it (``NextflowRecordFacts/nextflowVersion(inLog:)``).
     static func nextflowVersion(inBanner text: String) -> String? {
-        guard let banner = text.range(
-            of: #"N E X T F L O W\s+~\s+version\s+[0-9][0-9A-Za-z.\-]*"#,
-            options: .regularExpression
-        ) else {
-            return nil
-        }
-        return text[banner].split(whereSeparator: \.isWhitespace).last.map(String.init)
+        NextflowRecordFacts.nextflowVersion(inLog: text)
     }
 }
