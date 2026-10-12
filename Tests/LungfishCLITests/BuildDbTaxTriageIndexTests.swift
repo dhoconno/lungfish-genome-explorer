@@ -173,6 +173,8 @@ final class BuildDbTaxTriageIndexTests: XCTestCase {
         XCTAssertEqual(index.outputs.map(\.role), [.index])
         XCTAssertEqual(index.steps.suffix(2).map(\.toolName), ["lungfish build-db taxtriage", BuildDbCommand.TaxTriageSubcommand.cleanupRemovalToolName])
         let removal = try XCTUnwrap(index.steps.last)
+        XCTAssertFalse(removal.dependsOn.isEmpty)
+        XCTAssertEqual(Set(removal.dependsOn), Set(index.steps.dropLast().map(\.id)), "BIO 6, the removal depends on each build step, which read what it removed")
         XCTAssertEqual(removal.resolvedOptions["operation"], .string(RecordedRemovalStep.operation))
         let removed = removal.inputs.compactMap { relative($0.path, to: result) }
         XCTAssertEqual(removed.count, removal.inputs.count, "every removed file is inside the result, \(removal.inputs.map(\.path))")

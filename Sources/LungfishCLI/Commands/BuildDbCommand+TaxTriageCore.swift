@@ -217,12 +217,12 @@ extension BuildDbCommand {
                 return Build(result: built, removal: nil)
             }
             // T5. After the record, so the run's record names the removal after the build step that read
-            // what it removes (2.8 P1). The build's own steps name what it read with a digest too.
+            // what it removes (2.8 P1). The build's own steps name what it read with a digest too. The
+            // removal depends on each build step, which read what it removed (BIO 6).
             let recorded = recordedFiles + (built.record?.steps ?? []).flatMap { $0.inputs + $0.outputs }
-            return Build(
-                result: built,
-                removal: try core.performRecordedCleanup(resultURL: resultURL, recorded: recorded, events: events)
-            )
+            var removal = try core.performRecordedCleanup(resultURL: resultURL, recorded: recorded, events: events)
+            removal?.dependsOn = built.record?.steps.map(\.id) ?? []
+            return Build(result: built, removal: removal)
         }
 
         // MARK: - Post-Build Cleanup
