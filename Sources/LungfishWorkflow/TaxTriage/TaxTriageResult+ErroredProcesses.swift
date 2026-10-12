@@ -317,6 +317,6 @@ extension TaxTriageResult {
             return clause
         }
 
-        return "TaxTriage completed with errors: \(clauses.joined(separator: "; "))"
+        return "Some TaxTriage tasks failed: \(clauses.joined(separator: "; "))"
     }
 }

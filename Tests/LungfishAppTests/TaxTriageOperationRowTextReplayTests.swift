@@ -232,9 +232,9 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
 
         XCTAssertEqual(item.state, .completed)
         XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
-        let headline = "TaxTriage completed with errors: MINIMAP2_ALIGN failed for S1 (killed, usually for running out of memory)"
-        // M3 (T8): the headline becomes `Some TaxTriage tasks failed`. The report count follows the
+        // The headline reads `Some TaxTriage tasks failed` (T8), and the report count follows the
         // singular rule (T9).
+        let headline = "Some TaxTriage tasks failed: MINIMAP2_ALIGN failed for S1 (killed, usually for running out of memory)"
         XCTAssertEqual(item.detail, "\(headline) (1 report)")
 
         // One warning line per cause (T9), and the warning line makes the label (T8, D4). The row

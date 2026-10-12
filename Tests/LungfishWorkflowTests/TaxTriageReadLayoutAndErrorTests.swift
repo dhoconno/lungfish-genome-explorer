@@ -182,7 +182,7 @@ final class TaxTriageReadLayoutAndErrorTests: XCTestCase {
         let message = TaxTriageResult.erroredProcessesMessage(for: failures, hostTaxaExcluded: false)
         XCTAssertEqual(
             TaxTriageResult.erroredProcessesHeadline(for: failures),
-            "TaxTriage completed with errors: MINIMAP2_ALIGN failed for SRR12486983 after 4 attempts (killed, usually for running out of memory)"
+            "Some TaxTriage tasks failed: MINIMAP2_ALIGN failed for SRR12486983 after 4 attempts (killed, usually for running out of memory)"
         )
         XCTAssertEqual(message?.contains("TASS scores"), true)
         XCTAssertEqual(message?.contains("Exclude host taxa (9606 for human)"), true)
@@ -204,7 +204,7 @@ final class TaxTriageReadLayoutAndErrorTests: XCTestCase {
         )
         let message = try XCTUnwrap(TaxTriageResult.erroredProcessesMessage(for: [fastqc], hostTaxaExcluded: true))
         XCTAssertTrue(message.hasPrefix(
-            "TaxTriage completed with errors: FASTQC failed for SRR12486989 (killed, usually for running out of memory). "
+            "Some TaxTriage tasks failed: FASTQC failed for SRR12486989 (killed, usually for running out of memory). "
         ))
         XCTAssertTrue(message.contains("Only the quality-control plots in the MultiQC report are missing."))
         XCTAssertFalse(message.contains("TASS scores, are missing"))
@@ -235,7 +235,7 @@ final class TaxTriageReadLayoutAndErrorTests: XCTestCase {
         XCTAssertEqual(failures.first?.attempts, 4)
         XCTAssertEqual(
             TaxTriageResult.erroredProcessesHeadline(for: failures),
-            "TaxTriage completed with errors: Nextflow reported 4 failed task attempts without naming the process (see nextflow.log)"
+            "Some TaxTriage tasks failed: Nextflow reported 4 failed task attempts without naming the process (see nextflow.log)"
         )
     }
 
