@@ -202,9 +202,9 @@ extension TaxTriageCommand {
 
         /// Makes the pipeline `run()` drives (Phase 2.8 decision T14). The
         /// default is today's `TaxTriagePipeline.shared`. Only a test binds
-        /// another, whose micromamba and Nextflow are stand-ins, so the run
-        /// reaches no managed tool. The factory is task-local, so nothing can
-        /// assign it.
+        /// another, to run a stand-in Nextflow. Input materialization still
+        /// goes through `NativeToolRunner.shared`. The factory is task-local,
+        /// so nothing can assign it.
         @TaskLocal static var makePipeline: @Sendable () -> TaxTriagePipeline = { TaxTriagePipeline.shared }
 
         // MARK: - Validation
