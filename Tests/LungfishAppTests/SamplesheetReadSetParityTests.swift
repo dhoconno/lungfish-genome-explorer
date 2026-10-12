@@ -267,7 +267,7 @@ final class SamplesheetReadSetParityTests: XCTestCase {
         } else {
             unresolved = inputs.map {
                 TaxTriageSample(
-                    sampleId: TaxTriageCommand.RunSubcommand.sampleID(
+                    sampleId: TaxTriageAnalysisRunTool.sampleID(
                         for: $0,
                         explicitSampleID: command.sampleId,
                         totalSampleCount: inputs.count

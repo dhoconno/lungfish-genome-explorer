@@ -231,7 +231,7 @@ final class CLIEventContractCoverageTests: XCTestCase {
             case .text: counts["text", default: 0] += 1
             }
         }
-        XCTAssertEqual(counts["events"], 35)
+        XCTAssertEqual(counts["events"], 36, "taxtriage run emits events since 2.9 A2")
         XCTAssertEqual(counts["legacy"], 9)
         XCTAssertEqual(counts.values.reduce(0, +), CLIEventContractTable.entries.count)
     }

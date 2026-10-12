@@ -1,0 +1,13 @@
+{"event":"start","message":"Starting TaxTriage.","progress":0,"schemaVersion":2}
+{"event":"output","path":"\/work\/out","role":"analysis-directory","schemaVersion":2}
+{"event":"progress","message":"Running 2 samples.","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Checking prerequisites...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Generating samplesheet...","progress":0.05,"schemaVersion":2}
+{"event":"progress","message":"Starting TaxTriage pipeline...","progress":0.1,"schemaVersion":2}
+{"event":"progress","message":"[aa\/000001] Submitted process > NFCORE_TAXTRIAGE:TAXTRIAGE:KRAKEN2_KRAKEN2 (A)","progress":0.1,"schemaVersion":2}
+{"event":"progress","message":"[aa\/000001] process > NFCORE_TAXTRIAGE:TAXTRIAGE:KRAKEN2_KRAKEN2 (A) [100%] 1 of 1","progress":0.15333333333333335,"schemaVersion":2}
+{"event":"progress","message":"[aa\/000001] Submitted process > NFCORE_TAXTRIAGE:TAXTRIAGE:KRAKEN2_KRAKEN2 (B)","progress":0.15333333333333335,"schemaVersion":2}
+{"event":"progress","message":"[aa\/000001] process > NFCORE_TAXTRIAGE:TAXTRIAGE:KRAKEN2_KRAKEN2 (B) [100%] 1 of 1","progress":0.20666666666666667,"schemaVersion":2}
+{"event":"progress","message":"Collecting output files...","progress":0.9,"schemaVersion":2}
+{"event":"progress","message":"TaxTriage pipeline complete","progress":1,"schemaVersion":2}
+{"artifacts":[{"kind":"provenance","path":"\/work\/out\/.lungfish-provenance.json","role":"provenance"}],"event":"complete","message":"TaxTriage finished.","output":"\/work\/out","outputs":["\/work\/out"],"progress":1,"schemaVersion":2}

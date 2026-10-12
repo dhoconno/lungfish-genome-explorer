@@ -37,6 +37,9 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
     static let toolLeaves: Set<String> = [
         "tree infer iqtree", "align mafft", "assemble", "variants call", "bam primer-trim", "esviritu detect",
         "kraken2 classify", "conda classify",
+        // `taxtriage run` runs Nextflow. Its transcript is the routed command's run on the stand-in
+        // Nextflow (TaxTriageRunCommandReplayTests with LUNGFISH_RECAPTURE_CLI_EVENTS=1, lane A2).
+        "taxtriage run",
         // The two spellings of the FASTQ import share the folder `import-fastq` (lane Q4 of Phase 2.7).
         "import fastq", "import-fastq",
     ]

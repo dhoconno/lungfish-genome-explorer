@@ -52,6 +52,7 @@ extension TaxTriageAnalysisRunTool {
             }
             config.samples = resolved
         }
+        services.presentation.configured?(config)
 
         let pipeline = services.makePipeline()
         do {

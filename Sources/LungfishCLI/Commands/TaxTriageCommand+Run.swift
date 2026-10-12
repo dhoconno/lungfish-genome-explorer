@@ -12,6 +12,17 @@ import LungfishIO
 extension TaxTriageCommand {
 
     /// Execute the TaxTriage pipeline.
+    ///
+    /// The run goes through the analysis run executor with ``TaxTriageAnalysisRunTool`` (Phase 2.9
+    /// lane A2), so every refusal comes before any folder exists and a cancel records `cancelled`
+    /// with exit 125 in the executor's root record (S2). A plain `--output` runs every sample in one
+    /// Nextflow run into that folder, as the command always has (2.8 T2). `--project` makes
+    /// `Analyses/taxtriage-batch-<timestamp>/` in the project, where the app's TaxTriage runs put
+    /// it, and runs each sample of several in its own Nextflow run and folder there (2.9 T5, 2.8
+    /// T4). `--batch` gives each sample its own run and folder under `--output` too. With `--format
+    /// json` standard output holds the executor's version 2 events only. In text mode the command
+    /// prints its header, progress and results as it always has, with failures and warnings on
+    /// standard error. A SIGTERM cancels the run.
     struct RunSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "run",
@@ -67,10 +78,29 @@ extension TaxTriageCommand {
             name: [.customLong("output"), .customShort("o")],
             help: ArgumentHelp(
                 "Output directory for results",
-                discussion: "With several samples, one Nextflow run processes them all and writes their results to this folder."
+                discussion: "With several samples, one Nextflow run processes them all and writes their results to this folder. With --batch, each sample runs alone in its own folder inside it. Not with --project."
             )
         )
-        var outputDir: String
+        var outputDir: String?
+
+        /// The help names the folder the executor makes for a project, so change them together.
+        @Option(
+            name: .customLong("project"),
+            help: ArgumentHelp(
+                "The .lungfish project the run belongs to. The result lands in its Analyses/taxtriage-batch-<timestamp>/ folder, where the app's TaxTriage runs put it",
+                discussion: "One sample runs in that folder itself. Several samples each run alone, in a folder named after the sample and made safe for a folder name. Not with --output."
+            )
+        )
+        var project: String?
+
+        @Flag(
+            name: .customLong("batch"),
+            help: ArgumentHelp(
+                "Run each sample alone, in its own Nextflow run and folder of one batch result",
+                discussion: "Without --batch, a plain --output runs every sample in one Nextflow run. --batch pairs no R1 and R2 files by name, so give pairs in a --samplesheet. Give --output or --project."
+            )
+        )
+        var batch: Bool = false
 
         // MARK: - Database Options
 
@@ -162,11 +192,10 @@ extension TaxTriageCommand {
 
         @OptionGroup var globalOptions: GlobalOptions
 
-        /// Makes the pipeline `run()` drives (Phase 2.8 decision T14). The
-        /// default is today's `TaxTriagePipeline.shared`. Only a test binds
-        /// another, to run a stand-in Nextflow. Input materialization still
-        /// goes through `NativeToolRunner.shared`. The factory is task-local,
-        /// so nothing can assign it.
+        /// Makes the pipeline each unit runs (Phase 2.8 decision T14). The default is today's
+        /// `TaxTriagePipeline.shared`. Only a test binds another, to run a stand-in Nextflow.
+        /// Input materialization still goes through `NativeToolRunner.shared`. The factory is
+        /// task-local, so nothing can assign it, and ``execute(events:)`` reads it once.
         @TaskLocal static var makePipeline: @Sendable () -> TaxTriagePipeline = { TaxTriagePipeline.shared }
 
         // MARK: - Validation
@@ -224,261 +253,132 @@ extension TaxTriageCommand {
         // MARK: - Execution
 
         func run() async throws {
-            try await runCancellingOnSIGTERM()
+            try await execute()
         }
 
-        /// What `run()` does, as the one task that a SIGTERM cancels
-        /// (`runCancellingOnSIGTERM()` in TaxTriageCommand+Cancellation.swift).
-        func execute() async throws {
-            let formatter = TerminalFormatter(useColors: globalOptions.useColors)
-
-            let outputDirectory = URL(fileURLWithPath: outputDir)
-
-            // Build samples from either --input or --samplesheet. A sample
-            // named by --input is resolved to the files TaxTriage reads once
-            // the cheap checks below have passed (`resolveSamples`).
-            var samples: [TaxTriageSample]
-            var resolvesInputs = false
-
-            if let samplesheetPath = samplesheet {
-                // Parse samplesheet
-                let sheetURL = URL(fileURLWithPath: samplesheetPath)
-                guard FileManager.default.fileExists(atPath: sheetURL.path) else {
-                    print(formatter.error("Samplesheet not found: \(samplesheetPath)"))
-                    throw CLIExitCode.inputError.exitCode
-                }
-
-                let entries = try TaxTriageSamplesheet.parse(url: sheetURL)
-                samples = entries.map { entry in
-                    let entryPlatform = TaxTriageConfig.Platform(
-                        rawValue: entry.platform
-                    ) ?? platform.toPlatform()
-                    return TaxTriageSample(
-                        sampleId: entry.sampleId,
-                        fastq1: URL(fileURLWithPath: entry.fastq1Path),
-                        fastq2: entry.fastq2Path.map {
-                            URL(fileURLWithPath: $0)
-                        },
-                        platform: entryPlatform
-                    )
-                }
-            } else {
-                // Build sample(s) from --input. A directory input expands to one sample per file.
-                guard let inputPath = input else {
-                    print(formatter.error("--input is required"))
-                    throw CLIExitCode.inputError.exitCode
-                }
-
-                let expandedInputURLs: [URL]
-                do {
-                    expandedInputURLs = try CLIClassificationFolderResolver.expandInputArguments(
-                        [inputPath],
-                        recursive: recursive
-                    )
-                } catch {
-                    print(formatter.error(error.localizedDescription))
-                    throw CLIExitCode.inputError.exitCode
-                }
-                guard !expandedInputURLs.isEmpty else {
-                    print(formatter.error("No eligible FASTQ inputs found in \(inputPath)"))
-                    throw CLIExitCode.inputError.exitCode
-                }
-
-                if let input2Path = input2 {
-                    guard expandedInputURLs.count == 1 else {
-                        print(formatter.error("--input2 cannot be combined with a directory containing multiple inputs"))
-                        throw CLIExitCode.inputError.exitCode
-                    }
-                    let r2 = URL(fileURLWithPath: input2Path)
-                    guard FileManager.default.fileExists(atPath: r2.path) else {
-                        print(formatter.error(
-                            "Input R2 file not found: \(input2Path)"
-                        ))
-                        throw CLIExitCode.inputError.exitCode
-                    }
-                    samples = [TaxTriageSample(
-                        sampleId: sampleId ?? expandedInputURLs[0].deletingPathExtension().deletingPathExtension().lastPathComponent,
-                        fastq1: expandedInputURLs[0],
-                        fastq2: r2,
-                        platform: platform.toPlatform()
-                    )]
-                } else {
-                    // A .lungfishfastq bundle is planned in `resolveSamples`,
-                    // the way the app's TaxTriage launch plans it. A sample of
-                    // pairs runs as fastq_1 and fastq_2, a strictly interleaved
-                    // file is split into R1/R2 by TaxTriagePipeline and runs as
-                    // pairs, and every read of a mixed or chunked sample runs
-                    // in one file (docs/contracts/READ-PAIRING.md).
-                    samples = expandedInputURLs.map { inputURL in
-                        TaxTriageSample(
-                            sampleId: Self.sampleID(for: inputURL, explicitSampleID: sampleId, totalSampleCount: expandedInputURLs.count),
-                            fastq1: inputURL,
-                            platform: platform.toPlatform()
-                        )
-                    }
-                }
-                resolvesInputs = true
+        /// The body of ``run()``. It runs the request through the executor, with a SIGTERM turned
+        /// into a cancel of the run, so the run records `cancelled`, settles its folder and exits 125
+        /// inside the grace the app's transport gives it. A cancel is taken from the SIGTERM count
+        /// and the cancel request, never from how Nextflow ended (SWIFT X2). Given `events`, the
+        /// executor's events go there in place of the lines this command writes, so a test can read
+        /// each one. It throws the run's exit code when the run did not complete.
+        func execute(events eventsOverride: AnalysisRunEvents? = nil) async throws {
+            let eventsOn = globalOptions.outputFormat == .json
+            let useColors = globalOptions.useColors
+            let quiet = globalOptions.quiet
+            let pendingCancel = PendingTaskCancel<AnalysisRunReport>()
+            let cancelRequested: @Sendable () -> Bool = {
+                SIGTERMCancellation.signalCaught || pendingCancel.cancelRequested
             }
-
-            // Resolve database path
-            var dbURL: URL?
-            if let dbPath = databasePath {
-                dbURL = URL(fileURLWithPath: dbPath)
-                guard FileManager.default.fileExists(atPath: dbURL!.path) else {
-                    print(formatter.error("Database not found: \(dbPath)"))
-                    throw CLIExitCode.inputError.exitCode
-                }
-            } else {
-                // TaxTriage v3.3.x validates its own parameters and rejects a run with
-                // neither --db nor --download_db. Without this check the omission
-                // surfaces as an opaque "pipeline failed with exit code 1" from deep
-                // inside Nextflow, so fail here with something actionable instead.
-                print(formatter.error("A Kraken2 database is required: pass --db <path>"))
-                print(formatter.info("  List installed databases: lungfish-cli conda db list"))
-                print(formatter.info("  Install one:              lungfish-cli conda db download Viral"))
-                throw CLIExitCode.inputError.exitCode
-            }
-
-            // Resolve each --input sample to the files TaxTriage reads, once
-            // the cheap checks above have passed, since a virtual bundle is
-            // materialized here. The materialized and joined files stay in
-            // the output's inputs folder after the run, because the record
-            // names them (O1).
-            let materializationDirectory = outputDirectory.appendingPathComponent(
-                Self.materializationDirectoryName,
-                isDirectory: true
+            let (destination, conflict) = resultDestination()
+            let services = TaxTriageRunServices(
+                makePipeline: Self.makePipeline,
+                expandInputs: { arguments, recursive in
+                    try CLIClassificationFolderResolver.expandInputArguments(arguments, recursive: recursive)
+                },
+                materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared),
+                lock: .bundled,
+                cancelRequested: cancelRequested,
+                presentation: eventsOn || eventsOverride != nil ? .none : textPresentation(useColors: useColors)
             )
-            if resolvesInputs {
-                do {
-                    samples = try await Self.resolveSamples(
-                        samples,
-                        materializationDirectory: materializationDirectory,
-                        materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared),
-                        progress: { message in
-                            if !globalOptions.quiet {
-                                print(formatter.info(message))
-                            }
-                        }
-                    )
-                } catch {
-                    // A SIGTERM here is a cancel, whatever error the stopped tool raised.
-                    if Task.isCancelled || error is CancellationError { throw CancellationError() }
-                    print(formatter.error(error.localizedDescription))
-                    throw CLIExitCode.inputError.exitCode
+            let tool = TaxTriageAnalysisRunTool(request: runRequest(usageConflict: conflict), services: services)
+            let request = AnalysisRunRequest(
+                inputs: [input ?? samplesheet].compactMap { $0 }.map { URL(fileURLWithPath: $0).standardizedFileURL },
+                destination: destination,
+                groupsSamples: batch,
+                commandLine: Self.recordedCommandLine(CommandLine.arguments, fallback: canonicalArguments())
+            )
+            let events = eventsOverride ?? (eventsOn
+                ? AnalysisRunEvents.jsonLines { printEventLine($0) }
+                : Self.textEvents(useColors: useColors, quiet: quiet))
+
+            // The listener starts before the task, so a SIGTERM caught before then cancels the task
+            // as soon as it exists, and a second SIGTERM ends the command at once.
+            let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
+            let executor = AnalysisRunExecutor(services: AnalysisRunServices(cancelRequested: cancelRequested))
+            let task = Task { await executor.execute(tool, request, events: events) }
+            pendingCancel.attach(task)
+            let report = await task.value
+            termination.end()
+
+            if !eventsOn, eventsOverride == nil, report.status == .completed {
+                printTextSummary(report, formatter: TerminalFormatter(useColors: useColors))
+            }
+            guard report.exitCode == 0 else {
+                throw ExitCode(report.exitCode)
+            }
+        }
+
+        /// The request the tool plans, the options as given with a configuration of every other
+        /// setting. The plan sets each launch's samples, output folder, revision and extra
+        /// arguments, so the configuration's values for those four are never read.
+        func runRequest(usageConflict: String? = nil) -> TaxTriageRunRequest {
+            let destinationURL: URL
+            switch resultDestination().0 {
+            case .project(let url), .directory(let url):
+                destinationURL = url
+            }
+            return TaxTriageRunRequest(
+                input: input,
+                input2: input2,
+                recursive: recursive,
+                sampleID: sampleId,
+                samplesheet: samplesheet,
+                revision: revision,
+                extraArguments: extraArgs,
+                settings: settingsConfig(samples: [], outputDirectory: destinationURL, extraArguments: []),
+                usageConflict: usageConflict
+            )
+        }
+
+        /// Where the result goes, and a conflict of the flags that name it, which the plan refuses
+        /// before any folder exists. `--project` makes a new batch folder in the project and
+        /// `--output` names the folder.
+        func resultDestination() -> (AnalysisRunDestination, conflict: String?) {
+            let currentDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            if let project {
+                let projectURL = URL(fileURLWithPath: project, isDirectory: true).standardizedFileURL
+                if outputDir != nil {
+                    return (.project(projectURL), "--project makes the result folder in the project, so it takes no --output.")
                 }
+                var isDirectory: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: projectURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                    return (.project(projectURL), "Project not found: \(projectURL.path)")
+                }
+                return (.project(projectURL), nil)
             }
-
-            // Determine effective skipAssembly (default true unless --no-skip-assembly)
-            let effectiveSkipAssembly: Bool
-            if noSkipAssembly {
-                effectiveSkipAssembly = false
-            } else if skipAssembly {
-                effectiveSkipAssembly = true
-            } else {
-                effectiveSkipAssembly = true
+            if let outputDir {
+                return (.directory(URL(fileURLWithPath: outputDir).standardizedFileURL), nil)
             }
+            return (.directory(currentDirectory), "Give --output or --project to name where the result goes.")
+        }
 
-            // Build configuration
-            let config = TaxTriageConfig(
+        /// Every setting of the command as a configuration, with the samples, output folder and
+        /// extra arguments given.
+        func settingsConfig(samples: [TaxTriageSample], outputDirectory: URL, extraArguments: [String]) -> TaxTriageConfig {
+            TaxTriageConfig(
                 samples: samples,
                 platform: platform.toPlatform(),
                 outputDirectory: outputDirectory,
-                kraken2DatabasePath: dbURL,
+                kraken2DatabasePath: databasePath.map { URL(fileURLWithPath: $0) },
                 classifiers: ["kraken2"],
                 topHitsCount: topHits,
                 k2Confidence: confidence,
                 rank: rank,
-                skipAssembly: effectiveSkipAssembly,
+                // Assembly is skipped unless --no-skip-assembly asks for it.
+                skipAssembly: !noSkipAssembly,
                 skipKrona: skipKrona,
                 maxMemory: maxMemory,
                 maxCpus: maxCpus ?? ProcessInfo.processInfo.activeProcessorCount,
                 profile: nfProfile,
                 containerRuntime: nil,
                 revision: revision,
-                extraArguments: try AdvancedCommandLineOptions.parse(extraArgs),
+                extraArguments: extraArguments,
                 removeTaxids: normalizedRemoveTaxids
             )
-
-            // Print configuration summary
-            print(formatter.header("TaxTriage Pipeline"))
-            print("")
-            print(formatter.keyValueTable([
-                ("Samples", String(samples.count)),
-                ("Platform", platform.rawValue),
-                ("Database", dbURL?.lastPathComponent ?? "default"),
-                ("Confidence", String(format: "%.2f", confidence)),
-                ("Top hits", String(topHits)),
-                ("Rank", rank),
-                ("Skip assembly", effectiveSkipAssembly ? "yes" : "no"),
-                ("Skip Krona", skipKrona ? "yes" : "no"),
-                ("Exclude host taxa", config.effectiveRemoveTaxids
-                    ?? (TaxTriageConfig.extraArgumentsSetRemoveTaxids(config.extraArguments) ? "set in --extra-args" : "none")),
-                ("Max memory", maxMemory),
-                ("Max CPUs", String(config.maxCpus)),
-                ("Profile", nfProfile),
-                ("Revision", revision ?? (try? NextflowWorkflowDescriptor.taxTriage.resolveBundledPin())?.revision ?? "none pinned"),
-                ("Output", outputDirectory.path),
-            ]))
-            print("")
-
-            // Run pipeline
-            let pipeline = Self.makePipeline()
-
-            let result = try await pipeline.run(config: config) { fraction, message in
-                if !globalOptions.quiet {
-                    let pct = Int(fraction * 100)
-                    print("\r\(formatter.info("[\(pct)%] \(message)"))  ", terminator: "")
-                    fflush(stdout)
-                }
-            }
-
-            // Clear progress line
-            print("")
-            print("")
-
-            // Print results
-            print(formatter.header("Results"))
-            print("")
-            print(result.summary)
-            print("")
-
-            // Print output files
-            print(formatter.header("Output Files"))
-            if !result.reportFiles.isEmpty {
-                for report in result.reportFiles {
-                    print("  Report:  \(formatter.path(report.path))")
-                }
-            }
-            if !result.metricsFiles.isEmpty {
-                for metrics in result.metricsFiles {
-                    print("  Metrics: \(formatter.path(metrics.path))")
-                }
-            }
-            if !result.kronaFiles.isEmpty {
-                for krona in result.kronaFiles {
-                    print("  Krona:   \(formatter.path(krona.path))")
-                }
-            }
-            if let log = result.logFile {
-                print("  Log:     \(formatter.path(log.path))")
-            }
-            print("")
-
-            let runtimeStr = String(format: "%.1f", result.runtime)
-            if let erroredProcessesMessage = result.erroredProcessesMessage {
-                // Nextflow exited 0, but TaxTriage ignored errored tasks.
-                print(formatter.warning(erroredProcessesMessage))
-                print("")
-                print(formatter.warning("TaxTriage completed with warnings in \(runtimeStr)s"))
-            } else {
-                print(formatter.success(
-                    "TaxTriage completed in \(runtimeStr)s"
-                ))
-            }
         }
 
         func makeConfigForTesting() throws -> TaxTriageConfig {
-            let outputDirectory = URL(fileURLWithPath: outputDir)
             let samples: [TaxTriageSample]
             if let inputPath = input, let sid = sampleId {
                 samples = [
@@ -492,35 +392,151 @@ extension TaxTriageCommand {
             } else {
                 samples = []
             }
-
-            let effectiveSkipAssembly = noSkipAssembly ? false : true
-            return TaxTriageConfig(
+            return settingsConfig(
                 samples: samples,
-                platform: platform.toPlatform(),
-                outputDirectory: outputDirectory,
-                kraken2DatabasePath: databasePath.map { URL(fileURLWithPath: $0) },
-                classifiers: ["kraken2"],
-                topHitsCount: topHits,
-                k2Confidence: confidence,
-                rank: rank,
-                skipAssembly: effectiveSkipAssembly,
-                skipKrona: skipKrona,
-                maxMemory: maxMemory,
-                maxCpus: maxCpus ?? ProcessInfo.processInfo.activeProcessorCount,
-                profile: nfProfile,
-                containerRuntime: nil,
-                revision: revision,
-                extraArguments: try AdvancedCommandLineOptions.parse(extraArgs),
-                removeTaxids: normalizedRemoveTaxids
+                outputDirectory: URL(fileURLWithPath: outputDir ?? project ?? FileManager.default.currentDirectoryPath),
+                extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
             )
         }
 
-        static func sampleID(for url: URL, explicitSampleID: String?, totalSampleCount: Int) -> String {
-            let base = url.deletingPathExtension().deletingPathExtension().lastPathComponent
-            guard let explicitSampleID, !explicitSampleID.isEmpty else {
-                return base
+        /// The argv the root record names, the one this process was started with when it ran this
+        /// leaf, else ``canonicalArguments()`` (a test runs the command inside another process).
+        static func recordedCommandLine(_ arguments: [String], fallback: @autoclosure () -> [String]) -> [String] {
+            if let index = arguments.firstIndex(of: "taxtriage"),
+               arguments.indices.contains(index + 1),
+               arguments[index + 1] == "run" {
+                return arguments
             }
-            return totalSampleCount == 1 ? explicitSampleID : "\(explicitSampleID)-\(base)"
+            return fallback()
+        }
+
+        /// The command that runs these options again, every option it was given spelled out.
+        func canonicalArguments() -> [String] {
+            var arguments = [CLICommandIdentity.executableName, "taxtriage", "run"]
+            if let input { arguments += ["--input", input] }
+            if let input2 { arguments += ["--input2", input2] }
+            if recursive { arguments.append("--recursive") }
+            if let sampleId { arguments += ["--sample", sampleId] }
+            if let samplesheet { arguments += ["--samplesheet", samplesheet] }
+            arguments += ["--platform", platform.rawValue]
+            if let project { arguments += ["--project", project] }
+            if let outputDir { arguments += ["--output", outputDir] }
+            if batch { arguments.append("--batch") }
+            if let databasePath { arguments += ["--db", databasePath] }
+            arguments += ["--confidence", String(confidence), "--top-hits", String(topHits), "--rank", rank]
+            if skipAssembly { arguments.append("--skip-assembly") }
+            if noSkipAssembly { arguments.append("--no-skip-assembly") }
+            if skipKrona { arguments.append("--skip-krona") }
+            if let removeTaxids { arguments += ["--remove-taxids", removeTaxids] }
+            arguments += ["--max-memory", maxMemory]
+            if let maxCpus { arguments += ["--max-cpus", String(maxCpus)] }
+            arguments += ["--nf-profile", nfProfile]
+            if let revision { arguments += ["--revision", revision] }
+            if !extraArgs.isEmpty { arguments += ["--extra-args", extraArgs] }
+            if let threads = globalOptions.threads { arguments += ["--threads", String(threads)] }
+            if globalOptions.outputFormat == .json { arguments += ["--format", "json"] }
+            return arguments
+        }
+
+        // MARK: - Text
+
+        /// Text mode prints the progress line a person reads as it always has, with warnings and the
+        /// failure on standard error (UX D11), and the two hints of a missing `--db` after its words.
+        static func textEvents(useColors: Bool, quiet: Bool) -> AnalysisRunEvents {
+            AnalysisRunEvents { line in
+                let formatter = TerminalFormatter(useColors: useColors)
+                switch line.event {
+                case .progress(let fraction, let message)?:
+                    guard !quiet else { return }
+                    print("\r\(formatter.info("[\(Int(fraction * 100))%] \(message)"))  ", terminator: "")
+                    fflush(stdout)
+                case .log(.info, let message)?:
+                    if !quiet { print(formatter.info(message)) }
+                case .log(.warning, let message)?:
+                    if !quiet { printStatusLine(formatter.warning(message)) }
+                case .log(.error, let message)?:
+                    printStatusLine(formatter.error(message))
+                case .failed(let message, let detail)?:
+                    // The progress line has no line break yet.
+                    if !quiet { print("") }
+                    printStatusLine(formatter.error(message))
+                    if let detail { printStatusLine(detail) }
+                    if message == TaxTriageRunRefusal.missingDatabaseMessage {
+                        printStatusLine(formatter.info("  List installed databases: lungfish-cli conda db list"))
+                        printStatusLine(formatter.info("  Install one:              lungfish-cli conda db download Viral"))
+                    }
+                default:
+                    break
+                }
+            }
+        }
+
+        /// The header and settings table each launch prints before Nextflow starts.
+        private func textPresentation(useColors: Bool) -> TaxTriageRunPresentation {
+            let platformName = platform.rawValue
+            let databaseName = databasePath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "default"
+            return TaxTriageRunPresentation(configured: { config in
+                let formatter = TerminalFormatter(useColors: useColors)
+                print(formatter.header("TaxTriage Pipeline"))
+                print("")
+                print(formatter.keyValueTable([
+                    ("Samples", String(config.samples.count)),
+                    ("Platform", platformName),
+                    ("Database", databaseName),
+                    ("Confidence", String(format: "%.2f", config.k2Confidence)),
+                    ("Top hits", String(config.topHitsCount)),
+                    ("Rank", config.rank),
+                    ("Skip assembly", config.skipAssembly ? "yes" : "no"),
+                    ("Skip Krona", config.skipKrona ? "yes" : "no"),
+                    ("Exclude host taxa", config.effectiveRemoveTaxids
+                        ?? (TaxTriageConfig.extraArgumentsSetRemoveTaxids(config.extraArguments) ? "set in --extra-args" : "none")),
+                    ("Max memory", config.maxMemory),
+                    ("Max CPUs", String(config.maxCpus)),
+                    ("Profile", config.profile),
+                    ("Revision", config.revision ?? "none pinned"),
+                    ("Output", config.outputDirectory.path),
+                ]))
+                print("")
+            })
+        }
+
+        /// The results of a completed run as the command has always printed them for one result
+        /// folder, and the folder and the run's detail for a batch of sample folders.
+        private func printTextSummary(_ report: AnalysisRunReport, formatter: TerminalFormatter) {
+            guard let folder = report.analysisDirectory else { return }
+            print("")
+            print("")
+            print(formatter.header("Results"))
+            print("")
+            guard let result = try? TaxTriageResult.load(from: folder) else {
+                print("  Output:  \(formatter.path(folder.path))")
+                print("")
+                print(formatter.success(report.message))
+                return
+            }
+            print(result.summary)
+            print("")
+            print(formatter.header("Output Files"))
+            for report in result.reportFiles {
+                print("  Report:  \(formatter.path(report.path))")
+            }
+            for metrics in result.metricsFiles {
+                print("  Metrics: \(formatter.path(metrics.path))")
+            }
+            for krona in result.kronaFiles {
+                print("  Krona:   \(formatter.path(krona.path))")
+            }
+            if let log = result.logFile {
+                print("  Log:     \(formatter.path(log.path))")
+            }
+            print("")
+            let runtime = String(format: "%.1f", result.runtime)
+            if result.erroredProcessesMessage != nil {
+                // The paragraph of errored tasks went to standard error as the run's warning.
+                print(formatter.warning("TaxTriage completed with warnings in \(runtime)s"))
+            } else {
+                print(formatter.success("TaxTriage completed in \(runtime)s"))
+            }
         }
     }
 }

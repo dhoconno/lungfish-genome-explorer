@@ -315,8 +315,9 @@ extension TaxTriageParityHarness {
         }
         // 2.8 T17. Until A2 changes the command of a one-sample row, Copy CLI Command replays into
         // the GUI's own folder, so the recorded --output names side A's analysis folder.
-        if Self.resolved(parsed.outputDir) != Self.resolved(analysis.path) {
-            violate("the one-sample row's command writes the GUI's own folder (2.8 T17, until A2)", parsed.outputDir)
+        // `--output` is optional since `taxtriage run` takes `--project` (A2), and the row still names it.
+        if parsed.outputDir.map(Self.resolved) != Self.resolved(analysis.path) {
+            violate("the one-sample row's command writes the GUI's own folder (2.8 T17, until A2)", parsed.outputDir ?? "no --output")
         }
     }
 

@@ -36,6 +36,9 @@ package struct TaxTriageRunRequest: Sendable {
     /// `--nf-profile`. The plan sets the samples, output folder, revision and extra arguments of each
     /// launch, so the values this configuration holds for those four are never read.
     package var settings: TaxTriageConfig
+    /// Why the flags that name the result's place cannot run together, such as `--project` with
+    /// `--output`, which the plan refuses first, before any folder exists. Nil for none.
+    package var usageConflict: String?
 
     package init(
         input: String? = nil,
@@ -45,7 +48,8 @@ package struct TaxTriageRunRequest: Sendable {
         samplesheet: String? = nil,
         revision: String? = nil,
         extraArguments: String = "",
-        settings: TaxTriageConfig
+        settings: TaxTriageConfig,
+        usageConflict: String? = nil
     ) {
         self.input = input
         self.input2 = input2
@@ -55,6 +59,7 @@ package struct TaxTriageRunRequest: Sendable {
         self.revision = revision
         self.extraArguments = extraArguments
         self.settings = settings
+        self.usageConflict = usageConflict
     }
 }
 
@@ -65,6 +70,10 @@ package struct TaxTriageRunRefusal: Error, LocalizedError, AnalysisRunExitCoding
     package static let inputErrorCode: Int32 = 3
     /// `CLIExitCode.dependency`.
     package static let dependencyCode: Int32 = 126
+    /// The words of a run without `--db`. TaxTriage v3.3.x refuses a run with neither `--db` nor
+    /// `--download_db` deep inside Nextflow, so the plan refuses it first. The command's text mode
+    /// prints its two hints after these words.
+    package static let missingDatabaseMessage = "A Kraken2 database is required: pass --db <path>"
 
     package let message: String
     package let analysisRunExitCode: Int32
@@ -108,23 +117,41 @@ package struct TaxTriageRunServices: Sendable {
     /// Whether a cancel was asked for, such as a SIGTERM the command's `SIGTERMCancellation` counted,
     /// the same source the executor's `cancelRequested` reads (S2).
     package var cancelRequested: @Sendable () -> Bool
+    /// What a person reading text sees beside the events. The command line fills it in for text
+    /// and leaves it empty for `--format json`.
+    package var presentation: TaxTriageRunPresentation
 
     package init(
         makePipeline: @escaping @Sendable () -> TaxTriagePipeline = { TaxTriagePipeline.shared },
         expandInputs: @escaping @Sendable ([String], Bool) throws -> [URL] = TaxTriageRunServices.literalInputs,
         materializer: any CLISequenceInputMaterializing & Sendable = FASTQCLIMaterializer(runner: NativeToolRunner.shared),
         lock: ManagedToolLock = .bundled,
-        cancelRequested: @escaping @Sendable () -> Bool = { false }
+        cancelRequested: @escaping @Sendable () -> Bool = { false },
+        presentation: TaxTriageRunPresentation = .none
     ) {
         self.makePipeline = makePipeline
         self.expandInputs = expandInputs
         self.materializer = materializer
         self.lock = lock
         self.cancelRequested = cancelRequested
+        self.presentation = presentation
     }
 
     /// Each argument as one input, without expanding a folder.
     package static let literalInputs: @Sendable ([String], Bool) throws -> [URL] = { arguments, _ in
         arguments.map { URL(fileURLWithPath: $0) }
     }
+}
+
+/// What a TaxTriage run shows a person reading text, beside its events, as `Kraken2RunPresentation`
+/// does for Kraken2.
+package struct TaxTriageRunPresentation: Sendable {
+    /// Called once per unit with the configuration its launch is about to run, its inputs resolved.
+    package var configured: (@Sendable (TaxTriageConfig) -> Void)?
+
+    package init(configured: (@Sendable (TaxTriageConfig) -> Void)? = nil) {
+        self.configured = configured
+    }
+
+    package static let none = TaxTriageRunPresentation()
 }

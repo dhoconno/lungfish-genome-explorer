@@ -11,7 +11,9 @@
 // The check needs a process that may die, so the test runs this test bundle again in a child
 // xctest process, which runs `taxtriage run` on `TaxTriageStandInEngine` in process, as the other
 // replay classes do. The parent waits until the engine runs, sends the child one SIGTERM and reads
-// how the child ended. The executor's own exit 125 and `cancelled` record are lane S2's, in A2.
+// how the child ended. Since lane A2 runs `taxtriage run` on the analysis run executor, the
+// executor's cancel contract records the cancel (S2), so the record is the executor's root record
+// under `lungfish.taxtriage.run`, with `cancelled` and 125, written inside the CLI's 6 s grace.
 //
 // The engine starts processes, so the class runs serially. Its name ends in ReplayTests, which
 // sends it to the integration tier (`REPLAY_SUITES` in scripts/full-suite-gate.sh).
@@ -78,8 +80,14 @@ final class TaxTriageRunSIGTERMReplayTests: XCTestCase {
         XCTAssertEqual(outcome, "exit 125", "a cancelled `taxtriage run` exits with CLIExitCode.cancelled")
         XCTAssertLessThan(waited, .seconds(6), "the command outlasted the CLI's 6 s grace (T12), after which the app kills it")
 
-        // The pipeline's own cancel ran, so it recorded the cancel and stopped the engine.
+        // The cancel reached the executor's run (S2). The pipeline stopped the engine and handed its
+        // cancelled step to the executor, whose root record names the cancel and 125.
         let record = try ProvenanceEnvelopeReader.load(from: folder.appendingPathComponent("output", isDirectory: true))
+        XCTAssertEqual(
+            record?.workflowName,
+            TaxTriageAnalysisRunTool.workflowName,
+            "the executor writes the record of the cancelled run, not the pipeline's own save"
+        )
         XCTAssertEqual(record?.status, .cancelled, "the run records the cancel")
         XCTAssertEqual(record?.exitStatus, 125)
         XCTAssertNotNil(enginePID, "the child wrote no engine pid")

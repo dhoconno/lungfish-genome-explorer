@@ -53,6 +53,9 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
         _ runRequest: AnalysisRunRequest,
         context: AnalysisRunPlanningContext
     ) async throws -> AnalysisRunPlan<TaxTriageRunUnit> {
+        if let conflict = request.usageConflict {
+            throw TaxTriageRunRefusal.input(conflict)
+        }
         let pin = try NextflowWorkflowDescriptor.taxTriage.resolvePin(in: services.lock)
         let revision = try launchRevision(pin: pin)
         let samples = try plannedSamples()
@@ -254,7 +257,7 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
     /// neither `--db` nor `--download_db` deep inside Nextflow.
     func refuseMissingDatabase() throws {
         guard let database = request.settings.kraken2DatabasePath else {
-            throw TaxTriageRunRefusal.input("A Kraken2 database is required: pass --db <path>")
+            throw TaxTriageRunRefusal.input(TaxTriageRunRefusal.missingDatabaseMessage)
         }
         guard FileManager.default.fileExists(atPath: database.path) else {
             throw TaxTriageRunRefusal.input("Database not found: \(database.path)")

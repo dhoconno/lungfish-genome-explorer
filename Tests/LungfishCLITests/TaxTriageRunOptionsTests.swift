@@ -76,7 +76,7 @@ final class TaxTriageRunOptionsTests: XCTestCase {
         XCTAssertEqual(resolved.fastq1.standardizedFileURL, payload.standardizedFileURL)
         XCTAssertNil(resolved.fastq2)
         XCTAssertEqual(
-            TaxTriageCommand.RunSubcommand.sampleID(for: bundle, explicitSampleID: nil, totalSampleCount: 1),
+            TaxTriageAnalysisRunTool.sampleID(for: bundle, explicitSampleID: nil, totalSampleCount: 1),
             "Patient"
         )
         XCTAssertTrue(TaxTriagePipeline.shouldSplitInterleaved(resolved),

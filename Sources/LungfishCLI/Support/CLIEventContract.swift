@@ -74,7 +74,7 @@ public enum CLIEventContractTable {
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
-    // MARK: Leaves that emit events (35)
+    // MARK: Leaves that emit events (36)
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
@@ -106,6 +106,7 @@ public enum CLIEventContractTable {
         "msa extract": .events(flag: formatJSON, channel: .standardOutput),
         "msa mask columns": .events(flag: formatJSON, channel: .standardOutput),
         "msa trim columns": .events(flag: formatJSON, channel: .standardOutput),
+        "taxtriage run": .events(flag: formatJSON, channel: .standardOutput),
         "tree export subtree": .events(flag: formatJSON, channel: .standardOutput),
         "tree extract-subtree": .events(flag: formatJSON, channel: .standardOutput),
         "tree infer iqtree": .events(flag: formatJSON, channel: .standardOutput),
@@ -209,7 +210,7 @@ public enum CLIEventContractTable {
         "fastq ont-barcode-genotype": .legacy(schemaID: "r1-ont-barcode-genotyping", removeBy: "2.8"),
     ]
 
-    // MARK: Leaves with human text only (120)
+    // MARK: Leaves with human text only (119)
 
     private static let text: [String: CLIEventContract] = [
         "bam adopt-mapping": .text(reason: ignoresFormat),
@@ -325,7 +326,6 @@ public enum CLIEventContractTable {
         "sequence delete-annotations": .text(reason: ignoresFormat),
         "sequence update-annotation": .text(reason: ignoresFormat),
         "taxtriage check-prerequisites": .text(reason: ignoresFormat),
-        "taxtriage run": .text(reason: ignoresFormat),
         "variants extract-sample": .text(reason: ignoresFormat),
         "variants phase": .text(reason: ignoresFormat),
         "variants query": .text(reason: ignoresFormat),
