@@ -21,8 +21,9 @@ private let logger = Logger(subsystem: "com.lungfish.workflow", category: "TaxTr
 /// among it (T13), goes while the engine runs. Containers run by Docker are outside the host tree
 /// and are not stopped here.
 struct TaxTriageEngineProcess: Sendable {
-    /// Nextflow's grace on the in-process route, which fits inside the 6 s the app's transport
-    /// gives the CLI (T12).
+    /// Nextflow's grace on the in-process route, the same 4 s it has inside the CLI's 6 s on the
+    /// CLI route (T12). It ends well inside the 10 s OperationCenter gives a cancelled row, so the
+    /// row settles from the worker.
     static let defaultTerminationGracePeriod: Duration = .seconds(4)
 
     /// How the engine ended, read once its whole tree is gone.
