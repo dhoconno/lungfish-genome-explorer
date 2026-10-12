@@ -85,7 +85,7 @@ final class TaxTriagePipelineCancelReplayTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(waited, .milliseconds(3500), "the tree has its 4 s grace before KILL")
         // T5, where the launch scratch went while the engine's child still ran.
         XCTAssertFalse(workWentWhileTheChildRan, "the scratch goes only once the tree is gone")
-        XCTAssertLessThan(waited, .seconds(30))
+        XCTAssertLessThan(waited, .seconds(10), "the KILL comes at the 4 s grace, so the run returns inside OperationCenter's 10 s")
         XCTAssertNil(ended?.exitStatus, "a launch a signal ended, or one still running, records no exit status")
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: launch.workingDirectory),
