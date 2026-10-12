@@ -1392,7 +1392,7 @@ public actor ClassificationPipeline {
             guard fileManager.fileExists(atPath: url.path) else { return nil }
             return ProvenanceRecorder.fileRecord(url: url, format: format, role: role)
         }
-        _ = await provenanceRecorder.recordStep(
+        let kraken2StepID = await provenanceRecorder.recordStep(
             runID: runID,
             toolName: "kraken2",
             toolVersion: toolVersion,
@@ -1412,7 +1412,8 @@ public actor ClassificationPipeline {
             dependsOn: dependsOn
         )
         await Self.removeInterleavedSplit(
-            interleavedHalves, of: effectiveConfig, recorder: provenanceRecorder, runID: runID, dependsOn: dependsOn
+            interleavedHalves, of: effectiveConfig, recorder: provenanceRecorder, runID: runID,
+            dependsOn: [kraken2StepID].compactMap { $0 }
         )
     }
 
