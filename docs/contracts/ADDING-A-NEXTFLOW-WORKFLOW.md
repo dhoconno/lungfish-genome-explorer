@@ -62,6 +62,8 @@ Every analysis kind that `AnalysisToolRegistry` (`Sources/LungfishIO/Analysis/An
 | `inputFirst` | `-profile`, `--input`, `--outdir`, the trace, the work folder, then the workflow's options as given | TaxTriage, as `TaxTriagePipeline.buildNextflowLaunchArguments` writes them |
 | `sortedParameters` | the work folder, `-profile`, the trace, then every parameter as a `--name value` pair sorted by name, `--input` and `--outdir` among them | Viral Recon, as `NFCoreRunRequest.nextflowArguments` writes them |
 
+A third layout joins only when a fit test shows that neither layout writes the order of a launch LGE already makes, as the Viral Recon fit showed for `sortedParameters`. A workflow that builds its options from a dictionary sorts them or takes `sortedParameters`, because a Swift dictionary's order changes from one process to the next and the recorded command would change with it.
+
 Under `sortedParameters` the workflow's options must be `--name value` pairs, without `--input` or `--outdir` and without an empty value, which the request leaves out. Viral Recon's options come from `NFCoreRunRequest.effectiveParams` and not from `params`, so the forced `skip_freyja` and `skip_freyja_boot` stay in every launch, as `Tests/LungfishWorkflowTests/NextflowViralReconFitTests.swift` builds them. TaxTriage's options come from `TaxTriageConfig.nextflowPipelineArguments()`, from the Kraken2 database to the extra arguments.
 
 The Docker wait follows the launch's effective profile. `waitsForDocker(profile:)` is true only when `containerRuntime` is `docker` and the profile is exactly the descriptor's, so a conda run or a stand-in run with `local` never waits.
