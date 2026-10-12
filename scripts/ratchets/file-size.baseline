@@ -84,7 +84,7 @@ Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift 1827
 Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState.swift 2042
 Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift 1077
 Sources/LungfishCLI/Commands/BAMCommand.swift 1350
-Sources/LungfishCLI/Commands/BuildDbCommand.swift 1201
+Sources/LungfishCLI/Commands/BuildDbCommand.swift 822
 Sources/LungfishCLI/Commands/ExtractReadsCommand.swift 1106
 Sources/LungfishCLI/Commands/FetchCommand.swift 875
 Sources/LungfishCLI/Commands/GATKCommand.swift 1094
