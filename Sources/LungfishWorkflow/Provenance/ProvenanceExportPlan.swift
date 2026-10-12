@@ -14,7 +14,7 @@
 //   copy names the real source;
 // - a `stage-reference --mode decompress-gzip` step becomes `gzip -dc`;
 // - a step writing `pipe:stdout:X` and the step reading it become one
-//   pipeline;
+//   pipeline that keeps the identity of each stage;
 // - a step that a `lungfish-cli` step ran inside is a sub-step, named in a
 //   comment and not run again (`ProvenanceExportPlan+SubSteps.swift`);
 // - `lungfish-internal` and GUI steps are in-app (recorded, not replayed);
@@ -71,7 +71,9 @@ struct ProvenanceExportPlan {
         /// The recorded 1-based numbers folded into this step.
         let numbers: [Int]
         let toolName: String
-        let identity: ProvenanceToolIdentityText
+        /// The identity of each stage, parallel to `commands`: one for a single tool, and for a pipe one for each tool
+        /// in pipe order, so a tool piped after another keeps its own name, version and package.
+        let stageIdentities: [ProvenanceToolIdentityText]
         /// The managed environment the step ran in, pinned to a package. It is the entry of
         /// `ProvenanceExportPlan.environments` that holds this step's own spec, so two steps of
         /// one environment that disagree each name their own.
@@ -93,6 +95,9 @@ struct ProvenanceExportPlan {
         let ranUnder: Int?
 
         var number: Int { numbers[0] }
+        /// The first stage's identity, which labels the step in a script and pins its environment. The methods text
+        /// reads `stageIdentities`, because a tool later in a pipe is not the first stage.
+        var identity: ProvenanceToolIdentityText { stageIdentities[0] }
         var isReplayable: Bool { kind != .inApp }
 
         /// `mpileup`, `call`: the verb after each executable, when it is one.
@@ -189,7 +194,8 @@ struct ProvenanceExportPlan {
         struct Draft {
             var numbers: [Int]
             var toolName: String
-            var identity: ProvenanceToolIdentityText
+            /// One identity for each command. A pipe appends the identity of the stage it joins.
+            var stageIdentities: [ProvenanceToolIdentityText]
             var kind: Kind
             var commands: [Command]
             var inputs: [FileRecord]
@@ -198,6 +204,9 @@ struct ProvenanceExportPlan {
             var isPlumbing: Bool
             var sources: [StepExecution]
             var ranUnder: Int?
+
+            /// The first stage's identity, which pins the step's environment.
+            var identity: ProvenanceToolIdentityText { stageIdentities[0] }
         }
         let survivors = numbered.filter { !collapsedNumbers.contains($0.number) }
         let subStepParents = Self.subStepParents(in: survivors, replayArguments: replayArguments)
@@ -241,7 +250,7 @@ struct ProvenanceExportPlan {
             drafts.append(Draft(
                 numbers: [number],
                 toolName: toolName,
-                identity: identity,
+                stageIdentities: [identity],
                 kind: kind,
                 commands: [aliased],
                 inputs: step.inputs.map { $0.replacingPath(resolveAlias($0.path)) },
@@ -266,6 +275,7 @@ struct ProvenanceExportPlan {
                 let reader = drafts[readerIndex]
                 consumed.insert(readerIndex)
                 current.numbers += reader.numbers
+                current.stageIdentities += reader.stageIdentities
                 current.commands += reader.commands
                 current.inputs = Self.uniqueRecords(current.inputs + reader.inputs).filter { !$0.path.hasPrefix("pipe:") }
                 current.outputs = Self.uniqueRecords(
@@ -312,7 +322,7 @@ struct ProvenanceExportPlan {
             return Step(
                 numbers: draft.numbers,
                 toolName: draft.toolName,
-                identity: draft.identity,
+                stageIdentities: draft.stageIdentities,
                 environment: pinned.map { pinned in
                     environments.first { $0.name == pinned.name && $0.packageSpec == pinned.packageSpec } ?? pinned
                 },

@@ -1410,12 +1410,12 @@ public struct ProvenanceExporter: Sendable {
         return sentence + "."
     }
 
-    /// The group's identity, preferring a step that recorded the package
-    /// pin over one that recorded the version alone.
+    /// The group's identity, read from the stages that ran its tool, so a tool piped after another states its own
+    /// version. A stage that recorded the package pin is preferred over one that recorded the version alone.
     private func methodsIdentity(for group: MethodsToolGroup) -> ProvenanceToolIdentityText {
-        group.steps.first { $0.identity.environment?.packageSpec != nil }?.identity
-            ?? group.steps.first { $0.identity.environment != nil }?.identity
-            ?? group.steps[0].identity
+        let stages = group.steps.flatMap { zip(Self.toolNames(of: $0), $0.stageIdentities) }
+            .filter { $0.0.lowercased() == group.toolName.lowercased() }.map { $0.1 }
+        return stages.first { $0.environment?.packageSpec != nil } ?? stages.first { $0.environment != nil } ?? stages[0]
     }
 
     private func listed(_ items: [String]) -> String {

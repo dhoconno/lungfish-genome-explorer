@@ -88,16 +88,50 @@ struct ProvenanceMethodsSentenceTests {
         #expect(rows.count == 3, Comment(rawValue: rows.joined(separator: "\n")))
         #expect(rows.first == "| lofreq | 2.1.5 | bioconda::lofreq=2.1.5=py310h9cf5bfa_16 | conda environment lofreq |")
         #expect(rows.dropFirst().first == "| samtools | 1.24 | bioconda::samtools=1.24=h36b3a25_1 | conda environment samtools |")
-        // The joined step keeps its first stage's identity, so iVar is stated with samtools's version, package and
-        // environment (B8 review fix 5). Each pin is its own known issue, so each fails when its own repair lands.
-        withKnownIssue("A pipe's second stage takes the first stage's identity, B8 review fix 5") {
-            #expect(
-                text.hasSuffix("Variants were called with ivar v1.4.4 (bioconda::ivar=1.4.4=hda5e58c_0; conda environment ivar), using ivar variants, with a minimum quality score of 20."),
-                Comment(rawValue: text)
-            )
+        // The plan joins the two steps into one named `samtools | ivar` and keeps the identity of each stage, so iVar is
+        // stated with its own version, package and environment and not with samtools's (B8 review fix 5).
+        #expect(
+            text.hasSuffix("Variants were called with ivar v1.4.4 (bioconda::ivar=1.4.4=hda5e58c_0; conda environment ivar), using ivar variants, with a minimum quality score of 20."),
+            Comment(rawValue: text)
+        )
+        #expect(rows.last == "| ivar | 1.4.4 | bioconda::ivar=1.4.4=hda5e58c_0 | conda environment ivar |", Comment(rawValue: rows.joined(separator: "\n")))
+    }
+
+    @Test("Three piped tools each state their own version, package and environment")
+    func threeStagePipeStatesEachStagesIdentity() {
+        let run = Self.trimMapSortRun()
+        // The three records join into one step named `fastp | minimap2 | samtools`, and each tool states its own identity.
+        #expect(Self.analysis(run) == """
+            Reads were quality-filtered and trimmed with fastp v1.3.6 (bioconda::fastp=1.3.6=ha1d0559_0; conda environment fastp). \
+            Reads were mapped to the reference with minimap2 v2.31 (bioconda::minimap2=2.31=h6bd33b9_0; conda environment minimap2), \
+            with the sr preset. \
+            Alignments were sorted with samtools v1.24 (bioconda::samtools=1.24=h36b3a25_1; conda environment samtools), \
+            using samtools sort.
+            """)
+        #expect(Self.toolRows(run) == [
+            "| fastp | 1.3.6 | bioconda::fastp=1.3.6=ha1d0559_0 | conda environment fastp |",
+            "| minimap2 | 2.31 | bioconda::minimap2=2.31=h6bd33b9_0 | conda environment minimap2 |",
+            "| samtools | 1.24 | bioconda::samtools=1.24=h36b3a25_1 | conda environment samtools |",
+        ])
+    }
+
+    @Test("A joined pipe keeps one identity for each stage, in pipe order")
+    func joinedPipeKeepsOneIdentityForEachStage() throws {
+        func plan(_ run: WorkflowRun) -> ProvenanceExportPlan {
+            ProvenanceExportPlan(run: run, replayArguments: { $0.durableReplayArgv ?? $0.command })
         }
-        withKnownIssue("A pipe's second stage takes the first stage's identity, B8 review fix 5") {
-            #expect(rows.last == "| ivar | 1.4.4 | bioconda::ivar=1.4.4=hda5e58c_0 | conda environment ivar |", Comment(rawValue: rows.joined(separator: "\n")))
+        let trimMapSort = plan(Self.trimMapSortRun())
+        #expect(trimMapSort.steps.count == 1)
+        let joined = try #require(trimMapSort.steps.first)
+        #expect(joined.commands.count == 3)
+        #expect(joined.stageIdentities.map(\.toolName) == ["fastp", "minimap2", "samtools"])
+        #expect(joined.stageIdentities.map(\.version) == ["1.3.6", "2.31", "1.24"])
+        // The step as a whole is labelled by its first stage, as the scripts and the pin gate read it.
+        #expect(joined.identity == joined.stageIdentities[0])
+        // The iVar run has a pipe too, and each of its steps has one identity for each command, which is how the methods
+        // text pairs a tool with its stage.
+        for step in plan(Self.variantCallerRun()).steps {
+            #expect(step.stageIdentities.count == step.commands.count, Comment(rawValue: step.toolName))
         }
     }
 
@@ -394,6 +428,8 @@ struct ProvenanceMethodsSentenceTests {
     static let samtoolsVersion = managed("1.24", "samtools", "samtools", "bioconda::samtools=1.24=h36b3a25_1")
     static let lofreqVersion = managed("2.1.5", "lofreq", "lofreq", "bioconda::lofreq=2.1.5=py310h9cf5bfa_16")
     static let ivarVersion = managed("1.4.4", "ivar", "ivar", "bioconda::ivar=1.4.4=hda5e58c_0")
+    static let fastpVersion = managed("1.3.6", "fastp", "fastp", "bioconda::fastp=1.3.6=ha1d0559_0")
+    static let minimap2Version = managed("2.31", "minimap2", "minimap2", "bioconda::minimap2=2.31=h6bd33b9_0")
 
     /// A paired Kraken2 run with its Bracken profile, as `ClassificationPipeline` records the two tools.
     static func krakenBrackenRun() -> WorkflowRun {
@@ -527,6 +563,29 @@ struct ProvenanceMethodsSentenceTests {
                     "-m", "10", "-r", "/data/ref.fa",
                 ],
                 inputs: ["pipe:stdout:samtools-mpileup", "/data/ref.fa"], outputs: ["\(work)/ivar.tsv-prefix.tsv"]
+            ),
+        ])
+    }
+
+    /// fastp, minimap2 and samtools joined by two pipes, each tool at its own version. Each is a record of its own that
+    /// writes or reads a `pipe:stdout:` pseudo-file, and the plan joins the three into one step.
+    static func trimMapSortRun() -> WorkflowRun {
+        let conda = "/Users/someone/.lungfish/conda/envs"
+        return run("Trim, map and sort", [
+            step(
+                "fastp", version: fastpVersion,
+                ["\(conda)/fastp/bin/fastp", "--stdout", "-i", "/data/reads.fq", "-w", "2"],
+                inputs: ["/data/reads.fq"], outputs: ["pipe:stdout:fastp-trim"]
+            ),
+            step(
+                "minimap2", version: minimap2Version,
+                ["\(conda)/minimap2/bin/minimap2", "-a", "-x", "sr", "-t", "2", "/data/ref.fa", "-"],
+                inputs: ["pipe:stdout:fastp-trim", "/data/ref.fa"], outputs: ["pipe:stdout:minimap2-sam"]
+            ),
+            step(
+                "samtools", version: samtoolsVersion,
+                ["\(conda)/samtools/bin/samtools", "sort", "-o", "/data/out/sorted.bam", "-"],
+                inputs: ["pipe:stdout:minimap2-sam"], outputs: ["/data/out/sorted.bam"]
             ),
         ])
     }
