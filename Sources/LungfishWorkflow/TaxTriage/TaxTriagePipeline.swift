@@ -466,20 +466,33 @@ public actor TaxTriagePipeline {
             sampleCount: sampleCount,
             report: { fraction, message in progress?(fraction, message) }
         )
-        let outcome: TaxTriageEngineProcess.Outcome
+        // The engine streams each stdout line into nextflow.log at its final name, so a KILL leaves
+        // the lines so far, and synchronizes the whole log before it returns (N8).
+        let outcome: NextflowEngineOutcome
         do {
-            outcome = try await TaxTriageEngineProcess(processManager: processManager).run(
-                executable: micromambaPath,
-                arguments: micromambaArgs,
-                workingDirectory: scratch.launchDirectory,
-                environment: environment
-            ) { line in
-                reader.engineLine(line)
-            }
+            outcome = try await engine.run(
+                NextflowEngineLaunch(
+                    executable: micromambaPath,
+                    arguments: micromambaArgs,
+                    environment: environment,
+                    logFile: logFile,
+                    logPreamble: launchMetadata,
+                    traceFile: NextflowWorkflowDescriptor.taxTriage.traceFileName.map {
+                        effectiveConfig.outputDirectory.appendingPathComponent($0)
+                    }
+                ),
+                in: scratch,
+                hooks: NextflowEngineHooks(progress: reader)
+            )
+        } catch is CancellationError {
+            // E10. The task was cancelled before the spawn, so no engine ran and no log was written.
+            try await recordCancellation(
+                runID: runID, config: profileAdjustedConfig, command: provenanceCommand,
+                wallTime: runClock.elapsed, logFile: logFile
+            )
         } catch {
-            let spawnMessage = "Failed to spawn Nextflow: \(error.localizedDescription)"
-            let spawnLog = launchMetadata + "\n--- launcher error ---\n" + spawnMessage + "\n"
-            try? spawnLog.write(to: logFile, atomically: true, encoding: .utf8)
+            // The engine left the launcher error part in the log.
+            let spawnMessage = NextflowEngineProcess.launchFailureMessage(for: error)
             await recordTaxTriageProvenanceStep(
                 runID: runID,
                 config: profileAdjustedConfig,
@@ -507,18 +520,9 @@ public actor TaxTriagePipeline {
         }
 
         let exitCode = outcome.exitCode
-        let stdoutLines = outcome.stdoutLines
-        let stderrLines = outcome.stderrLines
 
-        // Write combined log
-        let combinedLog = launchMetadata
-            + "\n--- stdout ---\n"
-            + stdoutLines.joined(separator: "\n")
-            + "\n--- stderr ---\n"
-            + stderrLines.joined(separator: "\n")
-        try? combinedLog.write(to: logFile, atomically: true, encoding: .utf8)
-
-        // The engine tree is gone. A cancel wins over how the engine ended (2.7 E5).
+        // The engine tree is gone and the log is synchronized. A cancel wins over how the engine
+        // ended (2.7 E5).
         if Task.isCancelled {
             try await recordCancellation(
                 runID: runID, config: profileAdjustedConfig, command: provenanceCommand,
@@ -527,13 +531,36 @@ public actor TaxTriagePipeline {
             )
         }
 
+        // A log that misses bytes or was not synchronized fails the run, and no step hashes it (N8).
+        if let logFailure = outcome.logFailure {
+            await recordTaxTriageProvenanceStep(
+                runID: runID,
+                config: profileAdjustedConfig,
+                command: provenanceCommand,
+                outputFiles: [],
+                exitCode: exitCode,
+                wallTime: runClock.elapsed,
+                stderr: logFailure
+            )
+            await ProvenanceRecorder.shared.completeRun(runID, status: .failed)
+            try await saveTaxTriageProvenanceOrThrow(
+                runID: runID,
+                outputDirectory: profileAdjustedConfig.outputDirectory,
+                description: "failure",
+                exitCode: exitCode,
+                stderr: logFailure,
+                logFile: logFile
+            )
+            throw TaxTriagePipelineError.pipelineFailed(exitCode: exitCode, stderr: logFailure, logFile: logFile)
+        }
+
         if exitCode != 0 {
             // Nextflow reports lock/cache-DB failures on stdout, so fall back to
             // the stdout tail when stderr is empty; otherwise the surfaced error
             // is just "failed with exit code 1: ".
             let stderrText = taxTriageFailureDiagnostics(
-                stderr: stderrLines.joined(separator: "\n"),
-                stdout: stdoutLines.joined(separator: "\n")
+                stderr: outcome.stderrTail.joined(separator: "\n"),
+                stdout: outcome.stdoutTail.joined(separator: "\n")
             )
             await recordTaxTriageProvenanceStep(
                 runID: runID,

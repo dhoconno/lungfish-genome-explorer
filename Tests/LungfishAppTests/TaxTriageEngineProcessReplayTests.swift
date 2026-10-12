@@ -15,8 +15,9 @@
 // Pins of the defects M2 fixes, `XCTExpectFailure` pins until TaxTriage moved onto the engine.
 // - E9. A cancel during the Docker wait ends the run at once, where `try?` on its sleep swallowed it.
 // - Only a run with the docker profile asks the Docker daemon (A16 M1 review, ruling 2).
-// - E10. A cancel before the launch still starts the engine.
-// - A KILL leaves no `nextflow.log`, because the log is written once the engine returns (Q15 R3).
+// - E10. A cancel before the launch starts no engine, where the engine started and was stopped.
+// - A KILL leaves `nextflow.log` with the lines so far, where the log was written once the engine
+//   returned (Q15 R3).
 //
 // The cases start processes, so the class runs serially. Its name ends in ReplayTests, which sends it
 // to the integration tier (`REPLAY_SUITES` in scripts/full-suite-gate.sh).
@@ -203,11 +204,14 @@ final class TaxTriageEngineProcessReplayTests: XCTestCase {
         XCTAssertTrue(outcome.failure is CancellationError, "\(String(describing: outcome.failure))")
         XCTAssertEqual(record?.status, .cancelled, "a cancelled run records the cancel")
         XCTAssertEqual(record?.exitStatus, 125)
-        XCTExpectFailure(
-            "E10. Nothing checks the task between the prerequisites and the launch, so the engine starts and is stopped at once. S9 M2 checks the task before the spawn."
-        ) {
-            XCTAssertEqual(observed.launchedCount(label: "micromamba"), 0, "a cancel before the launch starts no engine")
-        }
+        // E10. Before S9 M2 nothing checked the task between the prerequisites and the launch, so
+        // the engine started and was stopped at once.
+        XCTAssertEqual(observed.launchedCount(label: "micromamba"), 0, "a cancel before the launch starts no engine")
+        XCTAssertEqual(try engine.launches().count, 0, "the stand-in recorded no launch")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: config.outputDirectory.appendingPathComponent("nextflow.log").path),
+            "no engine ran, so no log was written"
+        )
     }
 
     func testTheLogHoldsTheLinesSoFarWhileTheEngineRuns() async throws {
@@ -228,16 +232,14 @@ final class TaxTriageEngineProcessReplayTests: XCTestCase {
         run.cancel()
         _ = await run.result
 
-        XCTExpectFailure(
-            "A KILL of the CLI or the app leaves no nextflow.log, because the log is written once the engine returns (Q15 R3). S9 M2 streams each line into it."
-        ) {
-            XCTAssertTrue(streamed, "each stdout line reaches nextflow.log while the engine runs, so a KILL leaves it")
-            // Compared as a Bool, so the expected failure does not print the whole launch metadata.
-            XCTAssertTrue(
-                logWhileRunning == metadata + linesSoFar,
-                "the log holds the launch metadata and the stdout so far, and no stderr part, which joins only at the end (API risk 3)"
-            )
-        }
+        // Before S9 M2 a KILL of the CLI or the app left no nextflow.log, because the log was
+        // written once the engine returned (Q15 R3).
+        XCTAssertTrue(streamed, "each stdout line reaches nextflow.log while the engine runs, so a KILL leaves it")
+        // Compared as a Bool, so a failure does not print the whole launch metadata.
+        XCTAssertTrue(
+            logWhileRunning == metadata + linesSoFar,
+            "the log holds the launch metadata and the stdout so far, and no stderr part, which joins only at the end (API risk 3)"
+        )
     }
 
     // MARK: - Helpers
