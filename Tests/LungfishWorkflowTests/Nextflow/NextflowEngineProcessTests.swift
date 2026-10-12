@@ -58,6 +58,7 @@ final class NextflowEngineProcessTests: XCTestCase {
 
         XCTAssertEqual(outcome.exitCode, 0)
         XCTAssertEqual(outcome.logFile, run.launch.logFile)
+        XCTAssertNil(outcome.logFailure, "every byte reached the log and the sync succeeded")
         XCTAssertEqual(
             run.log(),
             EngineScriptRun.preamble

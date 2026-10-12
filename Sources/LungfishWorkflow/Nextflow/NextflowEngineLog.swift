@@ -15,8 +15,9 @@ private let logger = Logger(subsystem: LogSubsystem.workflow, category: "Nextflo
 /// first, then `\n--- stdout ---\n` and the stdout lines joined by line breaks, then
 /// `\n--- stderr ---\n` and the stderr lines joined the same way. Stdout goes into the log line by
 /// line. Stderr goes into a sidecar in the scratch and joins the log once the engine has ended, so a
-/// KILL leaves no stderr in the log (API brief risk 3). A write that fails is logged, and the run goes
-/// on, as it did when the log was written at the end with `try?`.
+/// KILL leaves no stderr in the log (API brief risk 3). A write that fails is logged and the run goes
+/// on, and ``finish(stdout:stderr:)`` returns the first failure, so the caller fails a run whose log
+/// is incomplete or unsynchronized.
 struct NextflowEngineLog: Sendable {
     /// The sidecar's name in the scratch's launch folder.
     static let stderrSidecarName = ".lungfish-engine-stderr.txt"
@@ -26,6 +27,8 @@ struct NextflowEngineLog: Sendable {
     private let logDescriptor: Int32
     private let sidecarDescriptor: Int32
     private let tailLineCount: Int
+    /// The first failed write of the preamble or the stdout heading, or nil.
+    private var openingFailure: String?
 
     private init(logFile: URL, stderrSidecar: URL, logDescriptor: Int32, sidecarDescriptor: Int32, tailLineCount: Int) {
         self.logFile = logFile
@@ -49,20 +52,21 @@ struct NextflowEngineLog: Sendable {
             Darwin.close(logDescriptor)
             throw NextflowEngineError.logNotWritable(path: stderrSidecar.path, reason: reason)
         }
-        let log = NextflowEngineLog(
+        var log = NextflowEngineLog(
             logFile: logFile,
             stderrSidecar: stderrSidecar,
             logDescriptor: logDescriptor,
             sidecarDescriptor: sidecarDescriptor,
             tailLineCount: tailLineCount
         )
-        log.write(preamble, part: "preamble")
+        log.openingFailure = log.write(preamble, part: "preamble")
         return log
     }
 
     /// Writes the stdout heading, once the engine has launched.
-    func beginStdout() {
-        write("\n--- stdout ---\n", part: "stdout heading")
+    mutating func beginStdout() {
+        let failure = write("\n--- stdout ---\n", part: "stdout heading")
+        openingFailure = openingFailure ?? failure
     }
 
     /// The part that writes stdout lines into the log.
@@ -85,52 +89,66 @@ struct NextflowEngineLog: Sendable {
     /// Ends the log once the engine's tree is gone. The stderr heading and the sidecar's bytes follow
     /// the stdout lines, then the log is synchronized at its final name, so the bytes a step hashes
     /// are on disk, and the sidecar goes.
-    func finish(stdout: NextflowLogStream, stderr: NextflowLogStream) {
+    ///
+    /// - Returns: Why the log is incomplete or unsynchronized, the first failure of the preamble and
+    ///   the stdout heading, then of the stdout lines, then of the stderr lines, then of the stderr
+    ///   heading, the sidecar's read-back and copy and the `fsync`, or nil when every byte is in place.
+    func finish(stdout: NextflowLogStream, stderr: NextflowLogStream) -> String? {
         stdout.reportWriteFailure()
         stderr.reportWriteFailure()
-        write("\n--- stderr ---\n", part: "stderr heading")
-        appendSidecar()
-        synchronizeAndClose()
+        let heading = write("\n--- stderr ---\n", part: "stderr heading")
+        let sidecar = appendSidecar()
+        let synchronization = synchronizeAndClose()
+        return openingFailure ?? stdout.writeFailure ?? stderr.writeFailure ?? heading ?? sidecar ?? synchronization
     }
 
-    private func write(_ text: String, part: String) {
-        guard let failure = Self.writeAll(text, to: logDescriptor) else { return }
-        logger.warning(
-            "Could not write the \(part, privacy: .public) of \(logFile.path, privacy: .public): \(String(cString: strerror(failure)), privacy: .public)"
-        )
+    /// Writes `text` into the log, and returns why it could not, or nil.
+    @discardableResult
+    private func write(_ text: String, part: String) -> String? {
+        guard let failure = Self.writeAll(text, to: logDescriptor) else { return nil }
+        let reason = "Could not write the \(part) of \(logFile.path): \(String(cString: strerror(failure)))"
+        logger.warning("\(reason, privacy: .public)")
+        return reason
     }
 
-    private func appendSidecar() {
+    /// Copies the sidecar's bytes into the log, and returns why it could not, or nil.
+    private func appendSidecar() -> String? {
         guard Darwin.lseek(sidecarDescriptor, 0, SEEK_SET) == 0 else {
-            logger.warning("Could not read back \(stderrSidecar.path, privacy: .public): \(String(cString: strerror(errno)), privacy: .public)")
-            return
+            return Self.warn("Could not read back \(stderrSidecar.path): \(String(cString: strerror(errno)))")
         }
         var buffer = [UInt8](repeating: 0, count: 64 * 1024)
         while true {
             let count = buffer.withUnsafeMutableBytes { Darwin.read(sidecarDescriptor, $0.baseAddress, $0.count) }
-            if count == 0 { return }
+            if count == 0 { return nil }
             if count < 0 {
                 if errno == EINTR { continue }
-                logger.warning("Could not read back \(stderrSidecar.path, privacy: .public): \(String(cString: strerror(errno)), privacy: .public)")
-                return
+                return Self.warn("Could not read back \(stderrSidecar.path): \(String(cString: strerror(errno)))")
             }
             let failure = buffer.withUnsafeBytes { Self.writeAll(UnsafeRawBufferPointer(rebasing: $0[..<count]), to: logDescriptor) }
             if let failure {
-                logger.warning(
-                    "Could not write the stderr part of \(logFile.path, privacy: .public): \(String(cString: strerror(failure)), privacy: .public)"
-                )
-                return
+                return Self.warn("Could not write the stderr part of \(logFile.path): \(String(cString: strerror(failure)))")
             }
         }
     }
 
-    private func synchronizeAndClose() {
+    /// Synchronizes and closes the log, closes and removes the sidecar, and returns why the log could
+    /// not be synchronized, or nil.
+    @discardableResult
+    private func synchronizeAndClose() -> String? {
+        var failure: String?
         if Darwin.fsync(logDescriptor) != 0 {
-            logger.warning("Could not synchronize \(logFile.path, privacy: .public): \(String(cString: strerror(errno)), privacy: .public)")
+            failure = Self.warn("Could not synchronize \(logFile.path): \(String(cString: strerror(errno)))")
         }
         Darwin.close(logDescriptor)
         Darwin.close(sidecarDescriptor)
         Darwin.unlink(stderrSidecar.path)
+        return failure
+    }
+
+    /// Logs `reason` as a warning and returns it.
+    private static func warn(_ reason: String) -> String {
+        logger.warning("\(reason, privacy: .public)")
+        return reason
     }
 
     /// Writes every byte of `text` as UTF-8, going on after a short write or an interrupt.
@@ -162,7 +180,8 @@ struct NextflowLogStream: Sendable {
     private let tailLineCount: Int
     private var lineCount = 0
     private var recent: [String] = []
-    private var failedWrite: Int32?
+    /// The destination and the reason of the first write that failed, or nil.
+    private(set) var writeFailure: String?
 
     init(descriptor: Int32, destination: URL, tailLineCount: Int) {
         self.descriptor = descriptor
@@ -184,10 +203,11 @@ struct NextflowLogStream: Sendable {
         return part
     }
 
-    /// Writes one line. Once a write has failed nothing more is written, so the part never has a gap.
+    /// Writes one line. Once a write has failed nothing more is written, so the part never has a gap,
+    /// and the line still counts in the tail.
     mutating func append(_ line: String) {
-        if failedWrite == nil {
-            failedWrite = NextflowEngineLog.writeAll(lineCount == 0 ? line : "\n" + line, to: descriptor)
+        if writeFailure == nil, let failure = NextflowEngineLog.writeAll(lineCount == 0 ? line : "\n" + line, to: descriptor) {
+            writeFailure = "Could not write all Nextflow output to \(destination.path): \(String(cString: strerror(failure)))"
         }
         lineCount += 1
         guard tailLineCount > 0 else { return }
@@ -198,9 +218,7 @@ struct NextflowLogStream: Sendable {
     }
 
     func reportWriteFailure() {
-        guard let failedWrite else { return }
-        logger.warning(
-            "Could not write all Nextflow output to \(destination.path, privacy: .public): \(String(cString: strerror(failedWrite)), privacy: .public)"
-        )
+        guard let writeFailure else { return }
+        logger.warning("\(writeFailure, privacy: .public)")
     }
 }

@@ -113,7 +113,8 @@ package struct NextflowEngineProcess: Sendable {
     ///
     /// A cancel is read from the task. After a cancel the outcome reports how the stopped engine
     /// ended, and the cleanup hook has stopped the run's containers or run out its bound. The caller
-    /// then writes its `cancelled` record and calls ``finish(_:_:)``.
+    /// then writes its `cancelled` record and calls ``finish(_:_:)``. A write of the log that failed
+    /// while the engine ran is in the outcome's `logFailure`, and the caller fails the run on it.
     ///
     /// - Throws: `CancellationError` when the task was cancelled before the spawn, with nothing
     ///   launched and no log written (E10). ``NextflowEngineError/logNotWritable(path:reason:)`` when
@@ -124,7 +125,7 @@ package struct NextflowEngineProcess: Sendable {
         hooks: NextflowEngineHooks
     ) async throws -> NextflowEngineOutcome {
         try Task.checkCancellation()
-        let log = try NextflowEngineLog.create(
+        var log = try NextflowEngineLog.create(
             at: launch.logFile,
             preamble: launch.logPreamble,
             stderrSidecar: scratch.launchDirectory.appendingPathComponent(NextflowEngineLog.stderrSidecarName),
@@ -175,7 +176,7 @@ package struct NextflowEngineProcess: Sendable {
             let lastReading = await tracePoll.value
             _ = Self.reportTrace(at: traceFile, to: progress, after: lastReading)
         }
-        log.finish(stdout: ended.stdout, stderr: ended.stderr)
+        let logFailure = log.finish(stdout: ended.stdout, stderr: ended.stderr)
 
         // N5. The host tree is gone, so the run's task containers stop next, before the caller's
         // record and long before its scratch goes.
@@ -186,7 +187,8 @@ package struct NextflowEngineProcess: Sendable {
             exitCode: ended.exitCode,
             stdoutTail: ended.stdout.tail,
             stderrTail: ended.stderr.tail,
-            logFile: launch.logFile
+            logFile: launch.logFile,
+            logFailure: logFailure
         )
     }
 
@@ -326,12 +328,17 @@ package struct NextflowEngineOutcome: Sendable, Equatable {
     package let stdoutTail: [String]
     package let stderrTail: [String]
     package let logFile: URL
+    /// Why `nextflow.log` is incomplete or unsynchronized, the first failed write, read-back or `fsync`,
+    /// or nil when every byte reached the log and the sync succeeded (N8). The caller fails a run that
+    /// ended on its own when this is set, and a cancel still wins (2.7 E5).
+    package let logFailure: String?
 
-    package init(exitCode: Int32, stdoutTail: [String], stderrTail: [String], logFile: URL) {
+    package init(exitCode: Int32, stdoutTail: [String], stderrTail: [String], logFile: URL, logFailure: String? = nil) {
         self.exitCode = exitCode
         self.stdoutTail = stdoutTail
         self.stderrTail = stderrTail
         self.logFile = logFile
+        self.logFailure = logFailure
     }
 }
 
