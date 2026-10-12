@@ -93,6 +93,7 @@ final class TaxTriageRunSIGTERMReplayTests: XCTestCase {
         XCTAssertNotNil(enginePID, "the child wrote no engine pid")
         if let enginePID {
             XCTAssertFalse(Self.isRunning(enginePID), "the engine outlived the cancelled command")
+            XCTAssertEqual(Self.livingProcesses(inGroup: enginePID), [], "a process of the engine's group outlived the cancelled command (SWIFT 3)")
         }
     }
 
@@ -174,5 +175,18 @@ final class TaxTriageRunSIGTERMReplayTests: XCTestCase {
         var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
         guard sysctl(&name, UInt32(name.count), &info, &size, nil, 0) == 0, size > 0 else { return false }
         return Int32(info.kp_proc.p_stat) != SZOMB
+    }
+
+    /// The pids of the processes in group `group` that have not exited. The engine leads its own group.
+    nonisolated private static func livingProcesses(inGroup group: Int32) -> [Int32] {
+        var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PGRP, group]
+        var size = 0
+        guard sysctl(&name, UInt32(name.count), nil, &size, nil, 0) == 0, size > 0 else { return [] }
+        var infos = [kinfo_proc](repeating: kinfo_proc(), count: size / MemoryLayout<kinfo_proc>.stride + 4)
+        size = infos.count * MemoryLayout<kinfo_proc>.stride
+        guard sysctl(&name, UInt32(name.count), &infos, &size, nil, 0) == 0 else { return [] }
+        return infos.prefix(size / MemoryLayout<kinfo_proc>.stride)
+            .filter { Int32($0.kp_proc.p_stat) != SZOMB }
+            .map { $0.kp_proc.p_pid }
     }
 }
