@@ -40,6 +40,10 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         "output_directory", "remove_taxids",
     ]
 
+    /// The settings a record keeps among its explicit options. Moved by B11 M2 (R5): `classifiers` is a resolved
+    /// default, because the launch passes no `--classifiers`.
+    static let explicitSettingKeys = settingKeys.subtracting(["classifiers"])
+
     private func makeEngine(_ behaviour: TaxTriageStandInEngine.Behaviour = .completes) throws -> TaxTriageStandInEngine {
         let engine = try TaxTriageStandInEngine(root: root.appendingPathComponent("engine", isDirectory: true), behaviour: behaviour)
         addTeardownBlock { await engine.stopLeftoverProcesses() }
@@ -170,6 +174,7 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         XCTAssertEqual(record.argv, step.argv)
 
         let arguments = run.launch.arguments
+        XCTAssertFalse(arguments.contains("--classifiers"), "R5, the argv is unchanged and passes no classifiers")
         XCTAssertEqual(
             Array(arguments.prefix(6)),
             ["-c", run.output.appendingPathComponent("lungfish.nextflow.config").path, "run", TaxTriageConfig.pipelineRepository, "-r", revision]
@@ -192,12 +197,13 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
             XCTAssertFalse(FileManager.default.fileExists(atPath: run.output.appendingPathComponent(pruned).path), pruned)
         }
         XCTAssertEqual(namedPaths(record).filter { !FileManager.default.fileExists(atPath: $0) }, [], "every named file exists")
-        XCTAssertEqual(Set(record.options.explicit.keys), Self.settingKeys.union(["github_release_version"]))
+        XCTAssertEqual(Set(record.options.explicit.keys), Self.explicitSettingKeys.union(["github_release_version"]))
         XCTAssertEqual(record.options.explicit["profile"], .string(TaxTriageStandInEngine.profile))
         // Flipped by B2 (RT5). The database is recorded as E9 records EsViritu's, among the resolved defaults, and the
-        // TaxTriage step names the Nextflow that ran.
+        // TaxTriage step names the Nextflow that ran. Moved by B11 M2 (R5), `classifiers` joins the resolved defaults.
         let resolved = record.options.resolvedDefaults
-        XCTAssertEqual(Set(resolved.keys), ["databasePath", "databaseIdentityStatus", "databaseCoreFileSizes"])
+        XCTAssertEqual(Set(resolved.keys), ["classifiers", "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes"])
+        XCTAssertEqual(resolved["classifiers"], .array([.string("kraken2")]))
         XCTAssertEqual(resolved["databasePath"]?.stringValue.map(standardized), standardized(database.path))
         XCTAssertEqual(resolved["databaseIdentityStatus"], .string("unpinned"))
         XCTAssertEqual(
@@ -294,8 +300,8 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         let record = run.record
         XCTAssertEqual(record.steps.map(\.toolName), ["taxtriage"])
         // Flipped by B2 (T7). The record of one sample keeps no keyed plan, and its plan is the resolved default
-        // `readSetPlan`, where the reader finds it.
-        XCTAssertEqual(Set(record.options.explicit.keys), Self.settingKeys.union(["github_release_version"]))
+        // `readSetPlan`, where the reader finds it. Moved by B11 M2 (R5), `classifiers` is not explicit.
+        XCTAssertEqual(Set(record.options.explicit.keys), Self.explicitSettingKeys.union(["github_release_version"]))
         let plan = try XCTUnwrap(sample.readSetPlan?.provenanceParameters["readSetPlan"])
         XCTAssertEqual(record.options.resolvedDefaults["readSetPlan"], plan)
         XCTAssertEqual(record.readSetPlan?.place, .resolvedDefaults)
@@ -320,7 +326,11 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         XCTAssertEqual(record.options.explicit["sample_count"], .integer(2))
         let plans = try XCTUnwrap(record.options.explicit["read_set_plans"]?.dictionaryValue)
         XCTAssertEqual(plans, ["mixed": try XCTUnwrap(mixed.readSetPlan?.provenanceParameters["readSetPlan"])])
-        XCTAssertEqual(Set(record.options.resolvedDefaults.keys), ["databasePath", "databaseIdentityStatus", "databaseCoreFileSizes"])
+        XCTAssertEqual(
+            Set(record.options.resolvedDefaults.keys),
+            ["classifiers", "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes"],
+            "moved by B11 M2 (R5), classifiers is a resolved default"
+        )
         XCTAssertNil(record.options.explicit["readSetPlan"])
     }
 

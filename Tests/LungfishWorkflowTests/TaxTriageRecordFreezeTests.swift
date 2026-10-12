@@ -328,8 +328,9 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
     /// BIO T6. A run's parameters hold the sixteen settings and the release version, the ids of the samples split to
     /// R1 and R2 when there are any, and `read_set_plans` when a plan has something to say. Lane B2 (RT5) adds the
     /// Kraken 2 database as decision E9 records EsViritu's, its path, the size of each core file it holds (none here,
-    /// the folder does not exist) and the status `unpinned`, which the record keeps among its resolved defaults. No
-    /// parameter names a container image.
+    /// the folder does not exist) and the status `unpinned`, which the record keeps among its resolved defaults. Lane
+    /// B11 M2 (R5) keeps `classifiers` there too, because the launch passes no `--classifiers`. No parameter names a
+    /// container image.
     func testTheRunParametersHoldSixteenSettingsAndTheReleaseTag() throws {
         XCTAssertEqual(Self.settingKeys.count, 16)
         let c = config([sample("A")], everySetting: true)
@@ -361,8 +362,8 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         XCTAssertEqual(parameters["databaseCoreFileSizes"], .dictionary([:]))
         XCTAssertEqual(
             TaxTriageRecordFacts.recordOptions(fromRunParameters: parameters).resolvedDefaults.keys.sorted(),
-            databaseKeys.sorted(),
-            "the save keeps the database among the resolved defaults"
+            databaseKeys.union(["classifiers"]).sorted(),
+            "the save keeps the database among the resolved defaults, and moved by B11 M2 (R5) the classifiers too"
         )
 
         let split = TaxTriagePipeline.InterleavedSampleSplit(
@@ -455,7 +456,11 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         let single = try await savedRecord(parameters: oneSample, as: "single-record")
         XCTAssertNil(single.options.explicit["read_set_plans"], "flipped by B2 (T7), a record of one sample keeps no keyed plan")
         XCTAssertEqual(single.readSetPlansBySample, [:])
-        XCTAssertEqual(single.options.resolvedDefaults, ["readSetPlan": plans["mixed"]!], "flipped by B2 (T7), the plan is a resolved default")
+        XCTAssertEqual(
+            single.options.resolvedDefaults,
+            ["readSetPlan": plans["mixed"]!, "classifiers": .array([.string("kraken2")])],
+            "flipped by B2 (T7), the plan is a resolved default, and moved by B11 M2 (R5) the classifiers are one"
+        )
         XCTAssertNil(single.options.explicit["readSetPlan"])
         XCTAssertEqual(single.readSetPlan?.place, .resolvedDefaults, "flipped by B2 (T7), the reader finds the plan")
         XCTAssertEqual(single.readSetPlan?.fields["capability"], .string("pairs_only_when_all_paired"))

@@ -122,7 +122,8 @@ extension TaxTriagePipeline {
 /// - Every TaxTriage step is the tool `taxtriage` at the revision, with the release tag beside it (RT4). With the
 ///   pipeline source and the Nextflow version they are the step's ``NextflowRecordFacts`` (R1, T6), which the sample
 ///   steps of a serial batch record (`TaxTriageSerialBatchRunner.recordSampleProvenance`) do not take yet.
-/// - The settings the run was asked for are explicit options.
+/// - The settings the run was asked for are explicit options. `classifiers` is a resolved default, because the launch
+///   passes no `--classifiers` and TaxTriage runs its own default, Kraken 2 (Phase 2.9 decision R5).
 /// - The plan of a record of one sample is the resolved default `readSetPlan`, the home decision E13 of Phase 2.7 names
 ///   (T7). A pooled record of several samples keeps its plans keyed by sample under `read_set_plans` in the explicit
 ///   options, the home released builds wrote, because one plan cannot hold several samples' plans.
@@ -142,7 +143,7 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
     static let databaseInstallWorkflowName = "metagenomics.database.install"
     /// The run parameters a record holds among its resolved defaults rather than its explicit options.
     static let resolvedDefaultKeys: Set<String> = [
-        RecordedReadSetPlan.key, "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes",
+        RecordedReadSetPlan.key, "classifiers", "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes",
         "databaseCatalogID", "databaseCatalogVersion", "databaseSourceURL", "databaseSourcePolicy",
     ]
     /// The values an install receipt writes when it knows no catalog entry or version, which name nothing.
@@ -158,7 +159,6 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
             "workflow": .string("taxtriage"),
             "sample_count": .integer(config.samples.count),
             "platform": .string(config.platform.rawValue),
-            "classifiers": .array(config.classifiers.map { .string($0) }),
             "top_hits_count": .integer(config.topHitsCount),
             "k2_confidence": .number(config.k2Confidence),
             "rank": .string(config.rank),
@@ -179,6 +179,8 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
             explicit["interleaved_samples_split_to_r1_r2"] = .array(interleavedSplits.map { .string($0.sampleId) })
         }
         var resolved = Self.databaseIdentity(at: config.kraken2DatabasePath)
+        // R5. The launch passes no `--classifiers`, so the classifiers TaxTriage ran are its default, not a choice.
+        resolved["classifiers"] = .array(config.classifiers.map { .string($0) })
         if config.samples.count == 1 {
             if let plan = config.samples[0].readSetPlan?.provenanceParameters[RecordedReadSetPlan.key] {
                 resolved[RecordedReadSetPlan.key] = plan
