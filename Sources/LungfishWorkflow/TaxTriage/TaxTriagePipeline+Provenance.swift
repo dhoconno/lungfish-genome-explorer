@@ -138,7 +138,7 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
     /// The one tool name of a TaxTriage step, the name the batch record of a serial run already gives each sample.
     static let toolName = "taxtriage"
     /// The status of a TaxTriage database's identity. No digest pins it, and no database folder is hashed per run.
-    static let databaseIdentityStatus = "unpinned"
+    static let databaseIdentityStatus = DatabaseIdentityStatus.unpinned.rawValue
     /// The workflow name of a database install receipt, the record an install writes into the database folder.
     static let databaseInstallWorkflowName = "metagenomics.database.install"
     /// The run parameters a record holds among its resolved defaults rather than its explicit options.

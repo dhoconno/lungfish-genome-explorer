@@ -218,4 +218,106 @@ final class NextflowRecordFactsTests: XCTestCase {
             ["pipelineSource": .string("remote")]
         )
     }
+
+    // MARK: - The lock's pin
+
+    /// R1 on A16's pin. A step that ran the pin is the lock's pipeline id at the pinned revision with the pin's tag, so
+    /// for the pinned commit the pin route and the TaxTriage pipeline route record the same facts, and a pin with no
+    /// tag records none.
+    func testAStepThatRanThePinIsThePipelineIdAtThePinnedRevision() throws {
+        let pin = try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin()
+        let untagged = NextflowPipelinePin(pipelineID: "taxtriage", repository: pin.repository, revision: pin.revision, releaseVersion: "")
+
+        XCTAssertEqual(
+            NextflowRecordFacts(pin: pin, pipelineSource: .snapshot),
+            NextflowRecordFacts(
+                toolName: "taxtriage",
+                toolVersion: pin.revision,
+                githubReleaseVersion: pin.releaseVersion,
+                pipelineSource: .snapshot
+            )
+        )
+        XCTAssertEqual(
+            NextflowRecordFacts(pin: pin, pipelineSource: .remote),
+            TaxTriageRecordFacts.nextflowFacts(revision: pin.revision, pipelineSource: .remote)
+        )
+        XCTAssertNil(NextflowRecordFacts(pin: untagged, pipelineSource: .remote).githubReleaseVersion)
+    }
+
+    // MARK: - Database identity, R3 and R4
+
+    /// Every value recorded under `databaseIdentityStatus` in the record at `url`.
+    private func recordedStatusWords(in url: URL) throws -> Set<String> {
+        func collect(_ value: Any) -> [String] {
+            if let dictionary = value as? [String: Any] {
+                let own = ((dictionary["databaseIdentityStatus"] as? [String: Any])?["value"] as? String).map { [$0] } ?? []
+                return own + dictionary.values.flatMap(collect)
+            }
+            return (value as? [Any])?.flatMap(collect) ?? []
+        }
+        return Set(collect(try JSONSerialization.jsonObject(with: Data(contentsOf: url))))
+    }
+
+    /// R3. One vocabulary of three statuses. Each writer keeps its word, TaxTriage's through the type, and a reader
+    /// takes Kraken 2's `unresolved-bounded-metadata` as `unpinned`, as the classifier goldens record the two words.
+    func testEveryRecordedStatusWordReadsAsOneStatus() throws {
+        let goldens = ProvenanceCompatCorpus.repositoryRoot
+            .appendingPathComponent("Tests/Fixtures/golden/classifiers", isDirectory: true)
+        let esViritu = try recordedStatusWords(in: goldens.appendingPathComponent("esviritu/lungfish-provenance.json"))
+        let kraken2 = try recordedStatusWords(in: goldens.appendingPathComponent("kraken2/lungfish-provenance.json"))
+
+        XCTAssertEqual(DatabaseIdentityStatus.allCases.map(\.rawValue), ["pinned", "unpinned", "liveSnapshot"])
+        for status in DatabaseIdentityStatus.allCases {
+            XCTAssertEqual(DatabaseIdentityStatus.status(ofRecordedWord: status.rawValue), status)
+        }
+        XCTAssertEqual(TaxTriageRecordFacts.databaseIdentityStatus, "unpinned", "TaxTriage keeps its word")
+        XCTAssertEqual(DatabaseIdentityStatus.status(ofRecordedWord: EsVirituAnalysisRunTool.databaseIdentityStatus), .unpinned)
+        XCTAssertEqual(esViritu, ["unpinned"])
+        XCTAssertEqual(kraken2, ["unresolved-bounded-metadata"])
+        XCTAssertEqual(esViritu.union(kraken2).map(DatabaseIdentityStatus.status(ofRecordedWord:)), [.unpinned, .unpinned])
+        XCTAssertNil(DatabaseIdentityStatus.status(ofRecordedWord: "Unpinned"))
+        XCTAssertNil(DatabaseIdentityStatus.status(ofRecordedWord: ""))
+    }
+
+    /// R4. A database the run fetched is `liveSnapshot` with the date of the fetch and the kept listings, such as
+    /// TaxTriage's `combine/<sample>.combined.gcfmap.tsv`, and no path, because the run keeps no copy of it.
+    func testALiveSnapshotEntryNamesItsFetchDateAndTheKeptListings() throws {
+        let combine = ProvenanceCompatCorpus.repositoryRoot
+            .appendingPathComponent("Tests/Fixtures/taxtriage-mini/combine", isDirectory: true)
+        let listings = ["SRR35517702", "SRR35517703"].map { combine.appendingPathComponent("\($0).combined.gcfmap.tsv") }
+        let fetchedAt = try Date("2026-10-12T14:22:37Z", strategy: .iso8601)
+        let entry = NextflowDatabaseEntry(
+            role: "fetchedReferences",
+            status: .liveSnapshot,
+            fetchedAt: fetchedAt,
+            listingFiles: listings
+        )
+
+        XCTAssertTrue(listings.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
+        XCTAssertEqual(entry.resolvedDefaults, [
+            "fetchedReferences": .dictionary([
+                "status": .string("liveSnapshot"),
+                "fetchedAt": .string("2026-10-12T14:22:37Z"),
+                "listingFiles": .array(listings.map { .file($0) }),
+            ]),
+        ])
+    }
+
+    /// R3. An entry names only what it knows, so a database the run did not fetch has no date and no listing, and two
+    /// entries are two resolved defaults, one per role.
+    func testAnEntryNamesOnlyWhatItKnows() {
+        let database = URL(fileURLWithPath: "/db/viral-kraken2", isDirectory: true)
+        let kraken2 = NextflowDatabaseEntry(role: "kraken2Database", status: .unpinned, path: database)
+        let references = NextflowDatabaseEntry(role: "fetchedReferences", status: .liveSnapshot)
+
+        XCTAssertEqual(
+            kraken2.resolvedDefaults,
+            ["kraken2Database": .dictionary(["status": .string("unpinned"), "path": .file(database)])]
+        )
+        XCTAssertEqual(references.resolvedDefaults, ["fetchedReferences": .dictionary(["status": .string("liveSnapshot")])])
+        XCTAssertEqual(
+            Set(kraken2.resolvedDefaults.merging(references.resolvedDefaults) { current, _ in current }.keys),
+            ["kraken2Database", "fetchedReferences"]
+        )
+    }
 }

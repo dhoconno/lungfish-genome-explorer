@@ -36,6 +36,18 @@ package struct NextflowRecordFacts: Sendable, Equatable {
         self.pipelineSource = pipelineSource
     }
 
+    /// The facts of a step that ran the lock's pin, the pipeline id at the pinned revision with the pin's release tag,
+    /// nil when the lock names none. Only a route that resolved the pin uses it. A route that runs a revision a caller
+    /// set records that revision instead, so a record never names a revision that did not run.
+    package init(pin: NextflowPipelinePin, pipelineSource: NextflowPipelineSource) {
+        self.init(
+            toolName: pin.pipelineID,
+            toolVersion: pin.revision,
+            githubReleaseVersion: pin.releaseVersion.isEmpty ? nil : pin.releaseVersion,
+            pipelineSource: pipelineSource
+        )
+    }
+
     /// The step's resolved options, `pipelineSource` and the version of the Nextflow that ran as `nextflowVersion`,
     /// read from `logFile`. The version is left out when there is no log, when it cannot be read as UTF-8 and when it
     /// names no version.
