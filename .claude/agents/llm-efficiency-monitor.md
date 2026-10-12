@@ -36,19 +36,20 @@ candidate, put that session's closing figures in the log for this session's upda
 | Write only under `SCR/llm/` | No repository edits, no commits, no subagents, no builds or tests, no pushes. The last checkpoint is the one exception, below |
 | Never read a transcript | No `~/.claude/projects/**/*.jsonl` and no persisted tool-result file in your context. Write a script that prints numbers, then read its output with `sed -n` on the lines you need |
 | Batch | Independent reads and script runs go in one message. Put script output in files, not in your context |
-| Guard-safe commands | Literal paths, no heredoc inside `$(...)`, no `python3 -`, no `( ... ) > file` around a command that names a repository path, timeout 270000 on long calls, `du` of the build folders in the background |
+| Guard-safe commands | One command a call when it names an SCR path, since the guard refuses a `;` or `&&` chain that names a path under the checkout folder. Literal paths, no heredoc inside `$(...)`, no `python3 -`, no `( ... ) > file` around a command that names a repository path, timeout 270000 on long calls, `du` of the build folders in the background |
 | Check what you are told | Check every observation in the spawn prompt against the transcripts with a script before you use it |
 | Short final message | At most 200 words, with the spend so far, the top findings and the files you wrote |
 
 ## Checkpoint routine
 
-1. Run the ledger (about 2 s) and keep the JSON for the next checkpoint. Read its Totals, By role, Flags and Failed tool
-   results sections, and compare the JSON with the previous checkpoint's per agent key for the spend, turns and tokens
-   per stage since then.
+1. Run the ledger (about 2 s) and keep the JSON for the next checkpoint. Read its Totals, By role (lane, fix, landing,
+   review, design, llm, gate, main), Flags and Failed tool results sections, and compare the JSON with the previous
+   checkpoint's per agent key for the spend, turns and tokens per stage since then.
 2. Read `get_usage` (load it with ToolSearch when it is deferred) for the 5-hour window, the weekly window and the
    manager's context, which a subagent call reports. Read `df -h ~` and the size of the worktree build folders.
-3. Check that the briefs in `SCR/briefs/` carry the contract's values (the wait timeout, named milestone stops, the
-   documentation lane budget). A rule that never reached a brief was not followed.
+3. Check that the briefs in `SCR/briefs/` carry the contract's values (the wait timeouts for opus and sonnet, named
+   milestone stops, the documentation lane budget, the command forms). A rule that never reached a brief was not
+   followed.
 4. Check every threshold in the contract's checkpoint table and score each action of the last checkpoint against a
    measurement (followed or not, and what changed).
 5. Append a dated entry to `SCR/llm/log.md` and put numbered actions at the top of `SCR/llm/actions.md`, then add new
@@ -70,11 +71,12 @@ An action names the agents by id, the evidence, and the exact text the manager s
 | Spend and burn | Ledger cost per agent and per 10-minute bucket, $ an hour against the quota line from the window start |
 | Lane size | Tool calls and peak context per lane, spend after the 150th call against a fresh continuation, documentation lanes against their 80-call budget with the files they read |
 | Waits | Poll-only turns (every call a wait, a log peek, `ps` or `uptime`), Monitor calls, blocking `until` waits, calls moved to the background |
-| Builds | "Build complete!" durations with the nearest load average, first builds in warm, chained and fresh worktrees. A build whose output goes to a log file shows only as the gap to the next build start |
-| Cache | Rebuilds (a large cache write after a gap near or over 5 minutes) and the call before each, often a wait of 290 s |
-| Refusals | Worktree-guard rejections by message, report-name refusals, blocked `sleep`, refused EnterWorktree |
+| Builds | "Build complete!" durations with the nearest load average and the number of agents building, first builds in fresh worktrees. A build whose output goes to a log file shows only as the gap to the next build start |
+| Cache | Rebuilds (a large cache write after a gap near or over 5 minutes) and the call before each, a long wait plus the model time of the turn that issued it, or one long turn |
+| Refusals | Worktree-guard rejections by message, report-name refusals, blocked `sleep`, refused EnterWorktree, agent types not found |
 | Manager context | `get_usage` tokens, growth a minute and a turn, what filled it, and compactions (a drop of over 30% between two manager turns) with the turn cost before and after |
-| Landings | Calls, wall time and waits per landing agent, full suite reruns, and fixes it handed back to the manager |
+| Landings and fixes | Calls, wall time and waits per landing agent, review fixes folded in against fix agents spawned, full suite reruns, and fixes handed back to the manager |
+| Rulings | Votes and single-field rulings with their cost and wall time, and reviews that ruled a scope question |
 | Disk | Free space, build folder sizes, local snapshots |
 
 ## Transcript facts the scripts rely on
@@ -87,6 +89,7 @@ An action names the agents by id, the evidence, and the exact text the manager s
 | `cost-state` entries carry Claude Code's own total cost | Use them to check the fitted prices |
 | A message to a running agent arrives as an `isMeta` user entry about the coordinator sending a message | Count it as a resume segment, idle or busy |
 | Subagents write 5-minute cache entries, the main session 1-hour entries | A subagent wait over 5 minutes rebuilds its cache |
+| A session runs past midnight | A helper given an `HH:MM` start earlier than the session's first entry reads it as the next day |
 
 ## The last checkpoint
 
@@ -97,12 +100,14 @@ Its commits land before the final candidate, so the unit tier covers the ledger'
    results) in the log.
 2. Run `git merge --ff-only <head>` and check `git log -1`. Clone the lint packages as `lane-rules.md` says.
 3. Update `docs/contracts/RUNNING-A-PHASE-SESSION.md` by its end-of-session duty, and this file and
-   `scripts/llm/session_ledger.py` with `scripts/tests/test_session_ledger.py` when they changed. Keep the contract
-   general and put the session's numbers in its evidence tables.
+   `scripts/llm/session_ledger.py` with `scripts/tests/test_session_ledger.py` when they changed. Commit any agent type
+   the session proposed, since Claude Code loads types only when a session starts. Keep the contract general and put
+   the session's numbers in its evidence tables.
 4. Run `LUNGFISH_MANUAL_STRICT=1 bash docs/user-manual/build/scripts/lint-chapter.sh` on the contract,
    `python3 -m unittest scripts.tests.test_session_ledger` and `python3 scripts/checks/doc-path-references.py`.
 5. Write each commit message under `SCR/llm/`, commit with `git commit -F`, put the commit range in `SCR/llm/cpN.md`,
-   and copy the helper scripts to `build/llm/` of the primary checkout for the next session.
+   and copy the helper scripts, with the generic landing wrappers of `SCR/land/` in `build/llm/land/`, to `build/llm/`
+   of the primary checkout for the next session.
 
 If Claude Code refuses a write under `.claude/agents/`, leave the file in `SCR/llm/` and say so.
 
