@@ -83,6 +83,7 @@ extension BuildDbCommand {
                 sampleDirectories: explicitSampleDirectories
             )
             let databaseSnapshot = try BuildDbDatabaseSnapshot.capture(dbURL: dbURL)
+            var cleanupSteps: [ProvenanceStep] = []
 
             do {
                 // 1. Enumerate sample subdirectories and parse kreport files
@@ -109,7 +110,7 @@ extension BuildDbCommand {
                 events.text(BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: nil).summary)
 
                 if !options.noCleanup {
-                    performCleanup(resultURL: resultURL, sampleDirectories: explicitSampleDirectories, events: events)
+                    cleanupSteps = performCleanup(resultURL: resultURL, sampleDirectories: explicitSampleDirectories, events: events)
                 }
 
                 let record = try await BuildDbCommand.recordBuildDbProvenance(
@@ -122,6 +123,7 @@ extension BuildDbCommand {
                     runClock: runClock,
                     inputRecords: provenanceInputs,
                     sampleDirectories: explicitSampleDirectories,
+                    additionalSteps: cleanupSteps,
                     writesFolderRecord: options.writesFolderRecord,
                     events: events
                 )
@@ -144,6 +146,7 @@ extension BuildDbCommand {
                     inputRecords: provenanceInputs,
                     error: error,
                     sampleDirectories: explicitSampleDirectories,
+                    additionalSteps: cleanupSteps,
                     includeOutputRecords: false,
                     writesFolderRecord: options.writesFolderRecord,
                     events: events
@@ -404,16 +407,25 @@ extension BuildDbCommand {
         /// Keeps: `classification.kraken.gz`,
         /// `classification.kraken.gz.idx.sqlite`, `classification.kreport`,
         /// `classification-result.json`, `kraken2.sqlite`.
-        private static func performCleanup(resultURL: URL, sampleDirectories: [URL] = [], events: BuildDbEventSink) {
+        ///
+        /// Returns the steps of the run's record, the index and gzip of each compacted output and
+        /// one removal step that names every removed file with the digest it had, because the
+        /// classifier's record names the per-read output it wrote (P1 of Phase 2.8, row 423).
+        private static func performCleanup(
+            resultURL: URL, sampleDirectories: [URL] = [], events: BuildDbEventSink
+        ) -> [ProvenanceStep] {
             let fm = FileManager.default
             var freedBytes: Int64 = 0
+            var steps: [ProvenanceStep] = []
+            var removed: [ProvenanceFileDescriptor] = []
+            let removalClock = ProvenanceRunClock()
 
             let cleanupDirs: [URL]
             if sampleDirectories.isEmpty {
                 guard let contents = try? fm.contentsOfDirectory(
                     at: resultURL,
                     includingPropertiesForKeys: [.isDirectoryKey]
-                ) else { return }
+                ) else { return [] }
 
                 cleanupDirs = [resultURL] + contents
                     .filter { url in
@@ -441,11 +453,16 @@ extension BuildDbCommand {
                 if fm.fileExists(atPath: krakenOutput.path) {
                     let originalSize = fileSize(krakenOutput) ?? 0
                     do {
+                        // Hashed once, before the compaction removes it.
+                        let raw = try ProvenanceFileDescriptor.file(url: krakenOutput, format: .text, role: .input)
+                        let clock = ProvenanceRunClock()
                         let compressedOutput = try KrakenOutputCompactor.compact(
                             rawURL: krakenOutput,
                             includeUnclassifiedInIndex: false,
                             removeRawOnSuccess: true
                         )
+                        steps += compactionSteps(raw: raw, compressed: compressedOutput, clock: clock)
+                        removed.append(raw)
                         updateClassificationResultSidecar(in: dir, outputURL: compressedOutput, events: events)
                         let compressedSize = fileSize(compressedOutput) ?? 0
                         freedBytes += max(0, originalSize - compressedSize)
@@ -458,12 +475,44 @@ extension BuildDbCommand {
                 // are named after the compressed output and must be kept.
                 let krakenIndex = dir.appendingPathComponent("classification.kraken.idx.sqlite")
                 if let size = fileSize(krakenIndex) {
+                    let oldIndex = try? ProvenanceFileDescriptor.file(url: krakenIndex, role: .index)
                     KrakenOutputCompactor.removeSQLiteDatabase(at: krakenIndex)
+                    if let oldIndex { removed.append(oldIndex) }
                     freedBytes += size
                 }
             }
 
             events.text("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
+            let removal = RecordedRemovalStep.step(
+                toolName: ClassificationPipeline.kraken2OutputRemovalToolName,
+                api: "BuildDbCommand.Kraken2Subcommand.performCleanup(resultURL:sampleDirectories:events:)",
+                removing: removed.filter { !fm.fileExists(atPath: $0.path) },
+                clock: removalClock
+            )
+            return steps + (removal.map { [$0] } ?? [])
+        }
+
+        /// The index and gzip steps of one compaction, as the classifier records its own
+        /// (`ClassificationPipeline.compactKrakenOutputIfPossible`). `raw` is the per-read output
+        /// as it was before the compaction removed it.
+        static func compactionSteps(raw: ProvenanceFileDescriptor, compressed: URL, clock: ProvenanceRunClock) -> [ProvenanceStep] {
+            let index = KrakenIndexDatabase.indexURL(for: compressed)
+            guard let indexOutput = try? ProvenanceFileDescriptor.file(url: index, role: .index),
+                  let gzipOutput = try? ProvenanceFileDescriptor.file(url: compressed, format: .text, role: .output) else { return [] }
+            func step(_ toolName: String, _ version: String, _ argv: [String], _ output: ProvenanceFileDescriptor) -> ProvenanceStep {
+                ProvenanceStep(
+                    toolName: toolName, toolVersion: version, argv: argv, inputs: [raw], outputs: [output], exitStatus: 0,
+                    wallTimeSeconds: clock.elapsed, startedAt: clock.startedAt, completedAt: clock.now
+                )
+            }
+            return [
+                step("lungfish-kraken2-index", WorkflowRun.currentAppVersion, [
+                    CLICommandIdentity.executableName, "internal", "kraken2-index", "--classified-only", raw.path, index.path,
+                ], indexOutput),
+                step("gzip", "system", [
+                    "/bin/sh", "-c", "/usr/bin/gzip -c \(shellEscape(raw.path)) > \(shellEscape(compressed.path))",
+                ], gzipOutput),
+            ]
         }
 
         private static func fileSize(_ url: URL) -> Int64? {

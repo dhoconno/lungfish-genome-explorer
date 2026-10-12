@@ -1,0 +1,83 @@
+// BuildDbRecordedRemovalTests.swift - build-db kraken2 records the compaction it makes
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+//
+// Row 423 and panel decision P1 of Phase 2.8 (docs/plans/2026-10-11-phase-2-8.md). The classifier's
+// record names the per-read output it wrote with its digest. When `build-db kraken2` compacts that
+// output, the run records the index and gzip steps the classifier records for its own compaction,
+// and one removal step that names each removed file with the digest it had, so no record names
+// a file that is gone without a step that says why.
+
+import XCTest
+import LungfishTestSupport
+@testable import LungfishCLI
+@testable import LungfishIO
+@testable import LungfishWorkflow
+
+final class BuildDbRecordedRemovalTests: XCTestCase {
+    func testKraken2CleanupRecordsItsCompactionAndRemoval() async throws {
+        let root = try TestTempDirectory.make(prefix: "BuildDbRecordedRemoval")
+        defer { TestTempDirectory.cleanup(root) }
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/kraken2-mini", isDirectory: true)
+        let result = root.appendingPathComponent("kraken2", isDirectory: true)
+        try FileManager.default.copyItem(at: fixture, to: result)
+        let sample = result.appendingPathComponent("SRR35517702", isDirectory: true)
+        let raw = sample.appendingPathComponent("classification.kraken")
+        try Data("C\tread-1\t12345\t150\t12345:150\nU\tread-2\t0\t150\t0:150\n".utf8).write(to: raw)
+        try Data("kraken index".utf8).write(to: sample.appendingPathComponent("classification.kraken.idx.sqlite"))
+
+        try await BuildDbCommand.Kraken2Subcommand.parse([result.path, "-q"]).run()
+
+        let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: result))
+        func step(_ toolName: String) throws -> ProvenanceStep {
+            try XCTUnwrap(record.steps.first { $0.toolName == toolName }, toolName)
+        }
+        func names(_ files: [ProvenanceFileDescriptor]) -> [String] {
+            files.map { URL(fileURLWithPath: $0.path).lastPathComponent }
+        }
+        let gzip = try step("gzip")
+        let index = try step("lungfish-kraken2-index")
+        XCTAssertEqual(names(gzip.inputs), ["classification.kraken"])
+        XCTAssertNotNil(gzip.inputs.first?.checksumSHA256, "The steps read the per-read output with its digest")
+        XCTAssertEqual(index.inputs, gzip.inputs, "The per-read output is hashed once")
+        XCTAssertEqual(names(gzip.outputs), ["classification.kraken.gz"])
+        XCTAssertEqual(names(index.outputs), ["classification.kraken.gz.idx.sqlite"])
+
+        let removal = try step(ClassificationPipeline.kraken2OutputRemovalToolName)
+        XCTAssertEqual(removal.resolvedOptions["operation"], .string(RecordedRemovalStep.operation))
+        // kraken2-mini keeps the raw per-read output of each of its three samples.
+        XCTAssertEqual(removal.inputs.map { "\(URL(fileURLWithPath: $0.path).deletingLastPathComponent().lastPathComponent)/"
+            + URL(fileURLWithPath: $0.path).lastPathComponent }, [
+            "SRR35517702/classification.kraken", "SRR35517702/classification.kraken.idx.sqlite",
+            "SRR35517703/classification.kraken", "SRR35517705/classification.kraken",
+        ])
+        XCTAssertEqual(removal.inputs.first, gzip.inputs.first, "The removal names the bytes the compaction read")
+        XCTAssertNotNil(removal.inputs[1].checksumSHA256, "The old index is named with its digest")
+        XCTAssertEqual(removal.outputs, [])
+        for path in removal.inputs.map(\.path) {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: path), "\(path) is gone")
+        }
+        XCTAssertEqual(record.steps.last?.toolName, "lungfish build-db kraken2", "The run's own step comes last")
+    }
+
+    func testKraken2CleanupThatCompactsNothingRecordsNoRemoval() async throws {
+        let root = try TestTempDirectory.make(prefix: "BuildDbRecordedRemovalNone")
+        defer { TestTempDirectory.cleanup(root) }
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/kraken2-mini", isDirectory: true)
+        let result = root.appendingPathComponent("kraken2", isDirectory: true)
+        try FileManager.default.copyItem(at: fixture, to: result)
+        for sample in ["SRR35517702", "SRR35517703", "SRR35517705"] {
+            let raw = result.appendingPathComponent("\(sample)/classification.kraken")
+            if FileManager.default.fileExists(atPath: raw.path) { try FileManager.default.removeItem(at: raw) }
+        }
+
+        try await BuildDbCommand.Kraken2Subcommand.parse([result.path, "-q"]).run()
+
+        let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: result))
+        XCTAssertEqual(record.steps.map(\.toolName), ["lungfish build-db kraken2"])
+    }
+}
