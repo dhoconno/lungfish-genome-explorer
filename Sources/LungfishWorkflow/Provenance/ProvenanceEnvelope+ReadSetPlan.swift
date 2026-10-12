@@ -14,6 +14,9 @@ import Foundation
 public struct RecordedReadSetPlan: Sendable, Equatable {
     /// The key every place records the plan under.
     public static let key = "readSetPlan"
+    /// The key of the explicit option under which TaxTriage keeps one plan for each sample, keyed by
+    /// sample id.
+    public static let keyedBySampleKey = "read_set_plans"
 
     /// Where in a record the plan sits. The first case is the one home a writer records it in. The
     /// others are places that released builds wrote, which a reader still accepts.
@@ -27,6 +30,10 @@ public struct RecordedReadSetPlan: Sendable, Equatable {
         case stepResolvedOptions(stepID: UUID)
         /// The parameters of the run nested in a record that an older build wrote.
         case nestedRunParameters
+        /// `options.explicit["read_set_plans"]` under the sample's id, where every released TaxTriage
+        /// record keeps its plans and where a pooled TaxTriage record of several samples still keeps
+        /// them (decision T7 of Phase 2.8).
+        case explicitOptionsKeyedBySample(sampleID: String)
     }
 
     /// The fields of the plan, as ``ReadSetPlan/provenanceParameters`` wrote them.
@@ -45,6 +52,11 @@ extension ProvenanceEnvelope {
     /// plan to `options.explicit`, to the `resolvedOptions` of a step and to the parameters of a run
     /// nested in the record, so the reader looks in that order and returns the first plan it finds.
     /// A value that is not an object is no plan, and the reader goes on to the next place.
+    ///
+    /// Last come the plans a TaxTriage record keeps by sample (``readSetPlansBySample``). One of them
+    /// is the record's plan only when the record says it ran one sample (`sample_count` 1) and keeps
+    /// that sample's plan. A pooled record of several samples has no one plan, even when only one of
+    /// its samples kept a plan, so it reads nil here and gives each sample's plan by its id.
     public var readSetPlan: RecordedReadSetPlan? {
         let key = RecordedReadSetPlan.key
         if let fields = options.resolvedDefaults[key]?.dictionaryValue {
@@ -61,6 +73,33 @@ extension ProvenanceEnvelope {
         if let fields = legacyRun?.parameters[key]?.dictionaryValue {
             return RecordedReadSetPlan(fields: fields, place: .nestedRunParameters)
         }
+        let bySample = readSetPlansBySample
+        if bySample.count == 1, options.explicit["sample_count"]?.numberValue == 1 {
+            return bySample.values.first
+        }
         return nil
+    }
+
+    /// The plans this record keeps by sample id, from `options.explicit["read_set_plans"]`.
+    ///
+    /// Every released TaxTriage record keeps its plans in this form, and a pooled TaxTriage record of
+    /// several samples still does (decision T7 of Phase 2.8). A record saved while records still
+    /// nested their run holds the same plans in that run's parameters too, so the explicit options
+    /// are the one place read. A value that is not an object is no plan. Empty when the record keeps
+    /// no plan by sample, as a record that holds its plan in the one home does.
+    public var readSetPlansBySample: [String: RecordedReadSetPlan] {
+        guard let plans = options.explicit[RecordedReadSetPlan.keyedBySampleKey]?.dictionaryValue else {
+            return [:]
+        }
+        var bySample: [String: RecordedReadSetPlan] = [:]
+        for (sampleID, value) in plans {
+            if let fields = value.dictionaryValue {
+                bySample[sampleID] = RecordedReadSetPlan(
+                    fields: fields,
+                    place: .explicitOptionsKeyedBySample(sampleID: sampleID)
+                )
+            }
+        }
+        return bySample
     }
 }

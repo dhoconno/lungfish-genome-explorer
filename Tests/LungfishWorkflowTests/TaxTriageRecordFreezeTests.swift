@@ -418,13 +418,14 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
     }
 
     /// BIO T7. A pooled run of several samples records its plans as `read_set_plans`, keyed by sample id, among the run
-    /// parameters, which the recorder merges into `options.explicit`. The one reader of a plan looks for `readSetPlan`
-    /// only, so it does not read the keyed form. Each sample of a several-sample app run writes a record of one sample.
-    /// Plan decision T7, applied by lane B2, records the plan of a record of one sample as the resolved default
-    /// `readSetPlan`, where the reader finds it, and keeps no keyed plan there, because a writer keeps one home for a
-    /// plan. The three assertions on that record were flipped by B2. A pooled record keeps the keyed form, so its two
-    /// assertions stay.
-    func testPlansAreKeyedBySampleInTheExplicitOptionsAndTheReaderNeverFindsThem() async throws {
+    /// parameters, which the recorder merges into `options.explicit`. At the base the one reader of a plan looked for
+    /// `readSetPlan` only, so it did not read the keyed form. Each sample of a several-sample app run writes a record of
+    /// one sample. Plan decision T7, applied by lane B2, records the plan of a record of one sample as the resolved
+    /// default `readSetPlan`, where the reader finds it, and keeps no keyed plan there, because a writer keeps one home
+    /// for a plan. The three assertions on that record were flipped by B2. A pooled record keeps the keyed form, and
+    /// since B2's M3 the reader gives each of its plans by sample id while the record has no one plan, so the assertion
+    /// on its reader was flipped by B2, and the test's name with it.
+    func testPlansAreKeyedBySampleOnlyInAPooledRecordAndTheReaderFindsEveryPlan() async throws {
         let fixtures = try makeFixtures()
         let mixed = try await planned(fixtures.mixedRoot, as: "mixed", in: fixtures)
         let merged = try await planned(fixtures.mergeDerivative, as: "merged", in: fixtures)
@@ -442,11 +443,18 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
 
         let pooled = try await savedRecord(parameters: parameters, as: "pooled-record")
         XCTAssertEqual(Set(try XCTUnwrap(pooled.options.explicit["read_set_plans"]?.dictionaryValue).keys), ["mixed", "merged"])
-        XCTAssertNil(pooled.readSetPlan, "a pooled record of several samples keeps the keyed form, which the reader does not read")
+        XCTAssertNil(pooled.readSetPlan, "a pooled record of several samples has no one plan")
+        XCTAssertEqual(
+            pooled.readSetPlansBySample.mapValues(\.fields),
+            plans.compactMapValues(\.dictionaryValue),
+            "flipped by B2 (T7, M3), the reader gives each sample's plan by its id"
+        )
+        XCTAssertEqual(pooled.readSetPlansBySample["mixed"]?.place, .explicitOptionsKeyedBySample(sampleID: "mixed"))
 
         let oneSample = TaxTriagePipeline().provenanceParameters(for: config([mixed]))
         let single = try await savedRecord(parameters: oneSample, as: "single-record")
         XCTAssertNil(single.options.explicit["read_set_plans"], "flipped by B2 (T7), a record of one sample keeps no keyed plan")
+        XCTAssertEqual(single.readSetPlansBySample, [:])
         XCTAssertEqual(single.options.resolvedDefaults, ["readSetPlan": plans["mixed"]!], "flipped by B2 (T7), the plan is a resolved default")
         XCTAssertNil(single.options.explicit["readSetPlan"])
         XCTAssertEqual(single.readSetPlan?.place, .resolvedDefaults, "flipped by B2 (T7), the reader finds the plan")

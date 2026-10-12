@@ -83,6 +83,99 @@ struct ProvenanceEnvelopeReadSetPlanTests {
         #expect(record.readSetPlan == RecordedReadSetPlan(fields: Self.fields("nested"), place: .nestedRunParameters))
     }
 
+    // MARK: Plans kept by sample
+
+    /// The explicit options of a TaxTriage record that ran `sampleCount` samples and kept `plans` by
+    /// sample id, as every released TaxTriage build wrote them.
+    private static func keyed(_ plans: [String: ParameterValue], sampleCount: Int?) -> [String: ParameterValue] {
+        var options: [String: ParameterValue] = [
+            "workflow": .string("taxtriage"),
+            "read_set_plans": .dictionary(plans),
+        ]
+        if let sampleCount {
+            options["sample_count"] = .integer(sampleCount)
+        }
+        return options
+    }
+
+    private static func keyedPlan(_ marker: String, sample: String) -> RecordedReadSetPlan {
+        RecordedReadSetPlan(fields: fields(marker), place: .explicitOptionsKeyedBySample(sampleID: sample))
+    }
+
+    @Test("a released TaxTriage record of one sample gives the plan it kept by its sample id")
+    func aReleasedTaxTriageRecordOfOneSampleGivesItsKeyedPlan() {
+        let options = Self.keyed(["S1": Self.plan("keyed")], sampleCount: 1)
+        let record = Self.envelope(explicit: options)
+        #expect(record.readSetPlan == Self.keyedPlan("keyed", sample: "S1"))
+        #expect(record.readSetPlansBySample == ["S1": Self.keyedPlan("keyed", sample: "S1")])
+
+        // A record saved while records still nested their run holds the same parameters there too.
+        let nestedToo = Self.envelope(explicit: options, nestedRunParameters: options)
+        #expect(nestedToo.readSetPlan == Self.keyedPlan("keyed", sample: "S1"))
+    }
+
+    @Test("a pooled record of several samples has no one plan and gives each sample's plan by its id")
+    func aPooledRecordGivesEachSamplesPlanAndNoOnePlan() {
+        let pooled = Self.envelope(explicit: Self.keyed(["A": Self.plan("a"), "B": Self.plan("b")], sampleCount: 3))
+        #expect(pooled.readSetPlan == nil)
+        #expect(pooled.readSetPlansBySample == ["A": Self.keyedPlan("a", sample: "A"), "B": Self.keyedPlan("b", sample: "B")])
+
+        // A pooled run of a planned sample beside a sample with nothing to record keeps one plan, which is
+        // still that sample's and not the record's.
+        let onePlanned = Self.envelope(explicit: Self.keyed(["A": Self.plan("a")], sampleCount: 2))
+        #expect(onePlanned.readSetPlan == nil)
+        #expect(onePlanned.readSetPlansBySample == ["A": Self.keyedPlan("a", sample: "A")])
+
+        // A record that does not say how many samples it ran is not read as a record of one.
+        let uncounted = Self.envelope(explicit: Self.keyed(["A": Self.plan("a")], sampleCount: nil))
+        #expect(uncounted.readSetPlan == nil)
+        #expect(uncounted.readSetPlansBySample == ["A": Self.keyedPlan("a", sample: "A")])
+    }
+
+    @Test("a sample's value that is not an object is no plan")
+    func aKeptValueThatIsNotAnObjectIsNoPlan() {
+        let record = Self.envelope(explicit: Self.keyed(["A": .string("pairs"), "B": .null, "C": .integer(2)], sampleCount: 1))
+        #expect(record.readSetPlan == nil)
+        #expect(record.readSetPlansBySample.isEmpty)
+
+        let oneObject = Self.envelope(explicit: Self.keyed(["A": .array([Self.plan("a")]), "B": Self.plan("b")], sampleCount: 2))
+        #expect(oneObject.readSetPlansBySample == ["B": Self.keyedPlan("b", sample: "B")])
+    }
+
+    @Test("a plan in any one place wins over the plans kept by sample, which still read by sample")
+    func everyOnePlaceWinsOverPlansKeptBySample() {
+        let keyed = Self.keyed(["S1": Self.plan("keyed")], sampleCount: 1)
+        let home = Self.envelope(explicit: keyed, resolvedDefaults: ["readSetPlan": Self.plan("home")])
+        #expect(home.readSetPlan?.place == .resolvedDefaults)
+        #expect(home.readSetPlansBySample == ["S1": Self.keyedPlan("keyed", sample: "S1")])
+
+        var explicitAndKeyed = keyed
+        explicitAndKeyed["readSetPlan"] = Self.plan("explicit")
+        #expect(Self.envelope(explicit: explicitAndKeyed).readSetPlan?.place == .explicitOptions)
+
+        let step = Self.step(["readSetPlan": Self.plan("step")])
+        #expect(Self.envelope(explicit: keyed, steps: [step]).readSetPlan?.place == .stepResolvedOptions(stepID: step.id))
+
+        let nested = Self.envelope(explicit: keyed, nestedRunParameters: ["readSetPlan": Self.plan("nested")])
+        #expect(nested.readSetPlan?.place == .nestedRunParameters)
+    }
+
+    @Test("a record the recorder saves from a released TaxTriage run of one sample gives its kept plan")
+    func aRecorderRecordOfAReleasedTaxTriageRunGivesItsKeptPlan() async throws {
+        let directory = try TestTempDirectory.make(prefix: "readsetplan-kept-by-sample")
+        defer { TestTempDirectory.cleanup(directory) }
+        let runID = await ProvenanceRecorder.shared.beginRun(
+            name: "TaxTriage",
+            parameters: Self.keyed(["S1": Self.plan("released")], sampleCount: 1)
+        )
+        await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
+        try await ProvenanceRecorder.shared.save(runID: runID, to: directory)
+
+        let record = try #require(try ProvenanceEnvelopeReader.load(from: directory))
+        #expect(record.options.explicit["sample_count"] == .integer(1))
+        #expect(record.readSetPlan == Self.keyedPlan("released", sample: "S1"))
+    }
+
     // MARK: Order
 
     @Test("the home wins over every released place, and each place wins over the ones after it")
@@ -151,12 +244,14 @@ struct ProvenanceEnvelopeReadSetPlanTests {
         }
     }
 
-    @Test("the plural keys of TaxTriage and 12S matching and a plan nested in another value are no plan")
+    @Test("12S matching's plans by input, a TaxTriage key that holds no samples and a plan nested in another value are no plan")
     func otherKeysAndNestedValuesAreNoPlan() {
-        // TaxTriage records one plan per sample and 12S matching records `readSetPlans`. Viral Recon
-        // records the key inside each read pairing decision, with another meaning.
+        // 12S matching records `readSetPlans`, one entry for each input with the plan inside it, and
+        // TaxTriage keeps its plans in an object keyed by sample id, so a list under its key holds no
+        // sample. Viral Recon records the key inside each read pairing decision, with another meaning.
         let record = Self.envelope(
             explicit: [
+                "sample_count": .integer(1),
                 "read_set_plans": .array([Self.plan("per sample")]),
                 "readSetPlans": .array([Self.plan("per sample")]),
                 "readPairing": .array([.dictionary(["readSetPlan": Self.plan("bundle staging")])]),
@@ -164,6 +259,7 @@ struct ProvenanceEnvelopeReadSetPlanTests {
             steps: [Self.step(["inner": .dictionary(["readSetPlan": Self.plan("deeper")])])]
         )
         #expect(record.readSetPlan == nil)
+        #expect(record.readSetPlansBySample.isEmpty)
     }
 
     // MARK: Written and read back
@@ -174,10 +270,12 @@ struct ProvenanceEnvelopeReadSetPlanTests {
         let explicit = Self.envelope(explicit: ["readSetPlan": Self.plan("explicit")])
         let step = Self.step(["readSetPlan": Self.plan("step")])
         let onStep = Self.envelope(steps: [step])
+        let keptBySample = Self.envelope(explicit: Self.keyed(["S1": Self.plan("keyed")], sampleCount: 1))
         for (record, place) in [
             (home, RecordedReadSetPlan.Place.resolvedDefaults),
             (explicit, .explicitOptions),
             (onStep, .stepResolvedOptions(stepID: step.id)),
+            (keptBySample, .explicitOptionsKeyedBySample(sampleID: "S1")),
         ] {
             let bytes = try ProvenanceJSON.encoder.encode(record)
             let decoded = try ProvenanceEnvelopeReader.decode(bytes)
