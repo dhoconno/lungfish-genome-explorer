@@ -453,7 +453,7 @@ features:
       - Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift
       - Sources/LungfishOperations/FASTQStatisticsService.swift
       - Sources/LungfishKit/FASTQDisplayNameResolver.swift
-    module: [LungfishApp, LungfishKit]
+    module: [LungfishApp, LungfishOperations, LungfishKit]
     notes: >-
       Presents read counts, quality summaries, and sample metadata for a FASTQ
       dataset and launches the FASTQ operation dialogs. This dashboard is not
@@ -1598,7 +1598,7 @@ features:
       - Sources/LungfishWorkflow/MSA/DiscriminatingSitesExclusionAligner.swift
       - Sources/LungfishWorkflow/MSA/DiscriminatingSitesReportFormatter.swift
       - Sources/LungfishCLI/Commands/MSADiscriminatingSitesSubcommand.swift
-    module: [LungfishApp, LungfishWorkflow, LungfishCLI]
+    module: [LungfishApp, LungfishOperations, LungfishWorkflow, LungfishCLI]
     cli:
       - lungfish-cli msa discriminating-sites
     operation_type: multipleSequenceAlignmentAction
@@ -2094,7 +2094,7 @@ features:
       - Sources/LungfishApp/Views/Inspector/InspectorView.swift
       - Sources/LungfishApp/Views/Inspector/InspectorViewModel.swift
       - Sources/LungfishOperations/AI/AIAssistantService.swift
-    module: [LungfishApp]
+    module: [LungfishApp, LungfishOperations]
     notes: >-
       Chat panel that answers questions about the active dataset, suggests
       workflows, and helps interpret results using a bring-your-own-key provider.
