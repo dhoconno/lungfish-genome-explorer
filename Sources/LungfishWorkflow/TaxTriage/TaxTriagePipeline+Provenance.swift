@@ -120,7 +120,9 @@ extension TaxTriagePipeline {
 /// - The plan of a record of one sample is the resolved default `readSetPlan`, the home decision E13 of Phase 2.7 names
 ///   (T7). A pooled record of several samples keeps its plans keyed by sample under `read_set_plans` in the explicit
 ///   options, the home released builds wrote, because one plan cannot hold several samples' plans.
-/// - The Kraken 2 database is recorded as decision E9 of Phase 2.7 records EsViritu's, as resolved defaults.
+/// - The Kraken 2 database is recorded as decision E9 of Phase 2.7 records EsViritu's, as resolved defaults, with the
+///   source URL and source policy its install receipt names, and no placeholder of the receipt as a catalog entry or
+///   version.
 /// - Each task failure TaxTriage ignored is one warning line (T8), and the run still ends `completed`.
 ///
 /// The R1 and R2 halves of an interleaved file are scratch that the run removes, so no fact names one (T6). The record
@@ -135,8 +137,10 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
     /// The run parameters a record holds among its resolved defaults rather than its explicit options.
     static let resolvedDefaultKeys: Set<String> = [
         RecordedReadSetPlan.key, "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes",
-        "databaseCatalogID", "databaseCatalogVersion",
+        "databaseCatalogID", "databaseCatalogVersion", "databaseSourceURL", "databaseSourcePolicy",
     ]
+    /// The values an install receipt writes when it knows no catalog entry or version, which name nothing.
+    static let receiptPlaceholders: Set<String> = ["", "unknown", "unspecified"]
 
     /// The settings the run was asked for.
     let explicitOptions: [String: ParameterValue]
@@ -194,8 +198,10 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
     }
 
     /// The identity of the Kraken 2 database at `databaseURL`, as decision E9 gives EsViritu's. Its path, the size of
-    /// each core file and a status that says no digest pins it, plus the catalog entry and version when the folder's
-    /// install receipt names the folder. Nothing is hashed. Empty when the run names no database.
+    /// each core file and a status that says no digest pins it. When the folder's install receipt names the folder and
+    /// its install ended 0, also the source URL and source policy the receipt names, the catalog entry unless the
+    /// receipt holds a placeholder for it, and as the version the first of the requested catalog version and the
+    /// receipt's workflow version that is no placeholder. Nothing is hashed. Empty when the run names no database.
     static func databaseIdentity(at databaseURL: URL?) -> [String: ParameterValue] {
         guard let databaseURL else { return [:] }
         let database = databaseURL.standardizedFileURL
@@ -213,13 +219,23 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
         ]
         if let receipt = ProvenanceRecorder.loadEnvelope(from: database),
            receipt.workflowName == databaseInstallWorkflowName,
+           receipt.exitStatus == 0,
            receipt.options.resolvedDefaults["intendedFinalPath"]?.stringValue == database.path {
-            if let catalogID = receipt.options.explicit["catalogID"]?.stringValue {
+            let installed = receipt.options.resolvedDefaults
+            if let catalogID = receipt.options.explicit["catalogID"]?.stringValue,
+               !receiptPlaceholders.contains(catalogID) {
                 identity["databaseCatalogID"] = .string(catalogID)
             }
-            if let version = receipt.options.resolvedDefaults["requestedCatalogVersion"]?.stringValue
-                ?? receipt.workflowVersion {
+            if let version = [installed["requestedCatalogVersion"]?.stringValue, receipt.workflowVersion]
+                .compactMap({ $0 })
+                .first(where: { !receiptPlaceholders.contains($0) }) {
                 identity["databaseCatalogVersion"] = .string(version)
+            }
+            if let sourceURL = installed["requestedSourceURL"]?.stringValue {
+                identity["databaseSourceURL"] = .string(sourceURL)
+            }
+            if let sourcePolicy = installed["databaseSourcePolicy"]?.stringValue {
+                identity["databaseSourcePolicy"] = .string(sourcePolicy)
             }
         }
         return identity

@@ -424,6 +424,48 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         XCTAssertEqual(Set(elsewhere.keys), ["databasePath", "databaseIdentityStatus", "databaseCoreFileSizes"])
     }
 
+    /// RT5 and E9 (review fix 3). A receipt of an archive install names the source URL and the source policy, and the
+    /// identity records both. A receipt that holds a placeholder for its catalog entry records no entry, and the
+    /// version is the first of the requested catalog version and the receipt's workflow version that is not a
+    /// placeholder. The save keeps every key of the identity among the record's resolved defaults.
+    func testAReceiptAddsItsSourceAndNoPlaceholderCatalogEntry() throws {
+        let database = try makeDatabase()
+        let fixture = ProvenanceCompatCorpus.repositoryRoot.appendingPathComponent(
+            "Tests/Fixtures/provenance-compat/cases/s1-db-receipt-kraken2-viral/managed-storage/databases/kraken2/viral/.lungfish-provenance.json"
+        )
+        var receipt = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as? [String: Any])
+        var options = try XCTUnwrap(receipt["options"] as? [String: Any])
+        var explicit = try XCTUnwrap(options["explicit"] as? [String: Any])
+        var resolved = try XCTUnwrap(options["resolvedDefaults"] as? [String: Any])
+        func typed(_ value: String) -> [String: Any] { ["type": "string", "value": value] }
+        let sourceURL = "https://genome-idx.s3.amazonaws.com/kraken/k2_viral_20240904.tar.gz"
+        explicit["catalogID"] = typed("unknown")
+        resolved["intendedFinalPath"] = typed(database.standardizedFileURL.path)
+        resolved["requestedSourceURL"] = typed(sourceURL)
+        resolved["databaseSourcePolicy"] = typed("unpinnedArchive")
+        resolved["requestedCatalogVersion"] = typed("unspecified")
+        options["explicit"] = explicit
+        options["resolvedDefaults"] = resolved
+        receipt["options"] = options
+        try JSONSerialization.data(withJSONObject: receipt)
+            .write(to: database.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+
+        let identity = TaxTriageRecordFacts.databaseIdentity(at: database)
+        XCTAssertEqual(identity["databaseSourceURL"], .string(sourceURL))
+        XCTAssertEqual(identity["databaseSourcePolicy"], .string("unpinnedArchive"))
+        XCTAssertNil(identity["databaseCatalogID"], "unknown is a placeholder, not a catalog entry")
+        XCTAssertEqual(identity["databaseCatalogVersion"], .string("20260626"), "the first version that is not a placeholder")
+        XCTAssertEqual(Set(identity.keys), [
+            "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes",
+            "databaseSourceURL", "databaseSourcePolicy", "databaseCatalogVersion",
+        ])
+        XCTAssertEqual(
+            TaxTriageRecordFacts.recordOptions(fromRunParameters: identity).resolvedDefaults,
+            identity,
+            "the save files all six keys among the resolved defaults"
+        )
+    }
+
     /// RT2. A step of a sample's read set plan, a split or an interleave the resolver wrote, is recorded as Kraken 2
     /// records it, before the pipeline's own split and join steps, with its files and their digests.
     func testAStepOfTheReadSetPlanIsRecordedBeforeTheRunsOwnSteps() async throws {
