@@ -38,12 +38,15 @@ final class BrackenThresholdPreflightLiveConformanceTests: XCTestCase {
     /// each on a species whose reads all sit on its own row. The fourth shows the count is the
     /// clade count, the reads of the taxon and everything below it. The fifth shows the rank is the
     /// resolved one alone, because a genus above the species holds 25 reads and counts for nothing.
+    /// The sixth shows each taxon meets the threshold alone, because two species of nine reads each
+    /// are both dropped.
     static let cases: [Case] = [
         Case(name: "one read below the threshold", report: report(species: threshold - 1), kept: false, keptReads: nil),
         Case(name: "at the threshold", report: report(species: threshold), kept: true, keptReads: threshold),
         Case(name: "one read above the threshold", report: report(species: threshold + 1), kept: true, keptReads: threshold + 1),
         Case(name: "a species whose reads sit on a strain below it", report: report(species: threshold, direct: 4), kept: true, keptReads: threshold),
         Case(name: "a genus above a species below the threshold", report: report(species: threshold - 1, genus: 25), kept: false, keptReads: nil),
+        Case(name: "two species below the threshold whose reads add up past it", report: report(species: threshold - 1, genus: 2 * (threshold - 1), sibling: threshold - 1), kept: false, keptReads: nil),
     ]
 
     func testManagedBrackenKeepsATaxonAtTheThresholdAndDropsOneBelowIt() async throws {
@@ -95,12 +98,13 @@ final class BrackenThresholdPreflightLiveConformanceTests: XCTestCase {
 
     /// A Kraken2 report of one viral species at rank S. `species` is its clade count and `direct`
     /// the reads placed on its own row. The rest sit on a strain row (rank S1) below it. A genus
-    /// row above it holds `genus` reads when given. An unclassified line comes first, as
+    /// row above it holds `genus` reads when given, and a second species of `sibling` reads sits
+    /// beside the first under the same genus when given. An unclassified line comes first, as
     /// Kraken2 writes it, so the installed est_abundance.py never meets a report without one.
-    static func report(species: Int, direct: Int? = nil, genus: Int? = nil) -> String {
+    static func report(species: Int, direct: Int? = nil, genus: Int? = nil, sibling: Int? = nil) -> String {
         let unclassified = 5
         let direct = direct ?? species
-        let classified = max(species, genus ?? 0)
+        let classified = max(species + (sibling ?? 0), genus ?? 0)
         let total = classified + unclassified
         func line(_ clade: Int, _ own: Int, _ rank: String, _ taxID: Int, _ depth: Int, _ name: String) -> String {
             let percent = String(format: "%6.2f", Double(clade) / Double(total) * 100)
@@ -113,12 +117,15 @@ final class BrackenThresholdPreflightLiveConformanceTests: XCTestCase {
         ]
         var depth = 2
         if let genus {
-            lines.append(line(genus, genus - species, "G", 694002, depth, "Betacoronavirus"))
+            lines.append(line(genus, genus - species - (sibling ?? 0), "G", 694002, depth, "Betacoronavirus"))
             depth += 1
         }
         lines.append(line(species, direct, "S", 3418604, depth, "Betacoronavirus pandemicum"))
         if species > direct {
             lines.append(line(species - direct, species - direct, "S1", 2697049, depth + 1, "Severe acute respiratory syndrome coronavirus 2"))
+        }
+        if let sibling {
+            lines.append(line(sibling, sibling, "S", 694003, depth, "Betacoronavirus 1"))
         }
         return lines.joined(separator: "\n") + "\n"
     }
