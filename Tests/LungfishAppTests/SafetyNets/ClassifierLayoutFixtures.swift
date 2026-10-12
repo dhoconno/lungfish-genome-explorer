@@ -136,10 +136,12 @@ enum ClassifierLayoutFixtures {
     }
 
     /// `lungfish-cli esviritu detect --output D`. The files sit at the root of D with no metadata,
-    /// summary, manifest or index.
+    /// summary, manifest or index, unless `index` builds the index in the folder first.
     @discardableResult
-    static func cliEsViritu(named name: String, in parent: URL) throws -> URL {
-        let folder = try SafetyNetFiles.makeDirectory(parent.appendingPathComponent(name, isDirectory: true))
+    static func cliEsViritu(named name: String, in parent: URL, index: Bool = false) throws -> URL {
+        let folder = index
+            ? try RoutingSafetyNetFixtures.esVirituResult(named: name, in: parent, samples: [sample])
+            : try SafetyNetFiles.makeDirectory(parent.appendingPathComponent(name, isDirectory: true))
         try writeEsVirituFiles(sample: sample, into: folder, virusCount: 1)
         try SafetyNetFiles.write("", to: folder.appendingPathComponent("\(sample)_final_consensus.fasta"))
         try SafetyNetFiles.write("{}", to: folder.appendingPathComponent(".lungfish-provenance.json"))
@@ -185,8 +187,10 @@ enum ClassifierLayoutFixtures {
     /// A folder only its sidecar identifies. Kraken2 wrote it, then the user renamed it, or
     /// something copied the files without metadata.
     @discardableResult
-    static func probeOnlyKraken2(named name: String, in analyses: URL) throws -> URL {
-        let folder = try SafetyNetFiles.makeDirectory(analyses.appendingPathComponent(name, isDirectory: true))
+    static func probeOnlyKraken2(named name: String, in analyses: URL, index: Bool = false) throws -> URL {
+        let folder = index
+            ? try RoutingSafetyNetFixtures.kraken2Result(named: name, in: analyses, samples: [sample])
+            : try SafetyNetFiles.makeDirectory(analyses.appendingPathComponent(name, isDirectory: true))
         try writeKraken2Files(into: folder, keepsInputs: false)
         try SidebarScanSafetyNetProjects.pinCreationDate(of: folder, to: "2026-02-09T13-00-00")
         return folder

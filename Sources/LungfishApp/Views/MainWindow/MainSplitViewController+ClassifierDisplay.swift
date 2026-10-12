@@ -309,7 +309,7 @@ extension MainSplitViewController {
         mainSplitLogger.info("displayBatchGroup: Opening '\(dirName, privacy: .public)'")
 
         let projectURL = sidebarController.currentProjectURL ?? DocumentManager.shared.activeProject?.url
-        let toolId = AnalysesFolder.readAnalysisMetadata(from: batchURL)?.tool ?? dirName
+        let toolId = AnalysesFolder.readAnalysisMetadata(from: batchURL)?.tool ?? ClassifierDatabaseRouter.route(for: batchURL)?.analysisID.rawValue ?? dirName
         inspectorController?.updateProvenanceTarget(
             url: batchURL,
             sidebarType: provenanceSidebarType(forMetagenomicsToolId: toolId, directoryName: dirName),

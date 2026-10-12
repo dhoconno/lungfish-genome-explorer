@@ -507,6 +507,45 @@ extension RoutingSafetyNetTable {
                     )
                 )
             },
+            RoutingRow(family: .classifiers, name: "Kraken2 folder known only by its sidecar opens with an index", type: .classificationResult) { context in
+                // The scanner lists it from classification-result.json, and the router takes the tool from
+                // AnalysesFolder.analysisInfo, so the viewer opens although the name and metadata say nothing
+                // (2.7 row 445). Without an index the ending is the database build placeholder, pinned at the
+                // router in ClassifierLayoutReaderPinTests.
+                let result = try Layouts.probeOnlyKraken2(
+                    named: Name.probeOnlyKraken2, in: context.url("Analyses", isDirectory: true), index: true
+                )
+                let path = context.render(result)
+                return RoutingRowFixture(
+                    item: try RoutingSafetyNetItems.scannedAnalysis(result),
+                    expected: RoutingObservation(
+                        viewports: ["TaxonomyViewController"],
+                        mode: .metagenomics,
+                        classifierContext: "\(path) samples=[HG002]",
+                        native: ["taxonomy batch=\(path) selected=[HG002]"],
+                        inspector: ["batchOperation=Kraken2"],
+                        provenance: "classificationResult \(path)"
+                    )
+                )
+            },
+            RoutingRow(family: .classifiers, name: "EsViritu folder known only by its tables opens with an index", type: .esvirituResult) { context in
+                // The command line writes this layout when `--output` has a free name. The scanner lists it
+                // from its tables, and the router takes the tool from AnalysesFolder.analysisInfo (2.7 row 445).
+                let result = try Layouts.cliEsViritu(
+                    named: Name.cliEsVirituFreeName, in: context.url("Analyses", isDirectory: true), index: true
+                )
+                let path = context.render(result)
+                return RoutingRowFixture(
+                    item: try RoutingSafetyNetItems.scannedAnalysis(result),
+                    expected: RoutingObservation(
+                        viewports: ["EsVirituResultViewController"],
+                        mode: .metagenomics,
+                        classifierContext: "\(path) samples=[HG002]",
+                        native: ["esViritu batch=\(path) selected=[HG002]"],
+                        provenance: "esvirituResult \(path)"
+                    )
+                )
+            },
         ]
     }
 }
