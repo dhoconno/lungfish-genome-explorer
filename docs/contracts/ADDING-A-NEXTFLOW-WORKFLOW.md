@@ -275,4 +275,70 @@ A new workflow adds a row test in the shape of `NextflowWorkflowRowPinTests` on 
 
 ## 7. The executor tool (A2)
 
+A workflow runs from the command line as an `AnalysisRunTool` under the analysis run executor, the way Kraken2 and EsViritu run. TaxTriage's tool is `TaxTriageAnalysisRunTool` in `Sources/LungfishWorkflow/TaxTriage/TaxTriageAnalysisRunTool.swift`, with its unit in `TaxTriageAnalysisRunTool+Unit.swift` and its finalize in `TaxTriageAnalysisRunTool+Finalize.swift`. `lungfish-cli taxtriage run` runs it (`Sources/LungfishCLI/Commands/TaxTriageCommand+Run.swift`), and the app's TaxTriage launch keeps its in-process route until Phase 2.10. The types take `package` access, so the module map gains no public type. The tool's identity is the kind `taxtriage` with the workflow name `lungfish.taxtriage.run`, which the root record names.
+
+| Part | What it holds |
+|---|---|
+| `TaxTriageRunRequest` | The options of one command as given, with the usage conflict the command found, in `TaxTriageRunRequest.swift` |
+| `TaxTriageRunServices` | What the tool calls out to, the pipeline factory, the folder expansion, the materializer, the lock, the cancel check and the text presentation. A test swaps any of them |
+| `plan` | Phase P0. Every refusal before any folder exists, then the layout and the units |
+| The unit | One launch through the shared pipeline body, `TaxTriagePipeline.run`, on the engine of section 3 |
+| `finalize` | Phase P3. The run-level outputs and the viewer index, at the descriptor's `finalizeProgressShare` of the bar |
+
+### The plan
+
+The plan writes nothing. It reads TaxTriage's pin from the lock its services hold through `NextflowWorkflowDescriptor.taxTriage.resolvePin(in:)`, so a lock with no usable pin refuses the run with exit 126 and no fallback revision reaches a unit (decision N4). A blank `--revision` is refused, and a given one replaces the pin's revision. The plan resolves the samples with the refusals `taxtriage run` has always made. An `--input` folder whose loose files hold mates is refused with `The folder <folder> holds paired reads, such as <R1 file> and <R2 file>. Use --samplesheet to pair them.` (decision T8), because the folder route would run each mate as a sample of its own.
+
+The plan lays the run out by decision T5, which keeps decisions T2 and T4 of Phase 2.8.
+
+| Request | Layout | Units |
+|---|---|---|
+| `--output` | `.singleFolder` | One launch of every sample, pooled |
+| `--project` with one sample | `.sharedBatchRoot` | One launch that writes into `taxtriage-batch-<timestamp>` itself |
+| `--project` with several samples, or `--batch` | `.batchRoot` | One launch per sample, each in a folder that `AnalysesFolder.batchSampleDirectory(named:in:)` names |
+
+A sample keeps the name its user gave it in the samplesheet, and only its folder takes the sanitized name, so `S.1`, `S 1` and `S__1` run in `S_1`, `S_1-2` and `S_1-3` (decision T9). A failed sample of a batch is a warning while another sample completes (`warnOnFailedUnits`), and a run of one launch fails with its launch.
+
+### The finalize
+
+A batch root names each completed sample's outputs with the digest and size its sample's record took, and hashes nothing again. A result in a project or a batch root then gets `taxtriage.sqlite` in process, through the index builder the executor was given. `lungfish-cli` gives `TaxTriageResultIndexer` (`Sources/LungfishCLI/Commands/TaxTriageCommand+Index.swift`), which runs the core of `build-db taxtriage` (`BuildDbCommand+TaxTriageCore.swift`) with the recorded cleanup. That cleanup is one removal step before the root record, which names each removed file inside the result root, skips symbolic links and keeps `top/` (decision T5, row 258 of the Phase 2.8 plan). The run level then names only kept files. A plain `--output` keeps its folder as the command has always left it, with no index and no cleanup, as a Kraken2 result outside a project does. An index that cannot be built leaves a warning and the result, since the viewer builds the index when the result opens. The bar reads `Building TaxTriage database…` from 0.9 to the end.
+
+### The command
+
+| End | Exit code |
+|---|---|
+| A refusal of the request | 3 |
+| A failure after the plan, the pipeline's included | 64, `AnalysisRunExitCode.workflowError` |
+| A cancel | 125 |
+| A lock with no usable pin | 126 |
+
+A SIGTERM cancels the run, so the run records `cancelled`, settles its folder and exits 125 inside the 6 s grace the app's transport gives a command (lane S2). A second SIGTERM ends the process at once. `--format json` writes the executor's events, the leaf of `taxtriage run` in `Sources/LungfishCLI/Support/CLIEventContract.swift`. The run level of the root record names the `taxtriage run` command as it was typed, with or without the word `run`, and the `taxtriage` step names the reproducible Nextflow argv with `-r` (section 4).
+
+### What holds this section
+
+| Suite | What it pins |
+|---|---|
+| `Tests/LungfishWorkflowTests/TaxTriageAnalysisRunToolPlanTests.swift` | The refusals with their words and codes, the pin and the layout of every request |
+| `Tests/LungfishAppTests/TaxTriageAnalysisRunToolReplayTests.swift` | Units and the finalize on the stand-in engine |
+| `Tests/LungfishAppTests/TaxTriageRunCommandReplayTests.swift` | The command on the executor, its folders, records and exit codes |
+| `Tests/LungfishAppTests/TaxTriageRunSIGTERMReplayTests.swift` | The cancel, exit 125 and a `cancelled` record inside 6 s |
+| `Tests/LungfishCLITests/BuildDbTaxTriageIndexTests.swift` | The index over the core, the recorded removal step that keeps `top/` and the order of a batch's samples |
+| `Tests/LungfishWorkflowTests/AnalysisRun/AnalysisRunExecutorTests.swift` | The finalize's share of the bar |
+| `Tests/LungfishAppTests/TaxTriageCLIGUIParityReplayTests.swift` | The app's route against its recorded command (side B), the routed `--project` command through the built `lungfish-cli` (side C) and the argv side C's record names (side C'). C against C' declares nothing |
+
 ## 8. Adding a workflow, step by step (A2)
+
+Each step names the section that states its rules.
+
+| Step | What to add | Section |
+|---|---|---|
+| 1 | The pin in the managed tool lock, `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`, with its repository, commit and release tag, and the row in `AnalysisToolRegistry` provisioned as `.lockedPipeline` | 1 and 5 |
+| 2 | The `NextflowWorkflowDescriptor` value in a file of its own, `Sources/LungfishWorkflow/Nextflow/NextflowWorkflowDescriptor+<Name>.swift`, with every field stated, and a fit test against today's launch when LGE launches the workflow already, as `NextflowViralReconFitTests` does | 1 |
+| 3 | The samplesheet builder in `Sources/LungfishWorkflow/Nextflow/` with a test that pins the sheet's bytes | 2 |
+| 4 | The launch through `NextflowEngineProcess` with the descriptor's `engineConfiguration(profile:)`, and never a launch of its own | 3 |
+| 5 | Each Nextflow step recorded with `NextflowRecordFacts` | 4 |
+| 6 | The words of the registry row | 5 |
+| 7 | A `NextflowStandInWorkflow`, so the workflow's tests run on the stand-in engine, and a live class that the conformance tier runs | 6 |
+| 8 | The executor tool, with a request, services, a plan that refuses before any folder exists, a unit on the shared pipeline body and a finalize, as `TaxTriageAnalysisRunTool` has them. Its command takes the exit codes of section 7, ends a SIGTERM in a `cancelled` record with exit 125 and has an events leaf in `CLIEventContract.swift` | 7 |
+| 9 | Tests of the tool's plan, its command and its cancel in the shape section 7 lists, and, when the app runs the workflow, a parity class whose sides compare the app's route with the command it records | 7 |
+| 10 | A note to the manager of the public types and folders the change adds, so the module map is regenerated, and the tables of this contract brought up to date | all |
