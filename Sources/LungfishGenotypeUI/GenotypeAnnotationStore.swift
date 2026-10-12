@@ -934,7 +934,7 @@ public final class GenotypeAnnotationStore {
         let author = editAuthor ?? self.author
         let existing = sidecar.smartCohorts.first { $0.name == cohort.name && $0.scope == cohort.scope }
         sidecar.smartCohorts.removeAll { $0.name == cohort.name && $0.scope == cohort.scope }
-        sidecar.smartCohorts.append(cohort)
+        sidecar.smartCohorts.append(cohort.inheritingID(from: existing))
         let timestamp = now()
         sidecar.append(audit: .init(
             action: "saveSmartCohort", sample: "bundle", locus: nil, slot: nil,
@@ -2041,13 +2041,13 @@ public final class GenotypeAnnotationStore {
         }
     }
 
-    /// Publishes the whole sidecar the analyst sees in one write. The built-in
-    /// smart cohorts that are only in memory go out with the edit, because the
-    /// file is checked against `lastPersistedSidecar` and not against `sidecar`.
+    /// Publishes the whole sidecar the analyst sees in one write, with the derived id of each smart cohort
+    /// that stores none (plan decision G2). The built-in smart cohorts that are only in memory go out with
+    /// the edit, because the file is checked against `lastPersistedSidecar` and not against `sidecar`.
     private func persist(action: String, editContext: ProvenanceEditContext? = nil) throws {
         guard !isReadOnly else { return }
         let runClock = ProvenanceRunClock()
-        var desiredSidecar = sidecar
+        var desiredSidecar = sidecar.storingSmartCohortIDs()
         do {
             try desiredSidecar.promoteToCurrentSchema()
         } catch {

@@ -126,7 +126,10 @@ final class GenotypeAnnotationStoreCohortDismissalTests: XCTestCase {
 
         let onDisk = try GenotypeAnnotationSidecar.decode(Data(contentsOf: layout.annotationURL))
         XCTAssertEqual(onDisk.smartCohorts.map(\.name), ["Homozygous", "Incomplete haplotypes", "Needs review", "Recombinants"])
-        XCTAssertEqual(onDisk.smartCohorts.first, own)
+        // The save stores the id derived from the cohort's scope and name (plan decision G2) and changes nothing else.
+        var ownAsSaved = own
+        ownAsSaved.id = GenotypeCohortSmartFilter.derivedID(scope: "bundle", name: "Homozygous")
+        XCTAssertEqual(onDisk.smartCohorts.first, ownAsSaved)
         try assertRecord(layout, action: "restoreBuiltInSmartCohorts", seeded: ["Incomplete haplotypes", "Needs review"])
     }
 
