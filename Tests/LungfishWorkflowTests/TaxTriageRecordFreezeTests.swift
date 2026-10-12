@@ -362,11 +362,13 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         XCTAssertEqual(parameters["databasePath"], .string("/db/viral-kraken2"), "flipped by B2 (RT5), the database is named")
         XCTAssertEqual(parameters["databaseIdentityStatus"], .string("unpinned"))
         XCTAssertEqual(parameters["databaseCoreFileSizes"], .dictionary([:]))
+        let resolved = TaxTriageRecordFacts.recordOptions(fromRunParameters: parameters).resolvedDefaults
         XCTAssertEqual(
-            TaxTriageRecordFacts.recordOptions(fromRunParameters: parameters).resolvedDefaults.keys.sorted(),
-            databaseKeys.union(["classifiers"]).sorted(),
-            "the save keeps the database among the resolved defaults, and moved by B11 M2 (R5) the classifiers too"
+            resolved.keys.sorted(),
+            databaseKeys.union(["classifiers", "sample_count"]).sorted(),
+            "the save keeps the database among the resolved defaults, moved by B11 M2 (R5) the classifiers too, and moved by A2 M3 (B12 ruling H1) sample_count"
         )
+        XCTAssertEqual(resolved["sample_count"], .integer(1), "B12 ruling H1")
 
         let split = TaxTriagePipeline.InterleavedSampleSplit(
             sampleId: "A",
@@ -382,6 +384,11 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
             Self.settingKeys.union(["github_release_version", "interleaved_samples_split_to_r1_r2"]).union(databaseKeys)
         )
         XCTAssertEqual(withSplit["interleaved_samples_split_to_r1_r2"], .array([.string("A")]))
+        XCTAssertEqual(
+            TaxTriageRecordFacts.recordOptions(fromRunParameters: withSplit).resolvedDefaults["interleaved_samples_split_to_r1_r2"],
+            .array([.string("A")]),
+            "moved by A2 M3 (B12 ruling H2), the save files the split ids among the resolved defaults"
+        )
     }
 
     /// BIO T6. The batch record holds the same sixteen settings and the release tag as options, under the workflow
@@ -445,6 +452,8 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         }
 
         let pooled = try await savedRecord(parameters: parameters, as: "pooled-record")
+        XCTAssertEqual(pooled.options.resolvedDefaults["sample_count"], .integer(3), "moved by A2 M3 (B12 ruling H1)")
+        XCTAssertNil(pooled.options.explicit["sample_count"], "B12 ruling H1")
         XCTAssertEqual(Set(try XCTUnwrap(pooled.options.explicit["read_set_plans"]?.dictionaryValue).keys), ["mixed", "merged"])
         XCTAssertNil(pooled.readSetPlan, "a pooled record of several samples has no one plan")
         XCTAssertEqual(
@@ -460,10 +469,11 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         XCTAssertEqual(single.readSetPlansBySample, [:])
         XCTAssertEqual(
             single.options.resolvedDefaults,
-            ["readSetPlan": plans["mixed"]!, "classifiers": .array([.string("kraken2")])],
-            "flipped by B2 (T7), the plan is a resolved default, and moved by B11 M2 (R5) the classifiers are one"
+            ["readSetPlan": plans["mixed"]!, "classifiers": .array([.string("kraken2")]), "sample_count": .integer(1)],
+            "flipped by B2 (T7), the plan is a resolved default, moved by B11 M2 (R5) the classifiers are one, and moved by A2 M3 (B12 ruling H1) sample_count"
         )
         XCTAssertNil(single.options.explicit["readSetPlan"])
+        XCTAssertNil(single.options.explicit["sample_count"], "B12 ruling H1")
         XCTAssertEqual(single.readSetPlan?.place, .resolvedDefaults, "flipped by B2 (T7), the reader finds the plan")
         XCTAssertEqual(single.readSetPlan?.fields["capability"], .string("pairs_only_when_all_paired"))
     }
@@ -501,12 +511,11 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         let recorded = await ProvenanceRecorder.shared.canonicalEnvelope(for: runID)
         let envelope = try XCTUnwrap(recorded)
 
-        // The recorder's canonical envelope merges every run parameter, so it reads the key wherever the save files it.
-        XCTAssertEqual(
-            envelope.options.resolvedDefaults["interleaved_samples_split_to_r1_r2"]
-                ?? envelope.options.explicit["interleaved_samples_split_to_r1_r2"],
-            .array([.string("inter")])
-        )
+        // The recorder's canonical envelope holds the parameters the run began with as explicit options. The save
+        // files the split ids among the resolved defaults (B12 ruling H2), which TaxTriageSampleRecordFreezeTests
+        // pins on the saved record.
+        XCTAssertEqual(envelope.options.explicit["interleaved_samples_split_to_r1_r2"], .array([.string("inter")]))
+        XCTAssertNil(envelope.options.resolvedDefaults["interleaved_samples_split_to_r1_r2"])
         let step = try XCTUnwrap(envelope.steps.first)
         XCTAssertEqual(envelope.steps.count, 1)
         XCTAssertEqual(step.toolName, "Lungfish TaxTriage Interleaved Split")
