@@ -246,7 +246,7 @@ extension Kraken2AnalysisRunToolTests {
     // MARK: - Kept staged inputs (ruling R1 of Phase 2.8)
 
     /// A merge sample keeps the header-only mate staged beside its merged reads (O1). The batch
-    /// root names it as an input and an output, the roles the app's batch record gives it, with
+    /// root names it as an input and an output, the roles the sample's own record gives it, with
     /// the digest and size the staging step recorded in the sample's record, as a one-folder root
     /// names it through the pipeline's steps.
     func testABatchRootNamesEachSamplesKeptStagedInputWithItsStagingDigest() async throws {

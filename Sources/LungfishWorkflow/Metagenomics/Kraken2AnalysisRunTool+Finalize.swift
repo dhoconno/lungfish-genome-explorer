@@ -181,10 +181,10 @@ extension Kraken2AnalysisRunTool {
 
     /// The files each completed sample of a batch keeps in its `.lungfish-classify-inputs/`
     /// folder, such as the header-only mate staged beside a merge bundle's merged reads (O1), as
-    /// an input of the run and an output of it, the roles the app's batch record gives them. Each
-    /// keeps the digest and size the step that wrote it recorded in the sample's record, so the
-    /// root record reads no file again (ruling R1 of Phase 2.8). A one-folder root already names
-    /// them through the pipeline's steps.
+    /// an input of the run and an output of it, the roles the sample's own record gives them at
+    /// its run level. Each keeps the digest and size the step that wrote it recorded in the
+    /// sample's record, so the root record reads no file again (ruling R1 of Phase 2.8). A
+    /// one-folder root already names them through the pipeline's steps.
     static func keptStagedInputs(of sampleDirectories: [URL]) -> [ProvenanceFileDescriptor] {
         sampleDirectories.flatMap { directory -> [ProvenanceFileDescriptor] in
             guard let record = ProvenanceRecorder.loadEnvelope(from: directory) else { return [] }
