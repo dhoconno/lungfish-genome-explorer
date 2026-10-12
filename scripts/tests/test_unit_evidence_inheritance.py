@@ -525,6 +525,15 @@ class RedEvidenceTests(InheritanceTestCase):
 
         self.assertEqual(self.find(self.a)["kind"], "red")
 
+    def test_a_run_that_leaked_preferences_is_red_for_its_commit_and_covers_nothing(self):
+        # What release.py and the pre-push hook read after a leak (Phase 2.9 decision H1).
+        self.repo.evidence(self.a, "unit-a", authorized=False)
+        self.repo.edit("unit-a", lambda r: r.update(errors=["preferences-leaks check exited 1, see preferences.txt"]))
+        b = self.notes(10)
+
+        self.assertEqual(self.find(self.a)["kind"], "red")
+        self.assertNotIn((self.find(b) or {}).get("kind"), {"exact", "inherited"})
+
     def test_a_failure_wins_a_tie_on_result_time(self):
         self.repo.evidence(self.a, "unit-a-green")
         self.repo.evidence(self.a, "unit-a-red", authorized=False)
@@ -836,6 +845,18 @@ class UnitResultStatusTests(unittest.TestCase):
         self.assertEqual(self.status(lambda r: r.update(errors=["empty test selection"]), authorized=False), "red")
         self.assertEqual(self.status(lambda r: r["attempts"][0].update(passed=False, exitStatus=1), authorized=False),
                          "red")
+
+    def test_a_leaked_unit_run_is_red_not_green(self):
+        # gate_evidence.py records a Preferences leak (Phase 2.9 decision H1) as an error of the
+        # run, so its result is unauthorized. release.py and the pre-push hook read only this status.
+        leak = ["preferences-leaks check exited 1, see preferences.txt"]
+        result = copy.deepcopy(self.green)
+        result["authorized"] = False
+        result["errors"] = leak
+        self.assertEqual(gate.unit_result_status(result, gate.canonical_tier_options("unit", False)), "red")
+        self.assertEqual(self.status(lambda r: r.update(errors=leak), authorized=False), "red")
+        self.assertIsNone(self.status(lambda r: r.update(errors=leak)), "an error never validates as green")
+        self.assertEqual(self.status(), "green", "control: the same run without the leak is green")
 
     def test_failures_that_say_nothing_about_the_code_are_not_red(self):
         for label, change in UNINFORMATIVE_FAILURES.items():

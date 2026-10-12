@@ -1,9 +1,9 @@
 # Test files that still build a "<prefix>-<UUID>" UserDefaults suite by hand, so a tier may leave
 # ~/Library/Preferences/<prefix>-<UUID>.plist behind for them.
 #
-# scripts/testing/preferences-leaks.py reads this list around every tier of
-# scripts/full-suite-gate.sh (decision H1 of Phase 2.9, lane Q10). A new UUID-named plist fails
-# the tier unless its prefix is listed here or no file under Tests builds that prefix. The list
+# scripts/testing/preferences-leaks.py reads this list around the tests of every Swift gate, run by
+# scripts/release/gate_evidence.py (decision H1 of Phase 2.9, lane Q10). A new UUID-named plist
+# fails the gate unless its prefix is listed here or no file under Tests builds that prefix. The list
 # only shrinks. Move a file onto TestDefaultsSuite (Tests/Support/LungfishTestSupport) and delete
 # its rows in the same commit, and `preferences-leaks.py lint` fails on a row whose file no longer
 # builds its prefix by hand and on a test file that calls UserDefaults(suiteName:) and has no row.

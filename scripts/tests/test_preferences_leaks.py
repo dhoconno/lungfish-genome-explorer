@@ -1,10 +1,12 @@
-"""Tests for scripts/testing/preferences-leaks.py and its wiring in scripts/full-suite-gate.sh.
+"""Tests for scripts/testing/preferences-leaks.py.
 
 Phase 2.9 lane Q10, decision H1. Every test builds a throwaway Preferences folder, Tests tree and
 allowed list in a temporary directory, so nothing reads or writes the real ~/Library/Preferences.
 Four tests read the real checkout: they pin the shipped allowed list (each row names a file that
 still builds its prefix, the list only shrinks, the eleven classes moved onto TestDefaultsSuite
-stay off it) and the gate's call of the script.
+stay off it) and the helper with its test. scripts/release/gate_evidence.py runs the script around
+the tests of every Swift gate, and test_full_suite_gate_tiers.py tests that wiring with the real
+gate_evidence.py.
 """
 
 import contextlib
@@ -22,7 +24,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/testing/preferences-leaks.py"
 ALLOWED = ROOT / "scripts/testing/preferences-leaks-allowed.txt"
-GATE = ROOT / "scripts/full-suite-gate.sh"
 
 # The allowed list may only shrink. Lower this number with it, never raise it.
 SEEDED_ROWS = 73
@@ -412,111 +413,6 @@ class ShippedAllowedListTests(unittest.TestCase):
         for relative in ("Tests/Support/LungfishTestSupport/TestDefaultsSuite.swift",
                          "Tests/LungfishCoreTests/TestDefaultsSuiteTests.swift"):
             self.assertTrue((ROOT / relative).is_file(), relative)
-
-
-class GateWiringTests(unittest.TestCase):
-    EVIDENCE_STUB = (
-        "import os, pathlib, sys\n"
-        "output = pathlib.Path(sys.argv[sys.argv.index('--output') + 1])\n"
-        "output.mkdir(parents=True)\n"
-        "(output / 'gate.result.json').write_text('{}\\n')\n"
-        "if os.environ.get('STUB_MARKER'):\n"
-        "    pathlib.Path(os.environ['STUB_MARKER']).write_text('ran')\n"
-        "for name in filter(None, os.environ.get('STUB_WRITES', '').split(',')):\n"
-        "    (pathlib.Path(os.environ['LUNGFISH_PREFERENCES_DIR']) / name).write_text('{}')\n"
-        "sys.exit(int(os.environ.get('STUB_EXIT', '0')))\n"
-    )
-
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="lungfish-preferences-gate-test-"))
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        self.project = self.tmp / "project"
-        (self.project / "scripts/release").mkdir(parents=True)
-        (self.project / "scripts/testing").mkdir(parents=True)
-        shutil.copy2(GATE, self.project / "scripts/full-suite-gate.sh")
-        shutil.copy2(SCRIPT, self.project / "scripts/testing/preferences-leaks.py")
-        (self.project / "scripts/release/gate_evidence.py").write_text(self.EVIDENCE_STUB)
-        suite = self.project / "Tests/LungfishAppTests/ExampleTests.swift"
-        suite.parent.mkdir(parents=True)
-        suite.write_text('let suite = "ExampleTests-\\(UUID().uuidString)"\n')
-        self.allow()
-        self.preferences = self.tmp / "Preferences"
-        self.preferences.mkdir()
-        self.marker = self.tmp / "tier-ran"
-
-    def allow(self, *rows):
-        (self.project / "scripts/testing/preferences-leaks-allowed.txt").write_text(
-            "".join(f"{prefix} {file}\n" for prefix, file in rows))
-
-    def run_gate(self, *options, writes=(), stub_exit=0):
-        env = {**os.environ, "LUNGFISH_RELEASE_PYTHON": sys.executable,
-               "LUNGFISH_PREFERENCES_DIR": str(self.preferences), "LUNGFISH_PREFERENCES_SETTLE_SECONDS": "0",
-               "STUB_WRITES": ",".join(writes), "STUB_EXIT": str(stub_exit), "STUB_MARKER": str(self.marker)}
-        return subprocess.run(["/bin/bash", str(self.project / "scripts/full-suite-gate.sh"), "--tier", "smoke", *options],
-                              cwd=self.tmp, env=env, capture_output=True, text=True, timeout=120)
-
-    def leftovers(self):
-        return sorted(p.name for p in (self.project / ".build/gate-logs").glob("*.preferences*"))
-
-    def test_the_gate_calls_the_script_before_and_after_the_tier(self):
-        text = GATE.read_text(encoding="utf-8")
-        self.assertTrue(SCRIPT.is_file())
-        snapshot = text.index('"$PREFERENCES_LEAKS" snapshot')
-        tier = text.index('"${command[@]}"')
-        check = text.index('"$PREFERENCES_LEAKS" check')
-        self.assertLess(snapshot, tier)
-        self.assertLess(tier, check)
-
-    def test_a_clean_tier_passes_and_leaves_no_files_beside_the_evidence(self):
-        result = self.run_gate()
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("preferences-leaks: PASS", result.stdout)
-        self.assertTrue(self.marker.exists())
-        self.assertEqual(self.leftovers(), [])
-
-    def test_a_tier_that_leaves_a_plist_a_test_builds_fails_the_gate(self):
-        name = f"ExampleTests-{uuid(1)}.plist"
-        result = self.run_gate(writes=[name])
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("preferences-leaks: FAIL", result.stderr)
-        self.assertIn(name, result.stderr)
-        # The snapshot is gone and the failed verdict stays beside the evidence.
-        (kept,) = self.leftovers()
-        self.assertTrue(kept.endswith(".preferences.txt"), kept)
-
-    def test_a_plist_on_the_allowed_list_does_not_fail_the_gate(self):
-        self.allow(("ExampleTests", "Tests/LungfishAppTests/ExampleTests.swift"))
-        result = self.run_gate(writes=[f"ExampleTests-{uuid(1)}.plist"])
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("1 on the allowed list", result.stdout)
-
-    def test_another_apps_plist_does_not_fail_the_gate(self):
-        result = self.run_gate(writes=[f"com.example.other-{uuid(1)}.plist"])
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    def test_a_failing_tier_keeps_its_own_exit_status(self):
-        result = self.run_gate(writes=[f"ExampleTests-{uuid(1)}.plist"], stub_exit=7)
-        self.assertEqual(result.returncode, 7, result.stdout + result.stderr)
-        self.assertIn("preferences-leaks: FAIL", result.stderr)
-
-    def test_a_stale_allowed_list_stops_the_gate_before_the_tier_runs(self):
-        self.allow(("Gone", "Tests/LungfishAppTests/Gone.swift"))
-        result = self.run_gate()
-        self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
-        self.assertFalse(self.marker.exists(), "the tier ran")
-        self.assertIn("the allowed list is stale", result.stderr)
-
-    def test_the_quiet_gate_repeats_a_failed_check_after_its_fail_line(self):
-        result = self.run_gate("--quiet", writes=[f"ExampleTests-{uuid(1)}.plist"])
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("GATE FAIL", result.stdout)
-        self.assertIn("preferences-leaks: FAIL", result.stdout)
-
-    def test_a_project_without_the_script_runs_the_tier_without_the_check(self):
-        (self.project / "scripts/testing/preferences-leaks.py").unlink()
-        result = self.run_gate(writes=[f"ExampleTests-{uuid(1)}.plist"])
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertTrue(self.marker.exists())
 
 
 if __name__ == "__main__":

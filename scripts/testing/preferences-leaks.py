@@ -7,7 +7,8 @@ only empties that file, so thousands piled up. The preferences daemon writes the
 again seconds after a test removes it, so cleaning up by hand does not last. The shared helper
 TestDefaultsSuite (Tests/Support/LungfishTestSupport) names its suite by a path in the temporary
 directory, which keeps the plist out of the folder. This script is the check around it.
-scripts/full-suite-gate.sh runs `snapshot` before each tier and `check` after its processes exit.
+scripts/release/gate_evidence.py runs `snapshot` before the tests of every Swift gate (a tier or a
+profile) and `check` after their processes exit, and records a failure as an error in gate.result.json.
 
   snapshot --output FILE   list the UUID-named plists now and write the list to FILE
   check --before FILE      wait for the system to settle, list them again, and fail on a new one

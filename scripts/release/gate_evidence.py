@@ -509,6 +509,21 @@ DEFAULT_TIER_TIMEOUT_SECONDS = {
 }
 
 
+def preferences_leaks(root, directory, command, *arguments):
+    """Run scripts/testing/preferences-leaks.py around the tests of a Swift gate (Phase 2.9
+    decision H1). A failure is an error of this run, so its gate.result.json can never authorize
+    a commit after a leak or with a stale allowed list. A project without the script has no check."""
+    script = Path(root) / "scripts/testing/preferences-leaks.py"
+    if not script.is_file():
+        return []
+    report = Path(directory) / "preferences.txt"
+    completed = subprocess.run([sys.executable, str(script), command, *arguments, "--report", str(report)],
+                               check=False)
+    if completed.returncode == 0:
+        return []
+    return [f"preferences-leaks {command} exited {completed.returncode}, see {report.name}"]
+
+
 def run_swift_gate(args):
     root, directory = Path(args.root).resolve(), Path(args.output).resolve()
     profile = getattr(args, "profile", None)
@@ -570,6 +585,9 @@ def run_swift_gate(args):
     if discovered.exists():
         second["files"].append(file_record(discovered, directory))
     timeout_seconds = getattr(args, "timeout_seconds", None) or DEFAULT_TIER_TIMEOUT_SECONDS.get(args.tier)
+    preferences_before = directory / "preferences-before.json"
+    if not errors:
+        errors += preferences_leaks(root, directory, "snapshot", "--output", str(preferences_before))
     if not errors:
         def attempt(name, include, exclude, parallel, role, chosen):
             target = directory / name
@@ -602,6 +620,8 @@ def run_swift_gate(args):
                 include = "^" + re.escape(suite) + "(/|$)"
                 chosen = {h: selected(tests, include, "") for h, tests in selection.items()}
                 attempt(f"retry-{index}", include, "", False, "diagnostic-retry", chosen)
+    if preferences_before.is_file():
+        errors += preferences_leaks(root, directory, "check", "--before", str(preferences_before))
     if source_identity(root) != source:
         errors.append("source changed during gate")
     result = {"schemaVersion": 1, "kind": "swift", "source": source, "runtime": runtime,

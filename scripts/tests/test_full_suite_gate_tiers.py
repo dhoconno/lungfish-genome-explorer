@@ -156,8 +156,16 @@ class FullSuiteGateTierTests(unittest.TestCase):
             "the --parallel guard for integration/full/unfiltered runs is gone",
         )
 
+# A UUID-named plist whose prefix the test file written by with_leak_check builds by hand.
+LEAKED_PLIST = "ExampleTests-00000001-0000-4000-8000-000000000001.plist"
+
+
 class GateBehaviorTests(unittest.TestCase):
-    def run_gate(self, scenario, *options):
+    def run_gate(self, scenario, *options, env=None, with_leak_check=False, allowed=""):
+        """Run the real gate and gate_evidence.py against a fake swift. env adds variables to the
+        run. with_leak_check also gives the project the Preferences check, an allowed list holding
+        `allowed`, a test file that builds ExampleTests-<UUID> names and a Preferences folder under
+        .build that the fake swift fills with the names in STUB_WRITES while the tests run."""
         with tempfile.TemporaryDirectory(prefix="lungfish-gate-test-") as temp:
             root = Path(temp)
             (root / ".gitignore").write_text(".build/\n")
@@ -183,11 +191,25 @@ class GateBehaviorTests(unittest.TestCase):
             sleep.write_text("#!/bin/sh\nexit 0\n")
             sleep.chmod(0o755)
             subprocess.run(["git", "init", "-q", str(root)], check=True)
+            environment = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                           "GATE_SCENARIO": scenario}
+            if with_leak_check:
+                (root / "scripts/testing").mkdir()
+                shutil.copy2(ROOT / "scripts/testing/preferences-leaks.py",
+                             root / "scripts/testing/preferences-leaks.py")
+                (root / "scripts/testing/preferences-leaks-allowed.txt").write_text(allowed)
+                suite = root / "Tests/LungfishCoreTests/ExampleTests.swift"
+                suite.parent.mkdir(parents=True)
+                suite.write_text('let s = "ExampleTests-\\(UUID().uuidString)"\n')
+                # Under .build, which .gitignore hides, so the plists do not change the source.
+                preferences = root / ".build/Preferences"
+                preferences.mkdir(parents=True)
+                environment.update(LUNGFISH_PREFERENCES_DIR=str(preferences),
+                                   LUNGFISH_PREFERENCES_SETTLE_SECONDS="0")
+            environment.update(env or {})
             result = subprocess.run(
                 ["/bin/bash", str(root / "scripts/full-suite-gate.sh"), *options],
-                env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
-                     "GATE_SCENARIO": scenario},
-                capture_output=True, text=True, timeout=15,
+                env=environment, capture_output=True, text=True, timeout=15,
             )
             reports = list(root.glob(".build/gate-logs/**/*.result.json"))
             evidence = json.loads(reports[0].read_text()) if reports else None
@@ -263,6 +285,44 @@ class GateBehaviorTests(unittest.TestCase):
         self.assertEqual(evidence["attempts"][1]["role"], "diagnostic-retry")
         self.assertNotEqual(evidence["attempts"][0]["files"], evidence["attempts"][1]["files"])
 
+    # Test hygiene (Phase 2.9 decision H1). gate_evidence.py runs scripts/testing/preferences-leaks.py
+    # around the tests, so a leak is an error in gate.result.json and the evidence is never green.
+    def test_a_leak_during_the_tests_leaves_unauthorized_evidence(self):
+        result, evidence = self.run_gate("one", "--filter", "ExampleTests",
+                                         env={"STUB_WRITES": LEAKED_PLIST}, with_leak_check=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIs(evidence["authorized"], False)
+        self.assertEqual(evidence["attempts"][0]["exitStatus"], 0, "the tests themselves passed")
+        self.assertEqual(evidence["errors"], ["preferences-leaks check exited 1, see preferences.txt"])
+        self.assertIn("preferences-leaks: FAIL", result.stderr)
+        self.assertIn(LEAKED_PLIST, result.stderr)
+
+    def test_a_clean_run_with_the_leak_check_stays_authorized(self):
+        result, evidence = self.run_gate("one", "--filter", "ExampleTests", with_leak_check=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIs(evidence["authorized"], True)
+        self.assertEqual(evidence["errors"], [])
+        self.assertIn("preferences-leaks: PASS", result.stdout, "the check ran")
+
+    def test_a_stale_allowed_list_runs_no_tests_and_cannot_authorize(self):
+        result, evidence = self.run_gate("one", "--filter", "ExampleTests", with_leak_check=True,
+                                         allowed="Gone Tests/LungfishCoreTests/Gone.swift\n")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIs(evidence["authorized"], False)
+        self.assertEqual(evidence["attempts"], [])
+        self.assertEqual(len(evidence["errors"]), 1, evidence["errors"])
+        self.assertTrue(evidence["errors"][0].startswith("preferences-leaks snapshot exited 3"), evidence["errors"])
+        self.assertIn("the allowed list is stale", result.stderr)
+
+    def test_the_quiet_gate_prints_the_failed_preferences_check_after_its_fail_line(self):
+        result, _ = self.run_gate("one", "--filter", "ExampleTests", "--quiet",
+                                  env={"STUB_WRITES": LEAKED_PLIST}, with_leak_check=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("GATE FAIL", result.stdout)
+        self.assertIn("preferences-leaks: FAIL", result.stdout)
+        self.assertIn(LEAKED_PLIST, result.stdout)
+        self.assertLess(result.stdout.index("GATE FAIL"), result.stdout.index("preferences-leaks: FAIL"))
+
 
 FAKE_SWIFT = r'''import json, os, pathlib, signal, sys
 args = sys.argv[1:]
@@ -294,6 +354,8 @@ if "list" in args:
             print(test_id.rsplit("/", 1)[0])
         events([metadata] if scenario in ("mixed", "swift_partial") else [])
     sys.exit(0)
+for name in filter(None, os.environ.get("STUB_WRITES", "").split(",")):
+    pathlib.Path(os.environ["LUNGFISH_PREFERENCES_DIR"], name).write_text("{}")
 if scenario == "empty":
     sys.exit(0)
 is_retry = "--filter" in args and "^LungfishCoreTests" in option("--filter")
