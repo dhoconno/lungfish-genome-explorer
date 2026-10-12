@@ -37,6 +37,29 @@ final class NextflowEngineLogTests: XCTestCase {
         XCTAssertEqual(stream.tail, ["a", "b"], "a line that could not be written still counts in the tail")
     }
 
+    func testAStreamHoldsFewerThanTwiceItsTailWhateverItPrints() throws {
+        let url = root.appendingPathComponent("stream.log")
+        let descriptor = Darwin.open(url.path, O_WRONLY | O_CREAT | O_CLOEXEC, 0o644)
+        XCTAssertGreaterThanOrEqual(descriptor, 0)
+        defer { Darwin.close(descriptor) }
+        var stream = NextflowLogStream(descriptor: descriptor, destination: url, tailLineCount: 3)
+        var mostHeld = 0
+
+        for number in 1...1000 {
+            stream.append("line \(number)")
+            mostHeld = max(mostHeld, stream.heldLineCount)
+        }
+
+        XCTAssertLessThan(mostHeld, 6, "SWIFT 5, memory stays within twice the tail however much the engine prints")
+        XCTAssertEqual(stream.tail, ["line 998", "line 999", "line 1000"])
+        XCTAssertNil(stream.writeFailure)
+        XCTAssertEqual(
+            try String(contentsOf: url, encoding: .utf8),
+            (1...1000).map { "line \($0)" }.joined(separator: "\n"),
+            "the tail bounds memory, never the log"
+        )
+    }
+
     func testTheLogReportsTheFirstFailedWriteWhenItFinishes() throws {
         let launch = root.appendingPathComponent("launch", isDirectory: true)
         try FileManager.default.createDirectory(at: launch, withIntermediateDirectories: true)

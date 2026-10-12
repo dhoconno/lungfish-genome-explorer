@@ -207,6 +207,9 @@ struct NextflowLogStream: Sendable {
     /// The last lines, at most the tail count.
     var tail: [String] { Array(recent.suffix(tailLineCount)) }
 
+    /// How many lines the stream holds in memory, always fewer than twice the tail count.
+    var heldLineCount: Int { recent.count }
+
     /// Writes each line of `stream` as it arrives, with a line break before every line but the
     /// first, hands it to `onLine` once written, and returns the part once the stream ends.
     func drained(_ stream: AsyncStream<String>, onLine: (@Sendable (String) -> Void)?) async -> NextflowLogStream {
