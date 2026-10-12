@@ -70,7 +70,7 @@ final class ClassifierParityNamedFileRuleTests: XCTestCase {
         let found = try differences([(path, record(steps: steps, files: [file(bam, "d0")]))], files: [bam: "d2"])
         XCTAssertEqual(found.map(\.id), ["fact: record \(path) names <project>/\(bam) with another digest"])
         XCTAssertEqual(try differences([
-            (path, record(steps: steps + [step(inputs: [file(bam, nil)], operation: "remove")])),
+            (path, record(steps: steps + [step(inputs: [file(bam, "d0")], operation: "remove")])),
         ], files: [bam: "d2"]), [])
     }
 
@@ -87,6 +87,29 @@ final class ClassifierParityNamedFileRuleTests: XCTestCase {
                           files: [file(kraken, "d0")])),
         ], files: [:])
         XCTAssertEqual(removed.map(\.id), ["fact: record \(path) names <project>/\(kraken) that does not exist"])
+    }
+
+    func testARemovalStepAccountsOnlyForStepsBeforeItInItsRecord() throws {
+        let path = "\(result)/s1/.lungfish-provenance.json"
+        let found = try differences([
+            (path, record(steps: [
+                step(outputs: [file(kraken, "d0")]),
+                step(inputs: [file(kraken, "d0")], operation: "remove"),
+                step(inputs: [file(kraken, "d0")]),
+            ])),
+        ], files: [:])
+
+        XCTAssertEqual(found.map(\.id), ["fact: record \(path) names <project>/\(kraken) that does not exist"])
+    }
+
+    func testARemovalStepAccountsForAChangedFileOnlyAtTheDigestItNames() throws {
+        let bam = "Analyses/kraken2-batch-1/s1/bams/s1.bam"
+        let path = "\(result)/s1/.lungfish-provenance.json"
+        let found = try differences([
+            (path, record(steps: [step(outputs: [file(bam, "d1")]), step(inputs: [file(bam, "d0")], operation: "remove")])),
+        ], files: [bam: "d2"])
+
+        XCTAssertEqual(found.map(\.id), ["fact: record \(path) names <project>/\(bam) with another digest"])
     }
 
     func testAMoveIsNotARemovalStep() throws {

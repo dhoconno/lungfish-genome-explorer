@@ -416,8 +416,9 @@ extension ClassifierCLIGUIParityReplayTests {
     ///
     /// Panel decision P1 of Phase 2.8. Step facts stay as they were, so a file that is missing
     /// or holds another digest is accepted only when a later step of the same record names it
-    /// with the stated digest as input, or a removal step of the same result names it by path.
-    /// A removal step says `operation` `remove` in its resolved options and names each removed
+    /// with the stated digest as input, or a removal step of the same result names it, no
+    /// earlier than the naming when both stand in one record, and with the stated digest when
+    /// the file holds other bytes. A removal step says `operation` `remove` in its resolved options and names each removed
     /// path as an input. A record's step list is the only order a record states, so a later step
     /// is one later in the same record, and nothing comes later than the run level. A later
     /// consumer can excuse an earlier naming but never the last one, so a removed or rewritten
@@ -431,9 +432,11 @@ extension ClassifierCLIGUIParityReplayTests {
         state: (String) throws -> NamedPathState?
     ) throws -> [ClassifierParityDifference] {
         let token = "<project>/"
-        var removed: [String: Set<String>] = [:]
+        var removed: [String: [(record: String, step: Int, path: String, sha256: String?)]] = [:]
         for record in records {
-            removed[resultFolder(of: record.path), default: []].formUnion(removedPaths(in: record.facts))
+            removed[resultFolder(of: record.path), default: []] += removals(in: record.facts).map {
+                (record: record.path, step: $0.step, path: $0.path, sha256: $0.sha256)
+            }
         }
         var found: [String: ClassifierParityDifference] = [:]
         for record in records {
@@ -456,8 +459,13 @@ extension ClassifierCLIGUIParityReplayTests {
                 }
                 // A removal step accounts for a step's naming, never the run level's, which the
                 // record writes after every step (P1, BIO checklist 2).
-                if named.step < stepCount(of: record.facts),
-                   removed[resultFolder(of: record.path)]?.contains(named.path) == true { continue }
+                let accounted = named.step < stepCount(of: record.facts)
+                    && (removed[resultFolder(of: record.path)] ?? []).contains { removal in
+                        removal.path == named.path
+                            && (removal.record != record.path || removal.step >= named.step)
+                            && (problem == "that does not exist" || removal.sha256 == named.sha256)
+                    }
+                if accounted { continue }
                 let consumedLater = namings[(index + 1)...].contains {
                     $0.step > named.step && $0.isInput && $0.path == named.path && $0.sha256 != nil && $0.sha256 == named.sha256
                 }
@@ -509,20 +517,25 @@ extension ClassifierCLIGUIParityReplayTests {
         return steps.count
     }
 
-    /// The paths the removal steps of `facts` name.
-    static func removedPaths(in facts: ProvenanceCompatFacts.Value) -> Set<String> {
+    /// Each input the removal steps of `facts` name, with the index of its step and the SHA-256
+    /// it states.
+    static func removals(in facts: ProvenanceCompatFacts.Value) -> [(step: Int, path: String, sha256: String?)] {
         guard case .object(let members) = facts, case .array(let steps)? = members["steps"] else { return [] }
-        var paths: Set<String> = []
-        for case .object(let step) in steps {
-            guard case .object(let options)? = step["resolvedOptions"],
+        var found: [(step: Int, path: String, sha256: String?)] = []
+        for (index, value) in steps.enumerated() {
+            guard case .object(let step) = value,
+                  case .object(let options)? = step["resolvedOptions"],
                   case .object(let operation)? = options["operation"],
                   operation["value"] == .string("remove"),
                   case .array(let inputs)? = step["inputs"] else { continue }
             for case .object(let input) in inputs {
-                if case .string(let path)? = input["path"] { paths.insert(path) }
+                guard case .string(let path)? = input["path"] else { continue }
+                var sha256: String?
+                if case .string(let stated)? = input["sha256"] { sha256 = stated }
+                found.append((step: index, path: path, sha256: sha256))
             }
         }
-        return paths
+        return found
     }
 
     /// The folder of the result that holds the record at `recordPath`, relative to the side
