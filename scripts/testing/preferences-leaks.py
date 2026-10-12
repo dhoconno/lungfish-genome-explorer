@@ -12,13 +12,17 @@ profile) and `check` after their processes exit, and records a failure as an err
 
   snapshot --output FILE   list the UUID-named plists now and write the list to FILE
   check --before FILE      wait for the system to settle, list them again, and fail on a new one
-                           whose prefix some file under Tests builds and the allowed list lacks
+                           whose prefix some file under Tests builds by hand and the allowed list
+                           lacks (a prefix a test passes to TestDefaultsSuite is another checkout's)
   lint                     fail when the allowed list names a file that no longer builds its prefix,
                            or a test file that calls UserDefaults(suiteName:) has no row
   prefixes                 print each prefix a file under Tests builds, and which file
 
 Only names are compared. A new plist whose prefix no file under Tests builds belongs to another
 app (com.openai.chat.RemoteFeatureFlags-<UUID>.plist) and is counted but never fails the tier.
+So does a new plist named for a prefix a test passes to TestDefaultsSuite when the allowed list
+lacks it. The helper keeps its plist in the temporary directory and TestDefaultsSuiteTests fails
+if it ever writes here, so a checkout that still builds that suite by hand wrote the file.
 
 The allowed list (preferences-leaks-allowed.txt, beside this script) holds one row per test file
 that still builds a "<prefix>-<UUID>" suite by hand. It can only shrink. `lint` fails on a row
@@ -210,7 +214,12 @@ def verdict(directory, before, first, after, built: Built, allowed: set[str]) ->
     new = [name for name in sorted(after) if name not in before]
     foreign = [n for n in new if after[n] not in prefixes]
     tolerated = [n for n in new if after[n] in prefixes and after[n] in allowed]
-    leaked = [n for n in new if after[n] in prefixes and after[n] not in allowed]
+    # TestDefaultsSuite keeps its plist in the temporary directory, and TestDefaultsSuiteTests fails
+    # if it ever writes here, so a plist named for a prefix this tree passes to the helper was
+    # written by another checkout that still builds that suite by hand.
+    elsewhere = [n for n in new if after[n] in built.by_helper and after[n] not in allowed]
+    leaked = [n for n in new
+              if after[n] in prefixes and after[n] not in allowed and after[n] not in built.by_helper]
     lines = []
     moved = set(first) ^ set(after)
     if moved:
@@ -222,6 +231,8 @@ def verdict(directory, before, first, after, built: Built, allowed: set[str]) ->
             notes.append(f"{len(tolerated)} on the allowed list")
         if foreign:
             notes.append(f"{len(foreign)} from other apps")
+        if elsewhere:
+            notes.append(f"{len(elsewhere)} from another checkout, named for a TestDefaultsSuite prefix")
         lines.append(f"preferences-leaks: PASS - {summary}" + (f" ({', '.join(notes)})" if notes else ""))
         for prefix, names in sorted(group(after, tolerated).items(), key=lambda item: -len(item[1]))[:10]:
             lines.append(f"  allowed  {len(names):5d}  {prefix or NO_PREFIX}")

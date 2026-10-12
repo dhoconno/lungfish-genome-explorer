@@ -3,7 +3,8 @@
 #
 # scripts/testing/preferences-leaks.py reads this list around the tests of every Swift gate, run by
 # scripts/release/gate_evidence.py (decision H1 of Phase 2.9, lane Q10). A new UUID-named plist
-# fails the gate unless its prefix is listed here or no file under Tests builds that prefix. The list
+# fails the gate unless its prefix is listed here, no file under Tests builds that prefix by hand, or
+# a test passes that prefix to TestDefaultsSuite (another checkout wrote it). The list
 # only shrinks. Move a file onto TestDefaultsSuite (Tests/Support/LungfishTestSupport) and delete
 # its rows in the same commit, and `preferences-leaks.py lint` fails on a row whose file no longer
 # builds its prefix by hand and on a test file that calls UserDefaults(suiteName:) and has no row.

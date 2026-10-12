@@ -303,13 +303,33 @@ class CheckTests(WorkspaceCase):
         self.assertEqual(status, 0, out + err)
         self.assertIn("1 from other apps", out)
 
-    def test_a_prefix_only_the_helper_builds_still_counts(self):
-        self.swift("B/HelperTests.swift", 'let s = makeTestDefaultsSuite(prefix: "HelperTests")\n')
+    def test_a_plist_named_for_a_helper_prefix_comes_from_another_checkout_and_passes(self):
+        # The shape of FASTQOperationDialogRoutingTests.swift:2068, which passes its prefix to the
+        # helper and also builds a temporary file name from it. The helper keeps its plist in the
+        # temporary directory, so a plist with this prefix was written by a checkout that still
+        # builds the suite by hand.
+        self.swift("B/HelperTests.swift",
+                   'let s = makeTestDefaultsSuite(prefix: "HelperTests")\n'
+                   'let f = dir.appendingPathComponent("HelperTests-\\(UUID().uuidString).fastq")\n')
         self.take_snapshot()
-        name = self.plist("HelperTests")
+        self.plist("HelperTests")
         status, out, err = self.check()
-        self.assertEqual(status, 1, out + err)
-        self.assertIn(name, err)
+        self.assertEqual(status, 0, out + err)
+        self.assertIn("1 from another checkout", out)
+        self.assertFalse(self.report.exists())
+
+    def test_a_helper_prefix_that_a_file_also_builds_as_a_suite_by_hand_stays_on_the_allowed_list(self):
+        # The shape of WorkflowRunAgainControllerTests.swift:363, which keeps a row, so lint covers it.
+        file = self.swift("B/HelperTests.swift",
+                          'let s = makeTestDefaultsSuite(prefix: "HelperTests")\n'
+                          'let d = UserDefaults(suiteName: "HelperTests-\\(UUID().uuidString)")\n')
+        self.allow(("HelperTests", file))
+        self.take_snapshot()
+        self.plist("HelperTests")
+        status, out, err = self.check()
+        self.assertEqual(status, 0, out + err)
+        self.assertIn("1 on the allowed list", out)
+        self.assertNotIn("another checkout", out)
 
     def test_a_suffix_after_the_uuid_still_counts_against_the_prefix(self):
         self.take_snapshot()
