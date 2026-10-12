@@ -101,20 +101,20 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
         XCTAssertEqual(decoded.legacyWorkflowRun().steps.first?.peakMemoryBytes, 42_000_000)
     }
 
+    /// Why a command records no provenance envelope, by its top-level name or by the path of one leaf. A leaf takes the
+    /// reason of its own path, else of its command, and `ScientificProvenancePolicyLeafTests` checks every registered leaf.
+    static let recordsNothing: [String: String] = [
+        "version": "It prints the build version and the bundled tool reference.",
+        "debug": "It diagnoses the installation, the container runtime and workflow logs.",
+        "storage": "It replaces byte-identical duplicates in the channel roots with verified APFS clones.",
+        "conda": "It maintains the installation and its environments.",
+        "conda run": "It runs any tool in a managed environment, so it declares no inputs or outputs to record.",
+        "demo": "It lists, describes and installs published demo projects, which carry their own records.",
+        "demo fetch": "It downloads and unpacks a demo project, and a record of the download inside it would change every demo tree."
+    ]
+
     func testScientificTopLevelCommandsHavePolicyEntries() {
-        // Commands that only maintain the installation or managed storage. `storage`
-        // inspects the channel roots and replaces byte-identical duplicates with
-        // verified APFS clones, so like `conda` it never creates
-        // or modifies scientific data and records no provenance envelope.
-        let nonScientificTopLevelCommands: Set<String> = [
-            "version",
-            "conda",
-            "debug",
-            "storage",
-            // `demo` downloads a published demo project archive and unpacks it; it runs
-            // no analysis, and the project it installs carries its own provenance.
-            "demo"
-        ]
+        let nonScientificTopLevelCommands = Set(Self.recordsNothing.keys.filter { $0.split(separator: " ").count == 1 })
         let topLevelCommands = Set(LungfishCLI.configuration.subcommands.compactMap { $0.configuration.commandName })
         let commandsExpectedToHavePolicy = topLevelCommands.subtracting(nonScientificTopLevelCommands)
         let missing = commandsExpectedToHavePolicy

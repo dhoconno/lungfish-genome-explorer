@@ -2,25 +2,30 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import ArgumentParser
 import XCTest
+@testable import LungfishCLI
 @testable import LungfishWorkflow
 
 /// Pins the provenance policy entry that `ScientificProvenancePolicy.cliCommand(path:)` gives every
 /// leaf command of `lungfish-cli`, and checks that no leaf holds the entry of another command.
 ///
-/// The leaves come from the golden help index, `Tests/Fixtures/golden/cli-help/index.tsv`, which
-/// lists every command path the executable registers, hidden commands included. A leaf is a path
-/// that no other path extends. The table holds the id of the entry each leaf resolves to, or nil
-/// when it resolves to none. A new CLI leaf needs a row, and the failure message prints it.
+/// The leaves come from a walk of `LungfishCLI.configuration`, so a leaf that a lane registers needs
+/// its row in the commit that adds it, with no wait for a golden recapture (2.7 row 435). A leaf is
+/// a command that no other command extends. The golden help index,
+/// `Tests/Fixtures/golden/cli-help/index.tsv`, lists every command path the executable registers,
+/// hidden commands included, and `testTheHelpIndexListsExactlyTheRegisteredLeaves` holds the walk to
+/// it. The table holds the id of the entry each leaf resolves to, or nil when it resolves to none.
+/// A new CLI leaf needs a row, and the failure message prints it.
 ///
 /// The lookup takes the exact row of the path, else the row of its longest registered prefix, else
 /// the entry of the command group that starts the path (plan decision E16). It never takes the
 /// entry of the path's last component, which gave 32 leaves the entry of another command and left
 /// 172 without one.
 final class ScientificProvenancePolicyLeafTests: XCTestCase {
-    func testEveryLeafResolvesToItsPinnedEntry() throws {
-        let leaves = try Self.helpIndexLeaves()
-        XCTAssertFalse(leaves.isEmpty, "the help index lists no command")
+    func testEveryLeafResolvesToItsPinnedEntry() {
+        let leaves = Self.registeredLeaves()
+        XCTAssertFalse(leaves.isEmpty, "the command tree registers no leaf")
 
         var unpinned: [String] = []
         var moved: [String] = []
@@ -40,35 +45,87 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
 
         XCTAssertTrue(unpinned.isEmpty, "Leaves with no pinned row. Add these rows:\n\(unpinned.joined(separator: "\n"))")
         XCTAssertTrue(moved.isEmpty, "Leaves whose entry moved:\n\(moved.joined(separator: "\n"))")
-        XCTAssertTrue(stale.isEmpty, "Pinned rows for paths that are no leaf of the help index:\n\(stale.joined(separator: "\n"))")
+        XCTAssertTrue(stale.isEmpty, "Pinned rows for paths that are no registered leaf:\n\(stale.joined(separator: "\n"))")
     }
 
-    func testEveryLeafEntryBelongsToItsOwnCommandGroup() throws {
+    func testEveryLeafEntryBelongsToItsOwnCommandGroup() {
         var foreign: [String] = []
-        var missing: [String] = []
-        for leaf in try Self.helpIndexLeaves() {
+        for leaf in Self.registeredLeaves() {
+            guard let entry = ScientificProvenancePolicy.cliCommand(path: leaf) else { continue }
             let key = leaf.joined(separator: " ")
             let group = leaf[0]
-            guard let entry = ScientificProvenancePolicy.cliCommand(path: leaf) else {
-                if !Self.groupsWithoutAnEntry.contains(group) { missing.append(key) }
-                continue
-            }
             let isOwn = entry.id == "cli.\(group)" || entry.id.hasPrefix("cli.\(group).")
             if !isOwn && Self.entriesOfAnotherCommand[key] != entry.id {
                 foreign.append("\(key) resolves to \(entry.id)")
             }
         }
         XCTAssertTrue(foreign.isEmpty, "Leaves that hold the entry of another command:\n\(foreign.joined(separator: "\n"))")
-        XCTAssertTrue(missing.isEmpty, "Leaves of a scientific command group with no entry:\n\(missing.joined(separator: "\n"))")
     }
 
-    func testEveryAllowedEntryOfAnotherCommandIsALeafThatResolvesToIt() throws {
-        let leaves = Set(try Self.helpIndexLeaves().map { $0.joined(separator: " ") })
+    /// A leaf that resolves to no entry records nothing, and says why in
+    /// `ScientificCLIProvenanceCoverageTests.recordsNothing` (plan decision P6, 2.7 row 435). A new leaf
+    /// of a scientific command group takes the entry of its group, and a new leaf of `conda`, `debug`,
+    /// `demo` or `storage` takes the reason of its group, so the pinned table is what stops it.
+    func testEveryLeafWithNoEntryStatesWhyItRecordsNothing() {
+        let leaves = Self.registeredLeaves()
+        let unexplained = Self.leavesWithNoEntryAndNoReason(in: leaves).joined(separator: "\n")
+        XCTAssertTrue(
+            unexplained.isEmpty,
+            "Leaves with no entry and no reason. Add a cliCommandPathPolicies row or a reason:\n\(unexplained)"
+        )
+
+        let paths = Set(leaves.map { $0.joined(separator: " ") })
+        let groups = Set(leaves.map { $0[0] })
+        for (key, reason) in Self.reasons.sorted(by: { $0.key < $1.key }) {
+            XCTAssertFalse(reason.isEmpty, "\(key) has an empty reason")
+            XCTAssertTrue(paths.contains(key) || groups.contains(key), "\(key) has a reason and is no registered command")
+            guard paths.contains(key) else { continue }
+            let entry = ScientificProvenancePolicy.cliCommand(path: key.split(separator: " ").map(String.init))
+            XCTAssertNil(entry, "\(key) has a reason to record nothing and a policy entry, so delete one of them")
+        }
+    }
+
+    func testAnInventedLeafIsNamedOnlyWhenNothingExplainsIt() {
+        let invented = [["conda", "invented"], ["fastq", "invented"], ["newgroup", "run"]]
+        XCTAssertEqual(
+            Self.leavesWithNoEntryAndNoReason(in: Self.registeredLeaves() + invented),
+            ["newgroup run"],
+            "conda takes the reason of its group and fastq the entry of its group"
+        )
+    }
+
+    func testTheWalkSeesTheHiddenLeafAndTheParsersOwnHelp() {
+        let leaves = Set(Self.registeredLeaves().map { $0.joined(separator: " ") })
+        XCTAssertTrue(leaves.contains("fastq ont-genotype"), "A hidden leaf counts")
+        XCTAssertTrue(leaves.contains("help"))
+        XCTAssertFalse(leaves.contains("fastq"), "A group is not a leaf")
+        XCTAssertFalse(leaves.contains(""), "The root is not a leaf")
+    }
+
+    func testEveryAllowedEntryOfAnotherCommandIsALeafThatResolvesToIt() {
+        let leaves = Set(Self.registeredLeaves().map { $0.joined(separator: " ") })
         for (key, id) in Self.entriesOfAnotherCommand {
-            XCTAssertTrue(leaves.contains(key), "\(key) is no leaf of the help index")
+            XCTAssertTrue(leaves.contains(key), "\(key) is no registered leaf")
             let path = key.split(separator: " ").map(String.init)
             XCTAssertEqual(ScientificProvenancePolicy.cliCommand(path: path)?.id, id)
         }
+    }
+
+    func testTheHelpIndexListsExactlyTheRegisteredLeaves() throws {
+        let registered = Set(Self.registeredLeaves().map { $0.joined(separator: " ") })
+        let indexed = Set(try Self.helpIndexLeaves().map { $0.joined(separator: " ") })
+        XCTAssertFalse(indexed.isEmpty, "the help index lists no command")
+
+        let unlisted = registered.subtracting(indexed).sorted().joined(separator: "\n")
+        let unregistered = indexed.subtracting(registered).sorted().joined(separator: "\n")
+        XCTAssertTrue(
+            unlisted.isEmpty,
+            "Registered leaves the help index does not list. Recapture Tests/Fixtures/golden/cli-help:\n\(unlisted)"
+        )
+        XCTAssertTrue(
+            unregistered.isEmpty,
+            "Leaves of the help index that nothing registers. Recapture the golden or fix the walk:\n\(unregistered)"
+        )
     }
 
     func testAPathTakesItsExactRowThenItsLongestRegisteredPrefixThenItsGroup() {
@@ -98,6 +155,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
 
         // A group that holds no entry of its own gives none, and never another command's.
         XCTAssertNil(id(["conda", "search"]))
+        XCTAssertNil(id(["conda", "run"]))
         XCTAssertNil(id(["demo", "fetch"]))
         XCTAssertNil(id(["debug", "env"]))
 
@@ -108,7 +166,27 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         XCTAssertNil(id(["  "]))
     }
 
-    // MARK: - The help index
+    // MARK: - The leaves
+
+    /// Every leaf `LungfishCLI.configuration` registers, in the order of the joined path and without
+    /// the executable name. A leaf is a command with no subcommands, and a hidden one counts.
+    /// ArgumentParser adds its own `help` leaf only when it builds the dump the help index comes
+    /// from, so the walk adds it.
+    private static func registeredLeaves() -> [[String]] {
+        var leaves: [[String]] = [["help"]]
+        func walk(_ command: ParsableCommand.Type, _ path: [String]) {
+            let subcommands = command.configuration.subcommands
+            guard !subcommands.isEmpty else {
+                leaves.append(path)
+                return
+            }
+            for subcommand in subcommands {
+                walk(subcommand, path + [subcommand._commandName])
+            }
+        }
+        walk(LungfishCLI.self, [])
+        return leaves.sorted { $0.joined(separator: " ") < $1.joined(separator: " ") }
+    }
 
     private static var repositoryRoot: URL {
         URL(fileURLWithPath: #filePath)
@@ -136,11 +214,19 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         id.map { "\"\($0)\"" } ?? "nil"
     }
 
-    /// Command groups that hold no entry of their own, because they maintain the installation or the
-    /// managed storage and write no scientific data (`ScientificCLIProvenanceCoverageTests` gives the
-    /// reasons). `help` is the argument parser's own subcommand. A leaf of one of them gets an entry
-    /// only from an exact row.
-    private static let groupsWithoutAnEntry: Set<String> = ["conda", "debug", "demo", "storage", "version", "help"]
+    /// Why a leaf records nothing, from `ScientificCLIProvenanceCoverageTests`. A command group with a
+    /// reason holds no entry of its own, so a leaf of it gets an entry only from an exact row.
+    private static var reasons: [String: String] { ScientificCLIProvenanceCoverageTests.recordsNothing }
+
+    /// The leaves of `leaves` that resolve to no entry and have no reason of their own path or of their
+    /// command. `help` is the argument parser's own subcommand and needs neither.
+    private static func leavesWithNoEntryAndNoReason(in leaves: [[String]]) -> [String] {
+        leaves.compactMap { leaf in
+            let key = leaf.joined(separator: " ")
+            guard key != "help", ScientificProvenancePolicy.cliCommand(path: leaf) == nil else { return nil }
+            return (reasons[key] == nil && reasons[leaf[0]] == nil) ? key : nil
+        }
+    }
 
     /// Leaves whose entry belongs to another command on purpose. `conda classify` and
     /// `kraken2 classify` are one command, `ClassifyCommand`.
