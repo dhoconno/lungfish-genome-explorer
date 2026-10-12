@@ -9,11 +9,11 @@ import os.log
 private let logger = Logger(subsystem: LogSubsystem.workflow, category: "NextflowEngineProcess")
 
 extension NextflowEngineProcess {
-    /// Waits until the Docker daemon answers, for a workflow whose tasks run in Docker (N9).
+    /// Waits until the Docker daemon answers, for a launch whose effective profile runs its tasks in Docker (N9).
     ///
     /// When the daemon does not answer, the engine asks macOS to start Docker Desktop with
     /// `open -g -a Docker` and polls the daemon until it answers or the wait runs out. It reports
-    /// TaxTriage's words at 0.01 and 0.02. A workflow that needs no Docker returns at once.
+    /// TaxTriage's words at 0.01 and 0.02. A launch whose configuration does not wait returns at once.
     ///
     /// - Throws: `CancellationError` at once when the task is cancelled, with Docker Desktop never
     ///   started after the cancel (E9). ``NextflowEngineError/dockerDesktopNotStarted(detail:)`` at

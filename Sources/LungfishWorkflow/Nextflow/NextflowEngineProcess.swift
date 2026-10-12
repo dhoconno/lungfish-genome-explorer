@@ -239,7 +239,10 @@ package struct NextflowEngineConfiguration: Sendable, Equatable {
     package var scratchPrefix: String
     /// The environment variable that keeps the scratch when set to `1`, or nil for none.
     package var keepWorkEnvironmentKey: String?
-    /// Whether the workflow's tasks need the Docker daemon, so the engine waits for it (N9).
+    /// Whether this launch's effective profile runs its tasks in Docker, so that
+    /// ``NextflowEngineProcess/waitForDocker(probe:progress:)`` waits for the daemon (N9). Set it through
+    /// `NextflowWorkflowDescriptor.engineConfiguration(profile:)` for the profile the run uses, never from
+    /// `containerRuntime` alone (A16 M1 review, ruling 2). A conda run and a stand-in run never wait.
     package var waitsForDocker: Bool
     package var terminationGracePeriod: Duration
     /// How many of the last lines of each stream the outcome keeps.
