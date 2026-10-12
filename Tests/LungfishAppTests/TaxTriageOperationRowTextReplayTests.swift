@@ -160,11 +160,10 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
             ].joined(separator: "\n")
         )
 
-        // The bar. M3 (T9): it never moves back, so the sequence loses its 0.95 and the list of
-        // drops is empty. Today the runner reports 1.0, the app then shows 0.95 while it builds the
-        // database, and the finish sets 1.0 again.
-        XCTAssertEqual(Self.rounded(run.trace.bars), [0, 0.05, 0.1, 0.1533, 0.9, 1.0, 0.95, 1.0])
-        XCTAssertEqual(Self.drops(in: run.trace.bars), ["1.0 to 0.95"])
+        // The bar never moves back (T9). The runner reports 1.0 and the database build keeps the
+        // bar there. Before the fix the app showed 0.95 while it built the database.
+        XCTAssertEqual(Self.rounded(run.trace.bars), [0, 0.05, 0.1, 0.1533, 0.9, 1.0])
+        XCTAssertEqual(Self.drops(in: run.trace.bars), [])
 
         // The details the row showed, from the first to the last. The database line sits between
         // the pipeline's last message and the summary.
@@ -245,8 +244,8 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         let lines = Self.loggedLines(of: item).filter { $0.contains("MINIMAP2_ALIGN") }
         XCTAssertEqual(lines, ["info: \(paragraph)", "warning: \(paragraph)", "warning: \(item.detail)"])
 
-        // M3 (T9): the bar never moves back.
-        XCTAssertEqual(Self.drops(in: run.trace.bars), ["1.0 to 0.95"], "\(run.trace.bars)")
+        // The bar never moves back (T9).
+        XCTAssertEqual(Self.drops(in: run.trace.bars), [], "\(run.trace.bars)")
     }
 
     // MARK: - A failed sample
@@ -293,10 +292,10 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         XCTAssertNil(item.cliCommand)
         XCTAssertFalse(OperationRowAction.copyCLICommand.isAvailable(for: item))
 
-        // M3 (T9): the bar never moves back. The failed sample ends the bar at 1.0 and the database
-        // build then shows 0.95.
-        XCTAssertEqual(Self.rounded(run.trace.bars), [0, 0.025, 0.05, 0.0767, 0.45, 0.5, 0.525, 0.55, 1.0, 0.95, 1.0])
-        XCTAssertEqual(Self.drops(in: run.trace.bars), ["1.0 to 0.95"])
+        // The bar never moves back (T9). The failed sample ends the bar at 1.0 and the database
+        // build keeps it there.
+        XCTAssertEqual(Self.rounded(run.trace.bars), [0, 0.025, 0.05, 0.0767, 0.45, 0.5, 0.525, 0.55, 1.0])
+        XCTAssertEqual(Self.drops(in: run.trace.bars), [])
         XCTAssertTrue(run.trace.details.contains("TaxTriage serial batch complete"))
 
         // A finished run writes a cross-reference sidecar and a manifest entry into every source
@@ -387,15 +386,15 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         XCTAssertNil(run.window.attachedSheet, "a cancel shows no alert")
         XCTAssertTrue(FileManager.default.fileExists(atPath: analysis.appendingPathComponent("taxtriage-result.json").path))
 
-        // The row on its way to Cancelled. The bar stays where the database build left it, and the
-        // build the cancel stopped logs a warning about the database, the one line of the log
-        // that is not information. M3 (T9) removes the drop, so the bar then stays at 1.0.
+        // The row on its way to Cancelled. The bar stays where the database build left it, which is
+        // 1.0 because the bar never moves back (T9), and the build the cancel stopped logs a warning
+        // about the database, the one line of the log that is not information.
         XCTAssertEqual(
             Array(run.trace.details.suffix(3)),
             ["Building TaxTriage database\u{2026}", "Cancelling...", "Cancelled by user"]
         )
-        XCTAssertEqual(run.trace.bars.last, 0.95)
-        XCTAssertEqual(Self.drops(in: run.trace.bars), ["1.0 to 0.95"])
+        XCTAssertEqual(run.trace.bars.last, 1.0)
+        XCTAssertEqual(Self.drops(in: run.trace.bars), [])
         XCTAssertEqual(
             Self.loggedLines(of: item).filter { $0.hasPrefix("warning:") },
             ["warning: Database build failed: Operation cancelled \u{2014} batch will rebuild lazily on open"]
@@ -445,7 +444,7 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
             lines.filter { $0.hasPrefix("warning:") },
             ["warning: Database build failed: lungfish-cli exited with status 3: no space left \u{2014} batch will rebuild lazily on open"]
         )
-        XCTAssertEqual(Self.drops(in: run.trace.bars), ["1.0 to 0.95"], "\(run.trace.bars)")
+        XCTAssertEqual(Self.drops(in: run.trace.bars), [], "\(run.trace.bars)")
         let analysis = try analysisFolder(in: project)
         XCTAssertFalse(FileManager.default.fileExists(atPath: analysis.appendingPathComponent("taxtriage.sqlite").path))
     }

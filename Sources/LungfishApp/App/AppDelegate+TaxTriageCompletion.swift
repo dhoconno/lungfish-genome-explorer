@@ -30,7 +30,14 @@ extension AppDelegate {
         var dbBuildErrorDescription: String?
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
-                _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building TaxTriage database\u{2026}")
+                // The runner reported 1.0 when its last sample ended, and a bar never moves back,
+                // so the database build keeps the bar there when the row already shows more than 0.95.
+                let shown = OperationCenter.shared.items.first { $0.id == opID }?.progress ?? 0
+                _ = OperationCenter.shared.update(
+                    id: opID,
+                    progress: max(shown, 0.95),
+                    detail: "Building TaxTriage database\u{2026}"
+                )
                 OperationCenter.shared.log(id: opID, level: .info, message: "Building taxtriage.sqlite from TaxTriage outputs")
             }
         }
