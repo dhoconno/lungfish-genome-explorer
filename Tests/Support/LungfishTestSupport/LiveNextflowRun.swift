@@ -139,8 +139,9 @@ public final class LiveNextflowRun: Sendable {
     /// Why `root` cannot be a managed root for a child process, or nil.
     ///
     /// The CLI reads the root from `LUNGFISH_STORAGE_ROOT` and ignores one that has a space, so a root
-    /// with a space would quietly send the run to another root. `ManagedStorageLocation.validateSelection`
-    /// checks the same and also writes a probe file, which a live run must not do in the Stable root.
+    /// with a space would quietly send the run to another root. This check only reads. The CLI child and
+    /// `processRootProblem()` resolve the root through `currentLocation`, whose `validateSelection` writes
+    /// and removes a `.lungfish-write-test-` file in it.
     public static func rootProblem(_ root: URL, source: LiveNextflowSwitch.Source) -> String? {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
