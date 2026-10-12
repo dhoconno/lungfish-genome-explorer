@@ -247,7 +247,7 @@ Four rows start a Nextflow workflow today, and they do not read alike. Only TaxT
 |---|---|---|---|---|
 | Title | `TaxTriage (N sample[s])` | `Viral Recon` | `Local Workflow` | `pbAA Amplicon Clustering` |
 | First detail | `Starting TaxTriage pipeline…` | `<platform> · N sample(s) · <reference>` | `Running <engine> workflow` | `Preparing...` |
-| Nextflow output in the row | A `process >` line becomes the detail, the log line and the overlay, and moves the bar | The log only, as the lines arrive. The bar stays at 0 | The log only, after the run | Read after the run |
+| Nextflow output in the row | A `process >` line becomes the detail, the log line and the overlay, and moves the bar | None. The CLI writes Nextflow's output into the run bundle's logs folder when the engine ends, and the row logs each line the CLI itself prints as it arrives. The bar stays at 0 | None. The CLI writes Nextflow's output into the run bundle's logs folder, and the row logs the CLI's own lines after the run | Read after the run |
 | Completed detail | The summary of the result, one line per fact, or with ignored tasks the headline and the report count | `Viral Recon completed. Output: <folder>. Run bundle: <bundle>` | `Local workflow completed. Run bundle: <bundle>` | Not read |
 | Warning lines | One per ignored task cause and one for failed samples | Every stderr line of the CLI | Every stderr line, logged after the run | Not read |
 | Failure | The sheet `TaxTriage Failed` with the error as its text and no detail | `Viral Recon failed with exit code N.` and the last 40 stderr lines as the detail, no sheet | `Local workflow failed with exit code N`, and the whole stderr as the error detail | Not read |
