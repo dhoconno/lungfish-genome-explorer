@@ -234,4 +234,9 @@ def test_the_hook_block_has_the_message_style_of_the_other_ratchet_blocks():
         r"fi\n"
     )
     assert re.search(block, hook)
-    assert "tool-identity and native-tool-runner-in-app ratchets," in hook
+    summary = next(
+        line for line in hook.splitlines()
+        if line.startswith('echo "It runs the ') and " ratchets," in line
+    )
+    named = summary[len('echo "It runs the '):].split(" ratchets,")[0]
+    assert "native-tool-runner-in-app" in re.split(r", | and ", named)
