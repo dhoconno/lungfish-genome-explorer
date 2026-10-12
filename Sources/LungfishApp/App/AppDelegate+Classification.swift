@@ -1842,80 +1842,14 @@ extension AppDelegate {
                         }
                     )
 
-                    // Build the SQLite database from the Nextflow outputs before the
-                    // operation completes, so the batch can be opened immediately.
-                    var dbBuildErrorDescription: String?
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building TaxTriage database\u{2026}")
-                            OperationCenter.shared.log(id: opID, level: .info, message: "Building taxtriage.sqlite from TaxTriage outputs")
-                        }
-                    }
-                    do {
-                        try await LungfishCLIRunner.buildClassifierDatabase(tool: "taxtriage", resultURL: result.outputDirectory, force: true)
-                    } catch {
-                        dbBuildErrorDescription = error.localizedDescription
-                        appDelegateLogger.warning(
-                            "runTaxTriage: Failed to build taxtriage.sqlite - \(error.localizedDescription, privacy: .public)"
-                        )
-                    }
-
-                    _ = try MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(
-                        resultDirectory: result.outputDirectory
+                    try await Self.completeTaxTriageRun(
+                        opID: opID,
+                        result: result,
+                        config: config,
+                        routeContext: routeContext,
+                        viewerController: viewerController,
+                        materializeTempDir: materializeTempDir
                     )
-
-                    // Covered by the `defer` from creation; do not fail
-                    // an otherwise-successful run over a cleanup error.
-                    try? FileManager.default.removeItem(at: materializeTempDir)
-                    let capturedResult = result
-                    let capturedConfig = config
-                    let capturedDBBuildError = dbBuildErrorDescription
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            viewerController.hideProgress()
-                            if let dbError = capturedDBBuildError {
-                                OperationCenter.shared.log(
-                                    id: opID,
-                                    level: .warning,
-                                    message: Self.classificationDatabaseBuildWarning(dbError)
-                                )
-                            }
-                            Self.writeTaxTriageCrossRefSidecars(result: capturedResult, config: capturedConfig)
-                            guard Self.finishTaxTriageOperation(
-                                id: opID,
-                                result: capturedResult,
-                                center: OperationCenter.shared
-                            ) else { return }
-                            // Write cross-reference sidecars into each source bundle so
-                            // the sidebar discovers TaxTriage results under all contributors.
-
-                            // Record in batch run history log
-                            BatchRunHistory.recordRun(result: capturedResult, config: capturedConfig)
-
-                            // Reload sidebar so the new result bundle appears
-                            AppDelegate.shared?.targetMainWindowController(routeContext: routeContext)?
-                                .mainSplitViewController?
-                                .sidebarController.requestReloadFromFilesystem()
-
-                            // Record analysis in source bundle manifests
-                            for sample in capturedConfig.samples {
-                                if let bundleURL = Self.findSourceBundle(for: [sample.fastq1] + (sample.fastq2.map { [$0] } ?? [])) {
-                                    let entry = AnalysisManifestEntry(
-                                        tool: "taxtriage",
-                                        analysisDirectoryName: Self.analysisManifestDirectoryName(
-                                            for: capturedConfig.outputDirectory,
-                                            projectURL: routeContext?.projectURL
-                                        ),
-                                        displayName: "TaxTriage Classification",
-                                        parameters: capturedConfig.summaryParameters(),
-                                        summary: capturedResult.summary,
-                                        status: .completed
-                                    )
-                                    do { try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
-                                }
-                            }
-                        }
-                    }
                 } catch {
                     let errorDesc = error.localizedDescription
                     DispatchQueue.main.async {
@@ -1937,6 +1871,93 @@ extension AppDelegate {
             }
 
             OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        }
+    }
+
+    /// The end of a TaxTriage launch. It builds the database from the finished run's outputs,
+    /// completes the provenance record, then finishes the row and writes its follow-ups on the
+    /// main actor. It runs on the launch's detached task, off the main actor.
+    nonisolated static func completeTaxTriageRun(
+        opID: UUID,
+        result: TaxTriageResult,
+        config: TaxTriageConfig,
+        routeContext: OperationRouteContext?,
+        viewerController: ViewerViewController,
+        materializeTempDir: URL
+    ) async throws {
+        // Build the SQLite database from the Nextflow outputs before the
+        // operation completes, so the batch can be opened immediately.
+        var dbBuildErrorDescription: String?
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building TaxTriage database\u{2026}")
+                OperationCenter.shared.log(id: opID, level: .info, message: "Building taxtriage.sqlite from TaxTriage outputs")
+            }
+        }
+        do {
+            try await LungfishCLIRunner.buildClassifierDatabase(tool: "taxtriage", resultURL: result.outputDirectory, force: true)
+        } catch {
+            dbBuildErrorDescription = error.localizedDescription
+            appDelegateLogger.warning(
+                "runTaxTriage: Failed to build taxtriage.sqlite - \(error.localizedDescription, privacy: .public)"
+            )
+        }
+
+        _ = try MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(
+            resultDirectory: result.outputDirectory
+        )
+
+        // Covered by the `defer` from creation; do not fail
+        // an otherwise-successful run over a cleanup error.
+        try? FileManager.default.removeItem(at: materializeTempDir)
+        let capturedResult = result
+        let capturedConfig = config
+        let capturedDBBuildError = dbBuildErrorDescription
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                viewerController.hideProgress()
+                if let dbError = capturedDBBuildError {
+                    OperationCenter.shared.log(
+                        id: opID,
+                        level: .warning,
+                        message: Self.classificationDatabaseBuildWarning(dbError)
+                    )
+                }
+                Self.writeTaxTriageCrossRefSidecars(result: capturedResult, config: capturedConfig)
+                guard Self.finishTaxTriageOperation(
+                    id: opID,
+                    result: capturedResult,
+                    center: OperationCenter.shared
+                ) else { return }
+                // Write cross-reference sidecars into each source bundle so
+                // the sidebar discovers TaxTriage results under all contributors.
+
+                // Record in batch run history log
+                BatchRunHistory.recordRun(result: capturedResult, config: capturedConfig)
+
+                // Reload sidebar so the new result bundle appears
+                AppDelegate.shared?.targetMainWindowController(routeContext: routeContext)?
+                    .mainSplitViewController?
+                    .sidebarController.requestReloadFromFilesystem()
+
+                // Record analysis in source bundle manifests
+                for sample in capturedConfig.samples {
+                    if let bundleURL = Self.findSourceBundle(for: [sample.fastq1] + (sample.fastq2.map { [$0] } ?? [])) {
+                        let entry = AnalysisManifestEntry(
+                            tool: "taxtriage",
+                            analysisDirectoryName: Self.analysisManifestDirectoryName(
+                                for: capturedConfig.outputDirectory,
+                                projectURL: routeContext?.projectURL
+                            ),
+                            displayName: "TaxTriage Classification",
+                            parameters: capturedConfig.summaryParameters(),
+                            summary: capturedResult.summary,
+                            status: .completed
+                        )
+                        do { try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
+                    }
+                }
+            }
         }
     }
 
