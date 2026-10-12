@@ -6,18 +6,6 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
-/// Canonicalizes chromosome labels for loose matching (e.g. `chr1` == `1`, `NC_000001.11` == `NC_000001`).
-func canonicalVariantChromosomeLookupKey(_ name: String) -> String {
-    var value = name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-    if value.hasPrefix("chr") {
-        value = String(value.dropFirst(3))
-    }
-    if let dot = value.firstIndex(of: ".") {
-        value = String(value[..<dot])
-    }
-    return value
-}
-
 /// Resolves the ordered list of chromosome query candidates for a track database.
 ///
 /// Order is:

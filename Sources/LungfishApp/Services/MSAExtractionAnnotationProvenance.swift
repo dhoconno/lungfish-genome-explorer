@@ -3,12 +3,12 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
-enum MSAExtractionAnnotationProvenance {
+package enum MSAExtractionAnnotationProvenance {
     static let sidecarFilename = "msa-extraction-annotations-provenance.json"
 
     /// Writes the sidecar for an extraction this process ran, timed by `runClock`.
     @discardableResult
-    static func write(
+    package static func write(
         bundleURL: URL,
         sourceAlignmentBundleURL: URL?,
         sourceFASTAURL: URL,
@@ -35,7 +35,7 @@ enum MSAExtractionAnnotationProvenance {
 
     /// Writes the sidecar for an extraction whose start and end were recorded elsewhere.
     @discardableResult
-    static func write(
+    package static func write(
         bundleURL: URL,
         sourceAlignmentBundleURL: URL?,
         sourceFASTAURL: URL,

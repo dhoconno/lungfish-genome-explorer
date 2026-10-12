@@ -6,7 +6,7 @@ import Foundation
 import LungfishIO
 import LungfishWorkflow
 
-struct FASTQAutoBundleResult: Sendable {
+package struct FASTQAutoBundleResult: Sendable {
     let bundleURL: URL
     let payloadURL: URL
     let provenanceURL: URL
@@ -35,11 +35,11 @@ enum FASTQAutoBundleError: Error, LocalizedError, Sendable, Equatable {
     }
 }
 
-enum FASTQAutoBundleWorkflow {
+package enum FASTQAutoBundleWorkflow {
     private static let workflowName = "FASTQ Auto-Bundle"
     private static let toolName = "lungfish-app"
 
-    static func wrapNakedFASTQ(
+    package static func wrapNakedFASTQ(
         sourceURL rawSourceURL: URL,
         bundleURL rawBundleURL: URL,
         runtimeIdentity: ProvenanceRuntimeIdentity = ProvenanceRuntimeIdentity(),

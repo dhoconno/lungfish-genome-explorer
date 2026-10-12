@@ -1,16 +1,16 @@
 import Foundation
 import LungfishWorkflow
 
-struct BundleMergeProvenanceSidecarWriter: Sendable {
+package struct BundleMergeProvenanceSidecarWriter: Sendable {
     let write: @Sendable (ProvenanceEnvelope, URL) throws -> Void
 
-    static let live = BundleMergeProvenanceSidecarWriter { envelope, bundleURL in
+    package static let live = BundleMergeProvenanceSidecarWriter { envelope, bundleURL in
         try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
     }
 }
 
-enum BundleMergeProvenance {
-    struct Request: Sendable {
+package enum BundleMergeProvenance {
+    package struct Request: Sendable {
         let workflowName: String
         let toolName: String
         let sourceBundleURLs: [URL]
@@ -27,7 +27,7 @@ enum BundleMergeProvenance {
         let completedAt: Date
         let diagnostics: String?
 
-        init(
+        package init(
             workflowName: String,
             toolName: String = "lungfish-app",
             sourceBundleURLs: [URL],
@@ -62,7 +62,7 @@ enum BundleMergeProvenance {
         }
     }
 
-    static func write(
+    package static func write(
         request: Request,
         sidecarWriter: BundleMergeProvenanceSidecarWriter = .live
     ) throws {
@@ -132,7 +132,7 @@ enum BundleMergeProvenance {
         try sidecarWriter.write(envelope, request.outputBundleURL)
     }
 
-    static func regularPayloadFileURLs(in bundleURL: URL) throws -> [URL] {
+    package static func regularPayloadFileURLs(in bundleURL: URL) throws -> [URL] {
         let fileManager = FileManager.default
         guard let enumerator = fileManager.enumerator(
             at: bundleURL,
@@ -164,7 +164,7 @@ enum BundleMergeProvenance {
         return urls.sorted { $0.path < $1.path }
     }
 
-    static func commandLine(from argv: [String]) -> String {
+    package static func commandLine(from argv: [String]) -> String {
         argv.map(shellQuoted(_:)).joined(separator: " ")
     }
 

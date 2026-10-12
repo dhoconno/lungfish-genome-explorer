@@ -1,9 +1,9 @@
 import Foundation
 
 @MainActor
-final class SidebarSearchScheduler {
-    typealias ClearHandler = @MainActor () -> Void
-    typealias SearchHandler = @MainActor (_ query: String, _ generation: Int) -> Void
+package final class SidebarSearchScheduler {
+    package typealias ClearHandler = @MainActor () -> Void
+    package typealias SearchHandler = @MainActor (_ query: String, _ generation: Int) -> Void
 
     private let debounceDelay: Duration
     private let minimumUniversalSearchLength: Int
@@ -14,7 +14,7 @@ final class SidebarSearchScheduler {
     private var pendingTask: Task<Void, Never>?
     private(set) var generation: Int = 0
 
-    init(
+    package init(
         debounceDelay: Duration = .milliseconds(220),
         minimumUniversalSearchLength: Int = 3,
         onClear: @escaping ClearHandler,
@@ -32,7 +32,7 @@ final class SidebarSearchScheduler {
         pendingTask?.cancel()
     }
 
-    func submit(_ rawQuery: String, immediate: Bool = false) {
+    package func submit(_ rawQuery: String, immediate: Bool = false) {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         generation &+= 1
         let searchGeneration = generation
@@ -62,7 +62,7 @@ final class SidebarSearchScheduler {
         }
     }
 
-    func cancel() {
+    package func cancel() {
         generation &+= 1
         pendingTask?.cancel()
         pendingTask = nil

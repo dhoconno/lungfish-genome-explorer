@@ -29,7 +29,7 @@ extension FASTQDerivativeService {
     ///   - measureReadCounts: When true, gathers per-step input/output read counts via seqkit stats.
     ///     Disable for ingestion hot paths to avoid extra full-file scans per step.
     ///   - progress: Optional callback (fraction 0–1, message).
-    func runMaterializedRecipe(
+    package func runMaterializedRecipe(
         fastqURL: URL,
         steps: [FASTQDerivativeOperation],
         isInterleaved: Bool,

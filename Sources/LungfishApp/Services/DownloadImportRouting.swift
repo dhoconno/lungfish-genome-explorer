@@ -5,8 +5,8 @@
 import Foundation
 import LungfishIO
 
-enum DownloadImportRouting {
-    static func shouldPreserveInPlace(
+package enum DownloadImportRouting {
+    package static func shouldPreserveInPlace(
         downloadedURL: URL,
         projectURL: URL?,
         workingDirectoryURL: URL?
@@ -35,7 +35,7 @@ enum DownloadImportRouting {
         return child.count >= parent.count && child.starts(with: parent)
     }
 
-    static func postCopyFASTQIngestionTarget(
+    package static func postCopyFASTQIngestionTarget(
         importedURL: URL,
         packagedFASTQPayloads: [String: URL]
     ) -> URL? {
@@ -50,7 +50,7 @@ enum DownloadImportRouting {
         return FASTQBundle.resolvePrimaryFASTQURL(for: importedURL)
     }
 
-    static func canonicalPath(for url: URL) -> String {
+    package static func canonicalPath(for url: URL) -> String {
         url.standardizedFileURL.resolvingSymlinksInPath().path
     }
 }

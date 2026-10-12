@@ -4,18 +4,30 @@ import LungfishIO
 import LungfishWorkflow
 
 /// Value-captured export inputs shared by document and sidebar entry points.
-enum AnnotationExportService {
-    struct Source: Codable, Sendable {
-        enum Kind: String, Codable, Sendable { case openDocument, sidebarBundle }
-        let kind: Kind
-        let urls: [URL]
-        let name: String
+package enum AnnotationExportService {
+    package struct Source: Codable, Sendable {
+        package enum Kind: String, Codable, Sendable { case openDocument, sidebarBundle }
+        package let kind: Kind
+        package let urls: [URL]
+        package let name: String
+
+        package init(kind: Kind, urls: [URL], name: String) {
+            self.kind = kind
+            self.urls = urls
+            self.name = name
+        }
     }
 
-    struct Request: Sendable {
+    package struct Request: Sendable {
         let source: Source
         let annotations: [SequenceAnnotation]
         let outputURL: URL
+
+        package init(source: Source, annotations: [SequenceAnnotation], outputURL: URL) {
+            self.source = source
+            self.annotations = annotations
+            self.outputURL = outputURL
+        }
     }
 
     private struct Selection: Encodable {
@@ -24,7 +36,7 @@ enum AnnotationExportService {
         let annotations: [SequenceAnnotation]
     }
 
-    static func export(_ request: Request) async throws {
+    package static func export(_ request: Request) async throws {
         let runClock = ProvenanceRunClock()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

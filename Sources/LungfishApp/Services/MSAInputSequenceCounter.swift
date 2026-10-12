@@ -15,9 +15,9 @@ import LungfishWorkflow
 /// Every function here reads files, so callers on the main actor should await
 /// from a detached task. Inputs that cannot be counted contribute zero rather
 /// than failing the dialog.
-enum MSAInputSequenceCounter {
+package enum MSAInputSequenceCounter {
     /// Sum of `sequenceCount(for:)` across all inputs, skipping any that cannot be resolved.
-    static func sequenceCount(for inputURLs: [URL]) async -> Int {
+    package static func sequenceCount(for inputURLs: [URL]) async -> Int {
         var total = 0
         for url in inputURLs {
             total += await sequenceCount(for: url) ?? 0
@@ -28,7 +28,7 @@ enum MSAInputSequenceCounter {
     /// Records in one input: a `.lungfishref` bundle, a `.lungfishfastq` bundle,
     /// or a loose FASTA/FASTQ file (gzip accepted). `nil` when the input has no
     /// readable sequence payload.
-    static func sequenceCount(for inputURL: URL) async -> Int? {
+    package static func sequenceCount(for inputURL: URL) async -> Int? {
         let standardized = inputURL.standardizedFileURL
         if let bundleURL = SequenceInputResolver.enclosingReferenceBundleURL(for: standardized),
            let count = referenceBundleSequenceCount(in: bundleURL) {

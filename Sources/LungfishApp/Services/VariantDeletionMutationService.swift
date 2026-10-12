@@ -6,33 +6,33 @@ import Foundation
 import LungfishIO
 import LungfishWorkflow
 
-struct VariantDeletionMutationTarget: Sendable, Equatable {
+package struct VariantDeletionMutationTarget: Sendable, Equatable {
     let trackId: String
     let databaseURL: URL
     let trackName: String?
 
-    init(trackId: String, databaseURL: URL, trackName: String? = nil) {
+    package init(trackId: String, databaseURL: URL, trackName: String? = nil) {
         self.trackId = trackId
         self.databaseURL = databaseURL.standardizedFileURL
         self.trackName = trackName
     }
 }
 
-struct VariantDeletionMutationResult: Sendable, Equatable {
+package struct VariantDeletionMutationResult: Sendable, Equatable {
     let deletedCountsByTrack: [String: Int]
     let deletedCountsByDatabase: [String: Int]
     let provenanceURL: URL?
 
-    var totalDeleted: Int {
+    package var totalDeleted: Int {
         deletedCountsByTrack.values.reduce(0, +)
     }
 }
 
-struct VariantDeletionMutationService {
+package struct VariantDeletionMutationService {
     private let fileManager: FileManager
     private let writeProvenance: (ProvenanceEnvelope, URL, VariantMutationPublication) throws -> URL
 
-    init(
+    package init(
         fileManager: FileManager = .default,
         provenanceWriter: ProvenanceWriter = ProvenanceWriter(signingProvider: nil)
     ) {
@@ -43,7 +43,7 @@ struct VariantDeletionMutationService {
         }
     }
 
-    init(
+    package init(
         fileManager: FileManager = .default,
         writeProvenance: @escaping (ProvenanceEnvelope, URL) throws -> URL
     ) {
@@ -51,7 +51,7 @@ struct VariantDeletionMutationService {
         self.writeProvenance = { envelope, bundleURL, _ in try writeProvenance(envelope, bundleURL) }
     }
 
-    func deleteVariants(
+    package func deleteVariants(
         idsByTrack rawIDsByTrack: [String: [Int64]],
         bundleURL rawBundleURL: URL,
         targets rawTargets: [VariantDeletionMutationTarget]
@@ -71,7 +71,7 @@ struct VariantDeletionMutationService {
         }
     }
 
-    func deleteAllVariants(
+    package func deleteAllVariants(
         bundleURL rawBundleURL: URL,
         targets rawTargets: [VariantDeletionMutationTarget]
     ) throws -> VariantDeletionMutationResult {

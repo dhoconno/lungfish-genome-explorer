@@ -7,8 +7,8 @@ import Foundation
 /// Reuses the existing CLI contig-subset workflow when selected FASTA rows
 /// all originated from one durable FASTA source. The CLI then creates the
 /// reference bundle itself, including its canonical provenance.
-enum FASTASelectionReferenceBundleCLI {
-    static func arguments(
+package enum FASTASelectionReferenceBundleCLI {
+    package static func arguments(
         sourceURL: URL,
         sequenceIDs: [String],
         projectURL: URL,
@@ -20,7 +20,7 @@ enum FASTASelectionReferenceBundleCLI {
                "--bundle-name", bundleName]
     }
 
-    static func bundleURL(from output: String) -> URL? {
+    package static func bundleURL(from output: String) -> URL? {
         let lines = output
             .split(whereSeparator: \.isNewline)
             .map { URL(fileURLWithPath: String($0).trimmingCharacters(in: .whitespacesAndNewlines)) }

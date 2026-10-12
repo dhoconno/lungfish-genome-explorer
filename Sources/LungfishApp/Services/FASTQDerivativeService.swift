@@ -31,7 +31,7 @@ public actor FASTQDerivativeService {
         return canonical
     }
 
-    let runner: NativeToolRunner
+    package nonisolated let runner: NativeToolRunner
     let databaseRegistry: DatabaseRegistry
 
     /// Number of threads to pass to multithreaded tools (fastp, seqkit, etc.).

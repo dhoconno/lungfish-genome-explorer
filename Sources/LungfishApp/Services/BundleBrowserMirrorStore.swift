@@ -28,7 +28,7 @@ enum BundleBrowserMirrorStoreError: Error, LocalizedError {
     }
 }
 
-final class BundleBrowserMirrorStore {
+package final class BundleBrowserMirrorStore {
     private let db: OpaquePointer
     private let databaseURL: URL
     private let encoder: JSONEncoder

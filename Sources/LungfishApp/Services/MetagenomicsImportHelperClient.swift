@@ -28,7 +28,7 @@ public enum MetagenomicsImportHelperClientError: Error, LocalizedError {
     }
 
     /// The partial result directory that should be cleaned up, if any.
-    var partialResultDirectory: URL? {
+    package var partialResultDirectory: URL? {
         if case .helperFailed(_, let dir) = self { return dir }
         return nil
     }

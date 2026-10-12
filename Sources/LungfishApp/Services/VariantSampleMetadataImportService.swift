@@ -6,34 +6,34 @@ import Foundation
 import LungfishIO
 import LungfishWorkflow
 
-struct VariantSampleMetadataImportTarget: Sendable, Equatable {
+package struct VariantSampleMetadataImportTarget: Sendable, Equatable {
     let databaseURL: URL
     let trackName: String?
 
-    init(databaseURL: URL, trackName: String? = nil) {
+    package init(databaseURL: URL, trackName: String? = nil) {
         self.databaseURL = databaseURL.standardizedFileURL
         self.trackName = trackName
     }
 }
 
-struct VariantSampleMetadataImportResult: Sendable, Equatable {
+package struct VariantSampleMetadataImportResult: Sendable, Equatable {
     let updatedCountsByDatabase: [String: Int]
     let provenanceURL: URL
 
-    var totalUpdated: Int {
+    package var totalUpdated: Int {
         updatedCountsByDatabase.values.reduce(0, +)
     }
 
-    var updatedDatabaseCount: Int {
+    package var updatedDatabaseCount: Int {
         updatedCountsByDatabase.count
     }
 }
 
-struct VariantSampleMetadataImportService {
+package struct VariantSampleMetadataImportService {
     private let fileManager: FileManager
     private let writeProvenance: (ProvenanceEnvelope, URL, VariantMutationPublication) throws -> URL
 
-    init(
+    package init(
         fileManager: FileManager = .default,
         provenanceWriter: ProvenanceWriter = ProvenanceWriter(signingProvider: nil)
     ) {
@@ -44,7 +44,7 @@ struct VariantSampleMetadataImportService {
         }
     }
 
-    init(
+    package init(
         fileManager: FileManager = .default,
         writeProvenance: @escaping (ProvenanceEnvelope, URL) throws -> URL
     ) {
@@ -52,7 +52,7 @@ struct VariantSampleMetadataImportService {
         self.writeProvenance = { envelope, bundleURL, _ in try writeProvenance(envelope, bundleURL) }
     }
 
-    func importMetadata(
+    package func importMetadata(
         from metadataURL: URL,
         format: MetadataFormat,
         bundleURL: URL,

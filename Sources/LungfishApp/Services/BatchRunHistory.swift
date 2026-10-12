@@ -75,7 +75,7 @@ struct BatchRunHistoryLog: Codable, Sendable {
 ///
 /// The history file lives alongside (or inside) the output directory, enabling
 /// users to track multiple runs in the same project area.
-enum BatchRunHistory {
+package enum BatchRunHistory {
 
     /// Serializes the load-mutate-save critical section in `recordRun` so two batch
     /// runs completing close together (plausible with the app's concurrent
@@ -93,7 +93,7 @@ enum BatchRunHistory {
     /// - Parameters:
     ///   - result: The completed pipeline result.
     ///   - config: The pipeline configuration.
-    static func recordRun(result: TaxTriageResult, config: TaxTriageConfig) {
+    package static func recordRun(result: TaxTriageResult, config: TaxTriageConfig) {
         let completedAt = Date()
         let record = BatchRunRecord(
             runId: result.outputDirectory.lastPathComponent,

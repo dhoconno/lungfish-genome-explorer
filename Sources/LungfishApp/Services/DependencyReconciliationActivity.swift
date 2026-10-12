@@ -16,11 +16,11 @@ import Foundation
 /// Welcome view model is `ObservableObject`, not `@Observable`).
 @MainActor
 @Observable
-final class DependencyReconciliationActivity {
-    static let shared = DependencyReconciliationActivity()
+package final class DependencyReconciliationActivity {
+    package static let shared = DependencyReconciliationActivity()
 
     /// True while a reconciliation run is in flight.
-    private(set) var isApplying = false
+    package private(set) var isApplying = false
 
     /// Nesting depth, so overlapping callers cannot clear the flag out from under each other.
     @ObservationIgnored private var depth = 0
@@ -31,7 +31,7 @@ final class DependencyReconciliationActivity {
         self.notificationCenter = notificationCenter
     }
 
-    func begin() {
+    package func begin() {
         depth += 1
         guard depth == 1 else { return }
         isApplying = true
@@ -44,7 +44,7 @@ final class DependencyReconciliationActivity {
     /// is done and the receipt is settled" and is posted by the sheet on dismiss, which can be
     /// much later (or never, if the sheet is torn down by its host). Observers that only need
     /// to know conda is free again must key off `DidEnd`, or they latch.
-    func end() {
+    package func end() {
         guard depth > 0 else { return }
         depth -= 1
         guard depth == 0 else { return }

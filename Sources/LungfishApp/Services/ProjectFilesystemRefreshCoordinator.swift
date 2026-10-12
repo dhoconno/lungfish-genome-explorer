@@ -17,7 +17,7 @@ public final class ProjectFilesystemRefreshCoordinator {
 
     /// Continuity evidence only; native format and write access are revalidated
     /// by the existing project-open path after a successful filesystem rebind.
-    struct RootIdentity: Equatable, Sendable {
+    package struct RootIdentity: Equatable, Sendable {
         let volume: String
         let fileNumber: UInt64
         let createdAt: Date
@@ -148,17 +148,17 @@ public final class ProjectFilesystemRefreshCoordinator {
         return true
     }
 
-    func validatedIdentity(for subscriptionID: SubscriptionID) -> RootIdentity? {
+    package func validatedIdentity(for subscriptionID: SubscriptionID) -> RootIdentity? {
         guard let record = subscriptionsByID[subscriptionID] else { return nil }
         return watchersByProjectKey[record.projectKey]?.identity
     }
 
-    func invalidate(_ subscriptionID: SubscriptionID, reason: String) {
+    package func invalidate(_ subscriptionID: SubscriptionID, reason: String) {
         guard let record = subscriptionsByID[subscriptionID] else { return }
         markUnavailable(projectKey: record.projectKey, reason: reason)
     }
 
-    func isUnavailable(projectURL: URL) -> Bool {
+    package func isUnavailable(projectURL: URL) -> Bool {
         watchersByProjectKey[Self.canonicalProjectURL(projectURL).path]?.unavailableReason != nil
     }
 
@@ -211,7 +211,7 @@ public final class ProjectFilesystemRefreshCoordinator {
         for handler in Array(entry.handlers.values) { handler(.unavailable(reason: reason)) }
     }
 
-    nonisolated static func rootIdentity(at url: URL) throws -> RootIdentity {
+    package nonisolated static func rootIdentity(at url: URL) throws -> RootIdentity {
         let canonical = url.standardizedFileURL.resolvingSymlinksInPath()
         let attributes = try FileManager.default.attributesOfItem(atPath: canonical.path)
         guard attributes[.type] as? FileAttributeType == .typeDirectory,

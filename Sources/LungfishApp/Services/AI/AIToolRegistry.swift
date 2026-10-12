@@ -21,16 +21,16 @@ public final class AIToolRegistry {
     private weak var searchIndex: AnnotationSearchIndex?
 
     /// Callback to navigate the viewer to a genomic region.
-    var navigateToRegion: ((_ chromosome: String, _ start: Int, _ end: Int) -> Void)?
+    package var navigateToRegion: ((_ chromosome: String, _ start: Int, _ end: Int) -> Void)?
 
     /// Callback to get the current viewer state.
-    var getCurrentViewState: (() -> ViewerState)?
+    package var getCurrentViewState: (() -> ViewerState)?
 
     /// Callback to get a text snapshot of the variant table (selected/visible rows).
-    var getVariantTableContext: ((_ selectionScope: String, _ limit: Int) -> String)?
+    package var getVariantTableContext: ((_ selectionScope: String, _ limit: Int) -> String)?
 
     /// Callback to get a text snapshot of the sample table (selected/visible rows).
-    var getSampleTableContext: ((_ selectionScope: String, _ limit: Int, _ visibleOnly: Bool) -> String)?
+    package var getSampleTableContext: ((_ selectionScope: String, _ limit: Int, _ visibleOnly: Bool) -> String)?
 
     /// HTTP client used by tools that call external services.
     private let httpClient: HTTPClient

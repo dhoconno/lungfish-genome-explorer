@@ -12,7 +12,7 @@ import os.log
 extension FASTQDerivativeService {
     // MARK: - Materialization
 
-    func materializeDatasetFASTQ(
+    package func materializeDatasetFASTQ(
         fromBundle bundleURL: URL,
         tempDirectory: URL,
         progress: (@Sendable (String) -> Void)?

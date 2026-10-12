@@ -14,14 +14,14 @@ import LungfishIO
 /// the clamp of single-sequence mode. A request comes back as the bases inside the extent, with the coordinate
 /// they start at, and nil when no base of it exists. `TranslationEngine` reads the missing bases off the
 /// segment, so a CDS that a sequence end clips keeps its frame (Phase 2.8 lane B6, decision G1).
-struct ClampedSequenceProvider {
+package struct ClampedSequenceProvider {
     /// The coordinates the named sequence can be read over, or nil when they are not known.
     private let extent: (String) -> Range<Int>?
 
     /// Reads bases inside the extent. It is never asked for a range outside an extent that is known.
     private let fetch: (String, Int, Int) -> String?
 
-    init(
+    package init(
         extent: @escaping (String) -> Range<Int>?,
         fetch: @escaping (String, Int, Int) -> String?
     ) {
@@ -30,7 +30,7 @@ struct ClampedSequenceProvider {
     }
 
     /// A reference bundle, read over the length of each chromosome.
-    init(bundle: ReferenceBundle) {
+    package init(bundle: ReferenceBundle) {
         self.init(
             extent: { name in
                 bundle.chromosome(named: name).map { 0..<Int($0.length) }
@@ -43,7 +43,7 @@ struct ClampedSequenceProvider {
 
     /// A window onto one chromosome that the viewer holds in memory, from `region.start` to `region.end`.
     /// Unlike a bundle, a window can cut the start of a range as well as its end.
-    init(window bases: String, region: GenomicRegion) {
+    package init(window bases: String, region: GenomicRegion) {
         self.init(
             extent: { _ in region.start..<max(region.start, region.end) },
             fetch: { _, start, end in
@@ -75,22 +75,22 @@ struct ClampedSequenceProvider {
     }
 
     /// Only the bases of `segment(chromosome:start:end:)`, for callers that need no coordinate.
-    func bases(chromosome: String, start: Int, end: Int) -> String? {
+    package func bases(chromosome: String, start: Int, end: Int) -> String? {
         segment(chromosome: chromosome, start: start, end: end)?.sequence
     }
 
     /// The reader for one chromosome as a closure over a range, the shape `translateCDS` takes.
-    func basesProvider(chromosome: String) -> (Int, Int) -> String? {
+    package func basesProvider(chromosome: String) -> (Int, Int) -> String? {
         { start, end in bases(chromosome: chromosome, start: start, end: end) }
     }
 
     /// The same reader, reporting where each read starts.
-    func segmentProvider(chromosome: String) -> (Int, Int) -> TranslationEngine.SegmentRead? {
+    package func segmentProvider(chromosome: String) -> (Int, Int) -> TranslationEngine.SegmentRead? {
         { start, end in segment(chromosome: chromosome, start: start, end: end) }
     }
 
     /// The provider `SequenceExtractor` takes, which names the chromosome in each call.
-    var extractionProvider: SequenceExtractor.SequenceProvider {
+    package var extractionProvider: SequenceExtractor.SequenceProvider {
         { chromosome, start, end in bases(chromosome: chromosome, start: start, end: end) }
     }
 }

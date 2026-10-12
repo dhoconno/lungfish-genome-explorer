@@ -12,7 +12,7 @@ private let variantFormatOverlayLogger = Logger(
     category: "VariantFormatOverlay"
 )
 
-struct VariantFormatKey: Hashable, Sendable {
+package struct VariantFormatKey: Hashable, Sendable {
     let trackID: String
     let chromosome: String
     let position: Int
@@ -21,29 +21,41 @@ struct VariantFormatKey: Hashable, Sendable {
     let sample: String
 }
 
-struct VariantFormatSourceIdentity: Hashable, Sendable {
+package struct VariantFormatSourceIdentity: Hashable, Sendable {
     let trackID: String
-    let url: URL
+    package let url: URL
     let fileSize: UInt64?
     let modificationDate: Date?
 }
 
-struct VariantFormatOverlaySnapshot: Sendable {
+package struct VariantFormatOverlaySnapshot: Sendable {
     var fields: [VariantFormatKey: [String: String]] = [:]
     var singleSampleByTrack: [String: String] = [:]
-    var projectedKeysByTrack: [String: Set<String>] = [:]
-    var sourceIdentities: Set<VariantFormatSourceIdentity> = []
+    package var projectedKeysByTrack: [String: Set<String>] = [:]
+    package var sourceIdentities: Set<VariantFormatSourceIdentity> = []
+
+    package init(
+        fields: [VariantFormatKey: [String: String]] = [:],
+        singleSampleByTrack: [String: String] = [:],
+        projectedKeysByTrack: [String: Set<String>] = [:],
+        sourceIdentities: Set<VariantFormatSourceIdentity> = []
+    ) {
+        self.fields = fields
+        self.singleSampleByTrack = singleSampleByTrack
+        self.projectedKeysByTrack = projectedKeysByTrack
+        self.sourceIdentities = sourceIdentities
+    }
 
     static let projectableOriginalKeys: Set<String> = [
         "REF_DP", "REF_RV", "REF_QUAL", "ALT_DP", "ALT_RV", "ALT_QUAL",
         "ALT_FREQ", "MERGED_AF", "MERGED_DP",
     ]
 
-    var allProjectedKeys: Set<String> {
+    package var allProjectedKeys: Set<String> {
         projectedKeysByTrack.values.reduce(into: Set<String>()) { $0.formUnion($1) }
     }
 
-    func projectedInfo(
+    package func projectedInfo(
         trackID: String,
         record: VariantDatabaseRecord,
         existing: [String: String]
@@ -70,7 +82,7 @@ struct VariantFormatOverlaySnapshot: Sendable {
         return projected
     }
 
-    func sampleFields(
+    package func sampleFields(
         trackID: String,
         record: VariantDatabaseRecord,
         sample: String
@@ -93,7 +105,7 @@ struct VariantFormatOverlaySnapshot: Sendable {
         return keys.contains(normalized)
     }
 
-    static func matches(_ info: [String: String], filter: VariantDatabase.InfoFilter) -> Bool {
+    package static func matches(_ info: [String: String], filter: VariantDatabase.InfoFilter) -> Bool {
         guard let actual = info[filter.key], isUsable(actual) else {
             return filter.op == .eq && filter.value.isEmpty
         }
@@ -130,7 +142,7 @@ struct VariantFormatOverlaySnapshot: Sendable {
         }
     }
 
-    func matches(
+    package func matches(
         _ smartFilter: VariantSmartFilter,
         trackID: String,
         row: AnnotationSearchIndex.SearchResult

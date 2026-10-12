@@ -59,7 +59,7 @@ public final class ReferenceBundleManualAnnotationService {
     /// reads the reverse strand `-` or a hyphen-leading name as a value. A nil
     /// note clears the note on both paths, so the command passes no `--note`
     /// then. The builder touches no state, so any isolation can call it.
-    static func annotationUpdateArguments(
+    package static func annotationUpdateArguments(
         location: ReferenceBundleAnnotationRowLocation,
         name: String,
         type: String,
@@ -114,7 +114,7 @@ public final class ReferenceBundleManualAnnotationService {
     /// viewer-menu delete row and the provenance of
     /// ``deleteAnnotation(_:bundleURL:)`` record it too. The builder touches
     /// no state, so any isolation can call it.
-    static func annotationRowDeletionArguments(bundleURL: URL, trackID: String, rowIDs: [Int64]) -> [String] {
+    package static func annotationRowDeletionArguments(bundleURL: URL, trackID: String, rowIDs: [Int64]) -> [String] {
         var values = ["sequence", "delete-annotations", bundleURL.path, "--track-id", trackID]
         for rowID in rowIDs {
             values.append("--row-id")

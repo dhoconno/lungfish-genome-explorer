@@ -31,7 +31,7 @@ enum FASTQBundleMergeServiceError: LocalizedError {
     }
 }
 
-enum FASTQBundleMergeService {
+package enum FASTQBundleMergeService {
     private enum MergeMode {
         case virtualSingleEnd
         case physical
@@ -53,7 +53,7 @@ enum FASTQBundleMergeService {
         let provenanceSteps: [ProvenanceStep]
     }
 
-    static func merge(
+    package static func merge(
         sourceBundleURLs: [URL],
         outputDirectory: URL,
         bundleName: String
@@ -66,7 +66,7 @@ enum FASTQBundleMergeService {
         )
     }
 
-    static func merge(
+    package static func merge(
         sourceBundleURLs: [URL],
         outputDirectory: URL,
         bundleName: String,

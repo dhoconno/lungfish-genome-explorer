@@ -6,21 +6,29 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
-struct BundleBrowserLoadResult: Equatable {
+package struct BundleBrowserLoadResult: Equatable {
     enum Source: Equatable {
         case manifest
         case mirror
         case synthesized
     }
 
-    let summary: BundleBrowserSummary
+    package let summary: BundleBrowserSummary
     let source: Source
 }
 
-struct BundleBrowserLoader {
-    var mirrorStoreFactory: (URL) throws -> BundleBrowserMirrorStore = { try BundleBrowserMirrorStore(projectURL: $0) }
-    var synthesizer: (URL, BundleManifest) throws -> BundleBrowserSummary = { bundleURL, manifest in
-        try BundleSequenceSummarySynthesizer.summarize(bundleURL: bundleURL, manifest: manifest)
+package struct BundleBrowserLoader {
+    var mirrorStoreFactory: (URL) throws -> BundleBrowserMirrorStore
+    var synthesizer: (URL, BundleManifest) throws -> BundleBrowserSummary
+
+    package init(
+        mirrorStoreFactory: @escaping (URL) throws -> BundleBrowserMirrorStore = { try BundleBrowserMirrorStore(projectURL: $0) },
+        synthesizer: @escaping (URL, BundleManifest) throws -> BundleBrowserSummary = { bundleURL, manifest in
+            try BundleSequenceSummarySynthesizer.summarize(bundleURL: bundleURL, manifest: manifest)
+        }
+    ) {
+        self.mirrorStoreFactory = mirrorStoreFactory
+        self.synthesizer = synthesizer
     }
 
     static func bundleKey(for bundleURL: URL, manifest: BundleManifest) -> String {
@@ -36,7 +44,7 @@ struct BundleBrowserLoader {
         ).joined(separator: "\n")
     }
 
-    func load(bundleURL: URL, manifest: BundleManifest) throws -> BundleBrowserLoadResult {
+    package func load(bundleURL: URL, manifest: BundleManifest) throws -> BundleBrowserLoadResult {
         if let summary = manifest.browserSummary {
             return BundleBrowserLoadResult(summary: summary, source: .manifest)
         }

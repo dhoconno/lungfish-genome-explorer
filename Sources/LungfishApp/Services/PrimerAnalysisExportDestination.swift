@@ -3,15 +3,15 @@ import Foundation
 import LungfishIO
 
 /// Keeps contextual scientific exports inside the captured project's own Analyses directory.
-struct PrimerAnalysisExportDestination: Sendable {
-  enum Kind { case referenceBundle, primerOrder }
-  let url: URL
+package struct PrimerAnalysisExportDestination: Sendable {
+  package enum Kind { case referenceBundle, primerOrder }
+  package let url: URL
   private let projectURL: URL
   private let parentURL: URL
   private let projectIdentity: DirectoryIdentity
   private let parentIdentity: DirectoryIdentity
 
-  init(projectURL: URL, name: String, kind: Kind = .referenceBundle) throws {
+  package init(projectURL: URL, name: String, kind: Kind = .referenceBundle) throws {
     guard projectURL.isFileURL, let physical = realpath(projectURL.path, nil) else {
       throw Self.invalid("The originating project is unavailable.")
     }
@@ -34,7 +34,7 @@ struct PrimerAnalysisExportDestination: Sendable {
     try validateBeforePublication()
   }
 
-  func validateBeforePublication() throws {
+  package func validateBeforePublication() throws {
     guard try DirectoryIdentity(projectURL) == projectIdentity,
       try DirectoryIdentity(parentURL) == parentIdentity else {
       throw Self.invalid("The originating project or Analyses folder changed during export.")

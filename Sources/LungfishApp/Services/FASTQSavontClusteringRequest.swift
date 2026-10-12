@@ -1,25 +1,47 @@
 import Foundation
 import LungfishWorkflow
 
-struct FASTQSavontClusteringRequest: Sendable, Equatable {
-    let inputURLs: [URL]
-    let outputDirectoryURL: URL
-    let singleInputOutputName: String?
-    let threads: Int
-    let qualityValueCutoff: Int
-    let minimumClusterSize: Int
-    let minimumReadLength: Int?
-    let maximumReadLength: Int?
-    let singleStrand: Bool
+package struct FASTQSavontClusteringRequest: Sendable, Equatable {
+    package let inputURLs: [URL]
+    package let outputDirectoryURL: URL
+    package let singleInputOutputName: String?
+    package let threads: Int
+    package let qualityValueCutoff: Int
+    package let minimumClusterSize: Int
+    package let minimumReadLength: Int?
+    package let maximumReadLength: Int?
+    package let singleStrand: Bool
 
-    static func defaultOutputBaseName(for inputURL: URL) -> String {
+    package init(
+        inputURLs: [URL],
+        outputDirectoryURL: URL,
+        singleInputOutputName: String?,
+        threads: Int,
+        qualityValueCutoff: Int,
+        minimumClusterSize: Int,
+        minimumReadLength: Int?,
+        maximumReadLength: Int?,
+        singleStrand: Bool
+    ) {
+        self.inputURLs = inputURLs
+        self.outputDirectoryURL = outputDirectoryURL
+        self.singleInputOutputName = singleInputOutputName
+        self.threads = threads
+        self.qualityValueCutoff = qualityValueCutoff
+        self.minimumClusterSize = minimumClusterSize
+        self.minimumReadLength = minimumReadLength
+        self.maximumReadLength = maximumReadLength
+        self.singleStrand = singleStrand
+    }
+
+    package static func defaultOutputBaseName(for inputURL: URL) -> String {
         let namingURL = inputURL.pathExtension.lowercased() == "lungfishfastq"
             ? inputURL.deletingPathExtension()
             : inputURL
         return SavontClusteringRunRequest.defaultOutputBaseName(for: namingURL)
     }
 
-    static func safeSingleInputOutputName(
+    package static func safeSingleInputOutputName(
         _ rawName: String?,
         outputDirectoryURL: URL
     ) -> String? {

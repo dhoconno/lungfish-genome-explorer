@@ -6,26 +6,32 @@ import Foundation
 import LungfishIO
 import LungfishWorkflow
 
-struct VariantSampleMetadataMutationResult: Sendable, Equatable {
+package struct VariantSampleMetadataMutationResult: Sendable, Equatable {
     let updatedCountsByDatabase: [String: Int]
     let provenanceURL: URL?
 
-    var totalUpdated: Int {
+    package var totalUpdated: Int {
         updatedCountsByDatabase.values.reduce(0, +)
     }
 }
 
-struct VariantSampleMetadataMutationRow: Sendable, Equatable {
+package struct VariantSampleMetadataMutationRow: Sendable, Equatable {
     let name: String
     let sourceFile: String
     let metadata: [String: String]
+
+    package init(name: String, sourceFile: String, metadata: [String: String]) {
+        self.name = name
+        self.sourceFile = sourceFile
+        self.metadata = metadata
+    }
 }
 
-struct VariantSampleMetadataMutationService {
+package struct VariantSampleMetadataMutationService {
     private let fileManager: FileManager
     private let writeProvenance: (ProvenanceEnvelope, URL, VariantMutationPublication) throws -> URL
 
-    init(
+    package init(
         fileManager: FileManager = .default,
         provenanceWriter: ProvenanceWriter = ProvenanceWriter(signingProvider: nil)
     ) {
@@ -36,7 +42,7 @@ struct VariantSampleMetadataMutationService {
         }
     }
 
-    init(
+    package init(
         fileManager: FileManager = .default,
         writeProvenance: @escaping (ProvenanceEnvelope, URL) throws -> URL
     ) {
@@ -44,7 +50,7 @@ struct VariantSampleMetadataMutationService {
         self.writeProvenance = { envelope, bundleURL, _ in try writeProvenance(envelope, bundleURL) }
     }
 
-    func updateSampleMetadata(
+    package func updateSampleMetadata(
         sampleName: String,
         sourceFile: String? = nil,
         metadata: [String: String],
@@ -64,7 +70,7 @@ struct VariantSampleMetadataMutationService {
         }
     }
 
-    func deleteMetadataField(
+    package func deleteMetadataField(
         fieldName: String,
         sampleRows: [VariantSampleMetadataMutationRow],
         bundleURL: URL,

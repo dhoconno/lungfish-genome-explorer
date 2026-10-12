@@ -2,10 +2,10 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
-struct VariantTableExportResolvedFields: Sendable, Equatable {
-    let codingFeature: String
-    let consequence: String
-    let aaChange: String
+package struct VariantTableExportResolvedFields: Sendable, Equatable {
+    package let codingFeature: String
+    package let consequence: String
+    package let aaChange: String
 }
 
 enum VariantTableExportResolverPreparationError: LocalizedError {
@@ -23,8 +23,8 @@ enum VariantTableExportResolverPreparationError: LocalizedError {
 }
 
 /// Frozen value-only inputs for resolving derived variant-table fields off-main.
-struct VariantTableExportResolverSnapshot: Sendable {
-    struct CodingFeature: Sendable {
+package struct VariantTableExportResolverSnapshot: Sendable {
+    package struct CodingFeature: Sendable {
         let chromosome: String
         let intervals: [AnnotationInterval]
         let label: String
@@ -37,21 +37,43 @@ struct VariantTableExportResolverSnapshot: Sendable {
         /// Whole codons of the full CDS before the first whole codon that was read. The first codon read is
         /// residue `codonsBeforeFirstRead + 1` of the protein.
         var codonsBeforeFirstRead: Int = 0
+
+        package init(
+            chromosome: String,
+            intervals: [AnnotationInterval],
+            label: String,
+            isReverse: Bool,
+            codingBases: [Character]?,
+            codingGenomePositions: [Int]?,
+            phaseOffset: Int,
+            codonTable: CodonTable,
+            codonsBeforeFirstRead: Int = 0
+        ) {
+            self.chromosome = chromosome
+            self.intervals = intervals
+            self.label = label
+            self.isReverse = isReverse
+            self.codingBases = codingBases
+            self.codingGenomePositions = codingGenomePositions
+            self.phaseOffset = phaseOffset
+            self.codonTable = codonTable
+            self.codonsBeforeFirstRead = codonsBeforeFirstRead
+        }
     }
 
-    let features: [CodingFeature]
+    package let features: [CodingFeature]
     let variantChromosomeAliasMap: [String: String]
     let referenceChromosomeAliases: [String: String]
     let referenceBundle: ReferenceBundle?
     let cachedSequence: String?
     let cachedSequenceRegion: GenomicRegion?
 
-    static let empty = VariantTableExportResolverSnapshot(
+    package static let empty = VariantTableExportResolverSnapshot(
         features: [], variantChromosomeAliasMap: [:], referenceChromosomeAliases: [:], referenceBundle: nil,
         cachedSequence: nil, cachedSequenceRegion: nil
     )
 
-    init(
+    package init(
         features: [CodingFeature],
         variantChromosomeAliasMap: [String: String],
         referenceChromosomeAliases: [String: String] = [:],
@@ -69,7 +91,7 @@ struct VariantTableExportResolverSnapshot: Sendable {
 
     /// Materializes missing CDS coding contexts. Call from the export worker,
     /// never from the main actor; bundle-backed sequence reads are synchronous.
-    func preparingForBackgroundExport(
+    package func preparingForBackgroundExport(
         shouldCancel: @Sendable () -> Bool = { false }
     ) throws -> VariantTableExportResolverSnapshot {
         var prepared: [CodingFeature] = []
@@ -105,7 +127,7 @@ struct VariantTableExportResolverSnapshot: Sendable {
         )
     }
 
-    func resolve(_ row: AnnotationSearchIndex.SearchResult) -> VariantTableExportResolvedFields {
+    package func resolve(_ row: AnnotationSearchIndex.SearchResult) -> VariantTableExportResolvedFields {
         let info = row.infoDict ?? [:]
         let overlapping = overlappingFeatures(for: row)
         let derived = derivedConsequence(for: row, overlapping: overlapping)

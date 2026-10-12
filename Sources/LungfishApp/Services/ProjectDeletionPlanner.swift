@@ -5,11 +5,11 @@
 import Foundation
 import LungfishIO
 
-struct ProjectDeletionImpact: Equatable, Sendable {
+package struct ProjectDeletionImpact: Equatable, Sendable {
     let selectedURLs: [URL]
-    let dependentURLs: [URL]
+    package let dependentURLs: [URL]
 
-    var hasDependents: Bool {
+    package var hasDependents: Bool {
         !dependentURLs.isEmpty
     }
 
@@ -18,30 +18,30 @@ struct ProjectDeletionImpact: Equatable, Sendable {
     }
 }
 
-struct ProjectDeletionDependencyListPresentation: Equatable, Sendable {
+package struct ProjectDeletionDependencyListPresentation: Equatable, Sendable {
     let dependentURLs: [URL]
     let projectURL: URL?
     let previewLimit: Int
 
-    init(dependentURLs: [URL], projectURL: URL?, previewLimit: Int = 8) {
+    package init(dependentURLs: [URL], projectURL: URL?, previewLimit: Int = 8) {
         self.dependentURLs = dependentURLs.map(\.standardizedFileURL)
         self.projectURL = projectURL?.standardizedFileURL
         self.previewLimit = max(0, previewLimit)
     }
 
-    var count: Int {
+    package var count: Int {
         dependentURLs.count
     }
 
-    var isTruncated: Bool {
+    package var isTruncated: Bool {
         dependentURLs.count > previewLimit
     }
 
-    var previewLines: [String] {
+    package var previewLines: [String] {
         dependentURLs.prefix(previewLimit).map(\.lastPathComponent)
     }
 
-    var overflowLine: String? {
+    package var overflowLine: String? {
         guard isTruncated else { return nil }
         return "... and \(dependentURLs.count - previewLimit) more"
     }
@@ -50,7 +50,7 @@ struct ProjectDeletionDependencyListPresentation: Equatable, Sendable {
         dependentURLs.map { Self.displayPath(for: $0, projectURL: projectURL) }
     }
 
-    var fullListText: String {
+    package var fullListText: String {
         fullListLines.joined(separator: "\n")
     }
 
@@ -67,7 +67,7 @@ struct ProjectDeletionDependencyListPresentation: Equatable, Sendable {
     }
 }
 
-final class ProjectDeletionPlanner {
+package final class ProjectDeletionPlanner {
     private struct ProjectObjectRecord {
         let url: URL
         let dependencyURLs: [URL]
@@ -91,11 +91,11 @@ final class ProjectDeletionPlanner {
             .flatMap(\.folderExtensions)
     )
 
-    init(fileManager: FileManager = .default) {
+    package init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
     }
 
-    func impact(ofDeleting selectedURLs: [URL], in projectURL: URL) -> ProjectDeletionImpact {
+    package func impact(ofDeleting selectedURLs: [URL], in projectURL: URL) -> ProjectDeletionImpact {
         let normalizedSelected = uniqueURLs(selectedURLs)
         guard !normalizedSelected.isEmpty else {
             return ProjectDeletionImpact(selectedURLs: [], dependentURLs: [])
@@ -147,13 +147,13 @@ final class ProjectDeletionPlanner {
         )
     }
 
-    func existingCompanionSidecarURLs(for url: URL) -> [URL] {
+    package func existingCompanionSidecarURLs(for url: URL) -> [URL] {
         Self.companionSidecarCandidates(for: url)
             .filter { fileManager.fileExists(atPath: $0.path) }
             .sorted(by: stableURLSort)
     }
 
-    static func topLevelURLsForDeletion(_ urls: [URL]) -> [URL] {
+    package static func topLevelURLsForDeletion(_ urls: [URL]) -> [URL] {
         let normalized = uniqueURLs(urls)
         return normalized
             .filter { candidate in
@@ -164,7 +164,7 @@ final class ProjectDeletionPlanner {
             .sorted(by: stableURLSort)
     }
 
-    static func companionSidecarCandidates(for url: URL) -> [URL] {
+    package static func companionSidecarCandidates(for url: URL) -> [URL] {
         let standardized = url.standardizedFileURL
         let adjacentSidecars = [
             standardized.appendingPathExtension("lungfish-meta.json"),

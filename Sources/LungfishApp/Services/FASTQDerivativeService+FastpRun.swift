@@ -1,0 +1,199 @@
+// FASTQDerivativeService+FastpRun.swift - Fastp trim runs
+// Copyright (c) 2024 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import Foundation
+import CryptoKit
+import LungfishCore
+import LungfishIO
+import LungfishWorkflow
+import os.log
+
+extension FASTQDerivativeService {
+
+    /// The adapter and quality trim a `.fastpTrim` request asks for (fastp
+    /// Adapter & Quality Trim), with auto-detected adapters or the manual
+    /// adapter sequence. The request carries no adapter FASTA, and
+    /// `lungfish-cli fastq trim` takes none, so a request in FASTA mode fails
+    /// here (finding R3). It used to turn adapter trimming off and trim
+    /// quality only, so the derivative kept every adapter without saying so.
+    package static func combinedTrimOperation(
+        threshold: Int,
+        windowSize: Int,
+        mode: FASTQQualityTrimMode,
+        adapterMode: FASTQAdapterMode,
+        adapterSequence: String?
+    ) throws -> FastpTrimOperation {
+        guard adapterMode != .fastaFile else {
+            throw FASTQDerivativeError.invalidOperation(
+                "fastp Adapter & Quality Trim takes no adapter FASTA file, so in FASTA mode it would remove no adapters. "
+                    + "Choose auto-detected adapters or a manual adapter sequence."
+            )
+        }
+        return .combined(
+            threshold: threshold,
+            window: windowSize,
+            mode: mode,
+            adapterTrimming: true,
+            adapterSequence: adapterMode == .specified ? adapterSequence : nil
+        )
+    }
+
+    package static func adapterTrimOperation(
+        mode: FASTQAdapterMode,
+        sequence: String?,
+        sequenceR2: String?,
+        fastaFilename: String?,
+        sourceBundleURL: URL
+    ) throws -> FastpTrimOperation {
+        switch mode {
+        case .autoDetect:
+            return .adapter(sequence: nil, sequenceR2: nil, adapterFastaPath: nil)
+        case .specified:
+            return .adapter(sequence: sequence, sequenceR2: sequenceR2, adapterFastaPath: nil)
+        case .fastaFile:
+            var fastaPath: String?
+            if let fastaFilename,
+               let fastaURL = try? FASTQBundle.validatedBundleMemberURL(
+                for: fastaFilename,
+                in: sourceBundleURL,
+                field: "adapterTrim.fastaFilename"
+               ) {
+                fastaPath = fastaURL.path
+            }
+            return .adapter(sequence: nil, sequenceR2: nil, adapterFastaPath: fastaPath)
+        }
+    }
+
+    func runFastpQualityTrim(
+        sourceFASTQ: URL,
+        outputFASTQ: URL,
+        threshold: Int,
+        windowSize: Int,
+        mode: FASTQQualityTrimMode,
+        extraArguments: [String] = [],
+        pairsByName: Bool = false,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
+    ) async throws {
+        try await runFastpTrim(
+            .quality(threshold: threshold, window: windowSize, mode: mode),
+            extraArguments: extraArguments,
+            sourceFASTQ: sourceFASTQ,
+            outputFASTQ: outputFASTQ,
+            pairsByName: pairsByName,
+            provenanceCollector: provenanceCollector
+        )
+    }
+
+    func runFastpCombinedTrim(
+        sourceFASTQ: URL,
+        outputFASTQ: URL,
+        threshold: Int,
+        windowSize: Int,
+        mode: FASTQQualityTrimMode,
+        adapterMode: FASTQAdapterMode,
+        adapterSequence: String?,
+        pairsByName: Bool = false,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
+    ) async throws {
+        try await runFastpTrim(
+            try Self.combinedTrimOperation(
+                threshold: threshold,
+                windowSize: windowSize,
+                mode: mode,
+                adapterMode: adapterMode,
+                adapterSequence: adapterSequence
+            ),
+            sourceFASTQ: sourceFASTQ,
+            outputFASTQ: outputFASTQ,
+            pairsByName: pairsByName,
+            provenanceCollector: provenanceCollector
+        )
+    }
+
+    func runFastpAdapterTrim(
+        sourceFASTQ: URL,
+        outputFASTQ: URL,
+        mode: FASTQAdapterMode,
+        sequence: String?,
+        sequenceR2: String?,
+        fastaFilename: String?,
+        sourceBundleURL: URL,
+        pairsByName: Bool = false,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
+    ) async throws {
+        try await runFastpTrim(
+            try Self.adapterTrimOperation(
+                mode: mode,
+                sequence: sequence,
+                sequenceR2: sequenceR2,
+                fastaFilename: fastaFilename,
+                sourceBundleURL: sourceBundleURL
+            ),
+            sourceFASTQ: sourceFASTQ,
+            outputFASTQ: outputFASTQ,
+            pairsByName: pairsByName,
+            provenanceCollector: provenanceCollector
+        )
+    }
+
+    func runFastpFixedTrim(
+        sourceFASTQ: URL,
+        outputFASTQ: URL,
+        from5Prime: Int,
+        from3Prime: Int,
+        pairsByName: Bool = false,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
+    ) async throws {
+        try await runFastpTrim(
+            .fixed(front: from5Prime, tail: from3Prime),
+            sourceFASTQ: sourceFASTQ,
+            outputFASTQ: outputFASTQ,
+            pairsByName: pairsByName,
+            provenanceCollector: provenanceCollector
+        )
+    }
+
+    /// Runs one fastp trim through ``FastpPairedRunner``, the implementation
+    /// behind `lungfish-cli fastq trim` and its siblings, so the window and
+    /// the CLI keep the same reads: paired input is partitioned by name and
+    /// fastp runs in its paired mode (both mates kept or dropped together,
+    /// read 2 adapters detected), the unpaired reads of a mixed file run
+    /// single-end, and the output is interleaved again. The old
+    /// `--interleaved_in` run kept 90,622 reads on the HG002 fixture where
+    /// the CLI kept 90,556.
+    ///
+    /// - Parameter pairsByName: `true` when adjacent records may be mates
+    ///   (a strictly interleaved or mixed input); every record of the file
+    ///   is then scanned by name before fastp runs.
+    private func runFastpTrim(
+        _ operation: FastpTrimOperation,
+        extraArguments: [String] = [],
+        sourceFASTQ: URL,
+        outputFASTQ: URL,
+        pairsByName: Bool,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector?
+    ) async throws {
+        let plan = try await Task.detached(priority: .utility) {
+            try FastpReadLayoutPlan.resolve(inputURL: sourceFASTQ, pairAware: pairsByName)
+        }.value
+        let options = FastpTrimOptions.options(for: operation, extraArguments: extraArguments)
+        do {
+            _ = try await FastpPairedRunner.run(
+                inputURL: sourceFASTQ,
+                outputPath: outputFASTQ.path,
+                plan: plan,
+                options: options,
+                detectPairedAdapters: operation.detectsPairedAdapters,
+                failureLabel: operation.failureLabel,
+                stepNamePrefix: "lungfish fastq \(operation.subcommandName)",
+                runner: runner,
+                execute: { tool, arguments in
+                    try await self.runNativeTool(tool, arguments: arguments, provenanceCollector: provenanceCollector)
+                }
+            )
+        } catch let error as FastpPairedRunError {
+            throw FASTQDerivativeError.invalidOperation(error.message)
+        }
+    }
+}

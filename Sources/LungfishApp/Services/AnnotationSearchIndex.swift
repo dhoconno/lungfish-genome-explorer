@@ -17,7 +17,7 @@ private let searchLogger = Logger(subsystem: LogSubsystem.app, category: "Annota
 /// Search is backed by SQLite annotation/variant databases in the bundle.
 @MainActor
 public final class AnnotationSearchIndex {
-
+    package init() {}
     #if DEBUG
     /// Test-only threading probe. When set, invoked once per off-main query (see the
     /// `*OffMain` methods below) from inside the `Task.detached` body -- i.e. after the
@@ -42,11 +42,11 @@ public final class AnnotationSearchIndex {
         public let trackName: String?
 
         /// Row IDs are only unique within their owning SQLite track.
-        var variantIdentity: VariantIdentity? {
+        package var variantIdentity: VariantIdentity? {
             variantRowId.map { VariantIdentity(trackId: trackId, rowId: $0) }
         }
 
-        struct VariantIdentity: Hashable {
+        package struct VariantIdentity: Hashable {
             let trackId: String
             let rowId: Int64
         }
@@ -131,10 +131,10 @@ public final class AnnotationSearchIndex {
     private var variantCallerSettings: [String: String] = [:]
 
     /// Immutable FORMAT data used by background result conversion and legacy iVar recovery.
-    private(set) var variantFormatOverlaySnapshot = VariantFormatOverlaySnapshot()
+    package private(set) var variantFormatOverlaySnapshot = VariantFormatOverlaySnapshot()
     private var variantFormatOverlayLoaderTask: Task<Void, Never>?
 
-    func variantCallerSettings(for trackId: String) -> String {
+    package func variantCallerSettings(for trackId: String) -> String {
         variantCallerSettings[trackId] ?? "Not recorded"
     }
 

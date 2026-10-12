@@ -15,7 +15,7 @@ import LungfishWorkflow
 /// Registration reuses the same services the minimap2 path uses rather than
 /// introducing a second publication route: `BAMImportService` for the alignment
 /// and `VariantSQLiteImportCoordinator` for the variant database.
-enum ViralReconViewerPublication {
+package enum ViralReconViewerPublication {
     /// Publishes the ingested run into its reference bundle.
     ///
     /// Each output is registered independently. A run that produced variants but
@@ -24,7 +24,7 @@ enum ViralReconViewerPublication {
     ///
     /// - Returns: the reference bundle URL whose manifest now carries the tracks.
     @discardableResult
-    static func publish(
+    package static func publish(
         ingested: ViralReconResultIngest.Ingested,
         fileManager: FileManager = .default
     ) async throws -> URL {

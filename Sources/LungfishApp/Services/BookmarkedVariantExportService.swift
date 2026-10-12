@@ -2,8 +2,8 @@ import Foundation
 import LungfishCore
 import LungfishWorkflow
 
-enum BookmarkedVariantExportService {
-    struct Row: Codable, Sendable {
+package enum BookmarkedVariantExportService {
+    package struct Row: Codable, Sendable {
         let trackID: String
         let rowID: Int64?
         let name: String
@@ -14,12 +14,42 @@ enum BookmarkedVariantExportService {
         let alt: String?
         let quality: Double?
         let filter: String?
+
+        package init(
+            trackID: String,
+            rowID: Int64?,
+            name: String,
+            type: String,
+            chromosome: String,
+            start: Int,
+            ref: String?,
+            alt: String?,
+            quality: Double?,
+            filter: String?
+        ) {
+            self.trackID = trackID
+            self.rowID = rowID
+            self.name = name
+            self.type = type
+            self.chromosome = chromosome
+            self.start = start
+            self.ref = ref
+            self.alt = alt
+            self.quality = quality
+            self.filter = filter
+        }
     }
 
-    struct Request: Sendable {
+    package struct Request: Sendable {
         let sourceURLs: [URL]
         let rows: [Row]
         let outputURL: URL
+
+        package init(sourceURLs: [URL], rows: [Row], outputURL: URL) {
+            self.sourceURLs = sourceURLs
+            self.rows = rows
+            self.outputURL = outputURL
+        }
     }
 
     private struct Selection: Encodable {
@@ -28,7 +58,7 @@ enum BookmarkedVariantExportService {
         let selectedRows: [Row]
     }
 
-    static func export(_ request: Request) throws {
+    package static func export(_ request: Request) throws {
         let runClock = ProvenanceRunClock()
         var lines = [["ID", "Type", "Chrom", "Pos", "Ref", "Alt", "Quality", "Filter"].joined(separator: "\t")]
         for row in request.rows {

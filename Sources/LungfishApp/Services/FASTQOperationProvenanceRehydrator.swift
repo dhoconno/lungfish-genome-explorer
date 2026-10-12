@@ -2,7 +2,9 @@ import Foundation
 import LungfishIO
 import LungfishWorkflow
 
-struct FASTQOperationProvenanceRehydrator: Sendable {
+package struct FASTQOperationProvenanceRehydrator: Sendable {
+    package init() {}
+
     func operationPathMap(
         sourceURL: URL,
         finalOutputURL: URL,
@@ -20,7 +22,7 @@ struct FASTQOperationProvenanceRehydrator: Sendable {
     }
 
     @discardableResult
-    func rehydrateOperationOutput(
+    package func rehydrateOperationOutput(
         sourceURL: URL,
         finalDirectory: URL,
         finalOutputURL: URL,
@@ -36,7 +38,7 @@ struct FASTQOperationProvenanceRehydrator: Sendable {
         )
     }
 
-    func rehydrateReferenceBundleProvenance(
+    package func rehydrateReferenceBundleProvenance(
         sourceURL: URL,
         referenceBundleURL: URL
     ) throws {

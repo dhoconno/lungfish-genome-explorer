@@ -4,11 +4,11 @@ import LungfishWorkflow
 
 /// Publishes opaque native documents with a receipt for the bytes actually copied.
 /// Archives remain archives; directory payloads keep their existing layout.
-enum NativeProjectCopyImportService {
+package enum NativeProjectCopyImportService {
     /// - Parameter sourceProjectURL: the project the item is being copied out
     ///   of, when known. It is recorded in the copy receipt so a copied item
     ///   remembers where it came from.
-    static func copy(from source: URL, to destination: URL, replaceExisting: Bool = false, sourceProjectURL: URL? = nil) throws -> URL {
+    package static func copy(from source: URL, to destination: URL, replaceExisting: Bool = false, sourceProjectURL: URL? = nil) throws -> URL {
         let fm = FileManager.default
         let source = source.standardizedFileURL
         let destination = destination.standardizedFileURL

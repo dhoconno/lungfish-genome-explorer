@@ -5,8 +5,8 @@
 import Foundation
 import LungfishCore
 
-enum ProvenancePathRehydrator {
-    static func rehydrate(
+package enum ProvenancePathRehydrator {
+    package static func rehydrate(
         from sourceURL: URL,
         to destinationURL: URL,
         logFailure: ((String) -> Void)? = nil

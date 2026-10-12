@@ -3,13 +3,13 @@ import LungfishWorkflow
 
 /// Durable inputs for replaying the exact bytes selected in a GUI export.
 /// Publication still uses the shared payload-and-provenance transaction.
-struct RetainedSelectionExportSnapshot {
+package struct RetainedSelectionExportSnapshot {
     static let replayScope = "retained-selection snapshot byte replay"
     let directory: URL
-    let payloadURL: URL
+    package let payloadURL: URL
     let selectionURL: URL
 
-    init(outputURL: URL, selectionMetadata: Data) throws {
+    package init(outputURL: URL, selectionMetadata: Data) throws {
         directory = outputURL.deletingLastPathComponent()
             .appendingPathComponent(".lungfish-export-inputs/\(UUID())", isDirectory: true)
         payloadURL = directory.appendingPathComponent("selected." + outputURL.pathExtension)
@@ -23,7 +23,7 @@ struct RetainedSelectionExportSnapshot {
         }
     }
 
-    func publish(
+    package func publish(
         _ request: ScientificFileExportProvenance.Request,
         preserveOriginalSources: Bool = false
     ) throws {
@@ -48,7 +48,7 @@ struct RetainedSelectionExportSnapshot {
         return urls.filter { seen.insert($0.standardizedFileURL.path).inserted }
     }
 
-    func discardAfterFailure(_ error: Error) {
+    package func discardAfterFailure(_ error: Error) {
         // A retained attempted output may still be named by recovery receipts.
         guard !(error is ScientificPublicationRecoveryRequired) else { return }
         try? FileManager.default.removeItem(at: directory)

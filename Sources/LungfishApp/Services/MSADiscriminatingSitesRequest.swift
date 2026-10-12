@@ -13,22 +13,22 @@ import Foundation
 /// MAFFT) is set, mirroring the CLI's `--exclusions` / `--exclusion-sequences`
 /// choice. `targets` is `nil` when every row not named as an exclusion is a
 /// target, which is the CLI default and keeps the argv as short as the manual's.
-struct MSADiscriminatingSitesRequest: Equatable, Sendable {
-    let bundleURL: URL
+package struct MSADiscriminatingSitesRequest: Equatable, Sendable {
+    package let bundleURL: URL
     /// Comma-separated target row names, or `nil` for the CLI default.
-    let targets: String?
+    package let targets: String?
     /// Comma-separated exclusion row names inside the bundle.
-    let exclusions: String?
+    package let exclusions: String?
     /// A FASTA file or reference bundle whose sequences are aligned on as exclusions.
-    let exclusionSequencesURL: URL?
+    package let exclusionSequencesURL: URL?
     /// The target row whose coordinates the report uses, or `nil` for the first target.
-    let template: String?
-    let targetMismatchTolerance: Int
+    package let template: String?
+    package let targetMismatchTolerance: Int
     /// How many exclusion sequences must differ; `nil` means all of them.
-    let minimumExclusionDifferences: Int?
-    let windowLength: Int
+    package let minimumExclusionDifferences: Int?
+    package let windowLength: Int
 
-    init(
+    package init(
         bundleURL: URL,
         targets: String? = nil,
         exclusions: String? = nil,
@@ -56,7 +56,7 @@ struct MSADiscriminatingSitesRequest: Equatable, Sendable {
 
     /// The JSON report the CLI writes beside `outputURL` when no `--json-output`
     /// is passed. The Inspector reads this file back to fill its tables.
-    static func defaultJSONOutputURL(for outputURL: URL) -> URL {
+    package static func defaultJSONOutputURL(for outputURL: URL) -> URL {
         outputURL.deletingPathExtension().appendingPathExtension("json")
     }
 }
@@ -64,25 +64,39 @@ struct MSADiscriminatingSitesRequest: Equatable, Sendable {
 /// The columns and row roles the alignment viewport draws after a
 /// discriminating-sites run, handed from the Inspector over the window-scoped
 /// `.msaDiscriminatingSitesHighlightChanged` notification.
-struct MSADiscriminatingSitesHighlight: Equatable, Sendable {
-    enum RowRole: String, Equatable, Sendable {
+package struct MSADiscriminatingSitesHighlight: Equatable, Sendable {
+    package enum RowRole: String, Equatable, Sendable {
         case target = "Target"
         case exclusion = "Exclusion"
     }
 
     /// 1-based alignment columns the report found.
-    let columns: [Int]
+    package let columns: [Int]
     /// Roles of the rows inside the displayed bundle, keyed by bundle row ID.
     /// Exclusion sequences aligned on from a file have no row here; they are
     /// named by `exclusionSourceName` and counted by `exclusionCount`.
-    let rowRolesByID: [String: RowRole]
+    package let rowRolesByID: [String: RowRole]
     let targetCount: Int
     let exclusionCount: Int
     /// The file or reference bundle the exclusions came from, when not rows.
     let exclusionSourceName: String?
 
+    package init(
+        columns: [Int],
+        rowRolesByID: [String: RowRole],
+        targetCount: Int,
+        exclusionCount: Int,
+        exclusionSourceName: String?
+    ) {
+        self.columns = columns
+        self.rowRolesByID = rowRolesByID
+        self.targetCount = targetCount
+        self.exclusionCount = exclusionCount
+        self.exclusionSourceName = exclusionSourceName
+    }
+
     /// The one-line legend the viewport shows above the alignment.
-    var legendText: String {
+    package var legendText: String {
         var text = "Discriminating sites: \(columns.count) column\(columns.count == 1 ? "" : "s") · "
         text += "Target rows \(targetCount) · Exclusion "
         if let exclusionSourceName {

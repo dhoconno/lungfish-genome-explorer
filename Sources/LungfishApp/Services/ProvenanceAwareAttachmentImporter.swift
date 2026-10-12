@@ -7,9 +7,9 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
-enum ProvenanceAwareAttachmentImporter {
+package enum ProvenanceAwareAttachmentImporter {
     @discardableResult
-    static func attach(fileAt sourceURL: URL, to store: BundleAttachmentStore) throws -> String {
+    package static func attach(fileAt sourceURL: URL, to store: BundleAttachmentStore) throws -> String {
         guard let scientificFormat = GenericAttachmentPolicy.scientificFormatDescription(
             forFilename: sourceURL.lastPathComponent
         ) else {
@@ -29,7 +29,7 @@ enum ProvenanceAwareAttachmentImporter {
     }
 
     @discardableResult
-    static func addAttachment(from sourceURL: URL, using manager: BundleAttachmentManager) throws -> String {
+    package static func addAttachment(from sourceURL: URL, using manager: BundleAttachmentManager) throws -> String {
         guard let scientificFormat = GenericAttachmentPolicy.scientificFormatDescription(
             forFilename: sourceURL.lastPathComponent
         ) else {

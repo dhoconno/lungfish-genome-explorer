@@ -55,7 +55,7 @@ public final class AIAssistantService {
 
     /// Local preview only; never resolves or contacts a provider.
     /// Local preview only: never reads credentials, validates keys, or contacts a provider.
-    func contextDisclosure() -> String {
+    package func contextDisclosure() -> String {
         let settings = AppSettings.shared
         let preferred = AIProviderIdentifier(rawValue: settings.preferredAIProvider) ?? .anthropic
         let order: [AIProviderIdentifier] = [preferred] + [.anthropic, .openAI, .gemini].filter { $0 != preferred }

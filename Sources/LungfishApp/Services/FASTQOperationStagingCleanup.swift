@@ -1,7 +1,9 @@
 import Foundation
 
-struct FASTQOperationStagingCleanup: Sendable {
-    func cleanup(
+package struct FASTQOperationStagingCleanup: Sendable {
+    package init() {}
+
+    package func cleanup(
         directories: [URL],
         preserving preservedURLs: [URL]
     ) {
@@ -14,7 +16,7 @@ struct FASTQOperationStagingCleanup: Sendable {
         }
     }
 
-    func cleanupFailedRun(
+    package func cleanupFailedRun(
         candidates: [URL],
         preserving preservedURLs: [URL] = []
     ) {

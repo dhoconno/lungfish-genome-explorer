@@ -19,7 +19,7 @@ struct FASTQDerivativeNativeToolExecution: Sendable {
     let completedAt: Date
 }
 
-final class FASTQDerivativeNativeProvenanceCollector: @unchecked Sendable {
+package final class FASTQDerivativeNativeProvenanceCollector: @unchecked Sendable {
     let lock = NSLock()
     var executions: [FASTQDerivativeNativeToolExecution] = []
 
