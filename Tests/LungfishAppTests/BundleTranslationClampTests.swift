@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishTestSupport
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishApp
@@ -49,12 +50,11 @@ final class BundleTranslationClampTests: XCTestCase {
     }
 
     private func makeBundle() async throws -> ReferenceBundle {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("LungfishTests-\(UUID().uuidString)", isDirectory: true)
+        let root = try TestTempDirectory.make(prefix: "bundle-translation-clamp")
+        addTeardownBlock { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("Clamp.lungfishref", isDirectory: true)
         let genome = bundleURL.appendingPathComponent("genome", isDirectory: true)
         try FileManager.default.createDirectory(at: genome, withIntermediateDirectories: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
         try (">chr1\n" + chromosome + "\n").write(
             to: genome.appendingPathComponent("sequence.fa"), atomically: true, encoding: .utf8
         )
