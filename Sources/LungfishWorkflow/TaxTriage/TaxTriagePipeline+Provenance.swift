@@ -129,7 +129,7 @@ extension TaxTriagePipeline {
 ///   options, the home released builds wrote, because one plan cannot hold several samples' plans.
 /// - The Kraken 2 database is recorded as decision E9 of Phase 2.7 records EsViritu's, as resolved defaults, with the
 ///   source URL and source policy its install receipt names, and no placeholder of the receipt as a catalog entry or
-///   version.
+///   version (``DatabaseReceiptPlaceholder``). Its status is the word `unpinned`, which ``DatabaseIdentityStatus`` reads.
 /// - Each task failure TaxTriage ignored is one warning line (T8), and the run still ends `completed`.
 ///
 /// The R1 and R2 halves of an interleaved file are scratch that the run removes, so no fact names one (T6). The record
@@ -146,9 +146,6 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
         RecordedReadSetPlan.key, "classifiers", "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes",
         "databaseCatalogID", "databaseCatalogVersion", "databaseSourceURL", "databaseSourcePolicy",
     ]
-    /// The values an install receipt writes when it knows no catalog entry or version, which name nothing.
-    static let receiptPlaceholders: Set<String> = ["", "unknown", "unspecified"]
-
     /// The settings the run was asked for.
     let explicitOptions: [String: ParameterValue]
     /// What the run resolved, the plan of a record of one sample and the identity of its database.
@@ -230,13 +227,12 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
            receipt.exitStatus == 0,
            receipt.options.resolvedDefaults["intendedFinalPath"]?.stringValue == database.path {
             let installed = receipt.options.resolvedDefaults
-            if let catalogID = receipt.options.explicit["catalogID"]?.stringValue,
-               !receiptPlaceholders.contains(catalogID) {
+            if let catalogID = DatabaseReceiptPlaceholder.named(receipt.options.explicit["catalogID"]?.stringValue) {
                 identity["databaseCatalogID"] = .string(catalogID)
             }
-            if let version = [installed["requestedCatalogVersion"]?.stringValue, receipt.workflowVersion]
-                .compactMap({ $0 })
-                .first(where: { !receiptPlaceholders.contains($0) }) {
+            if let version = DatabaseReceiptPlaceholder.firstNamed(
+                among: [installed["requestedCatalogVersion"]?.stringValue, receipt.workflowVersion]
+            ) {
                 identity["databaseCatalogVersion"] = .string(version)
             }
             if let sourceURL = installed["requestedSourceURL"]?.stringValue {

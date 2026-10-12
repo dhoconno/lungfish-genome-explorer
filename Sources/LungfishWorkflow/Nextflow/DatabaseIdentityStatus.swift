@@ -4,13 +4,17 @@
 
 import Foundation
 
-/// How far a recorded database is pinned, one vocabulary for every record (Phase 2.9 lane B11, decision R3).
+/// How far a recorded database is pinned, one vocabulary for every record (Phase 2.9 lanes B11 and B13, decision R3).
 ///
-/// Writers keep their words until a Preview ships the tolerant reader (R3). TaxTriage and EsViritu record `unpinned`,
-/// and Kraken 2 records `unresolved-bounded-metadata` for the same fact, so a reader takes that word as ``unpinned``
-/// (``status(ofRecordedWord:)``).
+/// Writers keep their words until a Preview ships the tolerant reader (R3), and ``init(recordedWord:)`` is that reader.
+/// Every word a released build records for the fact reads as one of the three statuses.
+///
+/// - `unpinned` is TaxTriage's and EsViritu's word, and the status's own.
+/// - `unresolved-bounded-metadata` is Kraken 2's word for a database with no digest, so it reads as ``unpinned``.
+/// - `provided-aggregate-digest` is Kraken 2's word when the run was given the digest of the whole database, the
+///   registry's payload digest or `--db-digest`, so it reads as ``pinned``.
 package enum DatabaseIdentityStatus: String, Sendable, Equatable, CaseIterable {
-    /// A digest LGE checked names the database.
+    /// A digest names the database, one LGE checked or one the run was given for the whole database.
     case pinned
     /// No digest pins the database, so its path, its file sizes and its install receipt name it.
     case unpinned
@@ -18,10 +22,50 @@ package enum DatabaseIdentityStatus: String, Sendable, Equatable, CaseIterable {
     /// fetched name it (R4).
     case liveSnapshot
 
-    /// The status a record's word names, each status's own word and Kraken 2's `unresolved-bounded-metadata` for
-    /// ``unpinned``, or nil for a word no writer records.
+    /// The status a record's word names, each status's own word and the two words of Kraken 2, or nil for a word no
+    /// writer records. The match is exact, so a word in another case reads as nothing.
+    package init?(recordedWord word: String) {
+        switch word {
+        case "unresolved-bounded-metadata":
+            self = .unpinned
+        case "provided-aggregate-digest":
+            self = .pinned
+        default:
+            guard let own = DatabaseIdentityStatus(rawValue: word) else { return nil }
+            self = own
+        }
+    }
+
+    /// ``init(recordedWord:)`` as a function, for a caller that maps a sequence of words.
     package static func status(ofRecordedWord word: String) -> DatabaseIdentityStatus? {
-        word == "unresolved-bounded-metadata" ? .unpinned : DatabaseIdentityStatus(rawValue: word)
+        DatabaseIdentityStatus(recordedWord: word)
+    }
+}
+
+/// The values an install receipt records for a catalog entry or version it does not know, one rule for every reader of
+/// a receipt (Phase 2.9 lane B13, row 257 of the Phase 2.8 plan).
+///
+/// An install writes `unknown` for a database with no catalog entry (the `catalogID` option) and for one with no
+/// version (the receipt's workflow version), and `unspecified` for the requested catalog version of an archive it
+/// installed with no version (`MetagenomicsDatabaseInstallProvenance`). None of them names a database, so a reader skips
+/// them and an empty string, and a record never files one as a catalog entry or version.
+package enum DatabaseReceiptPlaceholder {
+    /// The values that name nothing, the empty string included.
+    package static let values: Set<String> = ["", "unknown", "unspecified"]
+
+    /// Whether `value` names nothing.
+    package static func isPlaceholder(_ value: String) -> Bool {
+        values.contains(value)
+    }
+
+    /// `value` when it names something, or nil.
+    package static func named(_ value: String?) -> String? {
+        value.flatMap { isPlaceholder($0) ? nil : $0 }
+    }
+
+    /// The first of `candidates`, in order, that is present and names something, or nil.
+    package static func firstNamed(among candidates: [String?]) -> String? {
+        candidates.lazy.compactMap(named).first
     }
 }
 
