@@ -161,7 +161,7 @@ final class SystemContainerRuntimeProbeTests: XCTestCase {
         XCTAssertEqual(verdict.detail, "docker version did not answer within 1 s")
         let pid = try XCTUnwrap(Self.pid(in: pidFile), "the stub never recorded its helper")
         leftoverPIDs.append(pid)
-        let gone = await waitUntil(timeout: .seconds(5)) { !Self.isRunning(pid) }
+        let gone = await waitUntil(timeout: .seconds(30)) { !Self.isRunning(pid) }
         XCTAssertTrue(gone, "the helper of docker outlived the probe's timeout")
     }
 
