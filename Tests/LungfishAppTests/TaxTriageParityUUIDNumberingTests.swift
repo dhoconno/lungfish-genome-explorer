@@ -81,6 +81,22 @@ final class TaxTriageParityUUIDNumberingTests: XCTestCase {
         XCTAssertEqual(found.map(\.id), [], "\(found)")
     }
 
+    /// A manifest is a record, so at the base its UUIDs took the tree's numbers after every earlier
+    /// record, and one UUID more in side B's provenance moved them. Records are numbered alone too.
+    func testAnExtraUUIDInAnEarlierRecordMovesNoManifestNumber() throws {
+        let found = try differences(
+            a: tree(analysis: [
+                ".lungfish-provenance.json": record([1]),
+                "run-manifest.json": "{\n  \"run\" : \"\(uuid(10))\"\n}\n",
+            ]),
+            b: tree(analysis: [
+                ".lungfish-provenance.json": record([2, 3]),
+                "run-manifest.json": "{\n  \"run\" : \"\(uuid(11))\"\n}\n",
+            ])
+        )
+        XCTAssertEqual(found.map(\.id), [], "\(found)")
+    }
+
     /// One UUID twice against two UUIDs once is a difference of the file, so the mask hides the
     /// numbering and nothing else.
     func testOneUUIDTwiceAgainstTwoUUIDsOnceStillDiffers() throws {
