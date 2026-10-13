@@ -15,14 +15,12 @@
 //
 // The harness compares A against C and C against C' with `OutputEquivalence` over the whole side
 // root, so a stray write shows too, and compares how each side ended
-// (RouteParityHarness+Compare.swift). A JSON or text file that differs gives one difference for
-// each value or line that differs, so a declared difference never covers a whole file. A against C
-// may declare differences, each with its reason, the lane that closes it and an exact count for
-// each case (RouteParityHarness+Declared.swift). A count that no longer holds fails, so the list
-// only shrinks and a new difference cannot hide under an old entry. C against C' declares nothing.
-// Until lane Q30 M2, the explanation numbers UUIDs within each file and not across the tree as
-// `OutputEquivalence` does, so a record whose UUID link changes beside a declared value in the
-// same file is not found yet.
+// (RouteParityHarness+Compare.swift). A file that differs gives one difference for each value or
+// line that differs, read from the texts the comparison compared, so a declared difference never
+// covers a whole file. No side's files name another side's root. A against C may declare
+// differences, each with its reason, the lane that closes it and an exact count for each case
+// (RouteParityHarness+Declared.swift). A count that no longer holds fails, so the list only
+// shrinks and a new difference cannot hide under an old entry. C against C' declares nothing.
 //
 //     let harness = RouteParityHarness(cliBinary: cli, kind: .bundle)
 //     try await harness.assertParity(
@@ -120,6 +118,23 @@ public struct RouteParityRuns: Sendable {
     public let a: RouteParitySideRun
     public let c: RouteParitySideRun
     public let cPrime: RouteParitySideRun
+    /// The SHA-256 of each file of the fixture by its relative name, read before any side ran.
+    /// A side's facts leave out a file the fixture held as it is.
+    public let fixture: [String: String]
+
+    public init(
+        caseRoot: URL,
+        a: RouteParitySideRun,
+        c: RouteParitySideRun,
+        cPrime: RouteParitySideRun,
+        fixture: [String: String] = [:]
+    ) {
+        self.caseRoot = caseRoot
+        self.a = a
+        self.c = c
+        self.cPrime = cPrime
+        self.fixture = fixture
+    }
 
     public var all: [RouteParitySideRun] { [a, c, cPrime] }
 }
@@ -164,7 +179,8 @@ public struct RouteParityHarness: Sendable {
 
     /// Builds the fixture in root A, copies root A to roots C and C' before any side runs, then
     /// runs side A, side C and side C', the replay of the command side C recorded. A side that
-    /// throws ends the case with that error.
+    /// throws ends the case with that error. `caseRoot` is removed first, so it must be a folder
+    /// of the case's own, never the test's scratch root.
     @MainActor
     public func run(
         in caseRoot: URL,
@@ -177,6 +193,7 @@ public struct RouteParityHarness: Sendable {
         let rootA = Self.root(of: .a, in: caseRoot)
         try fileManager.createDirectory(at: rootA, withIntermediateDirectories: true)
         try fixture(rootA)
+        let fixtureDigests = Self.fixtureDigests(under: rootA)
         for side in [RouteParitySide.c, .cPrime] {
             try fileManager.copyItem(at: rootA, to: Self.root(of: side, in: caseRoot))
         }
@@ -184,7 +201,7 @@ public struct RouteParityHarness: Sendable {
         let rootC = Self.root(of: .c, in: caseRoot)
         let runC = RouteParitySideRun(side: .c, root: rootC, outcome: try await sideC(rootC))
         let runCPrime = await replay(of: runC, in: Self.root(of: .cPrime, in: caseRoot))
-        return RouteParityRuns(caseRoot: caseRoot, a: runA, c: runC, cPrime: runCPrime)
+        return RouteParityRuns(caseRoot: caseRoot, a: runA, c: runC, cPrime: runCPrime, fixture: fixtureDigests)
     }
 
     /// Side C'. The command `c` recorded, rebased from root C onto `root` and run line by line by

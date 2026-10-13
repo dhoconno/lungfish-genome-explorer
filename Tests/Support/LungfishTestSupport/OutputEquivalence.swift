@@ -112,6 +112,44 @@ public enum OutputEquivalence {
         kind: Kind,
         masks: MaskPolicy = .standard
     ) throws -> [String] {
+        try compare(a, b, kind: kind, masks: masks).differences
+    }
+
+    /// A file both trees hold whose two normalized texts differ.
+    public struct DifferingFile: Sendable, Equatable {
+        /// The compared name, the relative name after a bundle's name masks.
+        public let name: String
+        /// Side A's copy as the comparison read it, normalized for its kind
+        /// and masked for its role, with UUIDs and run IDs numbered across
+        /// side A's tree.
+        public let normalizedA: String
+        /// Side B's copy, the same way with side B's tree.
+        public let normalizedB: String
+
+        /// Whether either copy holds bytes that are not UTF-8, which the
+        /// comparison reads as their digest alone.
+        public var isBinary: Bool {
+            [normalizedA, normalizedB].contains { $0.hasPrefix("binary sha256 ") }
+        }
+    }
+
+    /// What one comparison found.
+    public struct Comparison: Sendable {
+        /// Every difference, the lines ``differences(_:_:kind:masks:)`` returns.
+        public let differences: [String]
+        /// The file of each `differs:` line, in the same order, so a caller
+        /// can explain a difference under the comparison's own rules.
+        public let differingFiles: [DifferingFile]
+    }
+
+    /// Every difference between `a` and `b` as `kind`, with the two
+    /// normalized texts of each file that differs.
+    public static func compare(
+        _ a: URL,
+        _ b: URL,
+        kind: Kind,
+        masks: MaskPolicy = .standard
+    ) throws -> Comparison {
         let rootA = comparisonRoot(a)
         let rootB = comparisonRoot(b)
         var filesA = try inventory(a)
@@ -165,15 +203,17 @@ public enum OutputEquivalence {
         for name in Set(keyedB.keys).subtracting(keyedA.keys).sorted() {
             found.append("only in B: \(name)")
         }
+        var differing: [DifferingFile] = []
         for name in Set(keyedA.keys).intersection(keyedB.keys).sorted() {
             guard let fileA = keyedA[name], let fileB = keyedB[name] else { continue }
             let normalA = try normalized(fileA, kind: kind, masks: masks, context: contextA)
             let normalB = try normalized(fileB, kind: kind, masks: masks, context: contextB)
             if normalA != normalB {
                 found.append("differs: \(name)\n" + firstDifference(normalA, normalB))
+                differing.append(DifferingFile(name: name, normalizedA: normalA, normalizedB: normalB))
             }
         }
-        return found
+        return Comparison(differences: found, differingFiles: differing)
     }
 
     // MARK: - Inventory

@@ -7,7 +7,8 @@
 // number of found differences it matches in each case. The count is exact, so a difference that
 // goes, or one more under the same entry, fails the case until the count is lowered or the entry
 // deleted in the same commit. A count only falls, which review holds (QC-2). Only A against C
-// declares, and an entry for C against C' or for one side fails. A difference no entry declares fails.
+// declares, and an entry for C against C' or for one side fails. A difference no entry declares fails,
+// and so does a whole-file difference, which no entry may declare (panel G5).
 
 import Foundation
 
@@ -38,10 +39,14 @@ public struct RouteParityDifference: Hashable, Sendable, CustomStringConvertible
     public let id: String
     /// What differs, with the values, for the failure message.
     public let detail: String
+    /// Whether the difference stands for a whole file, a binary file or one with more differences
+    /// than the explanation lists. No entry may declare it (panel G5).
+    public let wholeFile: Bool
 
-    public init(id: String, detail: String = "") {
+    public init(id: String, detail: String = "", wholeFile: Bool = false) {
         self.id = id
         self.detail = detail
+        self.wholeFile = wholeFile
     }
 
     public var description: String { detail.isEmpty ? id : "\(id)\n        \(detail)" }
@@ -82,9 +87,9 @@ public struct RouteParityDeclaredDifference<Case: Hashable & Sendable>: Sendable
 
 extension RouteParityHarness {
     /// One line for each way `found` breaks the list `declared` gives `parityCase`. That is a
-    /// found difference no entry declares, an entry that matches another number of found
-    /// differences than its count, an entry that matches none, a count below one and any entry
-    /// for C against C' or for one side.
+    /// found difference no entry declares, a whole-file difference and the entry that matches it,
+    /// an entry that matches another number of found differences than its count, an entry that
+    /// matches none, a count below one and any entry for C against C' or for one side.
     public static func failures<Case: Hashable & Sendable>(
         found: [RouteParityScope: [RouteParityDifference]],
         parityCase: Case,
@@ -101,10 +106,16 @@ extension RouteParityHarness {
         for scope in RouteParityScope.all {
             let differences = found[scope] ?? []
             let scoped = scope == .aAgainstC ? entries.filter { $0.scope == scope } : []
-            for difference in differences where !scoped.contains(where: { $0.matches(difference) }) {
+            for difference in differences where difference.wholeFile || !scoped.contains(where: { $0.matches(difference) }) {
                 lines.append("\(scope): not declared: \(difference)")
             }
             for entry in scoped {
+                if differences.contains(where: { $0.wholeFile && entry.matches($0) }) {
+                    lines.append(
+                        "\(scope): a whole file cannot be declared, narrow the entry or show the file the same (closed by \(entry.closedBy)): \(entry.id)"
+                    )
+                    continue
+                }
                 let matched = differences.filter(entry.matches)
                 let count = entry.counts[parityCase] ?? 0
                 if matched.isEmpty {

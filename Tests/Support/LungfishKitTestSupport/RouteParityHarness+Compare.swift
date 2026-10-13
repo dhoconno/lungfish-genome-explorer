@@ -5,36 +5,47 @@
 // Phase 2.10 lane Q30. Two sides compare in two ways.
 //
 // - How each ended, in the words of a row (`RouteParityEnd`).
-// - Every file under the two side roots, through `OutputEquivalence.differences` with the
-//   harness's kind and the contract's masks. That comparison decides whether a file differs.
+// - Every file under the two side roots, through `OutputEquivalence.compare` with the harness's
+//   kind and the contract's masks. That comparison decides whether a file differs.
 //
-// A file that differs is then explained, so a declared difference names one value or one line
-// and never a whole file (panel G5). A JSON file gives one difference for each value path whose
-// value differs or that one side lacks, and any other text file one difference for each line that
-// one side holds more often than the other, with one more, `line order`, when the lines both sides
-// hold come in another order. Both are read under the same masks with UUIDs numbered within the
-// file. A binary, compressed or SQLite file, a file whose name the comparison masked to
-// more than one file, a file that differs only in order or in the numbering of UUIDs across the
-// tree, or a file with more than `explainedLimit` such differences, stays one difference.
+// A file that differs is then explained from the two texts the comparison read, normalized for the
+// kind and masked for the file's role with UUIDs and run IDs numbered across each side's tree, so
+// the explanation applies no rule of its own (review fix 4) and a declared difference names one
+// value or one line, never a whole file (panel G5). A JSON text gives one difference for each value
+// path whose value differs or that one side lacks. Any other text, a decompressed gzip or BGZF file,
+// a database dump and a BAM's header and record hash included, gives one difference for each line
+// one side holds more often than the other, and one more, `line order`, when the lines both sides
+// hold come in another order. A binary file, or one with more than `explainedLimit` differences,
+// stays one whole-file difference, which no entry may declare (RouteParityHarness+Declared.swift).
 //
-// Ids are stable from run to run, with UUIDs, run IDs and timestamps masked, so a declared entry
-// matches the same difference in every run.
+// Ids are stable from run to run. A UUID, run ID or timestamp that no mask hid is masked in an id,
+// and the number the comparison gave a UUID or run ID across its tree stays, so a changed link
+// changes the id.
+//
+// Each side also holds a fact of its own. No file its run wrote names another side's root, so no
+// side reads or records another side's files, which the root mask reads as `<ROOT>` on both sides.
 
+import CryptoKit
 import Foundation
 import LungfishTestSupport
 
 extension RouteParityHarness {
     /// The most differences one file is explained as. A file that differs in more is one
-    /// difference.
+    /// whole-file difference.
     static let explainedLimit = 50
 
-    /// Every difference of the case, by scope. A against C, side C's missing command when it
-    /// recorded none, and otherwise C against C'.
+    /// Every difference of the case, by scope. Each side's own facts, A against C, and C against
+    /// C' or, when side C recorded no command, that fact of side C.
     public func differences(of runs: RouteParityRuns) throws -> [RouteParityScope: [RouteParityDifference]] {
         var found = Dictionary(uniqueKeysWithValues: RouteParityScope.all.map { ($0, [RouteParityDifference]()) })
+        for run in runs.all {
+            found[.side(run.side)] = Self.rootFacts(of: run, among: runs)
+        }
         found[.aAgainstC] = try differences(runs.a, runs.c)
         if runs.c.outcome.recordedCommand == nil {
-            found[.side(.c)] = [RouteParityDifference(id: "command: side C records no command", detail: runs.c.outcome.detail)]
+            found[.side(.c), default: []].append(
+                RouteParityDifference(id: "command: side C records no command", detail: runs.c.outcome.detail)
+            )
         } else {
             found[.cAgainstCPrime] = try differences(runs.c, runs.cPrime)
         }
@@ -51,9 +62,10 @@ extension RouteParityHarness {
                 detail: "\(reference.side) \(reference.outcome.detail) | \(candidate.side) \(candidate.outcome.detail)"
             ))
         }
-        let contentCompared = Self.contentComparedNames(reference.root, candidate.root)
-        for line in try OutputEquivalence.differences(reference.root, candidate.root, kind: kind, masks: masks) {
-            found += parse(line, reference, candidate, contentCompared: contentCompared)
+        let comparison = try OutputEquivalence.compare(reference.root, candidate.root, kind: kind, masks: masks)
+        let files = Dictionary(comparison.differingFiles.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+        for line in comparison.differences {
+            found += parse(line, reference.side, candidate.side, files: files)
         }
         return found
     }
@@ -61,16 +73,16 @@ extension RouteParityHarness {
     /// One `OutputEquivalence` line as differences, with A and B named as the two sides.
     func parse(
         _ line: String,
-        _ reference: RouteParitySideRun,
-        _ candidate: RouteParitySideRun,
-        contentCompared: ContentComparedNames
+        _ sideA: RouteParitySide,
+        _ sideB: RouteParitySide,
+        files: [String: OutputEquivalence.DifferingFile]
     ) -> [RouteParityDifference] {
         var parts = line.components(separatedBy: "\n")
         let head = parts.removeFirst()
         let detail = parts.joined(separator: "\n        ")
         let prefixes: [(prefix: String, words: String, side: RouteParitySide)] = [
-            ("only in A: ", "only in", reference.side), ("only in B: ", "only in", candidate.side),
-            ("collides in A: ", "collides in", reference.side), ("collides in B: ", "collides in", candidate.side),
+            ("only in A: ", "only in", sideA), ("only in B: ", "only in", sideB),
+            ("collides in A: ", "collides in", sideA), ("collides in B: ", "collides in", sideB),
         ]
         for item in prefixes where head.hasPrefix(item.prefix) {
             let name = Self.maskedID(String(head.dropFirst(item.prefix.count)))
@@ -78,84 +90,45 @@ extension RouteParityHarness {
         }
         if head.hasPrefix("differs: ") {
             let name = String(head.dropFirst("differs: ".count))
-            return explained(name, reference, candidate, contentCompared: contentCompared)
-                ?? [RouteParityDifference(id: "differs: \(Self.maskedID(name))", detail: detail)]
+            if let file = files[name], let explained = explained(file, sideA, sideB) {
+                return explained
+            }
+            return [RouteParityDifference(id: "differs: \(Self.maskedID(name))", detail: detail, wholeFile: true)]
         }
         return [RouteParityDifference(id: Self.maskedID(head), detail: detail)]
     }
 
     // MARK: - Explaining a file that differs
 
-    /// The raw names under each root of the content-compared files both trees hold. A record's
-    /// mask hides the checksum and size it states for those files (docs/contracts/CLI-EQUIVALENCE.md,
-    /// Masks), so the explanation hides them too.
-    struct ContentComparedNames {
-        let reference: Set<String>
-        let candidate: Set<String>
-    }
-
-    /// The suffixes of the files `OutputEquivalence` compares by content rather than by bytes.
-    static let contentComparedSuffixes = [
-        ".bam", ".bai", ".csi", ".tbi", ".crai", ".gz", ".bgz", ".bgzf", ".db", ".sqlite", ".sqlite3", ".json",
-    ]
-
-    static func contentComparedNames(_ reference: URL, _ candidate: URL) -> ContentComparedNames {
-        func eligible(_ root: URL) -> [String] {
-            relativeFiles(under: root).filter { name in contentComparedSuffixes.contains { name.lowercased().hasSuffix($0) } }
-        }
-        let namesA = eligible(reference)
-        let namesB = eligible(candidate)
-        let blankedA = Set(namesA.map(blankedName))
-        let blankedB = Set(namesB.map(blankedName))
-        return ContentComparedNames(
-            reference: Set(namesA.filter { blankedB.contains(blankedName($0)) }),
-            candidate: Set(namesB.filter { blankedA.contains(blankedName($0)) })
-        )
-    }
-
-    /// One difference for each value or line of the file `name` that differs, or nil when the
-    /// file stays one difference.
+    /// One difference for each value or line of `file` that differs, one whole-file difference
+    /// when more than `explainedLimit` do, or nil for a binary file.
     func explained(
-        _ name: String,
-        _ reference: RouteParitySideRun,
-        _ candidate: RouteParitySideRun,
-        contentCompared: ContentComparedNames
+        _ file: OutputEquivalence.DifferingFile,
+        _ sideA: RouteParitySide,
+        _ sideB: RouteParitySide
     ) -> [RouteParityDifference]? {
-        guard let fileA = Self.rawFile(named: name, under: reference.root),
-              let fileB = Self.rawFile(named: name, under: candidate.root),
-              let textA = Self.plainText(fileA),
-              let textB = Self.plainText(fileB)
-        else { return nil }
-        let fileMasks = masks(forFile: fileA.lastPathComponent)
-        func masked(_ text: String, contentComparedPaths: Set<String>) -> String {
-            let context = OutputEquivalence.MaskContext(
-                rootA: reference.root, rootB: candidate.root, contentComparedPaths: contentComparedPaths
-            )
-            return fileMasks.reduce(text) { partial, mask in mask(partial, context: context) }
-        }
-        let maskedA = masked(textA, contentComparedPaths: contentCompared.reference)
-        let maskedB = masked(textB, contentComparedPaths: contentCompared.candidate)
-        let label = Self.maskedID(name)
+        guard !file.isBinary else { return nil }
+        let label = Self.maskedID(file.name)
         var found: [RouteParityDifference] = []
-        if name.lowercased().hasSuffix(".json"), let valuesA = Self.jsonValues(maskedA), let valuesB = Self.jsonValues(maskedB) {
+        if let valuesA = Self.jsonValues(file.normalizedA), let valuesB = Self.jsonValues(file.normalizedB) {
             for path in Set(valuesA.keys).union(valuesB.keys).sorted() where valuesA[path] != valuesB[path] {
                 found.append(RouteParityDifference(
                     id: "differs: \(label) at \(Self.maskedID(path))",
-                    detail: "\(reference.side) \(Self.shown(valuesA[path])), \(candidate.side) \(Self.shown(valuesB[path]))"
+                    detail: "\(sideA) \(Self.shown(valuesA[path])), \(sideB) \(Self.shown(valuesB[path]))"
                 ))
             }
         } else {
-            let linesA = Self.comparedLines(maskedA, name: name)
-            let linesB = Self.comparedLines(maskedB, name: name)
+            let linesA = file.normalizedA.components(separatedBy: "\n")
+            let linesB = file.normalizedB.components(separatedBy: "\n")
             let lines = Self.unmatchedLines(linesA, linesB)
-            for (side, sideLines) in [(reference.side, lines.onlyA), (candidate.side, lines.onlyB)] {
+            for (side, sideLines) in [(sideA, lines.onlyA), (sideB, lines.onlyB)] {
                 found += sideLines.map { line in
                     RouteParityDifference(id: "differs: \(label): only in \(side): \(Self.maskedID(String(line.prefix(200))))")
                 }
             }
-            // The lines both sides hold, each in its side's order. A reorder beside an explained line
-            // is one more difference, so it cannot hide under a declared line.
-            if !found.isEmpty, Self.sharedLines(linesA, over: linesB) != Self.sharedLines(linesB, over: linesA) {
+            // The lines both sides hold, each in its side's order. A reorder is one more
+            // difference, so it cannot hide under a declared line.
+            if Self.sharedLines(linesA, over: linesB) != Self.sharedLines(linesB, over: linesA) {
                 found.append(RouteParityDifference(id: "differs: \(label): line order"))
             }
         }
@@ -163,51 +136,18 @@ extension RouteParityHarness {
         guard found.count <= Self.explainedLimit else {
             return [RouteParityDifference(
                 id: "differs: \(label)",
-                detail: "\(found.count) values or lines differ, the first \(found[0])"
+                detail: "\(found.count) values or lines differ, the first \(found[0])",
+                wholeFile: true
             )]
         }
         return found
     }
 
-    /// The masks `OutputEquivalence` gives a file named `name` for the harness's kind.
-    func masks(forFile name: String) -> [OutputEquivalence.Mask] {
-        let lowered = name.lowercased()
-        guard kind != .remoteRequest, kind != .managedPlan, lowered.hasSuffix(".json") else { return masks.payloads }
-        if lowered.contains("provenance") { return masks.provenance }
-        if lowered.contains("manifest") { return masks.records }
-        return masks.payloads
-    }
-
-    /// The file under `root` that the compared name `name` stands for. A name with a masked UUID
-    /// or run ID stands for the one file whose name matches it with those blanked, and for none
-    /// when several do.
-    static func rawFile(named name: String, under root: URL) -> URL? {
-        guard name.contains("<") else {
-            let direct = root.appendingPathComponent(name)
-            return FileManager.default.fileExists(atPath: direct.path) ? direct : nil
-        }
-        let wanted = blankedName(name)
-        let matches = relativeFiles(under: root).filter { blankedName($0) == wanted }
-        return matches.count == 1 ? root.appendingPathComponent(matches[0]) : nil
-    }
-
-    /// The text of a file the explanation reads, or nil for an index, a BAM, a gzip or BGZF file,
-    /// a SQLite database or bytes that are not UTF-8.
-    static func plainText(_ url: URL) -> String? {
-        let lowered = url.lastPathComponent.lowercased()
-        guard ![".bam", ".bai", ".csi", ".tbi", ".crai", ".cram"].contains(where: { lowered.hasSuffix($0) }),
-              let data = try? Data(contentsOf: url),
-              !(data.count >= 2 && data[data.startIndex] == 0x1f && data[data.startIndex + 1] == 0x8b),
-              !data.starts(with: Data("SQLite format 3\u{0}".utf8))
-        else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    /// Every scalar of a JSON text under its value path, such as `steps[0].argv[2]`, or nil when
-    /// the text is not JSON.
+    /// Every scalar of a JSON object or array under its value path, such as `steps[0].argv[2]`,
+    /// or nil when the text is neither.
     static func jsonValues(_ text: String) -> [String: String]? {
         guard let data = text.data(using: .utf8),
-              let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+              let value = try? JSONSerialization.jsonObject(with: data)
         else { return nil }
         var values: [String: String] = [:]
         flatten(value, path: "", into: &values)
@@ -228,18 +168,6 @@ extension RouteParityHarness {
         } else {
             let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .withoutEscapingSlashes])
             values[path.isEmpty ? "." : path] = data.flatMap { String(data: $0, encoding: .utf8) } ?? String(describing: value)
-        }
-    }
-
-    /// The lines of a text file the comparison reads. A VCF loses the header lines that record
-    /// when or how it was written, as `OutputEquivalence` drops them.
-    static func comparedLines(_ text: String, name: String) -> [String] {
-        let lines = text.components(separatedBy: "\n")
-        guard name.lowercased().hasSuffix(".vcf") else { return lines }
-        return lines.filter { line in
-            guard line.hasPrefix("##") else { return true }
-            let key = line.dropFirst(2).prefix { $0 != "=" }.lowercased()
-            return key != "filedate" && !key.contains("command")
         }
     }
 
@@ -273,7 +201,49 @@ extension RouteParityHarness {
         return value.count > 300 ? String(value.prefix(300)) + "..." : value
     }
 
-    // MARK: - Names and ids
+    // MARK: - Each side's own facts
+
+    /// The largest file a side's facts and the fixture's digests read.
+    static let factFileLimit = 16 * 1024 * 1024
+
+    /// One fact for each file under the root of `run` that names another side's root, plain or
+    /// JSON-escaped, leaving out a file the fixture held as it is. The side folder names are
+    /// fixed and none starts another, so a spelling found is that side's root.
+    static func rootFacts(of run: RouteParitySideRun, among runs: RouteParityRuns) -> [RouteParityDifference] {
+        let others = runs.all.filter { $0.side != run.side }.map { other in
+            let spellings = rootSpellings(other.root).flatMap { [$0, $0.replacingOccurrences(of: "/", with: "\\/")] }
+            return (side: other.side, spellings: spellings.map { Data($0.utf8) })
+        }
+        var found: [RouteParityDifference] = []
+        for name in relativeFiles(under: run.root) {
+            guard let data = readForFacts(run.root.appendingPathComponent(name)),
+                  runs.fixture[name] != digest(data)
+            else { continue }
+            for other in others where other.spellings.contains(where: { data.range(of: $0) != nil }) {
+                found.append(RouteParityDifference(id: "fact: \(maskedID(name)) names the root of side \(other.side)"))
+            }
+        }
+        return found
+    }
+
+    /// The SHA-256 of each file under `root` by its relative name, the fixture as it was built.
+    static func fixtureDigests(under root: URL) -> [String: String] {
+        var digests: [String: String] = [:]
+        for name in relativeFiles(under: root) {
+            if let data = readForFacts(root.appendingPathComponent(name)) { digests[name] = digest(data) }
+        }
+        return digests
+    }
+
+    /// The bytes of a file the facts read, nil above `factFileLimit`.
+    private static func readForFacts(_ url: URL) -> Data? {
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= factFileLimit else { return nil }
+        return try? Data(contentsOf: url)
+    }
+
+    private static func digest(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
 
     /// The relative paths of every regular file under `root`, sorted.
     static func relativeFiles(under root: URL) -> [String] {
@@ -290,22 +260,15 @@ extension RouteParityHarness {
         return paths.sorted()
     }
 
-    /// A file name with its UUIDs and run IDs blanked, raw or numbered by the comparison's masks.
-    static func blankedName(_ name: String) -> String {
-        [
-            "<UUID-[0-9]+>", "<RUN-ID-[0-9]+>",
-            "(?<![0-9A-Fa-f])[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![0-9A-Fa-f])",
-            "(?<![A-Za-z0-9])aln_[0-9A-Fa-f]{8}(?![0-9A-Fa-f])",
-        ].reduce(name) { $0.replacingOccurrences(of: $1, with: "<ID>", options: .regularExpression) }
-    }
+    // MARK: - Ids
 
     /// `text` with the values that change from run to run masked, so an id names the same
-    /// difference in every run. UUIDs, run IDs and timestamps.
+    /// difference in every run. Raw UUIDs, run IDs and timestamps. A UUID or run ID the comparison
+    /// numbered across its tree, `<UUID-n>` or `<RUN-ID-n>`, keeps its number, so a link that
+    /// changes changes the id.
     public static func maskedID(_ text: String) -> String {
         [
             ("[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}", "<UUID>"),
-            ("<UUID-[0-9]+>", "<UUID>"),
-            ("<RUN-ID-[0-9]+>", "<RUN-ID>"),
             ("aln_[0-9A-Fa-f]{8}", "<RUN-ID>"),
             ("[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}[-:][0-9]{2}[-:][0-9]{2}(?:\\.[0-9]+)?Z?", "<TS>"),
         ].reduce(text) { $0.replacingOccurrences(of: $1.0, with: $1.1, options: .regularExpression) }
