@@ -5,7 +5,7 @@
 import Foundation
 import LungfishCore
 import LungfishIO
-import os.log
+import os
 
 private let logger = Logger(subsystem: "com.lungfish.workflow", category: "EsVirituPipeline")
 
@@ -496,28 +496,26 @@ public actor EsVirituPipeline {
         // Build stderr handler for progress parsing.
         let esVirituStderrHandler: (@Sendable (String) -> Void)?
         if let progressCallback = progress {
+            let parser = OSAllocatedUnfairLock(initialState: EsVirituProgressParser())
             esVirituStderrHandler = { (line: String) in
-                parseEsVirituProgressLine(line, progress: progressCallback)
+                if let update = parser.withLock({ $0.update(for: line) }) {
+                    progressCallback(update.fraction, update.message)
+                }
             }
         } else {
             esVirituStderrHandler = nil
         }
 
-        // Estimate timeout based on file sizes: minimum 1 hour, scale with input.
-        let inputSizeBytes = config.inputFiles.reduce(Int64(0)) { total, url in
-            let attrs = try? fm.attributesOfItem(atPath: url.path)
-            return total + (attrs?[.size] as? Int64 ?? 0)
-        }
-        let estimatedTimeout = max(3600.0, Double(inputSizeBytes) / 10_000_000.0)
-
         let esVirituResult: (stdout: String, stderr: String, exitCode: Int32)
         do {
+            // No wall-clock limit. A large sample rich in one virus aligns for hours, and the
+            // one-hour floor ended such runs and discarded the work. Cancel still stops a run.
             esVirituResult = try await condaManager.runTool(
                 name: "EsViritu",
                 arguments: esVirituArgs,
                 environment: Self.esVirituEnvironment,
                 environmentVariables: ["ESVIRITU_DB": effectiveConfig.databasePath.path],
-                timeout: estimatedTimeout,
+                timeout: .infinity,
                 stderrHandler: esVirituStderrHandler
             )
         } catch let error as CondaError {
@@ -817,39 +815,5 @@ public actor EsVirituPipeline {
         if let remaining = try? fm.contentsOfDirectory(atPath: tempDir.path), remaining.isEmpty {
             try? fm.removeItem(at: tempDir)
         }
-    }
-}
-
-// MARK: - EsViritu Progress Parsing
-
-/// Parses an EsViritu stderr progress line and reports it via the progress callback.
-///
-/// EsViritu writes progress information to stderr during execution. This
-/// function extracts status messages and reports them in the 0.15--0.85
-/// progress range used by the pipeline.
-///
-/// - Parameters:
-///   - line: A single line from EsViritu's stderr output.
-///   - progress: The pipeline's progress callback.
-func parseEsVirituProgressLine(
-    _ line: String,
-    progress: @Sendable (Double, String) -> Void
-) {
-    let trimmed = line.trimmingCharacters(in: .whitespaces)
-    guard !trimmed.isEmpty else { return }
-
-    // Map known EsViritu phases to progress fractions.
-    if trimmed.contains("quality") || trimmed.contains("fastp") {
-        progress(0.25, "Quality filtering reads...")
-    } else if trimmed.contains("align") || trimmed.contains("mapping") {
-        progress(0.40, "Aligning reads to viral references...")
-    } else if trimmed.contains("detect") || trimmed.contains("screen") {
-        progress(0.55, "Screening for viral signatures...")
-    } else if trimmed.contains("assembl") {
-        progress(0.65, "Assembling viral contigs...")
-    } else if trimmed.contains("coverage") || trimmed.contains("depth") {
-        progress(0.75, "Calculating coverage statistics...")
-    } else if trimmed.contains("profil") || trimmed.contains("taxonom") {
-        progress(0.80, "Building taxonomic profile...")
     }
 }
