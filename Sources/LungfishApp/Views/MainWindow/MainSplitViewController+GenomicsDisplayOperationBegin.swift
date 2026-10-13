@@ -69,6 +69,10 @@ extension MainSplitViewController {
     /// builder cannot encode the request, such as an adapter FASTA or a
     /// demultiplex sample sheet. Those requests have no CLI equivalent yet,
     /// which is a parity gap pinned by MainSplitGenomicsDisplayOperationTests.
+    /// A `.classify` request records no command either. That is dialog state
+    /// and not a gap, because the classification, EsViritu and TaxTriage
+    /// wizards the dialog embeds start their runs through their own routes
+    /// (Phase 2.8 D1).
     ///
     /// The `<derived>` placeholder is replaced after a successful run. The
     /// launch site in MainSplitViewController+GenomicsDisplay.swift asks

@@ -11,8 +11,8 @@
 // the request names. A cell that builds pins the first word the dispatcher
 // passes the CLI, every word of the row command, what the shipped parser
 // (`LungfishCLI.parseAsRoot`, through `RecordedCLICommand`) makes of the row and
-// of the argv in the dispatcher's shape (`invocation.argv`, with the
-// row's `<derived>` output, because the argv of a run waits for lane S3), and
+// of the argv `FASTQOperationExecutionService.execute` hands a spy runner for
+// the request, with the run's own output (lane A41 M3, S3 of Phase 2.8), and
 // the output kind the planner gives the request.
 //
 // The three classify cells hold decision D1 of Phase 2.8. The classification,
@@ -43,7 +43,9 @@ import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
 @testable import LungfishOperations
+import LungfishTestSupport
 import LungfishWorkflow
+import Synchronization
 
 @MainActor
 final class FASTQOperationDispatchFreezeTests: XCTestCase {
@@ -63,11 +65,19 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
         let outputKind: FASTQOperationExecutionOutputKind
     }
 
-    private static let reads = URL(fileURLWithPath: "/tmp/dispatch-freeze/reads.fastq")
-    private static let barcodes = URL(fileURLWithPath: "/tmp/dispatch-freeze/barcodes.csv")
-    private static let reference = URL(fileURLWithPath: "/tmp/dispatch-freeze/reference.fasta")
-    private static let guide = URL(fileURLWithPath: "/tmp/dispatch-freeze/guide.fasta")
-    private static let outputDirectory = URL(fileURLWithPath: "/tmp/dispatch-freeze/out", isDirectory: true)
+    /// A folder of this test process, so a run through `execute` writes nothing outside it.
+    nonisolated private static let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("dispatch-freeze-\(UUID().uuidString)", isDirectory: true)
+    private static let reads = root.appendingPathComponent("reads.fastq")
+    private static let barcodes = root.appendingPathComponent("barcodes.csv")
+    private static let reference = root.appendingPathComponent("reference.fasta")
+    private static let guide = root.appendingPathComponent("guide.fasta")
+    private static let outputDirectory = root.appendingPathComponent("out", isDirectory: true)
+
+    nonisolated override class func tearDown() {
+        try? FileManager.default.removeItem(at: root)
+        super.tearDown()
+    }
 
     private func cells() throws -> [Cell] {
         let reads = Self.reads.path
@@ -308,7 +318,7 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
         }
     }
 
-    func testTheShippedParserReadsEachRowAndEachDispatcherArgvAsItsCommand() throws {
+    func testTheShippedParserReadsEachRowAndEachDispatcherArgvAsItsCommand() async throws {
         for cell in try cells() {
             guard case .builds(_, _, let commandType) = cell.outcome else { continue }
             let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(for: cell.request)
@@ -326,7 +336,7 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
                 invocation.subcommand.contains(where: \.isWhitespace),
                 "\(cell.name), the subcommand \(invocation.subcommand) is one word"
             )
-            let argv = invocation.argv
+            let argv = try await dispatchedArgv(for: cell.request)
             let fromArgv = try LungfishCLI.parseAsRoot(LungfishCLI.normalizedArgumentsForParsing(argv))
             XCTAssertTrue(
                 Swift.type(of: fromArgv) == commandType,
@@ -531,9 +541,20 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
         return rows
     }
 
-    /// The argv in the dispatcher's shape, `invocation.argv`, with the `<derived>` output.
-    private func dispatcherArgv(for request: FASTQOperationLaunchRequest) throws -> [String] {
-        try FASTQOperationCLIInvocationBuilder().buildInvocation(for: request).argv
+    /// The argv of the first invocation `FASTQOperationExecutionService.execute` hands its runner
+    /// for `request`, with the run's own output path. The spy runs nothing, so a step after the
+    /// runner may fail on outputs that were never written, and the argv is taken before it.
+    private func dispatchedArgv(for request: FASTQOperationLaunchRequest) async throws -> [String] {
+        let spy = DispatcherSpy()
+        let service = FASTQOperationExecutionService(
+            inputResolver: PassThroughInputs(),
+            commandRunner: spy,
+            directImporter: NoImport()
+        )
+        let work = try TestTempDirectory.make(prefix: "dispatch-freeze-run")
+        defer { TestTempDirectory.cleanup(work) }
+        _ = try? await service.execute(request: request, workingDirectory: work)
+        return try XCTUnwrap(spy.invocations.first, "\(request.operationDisplayTitle) reached the runner").argv
     }
 
     // MARK: - The leaf pin, checked
@@ -545,10 +566,10 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
         XCTAssertEqual(Set(kinds), Set(DerivativeKind.allCases), "one request of each derivative kind")
     }
 
-    func testEachRequestOfThePinLaunchesTheLeafItNames() throws {
+    func testEachRequestOfThePinLaunchesTheLeafItNames() async throws {
         var launched: Set<String> = []
         for (leaf, request) in try leafRequests() {
-            let argv = try dispatcherArgv(for: request)
+            let argv = try await dispatchedArgv(for: request)
             let words = leaf.split(separator: " ").map(String.init)
             XCTAssertEqual(Array(argv.prefix(words.count)), words, "\(request.operationDisplayTitle) launches \(leaf)")
             launched.insert(leaf)
@@ -579,12 +600,12 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
         }
     }
 
-    func testTheDialogTurnsOnTheEventsOfEachLeafWhoseRowNamesASwitch() throws {
+    func testTheDialogTurnsOnTheEventsOfEachLeafWhoseRowNamesASwitch() async throws {
         var switched: [String] = []
         for (leaf, request) in try leafRequests() {
             guard case let .events(flag, _)? = CLIEventContractTable.entries[leaf],
                   flag != CLIEventContractTable.alwaysOn else { continue }
-            let argv = try dispatcherArgv(for: request)
+            let argv = try await dispatchedArgv(for: request)
             let flagWords = flag.split(separator: " ").map(String.init)
             let holdsFlag = argv.indices.contains { start in
                 Array(argv[start...].prefix(flagWords.count)) == flagWords
@@ -593,5 +614,45 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
             switched.append(leaf)
         }
         XCTAssertEqual(switched, ["assemble"], "each dialog leaf whose row names a switch launches with it")
+    }
+}
+
+// MARK: - The dispatcher spy
+
+/// Records each invocation the service hands its runner, and runs nothing.
+private final class DispatcherSpy: FASTQOperationCommandRunning, Sendable {
+    private let recorded = Mutex<[FASTQCLIInvocation]>([])
+
+    var invocations: [FASTQCLIInvocation] {
+        recorded.withLock { $0 }
+    }
+
+    func run(
+        invocation: FASTQCLIInvocation,
+        outputDirectory: URL,
+        progress: @escaping FASTQOperationProgressHandler
+    ) async throws -> FASTQCLIExecutionResult {
+        recorded.withLock { $0.append(invocation) }
+        return FASTQCLIExecutionResult(outputURLs: [])
+    }
+}
+
+/// Hands the runner each request's inputs as they are, so no input is read or staged.
+private struct PassThroughInputs: FASTQOperationInputResolving {
+    func resolve(request: FASTQOperationLaunchRequest, tempDirectory: URL) async throws -> FASTQOperationLaunchRequest {
+        request
+    }
+}
+
+/// Imports nothing.
+private struct NoImport: FASTQOperationDirectImporting {
+    func importOutputs(
+        at outputURLs: [URL],
+        forResolvedRequest request: FASTQOperationLaunchRequest,
+        originalRequest: FASTQOperationLaunchRequest,
+        outputDirectory: URL,
+        progress: FASTQOperationImportProgressHandler?
+    ) async throws -> [URL] {
+        []
     }
 }
