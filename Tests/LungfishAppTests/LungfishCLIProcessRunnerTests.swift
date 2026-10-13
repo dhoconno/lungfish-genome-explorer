@@ -150,6 +150,32 @@ final class LungfishCLIProcessRunnerTests: XCTestCase {
         XCTAssertNotEqual(kill(pid, 0), 0, "the CLI still runs after the run returned")
     }
 
+    /// A cancel of a leaf that keeps SIGTERM's default action, as the dialog's `fastq` leaves do
+    /// today, ends the CLI by the signal at once instead of after the 6 s grace, and leaves no
+    /// process of its tree. The runner reports a cancel, and nothing claims a `cancelled` record.
+    func testACancelOfALeafThatKeepsTheDefaultSIGTERMEndsItAtOnceWithNoProcessLeft() async throws {
+        let ready = scratch.appendingPathComponent("ready")
+        let pidFile = scratch.appendingPathComponent("pid")
+        let cli = try writeCLI("""
+            sleep 30 &
+            echo $$ > "\(pidFile.path)"
+            : > "\(ready.path)"
+            wait $!
+            """)
+        let run = startRun(cli, leaf: try leaf(speakingOn: nil))
+
+        await CLISIGTERMHarness.waitForFile(ready)
+        let recordedPID = await CLISIGTERMHarness.waitForProcessID(in: pidFile)
+        let tree = CLISIGTERMHarness.processTree(of: try XCTUnwrap(recordedPID))
+        XCTAssertGreaterThanOrEqual(tree.count, 2, "the stand-in and its sleep: \(tree)")
+        let cancelStart = Date()
+        run.cancel()
+        await assertCancelled(run)
+
+        XCTAssertLessThan(Date().timeIntervalSince(cancelStart), 4, "the run waited for a grace the CLI does not use")
+        await CLISIGTERMHarness.assertNoProcessLeft(tree)
+    }
+
     // MARK: - Output a child kept open
 
     /// A CLI that exits cleanly while a child it started still holds its output open returns after
