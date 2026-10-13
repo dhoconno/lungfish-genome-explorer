@@ -137,7 +137,7 @@ final class WorkflowRunSIGTERMTests: XCTestCase {
         XCTExpectFailure("the child outlives the command") {
             CLISIGTERMHarness.assertNoProcessLeft(stop)
         }
-        let killed = await waitUntil(timeout: .seconds(5)) { !ProcessTreeTerminator.processExists(pid: childPID) }
+        let killed = await waitUntil(timeout: CLISIGTERMHarness.processWait) { !ProcessTreeTerminator.processExists(pid: childPID) }
         XCTAssertTrue(killed, "the harness kills a process it finds left")
     }
 
