@@ -1,0 +1,2 @@
+{"event":"start","message":"Importing primers.bed...","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Imported 2 annotations","output":"\/work\/M1.lungfishref","outputs":["\/work\/M1.lungfishref"],"progress":1,"schemaVersion":2}

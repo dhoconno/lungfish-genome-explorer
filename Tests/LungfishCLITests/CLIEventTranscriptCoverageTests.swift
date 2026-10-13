@@ -321,7 +321,7 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
     // MARK: What is captured
 
     /// One run of one leaf. `body` returns the event lines the run printed, in order.
-    private struct Capture {
+    struct Capture {
         let leaf: String
         let name: String
         let body: (Scratch) async throws -> [String]
@@ -330,7 +330,7 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
     /// Every capture, with the leaf and the case it records.
     private static func captures() -> [Capture] {
         annotationCaptures() + exportCaptures() + derivedCaptures() + treeCaptures() + platformCaptures()
-            + importCaptures() + ontSplitCaptures()
+            + importCaptures() + ontSplitCaptures() + sequenceCaptures()
     }
 
     /// The four import commands and the three `build-db` leaves (`BuildDbStreamCapture`), run by `ImportStreamCapture`,
@@ -666,7 +666,7 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
 
     /// `lines` for a command whose seam is async. The sink collects under a lock, because a
     /// materializer reports progress from its own tasks.
-    private static func eventLines(
+    static func eventLines(
         expectingFailure: Bool = false,
         _ run: (@escaping (String) -> Void) async throws -> Void
     ) async throws -> [String] {
@@ -732,7 +732,7 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
 
     // MARK: Scratch folder
 
-    private final class Scratch {
+    final class Scratch {
         let root: URL
 
         init() throws {

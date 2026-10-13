@@ -14,7 +14,9 @@ struct SequenceCommand: AsyncParsableCommand {
         commandName: "sequence",
         abstract: "Run CLI-backed operations on reference bundle sequences",
         subcommands: [
+            AddAnnotation.self,
             AnnotateORFs.self,
+            AttachTrack.self,
             DeleteAnnotations.self,
             DeleteAnnotationTrack.self,
             UpdateAnnotation.self
@@ -392,7 +394,7 @@ private func provenanceCommandArguments(
     )
 }
 
-private func observedProcessSequenceCommandArguments(subcommand: String) -> [String]? {
+func observedProcessSequenceCommandArguments(subcommand: String) -> [String]? {
     let rawArguments = CommandLine.arguments
     guard let executable = rawArguments.first else { return nil }
     let processArguments = Array(rawArguments.dropFirst())

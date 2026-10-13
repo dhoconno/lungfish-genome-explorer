@@ -123,9 +123,43 @@ public final class ReferenceBundleManualAnnotationService {
         return values
     }
 
+    /// The `lungfish-cli` argv, from the `sequence add-annotation` words on,
+    /// that adds a feature with this chromosome, these coordinates and this
+    /// name, type and strand to the bundle's manual annotation track, as
+    /// ``addAnnotation(_:toBundleAt:invocationArgv:)`` does. The values are
+    /// joined to their options, so the parser reads the reverse strand `-` or
+    /// a hyphen-leading name as a value. The builder touches no state, so any
+    /// isolation can call it.
+    package static func annotationAddArguments(
+        chromosome: String,
+        start: Int,
+        end: Int,
+        name: String,
+        type: String,
+        strand: String,
+        bundleURL: URL
+    ) -> [String] {
+        [
+            "sequence", "add-annotation",
+            bundleURL.path,
+            "--chromosome=\(chromosome)",
+            "--start", String(start),
+            "--end", String(end),
+            "--name=\(name)",
+            "--type=\(type)",
+            "--strand=\(strand)",
+        ]
+    }
+
+    /// Adds `annotation` to the bundle's manual annotation track and appends
+    /// an entry to `annotations/manual-annotation-provenance.json`. The entry
+    /// records `invocationArgv` when one is given, the command that made the
+    /// edit, such as `lungfish-cli sequence add-annotation`. With none it
+    /// records the `Lungfish.app manual-annotation` form, as it always has.
     public func addAnnotation(
         _ annotation: SequenceAnnotation,
-        toBundleAt bundleURL: URL
+        toBundleAt bundleURL: URL,
+        invocationArgv: [String]? = nil
     ) async throws -> ReferenceBundleManualAnnotationResult {
         let runClock = ProvenanceRunClock()
         let standardizedBundleURL = bundleURL.standardizedFileURL
@@ -180,7 +214,8 @@ public final class ReferenceBundleManualAnnotationService {
             bundleURL: standardizedBundleURL,
             manifestURL: standardizedBundleURL.appendingPathComponent(BundleManifest.filename),
             databaseURL: databaseURL,
-            runClock: runClock
+            runClock: runClock,
+            invocationArgv: invocationArgv
         )
 
         return ReferenceBundleManualAnnotationResult(
@@ -376,13 +411,14 @@ public final class ReferenceBundleManualAnnotationService {
         bundleURL: URL,
         manifestURL: URL,
         databaseURL: URL,
-        runClock: ProvenanceRunClock
+        runClock: ProvenanceRunClock,
+        invocationArgv: [String]?
     ) throws {
         let provenanceURL = bundleURL.appendingPathComponent(provenancePath)
         let completedAt = runClock.now
         var log = try loadProvenanceLog(from: provenanceURL)
         let region = annotation.boundingRegion
-        let command = [
+        let command = invocationArgv ?? [
             "Lungfish.app",
             "manual-annotation",
             "--bundle", bundleURL.path,
