@@ -10,7 +10,7 @@ import LungfishKit
 import UniformTypeIdentifiers
 
 /// Parsed FASTQ read record for the read preview table.
-private struct FASTQReadPreviewRecord {
+struct FASTQReadPreviewRecord {
     let index: Int
     let readID: String
     let sequence: String
@@ -178,9 +178,9 @@ public final class FASTQDatasetViewController: NSViewController {
 
     // MARK: - Read Preview Data
 
-    private var readPreviewRecords: [FASTQReadPreviewRecord] = []
+    private(set) var readPreviewRecords: [FASTQReadPreviewRecord] = []
     private var readPreviewTask: Task<Void, Never>?
-    private var readPreviewLoaded = false
+    private(set) var readPreviewLoaded = false
 
     // MARK: - UI Components — Two-Pane Split
 
@@ -226,7 +226,7 @@ public final class FASTQDatasetViewController: NSViewController {
     private let readPreviewScrollView = NSScrollView()
     private let readPreviewTable = NSTableView()
     private let readPreviewSpinner = NSProgressIndicator()
-    private let readPreviewPlaceholder = NSTextField(labelWithString: "Select the Reads tab to preview the first 1,000 records.")
+    let readPreviewPlaceholder = NSTextField(labelWithString: "Select the Reads tab to preview the first 1,000 records.")
 
     // Parameter controls (reused across operations)
     private let fieldOneLabel = NSTextField(labelWithString: "")
@@ -1248,7 +1248,7 @@ public final class FASTQDatasetViewController: NSViewController {
     // directory creation and the FASTQ read all block the UI. On a machine
     // whose disk is busy that freezes the window while a sample is selected.
     // None of the three touch view state, so leaving the actor is safe.
-    private nonisolated static func buildFASTAPreview(from url: URL, readLimit: Int) async throws -> String {
+    nonisolated static func buildFASTAPreview(from url: URL, readLimit: Int) async throws -> String {
         if let streamedFASTA = await buildFASTAPreviewWithSeqkit(from: url, readLimit: readLimit) {
             return streamedFASTA
         }
@@ -1418,7 +1418,7 @@ public final class FASTQDatasetViewController: NSViewController {
         }
     }
 
-    private func loadReadPreview() {
+    func loadReadPreview() {
         guard let url = fastqURL else {
             readPreviewPlaceholder.stringValue = "No FASTQ file available for preview."
             readPreviewPlaceholder.isHidden = false
