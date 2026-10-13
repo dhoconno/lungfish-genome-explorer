@@ -13,8 +13,6 @@ import Foundation
 extension TaxTriageParityKnownDifferences {
     static let routeC: [TaxTriageParityKnownDifference] = routeCLayout + routeCRecords + routeCBatchRecords + routeCFacts
 
-    /// build-db taxtriage itself keeps the legacy cleanup.
-    static let buildDbForce = "build-db taxtriage --force with the executor's recorded cleanup that keeps top/ (2.8 row 247 and T5)"
 
     private static func pairAC(
         _ counts: [TaxTriageParityCase: Int], _ id: String, _ reason: String, closedBy: String
@@ -47,8 +45,8 @@ extension TaxTriageParityKnownDifferences {
         pairAC(completedCases, "analysis: only in A: batch-run-history.json",
                "The GUI records the run in the folder's batch history (BatchRunHistory.recordRun in completeTaxTriageRun). taxtriage run keeps none",
                closedBy: guiRoute),
-        pairAC([.x1: 1, .x2: 1, .x3: 2, .x4: 1, .x5: 1], "analysis: only in C: *top/*.top_report.tsv",
-               "The GUI's build-db step deletes top/ with the other intermediate folders, and the executor's finalize keeps it and records what it removes (2.8 T5, row 258). X4's failed sample writes no top report, and X7's rebuild deletes top/ on both sides",
+        pairAC([.x1: 1, .x2: 1, .x3: 2, .x4: 1, .x5: 1, .x7: 1], "analysis: only in C: *top/*.top_report.tsv",
+               "The GUI's build-db step deletes top/ with the other intermediate folders, and the executor's finalize keeps it and records what it removes (2.8 T5, row 258), as X7's rebuild of the executor's result does since B30 M3. X4's failed sample writes no top report",
                closedBy: guiRoute),
         pairAC([.x4: 1], "source manifest: only in A: *",
                "X4. The GUI records the run in the analyses-manifest.json of every sample of the request, the failed one too (completeTaxTriageRun). Since B30 M1 the command records each completed sample only, as Kraken2 does",
@@ -118,11 +116,7 @@ extension TaxTriageParityKnownDifferences {
 
     // MARK: Fixed facts of sides C and C'
 
-    private static let routeCFacts: [TaxTriageParityKnownDifference] =
-        factC([.x7: 1], "record * names *taxtriage.sqlite with another digest",
-                "X7's --force rebuild runs build-db taxtriage, which replaces taxtriage.sqlite after the executor's root record named its digest",
-                closedBy: buildDbForce)
-        + factC([.x7: 2], "record * names *top/*.top_report.tsv that does not exist",
-                "X7's --force rebuild runs build-db taxtriage, whose legacy cleanup deletes the top/ the executor kept, which the root record and the database's record still name",
-                closedBy: buildDbForce)
+    /// None since B30 M3. The aggregate result closed X3's and X4's, and the rebuild of an executor result,
+    /// which keeps top/ and refreshes the root record, closed X7's.
+    private static let routeCFacts: [TaxTriageParityKnownDifference] = []
 }

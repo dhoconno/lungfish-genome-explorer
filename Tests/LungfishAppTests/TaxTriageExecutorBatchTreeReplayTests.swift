@@ -18,8 +18,9 @@
 // - The control mark (T4). Since B30 M2 the control's result marks its sample, `isNegativeControl` true, from its
 //   bundle's role, and `--negative-control` marks the sample it names, whose record names it as an explicit option.
 //   At the base no sample was marked.
-// - X7. A `build-db taxtriage --force` rebuild runs the legacy cleanup, which deletes the `top/` the executor kept
-//   and its root record still names.
+// - X7. Since B30 M3 a `build-db taxtriage --force` rebuild of an executor result runs the executor's cleanup, which
+//   keeps `top/`, names the database it replaced in a removal step and refreshes the root record. At the base it ran
+//   the legacy cleanup, which deleted the `top/` the executor kept and its root record still named.
 //
 // Each case runs the command in this process with its pipeline seam bound to `TaxTriageStandInEngine`, which starts
 // processes, so the class name ends in ReplayTests and the class runs in the serial replay tier.
@@ -213,10 +214,11 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
 
     // MARK: - X7
 
-    func testABuildDbForceRebuildDeletesTheTopFolderTheRootRecordNames() async throws {
+    func testABuildDbForceRebuildKeepsTopAndRefreshesTheRootRecord() async throws {
         let engine = try makeEngine()
         let project = try makeProject()
         let batch = try await runBatch(project: project, engine: engine)
+        let database = batch.appendingPathComponent("taxtriage.sqlite")
 
         for sample in Self.samples {
             let top = batch.appendingPathComponent("\(sample)/top", isDirectory: true)
@@ -225,21 +227,49 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
         let named = try Self.namedTopReports(in: batch)
         XCTAssertEqual(named.filter { !FileManager.default.fileExists(atPath: $0) }, [], "before the rebuild every named top report exists")
         XCTAssertEqual(named.count, Self.samples.count, "the root record names each sample's top report")
+        let before = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: batch))
+        let builtDigest = try ProvenanceFileDescriptor.file(url: database).checksumSHA256
 
         let rebuild = try BuildDbCommand.TaxTriageSubcommand.parse([batch.path, "--force", "-q"])
         try await rebuild.run()
 
+        // X7, flipped by B30 M3. A rebuild of an executor result runs the executor's cleanup, which keeps top/.
         for sample in Self.samples {
-            XCTAssertFalse(
-                FileManager.default.fileExists(atPath: batch.appendingPathComponent("\(sample)/top").path),
-                "X7: the forced rebuild's legacy cleanup deletes \(sample)/top/"
-            )
+            let top = batch.appendingPathComponent("\(sample)/top", isDirectory: true)
+            XCTAssertFalse(try Self.topReports(in: top).isEmpty, "X7: the rebuild keeps \(sample)/top/ (2.8 T5)")
         }
         XCTAssertEqual(
-            try Self.namedTopReports(in: batch).filter { !FileManager.default.fileExists(atPath: $0) }.count,
-            named.count,
-            "X7: the root record still names each deleted top report"
+            try Self.namedTopReports(in: batch).filter { !FileManager.default.fileExists(atPath: $0) }, [],
+            "X7: every top report the root record names exists"
         )
+        // The root record still records the run, its steps as they were and the rebuild's after them.
+        let after = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: batch))
+        XCTAssertEqual(after.workflowName, TaxTriageAnalysisRunTool.workflowName)
+        XCTAssertEqual(after.argv, before.argv, "the record still names the command that ran")
+        XCTAssertEqual(after.steps.prefix(before.steps.count).map(\.id), before.steps.map(\.id), "the run's steps stay")
+        let added = Array(after.steps.dropFirst(before.steps.count))
+        // The database the rebuild replaced, named with the digest the record held for it (2.8 P1).
+        let replacement = try XCTUnwrap(added.first, "the rebuild added no step")
+        XCTAssertEqual(replacement.toolName, "Lungfish TaxTriage Index Removal")
+        XCTAssertEqual(replacement.resolvedOptions["operation"], .string(RecordedRemovalStep.operation))
+        XCTAssertEqual(replacement.inputs.map { Self.resolved(URL(fileURLWithPath: $0.path)) }, [Self.resolved(database)])
+        XCTAssertEqual(replacement.inputs.map(\.checksumSHA256), [builtDigest])
+        // The rebuild's build step and the run level name the database the folder holds.
+        let rebuiltDigest = try ProvenanceFileDescriptor.file(url: database).checksumSHA256
+        XCTAssertTrue(
+            added.contains { step in
+                step.toolName == "lungfish build-db taxtriage"
+                    && step.outputs.contains { Self.names($0, database) && $0.checksumSHA256 == rebuiltDigest }
+            },
+            "the rebuild's step names the database it wrote: \(added.map(\.toolName))"
+        )
+        let runLevel = (after.files + after.outputs + [after.output].compactMap { $0 }).filter { Self.names($0, database) }
+        XCTAssertFalse(runLevel.isEmpty)
+        XCTAssertEqual(Set(runLevel.map(\.checksumSHA256)), [rebuiltDigest], "the run level names the database it holds")
+    }
+
+    private static func names(_ descriptor: ProvenanceFileDescriptor, _ file: URL) -> Bool {
+        resolved(URL(fileURLWithPath: descriptor.path)) == resolved(file)
     }
 
     // MARK: - Running

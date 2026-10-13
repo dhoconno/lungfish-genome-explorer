@@ -18,6 +18,8 @@
 //   other seven folders, `count/` and the fastp FASTQ files of each result folder that is no symbolic link, and
 //   returns one removal step naming each removed file that a record names, with that record's digest and size,
 //   so the run's record names it after the build step. It hashes no file it removes (2.8 T5 as amended in 2.9).
+//   Since 2.10 (B30 M3, parity X7) the command runs it too on a `taxtriage run` result whose finalize built the
+//   index, and refreshes that result's root record (`rebuildExecutorResult(in:record:options:events:)`).
 //
 // The parsers in BuildDbCommand.swift are instance methods that read no parsed option, so the core runs them on
 // an instance of its own.
@@ -63,7 +65,11 @@ extension BuildDbCommand {
             try await BuildDbCLIEvents(globalOptions: globalOptions).report(
                 database: resultURL.appendingPathComponent("taxtriage.sqlite")
             ) { events in
-                try await Self.buildDatabase(in: resultURL, options: options, events: events).result
+                // 2.10 X7. A result of `taxtriage run` keeps `top/` and the record of its run.
+                if let record = Self.executorRecord(in: resultURL) {
+                    return try await Self.rebuildExecutorResult(in: resultURL, record: record, options: options, events: events)
+                }
+                return try await Self.buildDatabase(in: resultURL, options: options, events: events).result
             }
         }
 
@@ -223,6 +229,91 @@ extension BuildDbCommand {
             var removal = try core.performRecordedCleanup(resultURL: resultURL, recorded: recorded, events: events)
             removal?.dependsOn = built.record?.steps.map(\.id) ?? []
             return Build(result: built, removal: removal)
+        }
+
+        // MARK: - A result of taxtriage run (2.10 X7)
+
+        /// The tool name of the removal step that names the database a rebuild of an executor result replaced.
+        static let replacedIndexRemovalToolName = "Lungfish TaxTriage Index Removal"
+
+        /// The root record of a completed `taxtriage run` result in `resultURL` whose finalize built the viewer
+        /// index with the executor's cleanup, a `--project` result or a batch root, which kept `top/`. Nil for any
+        /// other folder, a plain `--output` result among them, which the executor left as the command always
+        /// has, so its build keeps the command's cleanup.
+        static func executorRecord(in resultURL: URL) -> ProvenanceEnvelope? {
+            guard let record = ProvenanceRecorder.loadEnvelope(from: resultURL),
+                  record.workflowName == TaxTriageAnalysisRunTool.workflowName,
+                  record.status == .completed,
+                  record.steps.contains(where: { $0.toolName == BuildDbProvenanceTool.taxTriage.workflowName }) else {
+                return nil
+            }
+            return record
+        }
+
+        /// 2.10 X7. Builds the database of a completed `taxtriage run` result as its finalize did, with the
+        /// `.recordedRemoval` cleanup that keeps `top/` (2.8 T5 as amended in 2.9), and refreshes the result's
+        /// root record, which still records the run. The record gains a removal step that names the database the
+        /// build replaced with the digest the record held for it, when its size on disk is still the recorded
+        /// one, then the build's steps and the cleanup's removal step, and its run level names the database the
+        /// folder now holds. So every file the record names exists with its digest or has a step that says why
+        /// it does not (2.8 P1, BIO 6). A build that keeps an existing database without `--force` leaves the
+        /// record as it was.
+        static func rebuildExecutorResult(
+            in resultURL: URL,
+            record: ProvenanceEnvelope,
+            options: BuildDbRunOptions,
+            events: BuildDbEventSink
+        ) async throws -> BuildDbRunResult {
+            let dbURL = resultURL.appendingPathComponent("taxtriage.sqlite")
+            let recorded = fileDescriptors(of: record)
+            let replaced = byResolvedPath(recorded)[resolvedPath(dbURL)].flatMap { descriptor in
+                (try? ProvenanceFileHasher.fileSize(of: dbURL)) == descriptor.fileSize ? descriptor.withRole(.input) : nil
+            }
+            let replacementClock = ProvenanceRunClock()
+            var buildOptions = options
+            buildOptions.writesFolderRecord = false
+            let built = try await buildDatabase(
+                in: resultURL, options: buildOptions, cleanup: .recordedRemoval, recordedFiles: recorded, events: events
+            )
+            guard let buildRecord = built.result.record else { return built.result }
+
+            var steps = record.steps
+            if let replaced, var removal = RecordedRemovalStep.step(
+                toolName: replacedIndexRemovalToolName,
+                api: "BuildDbCommand.TaxTriageSubcommand.rebuildExecutorResult(in:record:options:events:)",
+                removing: [replaced],
+                clock: replacementClock
+            ) {
+                removal.dependsOn = record.steps.filter { $0.outputs.contains { names($0, dbURL) } }.map(\.id)
+                steps.append(removal)
+            }
+            steps += buildRecord.steps + (built.removal.map { [$0] } ?? [])
+            let database = buildRecord.outputs.first { names($0, dbURL) }
+            func current(_ descriptor: ProvenanceFileDescriptor) -> ProvenanceFileDescriptor {
+                guard let database, names(descriptor, dbURL) else { return descriptor }
+                return ProvenanceFileDescriptor(
+                    path: descriptor.path,
+                    checksumSHA256: database.checksumSHA256,
+                    fileSize: database.fileSize,
+                    format: descriptor.format,
+                    role: descriptor.role,
+                    originPath: descriptor.originPath,
+                    sourceProvenancePath: descriptor.sourceProvenancePath
+                )
+            }
+            let refreshed = record.with { copy in
+                copy.steps = steps
+                copy.files = record.files.map(current)
+                copy.outputs = record.outputs.map(current)
+                copy.output = record.output.map(current)
+            }
+            try ProvenanceWriter().write(refreshed.droppingMissingRunLevelFiles(), to: resultURL)
+            return built.result
+        }
+
+        /// Whether `descriptor` names `file`, keyed as ``resolvedPath(_:)`` keys a file.
+        private static func names(_ descriptor: ProvenanceFileDescriptor, _ file: URL) -> Bool {
+            resolvedPath(URL(fileURLWithPath: descriptor.path)) == resolvedPath(file)
         }
 
         // MARK: - Post-Build Cleanup
