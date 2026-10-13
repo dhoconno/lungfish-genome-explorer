@@ -126,8 +126,8 @@ final class ClassifierNoProjectRefusalTests: XCTestCase {
             ("launchKraken2Classification", "Kraken2", { $0.launchKraken2Classification(nil) }),
             ("launchEsVirituDetection", "EsViritu", { $0.launchEsVirituDetection(nil) }),
             ("launchTaxTriage", "TaxTriage", { $0.launchTaxTriage(nil) }),
-            // The generic item has no tool id, so it names the category the way the Tools menu does.
-            ("classifyReads", "Classification", { $0.classifyReads(nil) }),
+            // The generic item has no tool id, so it says "a classifier" (UX review of A35).
+            ("classifyReads", "a classifier", { $0.classifyReads(nil) }),
             ("the Tools menu's Kraken2 item", "Kraken2", { $0.launchFASTQOperationToolFromMenu(Self.menuItem(for: .kraken2)) }),
             ("the Tools menu's EsViritu item", "EsViritu", { $0.launchFASTQOperationToolFromMenu(Self.menuItem(for: .esViritu)) }),
             ("the Tools menu's TaxTriage item", "TaxTriage", { $0.launchFASTQOperationToolFromMenu(Self.menuItem(for: .taxTriage)) }),
