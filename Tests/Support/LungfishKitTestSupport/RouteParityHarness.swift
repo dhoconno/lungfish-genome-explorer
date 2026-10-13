@@ -20,6 +20,9 @@
 // may declare differences, each with its reason, the lane that closes it and an exact count for
 // each case (RouteParityHarness+Declared.swift). A count that no longer holds fails, so the list
 // only shrinks and a new difference cannot hide under an old entry. C against C' declares nothing.
+// Until lane Q30 M2, the explanation numbers UUIDs within each file and not across the tree as
+// `OutputEquivalence` does, so a record whose UUID link changes beside a declared value in the
+// same file is not found yet.
 //
 //     let harness = RouteParityHarness(cliBinary: cli, kind: .bundle)
 //     try await harness.assertParity(
