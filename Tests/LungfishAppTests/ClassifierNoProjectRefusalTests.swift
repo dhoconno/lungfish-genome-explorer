@@ -109,6 +109,73 @@ final class ClassifierNoProjectRefusalTests: XCTestCase {
         }
     }
 
+    // MARK: - No main window
+
+    /// Phase 2.10 lane A35 (panel decision A4). The Tools menu reaches `showFASTQOperationsDialog` from
+    /// a delegate with no main window, as it does with no project window open. The entry finds no
+    /// window to open the dialog on, so it starts nothing and writes nothing.
+    func testEveryClassifierEntryWithNoMainWindowStartsNothingAndWritesNothing() throws {
+        let input = try readsInputs(count: 1)[0]
+        let entries: [(name: String, call: (AppDelegate) -> Void)] = [
+            ("launchKraken2Classification", { $0.launchKraken2Classification(nil) }),
+            ("launchEsVirituDetection", { $0.launchEsVirituDetection(nil) }),
+            ("launchTaxTriage", { $0.launchTaxTriage(nil) }),
+            ("classifyReads", { $0.classifyReads(nil) }),
+            ("the Tools menu's Kraken2 item", { $0.launchFASTQOperationToolFromMenu(Self.menuItem(for: .kraken2)) }),
+            ("the Tools menu's EsViritu item", { $0.launchFASTQOperationToolFromMenu(Self.menuItem(for: .esViritu)) }),
+            ("the Tools menu's TaxTriage item", { $0.launchFASTQOperationToolFromMenu(Self.menuItem(for: .taxTriage)) }),
+            ("the dialog with Kraken2 and inputs", {
+                $0.showFASTQOperationsDialog(nil, initialCategory: .classification, initialToolID: .kraken2, preferredInputURLs: [input])
+            }),
+        ]
+        for entry in entries {
+            let outcome = try startWithNoMainWindow(entry.call)
+            XCTAssertEqual(outcome.startedRows, [], "\(entry.name): starts no row")
+            XCTAssertTrue(outcome.readsUnchanged, "\(entry.name): writes nothing beside the reads")
+        }
+    }
+
+    /// An item of any other category also starts nothing and writes nothing with no main window,
+    /// and it keeps its beep (panel decision A4).
+    func testAnEntryOfAnotherCategoryWithNoMainWindowStartsNothingAndWritesNothing() throws {
+        let input = try readsInputs(count: 1)[0]
+        for category in FASTQOperationCategoryID.allCases where category != .classification {
+            let outcome = try startWithNoMainWindow {
+                $0.showFASTQOperationsDialog(nil, initialCategory: category, preferredInputURLs: [input])
+            }
+            XCTAssertEqual(outcome.startedRows, [], "\(category.displayName): starts no row")
+            XCTAssertTrue(outcome.readsUnchanged, "\(category.displayName): writes nothing beside the reads")
+        }
+        let otherTools: [FASTQOperationToolID] = [.spades, .minimap2, .fastpTrim]
+        for toolID in otherTools {
+            let outcome = try startWithNoMainWindow { $0.launchFASTQOperationToolFromMenu(Self.menuItem(for: toolID)) }
+            XCTAssertEqual(outcome.startedRows, [], "\(toolID.title): starts no row")
+            XCTAssertTrue(outcome.readsUnchanged, "\(toolID.title): writes nothing beside the reads")
+        }
+    }
+
+    /// The Tools menu item of `toolID`, as `MainMenu+Tools.swift` builds it.
+    private static func menuItem(for toolID: FASTQOperationToolID) -> NSMenuItem {
+        let item = NSMenuItem(title: "\(toolID.title)\u{2026}", action: nil, keyEquivalent: "")
+        item.representedObject = toolID
+        return item
+    }
+
+    /// What a call on a delegate with no main window left behind. The delegate has no window to
+    /// hold a sheet, so the outcome holds the rows and the bytes only.
+    private func startWithNoMainWindow(
+        _ start: (AppDelegate) -> Void
+    ) throws -> (startedRows: [String], readsUnchanged: Bool) {
+        let before = try ClassifierRouteFixtures.snapshot(of: root)
+        let delegate = makeAppDelegateWithTemporaryState()
+        XCTAssertNil(delegate.activeMainWindowController(sender: nil), "the premise: this process has no main window")
+        let existing = Set(OperationCenter.shared.items.map(\.id))
+        start(delegate)
+        let started = OperationCenter.shared.items.filter { !existing.contains($0.id) }
+        rowIDs.append(contentsOf: started.map(\.id))
+        return (started.map(\.title), try ClassifierRouteFixtures.snapshot(of: root) == before)
+    }
+
     // MARK: - One launch
 
     /// What one launch left behind.
