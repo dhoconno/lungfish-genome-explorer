@@ -477,33 +477,42 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
         ]
     }
 
-    /// The name of a derivative kind. The switch has no default, so a new kind
-    /// does not compile until the pin holds a request of it.
-    private static func kind(of request: FASTQDerivativeRequest) -> String {
+    /// The derivative kinds, one case for each case of `FASTQDerivativeRequest`.
+    private enum DerivativeKind: CaseIterable {
+        case subsampleProportion, subsampleCount, lengthFilter, searchText, searchMotif, deduplicate
+        case fastpTrim, qualityTrim, adapterTrim, fixedTrim, contaminantFilter, lowComplexityFilter
+        case pairedEndMerge, pairedEndRepair, primerRemoval, sequencePresenceFilter, errorCorrection
+        case reverseComplement, translate, demultiplex, orient, humanReadScrub, ribosomalRNAFilter
+    }
+
+    /// The kind of a derivative request. The switch has no default, so a new request kind does not
+    /// compile until `DerivativeKind` names it, and the kind test then fails until
+    /// `derivativeLeaves()` holds a request of it.
+    private static func kind(of request: FASTQDerivativeRequest) -> DerivativeKind {
         switch request {
-        case .subsampleProportion: return "subsampleProportion"
-        case .subsampleCount: return "subsampleCount"
-        case .lengthFilter: return "lengthFilter"
-        case .searchText: return "searchText"
-        case .searchMotif: return "searchMotif"
-        case .deduplicate: return "deduplicate"
-        case .fastpTrim: return "fastpTrim"
-        case .qualityTrim: return "qualityTrim"
-        case .adapterTrim: return "adapterTrim"
-        case .fixedTrim: return "fixedTrim"
-        case .contaminantFilter: return "contaminantFilter"
-        case .lowComplexityFilter: return "lowComplexityFilter"
-        case .pairedEndMerge: return "pairedEndMerge"
-        case .pairedEndRepair: return "pairedEndRepair"
-        case .primerRemoval: return "primerRemoval"
-        case .sequencePresenceFilter: return "sequencePresenceFilter"
-        case .errorCorrection: return "errorCorrection"
-        case .reverseComplement: return "reverseComplement"
-        case .translate: return "translate"
-        case .demultiplex: return "demultiplex"
-        case .orient: return "orient"
-        case .humanReadScrub: return "humanReadScrub"
-        case .ribosomalRNAFilter: return "ribosomalRNAFilter"
+        case .subsampleProportion: return .subsampleProportion
+        case .subsampleCount: return .subsampleCount
+        case .lengthFilter: return .lengthFilter
+        case .searchText: return .searchText
+        case .searchMotif: return .searchMotif
+        case .deduplicate: return .deduplicate
+        case .fastpTrim: return .fastpTrim
+        case .qualityTrim: return .qualityTrim
+        case .adapterTrim: return .adapterTrim
+        case .fixedTrim: return .fixedTrim
+        case .contaminantFilter: return .contaminantFilter
+        case .lowComplexityFilter: return .lowComplexityFilter
+        case .pairedEndMerge: return .pairedEndMerge
+        case .pairedEndRepair: return .pairedEndRepair
+        case .primerRemoval: return .primerRemoval
+        case .sequencePresenceFilter: return .sequencePresenceFilter
+        case .errorCorrection: return .errorCorrection
+        case .reverseComplement: return .reverseComplement
+        case .translate: return .translate
+        case .demultiplex: return .demultiplex
+        case .orient: return .orient
+        case .humanReadScrub: return .humanReadScrub
+        case .ribosomalRNAFilter: return .ribosomalRNAFilter
         }
     }
 
@@ -531,8 +540,9 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
 
     func testThePinHoldsOneRequestOfEachDerivativeKind() {
         let kinds = Self.derivativeLeaves().map { Self.kind(of: $0.request) }
-        XCTAssertEqual(kinds.count, 23)
-        XCTAssertEqual(Set(kinds).count, 23, "one request of each of the 23 derivative kinds")
+        XCTAssertEqual(DerivativeKind.allCases.count, 23)
+        XCTAssertEqual(kinds.count, DerivativeKind.allCases.count, "one request of each derivative kind")
+        XCTAssertEqual(Set(kinds), Set(DerivativeKind.allCases), "one request of each derivative kind")
     }
 
     func testEachRequestOfThePinLaunchesTheLeafItNames() throws {
