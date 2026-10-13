@@ -1,13 +1,31 @@
 OVERVIEW: Download genomes from NCBI and create indexed bundles
 
-Downloads a genome from NCBI, including the FASTA sequence and GFF3
-annotations, then creates a .lungfishref bundle with proper indices.
+Downloads each genome from NCBI, with its FASTA sequence and GFF3
+annotations, and builds one .lungfishref bundle for each accession.
 
 Assembly accessions (GCF_/GCA_) are resolved through the assembly
-database. Any other accession is fetched from nucleotide, which
-returns the exact record requested: asking the assembly database for
-a nucleotide accession returns the linked assembly instead, under a
-different sequence name.
+database and built as the app's genome download builds them, in a
+bundle named '<organism> - <assembly name>'. Any other accession is
+fetched from nucleotide as its FASTA and GFF3, which is the exact
+record requested, in a bundle named by the accession with its
+version, the name of its sequence. --name names the bundle of one
+accession instead.
+
+A bundle is built in a scratch folder, the project's .tmp folder
+inside a project, and then moved into --output-dir. A bundle never
+replaces another. The next free name adds _1, _2 and so on. An
+assembly bundle holds a provenance record that names every file
+fetched with its digest and size.
+
+--into-bundle adds the genome and annotations of one accession to an
+existing .lungfishref bundle, such as a bundle imported from a VCF
+with no reference, and keeps its variants and tracks.
+
+With --format json the command prints CLIEvent lines on standard
+output and its human text on standard error, and its complete event
+names each bundle. SIGTERM stops the run, removes the bundle it was
+building and exits 125. The NCBI key comes from --api-key or from
+the NCBI_API_KEY environment variable.
 
 The bundle contains:
 - Compressed, indexed FASTA (bgzip + samtools faidx)
@@ -16,26 +34,34 @@ The bundle contains:
 
 Examples:
   lungfish-cli fetch genome GCF_003047895.1 --output-dir ./genomes
+  lungfish-cli fetch genome GCF_003047895.1 GCF_000001405.40 --output-dir
+./genomes
   lungfish-cli fetch genome MN908947.3 --output-dir ./genomes
   lungfish-cli fetch genome GCF_000001405.40 --name "Human GRCh38" --output-dir
 ./
   lungfish-cli fetch genome GCF_003047895.1 --fasta-only --output-dir ./
+  lungfish-cli fetch genome NC_045512.2 --into-bundle ./variants.lungfishref
 
-USAGE: lungfish-cli fetch genome [<options>] <accession>
+USAGE: lungfish-cli fetch genome [<options>] <accessions> ...
 
 ARGUMENTS:
-  <accession>             Assembly (GCF_003047895.1) or nucleotide (MN908947.3)
-                          accession
+  <accessions>            Assembly (GCF_003047895.1) or nucleotide (MN908947.3)
+                          accessions, one bundle each
 
 OPTIONS:
   --output-dir <output-dir>
-                          Output directory for the bundle (default: current
+                          Output directory for the bundles (default: current
                           directory) (default: .)
-  --name <name>           Bundle name (default: derived from assembly)
+  --name <name>           Bundle name for one accession (default: derived from
+                          the assembly or record)
+  --into-bundle <into-bundle>
+                          Add the genome and annotations of one accession to
+                          this existing .lungfishref bundle
   --fasta-only            Download only the FASTA sequence (no annotations, no
                           bundle)
   --no-bundle             Download files but don't create a .lungfishref bundle
-  --api-key <api-key>     NCBI API key for higher rate limits
+  --api-key <api-key>     NCBI API key for higher rate limits (default: the
+                          NCBI_API_KEY environment variable)
   --format <format>       Output format: text, json, tsv (default: text)
                           (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,

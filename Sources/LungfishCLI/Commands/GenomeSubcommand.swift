@@ -24,16 +24,16 @@ struct GenomeSubcommand: AsyncParsableCommand {
             Assembly accessions (GCF_/GCA_) are resolved through the assembly
             database and built as the app's genome download builds them, in a
             bundle named '<organism> - <assembly name>'. Any other accession is
-            fetched from nucleotide as its GenBank record, which is the exact
-            record requested, and built as the app's GenBank download builds it,
-            in a bundle named by the accession. --name names the bundle of one
+            fetched from nucleotide as its FASTA and GFF3, which is the exact
+            record requested, in a bundle named by the accession with its
+            version, the name of its sequence. --name names the bundle of one
             accession instead.
 
-            An assembly bundle is built in the project's .tmp folder, or in a
-            hidden folder of --output-dir outside a project, and then moved into
-            --output-dir. A bundle never replaces another. The next free name
-            adds _1, _2 and so on. Each bundle holds a provenance record that
-            names every file fetched with its digest and size.
+            A bundle is built in a scratch folder, the project's .tmp folder
+            inside a project, and then moved into --output-dir. A bundle never
+            replaces another. The next free name adds _1, _2 and so on. An
+            assembly bundle holds a provenance record that names every file
+            fetched with its digest and size.
 
             --into-bundle adds the genome and annotations of one accession to an
             existing .lungfishref bundle, such as a bundle imported from a VCF
