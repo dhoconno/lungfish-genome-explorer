@@ -340,6 +340,73 @@ final class OutputEquivalenceTests: XCTestCase {
         XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .files), [])
     }
 
+    /// A record's checksum and size of a folder that holds a file in each tree are masked, since every
+    /// file in it is compared on its own. A changed file in the folder is still found, and a folder
+    /// one tree lacks keeps its digest (lane Q30 M2 finding 1).
+    func testRecordedDigestsOfASharedFolderAreMaskedAndItsFilesStillCompared() throws {
+        let (a, b) = try makeRoots()
+        let record = { (root: URL, folder: String, checksum: String, size: Int) in
+            #"{"output":{"path":"\#(root.path)/\#(folder)","checksumSHA256":"\#(checksum)","fileSize":\#(size)}}"#
+        }
+        let firstLines = { try OutputEquivalence.differences(a, b, kind: .bundle).map { $0.components(separatedBy: "\n")[0] } }
+        // Each tree's folder holds a JSON file that names its own root, so the folder's bytes differ.
+        for root in [a, b] {
+            try write(#"{"source":"\#(root.path)/rows.fasta"}"#, to: root, "out.bundle/rows.json")
+        }
+        try write(record(a, "out.bundle", String(repeating: "a", count: 64), 100), to: a, "run.lungfish-provenance.json")
+        try write(record(b, "out.bundle", String(repeating: "b", count: 64), 101), to: b, "run.lungfish-provenance.json")
+        XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .bundle), [])
+
+        // A changed file in the folder is found on its own, beside the masked record.
+        try write(#"{"source":"\#(b.path)/other.fasta"}"#, to: b, "out.bundle/rows.json")
+        XCTAssertEqual(try firstLines(), ["differs: out.bundle/rows.json"])
+
+        // A folder only one tree holds keeps its stated digest.
+        try write(#"{"source":"\#(b.path)/rows.fasta"}"#, to: b, "out.bundle/rows.json")
+        try write("x\n", to: a, "only-a.bundle/x.txt")
+        try write(record(a, "only-a.bundle", String(repeating: "a", count: 64), 2), to: a, "run.lungfish-provenance.json")
+        try write(record(b, "only-a.bundle", String(repeating: "b", count: 64), 2), to: b, "run.lungfish-provenance.json")
+        XCTAssertEqual(try firstLines(), ["only in A: only-a.bundle/x.txt", "differs: run.lungfish-provenance.json"])
+    }
+
+    /// A manifest's `checksums` and `fileSizes` maps, keyed by paths from the manifest's folder, are
+    /// masked for a content-compared file both trees hold. A key for a file compared byte for byte, a
+    /// key read from the tree root and a key for a file one tree lacks keep their values (lane Q30 M2
+    /// finding 1).
+    func testRecordedDigestMapsAreMaskedOnlyForSharedContentComparedFiles() throws {
+        let (a, b) = try makeRoots()
+        func manifest(_ checksums: [String: String], _ sizes: [String: Int]) throws -> String {
+            let object: [String: Any] = ["checksums": checksums, "fileSizes": sizes]
+            return String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
+        }
+        let firstLines = { try OutputEquivalence.differences(a, b, kind: .bundle).map { $0.components(separatedBy: "\n")[0] } }
+        let (rowMap, fasta) = ("metadata/source-row-map.json", "alignment/primary.aligned.fasta")
+        let (digestA, digestB, digestF) = (String(repeating: "a", count: 64), String(repeating: "b", count: 64), String(repeating: "f", count: 64))
+        // Each tree's row map names its own root, so its bytes differ, and the FASTA is the same.
+        for root in [a, b] {
+            try write(#"[{"sourceFilePath":"\#(root.path)/rows.fasta"}]"#, to: root, "rows.lungfishmsa/\(rowMap)")
+            try write(">row\nACGT\n", to: root, "rows.lungfishmsa/\(fasta)")
+        }
+        try write(try manifest([rowMap: digestA, fasta: digestF], [rowMap: 870, fasta: 10]), to: a, "rows.lungfishmsa/manifest.json")
+        try write(try manifest([rowMap: digestB, fasta: digestF], [rowMap: 872, fasta: 10]), to: b, "rows.lungfishmsa/manifest.json")
+        XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .bundle), [])
+
+        // The FASTA is compared byte for byte, so its stated checksum is compared too.
+        try write(try manifest([rowMap: digestB, fasta: digestA], [rowMap: 872, fasta: 10]), to: b, "rows.lungfishmsa/manifest.json")
+        XCTAssertEqual(try firstLines(), ["differs: rows.lungfishmsa/manifest.json"])
+
+        // A key is read from the manifest's folder, so a path from the tree root names no file.
+        try write(try manifest(["rows.lungfishmsa/\(rowMap)": digestA], [:]), to: a, "rows.lungfishmsa/manifest.json")
+        try write(try manifest(["rows.lungfishmsa/\(rowMap)": digestB], [:]), to: b, "rows.lungfishmsa/manifest.json")
+        XCTAssertEqual(try firstLines(), ["differs: rows.lungfishmsa/manifest.json"])
+
+        // A key for a file only one tree holds keeps its value.
+        try write("{}\n", to: a, "rows.lungfishmsa/metadata/extra.json")
+        try write(try manifest(["metadata/extra.json": digestA], [:]), to: a, "rows.lungfishmsa/manifest.json")
+        try write(try manifest(["metadata/extra.json": digestB], [:]), to: b, "rows.lungfishmsa/manifest.json")
+        XCTAssertEqual(try firstLines(), ["only in A: rows.lungfishmsa/metadata/extra.json", "differs: rows.lungfishmsa/manifest.json"])
+    }
+
     // MARK: - Fixture helpers
 
     private func makeRoots() throws -> (URL, URL) {

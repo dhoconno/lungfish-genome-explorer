@@ -151,21 +151,24 @@ extension OutputEquivalence {
         /// In a JSON record that names a file present in both trees and
         /// compared by content rather than by bytes (a BAM, a gzip or BGZF
         /// file, a SQLite database, an index or a JSON manifest compared after
-        /// masks), replaces the checksum and size the record states. That file
-        /// is still compared under its own kind, so only the record's copy of
-        /// its byte-level digest is masked. A record that names a run's
-        /// scratch intermediate, a content-compared file under the system
-        /// temporary folder that no longer exists, is masked the same way,
-        /// because the run deleted it and it cannot be compared. A record
-        /// that names any other file, such as an input outside the trees,
-        /// keeps its digest.
+        /// masks), or a folder that holds a file in each tree, replaces the
+        /// checksum and size the record states. The record names it by a path
+        /// beside a checksum or size key, or by a key of a `checksums` or
+        /// `fileSizes` map read from the record's own folder. That file, and
+        /// each file in that folder, is still compared under its own kind, so
+        /// only the record's copy of a byte-level digest is masked. A record
+        /// that names a run's scratch intermediate, a content-compared file
+        /// under the system temporary folder that no longer exists, is masked
+        /// the same way, because the run deleted it and it cannot be compared.
+        /// A record that names any other file, such as an input outside the
+        /// trees or a file compared byte for byte, keeps its digest.
         public static let contentComparedDigests = Mask(name: "contentComparedDigests") { text, context in
             guard let data = text.data(using: .utf8),
                   let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
             else { return text }
             var changed = false
             let roots = rootSpellings(context.rootA) + rootSpellings(context.rootB)
-            let masked = maskDigests(in: value, paths: context.contentComparedPaths, roots: roots, changed: &changed)
+            let masked = maskDigests(in: value, paths: context.contentComparedPaths, roots: roots, folder: context.recordFolder, changed: &changed)
             guard changed,
                   let encoded = try? JSONSerialization.data(
                       withJSONObject: masked,
@@ -192,12 +195,17 @@ extension OutputEquivalence {
 
         static let digestKeys: Set<String> = ["checksumSHA256", "sha256", "checksum"]
         static let sizeKeys: Set<String> = ["fileSize", "sizeBytes", "size_bytes", "file_size_bytes"]
+        /// A record's maps from a path, read from the record's folder, to a
+        /// checksum or a size, as a bundle manifest writes them.
+        static let digestMapKeys: Set<String> = ["checksums"]
+        static let sizeMapKeys: Set<String> = ["fileSizes"]
 
         /// Runs before every other mask, on unmasked text, so a path is
-        /// checked as the run wrote it.
-        static func maskDigests(in value: Any, paths: Set<String>, roots: [String], changed: inout Bool) -> Any {
+        /// checked as the run wrote it. `folder` is the record's own folder,
+        /// which the keys of a checksum or size map are read from.
+        static func maskDigests(in value: Any, paths: Set<String>, roots: [String], folder: String, changed: inout Bool) -> Any {
             if let array = value as? [Any] {
-                return array.map { maskDigests(in: $0, paths: paths, roots: roots, changed: &changed) }
+                return array.map { maskDigests(in: $0, paths: paths, roots: roots, folder: folder, changed: &changed) }
             }
             guard var object = value as? [String: Any] else { return value }
             let namesContentComparedFile = object.values.contains { item in
@@ -215,8 +223,17 @@ extension OutputEquivalence {
                 } else if namesContentComparedFile, sizeKeys.contains(key) {
                     object[key] = "<CONTENT-SIZE>"
                     changed = true
+                } else if digestMapKeys.contains(key) || sizeMapKeys.contains(key), var map = item as? [String: Any] {
+                    let token = digestMapKeys.contains(key) ? "<CONTENT-SHA256>" : "<CONTENT-SIZE>"
+                    for (name, entry) in map where entry is String || entry is NSNumber {
+                        if paths.contains(folder.isEmpty ? name : folder + "/" + name) {
+                            map[name] = token
+                            changed = true
+                        }
+                    }
+                    object[key] = map
                 } else {
-                    object[key] = maskDigests(in: item, paths: paths, roots: roots, changed: &changed)
+                    object[key] = maskDigests(in: item, paths: paths, roots: roots, folder: folder, changed: &changed)
                 }
             }
             return object

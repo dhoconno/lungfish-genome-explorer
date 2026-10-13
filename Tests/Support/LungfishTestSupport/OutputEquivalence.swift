@@ -42,26 +42,41 @@ public enum OutputEquivalence {
     /// a manifest value, and two IDs never share one.
     /// `contentComparedPaths` holds this side's unmasked relative paths of
     /// the files that exist in both trees and are compared by content rather
-    /// than by bytes.
+    /// than by bytes, and of the folders that hold a file in each tree.
+    /// `recordFolder` is the unmasked relative folder of the file a mask
+    /// reads, "" at the root, which a record's checksum and size maps are
+    /// read from.
     public struct MaskContext: Sendable {
         public let rootA: URL
         public let rootB: URL
         public let runIDNumbers: [String: Int]
         public let uuidNumbers: [String: Int]
         public let contentComparedPaths: Set<String>
+        public let recordFolder: String
 
         public init(
             rootA: URL,
             rootB: URL,
             runIDNumbers: [String: Int] = [:],
             uuidNumbers: [String: Int] = [:],
-            contentComparedPaths: Set<String> = []
+            contentComparedPaths: Set<String> = [],
+            recordFolder: String = ""
         ) {
             self.rootA = rootA
             self.rootB = rootB
             self.runIDNumbers = runIDNumbers
             self.uuidNumbers = uuidNumbers
             self.contentComparedPaths = contentComparedPaths
+            self.recordFolder = recordFolder
+        }
+
+        /// This side's context for the file whose unmasked relative path is
+        /// `name`, so a record's maps are read from its own folder.
+        func reading(_ name: String) -> MaskContext {
+            MaskContext(
+                rootA: rootA, rootB: rootB, runIDNumbers: runIDNumbers, uuidNumbers: uuidNumbers,
+                contentComparedPaths: contentComparedPaths, recordFolder: (name as NSString).deletingLastPathComponent
+            )
         }
     }
 
@@ -170,8 +185,10 @@ public enum OutputEquivalence {
             filesB, maskPaths: maskPaths, masks: masks.names,
             context: MaskContext(rootA: rootA, rootB: rootB, runIDNumbers: numbersB.runIDs, uuidNumbers: numbersB.uuids)
         )
-        // Files in both trees that are compared by content. Only a record
-        // that names one of them has its stated checksum and size masked.
+        // Files in both trees that are compared by content, and folders that
+        // hold a file in each tree. Only a record that names one of them has
+        // its stated checksum and size masked, since each such file, and each
+        // file in such a folder, is compared on its own.
         let shared = Set(keyedA.keys).intersection(keyedB.keys).filter { name in
             Masks.contentComparedSuffixes.contains { name.lowercased().hasSuffix($0) }
         }
@@ -181,14 +198,32 @@ public enum OutputEquivalence {
             let nameByPath = Dictionary(files.map { ($0.value.path, $0.key) }, uniquingKeysWith: { first, _ in first })
             return Set(shared.compactMap { keyedFiles[$0].flatMap { nameByPath[$0.path] } })
         }
+        // Each raw folder that holds a file, with its compared name.
+        func folders(_ files: [String: URL], _ numbers: (runIDs: [String: Int], uuids: [String: Int])) -> [String: String] {
+            let names = MaskContext(rootA: rootA, rootB: rootB, runIDNumbers: numbers.runIDs, uuidNumbers: numbers.uuids)
+            var result: [String: String] = [:]
+            for name in files.keys {
+                var folder = (name as NSString).deletingLastPathComponent
+                while !folder.isEmpty, result[folder] == nil {
+                    result[folder] = maskPaths ? applying(masks.names, to: folder, context: names) : folder
+                    folder = (folder as NSString).deletingLastPathComponent
+                }
+            }
+            return result
+        }
+        let foldersA = folders(filesA, numbersA)
+        let foldersB = folders(filesB, numbersB)
+        let sharedFolders = Set(foldersA.values).intersection(foldersB.values)
         let contextA = MaskContext(
             rootA: rootA, rootB: rootB, runIDNumbers: numbersA.runIDs, uuidNumbers: numbersA.uuids,
-            contentComparedPaths: rawNames(filesA, keyedA)
+            contentComparedPaths: rawNames(filesA, keyedA).union(foldersA.filter { sharedFolders.contains($0.value) }.keys)
         )
         let contextB = MaskContext(
             rootA: rootA, rootB: rootB, runIDNumbers: numbersB.runIDs, uuidNumbers: numbersB.uuids,
-            contentComparedPaths: rawNames(filesB, keyedB)
+            contentComparedPaths: rawNames(filesB, keyedB).union(foldersB.filter { sharedFolders.contains($0.value) }.keys)
         )
+        let rawNameA = Dictionary(filesA.map { ($0.value.path, $0.key) }, uniquingKeysWith: { first, _ in first })
+        let rawNameB = Dictionary(filesB.map { ($0.value.path, $0.key) }, uniquingKeysWith: { first, _ in first })
 
         var found: [String] = []
         for collision in collisionsA {
@@ -206,8 +241,8 @@ public enum OutputEquivalence {
         var differing: [DifferingFile] = []
         for name in Set(keyedA.keys).intersection(keyedB.keys).sorted() {
             guard let fileA = keyedA[name], let fileB = keyedB[name] else { continue }
-            let normalA = try normalized(fileA, kind: kind, masks: masks, context: contextA)
-            let normalB = try normalized(fileB, kind: kind, masks: masks, context: contextB)
+            let normalA = try normalized(fileA, kind: kind, masks: masks, context: contextA.reading(rawNameA[fileA.path] ?? name))
+            let normalB = try normalized(fileB, kind: kind, masks: masks, context: contextB.reading(rawNameB[fileB.path] ?? name))
             if normalA != normalB {
                 found.append("differs: \(name)\n" + firstDifference(normalA, normalB))
                 differing.append(DifferingFile(name: name, normalizedA: normalA, normalizedB: normalB))

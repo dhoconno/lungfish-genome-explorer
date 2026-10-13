@@ -180,8 +180,8 @@ final class RouteParityHarnessReplayTests: XCTestCase {
     }
 
     /// `import msa` warns that row names repeat and exits 0. Under `--format json` the warning is
-    /// an event, so every side ends Completed with Warnings, side C' included. The only
-    /// differences are the contract's digest gap, described below.
+    /// an event, so every side ends Completed with Warnings, side C' included, and no side
+    /// differs from another.
     func testAWarningEndsEverySideCompletedWithWarnings() async throws {
         let runs = try await harness.run(
             in: scratch.appendingPathComponent("warns", isDirectory: true),
@@ -204,32 +204,15 @@ final class RouteParityHarnessReplayTests: XCTestCase {
             runs.all.map(\.outcome.detail).joined(separator: "\n")
         )
         let found = try harness.evaluate(Case.warns, declared: [], runs: runs).found
-        let record = "differs: rows.lungfishmsa/.lungfish-provenance.json at output"
-        let manifest = "differs: rows.lungfishmsa/manifest.json at"
-        XCTAssertEqual(found[.aAgainstC]?.map(\.id), [
-            "\(record).checksumSHA256", "\(manifest) checksums.metadata/source-row-map.json",
-        ])
-        XCTAssertEqual(found[.cAgainstCPrime]?.map(\.id), [
-            "\(record).checksumSHA256", "\(record).fileSize",
-            "\(manifest) checksums.metadata/source-row-map.json", "\(manifest) fileSizes.metadata/source-row-map.json",
-        ])
+        XCTAssertEqual(found[.aAgainstC], [])
+        XCTAssertEqual(found[.cAgainstCPrime], [])
         XCTAssertEqual(RouteParitySide.allCases.compactMap { found[.side($0)] }, [[], [], []])
     }
-
-    // The contract's digest gap (lane Q30 M2 finding). docs/contracts/CLI-EQUIVALENCE.md masks the
-    // checksum and size a record states for a file both trees hold that is compared by content.
-    // `contentComparedDigests` finds such a file only as the `path` beside a digest key, so it
-    // keeps the digest a record states for a bundle folder, and the digests a manifest keys by a
-    // relative path. Both cover bytes that name the side root, so they differ between any two
-    // roots. The warning and cancel cases pin those differences until a reviewed change to the
-    // contract's masks closes the gap. No family may declare them, since C against C' declares
-    // nothing.
 
     /// A cancel through the real transport on the leaf S30's suites cancel, `workflow run` on a
     /// stand-in Nextflow that starts a stand-in JVM. Each side is cancelled once its stand-in JVM
     /// runs. Every side ends Cancelled, sides C and C' pass S30's check, exit 125 inside the grace,
-    /// a cancelled record and no process left (QC-2), and the only differences are the contract's
-    /// digest gap on the bundle folder.
+    /// a cancelled record and no process left (QC-2), and no side differs from another.
     func testACancelEndsEverySideCancelledAndPassesTheSIGTERMCheck() async throws {
         let tools = scratch.appendingPathComponent("tools", isDirectory: true)
         try Self.installNextflowLikeEngine(in: tools.appendingPathComponent("conda", isDirectory: true))
@@ -273,13 +256,8 @@ final class RouteParityHarnessReplayTests: XCTestCase {
         }
 
         let found = try cancelling.evaluate(Case.cancels, declared: [], runs: runs).found
-        let record = "differs: attempt.lungfishrun/.lungfish-provenance.json at"
-        let folderDigests = ["files[1]", "output", "outputs[0]", "steps[0].outputs[0]"]
-        XCTAssertEqual(found[.aAgainstC]?.map(\.id), folderDigests.map { "\(record) \($0).checksumSHA256" })
-        XCTAssertEqual(
-            found[.cAgainstCPrime]?.map(\.id),
-            folderDigests.flatMap { ["\(record) \($0).checksumSHA256", "\(record) \($0).fileSize"] }
-        )
+        XCTAssertEqual(found[.aAgainstC], [])
+        XCTAssertEqual(found[.cAgainstCPrime], [])
         XCTAssertEqual(RouteParitySide.allCases.compactMap { found[.side($0)] }, [[], [], []])
     }
 
