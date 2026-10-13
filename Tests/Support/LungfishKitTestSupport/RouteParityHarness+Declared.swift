@@ -6,8 +6,8 @@
 // class declares each difference of A against C with BIO's reason, the lane that removes it and the
 // number of found differences it matches in each case. The count is exact, so a difference that
 // goes, or one more under the same entry, fails the case until the count is lowered or the entry
-// deleted in the same commit. A count only falls, which review holds (QC-2). C against C' declares
-// nothing, and an entry that tries fails. A difference no entry declares fails.
+// deleted in the same commit. A count only falls, which review holds (QC-2). Only A against C
+// declares, and an entry for C against C' or for one side fails. A difference no entry declares fails.
 
 import Foundation
 
@@ -84,7 +84,7 @@ extension RouteParityHarness {
     /// One line for each way `found` breaks the list `declared` gives `parityCase`. That is a
     /// found difference no entry declares, an entry that matches another number of found
     /// differences than its count, an entry that matches none, a count below one and any entry
-    /// for C against C'.
+    /// for C against C' or for one side.
     public static func failures<Case: Hashable & Sendable>(
         found: [RouteParityScope: [RouteParityDifference]],
         parityCase: Case,
@@ -92,15 +92,15 @@ extension RouteParityHarness {
     ) -> [String] {
         let entries = declared.filter { $0.counts[parityCase] != nil }
         var lines: [String] = []
-        for entry in entries where entry.scope == .cAgainstCPrime {
-            lines.append("C against C' declares nothing, delete the entry (closed by \(entry.closedBy)): \(entry.id)")
+        for entry in entries where entry.scope != .aAgainstC {
+            lines.append("\(entry.scope) declares nothing, delete the entry (closed by \(entry.closedBy)): \(entry.id)")
         }
         for entry in entries where (entry.counts[parityCase] ?? 0) < 1 {
             lines.append("a count is at least 1, delete \(parityCase) from the entry instead (closed by \(entry.closedBy)): \(entry.id)")
         }
         for scope in RouteParityScope.all {
             let differences = found[scope] ?? []
-            let scoped = scope == .cAgainstCPrime ? [] : entries.filter { $0.scope == scope }
+            let scoped = scope == .aAgainstC ? entries.filter { $0.scope == scope } : []
             for difference in differences where !scoped.contains(where: { $0.matches(difference) }) {
                 lines.append("\(scope): not declared: \(difference)")
             }
