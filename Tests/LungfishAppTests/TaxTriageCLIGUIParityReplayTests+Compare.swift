@@ -29,6 +29,12 @@
 // keep the contract's per-tree numbering, since names numbered alone would mask to one name and
 // collide. The contract's mask row and the classifier parity stay as they are, and
 // TaxTriageParityUUIDNumberingTests holds the checks.
+//
+// The cost, which the Q31 review accepted under BIO 6. A UUID that one file shares with a file name
+// or with another file of the same side is no longer tied across files here, such as the launch
+// scratch that nextflow.log names and the taxtriage step's `-w` argument holds. Within one file the
+// tie stands. The fixed facts hold what BIO 6 needs on every side by path, digest and argv, each file
+// a record names (namedFileViolations) and each launch's recorded command (launchViolations).
 
 import Foundation
 import XCTest
