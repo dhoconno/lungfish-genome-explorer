@@ -104,8 +104,11 @@ extension ClassificationPipeline {
             return KrakenOutputCompaction(url: compressedURL, stepIDs: readerStepIDs)
         } catch {
             logger.warning("Failed to compact Kraken2 output; retaining raw output: \(error.localizedDescription, privacy: .public)")
-            try? fm.removeItem(at: compressedURL)
-            try? fm.removeItem(at: indexURL)
+            // A copy whose step is recorded stays, because the record names it and cleanup deletes nothing a
+            // record names (ARCH 5, row 268 of Phase 2.8). Removing the raw output is the call that fails after
+            // both steps are recorded. A copy with no step is what a compaction that stopped half way left.
+            if gzipStepID == nil { try? fm.removeItem(at: compressedURL) }
+            if indexStepID == nil { try? fm.removeItem(at: indexURL) }
         }
         return nil
     }
