@@ -16,8 +16,9 @@ import LungfishCore
 /// thrash the cache) rather than pretending packing is scale-free.
 ///
 /// `prioritizedRegion` moves the reads of a window to the front of the pack so
-/// they win the scarce rows of a max-row cap. The pack uses exactly the region
-/// in its key. With unlimited rows the key holds no region and the pack keeps
+/// they win the scarce rows of a max-row cap, and so a sort other than position
+/// keeps them at the top. The pack uses exactly the region in its key. With
+/// unlimited rows and position sort the key holds no region and the pack keeps
 /// plain position order, which is what lets panning reuse the layout instead of
 /// repacking every frame. A prioritized order with no region in the key put
 /// every read left of the first window below all of that window's rows once

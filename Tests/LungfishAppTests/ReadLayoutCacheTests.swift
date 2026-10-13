@@ -177,6 +177,33 @@ final class ReadLayoutCacheTests: XCTestCase {
         )
     }
 
+    /// A sort other than position keeps the window's reads at the top only when
+    /// the pack puts them first, so with unlimited rows such a sort still keys,
+    /// and repacks, by the window.
+    func testPanningWithUnlimitedRowsUnderStrandSortRepacks() {
+        let view = makeView()
+        view.testSetCachedAlignedReads(stackedReads(count: 30))
+        let frame = makeFrame()
+
+        let originalLimit = view.limitReadRowsSetting
+        let originalSort = view.readSortModeSetting
+        defer {
+            view.limitReadRowsSetting = originalLimit
+            view.readSortModeSetting = originalSort
+        }
+        view.limitReadRowsSetting = false
+        view.readSortModeSetting = .strand
+
+        prepareAndDrain(view, region: GenomicRegion(chromosome: "chr1", start: 900, end: 2_000), frame: frame)
+        let afterFirst = view.backgroundPackInvocationCount
+        _ = view.prepareDetachedReadLayout(
+            region: GenomicRegion(chromosome: "chr1", start: 1_400, end: 2_500),
+            frame: frame
+        )
+
+        XCTAssertEqual(view.backgroundPackInvocationCount, afterFirst + 1, "A strand-sorted pack must follow the window")
+    }
+
     /// The background pack used to put the first window's reads in front even
     /// with unlimited rows, while the key held no region. Panning left then
     /// reused that layout, and every read left of the first window sat below
