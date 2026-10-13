@@ -114,15 +114,20 @@ extension SequenceViewerView {
     /// The draw path calls this instead of packing inline. Until the layout
     /// lands, `draw(_:)` paints the loading badge over the coverage tier — the
     /// main thread is never asked to do `O(reads log rows)` work.
+    ///
+    /// The pack prioritizes exactly `key.prioritizedRegion`. A cached layout is
+    /// reused for every draw with an equal key, so a region the key does not
+    /// record would leave the reused layout ordered for a window the user has
+    /// since panned away from.
     func requestBackgroundPack(
         key: ReadPackCacheKey,
         reads: [AlignedRead],
         frame: ReadPackFrame,
         maxRows: Int?,
         sortMode: ReadSortMode,
-        sortPosition: Int?,
-        prioritizedRegion: Range<Int>?
+        sortPosition: Int?
     ) {
+        let prioritizedRegion = key.prioritizedRegion
         if cachedPackKey == key, cachedPackedReadLayout != nil { return }
         if inFlightPackKey == key { return }
 
@@ -276,8 +281,7 @@ extension SequenceViewerView {
         frame: ReadPackFrame,
         maxRows: Int?,
         sortMode: ReadSortMode = .position,
-        sortPosition: Int? = nil,
-        prioritizedRegion: Range<Int>? = nil
+        sortPosition: Int? = nil
     ) {
         guard let key = inFlightPackKey else { return }
         backgroundPackTask?.cancel()
@@ -288,7 +292,7 @@ extension SequenceViewerView {
             maxRows: maxRows,
             sortMode: sortMode,
             sortPosition: sortPosition,
-            prioritizedRegion: prioritizedRegion,
+            prioritizedRegion: key.prioritizedRegion,
             shouldCancel: nil
         )
         _ = commitPackedLayout(

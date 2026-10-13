@@ -124,8 +124,7 @@ final class DetachedSelectionVisibilityTests: XCTestCase {
         view.testDrainPendingPack(
             reads: view.testCachedAlignedReads.filter { $0.chromosome == region.chromosome },
             frame: ReadPackFrame(frame),
-            maxRows: result.maxRows,
-            prioritizedRegion: region.start..<region.end
+            maxRows: result.maxRows
         )
     }
 }

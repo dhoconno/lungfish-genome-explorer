@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+import LungfishTestSupport
 
 @MainActor
 final class ReadLayoutCacheTests: XCTestCase {
@@ -62,8 +63,7 @@ final class ReadLayoutCacheTests: XCTestCase {
         view.testDrainPendingPack(
             reads: view.testCachedAlignedReads.filter { $0.chromosome == region.chromosome },
             frame: ReadPackFrame(frame),
-            maxRows: result.maxRows,
-            prioritizedRegion: region.start..<region.end
+            maxRows: result.maxRows
         )
         if result.packed.isEmpty {
             result = view.prepareDetachedReadLayout(region: region, frame: frame)
@@ -175,6 +175,50 @@ final class ReadLayoutCacheTests: XCTestCase {
             view.backgroundPackInvocationCount, afterFirst,
             "With unlimited rows the prioritized region does not affect packing, so panning must reuse the layout"
         )
+    }
+
+    /// The background pack used to put the first window's reads in front even
+    /// with unlimited rows, while the key held no region. Panning left then
+    /// reused that layout, and every read left of the first window sat below
+    /// all of its rows, under a band of blank rows (EsViritu BAM, 2026-10-13).
+    /// This waits for the real background pack, so it checks the call site.
+    func testPanningLeftWithUnlimitedRowsKeepsEarlierReadsInTheTopRows() async {
+        let view = makeView()
+        // Two reads start every 50 bp along the first 6,000 bp.
+        let reads = (0..<120).flatMap { index in
+            [makeRead(name: "a\(index)", position: index * 50), makeRead(name: "b\(index)", position: index * 50)]
+        }
+        view.testSetCachedAlignedReads(reads)
+        let frame = makeFrame()
+
+        let originalLimit = view.limitReadRowsSetting
+        defer { view.limitReadRowsSetting = originalLimit }
+        view.limitReadRowsSetting = false
+
+        _ = view.prepareDetachedReadLayout(
+            region: GenomicRegion(chromosome: "chr1", start: 3_000, end: 4_000),
+            frame: frame
+        )
+        await waitUntil(timeout: .seconds(30)) {
+            view.inFlightPackKey == nil
+                && view.cachedPackKey?.readGeneration == view.testCachedReadSetGeneration
+        }
+        let panned = view.prepareDetachedReadLayout(
+            region: GenomicRegion(chromosome: "chr1", start: 1_000, end: 2_000),
+            frame: frame
+        )
+
+        let positionOrder = ReadTrackRenderer.packReads(
+            reads,
+            frame: frame,
+            maxRows: nil,
+            sortMode: .position,
+            prioritizedRegion: nil
+        )
+        XCTAssertEqual(panned.packed.map(\.read.name), positionOrder.packed.map(\.read.name))
+        XCTAssertEqual(panned.packed.map(\.row), positionOrder.packed.map(\.row))
+        let rowsLeftOfFirstWindow = panned.packed.filter { $0.read.alignmentEnd <= 3_000 }.map(\.row)
+        XCTAssertEqual(rowsLeftOfFirstWindow.min(), 0, "Reads left of the first window must start in the top row")
     }
 
     func testCachedLayoutMatchesAFreshPack() {

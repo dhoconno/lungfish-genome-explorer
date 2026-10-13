@@ -15,11 +15,13 @@ import LungfishCore
 /// carries `scale` (quantized so sub-pixel jitter from float division does not
 /// thrash the cache) rather than pretending packing is scale-free.
 ///
-/// `prioritizedRegion` only reorders the input, which changes the outcome *only*
-/// when a max-row cap is active (it decides which reads win the scarce rows).
-/// With unlimited rows every read is placed, so the region is deliberately
-/// excluded from the key in that case — this is what lets panning reuse the
-/// layout instead of repacking every frame.
+/// `prioritizedRegion` moves the reads of a window to the front of the pack so
+/// they win the scarce rows of a max-row cap. The pack uses exactly the region
+/// in its key. With unlimited rows the key holds no region and the pack keeps
+/// plain position order, which is what lets panning reuse the layout instead of
+/// repacking every frame. A prioritized order with no region in the key put
+/// every read left of the first window below all of that window's rows once
+/// the user panned left (blank rows above the reads).
 struct ReadPackCacheKey: Equatable {
 
     /// Bumped whenever `cachedAlignedReads` is reassigned.

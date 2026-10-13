@@ -486,6 +486,8 @@ extension SequenceViewerView {
                     let packStart = max(0, quantizedStart - packPadding)
                     let packEnd = quantizedStart + viewportSpan + packPadding
 
+                    // A capped pack puts first the reads of every window with this key. Each such
+                    // window starts less than one pan quantum after `quantizedStart`.
                     let key = ReadPackCacheKey(
                         readGeneration: cachedReadSetGeneration,
                         chromosome: visibleRegion.chromosome,
@@ -494,7 +496,7 @@ extension SequenceViewerView {
                         sortPosition: readSortModeSetting == .baseAtPosition ? readSortPositionSetting : nil,
                         maxRows: maxRowsLimit,
                         verticalCompress: verticallyCompressContigSetting,
-                        prioritizedRegion: maxRowsLimit == nil ? nil : quantizedStart..<(quantizedStart + viewportSpan),
+                        prioritizedRegion: maxRowsLimit == nil ? nil : quantizedStart..<(quantizedStart + viewportSpan + panQuantum),
                         filterWindow: packStart..<packEnd
                     )
 
@@ -536,8 +538,7 @@ extension SequenceViewerView {
                             frame: ReadPackFrame(frame),
                             maxRows: maxRowsLimit,
                             sortMode: readSortModeSetting,
-                            sortPosition: readSortModeSetting == .baseAtPosition ? readSortPositionSetting : nil,
-                            prioritizedRegion: visibleRegion.start..<visibleRegion.end
+                            sortPosition: readSortModeSetting == .baseAtPosition ? readSortPositionSetting : nil
                         )
                         cachedPackScale = scale
                         cachedPackDataGeneration = readFetchGeneration
@@ -842,10 +843,10 @@ extension SequenceViewerView {
         // `packReads` is scale-dependent (it drops reads narrower than
         // `minReadPixels` and separates rows by a fixed 2px gap), so the key
         // carries the quantized scale rather than pretending packing is purely
-        // genomic. `prioritizedRegion` only reorders the input, which changes
-        // the outcome solely when a row cap is active and decides which reads
-        // win the scarce rows; with unlimited rows every read is placed, so the
-        // region is omitted from the key and panning reuses the layout.
+        // genomic. `prioritizedRegion` only matters when a row cap decides
+        // which reads win the scarce rows. With unlimited rows the key holds no
+        // region, so the pack keeps plain position order and panning can reuse
+        // the layout.
         let key = ReadPackCacheKey(
             readGeneration: cachedReadSetGeneration,
             chromosome: region.chromosome,
@@ -871,8 +872,7 @@ extension SequenceViewerView {
                 frame: ReadPackFrame(frame),
                 maxRows: maxRows,
                 sortMode: readSortModeSetting,
-                sortPosition: readSortModeSetting == .baseAtPosition ? readSortPositionSetting : nil,
-                prioritizedRegion: region.start..<region.end
+                sortPosition: readSortModeSetting == .baseAtPosition ? readSortPositionSetting : nil
             )
             return ([], 0, maxRows)
         }
