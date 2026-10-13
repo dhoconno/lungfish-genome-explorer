@@ -197,6 +197,48 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
         }
     }
 
+    /// Phase 2.10 lane U32. The captured run reports MAFFT's own lines as progress messages, with
+    /// blank lines among them and a bar that stays at one half until the last message. The bridge
+    /// logs each message once, a blank line never blanks the row's detail, and the log holds no
+    /// entry twice in a row.
+    func testTheCapturedRunLogsMAFFTsLinesOnceAndNeverShowsABlankDetail() async throws {
+        let url = repoRoot.appendingPathComponent("Tests/Fixtures/cli-events/commands/align-mafft/complete.ndjson")
+        let tempDir = try makeTemporaryDirectory()
+        let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")
+        try "#!/bin/sh\n/bin/cat '\(url.path)'\n".write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
+        let opID = await MainActor.run {
+            OperationCenter.shared.begin(
+                title: "MAFFT Alignment",
+                detail: "Launching...",
+                operationType: .multipleSequenceAlignmentGeneration,
+                cliCommand: nil
+            ).rowID
+        }
+
+        _ = try await CLIMSAAlignmentRunner(cliURLOverride: fakeCLI).run(arguments: [], operationID: opID)
+        await waitUntil(timeout: .seconds(30)) {
+            await MainActor.run {
+                OperationCenter.shared.items.first { $0.id == opID }?.detail == "MAFFT alignment complete."
+            }
+        }
+        let item = await MainActor.run { OperationCenter.shared.items.first { $0.id == opID } }
+        let logged = (item?.logEntries ?? []).filter { !$0.isElisionMarker }.map { "\($0.level.rawValue): \($0.message)" }
+
+        XCTAssertEqual(logged.first, "info: Starting MAFFT alignment for 1 input file(s).")
+        XCTAssertTrue(logged.contains("info: Gap Penalty = -1.53, +0.00, +0.00"), "a line of MAFFT's own reaches the log")
+        XCTAssertEqual(logged.last, "info: MAFFT alignment complete.")
+        XCTAssertEqual(logged.count, 47, "the captured run's non-empty messages, each once in a row")
+        XCTAssertFalse(logged.contains("info: "), "a blank line is not logged")
+        XCTAssertEqual(zip(logged, logged.dropFirst()).filter { $0 == $1 }.count, 0, "no entry repeats the one before it")
+        XCTAssertEqual(item?.detail, "MAFFT alignment complete.", "the blank lines never blanked the detail")
+        XCTAssertEqual(item?.progress, 1.0)
+        await MainActor.run {
+            _ = OperationCenter.shared.complete(id: opID, detail: "Test complete")
+            OperationCenter.shared.clearItem(id: opID)
+        }
+    }
+
     /// A version 2 completion types the bundle, and the runner reads it by role, even when it is
     /// not the first output. A completion with no artifact falls back on the first output.
     func testRunReadsTheTypedBundleByRoleAndFallsBackOnTheFirstOutput() async throws {
