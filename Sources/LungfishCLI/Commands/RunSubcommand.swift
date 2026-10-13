@@ -722,7 +722,7 @@ struct RunSubcommand: AsyncParsableCommand {
         }
     }
 
-    private func requireExpectedOutputsForExecution() throws {
+    func requireExpectedOutputsForExecution() throws {
         guard !prepareOnly, expectedOutput.isEmpty else { return }
         throw CLIError.workflowFailed(
             reason: "workflow run executions require at least one --expected-output so every final scientific output receives focused provenance. Use --prepare-only or --dry-run for planning-only runs."
@@ -745,7 +745,7 @@ struct RunSubcommand: AsyncParsableCommand {
         }
     }
 
-    private func resolveRunBundleURL(workflowName: String) throws -> URL {
+    func resolveRunBundleURL(workflowName: String) throws -> URL {
         if let bundlePath {
             return URL(fileURLWithPath: bundlePath).standardizedFileURL
         }
@@ -765,7 +765,7 @@ struct RunSubcommand: AsyncParsableCommand {
 
     /// Engine output kept in a run bundle names project files project-relatively
     /// and never the account's home, the tool root or scratch directories.
-    private static func writePortableLog(_ text: String, to url: URL) throws {
+    static func writePortableLog(_ text: String, to url: URL) throws {
         try PortablePath.sanitize(text: text, forFileAt: url).write(to: url, atomically: true, encoding: .utf8)
     }
 
@@ -928,13 +928,13 @@ struct RunSubcommand: AsyncParsableCommand {
         }
     }
 
-    private func expectedOutputRecords(for outputURLs: [URL]) -> [FileRecord] {
+    func expectedOutputRecords(for outputURLs: [URL]) -> [FileRecord] {
         outputURLs.map { outputURL in
             ProvenanceRecorder.fileOrDirectoryRecord(url: outputURL, role: .output)
         }
     }
 
-    private func writeExpectedOutputProvenance(
+    func writeExpectedOutputProvenance(
         _ run: WorkflowRun,
         to outputURLs: [URL],
         resolvedDefaults: [String: ParameterValue] = [:]
