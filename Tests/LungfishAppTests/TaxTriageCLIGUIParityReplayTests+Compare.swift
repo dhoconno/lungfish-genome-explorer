@@ -178,7 +178,7 @@ enum TaxTriageParityComparison {
             case (false, true):
                 found.append(TaxTriageParityDifference(id: "source manifest: only in \(candidate.side): \(name)", detail: ""))
             case (true, true):
-                let lines = try OutputEquivalence.differences(fileA, fileB, kind: .bundle, masks: policy)
+                let lines = try OutputEquivalence.differences(fileA, fileB, kind: .bundle, masks: TaxTriageParityComparison.sourceManifestPolicy(policy))
                 found += lines.map { TaxTriageParityDifference(id: "source manifest: differs: \(name)", detail: $0) }
             case (false, false):
                 break
