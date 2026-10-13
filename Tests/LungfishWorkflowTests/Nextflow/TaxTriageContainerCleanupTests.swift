@@ -54,8 +54,11 @@ final class TaxTriageContainerCleanupTests: XCTestCase {
         ])
         try docker.watch(pids: [engineID], record: recordFile(of: config), scratch: work)
 
+        let clock = ContinuousClock()
+        let cancelledAt = clock.now
         run.cancel()
         let outcome = await run.result
+        let ended = clock.now - cancelledAt
         let record = try ProvenanceEnvelopeReader.load(from: config.outputDirectory)
 
         XCTAssertTrue(outcome.failure is CancellationError, "\(String(describing: outcome.failure))")
@@ -63,7 +66,7 @@ final class TaxTriageContainerCleanupTests: XCTestCase {
         XCTAssertEqual(record?.exitStatus, 125)
         XCTAssertFalse(engineTestProcessIsRunning(engineID), "no process of the tree outlives the run")
         XCTAssertFalse(FileManager.default.fileExists(atPath: work.path), "the scratch goes once the record is written")
-        assertTheCleanupStoppedOnlyTheRunsContainers(docker, ids: ids)
+        assertTheCleanupStoppedOnlyTheRunsContainers(docker, ids: ids, endedAfterTheCancel: ended)
     }
 
     func testACancelledDockerRunNeverWaitsPastTheCleanupBound() async throws {
@@ -82,19 +85,22 @@ final class TaxTriageContainerCleanupTests: XCTestCase {
         let outcome = await run.result
         let waited = clock.now - cancelledAt
         let record = try ProvenanceEnvelopeReader.load(from: config.outputDirectory)
-        let hungPID = docker.hungPID()
-        var stopped = false
-        if let hungPID {
-            stopped = await waitUntil(timeout: .seconds(30)) { !engineTestProcessIsRunning(hungPID) }
-        }
 
         XCTAssertTrue(outcome.failure is CancellationError, "\(String(describing: outcome.failure))")
         XCTAssertEqual(record?.status, .cancelled, "a cleanup that runs out its bound still leaves the record")
         XCTAssertEqual(record?.exitStatus, 125)
         XCTAssertLessThan(waited, .seconds(6), "N5, a docker that hangs holds the run no longer than the 1.5 s bound, \(waited)")
-        XCTAssertNotNil(hungPID, "the cleanup asks docker for the containers")
         XCTAssertGreaterThanOrEqual(waited, .milliseconds(1400), "the run waits for the cleanup up to its bound")
-        XCTAssertTrue(stopped, "the docker that hangs is stopped, so none outlives the cleanup")
+        XCTAssertEqual(docker.arguments().filter { $0.first != "ps" }, [], "nothing more runs once the bound has passed")
+        // The stand-in records its pid once it runs. A loaded machine, such as the parallel unit tier, can leave it
+        // unscheduled for the whole bound, and then the cleanup stops it before it runs a line.
+        if let hungPID = docker.hungPID() {
+            let stopped = await waitUntil(timeout: .seconds(30)) { !engineTestProcessIsRunning(hungPID) }
+            XCTAssertTrue(stopped, "the docker that hangs is stopped, so none outlives the cleanup")
+        } else {
+            let ranLater = await waitUntil(timeout: .seconds(5)) { docker.hungPID() != nil }
+            XCTAssertFalse(ranLater, "a docker the bound stopped before it ran a line never runs, so none outlives the cleanup")
+        }
     }
 
     // MARK: - The executor route
@@ -141,8 +147,11 @@ final class TaxTriageContainerCleanupTests: XCTestCase {
         ])
         try docker.watch(pids: [engineID], record: output.appendingPathComponent(ProvenanceRecorder.provenanceFilename), scratch: work)
 
+        let clock = ContinuousClock()
+        let cancelledAt = clock.now
         run.cancel()
         let report = await run.value
+        let ended = clock.now - cancelledAt
         let record = try ProvenanceEnvelopeReader.load(from: output)
 
         XCTAssertEqual(report.status, .cancelled, report.message ?? "")
@@ -152,7 +161,7 @@ final class TaxTriageContainerCleanupTests: XCTestCase {
         XCTAssertEqual(record?.exitStatus, 125)
         XCTAssertFalse(engineTestProcessIsRunning(engineID), "no process of the tree outlives the run")
         XCTAssertTrue(FileManager.default.fileExists(atPath: work.path), "a cancelled executor launch leaves its scratch for the sweep (N7)")
-        assertTheCleanupStoppedOnlyTheRunsContainers(docker, ids: ids)
+        assertTheCleanupStoppedOnlyTheRunsContainers(docker, ids: ids, endedAfterTheCancel: ended)
     }
 
     // MARK: - Runs that call no docker
@@ -204,27 +213,33 @@ final class TaxTriageContainerCleanupTests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// The cleanup listed every container, read their mounts, killed the run's running container and removed
-    /// both of the run's containers, each id an argument of its own, and at every call the tree was gone, the
-    /// record not yet written and the scratch still in place (N5). The foreign container and the one that
-    /// mounts only the folder holding the scratch were never named.
+    /// Holds the docker calls of a cancelled run to what N5 guarantees, given how long after the cancel the run
+    /// returned.
+    ///
+    /// N5 makes the record wait for the cleanup or for its 1.5 s bound, whichever ends first, and the bound starts
+    /// only once the host tree is gone. A run that returned sooner than the bound after the cancel therefore had its
+    /// cleanup end on its own. The cleanup listed every container, read their mounts, killed the run's running
+    /// container and removed both of the run's containers, each id an argument of its own, and at every call the
+    /// tree was gone, the record not yet written and the scratch still in place. The foreign container and the one
+    /// that mounts only the folder holding the scratch were never named.
+    ///
+    /// Those four calls launch four stand-in processes. A loaded machine, such as the parallel unit tier, can need
+    /// more than the bound to launch them, and then the bound cuts the cleanup as N5 decides, sometimes before its
+    /// first call has run a line. A run that returned at or after the bound is held to what N5 still guarantees, that
+    /// the calls which ran are the first ones of the cleanup and that each came after the tree was gone.
     private func assertTheCleanupStoppedOnlyTheRunsContainers(
         _ docker: NextflowStandInDocker,
         ids: [String],
+        endedAfterTheCancel ended: Duration,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        XCTAssertEqual(
-            docker.arguments(),
-            [
-                ["ps", "--all", "--quiet", "--no-trunc"],
-                ["inspect", "--type", "container", "--format", "{{.Id}}|{{.State.Status}}|{{json .Mounts}}"] + ids,
-                ["kill", ids[0]],
-                ["rm", ids[0], ids[2]],
-            ],
-            file: file,
-            line: line
-        )
+        let cleanup: [[String]] = [
+            ["ps", "--all", "--quiet", "--no-trunc"],
+            ["inspect", "--type", "container", "--format", "{{.Id}}|{{.State.Status}}|{{json .Mounts}}"] + ids,
+            ["kill", ids[0]],
+            ["rm", ids[0], ids[2]],
+        ]
         XCTAssertEqual(
             docker.calls().map(\.argumentCount),
             docker.calls().map(\.arguments.count),
@@ -232,14 +247,29 @@ final class TaxTriageContainerCleanupTests: XCTestCase {
             file: file,
             line: line
         )
+        guard ended >= NextflowEngineProcess.containerCleanupBound else {
+            XCTAssertEqual(docker.arguments(), cleanup, file: file, line: line)
+            XCTAssertEqual(
+                docker.observations(),
+                [
+                    "ps tree=gone record=absent scratch=present",
+                    "kill tree=gone record=absent scratch=present",
+                    "rm tree=gone record=absent scratch=present",
+                ],
+                "N5, the host tree is gone, the record waits and the scratch is in place at every docker call",
+                file: file,
+                line: line
+            )
+            return
+        }
+        let calls = docker.arguments()
+        print("\(name) returned \(ended) after the cancel, so the cleanup bound may have cut it after \(calls.count) of 4 docker calls")
+        XCTAssertEqual(calls, Array(cleanup.prefix(calls.count)), "the calls the bound let run are the cleanup's first ones", file: file, line: line)
+        let seen = docker.observations().map { $0.split(separator: " ").prefix(2).joined(separator: " ") }
         XCTAssertEqual(
-            docker.observations(),
-            [
-                "ps tree=gone record=absent scratch=present",
-                "kill tree=gone record=absent scratch=present",
-                "rm tree=gone record=absent scratch=present",
-            ],
-            "N5, the host tree is gone, the record waits and the scratch is in place at every docker call",
+            seen,
+            Array(["ps tree=gone", "kill tree=gone", "rm tree=gone"].prefix(seen.count)),
+            "N5, each docker call the bound let run came after the host tree was gone",
             file: file,
             line: line
         )
