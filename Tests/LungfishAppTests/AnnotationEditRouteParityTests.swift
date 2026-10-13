@@ -4,9 +4,7 @@
 //
 // Phase 2.10 lane A42 M3, decision C3. An annotation edit whose only inputs are the bundle and
 // typed or selected values runs in process the Workflow function its `lungfish-cli sequence`
-// leaf runs, and its row records that leaf. This class holds g6, Add Annotation. The cases of
-// p1 and p2, the Inspector's update and delete, wait for a ruling on the two record differences
-// their first run found (lane A42 M3 report). Each test makes one reference bundle in root A and
+// leaf runs, and its row records that leaf. Each test makes one reference bundle in root A and
 // copies it to root C. Side A is the app's edit, its begin helper and the call its launch site
 // makes on that row's values. Side C replays the command the row recorded, rebased onto root C,
 // through the leaf in this process. The route parity harness compares the two roots
@@ -29,6 +27,8 @@ import LungfishWorkflow
 final class AnnotationEditRouteParityTests: XCTestCase {
     enum Case: String, Sendable {
         case addAnnotation
+        case updateAnnotation
+        case deleteAnnotation
     }
 
     private var scratch: URL!
@@ -66,6 +66,51 @@ final class AnnotationEditRouteParityTests: XCTestCase {
             return try XCTUnwrap(reporter.items.first?.cliCommand)
         }
         assertAgree(.addAnnotation, found)
+    }
+
+    // MARK: - p1, Update Annotation
+
+    func testUpdateAnnotationWritesWhatSequenceUpdateAnnotationWrites() async throws {
+        let found = try await routeDifferences(.updateAnnotation) { bundle in
+            let location = ReferenceBundleAnnotationRowLocation(trackID: "imported", rowID: try Self.firstRowID(in: bundle))
+            let annotation = SequenceAnnotation(
+                type: .gene,
+                name: "-10 box",
+                chromosome: "chr1",
+                intervals: [AnnotationInterval(start: 2, end: 9)],
+                strand: .reverse,
+                note: "renamed in the Inspector"
+            )
+            let reporter = RecordingOperationReporter()
+            AppDelegate.beginAnnotationUpdateOperation(
+                annotation: annotation, location: location, bundleURL: bundle, routeContext: nil, reporter: reporter
+            )
+            _ = try await ReferenceBundleManualAnnotationService().updateAnnotation(
+                location,
+                name: annotation.name,
+                type: annotation.type.rawValue,
+                strand: annotation.strand.rawValue,
+                note: annotation.note,
+                bundleURL: bundle
+            )
+            return try XCTUnwrap(reporter.items.first?.cliCommand)
+        }
+        assertAgree(.updateAnnotation, found)
+    }
+
+    // MARK: - p2, Delete Annotation
+
+    func testDeleteAnnotationWritesWhatSequenceDeleteAnnotationsWrites() async throws {
+        let found = try await routeDifferences(.deleteAnnotation) { bundle in
+            let location = ReferenceBundleAnnotationRowLocation(trackID: "imported", rowID: try Self.firstRowID(in: bundle))
+            let reporter = RecordingOperationReporter()
+            AppDelegate.beginAnnotationDeletionOperation(
+                location: location, bundleURL: bundle, routeContext: nil, reporter: reporter
+            )
+            _ = try await ReferenceBundleManualAnnotationService().deleteAnnotation(location, bundleURL: bundle)
+            return try XCTUnwrap(reporter.items.first?.cliCommand)
+        }
+        assertAgree(.deleteAnnotation, found)
     }
 
     // MARK: - The two sides

@@ -469,26 +469,16 @@ private func updateAnnotationCommandArguments(
     if let observed = observedProcessSequenceCommandArguments(subcommand: "update-annotation") {
         return observed
     }
-    var arguments = [
-        CLICommandIdentity.executableName,
-        "sequence",
-        "update-annotation",
-        bundle,
-        "--track-id",
-        trackID,
-        "--row-id",
-        String(rowID),
-        "--name",
-        name,
-        "--type",
-        type,
-        "--strand",
-        strand,
-    ]
-    if let note {
-        arguments.append("--note")
-        arguments.append(note)
-    }
+    // Inside another process, the command the app's row records for the same edit. Its values
+    // are joined to their options, so a hyphen-leading name or the strand `-` replays.
+    var arguments = [CLICommandIdentity.executableName] + ReferenceBundleManualAnnotationService.annotationUpdateArguments(
+        location: ReferenceBundleAnnotationRowLocation(trackID: trackID, rowID: rowID),
+        name: name,
+        type: type,
+        strand: strand,
+        note: note,
+        bundleURL: URL(fileURLWithPath: bundle, isDirectory: true)
+    )
     if quiet {
         arguments.append("--quiet")
     }

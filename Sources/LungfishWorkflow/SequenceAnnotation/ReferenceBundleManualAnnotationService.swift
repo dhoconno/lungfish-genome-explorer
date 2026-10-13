@@ -496,8 +496,10 @@ public final class ReferenceBundleManualAnnotationService {
         )
     }
 
+    /// The version this service's records name, the one the `lungfish-cli sequence` leaves
+    /// record. In the app it is the app's own version.
     private func appVersionString() -> String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "debug"
+        LungfishAppVersion.short
     }
 }
 
