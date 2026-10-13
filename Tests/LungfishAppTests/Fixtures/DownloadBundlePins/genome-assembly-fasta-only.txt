@@ -1,0 +1,212 @@
+bundle Lungfish_stand-in_organism_(stand-ins)_-_StandInAsm1.lungfishref
+file genome/sequence.fa.gz gzip content-sha256=673685f1f67b60fdd7bac703a4ee4d15c8426f397d6cec063af98c9ae901612b
+file genome/sequence.fa.gz.fai fasta-index
+  fai SI_000001.1 130 72 60 61
+  fai SI_000002.1 70 276 60 61
+file genome/sequence.fa.gz.gzi bgzf-index
+file manifest.json manifest
+manifest {
+manifest   "alignments" : [
+manifest
+manifest   ],
+manifest   "annotations" : [
+manifest
+manifest   ],
+manifest   "browser_summary" : {
+manifest     "aggregate" : {
+manifest       "alignmentTrackCount" : 0,
+manifest       "annotationTrackCount" : 0,
+manifest       "variantTrackCount" : 0
+manifest     },
+manifest     "schemaVersion" : 1,
+manifest     "sequences" : [
+manifest       {
+manifest         "aliases" : [
+manifest
+manifest         ],
+manifest         "isMitochondrial" : false,
+manifest         "isPrimary" : true,
+manifest         "length" : 130,
+manifest         "name" : "SI_000001.1"
+manifest       },
+manifest       {
+manifest         "aliases" : [
+manifest
+manifest         ],
+manifest         "isMitochondrial" : false,
+manifest         "isPrimary" : true,
+manifest         "length" : 70,
+manifest         "name" : "SI_000002.1"
+manifest       }
+manifest     ]
+manifest   },
+manifest   "description" : "Lungfish stand-in organism (stand-ins) genome assembly StandInAsm1",
+manifest   "format_version" : "1.0",
+manifest   "genome" : {
+manifest     "chromosomes" : [
+manifest       {
+manifest         "aliases" : [
+manifest
+manifest         ],
+manifest         "is_mitochondrial" : false,
+manifest         "is_primary" : true,
+manifest         "length" : 130,
+manifest         "line_bases" : 60,
+manifest         "line_width" : 61,
+manifest         "name" : "SI_000001.1",
+manifest         "offset" : 72
+manifest       },
+manifest       {
+manifest         "aliases" : [
+manifest
+manifest         ],
+manifest         "is_mitochondrial" : false,
+manifest         "is_primary" : true,
+manifest         "length" : 70,
+manifest         "line_bases" : 60,
+manifest         "line_width" : 61,
+manifest         "name" : "SI_000002.1",
+manifest         "offset" : 276
+manifest       }
+manifest     ],
+manifest     "gzip_index_path" : "genome/sequence.fa.gz.gzi",
+manifest     "index_path" : "genome/sequence.fa.gz.fai",
+manifest     "path" : "genome/sequence.fa.gz",
+manifest     "total_length" : 200
+manifest   },
+manifest   "identifier" : "org.ncbi.assembly.gcf_000000001-1",
+manifest   "metadata" : [
+manifest     {
+manifest       "id" : "<uuid>",
+manifest       "items" : [
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Assembly Name",
+manifest           "value" : "StandInAsm1"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Accession",
+manifest           "value" : "GCF_000000001.1"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Status",
+manifest           "value" : "Chromosome"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Level",
+manifest           "value" : "Chromosome"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "RefSeq Category",
+manifest           "value" : "reference genome"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Release Type",
+manifest           "value" : "Major"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Coverage",
+manifest           "value" : "30x"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Contig N50",
+manifest           "value" : "130 bp"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Scaffold N50",
+manifest           "value" : "130 bp"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Total Length",
+manifest           "value" : "200 bp"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Chromosomes",
+manifest           "value" : "2"
+manifest         }
+manifest       ],
+manifest       "name" : "Assembly"
+manifest     },
+manifest     {
+manifest       "id" : "<uuid>",
+manifest       "items" : [
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Organism",
+manifest           "value" : "Lungfish stand-in organism (stand-ins)"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Species",
+manifest           "value" : "Lungfish stand-in organism"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Taxonomy ID",
+manifest           "value" : "9999999"
+manifest         }
+manifest       ],
+manifest       "name" : "Taxonomy"
+manifest     },
+manifest     {
+manifest       "id" : "<uuid>",
+manifest       "items" : [
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Submitter",
+manifest           "value" : "Lungfish Contributors"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Organization",
+manifest           "value" : "Lungfish Contributors"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "BioSample",
+manifest           "value" : "SAMN00000001"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "BioProject",
+manifest           "value" : "PRJNA000001"
+manifest         }
+manifest       ],
+manifest       "name" : "Source"
+manifest     }
+manifest   ],
+manifest   "name" : "Lungfish stand-in organism (stand-ins) - StandInAsm1",
+manifest   "source" : {
+manifest     "assembly" : "StandInAsm1",
+manifest     "assembly_accession" : "GCF_000000001.1",
+manifest     "database" : "NCBI",
+manifest     "notes" : "Downloaded via Lungfish Genome Explorer",
+manifest     "organism" : "Lungfish stand-in organism (stand-ins)",
+manifest     "source_url" : "https://www.ncbi.nlm.nih.gov/assembly/GCF_000000001.1",
+manifest     "taxonomy_id" : 9999999
+manifest   },
+manifest   "tracks" : [
+manifest
+manifest   ],
+manifest   "variants" : [
+manifest
+manifest   ],
+manifest   "warnings" : [
+manifest
+manifest   ]
+manifest }
+provenance none
+request HEAD /genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.fna.gz
+request HEAD /genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.gff.gz
+request GET /genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.fna.gz
+request HEAD /genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_assembly_report.txt

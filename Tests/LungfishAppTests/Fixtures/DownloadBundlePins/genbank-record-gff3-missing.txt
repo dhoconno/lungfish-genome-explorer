@@ -1,0 +1,215 @@
+bundle ZZ000001.1.lungfishref
+file .lungfish-provenance.json provenance
+file annotations/ncbi_genbank_annotations.db sqlite
+file genome/sequence.fa sha256=149f2c005cd3d56b62cde9fa072b251dda022933de4e52ed524501ba9bb8ff79
+file genome/sequence.fa.gz gzip content-sha256=149f2c005cd3d56b62cde9fa072b251dda022933de4e52ed524501ba9bb8ff79
+file genome/sequence.fa.gz.fai fasta-index
+  fai ZZ000001 150 78 60 61
+file genome/sequence.fa.gz.gzi bgzf-index
+file manifest.json manifest
+file provenance/annotations/ncbi_genbank_annotations.db.lungfish-provenance.json provenance
+file provenance/bundle.lungfish-provenance.json provenance
+file provenance/genome/sequence.fa.gz.fai.lungfish-provenance.json provenance
+file provenance/genome/sequence.fa.gz.gzi.lungfish-provenance.json provenance
+file provenance/genome/sequence.fa.gz.lungfish-provenance.json provenance
+file provenance/genome/sequence.fa.lungfish-provenance.json provenance
+file provenance/manifest.json.lungfish-provenance.json provenance
+file provenance/sources/record.gb.lungfish-provenance.json provenance
+file sources/record.gb sha256=49f1c43f557be658688af27a3c4ae3cdb9c9fcfa48db8e71a62b5871ae1281c1
+manifest {
+manifest   "alignments" : [
+manifest
+manifest   ],
+manifest   "annotations" : [
+manifest     {
+manifest       "annotation_type" : "gene",
+manifest       "database_path" : "annotations/ncbi_genbank_annotations.db",
+manifest       "description" : "Converted from GenBank FEATURES",
+manifest       "feature_count" : 5,
+manifest       "id" : "ncbi_genbank_annotations",
+manifest       "name" : "NCBI GenBank Annotations",
+manifest       "path" : "annotations/ncbi_genbank_annotations.db",
+manifest       "source" : "NCBI"
+manifest     }
+manifest   ],
+manifest   "browser_summary" : {
+manifest     "aggregate" : {
+manifest       "alignmentTrackCount" : 0,
+manifest       "annotationTrackCount" : 1,
+manifest       "variantTrackCount" : 0
+manifest     },
+manifest     "schemaVersion" : 1,
+manifest     "sequences" : [
+manifest       {
+manifest         "aliases" : [
+manifest           "ZZ000001.1"
+manifest         ],
+manifest         "isMitochondrial" : false,
+manifest         "isPrimary" : true,
+manifest         "length" : 150,
+manifest         "name" : "ZZ000001"
+manifest       }
+manifest     ]
+manifest   },
+manifest   "description" : "Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence.",
+manifest   "format_version" : "1.0",
+manifest   "genome" : {
+manifest     "chromosomes" : [
+manifest       {
+manifest         "aliases" : [
+manifest           "ZZ000001.1"
+manifest         ],
+manifest         "is_mitochondrial" : false,
+manifest         "is_primary" : true,
+manifest         "length" : 150,
+manifest         "line_bases" : 60,
+manifest         "line_width" : 61,
+manifest         "name" : "ZZ000001",
+manifest         "offset" : 78
+manifest       }
+manifest     ],
+manifest     "gzip_index_path" : "genome/sequence.fa.gz.gzi",
+manifest     "index_path" : "genome/sequence.fa.gz.fai",
+manifest     "path" : "genome/sequence.fa.gz",
+manifest     "total_length" : 150
+manifest   },
+manifest   "identifier" : "org.ncbi.genbank.zz000001-1",
+manifest   "metadata" : [
+manifest     {
+manifest       "id" : "<uuid>",
+manifest       "items" : [
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Accession",
+manifest           "value" : "ZZ000001"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Version",
+manifest           "value" : "ZZ000001.1"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Definition",
+manifest           "value" : "Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence."
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Molecule Type",
+manifest           "value" : "RNA"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Topology",
+manifest           "value" : "linear"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Division",
+manifest           "value" : "VRL"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Date",
+manifest           "value" : "01-JAN-2024"
+manifest         }
+manifest       ],
+manifest       "name" : "Record"
+manifest     },
+manifest     {
+manifest       "id" : "<uuid>",
+manifest       "items" : [
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Length",
+manifest           "value" : "150 bp"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Name",
+manifest           "value" : "ZZ000001"
+manifest         },
+manifest         {
+manifest           "id" : "<uuid>",
+manifest           "label" : "Description",
+manifest           "value" : "Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence."
+manifest         }
+manifest       ],
+manifest       "name" : "Sequence"
+manifest     }
+manifest   ],
+manifest   "name" : "ZZ000001.1",
+manifest   "source" : {
+manifest     "assembly" : "ZZ000001",
+manifest     "assembly_accession" : "ZZ000001.1",
+manifest     "database" : "NCBI",
+manifest     "notes" : "Downloaded from NCBI GenBank and converted to Lungfish reference bundle",
+manifest     "organism" : "Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence.",
+manifest     "source_url" : "https://www.ncbi.nlm.nih.gov/nuccore/ZZ000001.1"
+manifest   },
+manifest   "tracks" : [
+manifest
+manifest   ],
+manifest   "variants" : [
+manifest
+manifest   ],
+manifest   "warnings" : [
+manifest
+manifest   ]
+manifest }
+annotations annotations/ncbi_genbank_annotations.db total=5
+annotation annotations/ncbi_genbank_annotations.db ZZ000001 0 150 + source source blocks=1/150,/0, gene=- attributes=_lf_raw_genbank_location=1..150;db_xref=taxon:0;isolate=LGE-1;mol_type=genomic%20RNA;organism=Lungfish%20stand-in%20virus
+annotation annotations/ncbi_genbank_annotations.db ZZ000001 0 9 + 5'UTR 5'UTR blocks=1/9,/0, gene=- attributes=_lf_raw_genbank_location=1..9
+annotation annotations/ncbi_genbank_annotations.db ZZ000001 9 140 + CDS orf1 blocks=2/51,80,/0,51, gene=orf1 attributes=_lf_raw_genbank_location=join(10..60,60..140);codon_start=1;gene=orf1;locus_tag=LGE_001;product=stand-in%20polyprotein%3B%20with%20a%20semicolon;protein_id=ZZP00001.1;ribosomal_slippage=;translation=MSTNPKPQRKTKRNTNRRPQDVKFPGG
+annotation annotations/ncbi_genbank_annotations.db ZZ000001 9 140 + gene orf1 blocks=1/131,/0, gene=orf1 attributes=_lf_raw_genbank_location=10..140;gene=orf1;locus_tag=LGE_001
+annotation annotations/ncbi_genbank_annotations.db ZZ000001 99 120 - misc_feature misc_feature blocks=1/21,/0, gene=- attributes=_lf_raw_genbank_location=complement(100..120);note=stand-in%20hairpin%20%3D%20folded
+provenance workflow gui-genbank-download exit 0
+provenance stderr GFF3 fetch fallback: Record not found: https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nucleotide&id=ZZ000001.1&rettype=gff3&retmode=text
+provenance option annotationFallback explicit="GenBank FEATURES when GFF3 is unavailable" default=- resolved="GenBank FEATURES when GFF3 is unavailable"
+provenance option condaEnvironments explicit="htslib, samtools (see per-step runtime identities)" default=- resolved="htslib, samtools (see per-step runtime identities)"
+provenance option containerRuntime explicit="none" default=- resolved="none"
+provenance option includeGFF3Annotations explicit=true default=true resolved=true
+provenance option keepUncompressedFASTA explicit=true default=- resolved=true
+provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=- resolved=file:<OUT>/ZZ000001.1.lungfishref
+provenance option requestedAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+provenance option resolvedAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+provenance step 0 NCBI EFetch (URLSession) exit 0
+  command curl --fail --location 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=gb&retmode=text' --output '<OUT>/ZZ000001.1.lungfishref/sources/record.gb'
+  option accession="ZZ000001.1"
+  option commandPurpose="Pinned replay URL; transport may resolve an accession through ESearch"
+  option database="nuccore"
+  option retmode="text"
+  option rettype="gb"
+  in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=gb&retmode=text sha256=49f1c43f557be658688af27a3c4ae3cdb9c9fcfa48db8e71a62b5871ae1281c1
+  out <OUT>/ZZ000001.1.lungfishref/sources/record.gb sha256=49f1c43f557be658688af27a3c4ae3cdb9c9fcfa48db8e71a62b5871ae1281c1
+provenance step 1 GenBankReader.readAll (first record) + FASTAWriter.write exit 0
+  argv host
+  option sequenceName="ZZ000001"
+  in <OUT>/ZZ000001.1.lungfishref/sources/record.gb sha256=49f1c43f557be658688af27a3c4ae3cdb9c9fcfa48db8e71a62b5871ae1281c1
+  out <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa sha256=149f2c005cd3d56b62cde9fa072b251dda022933de4e52ed524501ba9bb8ff79
+provenance step 2 bgzip exit 0
+  argv bgzip -f -k -@ <threads> <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa
+  in <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa sha256=149f2c005cd3d56b62cde9fa072b251dda022933de4e52ed524501ba9bb8ff79
+  out <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
+provenance step 3 samtools exit 0
+  argv samtools faidx <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz
+  in <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
+  out <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=ec8a2ae8b8ee74bfe65552c7874303064a518204a1980d4a35ff4810b87736fc
+  out <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
+provenance step 4 writeGenBankAnnotationsToBED + clipBEDCoordinates + AnnotationDatabase.createFromBED exit 0
+  argv host
+  option bedFormat="BED12+"
+  option chromosome="ZZ000001"
+  option clipToChromosomeBounds=true
+  option preserveQualifiers=true
+  in <OUT>/ZZ000001.1.lungfishref/sources/record.gb sha256=49f1c43f557be658688af27a3c4ae3cdb9c9fcfa48db8e71a62b5871ae1281c1
+  out <OUT>/ZZ000001.1.lungfishref/annotations/ncbi_genbank_annotations.db sha256=build-dependent
+provenance output <OUT>/ZZ000001.1.lungfishref/annotations/ncbi_genbank_annotations.db sha256=build-dependent
+provenance output <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa sha256=149f2c005cd3d56b62cde9fa072b251dda022933de4e52ed524501ba9bb8ff79
+provenance output <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
+provenance output <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=ec8a2ae8b8ee74bfe65552c7874303064a518204a1980d4a35ff4810b87736fc
+provenance output <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
+provenance output <OUT>/ZZ000001.1.lungfishref/manifest.json sha256=build-dependent
+provenance output <OUT>/ZZ000001.1.lungfishref/sources/record.gb sha256=49f1c43f557be658688af27a3c4ae3cdb9c9fcfa48db8e71a62b5871ae1281c1
+request https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nucleotide&id=ZZ000001.1&rettype=gb&retmode=text
+request https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nucleotide&id=ZZ000001.1&rettype=gff3&retmode=text

@@ -1,0 +1,75 @@
+bundle PP_00LGE01.1.lungfishref
+file genome/sequence.fa.gz gzip content-sha256=34c846248e064a3259587245822d225694f0d5085ea86c3d271e5beb1fae7499
+file genome/sequence.fa.gz.fai fasta-index
+  fai PP_00LGE01.1 185 51 80 81
+file genome/sequence.fa.gz.gzi bgzf-index
+file manifest.json manifest
+manifest {
+manifest   "alignments" : [
+manifest
+manifest   ],
+manifest   "annotations" : [
+manifest
+manifest   ],
+manifest   "browser_summary" : {
+manifest     "aggregate" : {
+manifest       "alignmentTrackCount" : 0,
+manifest       "annotationTrackCount" : 0,
+manifest       "variantTrackCount" : 0
+manifest     },
+manifest     "schemaVersion" : 1,
+manifest     "sequences" : [
+manifest       {
+manifest         "aliases" : [
+manifest
+manifest         ],
+manifest         "isMitochondrial" : false,
+manifest         "isPrimary" : true,
+manifest         "length" : 185,
+manifest         "name" : "PP_00LGE01.1"
+manifest       }
+manifest     ]
+manifest   },
+manifest   "description" : "Lungfish stand-in Pathoplexus record",
+manifest   "format_version" : "1.0",
+manifest   "genome" : {
+manifest     "chromosomes" : [
+manifest       {
+manifest         "aliases" : [
+manifest
+manifest         ],
+manifest         "is_mitochondrial" : false,
+manifest         "is_primary" : true,
+manifest         "length" : 185,
+manifest         "line_bases" : 80,
+manifest         "line_width" : 81,
+manifest         "name" : "PP_00LGE01.1",
+manifest         "offset" : 51
+manifest       }
+manifest     ],
+manifest     "gzip_index_path" : "genome/sequence.fa.gz.gzi",
+manifest     "index_path" : "genome/sequence.fa.gz.fai",
+manifest     "path" : "genome/sequence.fa.gz",
+manifest     "total_length" : 185
+manifest   },
+manifest   "identifier" : "org.pathoplexus.pp_00lge01-1",
+manifest   "name" : "PP_00LGE01.1",
+manifest   "source" : {
+manifest     "assembly" : "PP_00LGE01.1",
+manifest     "assembly_accession" : "PP_00LGE01.1",
+manifest     "database" : "Pathoplexus",
+manifest     "notes" : "Sequence downloaded from Pathoplexus and converted to Lungfish reference bundle",
+manifest     "organism" : "Lungfish stand-in Pathoplexus record",
+manifest     "source_url" : "https://pathoplexus.org/seq/PP_00LGE01.1"
+manifest   },
+manifest   "tracks" : [
+manifest
+manifest   ],
+manifest   "variants" : [
+manifest
+manifest   ],
+manifest   "warnings" : [
+manifest
+manifest   ]
+manifest }
+provenance none

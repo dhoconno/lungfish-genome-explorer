@@ -80,19 +80,6 @@ final class GenBankBundleDownloadViewModelTests: XCTestCase {
         XCTAssertNotNil(viewModel)
     }
 
-    func testDownloadAndBuildFetchesGFF3AnnotationsByDefault() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/ViewModels/GenBankBundleDownloadViewModel.swift"),
-            encoding: .utf8
-        )
-
-        XCTAssertTrue(source.contains("includeGFF3Annotations: Bool = true"))
-        XCTAssertTrue(source.contains("format: .gff3"))
-        XCTAssertTrue(source.contains("AnnotationDatabase.createFromGFF3"))
-        XCTAssertTrue(source.contains("fallback to GenBank FEATURES"))
-    }
-
     func testSingleSequenceAccessionAliasesIncludeResolvedVersion() {
         let chromosomes = [
             ChromosomeInfo(
@@ -253,12 +240,5 @@ final class GenBankBundleDownloadViewModelTests: XCTestCase {
         XCTAssertTrue(SearchPhase.complete(count: 1).message.contains("result"))
         XCTAssertFalse(SearchPhase.complete(count: 1).message.contains("results"))
         XCTAssertTrue(SearchPhase.complete(count: 2).message.contains("results"))
-    }
-
-    private func repositoryRoot() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
     }
 }
