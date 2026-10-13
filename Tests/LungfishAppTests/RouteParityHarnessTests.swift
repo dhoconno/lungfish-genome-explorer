@@ -179,6 +179,36 @@ final class RouteParityHarnessTests: XCTestCase {
         XCTAssertEqual(found[.side(.cPrime)], [])
     }
 
+    // MARK: - The dump
+
+    /// The dump keeps the case's roots and a report of each side's end, the recorded command, every
+    /// difference by scope and every failure, which is where a family reads its counts (review note 3).
+    func testTheDumpKeepsTheRootsAndAReport() throws {
+        let (a, c) = try sides(["rows.tsv": "x\n"], ["rows.tsv": "y\n"])
+        let cPrimeRoot = scratch.appendingPathComponent(RouteParitySide.cPrime.folderName, isDirectory: true)
+        try FileManager.default.copyItem(at: c.root, to: cPrimeRoot)
+        let runs = RouteParityRuns(
+            caseRoot: scratch,
+            a: a,
+            c: RouteParitySideRun(side: .c, root: c.root, outcome: RouteParitySideOutcome(end: .completed, recordedCommand: "lungfish-cli x")),
+            cPrime: RouteParitySideRun(side: .cPrime, root: cPrimeRoot, outcome: RouteParitySideOutcome(end: .completed))
+        )
+        let dump = try TestTempDirectory.make(prefix: "route-parity-dump")
+        defer { TestTempDirectory.cleanup(dump) }
+
+        let result = try harness.evaluate("rows", declared: [RouteParityDeclaredDifference<String>](), runs: runs, dumpingTo: dump)
+        XCTAssertEqual(result.failures.count, 2)
+        let report = try String(contentsOf: dump.appendingPathComponent("rows/report.txt"), encoding: .utf8)
+        for expected in [
+            "side C: Completed, \nrecorded command:\nlungfish-cli x\n",
+            "A against C: 2\n  differs: rows.tsv: only in A: x\n  differs: rows.tsv: only in C: y\nC against C': 0\n",
+            "failures: 2\n  A against C: not declared: differs: rows.tsv: only in A: x\n",
+        ] {
+            XCTAssertTrue(report.contains(expected), "report.txt lacks \(expected) in:\n\(report)")
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dump.appendingPathComponent("rows/A-route/rows.tsv").path))
+    }
+
     // MARK: - Standard output in process (2.8 Q4, the second half of 2.10 Q14)
 
     /// `dup` fails, so standard output cannot be saved. The capture throws before the body runs

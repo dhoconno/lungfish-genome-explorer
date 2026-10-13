@@ -30,6 +30,11 @@
 //         sideC: { root in try await Self.cliRoute(root) }
 //     )
 //
+// Stand-in tools that answer both sides come in through `environment`, from each side's root. A
+// case that cancels passes a `RouteParityCancel`, side C cancels its run at that point through
+// `runCLI`, side C' is cancelled at the same point, and `assertParity` checks both with lane
+// S30's assertions (RouteParityHarness+Cancel.swift).
+//
 // A class that runs an external tool ends in `ReplayTests`, which sends it to the integration
 // tier. `LUNGFISH_PARITY_DUMP=<folder>` keeps each case's roots and findings in that folder, the
 // way the counts of a declared list are read.
@@ -87,11 +92,20 @@ public struct RouteParitySideOutcome: Sendable {
     public var detail: String
     /// The command the side's row recorded. Side C must record one, and side C' replays it.
     public var recordedCommand: String?
+    /// What the cancel of the side's CLI run observed, when `runCLI` cancelled it. A case that
+    /// cancels checks it with S30's assertions (RouteParityHarness+Cancel.swift).
+    public var cancel: RouteParityCancelObservation?
 
-    public init(end: RouteParityEnd, detail: String = "", recordedCommand: String? = nil) {
+    public init(
+        end: RouteParityEnd,
+        detail: String = "",
+        recordedCommand: String? = nil,
+        cancel: RouteParityCancelObservation? = nil
+    ) {
         self.end = end
         self.detail = detail
         self.recordedCommand = recordedCommand
+        self.cancel = cancel
     }
 }
 
@@ -157,17 +171,23 @@ public struct RouteParityHarness: Sendable {
     public let masks: OutputEquivalence.MaskPolicy
     /// How long each line of side C' may run before the replay ends as failed.
     public let replayTimeout: Duration
+    /// The variables each CLI run gets over the app's subprocess environment, from the side's
+    /// root, such as the stand-in tools that answer both sides (panel G5). Side C' runs with
+    /// them, and a side C that calls `runCLI` passes them too.
+    public let environment: @Sendable (URL) -> [String: String]
 
     public init(
         cliBinary: URL,
         kind: OutputEquivalence.Kind,
         masks: OutputEquivalence.MaskPolicy = .standard,
-        replayTimeout: Duration = .seconds(600)
+        replayTimeout: Duration = .seconds(600),
+        environment: @escaping @Sendable (URL) -> [String: String] = { _ in [:] }
     ) {
         self.cliBinary = cliBinary
         self.kind = kind
         self.masks = masks
         self.replayTimeout = replayTimeout
+        self.environment = environment
     }
 
     /// The root of `side` in `caseRoot`.
@@ -180,10 +200,12 @@ public struct RouteParityHarness: Sendable {
     /// Builds the fixture in root A, copies root A to roots C and C' before any side runs, then
     /// runs side A, side C and side C', the replay of the command side C recorded. A side that
     /// throws ends the case with that error. `caseRoot` is removed first, so it must be a folder
-    /// of the case's own, never the test's scratch root.
+    /// of the case's own, never the test's scratch root. With `cancel`, side C' is cancelled at
+    /// its point, as side C's closure cancels side C.
     @MainActor
     public func run(
         in caseRoot: URL,
+        cancel: RouteParityCancel? = nil,
         fixture: (URL) throws -> Void,
         sideA: (URL) async throws -> RouteParitySideOutcome,
         sideC: (URL) async throws -> RouteParitySideOutcome
@@ -200,13 +222,17 @@ public struct RouteParityHarness: Sendable {
         let runA = RouteParitySideRun(side: .a, root: rootA, outcome: try await sideA(rootA))
         let rootC = Self.root(of: .c, in: caseRoot)
         let runC = RouteParitySideRun(side: .c, root: rootC, outcome: try await sideC(rootC))
-        let runCPrime = await replay(of: runC, in: Self.root(of: .cPrime, in: caseRoot))
+        let runCPrime = await replay(of: runC, in: Self.root(of: .cPrime, in: caseRoot), cancel: cancel)
         return RouteParityRuns(caseRoot: caseRoot, a: runA, c: runC, cPrime: runCPrime, fixture: fixtureDigests)
     }
 
     /// Side C'. The command `c` recorded, rebased from root C onto `root` and run line by line by
-    /// the built CLI through the real transport, stopping at the first line that does not complete.
-    public func replay(of c: RouteParitySideRun, in root: URL) async -> RouteParitySideRun {
+    /// the built CLI through the real transport, with `environment` for `root`, stopping at the
+    /// first line that does not complete. With `cancel`, a line is cancelled once its point is
+    /// reached. Side C' sees a warning the way side C's row does, as a `log` event at `warning`,
+    /// which the CLI prints under `--format json`. A route records the argv it ran, that option
+    /// included, so a line without it ends Completed where side C warned, and the detail says so.
+    public func replay(of c: RouteParitySideRun, in root: URL, cancel: RouteParityCancel? = nil) async -> RouteParitySideRun {
         guard let command = c.outcome.recordedCommand else {
             let outcome = RouteParitySideOutcome(end: .failed, detail: "not run, side C recorded no command")
             return RouteParitySideRun(side: .cPrime, root: root, outcome: outcome)
@@ -219,55 +245,80 @@ public struct RouteParityHarness: Sendable {
             let outcome = RouteParitySideOutcome(end: .failed, detail: "not run, the recorded command does not rebase: \(error)")
             return RouteParitySideRun(side: .cPrime, root: root, outcome: outcome)
         }
+        var isReached: (@Sendable () -> Bool)?
+        if let cancel {
+            isReached = { cancel.isReached(root) }
+        }
         var warned = false
         for arguments in replayed {
-            let run = await Self.runCLI(cliBinary, arguments: arguments, timeout: replayTimeout)
+            let run = await Self.runCLI(
+                cliBinary, arguments: arguments, timeout: replayTimeout, environment: environment(root), cancelWhen: isReached
+            )
             switch run.end {
             case .completed:
                 continue
             case .completedWithWarnings:
                 warned = true
             case .failed, .cancelled:
-                let outcome = RouteParitySideOutcome(end: run.end, detail: run.detail)
+                let outcome = RouteParitySideOutcome(end: run.end, detail: run.detail, cancel: run.cancel)
                 return RouteParitySideRun(side: .cPrime, root: root, outcome: outcome, replayedArguments: replayed)
             }
         }
-        let outcome = RouteParitySideOutcome(end: warned ? .completedWithWarnings : .completed, detail: "exit 0")
+        let silent = replayed.filter { !Self.printsEvents($0) }.count
+        let detail = silent == 0 ? "exit 0" : "exit 0, \(silent) of \(replayed.count) lines without --format json, which print no warning event"
+        let outcome = RouteParitySideOutcome(end: warned ? .completedWithWarnings : .completed, detail: detail)
         return RouteParitySideRun(side: .cPrime, root: root, outcome: outcome, replayedArguments: replayed)
+    }
+
+    /// Whether `arguments` ask the CLI for its JSON event lines.
+    static func printsEvents(_ arguments: [String]) -> Bool {
+        arguments.contains("--format=json") || zip(arguments, arguments.dropFirst()).contains { $0 == ("--format", "json") }
     }
 
     // MARK: - Checking a case
 
     /// Every difference `runs` holds and the lines that fail `parityCase` against `declared`. With
-    /// `LUNGFISH_PARITY_DUMP` set, the case's roots and findings are copied there first.
+    /// a dump folder, `LUNGFISH_PARITY_DUMP` unless the caller names one, the case's roots and
+    /// findings are copied there first.
     public func evaluate<Case: Hashable & Sendable>(
         _ parityCase: Case,
         declared: [RouteParityDeclaredDifference<Case>],
-        runs: RouteParityRuns
+        runs: RouteParityRuns,
+        dumpingTo dumpFolder: URL? = RouteParityHarness.dumpFolder
     ) throws -> RouteParityResult {
         let found = try differences(of: runs)
         let failures = Self.failures(found: found, parityCase: parityCase, declared: declared)
-        try Self.dumpIfRequested("\(parityCase)", runs: runs, found: found, failures: failures)
+        if let dumpFolder {
+            try Self.dump("\(parityCase)", runs: runs, found: found, failures: failures, in: dumpFolder)
+        }
         return RouteParityResult(runs: runs, found: found, failures: failures)
     }
 
     /// Runs `parityCase` on its three sides in `caseRoot` and fails the test with every
-    /// difference `declared` does not hold, and every entry whose count no longer holds.
+    /// difference `declared` does not hold, and every entry whose count no longer holds. With
+    /// `cancel`, sides C and C' must each have been cancelled through the real transport and pass
+    /// S30's check (`assertCancelled`).
     @MainActor
     @discardableResult
     public func assertParity<Case: Hashable & Sendable>(
         _ parityCase: Case,
         declared: [RouteParityDeclaredDifference<Case>],
         in caseRoot: URL,
+        cancel: RouteParityCancel? = nil,
         fixture: (URL) throws -> Void,
         sideA: (URL) async throws -> RouteParitySideOutcome,
         sideC: (URL) async throws -> RouteParitySideOutcome,
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws -> RouteParityResult {
-        let runs = try await run(in: caseRoot, fixture: fixture, sideA: sideA, sideC: sideC)
+        let runs = try await run(in: caseRoot, cancel: cancel, fixture: fixture, sideA: sideA, sideC: sideC)
         let result = try evaluate(parityCase, declared: declared, runs: runs)
         Self.assertNoFailures(result.failures, in: "\(parityCase)", file: file, line: line)
+        if let cancel {
+            for side in [runs.c, runs.cPrime] {
+                await Self.assertCancelled(side, cancel, file: file, line: line)
+            }
+        }
         return result
     }
 
@@ -291,15 +342,16 @@ public struct RouteParityHarness: Sendable {
         }
     }
 
-    /// Copies the case root into the case's dump folder and writes each side's end, the command
-    /// side C recorded, the lines side C' ran and every difference and failure beside it.
-    static func dumpIfRequested(
+    /// Copies the case root into the case's folder in `dumpFolder` and writes each side's end, the
+    /// command side C recorded, the lines side C' ran and every difference and failure beside it.
+    static func dump(
         _ parityCase: String,
         runs: RouteParityRuns,
         found: [RouteParityScope: [RouteParityDifference]],
-        failures: [String]
+        failures: [String],
+        in dumpFolder: URL
     ) throws {
-        guard let folder = dumpFolder?.appendingPathComponent(parityCase, isDirectory: true) else { return }
+        let folder = dumpFolder.appendingPathComponent(parityCase, isDirectory: true)
         let fileManager = FileManager.default
         try? fileManager.removeItem(at: folder)
         try fileManager.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true)

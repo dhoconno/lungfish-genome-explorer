@@ -12,6 +12,12 @@
 // difference counted, and an undeclared difference, a wrong count and one changed byte each fail.
 // The harness's rebase is the contract's.
 //
+// Lane Q30 M2 adds the terminal states through the real transport (QA 4). A side C that fails
+// ends Failed on sides C and C' (translate of a missing input), a warning ends every side
+// Completed with Warnings (`import msa` of repeated row names), and a cancel ends every side
+// Cancelled and passes lane S30's check on sides C and C' (`workflow run` on the stand-in engine
+// S30's suite cancels).
+//
 // It launches the built lungfish-cli, so its name ends in ReplayTests, which sends it to the
 // integration tier, where the CLI is built.
 
@@ -20,6 +26,7 @@ import XCTest
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
+import LungfishWorkflow
 
 @MainActor
 final class RouteParityHarnessReplayTests: XCTestCase {
@@ -28,6 +35,8 @@ final class RouteParityHarnessReplayTests: XCTestCase {
 
     enum Case: String, Sendable {
         case translate
+        case warns
+        case cancels
     }
 
     override func setUpWithError() throws {
@@ -143,6 +152,190 @@ final class RouteParityHarnessReplayTests: XCTestCase {
         XCTAssertEqual(try harness.evaluate(Case.translate, declared: declared, runs: twoValues).failures, [
             "A against C: not declared: differs: proteins.fasta.lungfish-provenance.json at status\n        A \"completef\", C \"completed\"",
         ])
+    }
+
+    // MARK: - Terminal states through the real transport (QA 4)
+
+    /// Side C fails where side A completes. A against C finds the end first, side C' fails the
+    /// same way, and C against C' holds nothing.
+    func testASideCThatFailsEndsFailedOnBothCLISides() async throws {
+        let runs = try await harness.run(
+            in: scratch.appendingPathComponent("fails", isDirectory: true),
+            fixture: Self.writeFixture,
+            sideA: { try await self.sideA($0, writesNote: false) },
+            sideC: { root in
+                let arguments = [
+                    "translate", root.appendingPathComponent("missing.fasta").path, "--frame", "1",
+                    "--output", root.appendingPathComponent("proteins.fasta").path,
+                ]
+                let run = await RouteParityHarness.runCLI(self.harness.cliBinary, arguments: arguments, timeout: .seconds(30))
+                let command = OperationCenter.buildCLICommand(subcommand: "translate", args: Array(arguments.dropFirst()))
+                return RouteParitySideOutcome(end: run.end, detail: run.detail, recordedCommand: command)
+            }
+        )
+        XCTAssertEqual(runs.all.map(\.outcome.end), [.completed, .failed, .failed], runs.all.map(\.outcome.detail).joined(separator: "\n"))
+        let found = try harness.evaluate(Case.translate, declared: [], runs: runs).found
+        XCTAssertEqual(found[.aAgainstC]?.first?.id, "end: A Completed, C Failed")
+        XCTAssertEqual(found[.cAgainstCPrime], [])
+    }
+
+    /// `import msa` warns that row names repeat and exits 0. Under `--format json` the warning is
+    /// an event, so every side ends Completed with Warnings, side C' included. The only
+    /// differences are the contract's digest gap, described below.
+    func testAWarningEndsEverySideCompletedWithWarnings() async throws {
+        let runs = try await harness.run(
+            in: scratch.appendingPathComponent("warns", isDirectory: true),
+            fixture: { root in
+                try ">row\nAC-GT\n>row\nACGGT\n".write(to: root.appendingPathComponent("rows.fasta"), atomically: true, encoding: .utf8)
+            },
+            sideA: { root in
+                let run = await RouteParityHarness.runCLI(self.harness.cliBinary, arguments: Self.importArguments(in: root), timeout: .seconds(30))
+                return RouteParitySideOutcome(end: run.end, detail: run.detail)
+            },
+            sideC: { root in
+                let arguments = Self.importArguments(in: root)
+                let run = await RouteParityHarness.runCLI(self.harness.cliBinary, arguments: arguments, timeout: .seconds(30))
+                let command = OperationCenter.buildCLICommand(subcommand: "import msa", args: Array(arguments.dropFirst(2)))
+                return RouteParitySideOutcome(end: run.end, detail: run.detail, recordedCommand: command)
+            }
+        )
+        XCTAssertEqual(
+            runs.all.map(\.outcome.end), [.completedWithWarnings, .completedWithWarnings, .completedWithWarnings],
+            runs.all.map(\.outcome.detail).joined(separator: "\n")
+        )
+        let found = try harness.evaluate(Case.warns, declared: [], runs: runs).found
+        let record = "differs: rows.lungfishmsa/.lungfish-provenance.json at output"
+        let manifest = "differs: rows.lungfishmsa/manifest.json at"
+        XCTAssertEqual(found[.aAgainstC]?.map(\.id), [
+            "\(record).checksumSHA256", "\(manifest) checksums.metadata/source-row-map.json",
+        ])
+        XCTAssertEqual(found[.cAgainstCPrime]?.map(\.id), [
+            "\(record).checksumSHA256", "\(record).fileSize",
+            "\(manifest) checksums.metadata/source-row-map.json", "\(manifest) fileSizes.metadata/source-row-map.json",
+        ])
+        XCTAssertEqual(RouteParitySide.allCases.compactMap { found[.side($0)] }, [[], [], []])
+    }
+
+    // The contract's digest gap (lane Q30 M2 finding). docs/contracts/CLI-EQUIVALENCE.md masks the
+    // checksum and size a record states for a file both trees hold that is compared by content.
+    // `contentComparedDigests` finds such a file only as the `path` beside a digest key, so it
+    // keeps the digest a record states for a bundle folder, and the digests a manifest keys by a
+    // relative path. Both cover bytes that name the side root, so they differ between any two
+    // roots. The warning and cancel cases pin those differences until a reviewed change to the
+    // contract's masks closes the gap. No family may declare them, since C against C' declares
+    // nothing.
+
+    /// A cancel through the real transport on the leaf S30's suites cancel, `workflow run` on a
+    /// stand-in Nextflow that starts a stand-in JVM. Each side is cancelled once its stand-in JVM
+    /// runs. Every side ends Cancelled, sides C and C' pass S30's check, exit 125 inside the grace,
+    /// a cancelled record and no process left (QC-2), and the only differences are the contract's
+    /// digest gap on the bundle folder.
+    func testACancelEndsEverySideCancelledAndPassesTheSIGTERMCheck() async throws {
+        let tools = scratch.appendingPathComponent("tools", isDirectory: true)
+        try Self.installNextflowLikeEngine(in: tools.appendingPathComponent("conda", isDirectory: true))
+        for folder in ["home", "storage"] {
+            try FileManager.default.createDirectory(at: tools.appendingPathComponent(folder, isDirectory: true), withIntermediateDirectories: true)
+        }
+        let cancelling = RouteParityHarness(
+            cliBinary: harness.cliBinary, kind: .bundle, replayTimeout: .seconds(30),
+            environment: { root in Self.engineEnvironment(tools: tools, root: root) }
+        )
+        let cancel = RouteParityCancel(
+            when: { root in FileManager.default.fileExists(atPath: Self.pidFile("java", of: root).path) },
+            record: { root in
+                try LocalWorkflowRunBundleStore.read(from: root.appendingPathComponent("attempt.lungfishrun")).executionStatus.rawValue
+            }
+        )
+        func cancelledRun(_ root: URL, recordsCommand: Bool) async -> RouteParitySideOutcome {
+            let arguments = Self.workflowArguments(in: root)
+            let run = await RouteParityHarness.runCLI(
+                cancelling.cliBinary, arguments: arguments, timeout: .seconds(30),
+                environment: cancelling.environment(root), cancelWhen: { cancel.isReached(root) }
+            )
+            let command = OperationCenter.buildCLICommand(subcommand: "workflow run", args: Array(arguments.dropFirst(2)))
+            return RouteParitySideOutcome(
+                end: run.end, detail: run.detail, recordedCommand: recordsCommand ? command : nil, cancel: run.cancel
+            )
+        }
+        let runs = try await cancelling.run(
+            in: scratch.appendingPathComponent("cancels", isDirectory: true),
+            cancel: cancel,
+            fixture: { root in
+                try "// invented fixture; never executed\n".write(to: root.appendingPathComponent("main.nf"), atomically: true, encoding: .utf8)
+            },
+            sideA: { await cancelledRun($0, recordsCommand: false) },
+            sideC: { await cancelledRun($0, recordsCommand: true) }
+        )
+        XCTAssertEqual(runs.all.map(\.outcome.end), [.cancelled, .cancelled, .cancelled], runs.all.map(\.outcome.detail).joined(separator: "\n"))
+        XCTAssertEqual(runs.cPrime.replayedArguments, [Self.workflowArguments(in: runs.cPrime.root)])
+        for side in [runs.c, runs.cPrime] {
+            await RouteParityHarness.assertCancelled(side, cancel)
+        }
+
+        let found = try cancelling.evaluate(Case.cancels, declared: [], runs: runs).found
+        let record = "differs: attempt.lungfishrun/.lungfish-provenance.json at"
+        let folderDigests = ["files[1]", "output", "outputs[0]", "steps[0].outputs[0]"]
+        XCTAssertEqual(found[.aAgainstC]?.map(\.id), folderDigests.map { "\(record) \($0).checksumSHA256" })
+        XCTAssertEqual(
+            found[.cAgainstCPrime]?.map(\.id),
+            folderDigests.flatMap { ["\(record) \($0).checksumSHA256", "\(record) \($0).fileSize"] }
+        )
+        XCTAssertEqual(RouteParitySide.allCases.compactMap { found[.side($0)] }, [[], [], []])
+    }
+
+    /// The arguments after the binary of a `workflow run` of `main.nf` in `root`.
+    nonisolated static func workflowArguments(in root: URL) -> [String] {
+        let results = root.appendingPathComponent("results", isDirectory: true)
+        return [
+            "workflow", "run", root.appendingPathComponent("main.nf").path,
+            "--results-dir", results.path,
+            "--expected-output", results.appendingPathComponent("result.txt").path,
+            "--bundle-path", root.appendingPathComponent("attempt.lungfishrun").path,
+            "--quiet",
+        ]
+    }
+
+    /// The file the stand-in writes a process ID to for the side whose root is `root`, beside the
+    /// side root so the sides' roots stay comparable.
+    nonisolated static func pidFile(_ name: String, of root: URL) -> URL {
+        root.deletingLastPathComponent().appendingPathComponent("\(root.lastPathComponent).\(name).pid")
+    }
+
+    /// The stand-in engine's conda root, home and storage under `tools`, and the process ID files
+    /// of the side whose root is `root`.
+    nonisolated static func engineEnvironment(tools: URL, root: URL) -> [String: String] {
+        [
+            "LUNGFISH_CONDA_ROOT": tools.appendingPathComponent("conda", isDirectory: true).path,
+            "LUNGFISH_STORAGE_ROOT": tools.appendingPathComponent("storage", isDirectory: true).path,
+            "LUNGFISH_CONDA_SHARED_PKGS": "0",
+            "CFFIXED_USER_HOME": tools.appendingPathComponent("home", isDirectory: true).path,
+            "ENGINE_PID_FILE": pidFile("engine", of: root).path,
+            "JAVA_PID_FILE": pidFile("java", of: root).path,
+        ]
+    }
+
+    /// A stand-in for the managed Nextflow launcher under `condaRoot`, as WorkflowRunSIGTERMTests
+    /// installs it. It records its process ID, starts a background child that stands in for the
+    /// JVM and records that one's, and waits.
+    static func installNextflowLikeEngine(in condaRoot: URL) throws {
+        let script = condaRoot.appendingPathComponent("envs/nextflow/bin/nextflow")
+        try FileManager.default.createDirectory(at: script.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        echo $$ > "$ENGINE_PID_FILE"
+        /bin/sh -c 'echo $$ > "$JAVA_PID_FILE"; exec /bin/sleep 300' &
+        wait
+        """.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+    }
+
+    /// The arguments after the binary of an `import msa` of `rows.fasta` in `root`.
+    static func importArguments(in root: URL) -> [String] {
+        [
+            "import", "msa", root.appendingPathComponent("rows.fasta").path,
+            "--project", root.path, "--output", root.appendingPathComponent("rows.lungfishmsa").path,
+            "--format", "json",
+        ]
     }
 
     // MARK: - The rebase

@@ -5,8 +5,9 @@
 // Phase 2.10 lane Q30.
 //
 // - `runCLI` launches the built `lungfish-cli` through `CLIProcessLauncher`, the launch every CLI
-//   route of the app uses, with the app's subprocess environment. Side C' runs each line of the
-//   recorded command this way, and a family's side C may too.
+//   route of the app uses, with the app's subprocess environment, grace and drain, and cancels it
+//   the way the app's Cancel does when asked (RouteParityHarness+Cancel.swift). Side C' runs each
+//   line of the recorded command this way, and a family's side C may too.
 // - `rebased` is the rebase of docs/contracts/CLI-EQUIVALENCE.md, the same rule as
 //   `RecordedCLICommand.rebased` in LungfishAppTests, which RouteParityHarnessReplayTests pins.
 // - `capturingStandardOutput` runs a command in this process with its standard output in a file,
@@ -46,25 +47,58 @@ extension RouteParityHarness {
         public let detail: String
         public let stdout: String
         public let stderr: String
+        /// What the cancel observed, when `runCLI` cancelled the run.
+        public let cancel: RouteParityCancelObservation?
     }
 
-    /// Runs the built CLI at `binary` with `arguments` through `CLIProcessLauncher`, and stops it
-    /// as failed after `timeout`. Standard output is kept, and a warning event on it makes a clean
-    /// exit complete with warnings.
-    public static func runCLI(_ binary: URL, arguments: [String], timeout: Duration) async -> CLIRun {
-        var spec = CLIProcessLauncher.spec(executableURL: binary, arguments: arguments, standardOutput: .captured)
+    /// Runs the built CLI at `binary` with `arguments` through `CLIProcessLauncher`, with the
+    /// grace and drain every GUI route gives it and `environment` laid over the app's subprocess
+    /// environment, and stops it as failed after `timeout`. Standard output is kept, and a warning
+    /// event on it makes a clean exit complete with warnings. With `cancelWhen`, the run is
+    /// cancelled the way the app's Cancel reaches a CLI route once `cancelWhen` holds, read every
+    /// 20 ms for up to 30 seconds (RouteParityHarness+Cancel.swift).
+    public static func runCLI(
+        _ binary: URL,
+        arguments: [String],
+        timeout: Duration,
+        environment: [String: String] = [:],
+        cancelWhen isReached: (@Sendable () -> Bool)? = nil
+    ) async -> CLIRun {
+        var spec = CLIProcessLauncher.spec(
+            executableURL: binary,
+            arguments: arguments,
+            standardOutput: .captured,
+            terminationGracePeriod: CLIProcessLauncher.operationGrace,
+            drainGracePeriod: CLIProcessLauncher.operationDrain
+        )
         spec.timeout = timeout
-        switch await CLIProcessLauncher.run(spec, cancellation: CLIRunCancellation()) {
+        spec.environment.merge(environment) { _, override in override }
+        let cancellation = CLIRunCancellation()
+        let ended = RunEnd()
+        let watch = isReached.map { cancelOnce(cancellation, when: $0, unless: ended) }
+        let outcome = await CLIProcessLauncher.run(spec, cancellation: cancellation)
+        let endedAt = ContinuousClock.now
+        ended.set()
+        let sent = await watch?.value
+        func observed(_ status: Int32?) -> RouteParityCancelObservation? {
+            sent.map { RouteParityCancelObservation(status: status, elapsed: endedAt - $0.sent, tree: $0.tree) }
+        }
+        switch outcome {
         case .exited(let exit):
             var end = RouteParityEnd.ofExit(exit.status, warned: warned(exit.stdout))
             if exit.incompleteOutput != nil, end != .cancelled { end = .failed }
             let detail = end == .failed ? "exit \(exit.status): \(tail(exit.failureDetail))" : "exit \(exit.status)"
-            return CLIRun(status: exit.status, end: end, detail: detail, stdout: exit.stdout, stderr: exit.stderr)
+            return CLIRun(
+                status: exit.status, end: end, detail: detail, stdout: exit.stdout, stderr: exit.stderr, cancel: observed(exit.status)
+            )
         case .cancelled(let exit):
             let detail = exit.map { "cancelled, exit \($0.status)" } ?? "cancelled before launch"
-            return CLIRun(status: exit?.status, end: .cancelled, detail: detail, stdout: exit?.stdout ?? "", stderr: exit?.stderr ?? "")
+            return CLIRun(
+                status: exit?.status, end: .cancelled, detail: detail, stdout: exit?.stdout ?? "", stderr: exit?.stderr ?? "",
+                cancel: observed(exit?.status)
+            )
         case .launchFailed(let reason):
-            return CLIRun(status: nil, end: .failed, detail: "no exit: \(reason)", stdout: "", stderr: "")
+            return CLIRun(status: nil, end: .failed, detail: "no exit: \(reason)", stdout: "", stderr: "", cancel: nil)
         }
     }
 
