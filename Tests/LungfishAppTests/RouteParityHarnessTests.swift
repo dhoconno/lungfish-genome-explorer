@@ -7,9 +7,23 @@
 // class stays in the unit tier. RouteParityHarnessReplayTests runs the built CLI on all three sides.
 
 import Foundation
+import Synchronization
 import XCTest
 import LungfishKitTestSupport
 import LungfishTestSupport
+
+/// Counts the calls of a stand-in descriptor call, from any thread.
+private final class DescriptorCallCounter: Sendable {
+    private let count = Mutex(0)
+
+    /// The number of this call, from 1.
+    func next() -> Int {
+        count.withLock { value in
+            value += 1
+            return value
+        }
+    }
+}
 
 final class RouteParityHarnessTests: XCTestCase {
     private var scratch: URL!
@@ -163,6 +177,73 @@ final class RouteParityHarnessTests: XCTestCase {
             "command: side C records no command",
         ])
         XCTAssertEqual(found[.side(.cPrime)], [])
+    }
+
+    // MARK: - Standard output in process (2.8 Q4, the second half of 2.10 Q14)
+
+    /// `dup` fails, so standard output cannot be saved. The capture throws before the body runs
+    /// and leaves standard output where it was.
+    func testAFailedDupThrowsBeforeTheBodyRuns() async throws {
+        try await assertCaptureFails(.notSaved, bodyRuns: false) { system, _ in
+            RouteParityHarness.DescriptorCalls(dup: { _ in -1 }, dup2: system.dup2)
+        }
+    }
+
+    /// The `dup2` that sends standard output to the file fails. The capture puts standard output
+    /// back and throws before the body runs.
+    func testAFailedRedirectPutsStandardOutputBackAndThrows() async throws {
+        try await assertCaptureFails(.notMoved, bodyRuns: false) { system, calls in
+            RouteParityHarness.DescriptorCalls(dup: system.dup, dup2: { calls.next() == 1 ? -1 : system.dup2($0, $1) })
+        }
+    }
+
+    /// The `dup2` that puts standard output back fails after the body ran. The capture throws, and
+    /// the test puts standard output back itself.
+    func testAFailedRestoreThrows() async throws {
+        try await assertCaptureFails(.notRestored, bodyRuns: true) { system, calls in
+            RouteParityHarness.DescriptorCalls(dup: system.dup, dup2: { calls.next() == 2 ? -1 : system.dup2($0, $1) })
+        }
+    }
+
+    /// Runs a capture with the calls `make` builds and asserts it throws `expected`, ran its body
+    /// or not, and, unless the restore failed, left standard output where it was. Standard output
+    /// is put back before any assertion, whatever the capture did, so every failure shows.
+    private func assertCaptureFails(
+        _ expected: RouteParityHarness.StandardOutputError,
+        bodyRuns: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ make: (RouteParityHarness.DescriptorCalls, DescriptorCallCounter) -> RouteParityHarness.DescriptorCalls
+    ) async throws {
+        let original = dup(STDOUT_FILENO)
+        defer {
+            dup2(original, STDOUT_FILENO)
+            close(original)
+        }
+        let before = try Self.standardOutputIdentity()
+        var ran = false
+        var thrown: (any Error)?
+        do {
+            _ = try await RouteParityHarness.capturingStandardOutput(
+                in: scratch, descriptors: make(.system, DescriptorCallCounter())
+            ) { ran = true }
+        } catch {
+            thrown = error
+        }
+        let after = try Self.standardOutputIdentity()
+        dup2(original, STDOUT_FILENO)
+        XCTAssertEqual(thrown as? RouteParityHarness.StandardOutputError, expected, "\(String(describing: thrown))", file: file, line: line)
+        XCTAssertEqual(ran, bodyRuns, "whether the body ran", file: file, line: line)
+        if expected != .notRestored {
+            XCTAssertEqual(after, before, "standard output stays where it was", file: file, line: line)
+        }
+    }
+
+    /// The device and inode standard output points at.
+    private static func standardOutputIdentity() throws -> [Int64] {
+        var info = stat()
+        guard fstat(STDOUT_FILENO, &info) == 0 else { throw POSIXError(.EBADF) }
+        return [Int64(info.st_dev), Int64(bitPattern: info.st_ino)]
     }
 
     /// Compresses `file` in place with gzip, which leaves `<file>.gz`.

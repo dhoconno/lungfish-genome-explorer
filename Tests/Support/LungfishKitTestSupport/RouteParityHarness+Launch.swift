@@ -138,11 +138,48 @@ extension RouteParityHarness {
 
     // MARK: - Standard output in process
 
+    /// The two descriptor calls `capturingStandardOutput` makes, which a test replaces to make
+    /// one of them fail.
+    public struct DescriptorCalls: Sendable {
+        public var dup: @Sendable (Int32) -> Int32
+        public var dup2: @Sendable (Int32, Int32) -> Int32
+
+        public init(dup: @escaping @Sendable (Int32) -> Int32, dup2: @escaping @Sendable (Int32, Int32) -> Int32) {
+            self.dup = dup
+            self.dup2 = dup2
+        }
+
+        /// The system's `dup` and `dup2`.
+        public static let system = DescriptorCalls(dup: { Darwin.dup($0) }, dup2: { Darwin.dup2($0, $1) })
+    }
+
+    /// Why `capturingStandardOutput` could not move standard output to its file or back.
+    public enum StandardOutputError: Error, Equatable, CustomStringConvertible {
+        /// `dup` could not save standard output, so nothing moved and the body did not run.
+        case notSaved
+        /// `dup2` could not send standard output to the file. It was put back, and the body did not run.
+        case notMoved
+        /// `dup2` could not put standard output back after the body ran, so it still goes to the file.
+        case notRestored
+
+        public var description: String {
+            switch self {
+            case .notSaved: return "dup could not save standard output, so the command did not run."
+            case .notMoved: return "dup2 could not send standard output to the events file, so the command did not run."
+            case .notRestored: return "dup2 could not put standard output back, so it still goes to the events file."
+            }
+        }
+    }
+
     /// Runs `body` with this process's standard output sent to a new file in `folder`, puts
     /// standard output back, and returns what `body` returned with the lines it printed. An error
-    /// `body` throws is thrown once standard output is back.
+    /// `body` throws is thrown once standard output is back. Each descriptor call is checked
+    /// (2.8 Q4). A failed `dup` throws before `body` runs, a failed move puts standard output back
+    /// and throws before `body` runs, and a failed restore throws ``StandardOutputError/notRestored``
+    /// whatever `body` did.
     public static func capturingStandardOutput<Value>(
         in folder: URL,
+        descriptors: DescriptorCalls = .system,
         isolation: isolated (any Actor)? = #isolation,
         _ body: () async throws -> Value
     ) async throws -> (value: Value, lines: [String]) {
@@ -151,8 +188,17 @@ extension RouteParityHarness {
         FileManager.default.createFile(atPath: file.path, contents: nil)
         let handle = try FileHandle(forWritingTo: file)
         fflush(stdout)
-        let savedStdout = dup(STDOUT_FILENO)
-        dup2(handle.fileDescriptor, STDOUT_FILENO)
+        let savedStdout = descriptors.dup(STDOUT_FILENO)
+        guard savedStdout >= 0 else {
+            try? handle.close()
+            throw StandardOutputError.notSaved
+        }
+        guard descriptors.dup2(handle.fileDescriptor, STDOUT_FILENO) >= 0 else {
+            _ = descriptors.dup2(savedStdout, STDOUT_FILENO)
+            close(savedStdout)
+            try? handle.close()
+            throw StandardOutputError.notMoved
+        }
         let result: Result<Value, any Error>
         do {
             result = .success(try await body())
@@ -160,9 +206,10 @@ extension RouteParityHarness {
             result = .failure(error)
         }
         fflush(stdout)
-        dup2(savedStdout, STDOUT_FILENO)
+        let restored = descriptors.dup2(savedStdout, STDOUT_FILENO)
         close(savedStdout)
         try handle.close()
+        guard restored >= 0 else { throw StandardOutputError.notRestored }
         let value = try result.get()
         let lines = String(decoding: try Data(contentsOf: file), as: UTF8.self)
             .split(separator: "\n")
