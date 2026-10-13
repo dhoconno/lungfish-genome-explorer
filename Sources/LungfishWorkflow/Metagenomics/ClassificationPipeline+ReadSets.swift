@@ -43,6 +43,23 @@ extension ClassificationPipeline {
         )
     }
 
+    /// Saves the failed record of a run that stopped after its interleaved split and before kraken2, with the
+    /// removal of the halves in it. The split step names both halves, and the run's `defer` removes their
+    /// folder on this exit, so the record says that they are gone, as a step that depends on the step that
+    /// made them (row 268 of Phase 2.8). A run that split nothing records no removal.
+    func persistRunFailedAfterInterleavedSplit(
+        halves: [FileRecord], splitStepID: UUID?, provenanceRecorder: ProvenanceRecorder, runID: UUID,
+        requestedConfig: ClassificationConfig, effectiveConfig: ClassificationConfig, resolution: BrackenProfileResolution?
+    ) async throws {
+        await Self.removeInterleavedSplit(
+            halves, of: effectiveConfig, recorder: provenanceRecorder, runID: runID, dependsOn: [splitStepID].compactMap { $0 }
+        )
+        try await persistInterruptedClassificationRun(
+            provenanceRecorder: provenanceRecorder, runID: runID, requestedConfig: requestedConfig,
+            effectiveConfig: effectiveConfig, resolution: resolution, status: .failed, profileState: "failed"
+        )
+    }
+
     /// Re-checks a request to split one input as interleaved pairs against
     /// the records, through the shared layout resolver.
     ///

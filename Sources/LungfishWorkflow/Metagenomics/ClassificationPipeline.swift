@@ -554,9 +554,9 @@ public actor ClassificationPipeline {
                 dependsOn: [replayMaterializationStepID].compactMap { $0 }
             )
         } catch {
-            try await persistInterruptedClassificationRun(
-                provenanceRecorder: provenanceRecorder, runID: runID, requestedConfig: config,
-                effectiveConfig: effectiveConfig, resolution: profileResolution, status: .failed, profileState: "failed"
+            try await persistRunFailedAfterInterleavedSplit(
+                halves: interleavedHalves, splitStepID: interleavedSplitStepID, provenanceRecorder: provenanceRecorder,
+                runID: runID, requestedConfig: config, effectiveConfig: effectiveConfig, resolution: profileResolution
             )
             throw error
         }
