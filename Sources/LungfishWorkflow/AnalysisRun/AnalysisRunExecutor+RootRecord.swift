@@ -34,8 +34,9 @@ extension AnalysisRunExecutor {
     /// holds the reason a run did not complete and every warning. A completed run lists the
     /// finalize's outputs, which are hashed here once, and the files the finalize names as a step
     /// of the run recorded them, which are not. Every other descriptor is one the tool already
-    /// took, so a failed or cancelled run hashes nothing, and a cancelled run's record is written
-    /// within the grace its command has after the cancel.
+    /// took, such as those of the steps the units and then the finalize recorded as each ended, so
+    /// a failed or cancelled run hashes nothing and keeps those steps (2.9 R6), and a cancelled
+    /// run's record is written within the grace its command has after the cancel.
     ///
     /// A completed run whose record cannot be built or written becomes a failed run. A record of a
     /// run that did not complete is tried with what the tool recorded, then without it, so a

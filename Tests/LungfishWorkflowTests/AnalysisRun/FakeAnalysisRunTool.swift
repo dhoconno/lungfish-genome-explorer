@@ -187,12 +187,10 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
     /// `fake-finalize-1` and on, each writing the file ``finalizeStepURL(_:in:)`` names and naming
     /// it with the digest it took. Nil keeps the one `fake-index` step.
     var finalizeStepCount: Int?
-    /// The step boundary at which that finalize cancels its own run, after this many of its steps,
-    /// 0 before the first. It then stops, and throws or returns what it wrote.
-    var finalizeCancelsAfterStep: Int?
-    /// Whether that finalize throws once it cancelled, as an index build that sees the cancel does,
-    /// instead of returning what it wrote.
-    var finalizeThrowsAfterCancel = false
+    /// The step boundary at which that finalize stops, after this many of its steps, 0 before the
+    /// first, in the way ``finalizeStop`` says.
+    var finalizeStopsAfterStep: Int?
+    var finalizeStop: FinalizeStop = .cancelThenReturn
     /// A finalize that writes `kept.fastq` into the root and names it as a recorded input and
     /// output with ``recordedDigest``, which is not the file's SHA-256.
     var finalizeRecordsKeptFile = false
@@ -202,6 +200,16 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
     enum PlanCancel: Sendable {
         case cancelAndThrow
         case cancelAndReturn
+    }
+
+    /// How a finalize of ``finalizeStepCount`` steps stops at ``finalizeStopsAfterStep``.
+    enum FinalizeStop: Sendable {
+        /// Cancels the run, then returns what it wrote.
+        case cancelThenReturn
+        /// Cancels the run, then throws, as an index build that sees the cancel does.
+        case cancelThenThrow
+        /// Throws this message with no cancel request, as an index build that fails does.
+        case fail(String)
     }
 
     /// Cancels the task the executor runs in, as the command's SIGTERM handling does.
@@ -386,13 +394,14 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
                 ProvenanceFileDescriptor(path: kept.path, checksumSHA256: Self.recordedDigest, fileSize: 3, format: .fastq, role: $0)
             }
         }
-        var steps = [ProvenanceStep(toolName: "fake-index", toolVersion: "1.0", argv: ["fake-index", summary.path])]
+        // Each step goes to the root record through the context as it ends (2.9 R6).
         if let finalizeStepCount {
-            steps = try runFinalizeSteps(finalizeStepCount, in: context.rootDirectory)
+            try runFinalizeSteps(finalizeStepCount, context: context)
+        } else {
+            context.recordStep(ProvenanceStep(toolName: "fake-index", toolVersion: "1.0", argv: ["fake-index", summary.path]))
         }
         return AnalysisRunFinalization(
             outputs: finalizeOutputs ? [AnalysisRunOutput(url: summary, format: .text)] : [],
-            steps: steps,
             sourceRecords: sourceRecords,
             artifacts: [CLIEventArtifact(kind: "tsv", path: summary.path, role: "summary")],
             completionDetail: "\(units.filter { $0.outcome.completed }.count) of \(units.count) samples classified",
@@ -402,25 +411,27 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
         )
     }
 
-    /// Runs the finalize's whole steps, `fake-finalize-1` up to `count`, and hands each over as it
-    /// ends, into the steps this returns for the finalization. At the boundary
-    /// ``finalizeCancelsAfterStep`` names it cancels the run and stops, and throws when
-    /// ``finalizeThrowsAfterCancel`` says so.
-    private func runFinalizeSteps(_ count: Int, in root: URL) throws -> [ProvenanceStep] {
-        var steps: [ProvenanceStep] = []
+    /// Runs the finalize's whole steps, `fake-finalize-1` up to `count`, and records each through
+    /// the context as it ends. At the boundary ``finalizeStopsAfterStep`` names it stops as
+    /// ``finalizeStop`` says.
+    private func runFinalizeSteps(_ count: Int, context: AnalysisRunFinalizeContext) throws {
         for boundary in 0...count {
-            if boundary == finalizeCancelsAfterStep {
-                Self.cancelCurrentTask()
-                if finalizeThrowsAfterCancel {
+            if boundary == finalizeStopsAfterStep {
+                switch finalizeStop {
+                case .cancelThenReturn:
+                    Self.cancelCurrentTask()
+                case .cancelThenThrow:
+                    Self.cancelCurrentTask()
                     throw CancellationError()
+                case .fail(let message):
+                    throw FakeToolError(message: message)
                 }
                 break
             }
             if boundary < count {
-                steps.append(try Self.finalizeStep(boundary + 1, in: root))
+                context.recordStep(try Self.finalizeStep(boundary + 1, in: context.rootDirectory))
             }
         }
-        return steps
     }
 
     /// Writes the file of finalize step `number` and returns the whole step that wrote it, which

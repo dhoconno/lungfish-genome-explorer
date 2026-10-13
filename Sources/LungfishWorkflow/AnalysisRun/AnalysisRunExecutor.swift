@@ -56,9 +56,11 @@ public struct AnalysisRunServices: Sendable {
 /// `SIGTERMCancellation` cancelling it, or the services' `cancelRequested`, which can report the
 /// SIGTERM before the task is cancelled. The status `cancelled` and exit 125 come from that cancel
 /// request and never from how a unit or its child process ended (SWIFT X2), so a unit that fails
-/// or throws while a cancel is requested ends the run as cancelled. The cancelled path skips the
-/// finalize, records only descriptors the tool already took and hashes no partial output, so it
-/// ends well inside the grace the app's transport gives a cancelled command.
+/// or throws while a cancel is requested ends the run as cancelled. A cancel during the units skips
+/// the finalize, and a cancel during the finalize keeps the steps it recorded as each ended whole
+/// and drops the rest of its finalization (2.9 R6). The cancelled path records only descriptors the
+/// tool already took and hashes no partial output, so it ends well inside the grace the app's
+/// transport gives a cancelled command.
 ///
 /// The executor keeps no state of its own. Each `execute` call keeps its run state in locals,
 /// so one executor can run several requests (SWIFT X3).
@@ -240,8 +242,10 @@ public struct AnalysisRunExecutor: Sendable {
                     finalizeShare: tool.finalizeProgressShare
                 )
             )
-            // A cancel during the finalize drops what it wrote from the record, so nothing
-            // partial is hashed.
+            // A cancel during the finalize drops what the finalization names, its outputs, recorded
+            // files, source records and artifacts, so nothing partial is hashed. The steps the
+            // finalize recorded through its context as each ended stay in the journal, and the root
+            // record names them with the digests those steps took (2.9 R6).
             guard !cancelIsRequested else { return (.cancelled, nil) }
             finalization.warnings.forEach(journal.warn)
             if let options = finalization.options {
@@ -249,6 +253,8 @@ public struct AnalysisRunExecutor: Sendable {
             }
             return (.completed, finalization)
         } catch {
+            // A finalize that throws keeps the steps it recorded too, whether a cancel or a
+            // failure ended it.
             guard !cancelIsRequested else { return (.cancelled, nil) }
             let reason = "The \(tool.identity.displayName) results could not be finished: \(Self.reason(for: error))"
             return (.failed(reason: reason, exitCode: AnalysisRunExitCode.workflowError), nil)

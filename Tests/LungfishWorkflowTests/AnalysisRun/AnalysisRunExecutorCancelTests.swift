@@ -158,7 +158,7 @@ struct AnalysisRunExecutorCancelTests {
         #expect(recorder.names == ["start", "failed", "start", "failed"])
     }
 
-    @Test("A cancel during the finalize drops what it wrote from the record")
+    @Test("A cancel during the finalize keeps the steps that ended and drops the rest of what it wrote")
     func cancelDuringTheFinalize() async throws {
         let fixture = try AnalysisRunTestProject()
         defer { fixture.cleanup() }
@@ -179,7 +179,8 @@ struct AnalysisRunExecutorCancelTests {
         #expect(record.status == .cancelled)
         #expect(!record.files.contains { $0.path.hasSuffix("summary.tsv") })
         #expect(!record.files.contains { $0.path.hasSuffix("/kept.fastq") })
-        #expect(!record.steps.contains { $0.toolName == "fake-index" })
+        // The finalize's step that ended before the run did stays, after the unit's (2.9 R6).
+        #expect(record.steps.map(\.toolName) == ["fake-classifier", "fake-index"])
         #expect(AnalysisRunRecord.load(from: try #require(report.analysisDirectory))?.outcome == .cancelled)
         #expect(!FileManager.default.fileExists(atPath: bundle.appendingPathComponent(AnalysisManifest.filename).path))
     }

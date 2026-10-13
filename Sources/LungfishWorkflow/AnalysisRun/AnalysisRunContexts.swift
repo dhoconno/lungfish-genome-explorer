@@ -138,6 +138,7 @@ public struct AnalysisRunFinalizeContext: Sendable {
     private let indexing: (any AnalysisResultIndexing)?
     private let finalizeShare: Double
     private let recordedStepsHandler: @Sendable () -> [ProvenanceStep]
+    private let stepRecorder: @Sendable (ProvenanceStep) -> Void
     private let logHandler: @Sendable (CLIEventLogLevel, String) -> Void
     private let progressHandler: @Sendable (Double, String) -> Void
 
@@ -151,6 +152,7 @@ public struct AnalysisRunFinalizeContext: Sendable {
         indexing: (any AnalysisResultIndexing)?,
         finalizeShare: Double = 0,
         recordedSteps: @escaping @Sendable () -> [ProvenanceStep] = { [] },
+        recordStep: @escaping @Sendable (ProvenanceStep) -> Void = { _ in },
         log: @escaping @Sendable (CLIEventLogLevel, String) -> Void = { _, _ in },
         progress: @escaping @Sendable (Double, String) -> Void = { _, _ in }
     ) {
@@ -161,15 +163,31 @@ public struct AnalysisRunFinalizeContext: Sendable {
         self.indexing = indexing
         self.finalizeShare = AnalysisRunJournal.clampedShare(finalizeShare)
         self.recordedStepsHandler = recordedSteps
+        self.stepRecorder = recordStep
         self.logHandler = log
         self.progressHandler = progress
     }
 
     /// The steps the units handed to the root record, such as a launch's step with the digest and
-    /// size of each file it wrote. A finalize whose index build removes files passes their
-    /// descriptors to ``buildIndex(recordedFiles:)`` (2.8 T5 as amended in 2.9).
+    /// size of each file it wrote, and none of the finalize's own (``recordStep(_:)``). A finalize
+    /// whose index build removes files passes their descriptors to ``buildIndex(recordedFiles:)``
+    /// (2.8 T5 as amended in 2.9).
     public var recordedSteps: [ProvenanceStep] {
         recordedStepsHandler()
+    }
+
+    /// Adds a step of the finalize to the root record as soon as it ends whole, such as an index
+    /// build's step with the digest and size of the database it wrote. Its descriptors are used as
+    /// they are and never hashed again. The root record lists it after the units' steps, in the
+    /// order the finalize recorded it and before ``AnalysisRunFinalization/steps``, so a step goes
+    /// through one of the two and never both.
+    ///
+    /// A run that a cancel or a thrown error ends during the finalize keeps every step recorded
+    /// before then, and a cancel drops the finalization's outputs, recorded files, source records
+    /// and artifacts (2.9 R6). So record a step once it ended whole, and never one whose outputs
+    /// are partial.
+    public func recordStep(_ step: ProvenanceStep) {
+        stepRecorder(step)
     }
 
     /// Writes a log line to the run's events. A warning line also becomes one of the run's warnings.

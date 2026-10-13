@@ -18,7 +18,11 @@ final class AnalysisRunJournal: Sendable {
     private struct State {
         var warnings: [String] = []
         var inputs: [ProvenanceFileDescriptor] = []
+        /// The steps the units handed over.
         var steps: [ProvenanceStep] = []
+        /// The whole steps the finalize handed over as each ended (2.9 R6), apart from the units'
+        /// so the finalize reads only theirs.
+        var finalizeSteps: [ProvenanceStep] = []
         /// The root record's options, the plan's with every later contribution merged in.
         var options = AnalysisRootRecordOptions()
         /// The replay argv a unit recorded, which replaces the request's.
@@ -79,6 +83,12 @@ final class AnalysisRunJournal: Sendable {
         state.withLock { $0.steps.append(step) }
     }
 
+    /// Keeps a step the finalize handed over as it ended whole, for the root record after the
+    /// units' steps, so a run that ends during the finalize still names it (2.9 R6).
+    func recordFinalizeStep(_ step: ProvenanceStep) {
+        state.withLock { $0.finalizeSteps.append(step) }
+    }
+
     /// Merges options into the root record's, in the order they arrive (see
     /// ``AnalysisRootRecordOptions``). The executor records the plan's first.
     func recordOptions(_ options: AnalysisRootRecordOptions) {
@@ -112,8 +122,15 @@ final class AnalysisRunJournal: Sendable {
         state.withLock { $0.inputs }
     }
 
-    var recordedSteps: [ProvenanceStep] {
+    /// The steps the units handed over, which the finalize reads.
+    var recordedUnitSteps: [ProvenanceStep] {
         state.withLock { $0.steps }
+    }
+
+    /// The steps the root record names before the finalization's, the units' and then the
+    /// finalize's, each in the order it was handed over.
+    var recordedSteps: [ProvenanceStep] {
+        state.withLock { $0.steps + $0.finalizeSteps }
     }
 
     var recordedOptions: AnalysisRootRecordOptions {
@@ -168,7 +185,8 @@ final class AnalysisRunJournal: Sendable {
             toolID: toolID,
             indexing: indexing,
             finalizeShare: finalizeShare,
-            recordedSteps: { self.recordedSteps },
+            recordedSteps: { self.recordedUnitSteps },
+            recordStep: { step in self.recordFinalizeStep(step) },
             log: { level, message in self.log(level, message) },
             progress: { fraction, message in self.emit(.progress(fraction: fraction, message: message)) }
         )
