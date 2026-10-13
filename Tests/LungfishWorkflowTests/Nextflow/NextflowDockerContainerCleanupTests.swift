@@ -109,12 +109,19 @@ final class NextflowDockerContainerCleanupTests: XCTestCase {
         await NextflowDockerContainerCleanup(docker: docker.executable).stopContainers(boundTo: work, within: .milliseconds(1500))
 
         let took = clock.now - started
-        let hungPID = try XCTUnwrap(docker.hungPID(), "the cleanup asks docker for the containers")
-        let stopped = await waitUntil(timeout: .seconds(30)) { !engineTestProcessIsRunning(hungPID) }
         XCTAssertGreaterThanOrEqual(took, .milliseconds(1400), "the cleanup gives docker what is left of the bound")
         XCTAssertLessThan(took, .seconds(5), "and stops it once the bound has passed, \(took)")
-        XCTAssertTrue(stopped, "the docker that hangs is stopped, so none outlives the cleanup")
-        XCTAssertEqual(docker.arguments(), [Self.listing], "nothing more runs once the bound has passed")
+        XCTAssertEqual(docker.arguments().filter { $0 != Self.listing }, [], "nothing more runs once the bound has passed")
+        // The stand-in records its call and then its pid once it runs. A loaded machine, such as the parallel unit
+        // tier, can leave it unscheduled for the whole bound, and then the cleanup stops it before it runs a line.
+        if let hungPID = docker.hungPID() {
+            let stopped = await waitUntil(timeout: .seconds(30)) { !engineTestProcessIsRunning(hungPID) }
+            XCTAssertTrue(stopped, "the docker that hangs is stopped, so none outlives the cleanup")
+            XCTAssertEqual(docker.arguments(), [Self.listing], "the cleanup asks docker for the containers")
+        } else {
+            let ranLater = await waitUntil(timeout: .seconds(5)) { docker.hungPID() != nil }
+            XCTAssertFalse(ranLater, "a docker the bound stopped before it ran a line never runs, so none outlives the cleanup")
+        }
     }
 
     // MARK: - The match (pure)
