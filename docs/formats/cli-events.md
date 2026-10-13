@@ -170,7 +170,7 @@ The app reads the stream in `CLIImportRunner` through `CLISubprocessTransport`, 
 
 ## The contract table
 
-`CLIEventContractTable` in `Sources/LungfishCLI/Support/CLIEventContract.swift` holds one row for each leaf command of `lungfish-cli`. A leaf is a command with no subcommands. A row is keyed by the leaf's path without the program name, such as `msa annotate add`, and it says in one of four cases what the leaf writes for a machine reader.
+`CLIEventContractTable` in `Sources/LungfishWorkflow/CLIEvents/CLIEventContract.swift` holds one row for each leaf command of `lungfish-cli`. A leaf is a command with no subcommands. A row is keyed by the leaf's path without the program name, such as `msa annotate add`, and it says in one of four cases what the leaf writes for a machine reader.
 
 | Case | What the leaf does |
 | --- | --- |

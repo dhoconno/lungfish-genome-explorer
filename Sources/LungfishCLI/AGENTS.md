@@ -19,7 +19,7 @@ LungfishCore, LungfishIO, LungfishWorkflow and ArgumentParser. Never LungfishKit
 | Shared options | Sources/LungfishCLI/Options/GlobalOptions.swift |
 | Output formatting | Sources/LungfishCLI/Output/CLIOutput.swift |
 | Provenance helpers for commands | Sources/LungfishCLI/Support/CLIProvenanceSupport.swift |
-| What each leaf command writes for a machine reader, one row per leaf | `CLIEventContractTable`, Sources/LungfishCLI/Support/CLIEventContract.swift |
+| What each leaf command writes for a machine reader, one row per leaf | `CLIEventContractTable`, Sources/LungfishWorkflow/CLIEvents/CLIEventContract.swift |
 
 The command files live in Sources/LungfishCLI/Commands. Find a subcommand by its type name. Most FASTQ, bundle, fetch and workflow subcommands have a file named for their type, such as FastqTrimSubcommand.swift. A type that uses a file-private helper stays beside the helper. So FastqCommand.swift keeps FastqDemultiplexSubcommand and FastqScoutSubcommand, FetchCommand.swift keeps NCBISubcommand and ENAFastaSubcommand, and MetadataCommand.swift keeps MetadataSetSubcommand and MetadataImportSubcommand.
 
@@ -57,7 +57,7 @@ Target LungfishCLITests in Tests/LungfishCLITests. Run only it with `swift test 
 | Trap | Evidence |
 |---|---|
 | EsViritu CLI writes no SQLite, manifest or batch provenance while the GUI does | Commands/EsVirituCommand.swift compared with Sources/LungfishApp/App/AppDelegate+Classification.swift lines 911 to 1159 (R3) |
-| Some leaf commands still print a private stream shape or a JSON result instead of `CLIEvent` lines. `CLIEventContractTable` lists every leaf with what it writes, its `.legacy` rows count the private shapes left, and the `.text` leaves that list `--format json` and print text anyway wait for 2.10 to 2.12 | Support/CLIEventContract.swift, Tests/LungfishCLITests/CLIEventContractCoverageTests.swift (R16) |
+| Some leaf commands still print a private stream shape or a JSON result instead of `CLIEvent` lines. `CLIEventContractTable` lists every leaf with what it writes, its `.legacy` rows count the private shapes left, and the `.text` leaves that list `--format json` and print text anyway wait for 2.10 to 2.12 | Sources/LungfishWorkflow/CLIEvents/CLIEventContract.swift, Tests/LungfishCLITests/CLIEventContractCoverageTests.swift (R16) |
 | Global mutable runner overrides | Commands/RunSubcommand.swift lines 32 to 36, Commands/CondaCommand.swift lines 50 to 52 (R10) |
 | The app spawns the CLI with Finder's bare PATH, so an unresolved tool exits 127 | memory file project_cli_subprocess_bare_path.md |
 | nf-core schemas reject paths with spaces, so inputs are staged | Commands/NFCoreLaunchStaging.swift (memory file project_cli_subprocess_bare_path.md) |

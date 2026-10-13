@@ -312,7 +312,7 @@ A batch root names each completed sample's outputs with the digest and size its 
 | A cancel | 125 |
 | A lock with no usable pin | 126 |
 
-A SIGTERM cancels the run, so the run records `cancelled`, settles its folder and exits 125 inside the 6 s grace the app's transport gives a command (lane S2). A second SIGTERM ends the process at once. `--format json` writes the executor's events, the leaf of `taxtriage run` in `Sources/LungfishCLI/Support/CLIEventContract.swift`. The run level of the root record names the `taxtriage run` command as it was typed, with or without the word `run`, and the `taxtriage` step names the reproducible Nextflow argv with `-r` (section 4).
+A SIGTERM cancels the run, so the run records `cancelled`, settles its folder and exits 125 inside the 6 s grace the app's transport gives a command (lane S2). A second SIGTERM ends the process at once. `--format json` writes the executor's events, the leaf of `taxtriage run` in `Sources/LungfishWorkflow/CLIEvents/CLIEventContract.swift`. The run level of the root record names the `taxtriage run` command as it was typed, with or without the word `run`, and the `taxtriage` step names the reproducible Nextflow argv with `-r` (section 4).
 
 ### What holds this section
 
