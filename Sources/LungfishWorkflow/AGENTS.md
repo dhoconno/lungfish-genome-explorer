@@ -43,6 +43,7 @@ Add to these. Never write a second copy in the CLI or the app.
 | How to pick between these and `ToolProcess` itself | `docs/contracts/RUNNING-A-TOOL.md` | Sources/LungfishCore/Process/ToolProcess.swift |
 | Nextflow launch environment | `WorkflowEngineLaunch.resolve` | Sources/LungfishWorkflow/WorkflowEngineLaunch.swift line 56 |
 | CLI progress events, version 2 lines with `schemaVersion` and typed artifacts (`docs/formats/cli-events.md`) | `CLIEvent`, `CLIEventLine` | Sources/LungfishWorkflow/CLIEvents/CLIEvent.swift, CLIEventLine.swift |
+| What each leaf command of `lungfish-cli` writes for a machine reader, one row per leaf (`docs/formats/cli-events.md`) | `CLIEventContractTable`, `CLIEventContract` | Sources/LungfishWorkflow/CLIEvents/CLIEventContract.swift |
 
 A new domain is a folder here until Phase 4d splits domains into their own targets (RNA-seq waits for its LungfishRNASeq target, see docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md). Domain subtrees, largest first, are ONTGenotyping (47.7K lines), Metagenomics (18.3K), PrimerDesign (10.1K), Mapping, Variants, Alignment, Assembly, TwelveS, TaxTriage, MSA and ViralRecon. Infrastructure subtrees are Provenance, Conda, Native, Engines, Containers, Ingestion, Extraction and Storage. Tool versions come only from Resources/ManagedTools/third-party-tools-lock.json. `docs/contracts/RUNNING-A-TOOL.md` says how to add a managed tool.
 
