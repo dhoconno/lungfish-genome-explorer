@@ -63,7 +63,9 @@ extension MainSplitViewController {
     /// bundle.
     ///
     /// `cliCommand` is the `lungfish-cli` invocation `executionService` builds
-    /// for `request`, with the output shown as `<derived>`. It is nil when the
+    /// for `request`, with the output shown as `<derived>`. Its words after
+    /// `lungfish-cli` are the argv the runner launches
+    /// (`FASTQOperationCLIInvocationBuilder.commandLine(for:)`). It is nil when the
     /// builder cannot encode the request, such as an adapter FASTA or a
     /// demultiplex sample sheet. Those requests have no CLI equivalent yet,
     /// which is a parity gap pinned by MainSplitGenomicsDisplayOperationTests.
@@ -85,13 +87,9 @@ extension MainSplitViewController {
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
-        let cliCommand: String? = try? {
-            let invocation = try executionService.buildInvocation(for: request)
-            return OperationCenter.buildCLICommand(
-                subcommand: invocation.subcommand,
-                args: invocation.arguments
-            )
-        }()
+        let cliCommand: String? = try? FASTQOperationCLIInvocationBuilder.commandLine(
+            for: executionService.buildInvocation(for: request)
+        )
         let result = reporter.begin(
             title: title,
             detail: "Preparing...",

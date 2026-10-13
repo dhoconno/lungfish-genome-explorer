@@ -8,17 +8,16 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
         try buildInvocation(for: request, outputTargetPath: "<derived>")
     }
 
-    /// The shell-quoted `lungfish-cli` command line for `invocation`.
+    /// The shell-quoted `lungfish-cli` command line for `invocation`, whose
+    /// words after `lungfish-cli` are the argv the runner launches
+    /// (`FASTQCLIInvocation.argv`).
     ///
     /// Each word is quoted with `shellEscape` and the words are joined with
     /// spaces, as `OperationCenter.buildCLICommand(subcommand:args:)` does, so
     /// an Operations panel row and a provenance record built from one
     /// invocation are the same string.
     static func commandLine(for invocation: FASTQCLIInvocation) -> String {
-        let subcommandWords = invocation.subcommand
-            .split(whereSeparator: { $0.isWhitespace })
-            .map(String.init)
-        return ([CLICommandIdentity.executableName] + subcommandWords + invocation.arguments)
+        ([CLICommandIdentity.executableName] + invocation.argv)
             .map(shellEscape)
             .joined(separator: " ")
     }

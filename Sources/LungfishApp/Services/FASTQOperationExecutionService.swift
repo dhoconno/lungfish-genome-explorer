@@ -4,10 +4,40 @@ import LungfishKit
 import LungfishIO
 import LungfishOperations
 import LungfishWorkflow
+import Synchronization
 
 struct FASTQCLIInvocation: Sendable, Equatable {
     let subcommand: String
     let arguments: [String]
+
+    /// The words after `lungfish-cli`, the subcommand's words and then the arguments. The runner
+    /// launches exactly these, and the row's command spells them
+    /// (`FASTQOperationCLIInvocationBuilder.commandLine(for:)`), so a subcommand of several words
+    /// reaches the CLI as several words (2.8 D1).
+    var argv: [String] {
+        subcommand.split(whereSeparator: \.isWhitespace).map(String.init) + arguments
+    }
+
+    /// The leaf command this runs, the shortest run of the first words of ``argv`` that is a row of
+    /// `CLIEventContractTable`, or nil. A leaf has no subcommands, so no row's path starts another's.
+    var leaf: String? {
+        var path = ""
+        for word in argv.prefix(Self.deepestLeaf) {
+            path = path.isEmpty ? word : path + " " + word
+            if CLIEventContractTable.entries[path] != nil { return path }
+        }
+        return nil
+    }
+
+    /// The stream that carries the leaf's `CLIEvent` lines, the channel its row names (2.8 D3), or
+    /// nil when the row names no events.
+    var eventChannel: CLIEventContract.Channel? {
+        guard let leaf, case let .events(_, channel)? = CLIEventContractTable.entries[leaf] else { return nil }
+        return channel
+    }
+
+    /// The most words in a leaf's path.
+    private static let deepestLeaf = CLIEventContractTable.entries.keys.map { $0.split(separator: " ").count }.max() ?? 0
 }
 
 struct FASTQCLIExecutionResult: Sendable, Equatable {
@@ -36,49 +66,36 @@ struct FASTQCLIProgressEvent: Sendable, Equatable {
     }
 }
 
-private final class FASTQCLIStderrCapture: @unchecked Sendable {
-    private let lock = NSLock()
-    private var capturedData = Data()
-    private var framer = ProcessOutputLineFramer()
-    private var plainLines: [String] = []
-    private var failure: String?
+/// Reads the lines of one dialog run of `lungfish-cli`. It decodes `CLIEvent` lines on the stream
+/// the leaf's row names and on no other, and keeps the CLI's `failed` event for the failure summary.
+private final class FASTQCLIRunReader: Sendable {
+    private let eventChannel: CLIEventContract.Channel?
+    private let deliver: @Sendable (CLIEvent) -> Void
+    private let decoder = CLIEventLineDecoder()
+    private let failure = Mutex<String?>(nil)
 
-    func append(_ data: Data) -> [CLIEvent] {
-        guard !data.isEmpty else { return [] }
-        lock.lock()
-        defer { lock.unlock() }
-        capturedData.append(data)
-        return decode(framer.append(data))
+    init(eventChannel: CLIEventContract.Channel?, deliver: @escaping @Sendable (CLIEvent) -> Void) {
+        self.eventChannel = eventChannel
+        self.deliver = deliver
     }
 
-    func finish() -> [CLIEvent] {
-        lock.lock()
-        defer { lock.unlock() }
-        return decode(framer.finish())
-    }
-
-    /// What a failed run should report: the CLI's own `failed` event when it
-    /// sent one, else any stderr lines that were not JSON events. stderr also
-    /// carries the whole event stream, which is not an error message.
-    var failureSummary: String {
-        lock.lock()
-        defer { lock.unlock() }
-        if let failure { return failure }
-        let plain = plainLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        return plain.isEmpty ? (String(data: capturedData, encoding: .utf8) ?? "") : plain
-    }
-
-    private func decode(_ lines: [String]) -> [CLIEvent] {
-        lines.compactMap { line in
-            guard let event = try? CLIEventLineDecoder().decode(line: line) else {
-                plainLines.append(line)
-                return nil
-            }
-            if case let .failed(message, detail) = event {
-                failure = detail.map { $0.isEmpty ? message : "\(message): \($0)" } ?? message
-            }
-            return event
+    /// Reads one line the CLI wrote on `channel`.
+    func read(_ line: String, on channel: CLIEventContract.Channel) {
+        guard channel == eventChannel, let event = try? decoder.decode(line: line) else { return }
+        if case let .failed(message, detail) = event {
+            failure.withLock { $0 = detail.map { $0.isEmpty ? message : "\(message): \($0)" } ?? message }
         }
+        deliver(event)
+    }
+
+    /// The text a failed run reports, the CLI's own `failed` event when it sent one, else the lines
+    /// of standard error that are not events, else all of standard error.
+    func failureSummary(standardError: String) -> String {
+        if let failure = failure.withLock({ $0 }) { return failure }
+        let lines = standardError.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).map(String.init)
+        let plain = (eventChannel == .standardError ? lines.filter { (try? decoder.decode(line: $0)) == nil } : lines)
+            .joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return plain.isEmpty ? standardError : plain
     }
 }
 
@@ -724,7 +741,18 @@ private struct FASTQSourceResolverAdapter: FASTQOperationInputResolving {
     }
 }
 
+/// Runs each invocation of the FASTQ operations dialog on ``CLIProcessLauncher`` (2.10 A41), with
+/// the managed storage environment of every CLI launch and the plan's output directory as the
+/// working directory, where `map` writes. It decodes the events of the stream the leaf's row
+/// names. A cancel of the calling task gives the CLI SIGTERM and ``terminationGracePeriod`` to
+/// stop its tools and record the cancel before SIGKILL.
 struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
+    /// The time between SIGTERM and SIGKILL after a cancel, ``CLIProcessLauncher/operationGrace``.
+    static let terminationGracePeriod = CLIProcessLauncher.operationGrace
+    /// How long the run waits for a descendant that holds the output open after the CLI exited,
+    /// ``CLIProcessLauncher/operationDrain``.
+    static let drainGracePeriod = CLIProcessLauncher.operationDrain
+
     private let cliURLProvider: @Sendable () -> URL?
 
     init(cliURLProvider: @escaping @Sendable () -> URL? = { LungfishCLIRunner.findCLI() }) {
@@ -749,20 +777,14 @@ struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
         guard let cliURL = cliURLProvider() else {
             throw LungfishCLIRunner.RunError.cliNotFound
         }
+        var spec = CLIProcessLauncher.spec(
+            executableURL: cliURL,
+            arguments: invocation.argv,
+            terminationGracePeriod: Self.terminationGracePeriod,
+            drainGracePeriod: Self.drainGracePeriod
+        )
+        spec.workingDirectory = outputDirectory
 
-        let process = Process()
-        process.environment = ManagedStorageConfigStore().subprocessEnvironment()
-        process.executableURL = cliURL
-        process.currentDirectoryURL = outputDirectory
-        process.arguments = [invocation.subcommand] + invocation.arguments
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        let cancellationHandle = NativeProcessCancellationHandle()
-        let stdoutTask = Task.detached(priority: .userInitiated) {
-            stdout.fileHandleForReading.readDataToEndOfFile()
-        }
         let deliver: @Sendable (CLIEvent) -> Void = { event in
             switch event {
             case let .start(message):
@@ -780,75 +802,37 @@ struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
                 break
             }
         }
-        let stderrCapture = FASTQCLIStderrCapture()
-        let stderrTask = Task.detached(priority: .userInitiated) {
-            let handle = stderr.fileHandleForReading
-            while true {
-                let chunk = handle.availableData
-                if chunk.isEmpty { break }
-                let events = stderrCapture.append(chunk)
-                for event in events {
-                    deliver(event)
-                }
-            }
-            for event in stderrCapture.finish() {
-                deliver(event)
-            }
+        // Every line arrives here, one at a time and in order, before the launcher returns, so no
+        // callback reaches the dialog after the run ends.
+        let reader = FASTQCLIRunReader(eventChannel: invocation.eventChannel, deliver: deliver)
+        let outcome = await CLIProcessLauncher.run(
+            spec,
+            cancellation: CLIRunCancellation(),
+            onStdoutLine: { reader.read($0, on: .standardOutput) },
+            onStderrLine: { reader.read($0, on: .standardError) }
+        )
+
+        let exit: CLIProcessExit
+        switch outcome {
+        case .launchFailed(let reason):
+            throw LungfishCLIRunner.RunError.launchFailed(reason)
+        case .cancelled:
+            throw LungfishCLIRunner.RunError.cancelled
+        case .exited(let finished):
+            exit = finished
         }
-
-        let terminationStatus: Int32
-        do {
-            terminationStatus = try await withTaskCancellationHandler {
-                try Task.checkCancellation()
-                return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int32, Error>) in
-                    process.terminationHandler = { terminatedProcess in
-                        continuation.resume(returning: terminatedProcess.terminationStatus)
-                    }
-
-                    do {
-                        try process.run()
-                        cancellationHandle.store(process)
-                        cancellationHandle.terminateIfRequested(gracePeriod: 0)
-                    } catch {
-                        if cancellationHandle.isTerminationRequested || Task.isCancelled {
-                            continuation.resume(throwing: LungfishCLIRunner.RunError.cancelled)
-                        } else {
-                            continuation.resume(
-                                throwing: LungfishCLIRunner.RunError.launchFailed(error.localizedDescription)
-                            )
-                        }
-                    }
-                }
-            } onCancel: {
-                cancellationHandle.terminateProcessTree(gracePeriod: 0)
-            }
-        } catch {
-            // Pre-launch cancellation and launch failure must close our writer ends,
-            // otherwise the reader tasks wait forever for EOF. Drain before returning
-            // so output callbacks cannot arrive after a terminal UI transition.
-            stdout.fileHandleForWriting.closeFile()
-            stderr.fileHandleForWriting.closeFile()
-            await stderrTask.value
-            _ = await stdoutTask.value
-            if error is CancellationError { throw LungfishCLIRunner.RunError.cancelled }
-            throw error
-        }
-
-        let wasCancelled = cancellationHandle.isTerminationRequested || Task.isCancelled
-        cancellationHandle.clear(process)
-        stdout.fileHandleForWriting.closeFile()
-        stderr.fileHandleForWriting.closeFile()
-        await stderrTask.value
-        let stdoutData = await stdoutTask.value
-        _ = stdoutData
-        if wasCancelled || Task.isCancelled {
+        if Task.isCancelled {
             throw LungfishCLIRunner.RunError.cancelled
         }
-
-        if terminationStatus != 0 {
+        if let incomplete = exit.incompleteOutput {
+            // A descendant kept the output open after the CLI exited, so the log may miss its last
+            // lines. The exit code stays the truth about the run.
+            deliver(.log(level: .warning, message: incomplete))
+        }
+        guard exit.status == 0 else {
             throw LungfishCLIRunner.RunError.nonZeroExit(
-                status: terminationStatus,
-                stderr: stderrCapture.failureSummary
+                status: exit.status,
+                stderr: reader.failureSummary(standardError: exit.stderr)
             )
         }
 

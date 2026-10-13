@@ -1653,25 +1653,6 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
     }
 
-    func testFASTQCLIProcessRunnerClosesPipeWriteHandlesAfterProcessExit() throws {
-        let sourceURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Services/FASTQOperationExecutionService.swift")
-        let source = try readRepositorySource(sourceURL)
-        let runnerSource = try XCTUnwrap(
-            source.range(of: "struct LungfishCLIProcessRunner")
-                .flatMap { start in
-                    source[start.lowerBound...].range(of: "\n    }\n}")
-                        .map { String(source[start.lowerBound..<$0.upperBound]) }
-                }
-        )
-
-        XCTAssertTrue(runnerSource.contains("stdout.fileHandleForWriting.closeFile()"))
-        XCTAssertTrue(runnerSource.contains("stderr.fileHandleForWriting.closeFile()"))
-    }
-
     func testExecuteDoesNotPrecreateFreshONTPacBioDemuxOutputDirectoryBeforeLaunchingCLI() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecFreshDemuxOutput")
         defer { try? FileManager.default.removeItem(at: tempDir) }

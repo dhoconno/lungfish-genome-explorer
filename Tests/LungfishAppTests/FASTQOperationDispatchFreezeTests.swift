@@ -11,7 +11,7 @@
 // the request names. A cell that builds pins the first word the dispatcher
 // passes the CLI, every word of the row command, what the shipped parser
 // (`LungfishCLI.parseAsRoot`, through `RecordedCLICommand`) makes of the row and
-// of the argv in the dispatcher's shape (`[subcommand] + arguments`, with the
+// of the argv in the dispatcher's shape (`invocation.argv`, with the
 // row's `<derived>` output, because the argv of a run waits for lane S3), and
 // the output kind the planner gives the request.
 //
@@ -28,11 +28,11 @@
 // from one request of each kind the builder writes a command for and one of
 // each derivative kind, with what the leaf's row in `CLIEventContractTable`
 // says it writes for a machine reader. It was taken at program commit
-// c68381a62, before the table moved to LungfishWorkflow. The dialog's runner
-// decodes `CLIEvent` lines from standard error whatever the leaf, and every
-// leaf the pin lists with events speaks there. A row that changes for a
-// dialog leaf moves the pin, and the runner must then read the channel the
-// new row names.
+// c68381a62, before the table moved to LungfishWorkflow. Since A41 M2 the
+// dialog's runner finds the leaf's row from the argv it launches and decodes
+// `CLIEvent` lines on the channel the row names, and on no other. A row that
+// changes for a dialog leaf moves the pin, and the runner then reads the
+// channel the new row names.
 
 import ArgumentParser
 import Foundation
@@ -318,14 +318,15 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
                 Swift.type(of: fromRow) == commandType,
                 "\(cell.name), parsed \(Swift.type(of: fromRow)), expected \(commandType), from: \(row)"
             )
-            // The dispatcher starts the CLI with `[subcommand] + arguments`, so a
-            // subcommand of several words reaches it as one argument. The
-            // `conda classify` rows did, and the CLI would have refused them.
+            // The runner starts the CLI with `invocation.argv`, which splits the
+            // subcommand at whitespace as the row does. Before A41 M2 a subcommand
+            // of several words reached the CLI as one argument. The `conda
+            // classify` rows did, and the CLI would have refused them.
             XCTAssertFalse(
                 invocation.subcommand.contains(where: \.isWhitespace),
                 "\(cell.name), the subcommand \(invocation.subcommand) is one word"
             )
-            let argv = [invocation.subcommand] + invocation.arguments
+            let argv = invocation.argv
             let fromArgv = try LungfishCLI.parseAsRoot(LungfishCLI.normalizedArgumentsForParsing(argv))
             XCTAssertTrue(
                 Swift.type(of: fromArgv) == commandType,
@@ -530,10 +531,9 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
         return rows
     }
 
-    /// The argv in the dispatcher's shape, `[subcommand] + arguments`, with the `<derived>` output.
+    /// The argv in the dispatcher's shape, `invocation.argv`, with the `<derived>` output.
     private func dispatcherArgv(for request: FASTQOperationLaunchRequest) throws -> [String] {
-        let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(for: request)
-        return [invocation.subcommand] + invocation.arguments
+        try FASTQOperationCLIInvocationBuilder().buildInvocation(for: request).argv
     }
 
     // MARK: - The leaf pin, checked
@@ -564,15 +564,19 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
         }
     }
 
-    func testEveryDialogLeafWithEventsSpeaksOnStandardErrorWhereTheRunnerReads() {
-        let channels = Set(Self.leafChannels.keys.compactMap { leaf -> CLIEventContract.Channel? in
-            guard case let .events(_, channel)? = CLIEventContractTable.entries[leaf] else { return nil }
-            return channel
-        })
-        XCTAssertEqual(
-            channels, [.standardError],
-            "LungfishCLIProcessRunner reads events on standard error only until it reads the row's channel"
-        )
+    /// The runner finds the row of the leaf each request launches from the argv
+    /// it launches, and decodes the events of the channel that row names, or none.
+    /// `LungfishCLIProcessRunnerTests` runs the runner on each channel.
+    func testTheRunnerFindsTheRowOfTheLeafEachRequestOfThePinLaunches() throws {
+        for (leaf, request) in try leafRequests() {
+            let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(for: request)
+            XCTAssertEqual(invocation.leaf, leaf, request.operationDisplayTitle)
+            guard case let .events(_, channel)? = CLIEventContractTable.entries[leaf] else {
+                XCTAssertNil(invocation.eventChannel, leaf)
+                continue
+            }
+            XCTAssertEqual(invocation.eventChannel, channel, leaf)
+        }
     }
 
     func testTheDialogTurnsOnTheEventsOfEachLeafWhoseRowNamesASwitch() throws {
