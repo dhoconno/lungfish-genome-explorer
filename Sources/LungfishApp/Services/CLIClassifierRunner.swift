@@ -64,11 +64,12 @@ struct CLIClassifierFailure: Error, LocalizedError, Sendable, Equatable {
 /// to record its run as cancelled before SIGKILL, under the ten seconds `OperationCenter` waits
 /// for a cancelling row.
 struct CLIClassifierRunner {
-    /// The time the command has between SIGTERM and SIGKILL to record its cancelled run.
-    static let terminationGracePeriod: Duration = .seconds(6)
+    /// The time the command has between SIGTERM and SIGKILL to record its cancelled run, the
+    /// launcher's ``CLIProcessLauncher/operationGrace``.
+    static let terminationGracePeriod = CLIProcessLauncher.operationGrace
     /// How long the run waits for a descendant that holds the command's output open after the
-    /// command exited, short so a cancel stays inside the ten seconds.
-    static let drainGracePeriod: Duration = .milliseconds(500)
+    /// command exited, the launcher's ``CLIProcessLauncher/operationDrain``.
+    static let drainGracePeriod = CLIProcessLauncher.operationDrain
 
     private let transport: CLISubprocessTransport
 

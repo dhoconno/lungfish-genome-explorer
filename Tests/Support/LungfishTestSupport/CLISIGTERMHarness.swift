@@ -29,9 +29,10 @@ public enum CLISIGTERMHarness {
     /// The status a command's record holds once a cancel stopped its run.
     public static let cancelledRecordStatus = "cancelled"
 
-    /// The time the app's CLI routes give a command between SIGTERM and SIGKILL (2.9 N6). The
-    /// command must exit, its record written, inside it. LungfishTestSupport stays free of
-    /// LungfishKit, so the value is repeated here.
+    /// The time the app's CLI routes give a command between SIGTERM and SIGKILL,
+    /// `CLIProcessLauncher.operationGrace` (2.9 N6). The command must exit, its record written,
+    /// inside it. LungfishTestSupport stays free of LungfishKit, so the value is repeated here,
+    /// and a caller that imports LungfishKit may pass the launcher's own value as `within`.
     public static let operationGrace: Duration = .seconds(6)
 
     /// How long a check waits for a process to start or leave and for a file to appear. Each wait

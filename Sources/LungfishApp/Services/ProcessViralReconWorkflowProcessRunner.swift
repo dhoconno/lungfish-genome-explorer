@@ -25,12 +25,11 @@ import os
 /// its own runner.
 final class ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRunning {
     /// The time the CLI has between SIGTERM and SIGKILL after a cancel, to stop Nextflow and record its
-    /// run as cancelled. It nests inside the ten seconds OperationCenter waits before it forces a
-    /// cancelling row to read Cancelled, as the classifier route's grace does.
-    static let terminationGracePeriod: Duration = .seconds(6)
-    /// How long the run waits for a descendant that holds the CLI's output open after the CLI exited.
-    /// Short, so a cancel stays inside the ten seconds.
-    static let drainGracePeriod: Duration = .milliseconds(500)
+    /// run as cancelled, the launcher's ``CLIProcessLauncher/operationGrace`` that every CLI route gives.
+    static let terminationGracePeriod = CLIProcessLauncher.operationGrace
+    /// How long the run waits for a descendant that holds the CLI's output open after the CLI exited,
+    /// the launcher's ``CLIProcessLauncher/operationDrain``.
+    static let drainGracePeriod = CLIProcessLauncher.operationDrain
     /// The most bytes the result keeps of each stream, the last ones.
     static let defaultOutputTailLimit = ToolProcessSpec.defaultStderrCaptureLimit
 

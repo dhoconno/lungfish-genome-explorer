@@ -71,6 +71,22 @@ public enum CLIProcessLauncher {
     /// pieces cannot be decoded.
     public static let maxEventLineBytes = 16 * 1024 * 1024
 
+    /// The time a GUI route gives `lungfish-cli` between SIGTERM and SIGKILL when the user
+    /// cancels, 6 seconds (Phase 2.9 N6).
+    ///
+    /// A command that turns SIGTERM into a cancel stops its tools, records its run as cancelled
+    /// and exits 125 inside it. It nests inside the ten seconds `OperationCenter` waits before it
+    /// marks a cancelling row cancelled, with room for SIGKILL and ``operationDrain``. Every route
+    /// passes it as the `terminationGracePeriod` of
+    /// ``spec(executableURL:arguments:standardOutput:terminationGracePeriod:drainGracePeriod:)``
+    /// or of ``CLISubprocessTransport``, and `CLISIGTERMHarness` checks a command against it.
+    public static let operationGrace: Duration = .seconds(6)
+
+    /// How long a GUI route waits, 500 milliseconds, for a descendant that still holds the CLI's
+    /// output open after the CLI exited. Short, so a cancel stays inside the row's ten seconds.
+    /// Every route passes it as the `drainGracePeriod` beside ``operationGrace``.
+    public static let operationDrain: Duration = .milliseconds(500)
+
     /// What the run does with the CLI's standard output.
     public enum StandardOutput: Sendable {
         /// Delivers each line to the caller and keeps none of it, for the
