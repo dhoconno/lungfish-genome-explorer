@@ -67,7 +67,7 @@ A runner finds an artifact by its role. `CLIEventArtifact.Role` names the roles 
 | `esviritu-result` | The result file of an EsViritu sample, `esviritu-result.json` |
 | `batch-summary` | The summary table of a batch |
 | `batch-manifest` | The manifest of a batch |
-| `bundle` | A bundle that an import made, such as the `.lungfishfastq` bundle of `import fastq` |
+| `bundle` | A bundle that an import or a fetch made, such as the `.lungfishfastq` bundle of `import fastq` or the `.lungfishref` bundle of `fetch genome` |
 
 `bam primer-trim` is the first command that types its outputs. Its `outputs` keep the version 1 order, the trimmed BAM, then its index, then its record, and its `artifacts` describe the same three paths.
 
@@ -167,6 +167,14 @@ The `complete` line names each bundle the run made in `outputs`, in the order th
 The human text, such as the samples found and the summary, goes to standard error while the switch is on. In text mode the command prints the same human text on standard output as before and no event. The notices and skipped samples that only the S1 lines reported in text mode go to standard error as warning lines, apart from a `--platform` notice, which text mode prints with the human text. `--quiet` drops them.
 
 The app reads the stream in `CLIImportRunner` through `CLISubprocessTransport`, which gives the command 5 seconds after SIGTERM to remove its staging folders and stops a child process that keeps the output open half a second after the command exits. The runner shows each `progress` line on the operation's row, moving its bar only forward, and logs each `log` line at its level. It takes the bundles from `outputs` by the role of their artifacts and fails the row with the message of a `failed` line. A `lungfish-cli` built before 2.7 prints S1, which the app no longer reads, so its run fails with a message that names the path of that copy, says it is older than the app and asks the user to reinstall the app.
+
+## Fetching genomes
+
+`fetch genome` makes one bundle for each accession it is given. With `--format json` a run is one `start` line, `progress` lines, `log` lines, and one `complete` line, or one `failed` line. The fraction of a `progress` line is `(index + share) / count` for accession `index` of `count`, where the share is the fraction the bundle builder reports, so the bar of a batch only moves forward. Annotations that NCBI does not have are a `log` line at level `warning`, and a failed accession is one at level `error`.
+
+The `complete` line names each bundle in `outputs`, in the order of the accessions, and describes each with one artifact of kind `reference` and role `bundle`. The artifact names the record of the bundle in `provenancePath`, which is the root record of a new bundle and the record in the `genome` folder after `--into-bundle`. `--fasta-only` and `--no-bundle` name the files they saved in `outputs` with no artifact. A run goes on past an accession that fails and then ends with one `failed` line. Its message is the last failure as `<accession>: <error>`, and its `detail` lists every failure when there are more than one. A cancelled run ends with a `failed` line whose message is `Fetch cancelled` and exits 125.
+
+The human text goes to standard error while the switch is on. In text mode the command prints it on standard output and no event, and its warnings and its failure go to standard error. `--quiet` drops everything but the failure. The NCBI key reaches the command through `--api-key` or the `NCBI_API_KEY` variable, and no line names it. The command printed one `fetch-genome` result document before 2.10.
 
 ## The contract table
 

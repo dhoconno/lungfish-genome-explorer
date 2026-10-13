@@ -231,7 +231,10 @@ final class CLIEventContractCoverageTests: XCTestCase {
             case .text: counts["text", default: 0] += 1
             }
         }
-        XCTAssertEqual(counts["events"], 38, "taxtriage run emits events since 2.9 A2, sequence add-annotation and attach-track since 2.10 A42")
+        XCTAssertEqual(
+            counts["events"], 39,
+            "taxtriage run emits events since 2.9 A2, sequence add-annotation and attach-track since 2.10 A42, fetch genome since 2.10 A44"
+        )
         XCTAssertEqual(counts["legacy"], 9)
         XCTAssertEqual(counts.values.reduce(0, +), CLIEventContractTable.entries.count)
     }
@@ -457,7 +460,7 @@ final class CLIEventContractCoverageTests: XCTestCase {
         (
             "A real run needs the network",
             [
-                "demo-fetch", "fetch-ena-fasta", "fetch-ena-reads", "fetch-ena-search", "fetch-genome",
+                "demo-fetch", "fetch-ena-fasta", "fetch-ena-reads", "fetch-ena-search",
                 "fetch-ncbi", "fetch-search", "fetch-sra-download", "fetch-sra-info", "fetch-sra-search",
             ]
         ),

@@ -1,0 +1,34 @@
+{"event":"start","message":"Started genome fetch of 2 accession(s) via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"GCF_000000001.1: Checking tools...","progress":0.005,"schemaVersion":2}
+{"event":"progress","message":"GCF_000000001.1: Locating genome FASTA...","progress":0.01,"schemaVersion":2}
+{"event":"progress","message":"GCF_000000001.1: Checking for GFF3 annotations...","progress":0.015,"schemaVersion":2}
+{"event":"progress","message":"GCF_000000001.1: Downloading FASTA (243 bytes)...","progress":0.025,"schemaVersion":2}
+{"event":"progress","message":"GCF_000000001.1: Downloading FASTA: 243 bytes \/ 243 bytes","progress":0.225,"schemaVersion":2}
+{"event":"progress","message":"GCF_000000001.1: Downloading GFF3 annotations...","progress":0.225,"schemaVersion":2}
+{"event":"progress","message":"GCF_000000001.1: Downloading GFF3: 586 bytes \/ 586 bytes","progress":0.275,"schemaVersion":2}
+{"event":"progress","message":"GCF_000000001.1: Creating bundle...","progress":0.275,"schemaVersion":2}
+{"event":"progress","message":"GCF_000000001.1: Decompressing FASTA...","progress":0.28,"schemaVersion":2}
+{"event":"progress","message":"GCF_000000001.1: Compressing FASTA (bgzip)...","progress":0.31,"schemaVersion":2}
+{"event":"progress","message":"GCF_000000001.1: Indexing FASTA (samtools faidx)...","progress":0.35,"schemaVersion":2}
+{"event":"progress","message":"GCF_000000001.1: Downloading assembly report...","progress":0.36,"schemaVersion":2}
+{"event":"progress","message":"GCF_000000001.1: Building annotation database...","progress":0.375,"schemaVersion":2}
+{"event":"progress","message":"GCF_000000001.1: Writing bundle manifest...","progress":0.465,"schemaVersion":2}
+{"event":"progress","message":"GCF_000000001.1: Bundle ready: Lungfish_stand-in_organism_(stand-ins)_-_StandInAsm1.lungfishref","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"ZZ000001.1: Validating input files","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"ZZ000001.1: Validating input files","progress":0.525,"schemaVersion":2}
+{"event":"progress","message":"ZZ000001.1: Checking native tools...","progress":0.525,"schemaVersion":2}
+{"event":"progress","message":"ZZ000001.1: Creating bundle structure","progress":0.525,"schemaVersion":2}
+{"event":"progress","message":"ZZ000001.1: Creating bundle structure","progress":0.55,"schemaVersion":2}
+{"event":"progress","message":"ZZ000001.1: Compressing FASTA with bgzip...","progress":0.55,"schemaVersion":2}
+{"event":"progress","message":"ZZ000001.1: FASTA compression complete","progress":0.675,"schemaVersion":2}
+{"event":"progress","message":"ZZ000001.1: Creating FASTA index with samtools...","progress":0.675,"schemaVersion":2}
+{"event":"progress","message":"ZZ000001.1: FASTA indexing complete","progress":0.75,"schemaVersion":2}
+{"event":"progress","message":"ZZ000001.1: Converting annotations...","progress":0.75,"schemaVersion":2}
+{"event":"progress","message":"ZZ000001.1: Converting genes...","progress":0.75,"schemaVersion":2}
+{"event":"progress","message":"ZZ000001.1: Annotation conversion complete","progress":0.85,"schemaVersion":2}
+{"event":"progress","message":"ZZ000001.1: Generating manifest","progress":0.925,"schemaVersion":2}
+{"event":"progress","message":"ZZ000001.1: Generating manifest","progress":0.95,"schemaVersion":2}
+{"event":"progress","message":"ZZ000001.1: Validating bundle integrity","progress":0.95,"schemaVersion":2}
+{"event":"progress","message":"ZZ000001.1: Validating bundle integrity","progress":0.9750000000000001,"schemaVersion":2}
+{"event":"progress","message":"ZZ000001.1: Bundle created successfully","progress":1,"schemaVersion":2}
+{"artifacts":[{"kind":"reference","path":"\/work\/Lungfish_stand-in_organism_(stand-ins)_-_StandInAsm1.lungfishref","provenancePath":"\/work\/Lungfish_stand-in_organism_(stand-ins)_-_StandInAsm1.lungfishref\/.lungfish-provenance.json","role":"bundle"},{"kind":"reference","path":"\/work\/ZZ000001.1.lungfishref","provenancePath":"\/work\/ZZ000001.1.lungfishref\/.lungfish-provenance.json","role":"bundle"}],"event":"complete","message":"Fetched 2 genome(s)","output":"\/work\/Lungfish_stand-in_organism_(stand-ins)_-_StandInAsm1.lungfishref","outputs":["\/work\/Lungfish_stand-in_organism_(stand-ins)_-_StandInAsm1.lungfishref","\/work\/ZZ000001.1.lungfishref"],"progress":1,"schemaVersion":2}

@@ -1,0 +1,3 @@
+{"event":"start","message":"Started genome fetch of 1 accession(s) via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"log","level":"error","message":"GCF_000000009.9: Network error: Assembly not found: GCF_000000009.9","schemaVersion":2}
+{"error":"GCF_000000009.9: Network error: Assembly not found: GCF_000000009.9","event":"failed","schemaVersion":2}

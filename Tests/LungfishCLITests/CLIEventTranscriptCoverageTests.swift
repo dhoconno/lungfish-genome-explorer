@@ -42,6 +42,10 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         "taxtriage run",
         // The two spellings of the FASTQ import share the folder `import-fastq` (lane Q4 of Phase 2.7).
         "import fastq", "import-fastq",
+        // `fetch genome` runs bgzip and samtools faidx on files from NCBI. Its transcripts are runs of
+        // the built CLI on the loopback NCBI stand-in (FetchGenomeEventTranscriptReplayTests with
+        // LUNGFISH_RECAPTURE_CLI_EVENTS=1, lane A44 of Phase 2.10).
+        "fetch genome",
     ]
 
     static var transcriptsFolder: URL {

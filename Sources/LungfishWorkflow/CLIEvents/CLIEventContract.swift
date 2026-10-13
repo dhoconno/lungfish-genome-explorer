@@ -74,7 +74,7 @@ package enum CLIEventContractTable {
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
-    // MARK: Leaves that emit events (38)
+    // MARK: Leaves that emit events (39)
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
@@ -88,6 +88,7 @@ package enum CLIEventContractTable {
         "fastq ont-fluidigm-samples": .events(flag: alwaysOn, channel: .standardError),
         "fastq ont-pacbio-barcode-demux": .events(flag: alwaysOn, channel: .standardError),
         "fastq platform": .events(flag: formatJSON, channel: .standardOutput),
+        "fetch genome": .events(flag: formatJSON, channel: .standardOutput),
         "import application-export": .events(flag: formatJSON, channel: .standardOutput),
         "import fastq": .events(flag: formatJSON, channel: .standardOutput),
         "import geneious": .events(flag: formatJSON, channel: .standardOutput),
@@ -117,7 +118,7 @@ package enum CLIEventContractTable {
         "variants call": .events(flag: formatJSON, channel: .standardOutput),
     ]
 
-    // MARK: Leaves that print one JSON result (73)
+    // MARK: Leaves that print one JSON result (72)
 
     private static let results: [String: CLIEventContract] = [
         "analyze composition": .result(schemaID: "analyze-composition"),
@@ -148,7 +149,7 @@ package enum CLIEventContractTable {
         "fetch ena fasta": .result(schemaID: "fetch-ena-fasta"),
         "fetch ena reads": .result(schemaID: "fetch-ena-reads"),
         "fetch ena search": .result(schemaID: "fetch-ena-search"),
-        "fetch genome": .result(schemaID: "fetch-genome"),
+
         "fetch ncbi": .result(schemaID: "fetch-ncbi"),
         "fetch search": .result(schemaID: "fetch-search"),
         "fetch sra download": .result(schemaID: "fetch-sra-download"),
