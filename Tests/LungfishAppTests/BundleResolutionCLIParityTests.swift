@@ -104,11 +104,11 @@ final class BundleResolutionCLIParityTests: XCTestCase {
             var appConfig = wizardConfig
             appConfig.originalInputFiles = wizardConfig.inputFiles
             appConfig.inputFiles = appResolved
-            appConfig = try await AppDelegate.planKraken2ReadSet(appConfig, materializedInputs: appResolved)
+            appConfig = try await ClassifierLaunchReference.kraken2Planned(appConfig, materializedInputs: appResolved)
 
             // The command the Operations panel records, parsed by the shipped
             // root parser and run as `conda classify` runs it.
-            let recordedLine = AppDelegate.classificationCLICommand(for: wizardConfig)
+            let recordedLine = ClassifierLaunchReference.kraken2Command(for: wizardConfig)
             let recorded = try RecordedCLICommand.arguments(of: recordedLine)
             let command = try RecordedCLICommand.parse(recordedLine, as: ClassifyCommand.self)
             let inputs = command.fastqFiles.map { URL(fileURLWithPath: $0).standardizedFileURL }
@@ -166,7 +166,7 @@ final class BundleResolutionCLIParityTests: XCTestCase {
                 confidence: 0.2, minimumHitGroups: 2, threads: 4, memoryMapping: false, extraArguments: []
             ))
         }
-        let commands = try RecordedCLICommand.parseScript(AppDelegate.classificationBatchCLICommand(for: configs))
+        let commands = try RecordedCLICommand.parseScript(ClassifierLaunchReference.kraken2BatchCommand(for: configs))
         let parsed = try commands.map { try XCTUnwrap($0 as? ClassifyCommand) }
         XCTAssertEqual(parsed.map(\.readFormat), [.auto, .unpaired])
         XCTAssertEqual(parsed.map(\.fastqFiles), [[fixtures.mergeDerivative.path], [fixtures.singleRoot.path]])

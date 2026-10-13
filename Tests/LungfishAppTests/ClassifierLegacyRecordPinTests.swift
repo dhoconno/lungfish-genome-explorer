@@ -180,7 +180,7 @@ final class ClassifierLegacyRecordPinTests: XCTestCase {
         config.plansReadSet = plan.plansReadSet
 
         let scratch = root.appendingPathComponent("scratch", isDirectory: true)
-        let gui = try await AppDelegate().resolvedEsVirituConfig(config, tempDirectory: scratch, materializer: fixtures.materializer)
+        let gui = try await ClassifierLaunchReference.esVirituResolved(config, tempDirectory: scratch, materializer: fixtures.materializer)
         XCTAssertNil(gui.originalInputFiles)
         _ = try await EsVirituPipeline(condaManager: esviritu.condaManager).detect(config: gui)
         let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: gui.outputDirectory))

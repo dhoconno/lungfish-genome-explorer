@@ -92,10 +92,10 @@ final class ClassifierBrackenDegradePinTests: XCTestCase {
         let record: ProvenanceEnvelope
     }
 
-    /// The legacy GUI launch, `resolvedKraken2Config` then the pipeline's profile.
+    /// The legacy GUI launch, the config resolved (`ClassifierLaunchReference.kraken2Resolved`) then the pipeline profile.
     private func guiRun(_ fixture: FakeClassificationCondaFixture) async throws -> GUIRun {
         let config = try fixture.makeConfig(goal: .profile, profileRequest: .automaticDefault)
-        let resolved = try await AppDelegate().resolvedKraken2Config(
+        let resolved = try await ClassifierLaunchReference.kraken2Resolved(
             config, tempDirectory: fixture.root.appendingPathComponent("gui-scratch", isDirectory: true)
         )
         let result = try await ClassificationPipeline(condaManager: fixture.condaManager).profile(config: resolved)

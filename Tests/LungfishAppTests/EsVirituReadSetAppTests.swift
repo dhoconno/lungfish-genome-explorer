@@ -138,7 +138,7 @@ final class EsVirituReadSetAppTests: XCTestCase {
             inputLayout: plan.layout
         )
         config.plansReadSet = plan.plansReadSet
-        let resolved = try await AppDelegate().resolvedEsVirituConfig(
+        let resolved = try await ClassifierLaunchReference.esVirituResolved(
             config,
             tempDirectory: root.appendingPathComponent("inputs-\(UUID().uuidString)", isDirectory: true),
             materializer: materializer

@@ -2,17 +2,21 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// The five classifier launches (Kraken2, EsViritu, their two batches and
-// TaxTriage) register their rows through static begin helpers (R4). None
+// The TaxTriage launch registers its row through a static begin helper (R4),
+// and the Kraken2 and EsViritu launches through the CLI route's. None
 // declares a lock, so no real OperationCenter refuses them, and a reporter
 // that refuses every begin proves each launch closure sits behind the
-// `.started` case. The single-sample Kraken2, EsViritu and TaxTriage rows
-// record a command that parses through the real CLI parser with the run's
-// values, and the Kraken2 batch row records one such command per sample. The
-// EsViritu batch row and the multi-sample TaxTriage row have no command that
-// reproduces the run, so each records nil, and its test pins the gap with
-// `assertCLIParityGap`. When a command lands, the pin fails and prompts a
-// deliberate test change.
+// `.started` case. The command a single Kraken2 or EsViritu sample records is
+// the argv of the Workflow builder (`ClassificationCLIInvocationBuilder`,
+// `EsVirituCLIInvocationBuilder`), which the real CLI parser reads back with
+// the run's values, and a Kraken2 batch records one such command per sample.
+// A single-sample TaxTriage row records a command that parses the same way.
+// The multi-sample TaxTriage row has no command that reproduces the run, so
+// it records nil, and its test pins the gap with `assertCLIParityGap`. When a
+// command lands, the pin fails and prompts a deliberate test change. Phase
+// 2.10 lane A32 moved the Kraken2 and EsViritu tests off the begin helpers
+// that only tests called, and the CLI route's title, first detail and type
+// are held as literals by ClassifierLaunchRouteTests.
 
 import XCTest
 @testable import LungfishApp
@@ -42,9 +46,10 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
 
     // MARK: - Kraken2
 
-    func testKraken2RowRecordsItsRowAndACommandTheCLIParses() throws {
-        let reporter = RecordingOperationReporter()
-        let routeContext = makeRouteContext()
+    /// The command a Kraken2 sample records is the builder's argv, and the real CLI parser reads
+    /// the run's values back from it. The row's title, first detail, type, lock and route are the
+    /// CLI route's, which ClassifierLaunchRouteTests holds as literals.
+    func testKraken2CommandIsTheBuildersArgvAndTheCLIParsesIt() throws {
         let inputs = [importURL("Sample 1_R1.fastq.gz"), importURL("Sample 1_R2.fastq.gz")]
         let outputURL = analysisURL("kraken2-2026-10-02")
         let config = ClassificationConfig(
@@ -62,25 +67,7 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
             outputDirectory: outputURL,
             extraArguments: ["--minimum-base-quality", "20"]
         )
-        var launchedID: UUID?
-
-        AppDelegate.beginClassificationOperation(
-            config: config,
-            routeContext: routeContext,
-            reporter: reporter
-        ) { launchedID = $0 }
-
-        XCTAssertEqual(reporter.items.count, 1)
-        let item = try XCTUnwrap(reporter.items.first)
-        XCTAssertEqual(launchedID, item.id)
-        XCTAssertEqual(item.title, "Profiling Sample 1_R1.fastq.gz")
-        XCTAssertEqual(item.initialDetail, "Starting Kraken2 with Viral...")
-        XCTAssertEqual(item.operationType, .classification)
-        XCTAssertNil(item.targetBundleURL)
-        XCTAssertEqual(item.additionalLockedBundleURLs, [])
-        XCTAssertEqual(item.routeContext, routeContext)
-
-        let recorded = try XCTUnwrap(item.cliCommand)
+        let recorded = ClassifierLaunchReference.kraken2Command(for: config)
         XCTAssertTrue(
             recorded.hasPrefix("lungfish-cli kraken2 classify "),
             "E11 names the command kraken2 classify, after lungfish-cli and not the legacy executable name lungfish"
@@ -114,7 +101,6 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
             (.extract, "Classifying (extract)"),
         ]
         for (goal, label) in cases {
-            let reporter = RecordingOperationReporter()
             let config = ClassificationConfig(
                 goal: goal,
                 inputFiles: [importURL("Sample 1.lungfishfastq"), importURL("Sample 2.lungfishfastq")],
@@ -124,14 +110,10 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
                 outputDirectory: analysisURL("kraken2-2026-10-02")
             )
 
-            AppDelegate.beginClassificationOperation(config: config, routeContext: nil, reporter: reporter) { _ in }
-
-            let item = try XCTUnwrap(reporter.items.first)
-            XCTAssertEqual(item.title, "\(label) Sample 1.lungfishfastq")
-            XCTAssertNil(item.routeContext)
+            let launch = try XCTUnwrap(ClassifierCLIRouteLaunch.kraken2(configs: [config], projectURL: projectURL))
+            XCTAssertEqual(launch.title, "\(label) Sample 1.lungfishfastq")
         }
 
-        let reporter = RecordingOperationReporter()
         let noInput = ClassificationConfig(
             inputFiles: [],
             isPairedEnd: false,
@@ -139,15 +121,13 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
             databasePath: databaseURL,
             outputDirectory: analysisURL("kraken2-2026-10-02")
         )
-        AppDelegate.beginClassificationOperation(config: noInput, routeContext: nil, reporter: reporter) { _ in }
-        XCTAssertEqual(try XCTUnwrap(reporter.items.first).title, "Classifying reads")
+        let noInputLaunch = try XCTUnwrap(ClassifierCLIRouteLaunch.kraken2(configs: [noInput], projectURL: projectURL))
+        XCTAssertEqual(noInputLaunch.title, "Classifying reads")
     }
 
     // MARK: - Kraken2 batch
 
-    func testKraken2BatchRowRecordsOneConfiguredCommandPerSample() throws {
-        let reporter = RecordingOperationReporter()
-        let routeContext = makeRouteContext()
+    func testKraken2BatchCommandIsOneConfiguredCommandPerSample() throws {
         let firstInput = importURL("Sample 1.lungfishfastq")
         let pairedInputs = [importURL("Sample 2_R1.fastq.gz"), importURL("Sample 2_R2.fastq.gz")]
         let first = ClassificationConfig(
@@ -170,28 +150,11 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
             threads: 4,
             outputDirectory: analysisURL("kraken2-batch-2026-10-02/Sample 2")
         )
-        var launchedID: UUID?
-
-        AppDelegate.beginClassificationBatchOperation(
-            configs: [first, second],
-            routeContext: routeContext,
-            reporter: reporter
-        ) { launchedID = $0 }
-
-        let item = try XCTUnwrap(reporter.items.first)
-        XCTAssertEqual(launchedID, item.id)
-        XCTAssertEqual(item.title, "Classification Batch (2 samples)")
-        XCTAssertEqual(item.initialDetail, "Starting Kraken2/Bracken batch\u{2026}")
-        XCTAssertEqual(item.operationType, .classification)
-        XCTAssertNil(item.targetBundleURL)
-        XCTAssertEqual(item.additionalLockedBundleURLs, [])
-        XCTAssertEqual(item.routeContext, routeContext)
-
         // One `kraken2 classify` per sample (R3, E11). The row used to record
         // one command with the database path in `--db`, no output folder and
         // every input of every sample, which the CLI could not run as the
         // batch ran.
-        let lines = try XCTUnwrap(item.cliCommand).components(separatedBy: "\n")
+        let lines = try XCTUnwrap(ClassifierLaunchReference.kraken2BatchCommand(for: [first, second])).components(separatedBy: "\n")
         XCTAssertEqual(lines.count, 2, "one command per sample")
         for (line, config) in zip(lines, [first, second]) {
             let command = try RecordedCLICommand.parse(line, as: ClassifyCommand.self)
@@ -231,9 +194,7 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
 
     // MARK: - EsViritu
 
-    func testEsVirituRowRecordsTheCommandTheBuilderMakes() throws {
-        let reporter = RecordingOperationReporter()
-        let routeContext = makeRouteContext()
+    func testEsVirituCommandIsTheBuildersArgvAndTheCLIParsesIt() throws {
         let imports = FileManager.default.temporaryDirectory
             .appendingPathComponent("lane-1k1-esviritu-\(UUID().uuidString)/Imports", isDirectory: true)
         try FileManager.default.createDirectory(at: imports, withIntermediateDirectories: true)
@@ -253,29 +214,14 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
             extraArguments: ["--min_read_len", "120"],
             readFormat: .paired
         )
-        var launchedID: UUID?
-
-        AppDelegate.beginEsVirituOperation(
-            config: config,
-            routeContext: routeContext,
-            reporter: reporter
-        ) { launchedID = $0 }
-
-        let item = try XCTUnwrap(reporter.items.first)
-        XCTAssertEqual(launchedID, item.id)
-        XCTAssertEqual(item.title, "EsViritu Sample 1")
-        XCTAssertEqual(item.initialDetail, "Starting EsViritu viral detection\u{2026}")
-        XCTAssertEqual(item.operationType, .classification)
-        XCTAssertNil(item.targetBundleURL)
-        XCTAssertEqual(item.additionalLockedBundleURLs, [])
-        XCTAssertEqual(item.routeContext, routeContext)
-        // The row records every setting the run uses, the same arguments the
+        let recorded = ClassifierLaunchReference.esVirituCommand(for: config)
+        // The command records every setting the run uses, the same arguments the
         // run's provenance records (R3).
         XCTAssertEqual(
-            try RecordedCLICommand.arguments(of: item.cliCommand),
+            try RecordedCLICommand.arguments(of: recorded),
             ["esviritu", "detect"] + EsVirituCLIInvocationBuilder.esVirituDetectCLIArguments(for: config)
         )
-        let command = try RecordedCLICommand.parse(item.cliCommand, as: EsVirituCommand.DetectSubcommand.self)
+        let command = try RecordedCLICommand.parse(recorded, as: EsVirituCommand.DetectSubcommand.self)
         XCTAssertEqual(command.inputFiles, inputs.map(\.path))
         XCTAssertEqual(command.sampleName, "Sample 1")
         XCTAssertEqual(command.readFormat, .paired)
@@ -312,16 +258,13 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
             databasePath: databaseURL,
             readFormat: .unpaired
         )
-        let reporter = RecordingOperationReporter()
-
-        AppDelegate.beginEsVirituOperation(config: config, routeContext: nil, reporter: reporter) { _ in }
-
-        // The wizard hands the run a `.lungfishfastq` bundle, so the row
-        // records `esviritu detect --input <bundle>`. The command resolves the
+        // The wizard hands the run a `.lungfishfastq` bundle, so the command
+        // is `esviritu detect --input <bundle>`. The command resolves the
         // bundle to the file it holds, as the run does, and EsViritu accepts
         // the result (R3). It used to refuse the bundle as a directory.
-        let item = try XCTUnwrap(reporter.items.first)
-        let command = try RecordedCLICommand.parse(item.cliCommand, as: EsVirituCommand.DetectSubcommand.self)
+        let command = try RecordedCLICommand.parse(
+            ClassifierLaunchReference.esVirituCommand(for: config), as: EsVirituCommand.DetectSubcommand.self
+        )
         XCTAssertEqual(command.inputFiles, [bundleURL.path])
         XCTAssertEqual(command.readFormat, .unpaired)
         let resolved = try await EsVirituCommand.DetectSubcommand.resolveExecutionInputs(
@@ -352,11 +295,8 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
             readFormat: .paired
         )
         config.plansReadSet = true
-        let reporter = RecordingOperationReporter()
 
-        AppDelegate.beginEsVirituOperation(config: config, routeContext: nil, reporter: reporter) { _ in }
-
-        let recorded = try XCTUnwrap(reporter.items.first?.cliCommand)
+        let recorded = ClassifierLaunchReference.esVirituCommand(for: config)
         let command = try RecordedCLICommand.parse(recorded, as: EsVirituCommand.DetectSubcommand.self)
         XCTAssertEqual(command.inputFiles, [bundle.path], "the row names the bundle the user chose")
         XCTAssertEqual(command.readFormat, .auto)
@@ -651,18 +591,18 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
             guard case .refused = result else { return XCTFail("\(name) must report the refusal") }
         }
 
-        check("Kraken2", AppDelegate.beginClassificationOperation(
-            config: classification, routeContext: nil, reporter: reporter
-        ) { _ in launched.append("Kraken2") })
-        check("Kraken2 batch", AppDelegate.beginClassificationBatchOperation(
-            configs: [classification], routeContext: nil, reporter: reporter
-        ) { _ in launched.append("Kraken2 batch") })
-        check("EsViritu", AppDelegate.beginEsVirituOperation(
-            config: esViritu, routeContext: nil, reporter: reporter
-        ) { _ in launched.append("EsViritu") })
-        check("EsViritu batch", AppDelegate.beginEsVirituBatchOperation(
-            configs: [esViritu], routeContext: nil, reporter: reporter
-        ) { _ in launched.append("EsViritu batch") })
+        // The CLI route's launches, one sample and a batch of two for each tool.
+        let routes: [(String, ClassifierCLIRouteLaunch?)] = [
+            ("Kraken2", .kraken2(configs: [classification], projectURL: projectURL)),
+            ("Kraken2 batch", .kraken2(configs: [classification, classification], projectURL: projectURL)),
+            ("EsViritu", .esViritu(configs: [esViritu], projectURL: projectURL)),
+            ("EsViritu batch", .esViritu(configs: [esViritu, esViritu], projectURL: projectURL)),
+        ]
+        for (name, launch) in routes {
+            check(name, AppDelegate.beginClassifierCLIRouteOperation(
+                try XCTUnwrap(launch, name), routeContext: nil, reporter: reporter
+            ) { _ in launched.append(name) })
+        }
         check("TaxTriage", AppDelegate.beginTaxTriageOperation(
             config: taxTriage, routeContext: nil, reporter: reporter
         ) { _ in launched.append("TaxTriage") })

@@ -6,8 +6,8 @@
 // docs/contracts/CLI-EQUIVALENCE.md). For every bundle layout, the command
 // the Operations panel records for an EsViritu or TaxTriage sample reads the
 // same files, paired the same way, as the app's own launch of that tool. The
-// app side runs the production resolvers (`resolvedEsVirituConfig` and
-// `resolvedTaxTriageConfig`), the command side parses the recorded line with
+// app side runs the reference resolvers (`ClassifierLaunchReference.esVirituResolved`
+// and the production `resolvedTaxTriageConfig`), the command side parses the recorded line with
 // the shipped parser and runs the steps `esviritu detect` and `taxtriage run`
 // run. Read names say what each read is, as in ReadSetFixtures. The tests sit
 // beside BundleResolutionCLIParityTests, which holds the same checks for
@@ -77,7 +77,7 @@ final class SamplesheetReadSetParityTests: XCTestCase {
             wizardConfig.plansReadSet = readPlan.plansReadSet
 
             // The app.
-            let app = try await AppDelegate().resolvedEsVirituConfig(
+            let app = try await ClassifierLaunchReference.esVirituResolved(
                 wizardConfig,
                 tempDirectory: root.appendingPathComponent("app-\(UUID().uuidString)", isDirectory: true),
                 materializer: fixtures.materializer
@@ -85,9 +85,7 @@ final class SamplesheetReadSetParityTests: XCTestCase {
 
             // The command the Operations panel records, parsed by the shipped
             // parser and run as `esviritu detect` runs it.
-            let reporter = RecordingOperationReporter()
-            AppDelegate.beginEsVirituOperation(config: wizardConfig, routeContext: nil, reporter: reporter) { _ in }
-            let recorded = try XCTUnwrap(reporter.items.first?.cliCommand, shape)
+            let recorded = ClassifierLaunchReference.esVirituCommand(for: wizardConfig)
             let command = try RecordedCLICommand.parse(recorded, as: EsVirituCommand.DetectSubcommand.self)
             let inputs = try CLIClassificationFolderResolver.expandInputArguments(command.inputFiles, recursive: command.recursive)
             let cliInputsDirectory = wizardConfig.outputDirectory.appendingPathComponent(

@@ -39,9 +39,9 @@ enum ClassifierLegacyRuns {
     }
 
     /// The arguments after `lungfish-cli conda classify` that the Operations
-    /// panel records for `config` (`AppDelegate.classificationCLICommand(for:)`).
+    /// panel records for `config` (`ClassifierLaunchReference.kraken2Command(for:)`).
     static func recordedClassifyArguments(for config: ClassificationConfig) throws -> [String] {
-        Array(try RecordedCLICommand.arguments(of: AppDelegate.classificationCLICommand(for: config)).dropFirst(2))
+        Array(try RecordedCLICommand.arguments(of: ClassifierLaunchReference.kraken2Command(for: config)).dropFirst(2))
     }
 
     /// Runs `lungfish-cli kraken2 classify <arguments>`, the spelling the Operations panel records

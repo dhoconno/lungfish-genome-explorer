@@ -166,9 +166,10 @@ final class ClassifierLaunchRouteTests: XCTestCase {
 
     // MARK: - The row (D1 to D4)
 
-    /// Each CLI route row begins as today's row of the same launch, with the same title, first
-    /// detail, type, route and no lock, and records the argv the transport runs, which a shell
-    /// splits back into the same arguments.
+    /// Each CLI route row begins with the title and first detail of the launch's row before the
+    /// CLI route, which lane A32 froze as the literals below when it deleted the in-process begin
+    /// helpers that made them. It has the classification type, the route and no lock, and records
+    /// the argv the transport runs, which a shell splits back into the same arguments.
     func testEachCLIRouteRowBeginsAsTodaysRowAndRecordsTheArgvThatRuns() throws {
         let routeContext = OperationRouteContext(projectURL: projectURL, windowStateScopeID: UUID())
         let kraken2 = [kraken2Config(inputs: [importURL("A.fastq")], output: "a"), kraken2Config(inputs: [importURL("B.fastq")], output: "b")]
@@ -176,42 +177,29 @@ final class ClassifierLaunchRouteTests: XCTestCase {
             esVirituConfig(sample: "A", inputs: [importURL("A.fastq")], plansReadSet: false),
             esVirituConfig(sample: "B", inputs: [importURL("B.fastq")], plansReadSet: false),
         ]
-        let cases: [(name: String, launch: ClassifierCLIRouteLaunch?, today: (any OperationReporting) -> Void)] = [
-            ("kraken2 single", .kraken2(configs: [kraken2[0]], projectURL: projectURL), { reporter in
-                AppDelegate.beginClassificationOperation(config: kraken2[0], routeContext: routeContext, reporter: reporter) { _ in }
-            }),
-            ("kraken2 batch", .kraken2(configs: kraken2, projectURL: projectURL), { reporter in
-                AppDelegate.beginClassificationBatchOperation(configs: kraken2, routeContext: routeContext, reporter: reporter) { _ in }
-            }),
-            ("esviritu single", .esViritu(configs: [esViritu[0]], projectURL: projectURL), { reporter in
-                AppDelegate.beginEsVirituOperation(config: esViritu[0], routeContext: routeContext, reporter: reporter) { _ in }
-            }),
-            ("esviritu batch", .esViritu(configs: esViritu, projectURL: projectURL), { reporter in
-                AppDelegate.beginEsVirituBatchOperation(configs: esViritu, routeContext: routeContext, reporter: reporter) { _ in }
-            }),
+        let cases: [(name: String, launch: ClassifierCLIRouteLaunch?, title: String, detail: String)] = [
+            ("kraken2 single", .kraken2(configs: [kraken2[0]], projectURL: projectURL), "Profiling A.fastq", "Starting Kraken2 with Viral..."),
+            ("kraken2 batch", .kraken2(configs: kraken2, projectURL: projectURL), "Classification Batch (2 samples)", "Starting Kraken2/Bracken batch\u{2026}"),
+            ("esviritu single", .esViritu(configs: [esViritu[0]], projectURL: projectURL), "EsViritu A", "Starting EsViritu viral detection\u{2026}"),
+            ("esviritu batch", .esViritu(configs: esViritu, projectURL: projectURL), "EsViritu Batch (2 samples)", "Starting EsViritu batch\u{2026}"),
         ]
         for testCase in cases {
             let launch = try XCTUnwrap(testCase.launch, testCase.name)
-            let todays = RecordingOperationReporter()
-            testCase.today(todays)
             let routes = RecordingOperationReporter()
             var started: UUID?
             AppDelegate.beginClassifierCLIRouteOperation(launch, routeContext: routeContext, reporter: routes) { started = $0 }
 
-            let today = try XCTUnwrap(todays.items.first, testCase.name)
             let row = try XCTUnwrap(routes.items.first, testCase.name)
             XCTAssertEqual(started, row.id, testCase.name)
-            XCTAssertEqual(row.title, today.title, "\(testCase.name): D1")
-            XCTAssertEqual(row.initialDetail, today.initialDetail, "\(testCase.name): D2")
+            XCTAssertEqual(row.title, testCase.title, "\(testCase.name): D1")
+            XCTAssertEqual(row.initialDetail, testCase.detail, "\(testCase.name): D2")
             XCTAssertEqual(row.operationType, .classification, "\(testCase.name): D3")
-            XCTAssertEqual(row.operationType, today.operationType, testCase.name)
             XCTAssertNil(row.targetBundleURL, testCase.name)
             XCTAssertEqual(row.additionalLockedBundleURLs, [], testCase.name)
             XCTAssertEqual(row.routeContext, routeContext, testCase.name)
             let recorded = try XCTUnwrap(row.cliCommand, testCase.name)
             XCTAssertTrue(recorded.hasPrefix("lungfish-cli \(launch.arguments[0]) \(launch.arguments[1]) "), "\(testCase.name): D4")
             XCTAssertEqual(try RecordedCLICommand.arguments(of: recorded), launch.arguments, "\(testCase.name): the row records the argv that runs")
-            XCTAssertNotEqual(recorded, today.cliCommand, "\(testCase.name): today's row records its own output folder or nothing")
         }
     }
 

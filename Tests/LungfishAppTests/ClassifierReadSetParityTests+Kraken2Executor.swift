@@ -28,7 +28,7 @@ extension ClassifierReadSetParityTests {
     /// the pipeline, the reads of each file after `--report-minimizer-data` and the read-set plan
     /// of the root record. A refused or failed command renders the reason its `failed` event gives.
     func executorKraken2(_ sample: MetagenomicsSampleInput, row: Row, run: URL, mask: PathMask) async throws -> String {
-        let recorded = AppDelegate.classificationCLICommand(for: await kraken2WizardConfig(sample, run: run))
+        let recorded = ClassifierLaunchReference.kraken2Command(for: await kraken2WizardConfig(sample, run: run))
         let arguments = try RecordedCLICommand.arguments(of: recorded)
         XCTAssertEqual(Array(arguments.prefix(2)), ["kraken2", "classify"], "the row records kraken2 classify (E11)")
         let command = try ClassifyCommand.parse(Array(arguments.dropFirst(2)) + ["--format", "json"])

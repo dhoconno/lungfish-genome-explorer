@@ -582,7 +582,7 @@ final class FASTQOperationOutputImporterToolCommandTests: XCTestCase {
             inputLayout: wizard.layout
         )
         config.plansReadSet = wizard.plansReadSet
-        let launched = try await AppDelegate().resolvedEsVirituConfig(
+        let launched = try await ClassifierLaunchReference.esVirituResolved(
             config,
             tempDirectory: root.appendingPathComponent("esviritu-inputs", isDirectory: true)
         )

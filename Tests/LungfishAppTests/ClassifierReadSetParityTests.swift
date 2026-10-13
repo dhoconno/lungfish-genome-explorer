@@ -9,11 +9,10 @@
 // with the scratch, output, database and project paths masked, the read names
 // of each input file in argv order, and the read-set plan the run records.
 //
-// - `gui` builds the wizard's config and runs the app's launch resolution,
-//   `resolvedKraken2Config` and `resolvedEsVirituConfig` with their planners.
 // - `cli` records the command the Operations panel shows for that config,
 //   parses it with the shipped parser and runs the read-set code of
-//   `conda classify` and `esviritu detect`.
+//   `conda classify` and `esviritu detect`. The command is the argv of
+//   `ClassificationCLIInvocationBuilder` or `EsVirituCLIInvocationBuilder`.
 // - `executor` runs that recorded command whole through `esviritu detect`,
 //   which lane A9 put on the analysis run executor, or through `kraken2
 //   classify`, which lane A8 put there (lane F3,
@@ -24,6 +23,9 @@
 // a command run (`ClassifierReadSetParityTable.executorValue(of:)`), so any
 // change it makes shows here against this base. A row whose routes differ
 // today names the difference and the lane that removes it in `knownDifferences`.
+// The `gui` column ran the in-process launch that left App in Phase 2.9 (E14). Phase 2.10
+// lane A32 deleted it with that launch. Its rows are the frozen values below, which the
+// remaining columns give.
 
 import Foundation
 import XCTest
@@ -154,7 +156,6 @@ final class ClassifierReadSetParityTests: XCTestCase {
 
     /// The columns. The executor runs EsViritu since lane A9 and Kraken2 since lane A8.
     enum Route: String, CaseIterable {
-        case gui
         case cli
         case executor
 
@@ -179,12 +180,8 @@ final class ClassifierReadSetParityTests: XCTestCase {
                 return "no sample"
             }
             switch (tool, route) {
-            case (.kraken2, .gui):
-                return try render(kraken2: try await guiKraken2(sample, row: row, run: run), mask: mask)
             case (.kraken2, .cli):
                 return try render(kraken2: try await cliKraken2(sample, row: row, run: run), mask: mask)
-            case (.esviritu, .gui):
-                return try render(esviritu: try await guiEsViritu(sample, row: row, run: run), mask: mask)
             case (.esviritu, .cli):
                 return try render(esviritu: try await cliEsViritu(sample, row: row, run: run), mask: mask)
             case (.esviritu, .executor):
@@ -223,34 +220,11 @@ final class ClassifierReadSetParityTests: XCTestCase {
         )
     }
 
-    /// The app's Kraken2 launch. `resolvedKraken2Config` takes no materializer
-    /// (`resolveInputFiles` builds the launch's own), so a virtual subset whose
-    /// reads only the stub writes runs the resolver's two steps with the stub,
-    /// `ResolvedSequenceInputs.resolve` and then `AppDelegate.planKraken2ReadSet`,
-    /// as `BundleResolutionCLIParityTests` does.
-    private func guiKraken2(_ sample: MetagenomicsSampleInput, row: Row, run: URL) async throws -> ClassificationConfig {
-        let config = await kraken2WizardConfig(sample, run: run)
-        let scratch = run.appendingPathComponent("scratch", isDirectory: true)
-        guard row.usesStubMaterializer else {
-            return try await AppDelegate().resolvedKraken2Config(config, tempDirectory: scratch)
-        }
-        let resolvedFiles = try await ResolvedSequenceInputs.resolve(
-            inputURLs: config.inputFiles,
-            materializationDirectory: scratch,
-            materializer: materializer(for: row)
-        ).executionInputURLs
-        var resolved = config
-        resolved.sampleDisplayName = resolved.sampleDisplayName ?? config.inputFiles.first?.deletingPathExtension().lastPathComponent
-        resolved.originalInputFiles = resolved.originalInputFiles ?? config.inputFiles
-        resolved.inputFiles = resolvedFiles
-        return try await AppDelegate.planKraken2ReadSet(resolved, materializedInputs: resolvedFiles)
-    }
-
     /// The command the Operations panel records, parsed by the shipped parser
     /// and resolved, configured and planned in the order `ClassifyCommand.run`
     /// does. The database is the path the registry name resolves to.
     private func cliKraken2(_ sample: MetagenomicsSampleInput, row: Row, run: URL) async throws -> ClassificationConfig {
-        let recorded = AppDelegate.classificationCLICommand(for: await kraken2WizardConfig(sample, run: run))
+        let recorded = ClassifierLaunchReference.kraken2Command(for: await kraken2WizardConfig(sample, run: run))
         let command = try RecordedCLICommand.parse(recorded, as: ClassifyCommand.self)
         let inputs = try CLIClassificationFolderResolver.expandInputArguments(command.fastqFiles, recursive: command.recursive)
         let outputDirectory = URL(fileURLWithPath: try XCTUnwrap(command.outputDir), isDirectory: true)
@@ -296,26 +270,13 @@ final class ClassifierReadSetParityTests: XCTestCase {
         return config
     }
 
-    /// The app's EsViritu launch. A bundle that needs no stub runs with the
-    /// launch's own materializer (`materializer: nil`).
-    private func guiEsViritu(_ sample: MetagenomicsSampleInput, row: Row, run: URL) async throws -> EsVirituConfig {
-        try await AppDelegate().resolvedEsVirituConfig(
-            await esVirituWizardConfig(sample, run: run),
-            tempDirectory: run.appendingPathComponent("scratch", isDirectory: true),
-            materializer: row.usesStubMaterializer ? fixtures.materializer : nil
-        )
-    }
-
     /// The command the Operations panel records, parsed by the shipped parser
     /// and resolved, configured and planned in the order
     /// `EsVirituCommand.DetectSubcommand.execute` does.
     private func cliEsViritu(_ sample: MetagenomicsSampleInput, row: Row, run: URL) async throws -> EsVirituConfig {
-        let reporter = RecordingOperationReporter()
-        AppDelegate.beginEsVirituOperation(
-            config: await esVirituWizardConfig(sample, run: run), routeContext: nil, reporter: reporter
-        ) { _ in }
         let command = try RecordedCLICommand.parse(
-            try XCTUnwrap(reporter.items.first?.cliCommand), as: EsVirituCommand.DetectSubcommand.self
+            ClassifierLaunchReference.esVirituCommand(for: await esVirituWizardConfig(sample, run: run)),
+            as: EsVirituCommand.DetectSubcommand.self
         )
         let inputs = try CLIClassificationFolderResolver.expandInputArguments(command.inputFiles, recursive: command.recursive)
         let outputDirectory = URL(fileURLWithPath: try XCTUnwrap(command.outputDir), isDirectory: true)
@@ -346,11 +307,8 @@ final class ClassifierReadSetParityTests: XCTestCase {
     /// `-r` and the read-set plan of the root record, read through the one reader from its one
     /// home (E13). A refused command renders the reason its `failed` event gives.
     private func executorEsViritu(_ sample: MetagenomicsSampleInput, row: Row, run: URL, mask: PathMask) async throws -> String {
-        let reporter = RecordingOperationReporter()
-        AppDelegate.beginEsVirituOperation(
-            config: await esVirituWizardConfig(sample, run: run), routeContext: nil, reporter: reporter
-        ) { _ in }
-        let arguments = try RecordedCLICommand.arguments(of: reporter.items.first?.cliCommand) + ["--quiet"]
+        let recorded = ClassifierLaunchReference.esVirituCommand(for: await esVirituWizardConfig(sample, run: run))
+        let arguments = try RecordedCLICommand.arguments(of: recorded) + ["--quiet"]
         let command = try XCTUnwrap(
             try LungfishCLI.parseAsRoot(LungfishCLI.normalizedArgumentsForParsing(arguments)) as? EsVirituCommand.DetectSubcommand
         )
@@ -587,22 +545,9 @@ enum ClassifierReadSetParityTable {
         let lane: String
     }
 
-    /// D9 of the 2.7 inventory. The legacy GUI resolver has no preflight, so
-    /// it tries to materialize a demultiplex group and fails on its missing
-    /// root file, where the CLI refuses the group before writing anything. The
-    /// GUI route of lane A10 runs through the CLI, and lane A12 deletes this
-    /// legacy column with the legacy path.
+    /// The differences the table still has. The two of the legacy `gui` column (D9 of the 2.7
+    /// inventory, a demultiplex group the GUI resolver tried to materialize) went with that column.
     static let knownDifferences: [KnownDifference] = [
-        KnownDifference(
-            tool: .kraken2, row: "L6e demultiplex group", route: "gui",
-            value: "refused: FASTQCLIMaterializerError Root FASTQ file referenced in manifest does not exist",
-            lane: "A10, A12"
-        ),
-        KnownDifference(
-            tool: .esviritu, row: "L6e demultiplex group", route: "gui",
-            value: "refused: FASTQCLIMaterializerError Root FASTQ file referenced in manifest does not exist",
-            lane: "A10, A12"
-        ),
         // Lane F3 found it when it added the Kraken2 executor column. `esviritu detect` refuses the
         // group in its plan with exit 3 before any folder exists, as the frozen CLI value does, and
         // `kraken2 classify` checks it after its plan, so the run fails with exit 64.
