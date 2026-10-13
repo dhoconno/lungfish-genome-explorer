@@ -1233,16 +1233,24 @@ public final class FASTQDatasetViewController: NSViewController {
     /// first record. Lines have no length limit, as with seqkit, so an
     /// ultra-long Nanopore read does not turn the preview into a failure.
     nonisolated static func firstRecords(from url: URL, limit: Int) async throws -> [FASTQRecord] {
-        let wanted = max(1, limit)
         let reader = FASTQReader(encoding: .phred33, validateSequence: false, maxLineLength: .max)
+        return try await firstRecords(of: reader.records(from: url), limit: limit)
+    }
+
+    /// The first `limit` records of `stream`. A cancel ends the line stream early without an error,
+    /// so between records it leaves a short list and inside a record the parser reports the cut as a
+    /// `FASTQError`. Both end in `CancellationError` here, so a superseded preview shows no failure.
+    nonisolated static func firstRecords(
+        of stream: AsyncThrowingStream<FASTQRecord, Error>,
+        limit: Int
+    ) async throws -> [FASTQRecord] {
+        let wanted = max(1, limit)
         var records: [FASTQRecord] = []
         records.reserveCapacity(min(wanted, 1_024))
-        for try await record in reader.records(from: url) {
+        for try await record in stream {
             records.append(record)
             if records.count >= wanted { break }
         }
-        // A cancelled read ends the stream early without an error. Say so
-        // rather than return a short list that looks like the whole preview.
         try Task.checkCancellation()
         return records
     }

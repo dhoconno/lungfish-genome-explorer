@@ -501,6 +501,26 @@ final class FASTQDatasetPreviewTests: XCTestCase {
         }
     }
 
+    func testACancelInsideARecordEndsWithCancellationInsteadOfAFASTQError() async throws {
+        // A cancel ends the line stream early, so one inside a record reaches the parser as a cut record,
+        // which it reports as a FASTQError. This stream cancels the task reading it and throws that error.
+        let task = Task.detached { () -> Int in
+            let cut = AsyncThrowingStream<FASTQRecord, Error>(unfolding: {
+                withUnsafeCurrentTask { $0?.cancel() }
+                throw FASTQError.unexpectedEndOfFile
+            })
+            return try await FASTQDatasetViewController.firstRecords(of: cut, limit: 1_000).count
+        }
+        do {
+            let count = try await task.value
+            XCTFail("A cancelled read returned \(count) records")
+        } catch is CancellationError {
+            // Expected. A FASTQError would show the extract failure text for a superseded preview.
+        } catch {
+            XCTFail("A cancel inside a record ended in \(error) instead of CancellationError")
+        }
+    }
+
     func testAnEmptyFileShowsTheNoReadsTexts() async throws {
         let dataset = try Fixture.makeDataset(in: root, fastq: "")
         for url in [dataset.plain, dataset.gzip] {
