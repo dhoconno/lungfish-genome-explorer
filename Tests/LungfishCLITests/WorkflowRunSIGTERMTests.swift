@@ -140,4 +140,40 @@ final class WorkflowRunSIGTERMTests: XCTestCase {
         let killed = await waitUntil(timeout: .seconds(5)) { !ProcessTreeTerminator.processExists(pid: childPID) }
         XCTAssertTrue(killed, "the harness kills a process it finds left")
     }
+
+    /// A command that ignores SIGTERM never exits. The harness reports it as still running,
+    /// records its tree as left and kills it, so the test leaves nothing behind.
+    @MainActor
+    func testTheHarnessKillsTheTreeOfACommandThatIgnoresSIGTERM() async throws {
+        let childPIDFile = root.appendingPathComponent("child.pid")
+        let script = root.appendingPathComponent("ignores-sigterm.sh")
+        try """
+        #!/bin/sh
+        trap '' TERM
+        /bin/sh -c 'echo $$ > "$CHILD_PID_FILE"; exec /bin/sleep 300' &
+        wait
+        """.write(to: script, atomically: true, encoding: .utf8)
+        let run = try CLISIGTERMHarness.launch(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [script.path],
+            environment: ["PATH": "/usr/bin:/bin", "CHILD_PID_FILE": childPIDFile.path]
+        )
+        defer { run.stop() }
+        guard let childPID = await CLISIGTERMHarness.waitForProcessID(in: childPIDFile) else {
+            return XCTFail("The stand-in never started its child")
+        }
+
+        // The command never exits, so a short wait finds that all the same.
+        let stop = await CLISIGTERMHarness.cancel(run, timeout: .seconds(2))
+        XCTAssertNil(stop.termination, stop.diagnostics)
+        XCTAssertTrue(
+            stop.left.contains(run.processIdentifier) && stop.left.contains(childPID),
+            "the command and its child are left, \(stop.left) out of \(stop.tree)"
+        )
+        XCTExpectFailure("the tree of a command that ignores SIGTERM is left") {
+            CLISIGTERMHarness.assertNoProcessLeft(stop)
+        }
+        let killed = await waitUntil(timeout: CLISIGTERMHarness.processWait) { !run.isRunning }
+        XCTAssertTrue(killed, "the harness kills a command that ignores SIGTERM")
+    }
 }

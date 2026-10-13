@@ -115,14 +115,22 @@ public enum CLISIGTERMHarness {
     /// Sends one SIGTERM to `run` alone, as `kill <pid>` does, waits up to `timeout` for it to
     /// exit, and then up to `timeout` for the rest of its tree to go. The tree is read just before
     /// the signal, so it holds every process the run had started. A process of the tree that still
-    /// runs after the second wait is recorded in ``Stop/left`` and killed.
+    /// runs after the second wait, or every one that runs when the run itself does not exit, is
+    /// recorded in ``Stop/left`` and killed.
     public static func cancel(_ run: Run, timeout: Duration = processWait) async -> Stop {
         let tree = processTree(of: run.processIdentifier)
         let sent = run.sendSIGTERM()
         let exited = await waitUntil(timeout: timeout, pollInterval: .milliseconds(10)) { !run.isRunning }
         guard exited else {
+            // The command ignored the signal. Record the tree that still runs and kill it, so
+            // the tree check fails beside the exit check and the test leaves nothing behind.
+            let stillRunning = tree.filter { !hasExited($0) }
+            for pid in stillRunning {
+                kill(pid, SIGKILL)
+            }
+            run.stop()
             return Stop(
-                tree: tree, left: [], outputHeldOpen: false, termination: nil, elapsed: nil,
+                tree: tree, left: stillRunning, outputHeldOpen: false, termination: nil, elapsed: nil,
                 standardOutput: "", standardError: ""
             )
         }
