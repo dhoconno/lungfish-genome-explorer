@@ -88,7 +88,6 @@ Sources/LungfishCLI/Commands/GenotypeExportSubcommand.swift 997
 Sources/LungfishCLI/Commands/ImportCommand.swift 2527
 Sources/LungfishCLI/Commands/MSACommand.swift 2797
 Sources/LungfishCLI/Commands/MarkdupCommand.swift 1103
-Sources/LungfishCLI/Commands/RunSubcommand.swift 974
 Sources/LungfishCLI/Commands/TreeCommand.swift 838
 Sources/LungfishCLI/Commands/VariantsCommand.swift 1424
 Sources/LungfishCore/Bundles/BundleManifest.swift 823
