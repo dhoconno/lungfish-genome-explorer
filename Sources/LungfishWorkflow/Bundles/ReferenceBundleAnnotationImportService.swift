@@ -6,6 +6,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import os.log
+import Synchronization
 
 private let annotationImportLogger = Logger(subsystem: LogSubsystem.app, category: "ReferenceAnnotationImport")
 
@@ -152,6 +153,12 @@ public final class ReferenceBundleAnnotationImportService {
     /// `.addingAnnotationTrack` -> `.save` sequences. Attaches to different
     /// bundles are unaffected and continue to run fully concurrently
     /// off-main.
+    ///
+    /// Cancelling the calling task cancels the attach before it writes, or
+    /// once the file is parsed, before it changes the manifest. Either way the
+    /// bundle is left as it was and the call throws `CancellationError`. The
+    /// parse itself runs to its end. The serializer runs the work in a task
+    /// of its own, so the cancel travels in a flag, not as task cancellation.
     public func attachAnnotationTrack(
         sourceURL: URL,
         bundleURL: URL,
@@ -159,6 +166,7 @@ public final class ReferenceBundleAnnotationImportService {
         trackName requestedTrackName: String? = nil,
         invocationArgv: [String]? = nil
     ) async throws -> ReferenceBundleAnnotationImportResult {
+        let cancelled = AttachCancelFlag()
         let task = Task<ReferenceBundleAnnotationImportResult, Error>.detached(priority: .userInitiated) {
             try await BundleManifestMutationSerializer.shared.run(bundleURL: bundleURL) {
                 try await ReferenceBundleAnnotationImportService.performAttach(
@@ -166,11 +174,35 @@ public final class ReferenceBundleAnnotationImportService {
                     bundleURL: bundleURL,
                     requestedTrackID: requestedTrackID,
                     requestedTrackName: requestedTrackName,
-                    invocationArgv: invocationArgv
+                    invocationArgv: invocationArgv,
+                    isCancelled: { cancelled.isSet }
                 )
             }
         }
-        return try await task.value
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            cancelled.set()
+        }
+    }
+
+    /// The `lungfish-cli` argv, from the `sequence attach-track` words on,
+    /// that attaches `sourceURL` to the bundle as
+    /// ``attachAnnotationTrack(sourceURL:bundleURL:trackID:trackName:invocationArgv:)``
+    /// does. The Import Center and sidebar rows run and record it, and the
+    /// command records it when it runs inside another process. The track ID
+    /// and name are joined to their options, so a hyphen-leading value
+    /// replays. The builder touches no state, so any isolation can call it.
+    package static func attachTrackArguments(
+        sourceURL: URL,
+        bundleURL: URL,
+        trackID: String?,
+        trackName: String?
+    ) -> [String] {
+        var arguments = ["sequence", "attach-track", bundleURL.path, sourceURL.path]
+        if let trackID { arguments.append("--track-id=\(trackID)") }
+        if let trackName { arguments.append("--track-name=\(trackName)") }
+        return arguments
     }
 
     private static func performAttach(
@@ -178,11 +210,13 @@ public final class ReferenceBundleAnnotationImportService {
         bundleURL: URL,
         requestedTrackID: String?,
         requestedTrackName: String?,
-        invocationArgv: [String]?
+        invocationArgv: [String]?,
+        isCancelled: @Sendable () -> Bool
     ) async throws -> ReferenceBundleAnnotationImportResult {
         #if DEBUG
         threadingProbe?()
         #endif
+        if isCancelled() { throw CancellationError() }
         let runClock = ProvenanceRunClock()
         guard ReferenceBundleImportService.classify(sourceURL) == .annotationTrack else {
             throw ReferenceBundleAnnotationImportError.unsupportedFormat(sourceURL)
@@ -231,6 +265,11 @@ public final class ReferenceBundleAnnotationImportService {
             featureCount = try AnnotationDatabase.createFromBED(bedURL: sourceURL, outputURL: databaseURL)
         } else {
             throw ReferenceBundleAnnotationImportError.unsupportedFormat(sourceURL)
+        }
+        // A cancel that came during the parse ends the attach here, before the manifest changes.
+        if isCancelled() {
+            try removeAnnotationDatabaseArtifacts(at: databaseURL)
+            throw CancellationError()
         }
         if featureCount == 0 {
             try removeAnnotationDatabaseArtifacts(at: databaseURL)
@@ -721,4 +760,14 @@ private struct AnnotationTrackImportRuntime: Codable {
     let appVersion: String
     let condaEnvironment: String?
     let containerRuntime: String?
+}
+
+/// Whether the caller of one attach cancelled it. The attach reads it from the serializer's task,
+/// which the caller's cancellation does not reach.
+private final class AttachCancelFlag: Sendable {
+    private let state = Mutex(false)
+
+    var isSet: Bool { state.withLock { $0 } }
+
+    func set() { state.withLock { $0 = true } }
 }

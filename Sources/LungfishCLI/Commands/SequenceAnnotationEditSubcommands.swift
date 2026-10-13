@@ -137,8 +137,29 @@ extension SequenceCommand {
 
         @OptionGroup var globalOptions: GlobalOptions
 
+        /// Runs the attach so that SIGTERM cancels it instead of ending the command, as the
+        /// app's Cancel does (plan decision C5). The attach then leaves the bundle as it was, and
+        /// the command exits 125. The command listens before the task starts, so an early
+        /// SIGTERM cancels the task once it exists, and a second SIGTERM ends the command at once.
         func run() async throws {
-            try await execute(emit: { printEventLine($0) })
+            let pendingCancel = PendingTaskCancel<(any Error)?>()
+            let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
+            defer { termination.end() }
+            let task = Task { () -> (any Error)? in
+                do {
+                    try await self.execute(emit: { printEventLine($0) })
+                    return nil
+                } catch {
+                    return error
+                }
+            }
+            pendingCancel.attach(task)
+            guard let error = await task.value else { return }
+            if error is CancellationError {
+                FileHandle.standardError.write(Data("Attach cancelled. The bundle is as it was.\n".utf8))
+                throw CLIExitCode.cancelled.exitCode
+            }
+            throw error
         }
 
         /// The run, with each event line handed to `emit`.
@@ -162,6 +183,9 @@ extension SequenceCommand {
                 if !globalOptions.quiet {
                     printHumanLine("\(message) into track \(result.track.id).", eventsOn: eventsOn)
                 }
+            } catch is CancellationError {
+                // A cancel is not a failure. The app's transport reports it from the exit.
+                throw CancellationError()
             } catch {
                 events.emitFailed(error.localizedDescription)
                 throw error
@@ -181,15 +205,12 @@ extension SequenceCommand {
         }
 
         /// The argv the records name, the words the process was started with, or, for a run inside
-        /// another process, the same command spelled out.
+        /// another process, the command the app's row records for the same attach.
         func recordedArguments(sourceURL: URL, bundleURL: URL) -> [String] {
-            if let observed = observedProcessSequenceCommandArguments(subcommand: "attach-track") {
-                return observed
-            }
-            var arguments = [CLICommandIdentity.executableName, "sequence", "attach-track", bundleURL.path, sourceURL.path]
-            if let trackID { arguments.append("--track-id=\(trackID)") }
-            if let trackName { arguments.append("--track-name=\(trackName)") }
-            return arguments
+            observedProcessSequenceCommandArguments(subcommand: "attach-track")
+                ?? [CLICommandIdentity.executableName] + ReferenceBundleAnnotationImportService.attachTrackArguments(
+                    sourceURL: sourceURL, bundleURL: bundleURL, trackID: trackID, trackName: trackName
+                )
         }
     }
 }
