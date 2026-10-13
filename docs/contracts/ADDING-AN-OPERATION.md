@@ -167,7 +167,7 @@ Phase 2.10 moves the operations that still run in the app onto `lungfish-cli`, o
 
 ## What a CLI route's row shows
 
-A route that runs `lungfish-cli` keeps the row its in-process route showed. Decision E15 of `docs/plans/2026-10-11-phase-2-7.md` has the CLI route repeat today's end of run and keep today's label rules, and decision W3 of `docs/plans/2026-10-13-phase-2-10.md` keeps each failure sheet's words until the lane that rewrites them. A move to the CLI therefore changes only the parts in the table below, and it changes them the same way on every route. Decisions W2, C5 and N5 of the Phase 2.10 plan set those parts, and the classifier route is the model to copy. Every route reads the command's events through `OperationCenterCLIBridge`, and no route keeps a rule of its own for the bar, the log or the label.
+A route that runs `lungfish-cli` keeps the row its in-process route showed. Decision E15 of `docs/plans/2026-10-11-phase-2-7.md` has the CLI route repeat today's end of run and keep today's label rules, and decision W3 of `docs/plans/2026-10-13-phase-2-10.md` keeps each failure sheet's words until the lane that rewrites them. A move to the CLI therefore changes only the parts in the table below, and it changes them the same way on every route. Decisions W2, C5 and N5 of the Phase 2.10 plan set those parts, and the classifier route is the model to copy. Every route reads the command's events through `OperationCenterCLIBridge`, and no route keeps its own copy of the held bar, the once rule or the label rule.
 
 | Part | What the row shows | Model to copy |
 |---|---|---|
