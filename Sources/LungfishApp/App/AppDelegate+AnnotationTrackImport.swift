@@ -116,19 +116,17 @@ extension AppDelegate {
         await Self.beginAnnotationTrackImportOperation(
             annotationURL: annotationURL,
             bundleURL: bundleURL,
+            trackID: trackID,
+            trackName: trackName,
             routeContext: routeContext
-        ) { opID in
+        ) { opID, arguments in
             do {
-                let result = try await ReferenceBundleAnnotationImportService()
-                    .attachAnnotationTrack(
-                        sourceURL: annotationURL,
-                        bundleURL: bundleURL,
-                        trackID: trackID,
-                        trackName: trackName
-                    )
+                // `sequence attach-track` writes the track and its records. Its complete message
+                // is today's "Imported <n> annotations".
+                let result = try await CLIBundleEditRunner.launch(arguments: arguments, operationID: opID)
                 guard OperationCenter.shared.complete(
                     id: opID,
-                    detail: "Imported \(result.featureCount) annotations"
+                    detail: result.message ?? "Imported annotations"
                 ) else { return }
                 let targetController = targetMainWindowController(routeContext: routeContext)
                 refreshSidebarAndSelectImportedURL(bundleURL, in: targetController)
@@ -146,33 +144,36 @@ extension AppDelegate {
     /// Registers the row that attaches one annotation file to a reference
     /// bundle as a track, for the Import Center and for a file dropped on the
     /// sidebar, and, only when it starts, awaits `launch` with the operation
-    /// ID. The row locks `bundleURL`, the bundle the attach writes. On a
-    /// refusal the caller shows its own outcome, and nothing is launched.
-    ///
-    /// cli-parity-gap: annotation-attach-import-center, for the Import Center.
-    /// cli-parity-gap: annotation-attach-sidebar-drop, for the sidebar drop.
-    /// No lungfish-cli command attaches a track to an existing bundle. The
-    /// closest is `bundle create --annotation`, which takes annotation files
-    /// only when it builds a new bundle. Both rows record no command until
-    /// `sequence attach-track` exists.
+    /// ID and the `lungfish-cli` argv to run. The edit parses a file from
+    /// outside the bundle, so it launches `sequence attach-track` (plan
+    /// decision C3), and the row records that argv. The row locks
+    /// `bundleURL`, the bundle the attach writes. On a refusal the caller
+    /// shows its own outcome, and nothing is launched.
     @discardableResult
     static func beginAnnotationTrackImportOperation(
         annotationURL: URL,
         bundleURL: URL,
+        trackID: String? = nil,
+        trackName: String? = nil,
         routeContext: OperationRouteContext?,
         reporter: any OperationReporting = OperationCenter.shared,
-        launch: (UUID) async -> Void
+        launch: (UUID, [String]) async -> Void
     ) async -> OperationStartResult {
+        let arguments = ReferenceBundleAnnotationImportService.attachTrackArguments(
+            sourceURL: annotationURL, bundleURL: bundleURL, trackID: trackID, trackName: trackName
+        ) + ["--format", "json"]
         let result = reporter.begin(
             title: "Annotation Import",
             detail: "Importing \(annotationURL.lastPathComponent)...",
             operationType: .bundleBuild,
             targetBundleURL: bundleURL,
-            cliCommand: nil,
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "sequence attach-track", args: Array(arguments.dropFirst(2))
+            ),
             routeContext: routeContext
         )
         if case .started(let operationID) = result {
-            await launch(operationID)
+            await launch(operationID, arguments)
         }
         return result
     }

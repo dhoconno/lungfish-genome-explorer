@@ -141,20 +141,13 @@ extension MainSplitViewController {
             let startResult = await AppDelegate.beginAnnotationTrackImportOperation(
                 annotationURL: url,
                 bundleURL: bundleURL,
+                trackID: importConfiguration.trackID,
+                trackName: importConfiguration.trackName,
                 routeContext: operationRouteContext
-            ) { opID in
+            ) { opID, arguments in
                 do {
-                    let result = try await ReferenceBundleAnnotationImportService()
-                        .attachAnnotationTrack(
-                            sourceURL: url,
-                            bundleURL: bundleURL,
-                            trackID: importConfiguration.trackID,
-                            trackName: importConfiguration.trackName
-                        )
-                    guard OperationCenter.shared.complete(
-                        id: opID,
-                        detail: "Imported \(result.featureCount) annotations"
-                    ) else { return }
+                    let result = try await CLIBundleEditRunner.launch(arguments: arguments, operationID: opID)
+                    guard OperationCenter.shared.complete(id: opID, detail: result.message ?? "Imported annotations") else { return }
                     sidebarController.requestReloadFromFilesystem()
                     if viewerController?.currentBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
                         try? viewerController?.displayBundle(at: bundleURL)
