@@ -7,8 +7,7 @@ import LungfishKit
 import LungfishWorkflow
 
 /// The begin helper for the TaxTriage launch in AppDelegate+Classification.swift
-/// (finding R4). It lives here, not beside its launch site, so the baselined
-/// AppDelegate+Classification.swift does not grow (scripts/ratchets/file-size.sh).
+/// (finding R4).
 /// The helper registers its row through `OperationReporting` and calls `launch`
 /// only when the row started, so a test can check the row and its command
 /// without touching `OperationCenter.shared`. The row locks no bundle, so a real

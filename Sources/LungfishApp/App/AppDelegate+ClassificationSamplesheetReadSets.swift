@@ -8,8 +8,7 @@ import LungfishOperations
 import LungfishWorkflow
 
 /// The TaxTriage launch in AppDelegate+Classification.swift resolves each
-/// sample's inputs here, so the baselined AppDelegate+Classification.swift
-/// does not grow.
+/// sample's inputs here.
 extension AppDelegate {
 
     /// The config a TaxTriage run uses. Each sample's inputs are resolved to
