@@ -20,6 +20,7 @@ import XCTest
 @testable import LungfishCLI
 @testable import LungfishIO
 @testable import LungfishWorkflow
+import LungfishKitTestSupport
 import LungfishTestSupport
 
 extension ClassifierReadSetParityTests {
@@ -69,8 +70,9 @@ extension ClassifierReadSetParityTests {
     /// its exit status with the reason on the last `failed` event it printed. `adjustServices`
     /// replaces the registry lookup, the materializer and the pipeline, which hands `handed` the
     /// config it was given, and leaves every other service as the command builds it. The events are
-    /// the JSON lines `--format json` prints on standard output, which goes to a file in `folder`
-    /// while the command runs, and the lines that are not events are skipped.
+    /// the JSON lines `--format json` prints on standard output, which the route parity harness
+    /// sends to a file in `folder` while the command runs (lane Q30), and the lines that are not
+    /// events are skipped.
     private nonisolated static func executeWhole(
         _ command: ClassifyCommand,
         eventsIn folder: URL,
@@ -79,44 +81,29 @@ extension ClassifierReadSetParityTests {
         pipeline: ClassificationPipeline,
         handed: HandedConfig
     ) async throws -> (status: Int32, failure: String?) {
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let eventsFile = folder.appendingPathComponent("events-\(UUID().uuidString).jsonl")
-        FileManager.default.createFile(atPath: eventsFile.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: eventsFile)
-        fflush(stdout)
-        let savedStdout = dup(STDOUT_FILENO)
-        dup2(handle.fileDescriptor, STDOUT_FILENO)
-        var status: Int32 = 0
-        var thrown: Error?
-        do {
-            try await command.execute { services in
-                services.database = { _ in database }
-                services.availableDatabases = { [database] }
-                services.materializer = materializer
-                services.runPipeline = { config, progress in
-                    handed.set(config)
-                    return config.goal == .profile
-                        ? try await pipeline.profile(config: config, progress: progress)
-                        : try await pipeline.classify(config: config, progress: progress)
+        let (status, lines) = try await RouteParityHarness.capturingStandardOutput(in: folder) { () async throws -> Int32 in
+            do {
+                try await command.execute { services in
+                    services.database = { _ in database }
+                    services.availableDatabases = { [database] }
+                    services.materializer = materializer
+                    services.runPipeline = { config, progress in
+                        handed.set(config)
+                        return config.goal == .profile
+                            ? try await pipeline.profile(config: config, progress: progress)
+                            : try await pipeline.classify(config: config, progress: progress)
+                    }
                 }
+                return 0
+            } catch let exit as ExitCode {
+                return exit.rawValue
             }
-        } catch let exit as ExitCode {
-            status = exit.rawValue
-        } catch {
-            thrown = error
         }
-        fflush(stdout)
-        dup2(savedStdout, STDOUT_FILENO)
-        close(savedStdout)
-        try handle.close()
-        if let thrown { throw thrown }
         let decoder = CLIEventLineDecoder()
-        let failures = String(decoding: try Data(contentsOf: eventsFile), as: UTF8.self)
-            .split(separator: "\n")
-            .compactMap { line -> String? in
-                guard case .failed(let message, _)? = (try? decoder.decodeLine(String(line)))?.event else { return nil }
-                return message
-            }
+        let failures = lines.compactMap { line -> String? in
+            guard case .failed(let message, _)? = (try? decoder.decodeLine(line))?.event else { return nil }
+            return message
+        }
         return (status, failures.last)
     }
 }
