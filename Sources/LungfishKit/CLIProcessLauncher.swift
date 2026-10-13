@@ -78,7 +78,7 @@ public enum CLIProcessLauncher {
     /// and exits 125 inside it. It nests inside the ten seconds `OperationCenter` waits before it
     /// marks a cancelling row cancelled, with room for SIGKILL and ``operationDrain``. Every route
     /// passes it as the `terminationGracePeriod` of
-    /// ``spec(executableURL:arguments:standardOutput:terminationGracePeriod:drainGracePeriod:)``
+    /// ``spec(executableURL:arguments:standardOutput:terminationGracePeriod:drainGracePeriod:environmentAdditions:)``
     /// or of ``CLISubprocessTransport``, and `CLISIGTERMHarness` checks a command against it.
     public static let operationGrace: Duration = .seconds(6)
 
@@ -107,17 +107,24 @@ public enum CLIProcessLauncher {
     ///     SIGTERM and SIGKILL on a cancel. Zero kills it at once.
     ///   - drainGracePeriod: How long to wait for a descendant that holds
     ///     the output open after the CLI exits. Nil keeps the ToolProcess default.
+    ///   - environmentAdditions: Variables merged over the app's subprocess
+    ///     environment, empty by default. A secret the CLI needs, such as the
+    ///     NCBI key as `NCBI_API_KEY`, travels here and never in `arguments`,
+    ///     which a row and a record show (Phase 2.10 SWIFT 6). No value of it
+    ///     reaches the spec's label, a log line or an error text.
     public static func spec(
         executableURL: URL,
         arguments: [String],
         standardOutput: StandardOutput = .events,
         terminationGracePeriod: Duration = .zero,
-        drainGracePeriod: Duration? = nil
+        drainGracePeriod: Duration? = nil,
+        environmentAdditions: [String: String] = [:]
     ) -> ToolProcessSpec {
         var spec = ToolProcessSpec(
             executableURL: executableURL,
             arguments: arguments,
-            environment: ManagedStorageConfigStore().subprocessEnvironment(),
+            environment: ManagedStorageConfigStore().subprocessEnvironment()
+                .merging(environmentAdditions) { _, addition in addition },
             stdin: .null,
             stdout: standardOutput == .events ? .capture(limit: 0) : .capture(),
             terminationGracePeriod: terminationGracePeriod,
@@ -133,7 +140,7 @@ public enum CLIProcessLauncher {
     /// Runs `spec` through `cancellation` and maps the result.
     ///
     /// - Parameters:
-    ///   - spec: A spec from ``spec(executableURL:arguments:standardOutput:terminationGracePeriod:drainGracePeriod:)``.
+    ///   - spec: A spec from ``spec(executableURL:arguments:standardOutput:terminationGracePeriod:drainGracePeriod:environmentAdditions:)``.
     ///   - cancellation: Lets any thread cancel the run. Cancelling the
     ///     calling task cancels it too.
     ///   - onStdoutLine: Receives each stdout line, one at a time, before

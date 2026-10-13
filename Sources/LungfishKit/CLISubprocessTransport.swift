@@ -119,6 +119,9 @@ public actor CLISubprocessTransport {
     ///   - drainGracePeriod: How long to wait for a descendant that holds the
     ///     CLI's output open after the CLI has exited. Nil keeps the
     ///     ``ToolProcess`` default of five seconds.
+    ///   - environmentAdditions: Variables merged over the app's subprocess
+    ///     environment for this run only, such as the NCBI key as
+    ///     `NCBI_API_KEY`, so a secret never travels in `arguments`.
     ///   - isCancelled: Polled before launch and after exit to detect an
     ///     operation cancelled via its `OperationCenter` row rather than
     ///     `cancel()` directly (matches the previous per-runner
@@ -134,6 +137,7 @@ public actor CLISubprocessTransport {
         arguments: [String],
         terminationGracePeriod: Duration = .zero,
         drainGracePeriod: Duration? = nil,
+        environmentAdditions: [String: String] = [:],
         isCancelled: @Sendable () async -> Bool,
         onEvent: @escaping @Sendable (CLIEvent) -> Void
     ) async throws -> Result {
@@ -200,7 +204,8 @@ public actor CLISubprocessTransport {
                 executableURL: binaryURL,
                 arguments: arguments,
                 terminationGracePeriod: terminationGracePeriod,
-                drainGracePeriod: drainGracePeriod
+                drainGracePeriod: drainGracePeriod,
+                environmentAdditions: environmentAdditions
             ),
             cancellation: cancellation,
             onStdoutLine: handleLine,
