@@ -61,7 +61,7 @@ final class ClassifierCLIRouteSidebarTests: XCTestCase {
     // MARK: - Completed
 
     /// A single Kraken2 run reveals its result folder. The viewport already shows the result, so
-    /// the sidebar selects the row and never opens it again (AppDelegate+ClassificationCLIRoute.swift:346).
+    /// the sidebar selects the row and never opens it again (the single Kraken2 case of `finishClassifierThroughCLI`).
     func testASingleKraken2RunRevealsItsResultFolderWithoutOpeningItAgain() async throws {
         let made = try ClassifierRouteFixtures.makeProject(in: root)
         let run = try await runThroughRoute(
@@ -79,7 +79,7 @@ final class ClassifierCLIRouteSidebarTests: XCTestCase {
     }
 
     /// A Kraken2 batch reloads the sidebar and has the selected row refreshed. It selects nothing
-    /// (AppDelegate+ClassificationCLIRoute.swift:352).
+    /// (the Kraken2 batch case of `finishClassifierThroughCLI`).
     func testAKraken2BatchReloadsTheSidebarAndSelectsNothing() async throws {
         let made = try ClassifierRouteFixtures.makeProject(in: root, inputs: ["A.fastq", "B.fastq"])
         let run = try await runThroughRoute(
@@ -95,7 +95,7 @@ final class ClassifierCLIRouteSidebarTests: XCTestCase {
     }
 
     /// An EsViritu run of one sample reloads the sidebar and selects nothing, since the user picks
-    /// the new result there (AppDelegate+ClassificationCLIRoute.swift:355).
+    /// the new result there (the EsViritu case of `finishClassifierThroughCLI`).
     func testAnEsVirituRunReloadsTheSidebarAndSelectsNothing() async throws {
         let made = try ClassifierRouteFixtures.makeProject(in: root)
         let run = try await runThroughRoute(
@@ -107,7 +107,7 @@ final class ClassifierCLIRouteSidebarTests: XCTestCase {
         try await expectAReloadWithTheResultShown(run)
     }
 
-    /// An EsViritu batch takes the same case as a run of one sample (AppDelegate+ClassificationCLIRoute.swift:353).
+    /// An EsViritu batch takes the same case as a run of one sample (`finishClassifierThroughCLI`).
     func testAnEsVirituBatchReloadsTheSidebarAndSelectsNothing() async throws {
         let made = try ClassifierRouteFixtures.makeProject(in: root, inputs: ["A.fastq", "B.fastq"])
         let run = try await runThroughRoute(
@@ -126,7 +126,7 @@ final class ClassifierCLIRouteSidebarTests: XCTestCase {
 
     /// A failed Kraken2 batch reloads the sidebar, since samples may have left results, and has the
     /// selected row refreshed. The failed folder stays out of the sidebar
-    /// (AppDelegate+ClassificationCLIRoute.swift:399 to 402).
+    /// (the Kraken2 batch branch of `failClassifierThroughCLI`).
     func testAFailedKraken2BatchReloadsTheSidebarAndKeepsItsFolderOut() async throws {
         let made = try ClassifierRouteFixtures.makeProject(in: root, inputs: ["A.fastq", "B.fastq"])
         let run = try await runThroughRoute(
